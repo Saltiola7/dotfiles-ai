@@ -1,0 +1,24 @@
+# Copy to ~/.config/dotfiles-ai/chezmoi.toml and replace /Users/you.
+# This file is chezmoi configuration, not an application secret store.
+sourceDir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
+persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
+
+[data.dotfiles_ai.opencode]
+bedrock_region = "us-west-2"
+bedrock_profile = ""
+default_model = "openai/gpt-5.6-sol"
+small_model = "openai/gpt-5.6-terra"
+lmstudio_base_url = "http://127.0.0.1:1234/v1"
+
+[data.dotfiles_ai.herdr]
+theme = "catppuccin"
+launchagent = true
+label = "dev.dotfiles-ai.herdr-server"
+executable = "/opt/homebrew/bin/herdr"
+
+[data.dotfiles_ai.onepassword]
+# Enable only when `op` is installed and the account-specific values are set.
+enabled = false
+account = ""
+user_uuid = ""
+keychain_service = "op-service-account-token"

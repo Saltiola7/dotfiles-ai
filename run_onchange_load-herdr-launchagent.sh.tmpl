@@ -1,0 +1,23 @@
+#!/bin/bash
+# Keep Herdr in Aqua so persistent panes can access the login Keychain.
+# plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl" | sha256sum }}
+
+set -u
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+PLIST="$HOME/Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
+DOMAIN="gui/$(id -u)"
+LABEL={{ .dotfiles_ai.herdr.label | quote }}
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+
+[[ -f "$PLIST" ]] || exit 0
+mkdir -p "$HOME/Library/Logs"
+
+if ! /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 \
+    && "$HERDR" status server >/dev/null 2>&1; then
+    echo "[herdr-launchagent] unmanaged server owns the socket; stop it, then rerun chezmoi apply"
+    exit 0
+fi
+
+/bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+/bin/launchctl bootstrap "$DOMAIN" "$PLIST"

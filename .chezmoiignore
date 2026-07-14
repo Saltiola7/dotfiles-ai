@@ -1,0 +1,28 @@
+docs/
+tests/
+pyproject.toml
+uv.lock
+README.md
+LICENSE
+config.example.toml
+.github/
+**/.DS_Store
+**/__pycache__/
+graphify-out/
+.agents/.skill-lock.json
+
+# Runtime/vendor-managed OpenCode artifacts.
+.config/opencode/node_modules
+.config/opencode/package.json
+.config/opencode/package-lock.json
+.config/opencode/bun.lock
+.config/opencode/.gitignore
+.config/opencode/plugins
+.config/opencode/skills
+
+{{ if not .dotfiles_ai.onepassword.enabled }}
+.local/bin/op-session
+{{ end }}
+{{ if not .dotfiles_ai.herdr.launchagent }}
+Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
+{{ end }}
