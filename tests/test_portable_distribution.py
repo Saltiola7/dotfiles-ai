@@ -19,7 +19,6 @@ def data(onepassword: bool = False) -> dict:
             "herdr": {
                 "theme": "nord",
                 "launchagent": True,
-                "label": "dev.dotfiles-ai.herdr-server",
                 "executable": "/usr/local/bin/herdr",
             },
             "onepassword": {

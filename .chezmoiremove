@@ -1,7 +1,1 @@
-.agents/skills/discovery2
-.agents/skills/dbsctr2
-.config/opencode/commands/discovery2.md
-.config/opencode/commands/dbsctr2.md
-.config/opencode/agents/plan-gpt-pro.md
-.config/opencode/agents/plan-gpt-pro-max.md
-.config/opencode/agents/build-gpt-pro.md
+# Intentionally empty: public apply must not delete targets it may not own.

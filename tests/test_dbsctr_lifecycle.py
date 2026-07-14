@@ -55,14 +55,8 @@ def test_v2_is_archived_and_not_deployable():
     assert not any(path.is_file() for path in (SKILLS / "discovery2").rglob("*"))
     assert not any(path.is_file() for path in (SKILLS / "dbsctr2").rglob("*"))
 
-    removals = text(".chezmoiremove")
-    for target in (
-        ".agents/skills/discovery2",
-        ".agents/skills/dbsctr2",
-        ".config/opencode/commands/discovery2.md",
-        ".config/opencode/commands/dbsctr2.md",
-    ):
-        assert target in removals
+    removals = [line for line in text(".chezmoiremove").splitlines() if not line.startswith("#")]
+    assert not removals
 
 
 def test_v3_module_registry_is_extensible_and_normalized():
@@ -135,11 +129,8 @@ def test_global_routing_defaults_to_unversioned_v3():
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
     assert 'python-version: ["3.12", "3.13", "3.14"]' in workflow
-    assert '"dot_agents/skills/**"' in workflow
-    assert '"private_dot_config/opencode/**"' in workflow
-    assert '"docs/specs/dbsctr_v3_lifecycle/**"' in workflow
-    assert '".chezmoiignore"' in workflow
-    assert '".chezmoiremove"' in workflow
+    assert "pull_request:\n\n" in workflow
+    assert "uv run --group test pytest" in workflow
 
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     for term in ("Engineering Profile", "Gate Ledger", "MethodWeave", "RigorWeave"):

@@ -20,7 +20,6 @@ DATA = {
         "herdr": {
             "theme": "catppuccin",
             "launchagent": True,
-            "label": "dev.dotfiles-ai.herdr-server",
             "executable": "/opt/homebrew/bin/herdr",
         },
         "onepassword": {
@@ -72,10 +71,8 @@ def test_provider_and_primary_contracts():
 
 
 def test_oauth_incompatible_pro_agents_are_absent():
-    removals = (ROOT / ".chezmoiremove").read_text().splitlines()
     for name in ("plan-gpt-pro.md", "plan-gpt-pro-max.md", "build-gpt-pro.md"):
         assert not (OC / "agents" / name).exists()
-        assert f".config/opencode/agents/{name}" in removals
 
     build = (OC / "agents/build-gpt.md").read_text()
     assert "model: openai/gpt-5.6-sol" in build
@@ -305,3 +302,4 @@ def test_removed_managed_integrations_are_absent():
     )
     assert not [path for path in removed if (ROOT / path).exists()]
     assert not list((ROOT / "private_dot_config/meridian").glob("*"))
+    assert not [line for line in text(".chezmoiremove").splitlines() if not line.startswith("#")]

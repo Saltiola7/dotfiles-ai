@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{{ .dotfiles_ai.herdr.label }}</string>
+    <string>dev.dotfiles-ai.herdr-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{ .dotfiles_ai.herdr.executable }}</string>
+        <string>{{ .dotfiles_ai.herdr.executable | html }}</string>
         <string>server</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
-        <string>{{ .chezmoi.homeDir }}</string>
+        <string>{{ .chezmoi.homeDir | html }}</string>
         <key>LANG</key>
         <string>en_US.UTF-8</string>
         <key>LC_CTYPE</key>
@@ -29,8 +29,8 @@
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>{{ .chezmoi.homeDir }}/Library/Logs/herdr-server.log</string>
+    <string>{{ printf "%s/Library/Logs/herdr-server.log" .chezmoi.homeDir | html }}</string>
     <key>StandardErrorPath</key>
-    <string>{{ .chezmoi.homeDir }}/Library/Logs/herdr-server.err.log</string>
+    <string>{{ printf "%s/Library/Logs/herdr-server.err.log" .chezmoi.homeDir | html }}</string>
 </dict>
 </plist>

@@ -1,14 +1,24 @@
 #!/bin/bash
 # Keep Herdr in Aqua so persistent panes can access the login Keychain.
 # plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl" | sha256sum }}
+# enabled: {{ .dotfiles_ai.herdr.launchagent }}
 
 set -u
 [[ "$(uname)" == "Darwin" ]] || exit 0
 
 PLIST="$HOME/Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
 DOMAIN="gui/$(id -u)"
-LABEL={{ .dotfiles_ai.herdr.label | quote }}
+LABEL="dev.dotfiles-ai.herdr-server"
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+
+{{ if not .dotfiles_ai.herdr.launchagent -}}
+/bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+PLIST_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
+if [[ "$PLIST_LABEL" == "$LABEL" ]]; then
+    /bin/rm -f "$PLIST"
+fi
+exit 0
+{{ end -}}
 
 [[ -f "$PLIST" ]] || exit 0
 mkdir -p "$HOME/Library/Logs"
