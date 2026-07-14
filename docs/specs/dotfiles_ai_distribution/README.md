@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** Discovery ready
+**Status:** Released locally; public Final Push pending
 
 ## Engineering Profile
 
@@ -90,3 +90,15 @@ control-plane behavior, and shell authentication behavior.
 - LaunchAgent handoff can interrupt persistent Herdr panes.
 - Local account identifiers can leak if templates are copied without conversion.
 - External plugins can drift independently of this repository.
+
+## Operations And Maintenance
+
+- The maintainer owns compatibility with current chezmoi, OpenCode, Herdr, and
+  supported Python versions.
+- Security and compatibility reports use the repository issue tracker.
+- Updates require preview before apply; breaking local-TOML or target ownership
+  changes require migration and rollback notes.
+- LaunchAgent handoff can terminate active panes; capture a Herdr snapshot and
+  expect a brief restart even when session restoration succeeds.
+- Retirement restores ownership to the prior source before disabling this
+  source and booting out its LaunchAgent.
