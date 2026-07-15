@@ -90,6 +90,14 @@ Glossary:
 - And the `ShellSecretsItem` fetch specifies `ShellSecretsVault`
 - And `SecretLoader` sources sibling `op-session` directly instead of using shell command lookup
 
+**Scenario: Herdr session reads Keychain with shell noclobber enabled**
+- Given `SecretLoadRequested` runs in a `HerdrPane`
+- And the shell has `noclobber` enabled
+- And a `MacOSKeychainServiceToken` exists
+- When `SecretLoader` resolves 1Password authentication
+- Then it reads and validates the service token
+- And temporary diagnostic capture does not block the Keychain command
+
 **Scenario: Herdr session lacks service account token**
 - Given `SecretLoadRequested` runs in a `HerdrPane`
 - And no `OnePasswordServiceAccountToken` is present in the environment
@@ -165,6 +173,7 @@ Glossary:
 - **Invariant:** `HerdrPane` uses `OnePasswordServiceAccountToken` from environment or `MacOSKeychainServiceToken` only; it must not call delegated desktop `op signin`.
 - **Invariant:** `MacOSKeychainServiceToken` service and account names come from machine-local configuration.
 - **Invariant:** Keychain failures retain actionable diagnostics without printing credential values.
+- **Invariant:** Keychain diagnostic capture works when the calling shell enables `noclobber`.
 - **Invariant:** Keychain repair is explicit and interactive; `SecretLoader` never mutates Keychain ACLs.
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.

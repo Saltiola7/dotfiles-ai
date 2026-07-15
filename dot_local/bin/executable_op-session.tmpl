@@ -94,7 +94,7 @@ __op_load_keychain_service_token() {
   command -v security >/dev/null 2>&1 || return 1
   local tok err
   err="$(mktemp "${TMPDIR:-/tmp}/op-keychain.XXXXXX")" || return 1
-  tok="$(security find-generic-password -s "$__OP_KEYCHAIN_SERVICE" -a "$__OP_ACCOUNT" -w 2>"$err")" || {
+  tok="$(security find-generic-password -s "$__OP_KEYCHAIN_SERVICE" -a "$__OP_ACCOUNT" -w 2>|"$err")" || {
     if [ -s "$err" ]; then
       sed 's/^/op-session: Keychain: /' "$err" >&2
     else

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -74,6 +75,39 @@ def test_onepassword_helper_is_opt_in_and_localized() -> None:
     assert '__OP_USER_UUID="LOCALUUID"' in helper
     assert '__OP_ACCOUNT="local-account"' in helper
     assert '__OP_KEYCHAIN_SERVICE="local-service"' in helper
+
+
+def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:
+    helper = tmp_path / "op-session"
+    helper.write_text(chezmoi(
+        "cat", str(Path.home() / ".local/bin/op-session"), onepassword=True
+    ).stdout)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    security = bin_dir / "security"
+    security.write_text("#!/bin/bash\nprintf service-token\n")
+    security.chmod(0o755)
+    op = bin_dir / "op"
+    op.write_text(
+        '#!/bin/bash\n[ "$*" = "vault list" ] && '
+        '[ "$OP_SERVICE_ACCOUNT_TOKEN" = "service-token" ]\n'
+    )
+    op.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", "-c", 'set -C; source "$1"', "bash", str(helper)],
+        env={
+            **os.environ,
+            "HERDR_ENV": "1",
+            "HOME": str(tmp_path),
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_public_tree_has_no_maintainer_identifiers() -> None:

@@ -1,5 +1,10 @@
 # Shell Auth Startup Changelog
 
+## 2026-07-15
+
+- Made Keychain diagnostic capture compatible with inherited Bash `noclobber`.
+- Added a rendered-helper regression test proving Herdr service-token validation succeeds under `set -C` without exposing credentials.
+
 ## 2026-06-22
 
 - Created shell auth startup spec after RCA found stuck `op read` processes and Herdr auth fanout.
