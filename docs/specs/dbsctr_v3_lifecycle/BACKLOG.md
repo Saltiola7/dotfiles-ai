@@ -6,10 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.11-1 | Specify private lifecycle review and delivery hygiene | high | in_progress | — | lifecycle README/BACKLOG/CHANGELOG | V3.3–V3.10 evidence and UX review | no | Establish authority before behavior changes | S | Artifact review |
-| V3.11-2 | Add bounded review scan and atomic sanitized completion | high | pending | V3.11-1 | helper, typed tools, review skill/command | OpenCode SQLite and cycle records | no | Convert local evidence into approvable findings | M | Helper and control-plane tests |
-| V3.11-3 | Correct original-checkout and DVC lifecycle behavior | high | pending | V3.11-1 | begin/final-push contracts and tests | Git worktrees and DVC metadata | no | Remove stale checkout and false DVC blockers | M | Temporary repository tests |
-| V3.11-4 | Deploy and verify V3.11 | high | pending | V3.11-2,V3.11-3 | managed runtime and lifecycle artifacts | all cycle evidence | no | Activate and close coherently | S | Scoped QA and fresh-process probes |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.11 complete | — | — |
 
 ## Completed
 
@@ -30,5 +27,6 @@ Discovery readiness: complete.
 | V3.8-1–V3.8-4 | Add secret-safe Evidence Envelopes and Python reference | 2026-07-12 | `9fd353d` |
 | V3.9-1–V3.9-3 | Add report-only semantic reconciliation protocol | 2026-07-12 | `82dd3da` |
 | V3.10-1–V3.10-4 | Add conditional Product Intent and Web/UI guidance | 2026-07-12 | `d0bc5bd` |
+| V3.11-1–V3.11-4 | Add private lifecycle review and delivery hygiene | 2026-07-15 | `f2eb3f1` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.

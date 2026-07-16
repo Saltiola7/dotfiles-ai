@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-15 — Private DBSCTR Review
+
+- Added provider-neutral `/dbsctr-review`, read-only `dbsctr_review`, and
+  permission-gated `dbsctr_review_complete` surfaces without a plugin.
+- Denied completion to bounded Builders and guarded common raw helper invocation
+  forms while preserving the documented non-sandbox Bash permission model.
+- Validation: 95 affected tests passed and 1 skipped; Bun build, resolved config,
+  targeted deployment/idempotence, deployed identity, real scan, and fresh skill
+  loading passed. Independent review reported no remaining findings.
+- Gate Commit: `f2eb3f1`. Deployment: targeted local chezmoi apply. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-13 — Retire Unsupported Pro Agents and Restore Native Build
 
 - Confirmed `gpt-5.6-sol-pro` had not sent genuine Pro reasoning before

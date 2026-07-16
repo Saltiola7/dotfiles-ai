@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-15 — V3.11 Observability Review And Delivery Hygiene
+
+- Added `/dbsctr-review`, bounded read-only OpenCode SQLite scanning, recursive
+  adjacent-session and Cycle Record correlation, private per-page sanitized
+  reports, exact scan revalidation, and permission-gated atomic review markers.
+- Recorded original checkout identity and added safe best-effort post-push
+  fast-forward with dirty, missing, changed, and diverged outcomes left untouched.
+- Shared each isolated DVC worktree with the source checkout's effective cache
+  and limited DVC status/push evidence to cycle-owned metadata or output changes.
+- Made Graphify updates explicit Project Policy, retained Bash permissions as
+  guardrails rather than an OS sandbox, and denied common raw completion paths
+  for bounded Builder agents.
+- Validation: 95 affected tests passed and 1 skipped; Python compile, Bun build,
+  diff check, authoritative SQLite smoke, targeted chezmoi apply/idempotence,
+  deployed identity/config/scan, and fresh skill loading passed. Independent
+  privacy and delivery review reported no remaining findings.
+- Gate Commit: `f2eb3f1`. Deployment: targeted local chezmoi apply. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-12 — V3.10 Product Intent And Web/UI
 
 - Added conditional Product Intent discovery that reuses an authoritative product
