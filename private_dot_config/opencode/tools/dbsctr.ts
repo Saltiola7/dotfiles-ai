@@ -119,6 +119,10 @@ export const begin = tool({
         deliveryIntent: args.deliveryIntent,
       },
     })
-    return JSON.stringify(await beginCycle(args, context.worktree, args.launch))
+    return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
+      sessionID: context.sessionID,
+      directory: context.directory,
+      worktree: context.worktree,
+    }))
   },
 })

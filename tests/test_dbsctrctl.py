@@ -108,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.13")
+        self.assertEqual(record["method_revision"], "3.14")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -119,6 +119,12 @@ class DbsctrctlTest(unittest.TestCase):
             "applicability": "not_applicable", "result": "not_run", "reason": "delivery intent is not release"
         })
         self.assertEqual(set(record["artifact_reviews"]), {"README", "BACKLOG", "CHANGELOG"})
+
+    def test_low_level_start_rejects_structured_opencode_runtime(self):
+        result = run(self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
+                     "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                     "--opencode-session-id", "session-structured", ok=False)
+        self.assertIn("unrecognized arguments", result.stderr)
 
     def test_exclusive_record_failure_leaves_no_reserved_target(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_test_module", str(SCRIPT))
@@ -501,6 +507,9 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "begin", "--cycle-id", "isolated-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(worktrees),
+            "--opencode-session-id", "session-structured",
+            "--opencode-directory", str(self.repo / "docs"),
+            "--opencode-worktree", str(self.repo),
         )
         handoff = json.loads(result.stdout)
         isolated = Path(handoff["worktree"])
@@ -511,6 +520,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["worktree"]["path"], str(isolated))
         self.assertEqual(record["source"]["path"], str(self.repo.resolve()))
         self.assertEqual(record["source"]["dirty_paths"], ["tracked.txt"])
+        self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-structured"])
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
 
@@ -1528,6 +1538,27 @@ class DbsctrctlTest(unittest.TestCase):
             {"cycle_id": "cycle-1", "state": "blocked"},
             {"cycle_id": "cycle-2", "state": "completed"},
         ])
+
+    def test_review_correlates_structured_session_without_path_match(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        record["worktree"]["path"] = str(Path(self.temp.name) / "other")
+        record["source"] = {"path": str(Path(self.temp.name) / "source")}
+        record["runtime"] = {"opencode": {"session_ids": ["session-linked"]}}
+        self.record_path().write_text(json.dumps(record))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_structured_cycle_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        previous = Path.cwd()
+        try:
+            os.chdir(self.repo)
+            self.assertEqual(module.correlated_cycles(
+                str(Path(self.temp.name) / "missing"), set(), {"session-linked"}), [
+                {"cycle_id": "cycle-1", "state": "abandoned"},
+            ])
+        finally:
+            os.chdir(previous)
 
     def test_review_treats_failed_gate_with_null_exception_as_blocked(self):
         self.start()

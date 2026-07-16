@@ -193,19 +193,23 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     dbsctr_log = tmp_path / "dbsctr.log"
+    dbsctr_calls = tmp_path / "dbsctr.calls"
     herdr_log = tmp_path / "herdr.log"
+    cycle = tmp_path / "cycle"
+    cycle.mkdir()
     dbsctr = bin_dir / "dbsctrctl"
     dbsctr.write_text(
-        "#!/bin/sh\npwd > \"$DBSCTR_CWD\"\nprintf '<%s>\\n' \"$@\" > \"$DBSCTR_LOG\"\n"
+        "#!/bin/sh\npwd > \"$DBSCTR_CWD\"\nprintf 'CALL\\n' >> \"$DBSCTR_CALLS\"\nprintf '<%s>\\n' \"$@\" > \"$DBSCTR_LOG\"\n"
         "[ \"$DBSCTR_MODE\" = fail ] && { printf 'boom\\n' >&2; exit 7; }\n"
         "[ \"$DBSCTR_MODE\" = malformed ] && { printf 'not-json\\n'; exit 0; }\n"
-        "printf '{\"cycle_id\":\"x\",\"worktree\":\"/tmp/cycle\"}\\n'\n"
+        "printf '{\"cycle_id\":\"x\",\"worktree\":\"%s\"}\\n' \"$CYCLE_PATH\"\n"
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
         "#!/bin/sh\nprintf 'CALL\\nCWD:%s\\n' \"$(pwd)\" >> \"$HERDR_LOG\"\n"
         "printf '<%s>\\n' \"$@\" >> \"$HERDR_LOG\"\n"
         "[ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }\n"
+        "[ \"$HERDR_STRUCTURED\" = 1 ] && printf '{\"result\":{\"agent\":{\"terminal_id\":\"terminal-1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n'\n"
         "exit 0\n"
     )
     dbsctr.chmod(0o755)
@@ -222,8 +226,10 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "DBSCTR_LOG": str(dbsctr_log),
         "DBSCTR_CWD": str(tmp_path / "dbsctr.cwd"),
+        "DBSCTR_CALLS": str(dbsctr_calls),
         "HERDR_LOG": str(herdr_log),
         "HERDR_ENV": "1",
+        "CYCLE_PATH": str(cycle),
     }
     no_launch = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
                                capture_output=True, check=True)
@@ -240,8 +246,15 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     assert json.loads(launched.stdout)["herdr"] == "launched"
     assert herdr_log.read_text().splitlines() == [
         "CALL", f"CWD:{ROOT}", "<agent>", "<start>", "<opencode>", "<--cwd>",
-        "</tmp/cycle>", "<--focus>", "<-->", "<opencode>", "</tmp/cycle>",
+        f"<{cycle}>", "<--no-focus>", "<-->", "<opencode>", f"<{cycle}>",
     ]
+    structured = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT,
+                                env={**env, "HERDR_STRUCTURED": "1"}, text=True,
+                                capture_output=True, check=True)
+    structured_result = json.loads(structured.stdout)
+    assert structured_result["herdr_terminal_id"] == "terminal-1"
+    assert structured_result["herdr_opencode_session_id"] == "session-launched"
+    assert dbsctr_calls.read_text().splitlines() == ["CALL", "CALL", "CALL"]
 
     failed = subprocess.run(["bun", "-e", script], cwd=ROOT,
                             env={**env, "DBSCTR_MODE": "fail"}, text=True, capture_output=True)
@@ -305,11 +318,11 @@ def test_dbsctr_begin_asks_before_running_helper(tmp_path):
     bin_dir.mkdir()
     helper_log = tmp_path / "helper.log"
     helper = bin_dir / "dbsctrctl"
-    helper.write_text("#!/bin/sh\nprintf helper > \"$HELPER_LOG\"\nprintf '{\"worktree\":\"/tmp/cycle\"}\\n'\n")
+    helper.write_text("#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$HELPER_LOG\"\nprintf '{\"worktree\":\"/tmp/cycle\"}\\n'\n")
     helper.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ begin }} from {json.dumps(str(tools))};
-const context = {{ worktree: process.cwd(), ask: async (input) => {{
+const context = {{ worktree: process.cwd(), directory: process.cwd(), sessionID: "session-tool", ask: async (input) => {{
   if (process.argv[1] !== "allow") throw new Error(process.argv[1]);
   console.log(JSON.stringify(input));
 }} }};
@@ -328,7 +341,12 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
     ask = json.loads(result.stdout.splitlines()[0])
     assert ask["permission"] == "dbsctr_begin"
     assert ask["patterns"] == ["*"]
-    assert helper_log.read_text() == "helper"
+    assert helper_log.read_text().splitlines() == [
+        "<begin>", "<--cycle-id>", "<x>", "<--context>", "<ctx>",
+        "<--risk>", "<routine>", "<--delivery-intent>", "<local>",
+        "<--plan>", "</tmp/plan>", "<--opencode-session-id>", "<session-tool>",
+        "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
+    ]
 
 
 def test_removed_managed_integrations_are_absent():

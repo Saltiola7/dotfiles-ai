@@ -29,7 +29,7 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.13"
+CURRENT_METHOD_REVISION = "3.14"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 REVIEW_MAX_LIMIT = 100
@@ -503,6 +503,20 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
     }
+    session_id = getattr(args, "opencode_session_id", None)
+    if session_id is not None:
+        if (not OPAQUE_ID.fullmatch(session_id) or not getattr(args, "opencode_worktree", None)
+                or not getattr(args, "opencode_directory", None)):
+            fail("invalid OpenCode session ID")
+        runtime_worktree = Path(args.opencode_worktree).resolve()
+        runtime_directory = Path(args.opencode_directory).resolve()
+        if not runtime_worktree.is_dir() or not runtime_directory.is_dir() or runtime_worktree not in runtime_directory.parents and runtime_directory != runtime_worktree:
+            fail("invalid OpenCode runtime paths")
+        record["runtime"] = {"opencode": {"session_ids": [session_id],
+                                             "worktree": str(runtime_worktree),
+                                             "directory": str(runtime_directory)}}
+    elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
+        fail("OpenCode runtime paths require a session ID")
     exclusive_json(record_path, record)
     try:
         active.parent.mkdir(parents=True, exist_ok=True)
@@ -1213,27 +1227,27 @@ def valid_gate_exception(gate):
     return approved_at.utcoffset() == timedelta(0)
 
 
-def correlated_cycles(directory, hinted_ids):
-    if not directory:
-        return []
-    worktree = Path(directory)
-    if not worktree.is_dir():
-        return []
-    common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
-    if common_result.returncode:
-        return []
-    common = Path(common_result.stdout.strip())
-    if not common.is_absolute():
-        common = worktree / common
-    records = common.resolve() / "dbsctr/cycles"
-    if not records.is_dir():
-        return []
+def correlated_cycles(directory, hinted_ids, session_ids=()):
+    record_dirs, resolved = [], None
+    worktree = Path(directory) if directory else None
+    if worktree and worktree.is_dir():
+        common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
+        top_result = git(worktree, "rev-parse", "--show-toplevel", check=False)
+        if not common_result.returncode and not top_result.returncode:
+            common = Path(common_result.stdout.strip())
+            if not common.is_absolute():
+                common = worktree / common
+            record_dirs.append(common.resolve() / "dbsctr/cycles")
+            resolved = Path(top_result.stdout.strip()).resolve()
+    try:
+        current_records = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
+        if current_records not in record_dirs:
+            record_dirs.append(current_records)
+    except RuntimeError:
+        pass
     matched = []
-    top_result = git(worktree, "rev-parse", "--show-toplevel", check=False)
-    if top_result.returncode:
-        return []
-    resolved = Path(top_result.stdout.strip()).resolve()
-    for path in sorted(records.glob("*.json")):
+    paths = sorted({path for records in record_dirs if records.is_dir() for path in records.glob("*.json")})
+    for path in paths:
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             cycle_id = record.get("cycle_id")
@@ -1241,7 +1255,9 @@ def correlated_cycles(directory, hinted_ids):
                 fail("Cycle Record contains an invalid cycle ID")
             source = record.get("source") if isinstance(record.get("source"), dict) else {}
             recorded_paths = (record.get("worktree", {}).get("path"), source.get("path"))
-            if cycle_id in hinted_ids or any(value and Path(value).resolve() == resolved for value in recorded_paths):
+            runtime_ids = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
+            if (cycle_id in hinted_ids or set(session_ids).intersection(runtime_ids)
+                    or resolved is not None and any(value and Path(value).resolve() == resolved for value in recorded_paths)):
                 matched.append(record)
         except (OSError, json.JSONDecodeError):
             continue
@@ -1402,12 +1418,7 @@ def review_scan(args):
             fail("OpenCode session metadata contains an invalid opaque ID")
         if session_id in reviewed_sessions:
             continue
-        text = str(text or "")[:65536]
-        cycle_ids = set()
-        cycle_ids.update(re.findall(r'["\']cycle_id["\']\s*:\s*["\']([A-Za-z0-9._-]+)', text))
-        cycle_ids.update(re.findall(r"--cycle-id(?:\\?\"|\s)+([A-Za-z0-9._-]+)", text))
-        cycle_ids.difference_update({"ID", "PATH", "CYCLE_ID"})
-        cycles = correlated_cycles(directory, cycle_ids)
+        cycles = correlated_cycles(directory, set(), {session_id, *(children_values or []), *([parent_id] if parent_id else [])})
         attention = review_attention(cycles, last_activity, snapshot)
         eligible.append({"session_id": session_id, "parent_session_id": parent_id,
                          "child_session_ids": children_values,
@@ -2106,6 +2117,9 @@ def parser():
     begin.add_argument("--delivery-intent", required=True, choices=("local", "merge", "release", "deploy"))
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--worktree-root")
+    begin.add_argument("--opencode-session-id")
+    begin.add_argument("--opencode-directory")
+    begin.add_argument("--opencode-worktree")
     begin.set_defaults(func=command_begin)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")

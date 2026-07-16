@@ -216,7 +216,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.13`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.14`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -269,7 +269,7 @@ def test_v362_requires_begin_authorization_and_method_revision_compatibility():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.13\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.14\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert "context.ask" in tools
     assert "before any `beginCycle`" in spec

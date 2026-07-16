@@ -550,6 +550,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Ninety-day detailed reports, durable reviewed tombstones, snapshot-stable pagination, page-local priority, and per-cycle states |
 | Overrides | Cycle Records remain authoritative; dormancy is an attention flag; no global queue manifest or automatic Herdr cleanup |
 
+### V3.14 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: records private runtime identifiers and changes session-to-cycle correlation |
+| Delivery intent | Deploy the managed helper and OpenCode adapters locally after merge validation |
+| Scope | Stable OpenCode tool-context identity, advisory Herdr launch metadata, and structured review correlation |
+| Overrides | Cycle Records remain sole lifecycle authority; no transcript inference, Herdr gating, pane closure, or experimental OpenCode status dependency |
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -923,7 +932,7 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.13` retain schema version `3`; new records use
+Method Revisions `3.9` through `3.14` retain schema version `3`; new records use
 the helper's single `CURRENT_METHOD_REVISION = "3.11"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
@@ -1239,6 +1248,22 @@ module routing without changing Cycle Record schema or public commands.
   session-ID suppression without deleting the retained detailed report; a later
   successful review supersedes that suppression.
   Scans remain read-only.
+
+### V3.14 Structured Runtime Correlation Contract
+
+- Typed `dbsctr_begin` passes the current OpenCode session ID, directory, and
+  worktree from stable tool context. The helper validates and stores them as
+  private Cycle Record runtime metadata.
+- Review correlation matches structured OpenCode session, parent, and child IDs
+  before falling back to repository-root identity. Transcript prose and tool
+  payloads never supply cycle identity or lifecycle state.
+- Optional Herdr launch uses `--no-focus`. When Herdr returns structured v8
+  metadata, the typed handoff returns its opaque terminal ID and optional
+  OpenCode session ID as advisory metadata without another Cycle Record write.
+  Missing or malformed metadata does not fail launch.
+- Herdr and OpenCode runtime status never approve gates, determine completion,
+  authorize cleanup, or close panes. Cycle Records remain the sole lifecycle
+  authority and cleanup never terminates Herdr resources.
 
 ## Validation Strategy
 

@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** V3.13 DBSCTR review queue and retention implemented
+**Status:** V3.14 structured DBSCTR runtime correlation implemented
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -123,6 +123,10 @@ Given detailed reports exceed 90 days, completion or explicit maintenance prunes
 them while compact private reviewed-ID tombstones preserve review progress.
 Candidates expose independent Cycle Record states and page-local urgency without
 inventing an aggregate state.
+
+Given typed cycle begin runs, stable OpenCode tool context records the initiating
+session and worktree in the Cycle Record. Optional Herdr launch metadata remains
+advisory, uses no-focus launch, and never changes lifecycle state or cleanup.
 
 ## Contracts
 

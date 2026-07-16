@@ -74,7 +74,16 @@ export async function beginCycle(args: {
   risk: "routine" | "elevated" | "critical"
   deliveryIntent: "local" | "merge" | "release" | "deploy"
   planPath: string
-}, cwd: string, launch = false, env = process.env) {
+}, cwd: string, launch = false, env = process.env, runtime?: {
+  sessionID: string
+  directory: string
+  worktree: string
+}) {
+  const runtimeArgv = runtime ? [
+    "--opencode-session-id", runtime.sessionID,
+    "--opencode-directory", runtime.directory,
+    "--opencode-worktree", runtime.worktree,
+  ] : []
   const output = await run([
     "dbsctrctl", "begin",
     "--cycle-id", args.cycleId,
@@ -82,15 +91,30 @@ export async function beginCycle(args: {
     "--risk", args.risk,
     "--delivery-intent", args.deliveryIntent,
     "--plan", args.planPath,
+    ...runtimeArgv,
   ], cwd)
   const handoff = JSON.parse(output)
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
   try {
-    await run([
+    const started = await run([
       "herdr", "agent", "start", "opencode",
       "--cwd", handoff.worktree,
-      "--focus", "--", "opencode", handoff.worktree,
+      "--no-focus", "--", "opencode", handoff.worktree,
     ], cwd)
+    try {
+      const value = JSON.parse(started)
+      const agent = value?.result?.agent ?? value?.agent ?? value
+      const terminalID = agent?.terminal_id
+      const sessionID = agent?.agent_session?.value
+      if (typeof terminalID === "string") return {
+        ...handoff,
+        herdr: "launched",
+        herdr_terminal_id: terminalID,
+        ...(typeof sessionID === "string" ? { herdr_opencode_session_id: sessionID } : {}),
+      }
+    } catch {
+      // Herdr launch is useful even when this version emits no structured metadata.
+    }
     return { ...handoff, herdr: "launched" }
   } catch (error) {
     return { ...handoff, herdr: `launch_failed: ${error}` }

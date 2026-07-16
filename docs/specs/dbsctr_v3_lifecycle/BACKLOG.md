@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.13 complete | — | — |
+| V3.14-1 | Add structured OpenCode and advisory Herdr correlation | high | active | V3.13-1 | Cycle Record runtime metadata, typed begin adapter, review correlation | OpenCode tool context and Herdr v8 metadata | no | Remove transcript heuristics without changing lifecycle authority | M | focused tests, live runtime smoke |
 
 ## Completed
 
