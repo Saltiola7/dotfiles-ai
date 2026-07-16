@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-15 — V3.12 Review Correctness
+
+- Added one immutable millisecond cutoff across review pages and excluded later
+  sessions, child relations, and message parts from that snapshot.
+- Bound complete sanitized candidate metadata into each digest, moved fresh
+  completion validation under the private writer lock, and made concurrent
+  duplicate completion fail safely.
+- Removed prose-based lifecycle guesses, reporting `unknown` without Cycle Record
+  authority, and validated required failed-gate exceptions and UTC approval time.
+- Validation: 102 affected tests passed and 1 skipped; Python compilation, Bun
+  build, diff check, authoritative SQLite smoke, targeted chezmoi deployment and
+  idempotence, resolved OpenCode config, and source/deployed identity passed.
+  Independent review reported no remaining findings.
+- Gate Commit: `e04aa78`. Deployment: targeted local chezmoi apply. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-15 — V3.11 Observability Review And Delivery Hygiene
 
 - Added `/dbsctr-review`, bounded read-only OpenCode SQLite scanning, recursive

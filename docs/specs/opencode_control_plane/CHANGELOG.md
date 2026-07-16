@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-15 — Trustworthy DBSCTR Review Snapshots
+
+- Propagated one immutable review cutoff through typed scans, continuations, and
+  permission-gated completion while retaining read-only Plan scans.
+- Rejected changed candidate metadata and concurrent duplicate completion, and
+  exposed unknown session state without prose inference.
+- Validation: 102 affected tests passed and 1 skipped; Bun build, resolved config,
+  authoritative database scan, targeted deployment/idempotence, and deployed
+  identity passed. Independent review reported no remaining findings.
+- Gate Commit: `e04aa78`. Deployment: targeted local chezmoi apply. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-15 — Private DBSCTR Review
 
 - Added provider-neutral `/dbsctr-review`, read-only `dbsctr_review`, and

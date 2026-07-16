@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | high | doing | V3.11-1–V3.11-4 | review contract, helper, typed adapters, tests | OpenCode metadata, Cycle Records | no | Prevent mutable pages, stale completion, and false blockers | M | focused tests, real scan, deployment |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.12 complete | — | — |
 
 ## Completed
 
@@ -28,5 +28,6 @@ Discovery readiness: complete.
 | V3.9-1–V3.9-3 | Add report-only semantic reconciliation protocol | 2026-07-12 | `82dd3da` |
 | V3.10-1–V3.10-4 | Add conditional Product Intent and Web/UI guidance | 2026-07-12 | `d0bc5bd` |
 | V3.11-1–V3.11-4 | Add private lifecycle review and delivery hygiene | 2026-07-15 | `f2eb3f1` |
+| V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | 2026-07-15 | `e04aa78` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.
