@@ -2057,25 +2057,20 @@ def finish_push(root, path, record):
     cycle_base = baseline["head"]
     target_head = git(root, "rev-parse", current_upstream).stdout.strip()
     recorded_commits = [entry["id"] for entry in record["commits"]]
-    integrated = []
     reconciled = False
     if target_head != cycle_base:
         if (git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
                 or git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode):
             fail("delivery target advanced outside the cycle lineage")
-        cycle_lineage = git(root, "rev-list", "--reverse", f"{cycle_base}..HEAD").stdout.splitlines()
-        if cycle_lineage != recorded_commits:
-            fail("cycle lineage is not exactly the recorded cycle commits")
-        integrated = git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()
-        if recorded_commits[:len(integrated)] != integrated:
-            fail("advanced target is not an ordered prefix of recorded cycle commits")
         reconciled = True
     current_ahead = git(root, "rev-list", "--reverse", f"{current_upstream}..HEAD").stdout.splitlines()
-    expected_ahead = recorded_commits[len(integrated):]
-    if current_ahead != expected_ahead:
+    if current_ahead != recorded_commits:
+        if not (record["state"] == "finalizing" and not current_ahead and reconciled
+                and git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()[-len(recorded_commits):]
+                    == recorded_commits):
+            fail("ahead commits are not exactly the recorded cycle commits")
+    if not current_ahead and record["state"] != "finalizing":
         fail("ahead commits are not exactly the recorded cycle commits")
-    if not current_ahead and record["state"] != "finalizing" and not reconciled:
-        fail("recorded cycle commits are not ahead of upstream")
     changed = set(git(root, "diff", "--name-only", f"{cycle_base}..HEAD").stdout.splitlines())
     changelog_path = record["artifact_reviews"]["CHANGELOG"]["path"]
     if changelog_path not in changed:
@@ -2083,11 +2078,15 @@ def finish_push(root, path, record):
     dvc_relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
                        for name in changed)
     if dvc_relevant:
-        dvc_status = subprocess.run(["dvc", "status"], cwd=root, text=True, capture_output=True)
-        if dvc_status.returncode:
-            fail(dvc_status.stderr.strip() or "dvc status failed")
-        if "Data and pipelines are up to date." not in dvc_status.stdout:
-            fail("dvc status reports changed or missing data")
+        dvc_targets = sorted(name for name in changed if name.endswith(".dvc"))
+        if any(name in changed for name in ("dvc.yaml", "dvc.lock")):
+            dvc_targets.append("dvc.yaml")
+        if dvc_targets:
+            dvc_status = subprocess.run(["dvc", "status", *dvc_targets], cwd=root, text=True, capture_output=True)
+            if dvc_status.returncode:
+                fail(dvc_status.stderr.strip() or "dvc status failed")
+            if "Data and pipelines are up to date." not in dvc_status.stdout:
+                fail("dvc status reports changed or missing data")
         dvc_push = record.get("dvc_push")
         if not dvc_push or dvc_push["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
             fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")

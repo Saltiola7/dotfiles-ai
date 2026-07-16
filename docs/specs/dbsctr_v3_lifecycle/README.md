@@ -1278,15 +1278,20 @@ module routing without changing Cycle Record schema or public commands.
 
 - After fetching the recorded destination, an active cycle may reconcile an
   advanced upstream only when the old baseline is its ancestor, the upstream is
-  an ancestor of cycle HEAD, and the complete old-baseline-to-HEAD lineage is
-  exactly the recorded Gate Commits.
-- The commits still ahead of the advanced upstream must be exactly the remaining
-  recorded Gate Commits. Divergence, reordered history, or any unrecorded commit
-  fails before baseline mutation or push.
+  an ancestor of cycle HEAD, and the ordered commits ahead of that upstream are
+  exactly all recorded Gate Commits.
+- Unrelated commits may exist between the old baseline and advanced upstream.
+  Divergence, reordered Gate Commits, or any unrecorded commit still ahead of the
+  upstream fails before baseline mutation or push. A `finalizing` retry with no
+  ahead commits additionally requires the recorded commits as the remote
+  lineage's ordered suffix.
 - Profile identity, Evidence Envelopes, required gates, artifacts, remote
   identity, clean worktree, changed-path scope, and applicable DVC evidence are
   validated under the original baseline. Only then is the fetched upstream saved
   as the reconciled baseline and normal Final Push continues.
+- DVC status is evaluated against cycle-changed `.dvc` or pipeline targets, so
+  unrelated missing cache entries cannot block otherwise valid recorded DVC push
+  evidence; a dirty or missing changed target still blocks.
 - Reconciliation never changes the source checkout. Dirty, missing, changed, or
   diverged primary checkouts remain untouched by post-push synchronization.
 

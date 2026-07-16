@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.15-1 | Reconcile linearly integrated Final Push targets | high | active | V3.14-1 | Final Push ancestry and commit ownership validation | Cycle Record baseline, upstream and Gate Commits | no | Resume safe delivery when the remote advanced along the recorded cycle lineage | S | focused linear/divergent/unrecorded tests |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.15 complete | — | — |
 
 ## Completed
 
@@ -31,5 +31,6 @@ Discovery readiness: complete.
 | V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | 2026-07-15 | `e04aa78` |
 | V3.13-1 | Stabilize private review retention and queue semantics | 2026-07-15 | `6e072b2` |
 | V3.14-1 | Add structured OpenCode and advisory Herdr correlation | 2026-07-15 | `537c3a2` |
+| V3.15-1 | Reconcile linearly integrated Final Push targets | 2026-07-15 | `bdf7fe8` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.

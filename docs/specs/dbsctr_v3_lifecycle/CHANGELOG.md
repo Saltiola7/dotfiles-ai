@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-15 — V3.15 Linear Final Push Reconciliation
+
+- Allowed an advanced delivery target only when the recorded baseline is its
+  ancestor, it is an ancestor of cycle HEAD, and its ordered ahead commits are
+  exactly the recorded Gate Commits; divergence, reordered history, and
+  unrecorded ahead commits still fail closed.
+- Preserved retry safety by updating the baseline only after synchronized push,
+  retained original-baseline changelog/DVC scope, and limited DVC status to
+  cycle-changed DVC targets.
+- Validation: 112 affected tests passed and 1 skipped; Python compilation, diff
+  check, targeted deployment, and independent review passed. Live recovery
+  pushed Akamai commits `a7d7cc1a` and `86cc4722` without modifying the dirty
+  primary checkout. Prefect deployment `a31119bb-2bb5-46c5-9f29-ca8bcce0fb3f`
+  registered revision `86cc4722`; smoke run
+  `84693f20-3be4-424e-b272-a5d4064441a6` completed successfully and persisted
+  benchmark evidence. Gate Commit: `bdf7fe8`. Gate Exceptions: none. Intended
+  Final Push: `origin/main`.
+
 ## 2026-07-15 — V3.14 Structured Runtime Correlation
 
 - Bound authorized cycle begin to stable OpenCode session, directory, and

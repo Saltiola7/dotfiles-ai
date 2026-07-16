@@ -1064,11 +1064,16 @@ class DbsctrctlTest(unittest.TestCase):
                        capture_output=True)
         self.start()
         original_baseline = json.loads(self.record_path().read_text())["git"]["head"]
+        (self.repo / "integrated.txt").write_text("upstream advance\n")
+        subprocess.run(["git", "add", "integrated.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "integrated upstream"], cwd=self.repo,
+                       check=True, capture_output=True)
+        advance = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                 text=True, capture_output=True).stdout.strip()
+        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
         (self.repo / "tracked.txt").write_text("first gate\n")
         self.record_gate("domain", paths=("tracked.txt",))
         run(self.repo, "gate-commit", "--message", "first gate", "--gates", "domain", "--paths", "tracked.txt")
-        first = json.loads(self.record_path().read_text())["commits"][0]["id"]
-        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
         changelog = self.repo / "docs/specs/test/CHANGELOG.md"
         changelog.write_text("completed\n")
         self.record_gate("behavior", paths=("docs/specs/test/CHANGELOG.md",))
@@ -1090,7 +1095,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "final-push")
         record = json.loads(self.record_path().read_text())
         self.assertEqual(record["state"], "completed")
-        self.assertEqual(record["git"]["head"], first)
+        self.assertEqual(record["git"]["head"], advance)
         self.assertIn("reconciled_at", record["git"])
 
     def test_final_push_rejects_unrecorded_commit_in_linear_advance(self):
@@ -1103,7 +1108,6 @@ class DbsctrctlTest(unittest.TestCase):
         (self.repo / "unrecorded.txt").write_text("unrecorded\n")
         subprocess.run(["git", "add", "unrecorded.txt"], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "unrecorded"], cwd=self.repo, check=True, capture_output=True)
-        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
         changelog = self.repo / "docs/specs/test/CHANGELOG.md"
         changelog.write_text("completed\n")
         self.record_gate("domain", paths=("docs/specs/test/CHANGELOG.md",))
@@ -1115,7 +1119,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--path", "docs/specs/test/CHANGELOG.md")
         self.pass_gates()
         result = run(self.repo, "final-push", ok=False)
-        self.assertIn("cycle lineage is not exactly", result.stderr)
+        self.assertIn("ahead commits are not exactly", result.stderr)
 
     def test_final_push_accepts_fully_integrated_recorded_target(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1135,6 +1139,9 @@ class DbsctrctlTest(unittest.TestCase):
             "--path", "docs/specs/test/CHANGELOG.md")
         self.pass_gates()
         subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
+        record = json.loads(self.record_path().read_text())
+        record["state"] = "finalizing"
+        self.record_path().write_text(json.dumps(record))
         run(self.repo, "final-push")
         self.assertEqual(json.loads(self.record_path().read_text())["state"], "completed")
 
@@ -1307,11 +1314,13 @@ class DbsctrctlTest(unittest.TestCase):
         fake_bin = Path(self.temp.name) / "bin"
         fake_bin.mkdir()
         fake_dvc = fake_bin / "dvc"
-        fake_dvc.write_text("#!/bin/sh\nprintf 'changed data.dvc\\n'\n")
+        fake_dvc.write_text("#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$DVC_LOG\"\nprintf 'changed data.dvc\\n'\n")
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        dvc_log = Path(self.temp.name) / "dvc.log"
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_LOG": str(dvc_log)}
         result = run(self.repo, "final-push", ok=False, env=env)
         self.assertIn("changed or missing", result.stderr)
+        self.assertEqual(dvc_log.read_text().splitlines(), ["<status>", "<data.dvc>"])
 
     def test_final_push_ignores_dvc_for_unrelated_cycle(self):
         (self.repo / ".dvc").mkdir()
