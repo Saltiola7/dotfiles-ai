@@ -5,6 +5,7 @@ model: openai/gpt-5.6-terra
 variant: medium
 permission:
   dbsctr_begin: deny
+  dbsctr_review_complete: deny
   task: deny
   external_directory: deny
   bash:
@@ -13,6 +14,10 @@ permission:
     "gh *": deny
     "chezmoi apply*": deny
     "dvc push*": deny
+    "dbsctrctl review-complete*": deny
+    "*/dbsctrctl review-complete*": deny
+    "env *dbsctrctl review-complete*": deny
+    "command *dbsctrctl review-complete*": deny
     "npm publish*": deny
     "launchctl bootstrap*": deny
     "launchctl bootout*": deny

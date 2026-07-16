@@ -22,13 +22,14 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
 1. Read project instructions, matching specs/ADRs, configured validation, and
    relevant source. Reuse existing artifacts.
 2. Check an existing Graphify graph before broad search; verify useful results
-   against source and fall back when stale, weak, or irrelevant.
+   against source and fall back when stale, weak, or irrelevant. Update it only
+   when explicit project policy requires an update.
 3. Verify the bounded-context Engineering Profile. Run `discovery` when an
    unresolved question can materially change scope, behavior, interfaces,
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.10`. Use the typed `dbsctr_status` tool when available,
+5. Report Method Revision `3.11`. Use the typed `dbsctr_status` tool when available,
    otherwise `dbsctrctl status`, to resume the active Cycle
    Record. For a new write cycle, create an explicit JSON applicability plan
     bound to the committed Engineering Profile, then obtain authorization before `dbsctr_begin`;
@@ -291,17 +292,21 @@ issue and create a new commit; never bypass hooks or rewrite published history.
 After all required gates pass, perform one Final Push with `dbsctrctl final-push` to the recorded upstream
 without another confirmation when the worktree is clean and only cycle-owned
 commits are ahead. The user's standing DBSCTR policy authorizes this normal push.
-Verify synchronization with the upstream and report pushed commit IDs.
+Verify synchronization with the upstream and report pushed commit IDs. After a
+successful push, report whether the recorded original checkout was fast-forwarded
+or left untouched because it was dirty, missing, changed, or diverged.
 
 Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,
 force would be needed, or repository policy requires another approval.
 Never force-push automatically.
 
-In DVC repositories, run `dvc status`, couple changed outputs with their metadata,
+For a DVC-relevant cycle changing `*.dvc`, `dvc.yaml`, `dvc.lock`, `.dvc/config`,
+or `.dvcignore`, run `dvc status`, couple changed outputs with their metadata,
 and obtain separate approval for `dvc push`. After it succeeds, use
-`dbsctrctl record-dvc-push` to bind its evidence to current HEAD; never hide the
-DVC external write inside standing Git-push authorization.
+`dbsctrctl record-dvc-push` to bind its evidence to current HEAD. An unrelated
+cycle in a DVC repository needs neither DVC execution nor push evidence. Never
+hide the DVC external write inside standing Git-push authorization.
 
 ## Final Response
 

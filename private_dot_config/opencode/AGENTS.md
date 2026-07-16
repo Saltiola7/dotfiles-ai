@@ -26,8 +26,10 @@ policy authorizes only a normal push to the cycle-start upstream. Stop and ask w
 upstream, includes pre-cycle commits, changes destination, requires force, or
 fails required Git/DVC evidence.
 
-DVC synchronization is a separate external write: require confirmation for
-`dvc push`, then record its evidence before Final Push.
+DVC synchronization is a separate external write only when cycle commits alter
+DVC metadata or output identity: require confirmation for `dvc push`, then
+record its evidence before Final Push. Unrelated cycles in DVC repositories do
+not require DVC push evidence.
 
 ## Execution
 
@@ -52,8 +54,8 @@ and optional background first.
 
 For codebase or architecture questions, query an existing `graphify-out/` graph
 before broad search, then verify useful results against authoritative source,
-specs, contracts, and project instructions. Update the graph when project rules
-require it.
+specs, contracts, and project instructions. Update the graph only when explicit
+project policy requires it.
 
 Delegate only independent work when parallel ownership makes execution faster or
 safer. Give each write subagent explicit writable paths and off-limits scope.

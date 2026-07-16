@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** Approved
+**Status:** V3.11 DBSCTR review integration in progress
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -107,6 +107,13 @@ queries it when useful, verifies findings against source, and falls back to
 source search when stale or weak. Full Graphify creation, update, query, and Git
 hook behavior remains available without a duplicate project plugin.
 
+### Private DBSCTR review
+
+Given `/dbsctr-review` runs under any selected primary, it loads the unversioned
+review skill and uses a read-only typed scan. Persisting the sanitized private
+report asks through a separate typed completion permission. The completion tool
+writes only DBSCTR operational review state and grants no repository mutation.
+
 ## Contracts
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
@@ -120,6 +127,9 @@ hook behavior remains available without a duplicate project plugin.
 - Native Plan and `Build-GPT` resolve to `openai/gpt-5.6-sol` with `medium` as
   their default effort; OpenAI optimized subagents remain on Terra.
 - Commands contain no fixed `agent` field.
+- `/dbsctr-review` contains no fixed agent field and loads its exact skill.
+- `dbsctr_review` is read-only and allowed; `dbsctr_review_complete` asks before
+  writing private operational state and remains denied to Builder subagents.
 - Skill names visible to OpenCode are unique.
 - Unversioned lifecycle commands load DBSCTR V3; V1 is removed and V2 source is
   archived outside deployed skill paths.

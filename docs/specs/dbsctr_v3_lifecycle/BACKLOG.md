@@ -6,7 +6,10 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active V3.7–V3.10 roadmap item | — | — | — | — | — | — | roadmap complete | — | — |
+| V3.11-1 | Specify private lifecycle review and delivery hygiene | high | in_progress | — | lifecycle README/BACKLOG/CHANGELOG | V3.3–V3.10 evidence and UX review | no | Establish authority before behavior changes | S | Artifact review |
+| V3.11-2 | Add bounded review scan and atomic sanitized completion | high | pending | V3.11-1 | helper, typed tools, review skill/command | OpenCode SQLite and cycle records | no | Convert local evidence into approvable findings | M | Helper and control-plane tests |
+| V3.11-3 | Correct original-checkout and DVC lifecycle behavior | high | pending | V3.11-1 | begin/final-push contracts and tests | Git worktrees and DVC metadata | no | Remove stale checkout and false DVC blockers | M | Temporary repository tests |
+| V3.11-4 | Deploy and verify V3.11 | high | pending | V3.11-2,V3.11-3 | managed runtime and lifecycle artifacts | all cycle evidence | no | Activate and close coherently | S | Scoped QA and fresh-process probes |
 
 ## Completed
 

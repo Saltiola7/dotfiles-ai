@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.10 Product Intent and Web/UI implemented
+**Status:** V3.11 observability review and delivery hygiene in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -112,6 +112,12 @@ Adjacent contexts:
 | Fixed-Commit Inspection | Read-only access to repository objects after resolving one immutable commit identity. |
 | Evidence Envelope | Sanitized metadata plus an optional hash-addressed local sidecar proving a gate result. |
 | Product Intent | Conditional product-facing context held in `PRODUCT.md` and referenced by an Engineering Profile. |
+| Review Run | One bounded analysis of unreviewed DBSCTR and adjacent OpenCode sessions. |
+| Review Candidate | A session or correlated cycle eligible for a Review Run. |
+| Sanitized Review Report | Private structured findings that exclude raw transcripts, secrets, unsafe URLs, and machine paths. |
+| Review Marker | Atomic local evidence that a Sanitized Review Report was persisted successfully. |
+| Original Checkout Sync | Best-effort post-push synchronization result for the checkout that began an isolated cycle. |
+| DVC-Relevant Change | A cycle commit changing DVC metadata or output identity. |
 
 ## Domain Model
 
@@ -403,6 +409,43 @@ records, and retirement decisions. External writes remain approval-gated.
 - Then the Web/UI module applies with WCAG 2.2 AA by default
 - And non-browser product work receives no UI gates
 
+### Feature: V3.11 Observability Review And Delivery Hygiene
+
+**Scenario: Review unreviewed lifecycle sessions**
+- Given OpenCode retains DBSCTR, Discovery, QA, parent, child, fork, reviewer, and builder sessions locally
+- When `/dbsctr-review` scans from V3.3 isolated-worktree adoption
+- Then it prioritizes blocked, abandoned, dormant, and completed candidates in that order
+- And it returns bounded scorecards, trends, attribution caveats, ranked findings, and separately approvable proposals
+
+**Scenario: Persist only a completed sanitized review**
+- Given a Review Run has exact candidate session and cycle identifiers
+- When structured report validation and persistence succeed
+- Then a private Review Marker records those identifiers atomically
+- But denial, validation failure, or persistence failure leaves every candidate unreviewed
+
+**Scenario: Keep review evidence private and non-authoritative**
+- Given raw local transcripts may contain sensitive prompts, paths, commands, or tool output
+- When a Review Run analyzes them
+- Then no raw transcript payload, secret, email address, unsafe URL, or absolute machine path enters the Sanitized Review Report
+- And proposals cannot modify lifecycle artifacts until the user approves a separate DBSCTR cycle
+
+**Scenario: Synchronize the original checkout safely**
+- Given Final Push has completed and verified the recorded upstream
+- When the original checkout remains clean, on its recorded branch, tracks the same target, and can fast-forward
+- Then DBSCTR fast-forwards it and records the outcome
+- But a dirty, missing, changed, or diverged checkout remains untouched and receives a bounded remediation result
+
+**Scenario: Require DVC evidence only for relevant changes**
+- Given an isolated cycle belongs to a DVC repository
+- When `begin` creates its worktree
+- Then local-only DVC configuration points to the original repository cache
+- And Final Push requires DVC status and separately approved push evidence only when cycle commits change DVC metadata or output identity
+
+**Scenario: Avoid unconditional graph regeneration**
+- Given Graphify is a routing hint
+- When a lifecycle cycle changes source or artifacts
+- Then Graphify is updated only when explicit Project Policy requires it
+
 ## Engineering Profile
 
 ### Defaults
@@ -488,6 +531,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | Merge and deploy Discovery/DBSCTR skills, Web/UI module, and references locally |
 | Scope | Conditional Product Intent, WCAG 2.2 AA outcomes, non-normative tool examples, and project-local MCP boundary |
 | Overrides | Preserve project authorities; no synthetic Product Intent, mandatory frontend dependency, or global MCP configuration |
+
+### V3.11 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: reads private session evidence and changes global Git/DVC delivery behavior |
+| Delivery intent | Deploy managed helper, skills, command, typed tools, and permissions locally after merge validation |
+| Scope | Private lifecycle review, original-checkout synchronization, shared DVC cache, conditional DVC evidence, Graphify policy |
+| Overrides | Reports are private and non-authoritative; no plugin, dependency, raw transcript persistence, automatic remediation, or unconditional graph update |
 
 ## Gate Ledger — V3.1 Completion
 
@@ -615,6 +667,9 @@ tool and provider examples and load only when useful.
 | `docs/specs/<context>/PRODUCT.md` | Conditional durable Product Intent | Product-facing users, outcomes, journeys, constraints, and obligations |
 | `dot_agents/skills/qa/SKILL.md` | Scoped/full QA plus optional capability coverage | Capability-aware QA |
 | `private_dot_config/opencode/commands/{discovery,dbsctr,qa}.md` | Stable public command surfaces | Public commands |
+| `dot_agents/skills/dbsctr-review/SKILL.md` | Private lifecycle observability review protocol | V3.11 review scenarios |
+| `private_dot_config/opencode/commands/dbsctr-review.md` | Stable review command surface | V3.11 review scenarios |
+| `private_dot_config/opencode/tools/dbsctr.ts` | Typed scan and completion adapters | Bounded read and permissioned private-state write |
 | `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
 | `docs/archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
@@ -630,6 +685,9 @@ tool and provider examples and load only when useful.
   actions use `dbsctrctl`.
 - `/qa $ARGUMENTS` loads `qa`; DBSCTR supplies affected scope and required
   capabilities, while an explicit user request may run a full audit.
+- `/dbsctr-review $ARGUMENTS` loads `dbsctr-review`, inventories every unreviewed
+  candidate, reports ranked findings, and marks exact candidates reviewed only
+  after permission-gated sanitized report persistence succeeds.
 - Plan remains read-only and produces a Build Handoff. Build verifies freshness,
   owns integration, and alone invokes safe Gate Commit or Final Push operations.
 
@@ -856,8 +914,8 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` and `3.10` retain schema version `3`; new records use the
-helper's single `CURRENT_METHOD_REVISION = "3.10"` constant.
+Method Revisions `3.9` through `3.11` retain schema version `3`; new records use
+the helper's single `CURRENT_METHOD_REVISION = "3.11"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
@@ -1082,11 +1140,42 @@ module routing without changing Cycle Record schema or public commands.
   required evidence failed, or repository policy requires another approval.
 - Never force-push automatically. If hooks reject a commit, fix the issue and
   create a new commit rather than bypassing hooks or amending published work.
-- In a DVC repository, separately approved `dvc push` must succeed before Final
-  Push; `record-dvc-push` binds the separately approved evidence to the current
-  HEAD without hiding the external write.
+- `begin` records the original checkout and, for DVC repositories, resolves the
+  source checkout's effective cache before writing only local DVC configuration
+  so the isolated worktree shares that cache.
+- When cycle commits change `*.dvc`, `dvc.yaml`, `dvc.lock`, `.dvc/config`, or
+  `.dvcignore`, separately approved `dvc push` must succeed before Final Push;
+  unrelated changes in a DVC repository do not require DVC push evidence.
+- After verified Final Push, a compatible clean original checkout is
+  fast-forwarded. Dirty, missing, changed, or diverged checkouts are untouched;
+  synchronization failure never falsifies a successful remote push.
 - After push, verify the local branch is synchronized with its upstream and
   report commit IDs and push outcome.
+
+### V3.11 Review Contract
+
+- `dbsctrctl review-scan` opens the OpenCode SQLite database read-only, validates
+  its required schema, and returns bounded pages of sanitized candidate metadata.
+- Candidate correlation uses opaque IDs, parent/child relationships, timestamps,
+  cycle identifiers, and existing worktree/Git-common identities. Raw transcript
+  text and tool payloads are analyzed locally but never emitted or copied.
+- Blocked candidates rank before abandoned, dormant, and completed candidates.
+  Cost and token claims are omitted or qualified when attribution spans cycles.
+- `dbsctrctl review-complete` accepts one bounded scan page whose exact IDs,
+  digest, limit, and cursor still match a fresh read-only scan. Multi-page runs
+  complete atomically per page after the full report exists. Completion rejects
+  secrets, emails, URLs, machine paths, duplicate IDs, unknown fields, and
+  oversized values.
+- Completion serializes writers, uses restrictive permissions and atomic rename,
+  and writes beneath `~/.local/state/dbsctr/reviews/`. Failed completion writes
+  no report or marker. Reports have no automatic expiry.
+- The read-only typed scan is allowed in Plan. The private operational-state
+  completion tool asks explicitly; it grants no repository write authority.
+- Review findings and proposals are non-authoritative. Repository remediation,
+  backlog edits, status changes, commits, and deployment require a separately
+  approved DBSCTR cycle.
+- Graphify updates are Project Policy only; graph availability never implies an
+  update obligation.
 
 ## Validation Strategy
 
@@ -1098,7 +1187,7 @@ module routing without changing Cycle Record schema or public commands.
 | Chezmoi rendering | `chezmoi apply --dry-run --verbose` | Managed targets | Available | Must be idempotent after apply |
 | Runtime deployment | Targeted `chezmoi apply` and deployed-path inspection | V3 skills, commands, routing, removals | Available; external publication not involved | Targets match source |
 | OpenCode loading | `opencode debug config` and command/skill smoke scenarios | Resolved config and workflow behavior | Available; restart required | No V1/V2 runtime routes |
-| Graph freshness | `graphify update .` and commit comparison | Changed code/tests and routing graph | Available | Graph matched `eea73e3` before work |
+| Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

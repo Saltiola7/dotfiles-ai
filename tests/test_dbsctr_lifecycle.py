@@ -11,7 +11,7 @@ def text(path: Path | str) -> str:
 
 
 def test_public_lifecycle_commands_are_unversioned_and_thin():
-    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa"}
+    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa", "dbsctr-review": "dbsctr-review"}
     for command, skill in expected.items():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
@@ -43,6 +43,21 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
         "accepted_risk",
     ):
         assert term in dbsctr
+
+
+def test_v311_review_skill_is_private_bounded_and_approval_only():
+    review = text(SKILLS / "dbsctr-review/SKILL.md")
+    for term in (
+        "dbsctr_review", "dbsctr_review_complete", "blocked", "abandoned", "dormant",
+        "raw transcript", "sanitized", "separate DBSCTR cycle", "review marker",
+    ):
+        assert term.lower() in review.lower()
+    assert "never perform automatic remediation" in review.lower()
+
+    dbsctr = text(SKILLS / "dbsctr/SKILL.md")
+    assert "DVC-relevant" in dbsctr
+    assert "original checkout" in dbsctr
+    assert "explicit project policy" in dbsctr.lower()
 
 
 def test_v2_is_archived_and_not_deployable():
@@ -198,7 +213,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.10`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.11`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -251,7 +266,7 @@ def test_v362_requires_begin_authorization_and_method_revision_compatibility():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.10\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.11\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert "context.ask" in tools
     assert "before any `beginCycle`" in spec

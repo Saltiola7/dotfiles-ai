@@ -107,7 +107,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.10")
+        self.assertEqual(record["method_revision"], "3.11")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -508,6 +508,8 @@ class DbsctrctlTest(unittest.TestCase):
         record = json.loads((self.repo / ".git/dbsctr/cycles/isolated-1.json").read_text())
         self.assertTrue(record["worktree"]["created_by_dbsctr"])
         self.assertEqual(record["worktree"]["path"], str(isolated))
+        self.assertEqual(record["source"]["path"], str(self.repo.resolve()))
+        self.assertEqual(record["source"]["dirty_paths"], ["tracked.txt"])
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
 
@@ -528,6 +530,53 @@ class DbsctrctlTest(unittest.TestCase):
             "--worktree-root", str(Path(self.temp.name) / "isolated"),
         )
         self.assertEqual(json.loads(result.stdout)["cycle_id"], "isolated-1")
+
+    def test_begin_configures_local_shared_dvc_cache(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        (self.repo / ".dvc/cache").mkdir(parents=True)
+        (self.repo / ".dvc/config").write_text("[core]\n")
+        (self.repo / ".dvc/.gitignore").write_text("/config.local\n/cache\n")
+        subprocess.run(["git", "add", ".dvc/config", ".dvc/.gitignore"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "dvc"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        fake_bin = Path(self.temp.name) / "bin"
+        fake_bin.mkdir()
+        fake_dvc = fake_bin / "dvc"
+        custom_cache = Path(self.temp.name) / "custom-dvc-cache"
+        custom_cache.mkdir()
+        fake_dvc.write_text(
+            f"#!/bin/sh\nif [ \"$#\" -eq 2 ]; then printf '%s\\n' '{custom_cache}'; "
+            "else printf '%s\\n' \"$4\" > .dvc/config.local; fi\n"
+        )
+        fake_dvc.chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "isolated-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(Path(self.temp.name) / "isolated"), env=env,
+        ).stdout)
+        configured = (Path(handoff["worktree"]) / ".dvc/config.local").read_text().strip()
+        self.assertEqual(configured, str(custom_cache.resolve()))
+
+    def test_source_sync_updates_clean_and_skips_dirty_checkout(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_sync_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        source = {"path": str(self.repo), "branch": "master", "upstream": "origin/master",
+                  "remote": module.remote_destination(self.repo, "origin/master")}
+        self.assertEqual(module.sync_source_checkout({"source": source}, "origin", "master")["status"], "updated")
+        (self.repo / "tracked.txt").write_text("dirty\n")
+        result = module.sync_source_checkout({"source": source}, "origin", "master")
+        self.assertEqual(result, {"status": "skipped", "reason": "dirty"})
 
     def test_begin_rejects_unknown_ahead_commits(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1121,10 +1170,11 @@ class DbsctrctlTest(unittest.TestCase):
             "--evidence", "wrong", ok=False,
         )
         (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
-        self.record_gate("domain", paths=("docs/specs/test/CHANGELOG.md",))
+        (self.repo / "data.dvc").write_text("outs:\n- path: data\n")
+        self.record_gate("domain", paths=("docs/specs/test/CHANGELOG.md", "data.dvc"))
         run(
             self.repo, "gate-commit", "--message", "cycle change", "--gates", "domain", "--paths",
-            "docs/specs/test/CHANGELOG.md",
+            "docs/specs/test/CHANGELOG.md", "data.dvc",
         )
         self.review_artifacts()
         run(
@@ -1143,6 +1193,145 @@ class DbsctrctlTest(unittest.TestCase):
         env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
         result = run(self.repo, "final-push", ok=False, env=env)
         self.assertIn("changed or missing", result.stderr)
+
+    def test_final_push_ignores_dvc_for_unrelated_cycle(self):
+        (self.repo / ".dvc").mkdir()
+        (self.repo / ".dvc/config").write_text("[core]\n")
+        subprocess.run(["git", "add", ".dvc/config"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "dvc fixture"], cwd=self.repo, check=True,
+                       capture_output=True)
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.start()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
+        self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain", "--paths",
+            "tracked.txt", "docs/specs/test/CHANGELOG.md")
+        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        fake_bin = Path(self.temp.name) / "bin"
+        fake_bin.mkdir()
+        fake_dvc = fake_bin / "dvc"
+        fake_dvc.write_text("#!/bin/sh\nexit 99\n")
+        fake_dvc.chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        run(self.repo, "final-push", env=env)
+
+    def test_review_scan_is_read_only_and_completion_excludes_reviewed(self):
+        database = Path(self.temp.name) / "opencode.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR cycle', 1784073600000);
+            insert into session values ('child-1', 'session-1', 'Reviewer', 1784073601000);
+            insert into session values ('grandchild-1', 'child-1', 'Neutral', 1784073602000);
+            insert into session values ('long-1', null, 'Neutral', 1784073603000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{"role":"assistant"}');
+            insert into message values ('message-2', 'child-1', 1784073601000, '{"role":"assistant"}');
+            insert into message values ('message-3', 'grandchild-1', 1784073602000, '{"role":"assistant"}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000,
+                                     '{"type":"text","text":"DBSCTR V3.3 blocked","cycle_id":"cycle-20260715"}');
+            insert into part values ('part-2', 'message-2', 'child-1', 1784073601000,
+                                     '{"type":"text","text":"review complete","cycle_id":"cycle-20260715"}');
+            insert into part values ('part-3', 'message-3', 'grandchild-1', 1784073602000,
+                                     '{"type":"text","text":"neutral child"}');
+        """)
+        connection.executemany("insert into message values (?, 'long-1', ?, '{\"role\":\"assistant\"}')",
+                               [(f"long-message-{index}", 1784073603000 + index) for index in range(40)])
+        connection.executemany("insert into part values (?, ?, 'long-1', ?, ?)", [
+            (f"long-part-{index}", f"long-message-{index}", 1784073603000 + index,
+             json.dumps({"type": "text", "text": "/qa lifecycle" if index == 0 else "neutral"}))
+            for index in range(40)
+        ])
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "state"
+        before = database.stat().st_mtime_ns
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+                              "--limit", "10", "--cursor", "0").stdout)
+        self.assertEqual(database.stat().st_mtime_ns, before)
+        self.assertEqual(scan["session_ids"], ["session-1", "child-1", "grandchild-1", "long-1"])
+        self.assertEqual(scan["candidates"][0]["state"], "blocked")
+        self.assertNotIn(str(Path.home()), json.dumps(scan))
+        report = Path(self.temp.name) / "report.json"
+        report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+                                      "scan_digest": scan["digest"], "limit": 10, "cursor": 0,
+                                      "decision": "reviewed"}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
+            "--database", str(database), "--state-root", str(state))
+        saved = next((state / "reviews").glob("*.json"))
+        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(saved.parent.stat().st_mode & 0o777, 0o700)
+        repeated = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+                                  "--limit", "10", "--cursor", "0").stdout)
+        self.assertEqual(repeated["session_ids"], [])
+
+        page_state = Path(self.temp.name) / "page-state"
+        page_one = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                  "--state-root", str(page_state), "--limit", "1", "--cursor", "0").stdout)
+        page_report = Path(self.temp.name) / "page-report.json"
+        page_report.write_text(json.dumps({"session_ids": page_one["session_ids"],
+                                           "cycle_ids": page_one["cycle_ids"],
+                                           "scan_digest": page_one["digest"], "limit": 1, "cursor": 0,
+                                           "decision": "reviewed"}))
+        run(self.repo, "review-complete", "--report", str(page_report), "--scan-digest", page_one["digest"],
+            "--database", str(database), "--state-root", str(page_state))
+        page_two = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                  "--state-root", str(page_state), "--limit", "1", "--cursor", "1").stdout)
+        self.assertEqual(page_two["cycle_ids"], ["cycle-20260715"])
+
+    def test_review_completion_rejection_writes_no_marker(self):
+        state = Path(self.temp.name) / "state"
+        report = Path(self.temp.name) / "unsafe-report.json"
+        report.write_text(json.dumps({"session_ids": ["session-1"], "cycle_ids": [], "scan_digest": "bad",
+                                      "limit": 10, "cursor": 0, "decision": "see https://unsafe.invalid"}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", "bad",
+            "--state-root", str(state), ok=False)
+        self.assertFalse((state / "reviews").exists())
+
+    def test_review_rejects_paths_and_nonopaque_identifiers(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_review_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        for value in ("`/Users/x/file`", "(/tmp/file)", "path:/tmp/file", "~/file",
+                      "[/tmp/private]", "{/Users/x}", ",/tmp/x"):
+            self.assertTrue(module.review_unsafe(value), value)
+        state = Path(self.temp.name) / "state"
+        report = Path(self.temp.name) / "unsafe-id.json"
+        sessions = ["/tmp/session"]
+        digest = module.review_digest(sessions, [])
+        report.write_text(json.dumps({"session_ids": sessions, "cycle_ids": [], "scan_digest": digest,
+                                      "limit": 10, "cursor": 0, "decision": "reviewed"}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", digest,
+            "--state-root", str(state), ok=False)
+        self.assertFalse((state / "reviews").exists())
+        sessions = ["session-1"]
+        digest = module.review_digest(sessions, [])
+        report.write_text(json.dumps({"session_ids": sessions, "cycle_ids": [], "scan_digest": digest,
+                                      "limit": 10, "cursor": 0, "decision": "x" * 257}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", digest,
+            "--state-root", str(state), ok=False)
+        self.assertFalse((state / "reviews").exists())
+
+    def test_review_correlates_current_cycle_record(self):
+        self.start()
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_review_cycle_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        cycle_ids, state = module.correlated_cycles(str(self.repo), set())
+        self.assertEqual(cycle_ids, ["cycle-1"])
+        self.assertEqual(state, "active")
 
 
 if __name__ == "__main__":

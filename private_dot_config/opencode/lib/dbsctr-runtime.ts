@@ -35,6 +35,30 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
+export async function reviewScan(limit = 25, cursor = 0, cwd = process.cwd()) {
+  return await run(["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)], cwd)
+}
+
+export async function reviewComplete(report: {
+  session_ids: string[]
+  cycle_ids: string[]
+  scan_digest: string
+  limit: number
+  cursor: number
+  decision: string
+  notes?: string
+  findings: string[]
+  scorecards: string[]
+  trends: string[]
+  proposals: string[]
+  caveats: string[]
+}, cwd = process.cwd()) {
+  return await run([
+    "dbsctrctl", "review-complete", "--report-json", JSON.stringify(report),
+    "--scan-digest", report.scan_digest,
+  ], cwd)
+}
+
 export async function beginCycle(args: {
   cycleId: string
   context: string

@@ -90,7 +90,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "discovery", "qa"):
+    for name in ("dbsctr", "discovery", "qa", "dbsctr-review"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
 
 
@@ -111,7 +111,11 @@ def test_builder_boundaries():
         body = (OC / "agents" / name).read_text()
         assert "external_directory: deny" in body
         assert "task: deny" in body
-        for command in ("git *", "gh *", "chezmoi apply*", "dvc push*", "npm publish*"):
+        for command in (
+            "git *", "gh *", "chezmoi apply*", "dvc push*", "npm publish*",
+            "dbsctrctl review-complete*", "*/dbsctrctl review-complete*",
+            "env *dbsctrctl review-complete*", "command *dbsctrctl review-complete*",
+        ):
             assert f'"{command}": deny' in body
 
 
@@ -123,6 +127,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["dbsctrctl approve-exception*"] == "ask"
     assert bash["dbsctrctl record-dvc-push*"] == "ask"
     assert bash["dbsctrctl record-evidence*"] == "ask"
+    assert bash["dbsctrctl review-complete*"] == "ask"
+    assert bash["*/dbsctrctl review-complete*"] == "ask"
+    assert bash["env *dbsctrctl review-complete*"] == "ask"
+    assert bash["command *dbsctrctl review-complete*"] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
@@ -134,6 +142,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_begin"] == "ask"
     assert config["permission"]["dbsctr_audit"] == "allow"
     assert config["permission"]["dbsctr_inspect"] == "allow"
+    assert config["permission"]["dbsctr_review"] == "allow"
+    assert config["permission"]["dbsctr_review_complete"] == "ask"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
     for command in (
         "git push --force*", "git push -f*", "git *push*--force*", "git push *+*",
@@ -152,6 +162,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_begin: allow" in (OC / "agents" / name).read_text()
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "dbsctr_begin: deny" in (OC / "agents" / name).read_text()
+        assert "dbsctr_review_complete: deny" in (OC / "agents" / name).read_text()
 
 
 def test_dbsctr_tools_and_herdr_config_are_managed():
@@ -160,11 +171,15 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const begin = tool({' in tools
     assert 'export const audit = tool({' in tools
     assert 'export const inspect = tool({' in tools
+    assert 'export const review = tool({' in tools
+    assert 'export const review_complete = tool({' in tools
     assert "default(false)" in tools
     runtime = (OC / "lib/dbsctr-runtime.ts").read_text()
     assert '["dbsctrctl", "status", "--json"]' in runtime
     assert '["dbsctrctl", "audit", "--commit", commit, "--json"]' in runtime
     assert '"dbsctrctl", "inspect", "--commit"' in runtime
+    assert '["dbsctrctl", "review-scan"' in runtime
+    assert '"dbsctrctl", "review-complete"' in runtime
     assert '"herdr", "agent", "start", "opencode"' in runtime
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr

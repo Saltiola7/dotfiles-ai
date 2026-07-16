@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic local DBSCTR V3.7 cycle record helper."""
+"""Deterministic local DBSCTR lifecycle helper."""
 
 import argparse
 import contextlib
@@ -11,6 +11,7 @@ import re
 import selectors
 import signal
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,10 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.10"
+CURRENT_METHOD_REVISION = "3.11"
+REVIEW_START_MS = 1783814400000
+REVIEW_SCAN_HARD = 64 * 1024
+REVIEW_MAX_LIMIT = 100
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
@@ -110,6 +114,46 @@ def atomic_json(path, value):
         handle.write("\n")
         temp = handle.name
     os.replace(temp, path)
+
+
+def private_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def review_root(value=None):
+    return Path(value).expanduser() if value else Path.home() / ".local/state/dbsctr"
+
+
+def review_unsafe(value):
+    text = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+    return (SECRET_VALUE.search(text) or HIGH_ENTROPY.search(text) or
+            re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", text) or
+            re.search(r"\b(?:https?|ftp)://", text, re.I) or
+            re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text))
+
+
+def review_digest(session_ids, cycle_ids):
+    return hashlib.sha256(json.dumps({"cycle_ids": sorted(cycle_ids), "session_ids": sorted(session_ids)},
+                                     separators=(",", ":"), sort_keys=True).encode()).hexdigest()
+
+
+def review_lock(root):
+    path = root / "reviews" / ".lock"
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path.open("a+", encoding="utf-8")
 
 
 def exclusive_json(path, value):
@@ -470,6 +514,9 @@ def command_begin(args):
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
+    source_record = {"path": str(source.resolve()), "branch": branch(source), "upstream": upstream(source),
+                     "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
+                     "remote": remote_destination(source, upstream(source))}
     git(source, "fetch", remote, remote_branch)
     if ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
@@ -488,7 +535,21 @@ def command_begin(args):
     worktree = worktree.resolve()
     try:
         git(worktree, "branch", "--set-upstream-to", target, branch_name)
+        if (source / ".dvc").exists() or (source / "dvc.yaml").exists():
+            cache_result = subprocess.run(["dvc", "cache", "dir"], cwd=source, text=True, capture_output=True)
+            if cache_result.returncode or not cache_result.stdout.strip():
+                fail(cache_result.stderr.strip() or "cannot resolve source DVC cache")
+            shared_cache = Path(cache_result.stdout.strip().splitlines()[-1]).expanduser()
+            if not shared_cache.is_absolute():
+                shared_cache = source / shared_cache
+            shared_cache = shared_cache.resolve()
+            result = subprocess.run(["dvc", "cache", "dir", "--local", str(shared_cache)],
+                                    cwd=worktree, text=True, capture_output=True)
+            if result.returncode:
+                fail(result.stderr.strip() or "cannot configure linked DVC cache")
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True)
+        record["source"] = source_record
+        save(cycle_dir(worktree) / "cycles" / f"{args.cycle_id}.json", record)
     except Exception:
         git(source, "worktree", "remove", str(worktree), check=False)
         git(source, "branch", "-D", branch_name, check=False)
@@ -941,6 +1002,263 @@ def command_status(args):
         print(f"{record['cycle_id']} {record['state']} {record['risk']} {record['delivery_intent']}")
 
 
+def sqlite_name(connection, table, choices):
+    columns = {row[1].lower().replace("_", ""): row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+    for choice in choices:
+        if choice in columns:
+            return columns[choice]
+    fail(f"OpenCode {table} table lacks required columns")
+
+
+def reviewed_ids(state_root):
+    sessions, cycles = set(), set()
+    directory = review_root(state_root) / "reviews"
+    if not directory.is_dir():
+        return sessions, cycles
+    for path in directory.glob("*.json"):
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            sessions.update(value for value in report.get("session_ids", []) if isinstance(value, str))
+            cycles.update(value for value in report.get("cycle_ids", []) if isinstance(value, str))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return sessions, cycles
+
+
+def cycle_state(text):
+    lower = text.lower()
+    # Priority is deliberate: an explicit blocker outranks every terminal-looking word.
+    if any(word in lower for word in ("blocked", "blocker", "cannot proceed")):
+        return "blocked"
+    if any(word in lower for word in ("abandoned", "cancelled", "canceled")):
+        return "abandoned"
+    if any(word in lower for word in ("dormant", "paused", "inactive")):
+        return "dormant"
+    if any(word in lower for word in ("completed", "final push", "pushed")):
+        return "completed"
+    return "active"
+
+
+def correlated_cycles(directory, hinted_ids):
+    if not directory:
+        return [], None
+    worktree = Path(directory)
+    if not worktree.is_dir():
+        return [], None
+    common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
+    if common_result.returncode:
+        return [], None
+    common = Path(common_result.stdout.strip())
+    if not common.is_absolute():
+        common = worktree / common
+    records = common.resolve() / "dbsctr/cycles"
+    if not records.is_dir():
+        return [], None
+    matched = []
+    resolved = worktree.resolve()
+    for path in sorted(records.glob("*.json"))[:500]:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            cycle_id = record.get("cycle_id")
+            recorded_path = record.get("worktree", {}).get("path")
+            if cycle_id in hinted_ids or (recorded_path and Path(recorded_path).resolve() == resolved):
+                matched.append(record)
+        except (OSError, json.JSONDecodeError, RuntimeError):
+            continue
+    if not matched:
+        return [], None
+    states = []
+    for record in matched:
+        gates = record.get("gates", {}).values()
+        if any(gate.get("result") in ("failed", "unavailable") and "exception" not in gate for gate in gates):
+            states.append("blocked")
+        elif record.get("state") == "completed":
+            states.append("completed")
+        elif record.get("state") == "active" and (not record.get("worktree", {}).get("path")
+                                                  or not Path(record["worktree"]["path"]).is_dir()):
+            states.append("abandoned")
+        else:
+            states.append("active")
+    priority = ("blocked", "abandoned", "active", "completed")
+    return sorted({record["cycle_id"] for record in matched}), next(name for name in priority if name in states)
+
+
+def review_scan(args):
+    if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
+        fail("review scan limit must be 1 through 100 and cursor non-negative")
+    database = Path(args.database).expanduser() if args.database else Path.home() / ".local/share/opencode/opencode.db"
+    if not database.is_file():
+        fail("OpenCode database is missing")
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"session", "message", "part"} <= set(tables):
+            fail("OpenCode database lacks required session/message/part tables")
+        session, message, part = (tables[name] for name in ("session", "message", "part"))
+        sid = sqlite_name(connection, session, ("id",))
+        parent = sqlite_name(connection, session, ("parentid", "parent")) if any(
+            row[1].lower().replace("_", "") in ("parentid", "parent") for row in connection.execute(f"PRAGMA table_info({session})")
+        ) else None
+        created = sqlite_name(connection, session, ("timecreated", "createdat", "time", "timestamp")) if any(
+            row[1].lower().replace("_", "") in ("timecreated", "createdat", "time", "timestamp") for row in connection.execute(f"PRAGMA table_info({session})")
+        ) else None
+        title = sqlite_name(connection, session, ("title",)) if any(
+            row[1].lower().replace("_", "") == "title" for row in connection.execute(f"PRAGMA table_info({session})")
+        ) else None
+        directory = sqlite_name(connection, session, ("directory",)) if any(
+            row[1].lower().replace("_", "") == "directory" for row in connection.execute(f"PRAGMA table_info({session})")
+        ) else None
+        agent = sqlite_name(connection, session, ("agent",)) if any(
+            row[1].lower().replace("_", "") == "agent" for row in connection.execute(f"PRAGMA table_info({session})")
+        ) else None
+        mid, msession = sqlite_name(connection, message, ("id",)), sqlite_name(connection, message, ("sessionid",))
+        pmessage = sqlite_name(connection, part, ("messageid",))
+        pbody = sqlite_name(connection, part, ("data", "text", "content"))
+        part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp")) if any(
+            row[1].lower().replace("_", "") in ("timecreated", "createdat", "time", "timestamp")
+            for row in connection.execute(f"PRAGMA table_info({part})")
+        ) else None
+        parent_value = f's."{parent}"' if parent else "NULL"
+        created_value = f's."{created}"' if created else "NULL"
+        title_value = f's."{title}"' if title else "''"
+        directory_value = f's."{directory}"' if directory else "NULL"
+        agent_value = f's."{agent}"' if agent else "''"
+        children = (f'(SELECT group_concat(c."{sid}", ",") FROM "{session}" c '
+                    f'WHERE c."{parent}"=content.session_id)') if parent else "NULL"
+        time_filter = f'(typeof(s."{created}") != \'integer\' OR s."{created}" >= ?)' if created else "1"
+        part_order = f'p."{part_time}" DESC' if part_time else f'p."{pmessage}" DESC'
+        part_source = (f'SELECT substr(p."{pbody}", 1, 2048) body FROM "{message}" m '
+                       f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}"')
+        body = (f'(SELECT group_concat(body, "\\n") FROM ('
+                f'SELECT body FROM ({part_source} ORDER BY {part_order.replace(" DESC", " ASC")} LIMIT 16) '
+                f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
+        query = f"""
+            WITH RECURSIVE content AS (
+                SELECT s."{sid}" session_id, {parent_value} parent_id,
+                       {created_value} created_at, {title_value} title, {directory_value} directory,
+                       {agent_value} agent, COALESCE({body}, '') body
+                FROM "{session}" s
+                WHERE {time_filter}
+            ), seeds AS (
+                SELECT session_id FROM content
+                WHERE lower(title || '\\n' || body) LIKE '%dbsctr%'
+                   OR lower(title || '\\n' || body) LIKE '%/discovery%'
+                   OR lower(title || '\\n' || body) LIKE '%/qa%'
+                   OR lower(agent) IN ('reviewer-openai', 'builder-openai', 'builder-bedrock')
+            ), edges(source, target) AS (
+                SELECT session_id, parent_id FROM content WHERE parent_id IS NOT NULL
+                UNION SELECT parent_id, session_id FROM content WHERE parent_id IS NOT NULL
+            ), expanded(session_id) AS (
+                SELECT session_id FROM seeds
+                UNION SELECT edges.target FROM edges JOIN expanded ON edges.source=expanded.session_id
+            )
+            SELECT content.session_id, content.parent_id, content.created_at,
+                   {children}, content.body, content.directory
+            FROM content JOIN expanded ON expanded.session_id=content.session_id
+            ORDER BY content.created_at, content.session_id LIMIT ? OFFSET ?
+        """
+        parameters = ((REVIEW_START_MS,) if created else ()) + (args.limit + 1, args.cursor)
+        rows = connection.execute(query, parameters).fetchall()
+    except sqlite3.Error as error:
+        fail(f"cannot read OpenCode database: {error}")
+    finally:
+        if 'connection' in locals():
+            connection.close()
+    reviewed_sessions, _ = reviewed_ids(args.state_root)
+    candidates = []
+    for session_id, parent_id, timestamp, child_ids, text, directory in rows[:args.limit]:
+        session_id = str(session_id)
+        if session_id in reviewed_sessions:
+            continue
+        text = str(text or "")[:65536]
+        cycle_ids = set()
+        cycle_ids.update(re.findall(r'["\']cycle_id["\']\s*:\s*["\']([A-Za-z0-9._-]+)', text))
+        cycle_ids.update(re.findall(r"--cycle-id(?:\\?\"|\s)+([A-Za-z0-9._-]+)", text))
+        cycle_ids.difference_update({"ID", "PATH", "CYCLE_ID"})
+        correlated, authoritative_state = correlated_cycles(directory, cycle_ids)
+        cycle_ids.update(correlated)
+        cycle_ids = sorted(cycle_ids)
+        cycle_ids = list(cycle_ids)[:8]
+        candidates.append({"session_id": session_id, "parent_session_id": str(parent_id) if parent_id else None,
+                           "child_session_ids": str(child_ids).split(",")[:16] if child_ids else [],
+                           "timestamp": str(timestamp)[:64] if timestamp is not None else None,
+                           "cycle_ids": cycle_ids, "state": authoritative_state or cycle_state(text),
+                           "state_source": "cycle_record" if authoritative_state else "session_evidence"})
+    session_ids = [item["session_id"] for item in candidates]
+    cycle_ids = sorted({value for item in candidates for value in item["cycle_ids"]})
+    result = {"schema_version": 1, "candidates": candidates, "scorecard": {
+        "active": sum(item["state"] == "active" for item in candidates),
+        "blocked": sum(item["state"] == "blocked" for item in candidates),
+        "abandoned": sum(item["state"] == "abandoned" for item in candidates),
+        "dormant": sum(item["state"] == "dormant" for item in candidates),
+        "completed": sum(item["state"] == "completed" for item in candidates)},
+        "session_ids": session_ids, "cycle_ids": cycle_ids, "digest": review_digest(session_ids, cycle_ids),
+        "limit": args.limit, "cursor": args.cursor,
+        "continuation": {"cursor": args.cursor + args.limit} if len(rows) > args.limit else None}
+    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode()) > REVIEW_SCAN_HARD:
+        fail("review scan response exceeds bound")
+    return result
+
+
+def command_review_scan(args):
+    print(json.dumps(review_scan(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def command_review_complete(args):
+    try:
+        raw_report = args.report_json if args.report_json is not None else Path(args.report).read_text(encoding="utf-8")
+        report = json.loads(raw_report, object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read review report: {error}")
+    text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
+    allowed = {"session_ids", "cycle_ids", "scan_digest", "limit", "cursor", "decision", "notes", *text_fields}
+    if not isinstance(report, dict) or set(report) - allowed:
+        fail("review report has an invalid schema")
+    sessions, cycles = report.get("session_ids"), report.get("cycle_ids", [])
+    if (not isinstance(sessions, list) or not sessions or not isinstance(cycles, list)
+            or not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value)
+                       for value in sessions + cycles)
+            or len(sessions) > REVIEW_MAX_LIMIT or len(cycles) > REVIEW_MAX_LIMIT):
+        fail("review report has invalid IDs")
+    if len(set(sessions)) != len(sessions) or len(set(cycles)) != len(cycles):
+        fail("review report IDs must be unique")
+    decision, notes = report.get("decision"), report.get("notes")
+    if not isinstance(decision, str) or not 1 <= len(decision.encode()) <= 256:
+        fail("review report has invalid decision")
+    if notes is not None and (not isinstance(notes, str) or len(notes.encode()) > 2048):
+        fail("review report has invalid notes")
+    digest = review_digest(sessions, cycles)
+    if args.scan_digest != digest or report.get("scan_digest") != digest:
+        fail("review report IDs do not match scan digest")
+    if (not isinstance(report.get("limit"), int) or not isinstance(report.get("cursor"), int)):
+        fail("review report requires its scan limit and cursor")
+    expected = review_scan(argparse.Namespace(
+        database=args.database, state_root=args.state_root,
+        limit=report["limit"], cursor=report["cursor"],
+    ))
+    if expected["session_ids"] != sessions or expected["cycle_ids"] != cycles or expected["digest"] != digest:
+        fail("review report does not match the current scan page")
+    for name in text_fields:
+        values = report.get(name, [])
+        if (not isinstance(values, list) or len(values) > 50
+                or not all(isinstance(value, str) and 1 <= len(value) <= 512 for value in values)):
+            fail(f"review report has invalid {name}")
+    # Digests and opaque OpenCode IDs can be high entropy by design; inspect only human text.
+    human_text = [str(report.get(name, "")) for name in ("decision", "notes")]
+    human_text.extend(value for name in text_fields for value in report.get(name, []))
+    if review_unsafe(" ".join(human_text)):
+        fail("review report contains unsafe content")
+    root = review_root(args.state_root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        name = hashlib.sha256((digest + "\0" + json.dumps(report, sort_keys=True)).encode()).hexdigest()[:24]
+        target = root / "reviews" / f"{name}.json"
+        if not target.exists():
+            private_json(target, report)
+    print(json.dumps({"digest": digest, "reviewed_sessions": len(sessions), "reviewed_cycles": len(cycles)}, sort_keys=True))
+
+
 def command_review(args):
     root = root_dir()
     path, record = load(root)
@@ -1369,6 +1687,32 @@ def command_check(args):
         artifact_check(record)
 
 
+def sync_source_checkout(record, remote, remote_branch):
+    source = record.get("source")
+    if not source:
+        return {"status": "not_applicable", "reason": "no_recorded_source"}
+    try:
+        checkout = Path(source["path"])
+        if not checkout.is_dir():
+            return {"status": "skipped", "reason": "missing"}
+        if status_paths(checkout):
+            return {"status": "skipped", "reason": "dirty"}
+        if branch(checkout) != source.get("branch"):
+            return {"status": "skipped", "reason": "branch_changed"}
+        if upstream(checkout) != source.get("upstream"):
+            return {"status": "skipped", "reason": "upstream_changed"}
+        if remote_destination(checkout, source.get("upstream")) != source.get("remote"):
+            return {"status": "skipped", "reason": "target_changed"}
+        git(checkout, "fetch", remote, remote_branch)
+        target = source["upstream"]
+        if git(checkout, "merge-base", "--is-ancestor", "HEAD", target, check=False).returncode:
+            return {"status": "skipped", "reason": "diverged"}
+        git(checkout, "merge", "--ff-only", target)
+        return {"status": "updated", "reason": "fast_forward"}
+    except (OSError, RuntimeError, KeyError):
+        return {"status": "skipped", "reason": "sync_failed"}
+
+
 def finish_push(root, path, record):
     pointer = active_path(root)
     if not pointer.exists():
@@ -1425,7 +1769,9 @@ def finish_push(root, path, record):
     changelog_path = record["artifact_reviews"]["CHANGELOG"]["path"]
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
-    if (root / ".dvc").exists() or (root / "dvc.yaml").exists():
+    dvc_relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
+                       for name in changed)
+    if dvc_relevant:
         dvc_status = subprocess.run(["dvc", "status"], cwd=root, text=True, capture_output=True)
         if dvc_status.returncode:
             fail(dvc_status.stderr.strip() or "dvc status failed")
@@ -1443,8 +1789,11 @@ def finish_push(root, path, record):
     record["state"] = "completed"
     record["completed_at"] = now()
     save(path, record)
+    source_sync = sync_source_checkout(record, remote, remote_branch)
+    record["source_sync"] = source_sync
+    save(path, record)
     pointer.unlink()
-    print("pushed " + " ".join(recorded_commits))
+    print("pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"])
 
 
 def command_final_push(args):
@@ -1475,6 +1824,20 @@ def parser():
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
+    review_scan = commands.add_parser("review-scan")
+    review_scan.add_argument("--database")
+    review_scan.add_argument("--state-root")
+    review_scan.add_argument("--limit", required=True, type=int)
+    review_scan.add_argument("--cursor", required=True, type=int)
+    review_scan.set_defaults(func=command_review_scan)
+    review_complete = commands.add_parser("review-complete")
+    report_source = review_complete.add_mutually_exclusive_group(required=True)
+    report_source.add_argument("--report")
+    report_source.add_argument("--report-json")
+    review_complete.add_argument("--scan-digest", required=True)
+    review_complete.add_argument("--database")
+    review_complete.add_argument("--state-root")
+    review_complete.set_defaults(func=command_review_complete)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))

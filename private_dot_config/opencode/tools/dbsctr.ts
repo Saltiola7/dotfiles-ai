@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit } from "../lib/dbsctr-runtime"
+import { beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewScan } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -31,6 +31,57 @@ export const inspect = tool({
   },
   async execute(args, context) {
     return await fixedCommitInspect(args, context.worktree)
+  },
+})
+
+export const review = tool({
+  description: "Scan bounded private DBSCTR session metadata without changing files.",
+  args: {
+    limit: tool.schema.number().int().min(1).max(100).optional().default(25),
+    cursor: tool.schema.number().int().min(0).optional().default(0),
+  },
+  async execute(args, context) {
+    return await reviewScan(args.limit, args.cursor, context.worktree)
+  },
+})
+
+export const review_complete = tool({
+  description: "Persist one sanitized private DBSCTR review and mark its exact candidates reviewed.",
+  args: {
+    sessionIds: tool.schema.array(tool.schema.string()).min(1).max(100),
+    cycleIds: tool.schema.array(tool.schema.string()).max(100),
+    scanDigest: tool.schema.string(),
+    limit: tool.schema.number().int().min(1).max(100),
+    cursor: tool.schema.number().int().min(0),
+    decision: tool.schema.string().max(256),
+    notes: tool.schema.string().max(2048).optional(),
+    findings: tool.schema.array(tool.schema.string().max(512)).max(50),
+    scorecards: tool.schema.array(tool.schema.string().max(512)).max(50),
+    trends: tool.schema.array(tool.schema.string().max(512)).max(50),
+    proposals: tool.schema.array(tool.schema.string().max(512)).max(50),
+    caveats: tool.schema.array(tool.schema.string().max(512)).max(50),
+  },
+  async execute(args, context) {
+    await context.ask({
+      permission: "dbsctr_review_complete",
+      patterns: ["*"],
+      always: [],
+      metadata: { sessions: args.sessionIds.length, cycles: args.cycleIds.length },
+    })
+    return await reviewComplete({
+      session_ids: args.sessionIds,
+      cycle_ids: args.cycleIds,
+      scan_digest: args.scanDigest,
+      limit: args.limit,
+      cursor: args.cursor,
+      decision: args.decision,
+      notes: args.notes,
+      findings: args.findings,
+      scorecards: args.scorecards,
+      trends: args.trends,
+      proposals: args.proposals,
+      caveats: args.caveats,
+    }, context.worktree)
   },
 })
 
