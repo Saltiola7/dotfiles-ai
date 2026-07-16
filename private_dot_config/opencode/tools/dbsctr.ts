@@ -40,9 +40,12 @@ export const review = tool({
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
     snapshot: tool.schema.number().int().min(0).optional(),
+    sessionCeiling: tool.schema.number().int().min(0).optional(),
+    partCeiling: tool.schema.number().int().min(0).optional(),
+    databaseDigest: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree)
+    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest)
   },
 })
 
@@ -53,6 +56,9 @@ export const review_complete = tool({
     cycleIds: tool.schema.array(tool.schema.string()).max(100),
     scanDigest: tool.schema.string(),
     snapshot: tool.schema.number().int().min(0),
+    sessionCeiling: tool.schema.number().int().min(0),
+    partCeiling: tool.schema.number().int().min(0),
+    databaseDigest: tool.schema.string(),
     limit: tool.schema.number().int().min(1).max(100),
     cursor: tool.schema.number().int().min(0),
     decision: tool.schema.string().max(256),
@@ -75,6 +81,9 @@ export const review_complete = tool({
       cycle_ids: args.cycleIds,
       scan_digest: args.scanDigest,
       snapshot: args.snapshot,
+      session_ceiling: args.sessionCeiling,
+      part_ceiling: args.partCeiling,
+      database_digest: args.databaseDigest,
       limit: args.limit,
       cursor: args.cursor,
       decision: args.decision,

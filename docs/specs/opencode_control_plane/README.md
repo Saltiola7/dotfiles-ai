@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** V3.12 DBSCTR review correctness implemented
+**Status:** V3.13 DBSCTR review queue and retention implemented
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -118,6 +118,11 @@ Given a review spans pages, when the first page captures a snapshot, then typed
 continuations and completion preserve that snapshot and reject changed sanitized
 candidate metadata. Session prose without structured lifecycle authority reports
 `unknown` rather than a guessed terminal state.
+
+Given detailed reports exceed 90 days, completion or explicit maintenance prunes
+them while compact private reviewed-ID tombstones preserve review progress.
+Candidates expose independent Cycle Record states and page-local urgency without
+inventing an aggregate state.
 
 ## Contracts
 

@@ -35,9 +35,12 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
-export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd()) {
+export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string) {
   const argv = ["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)]
   if (snapshot !== undefined) argv.push("--snapshot", String(snapshot))
+  if (sessionCeiling !== undefined) argv.push("--session-ceiling", String(sessionCeiling))
+  if (partCeiling !== undefined) argv.push("--part-ceiling", String(partCeiling))
+  if (databaseDigest !== undefined) argv.push("--database-digest", databaseDigest)
   return await run(argv, cwd)
 }
 
@@ -45,7 +48,10 @@ export async function reviewComplete(report: {
   session_ids: string[]
   cycle_ids: string[]
   scan_digest: string
-  snapshot: number
+    snapshot: number
+    session_ceiling: number
+    part_ceiling: number
+    database_digest: string
   limit: number
   cursor: number
   decision: string

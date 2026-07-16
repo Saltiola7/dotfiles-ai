@@ -49,12 +49,12 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
     review = text(SKILLS / "dbsctr-review/SKILL.md")
     for term in (
         "dbsctr_review", "dbsctr_review_complete", "blocked", "abandoned", "dormant", "snapshot", "unknown",
-        "raw transcript", "sanitized", "separate DBSCTR cycle", "review marker",
+        "raw transcript", "sanitized", "separate DBSCTR cycle", "review marker", "90 days", "tombstones",
     ):
         assert term.lower() in review.lower()
-    assert "same snapshot with every continuation" in review.lower()
+    assert "same snapshot and both row ceilings" in review.lower()
     assert "digest, snapshot" in review.lower()
-    assert "report it as unknown, never infer it" in review.lower()
+    assert "without a matched" in review.lower() and "record are unknown" in review.lower()
     assert "never perform automatic remediation" in review.lower()
 
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
@@ -216,7 +216,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.12`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.13`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -269,7 +269,7 @@ def test_v362_requires_begin_authorization_and_method_revision_compatibility():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.12\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.13\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert "context.ask" in tools
     assert "before any `beginCycle`" in spec

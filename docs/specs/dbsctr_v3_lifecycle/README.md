@@ -541,6 +541,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Private lifecycle review, original-checkout synchronization, shared DVC cache, conditional DVC evidence, Graphify policy |
 | Overrides | Reports are private and non-authoritative; no plugin, dependency, raw transcript persistence, automatic remediation, or unconditional graph update |
 
+### V3.13 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes private review retention and candidate schema |
+| Delivery intent | Deploy the managed helper and review skill locally after merge validation |
+| Scope | Ninety-day detailed reports, durable reviewed tombstones, snapshot-stable pagination, page-local priority, and per-cycle states |
+| Overrides | Cycle Records remain authoritative; dormancy is an attention flag; no global queue manifest or automatic Herdr cleanup |
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -914,7 +923,7 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.11` retain schema version `3`; new records use
+Method Revisions `3.9` through `3.13` retain schema version `3`; new records use
 the helper's single `CURRENT_METHOD_REVISION = "3.11"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
@@ -1199,6 +1208,37 @@ module routing without changing Cycle Record schema or public commands.
   completion revalidation.
 - Completion acquires the private review lock before its fresh scan and holds it
   through persistence, so concurrent attempts cannot mark one page twice.
+
+### V3.13 Review Queue And Retention Contract
+
+- Detailed private reports are retained for 90 days. A restrictive
+  `reviews/reviewed.json` index retains opaque reviewed session and cycle IDs with
+  their review timestamps until an explicit forget command removes them.
+- Candidate exclusion is evaluated as of the immutable scan cutoff. Later page
+  completions therefore cannot shift offsets or invalidate another page, while
+  completion still rejects IDs already reviewed at completion time under lock.
+- The immutable snapshot also binds maximum SQLite session and part row IDs, so
+  rows inserted after page one cannot enter later pages even when their wall-clock
+  timestamp equals the millisecond cutoff.
+- Reviewed candidates are removed before pagination. Each returned page is
+  ordered by blocked, abandoned, seven-day dormant attention, completed, active,
+  and unknown urgency; no persisted global queue manifest is created.
+- Candidates expose every matched Cycle Record and its independent authoritative
+  state. Source-checkout and cycle-worktree paths may correlate records, but no
+  aggregate lifecycle state is invented when multiple cycles match.
+- Review scorecards count independent Cycle Record states plus candidates with no
+  matched record; their state totals need not equal the candidate count.
+- `dormant` is a non-authoritative attention flag on an active cycle whose session
+  has no session-part activity for seven days. It never replaces the Cycle Record
+  state.
+- A completion report is its single atomic review marker. Pruning migrates its
+  opaque IDs into the compact tombstone index before deleting expired detail.
+  Pruning and forgetting run under the private writer lock. Malformed tombstone
+  state fails closed; expired malformed detailed reports are removed, while
+  malformed retained reports block maintenance. Explicit forget records an opaque
+  session-ID suppression without deleting the retained detailed report; a later
+  successful review supersedes that suppression.
+  Scans remain read-only.
 
 ## Validation Strategy
 

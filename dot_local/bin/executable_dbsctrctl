@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -28,10 +29,13 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.12"
+CURRENT_METHOD_REVISION = "3.13"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 REVIEW_MAX_LIMIT = 100
+REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
+REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
+OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
@@ -128,7 +132,12 @@ def private_json(path, value):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        os.chmod(path, 0o600)
+        with contextlib.suppress(OSError):
+            descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -145,8 +154,10 @@ def review_unsafe(value):
             re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text))
 
 
-def review_digest(candidates, snapshot):
-    return hashlib.sha256(json.dumps({"candidates": candidates, "snapshot": snapshot},
+def review_digest(candidates, snapshot, session_ceiling=None, part_ceiling=None, database_digest=None):
+    return hashlib.sha256(json.dumps({"candidates": candidates, "snapshot": snapshot,
+                                      "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
+                                      "database_digest": database_digest},
                                      separators=(",", ":"), sort_keys=True).encode()).hexdigest()
 
 
@@ -154,6 +165,12 @@ def review_lock(root):
     path = root / "reviews" / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     return path.open("a+", encoding="utf-8")
+
+
+def require_review_lock_safe(root):
+    directory = root / "reviews"
+    if directory.is_dir() and any(directory.glob("*.json")) and not (directory / ".lock").is_file():
+        fail("retained review state is missing its lock")
 
 
 def exclusive_json(path, value):
@@ -1010,19 +1027,176 @@ def sqlite_name(connection, table, choices):
     fail(f"OpenCode {table} table lacks required columns")
 
 
-def reviewed_ids(state_root):
-    sessions, cycles = set(), set()
-    directory = review_root(state_root) / "reviews"
+def review_index(root):
+    path = root / "reviews" / "reviewed.json"
+    if not path.exists():
+        return {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read reviewed tombstones: {error}")
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "sessions", "cycles", "forgotten_sessions"}
+            or value["schema_version"] != 1 or not isinstance(value["sessions"], dict)
+            or not isinstance(value["cycles"], dict) or not isinstance(value["forgotten_sessions"], dict)):
+        fail("reviewed tombstones have an invalid schema")
+    for values in (value["sessions"], value["cycles"], value["forgotten_sessions"]):
+        if not all(isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key)
+                   and isinstance(timestamp, int) and timestamp >= REVIEW_START_MS
+                   for key, timestamp in values.items()):
+            fail("reviewed tombstones contain invalid entries")
+    return value
+
+
+def read_review_report(path):
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read retained review report: {error}")
+    text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
+    allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+               "limit", "cursor", "decision", "notes", "reviewed_at", *text_fields}
+    required = {"session_ids", "scan_digest", "limit", "cursor", "decision"}
+    if (not isinstance(report, dict) or set(report) - allowed or not required <= set(report)
+            or not isinstance(report.get("session_ids"), list)
+            or not isinstance(report.get("cycle_ids", []), list)
+            or not 1 <= len(report["session_ids"]) <= REVIEW_MAX_LIMIT
+            or len(report.get("cycle_ids", [])) > REVIEW_MAX_LIMIT
+            or not all(isinstance(value, str) and OPAQUE_ID.fullmatch(value)
+                       for value in report["session_ids"] + report.get("cycle_ids", []))
+            or len(set(report["session_ids"])) != len(report["session_ids"])
+            or len(set(report.get("cycle_ids", []))) != len(report.get("cycle_ids", []))
+            or not isinstance(report.get("scan_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", report["scan_digest"])
+            or not isinstance(report.get("decision"), str) or not 1 <= len(report["decision"].encode()) <= 256
+            or report.get("notes") is not None and (not isinstance(report["notes"], str)
+                                                     or len(report["notes"].encode()) > 2048)):
+        fail("retained review report has an invalid schema")
+    if (type(report["limit"]) is not int or not 1 <= report["limit"] <= REVIEW_MAX_LIMIT
+            or type(report["cursor"]) is not int or report["cursor"] < 0):
+        fail("retained review report has an invalid schema")
+    for name in ("snapshot", "session_ceiling", "part_ceiling"):
+        if name in report and (type(report[name]) is not int or report[name] < 0):
+            fail("retained review report has an invalid schema")
+    current = {"session_ceiling", "part_ceiling", "database_digest"} & set(report)
+    if current and not {"reviewed_at", "snapshot", "session_ceiling", "part_ceiling", "database_digest"} <= set(report):
+        fail("retained review report has an invalid schema")
+    if "reviewed_at" in report and not current:
+        fail("retained review report has an invalid schema")
+    for name in text_fields:
+        values = report.get(name, [])
+        if not isinstance(values, list) or len(values) > 50 or not all(
+                isinstance(value, str) and 1 <= len(value) <= 512 for value in values):
+            fail("retained review report has an invalid schema")
+    human = [str(report.get(name, "")) for name in ("decision", "notes")]
+    human.extend(value for name in text_fields for value in report.get(name, []))
+    if review_unsafe(" ".join(human)):
+        fail("retained review report contains unsafe content")
+    if not re.fullmatch(r"[0-9a-f]{24}\.json", path.name):
+        fail("retained review report has an invalid marker name")
+    expected = hashlib.sha256((report["scan_digest"] + "\0" + json.dumps(report, sort_keys=True)).encode()).hexdigest()[:24]
+    if path.stem != expected:
+        fail("retained review report marker does not match its content")
+    timestamp = report.get("reviewed_at")
+    if timestamp is None:
+        timestamp = path.stat().st_mtime_ns // 1_000_000
+    if (not isinstance(timestamp, int) or timestamp < REVIEW_START_MS
+            or timestamp > int(datetime.now(timezone.utc).timestamp() * 1000) + 1000):
+        fail("retained review report has an invalid review timestamp")
+    return report, timestamp
+
+
+def review_reports(root):
+    directory = root / "reviews"
     if not directory.is_dir():
-        return sessions, cycles
+        return []
+    reports = []
     for path in directory.glob("*.json"):
-        try:
-            report = json.loads(path.read_text(encoding="utf-8"))
-            sessions.update(value for value in report.get("session_ids", []) if isinstance(value, str))
-            cycles.update(value for value in report.get("cycle_ids", []) if isinstance(value, str))
-        except (OSError, json.JSONDecodeError):
+        if path.name == "reviewed.json":
             continue
+        report, timestamp = read_review_report(path)
+        reports.append((path, report, timestamp))
+    return reports
+
+
+def reviewed_ids_unlocked(root, cutoff=None):
+    index = review_index(root)
+    session_times = dict(index["sessions"])
+    cycle_times = dict(index["cycles"])
+    for _, report, timestamp in review_reports(root):
+        for key in report["session_ids"]:
+            session_times[key] = max(session_times.get(key, 0), timestamp)
+        for key in report.get("cycle_ids", []):
+            cycle_times[key] = max(cycle_times.get(key, 0), timestamp)
+    sessions = {key for key, timestamp in session_times.items()
+                if (cutoff is None or timestamp <= cutoff)
+                and timestamp > (index["forgotten_sessions"].get(key, 0)
+                                 if cutoff is None or index["forgotten_sessions"].get(key, 0) <= cutoff else 0)}
+    cycles = {key for key, timestamp in cycle_times.items() if cutoff is None or timestamp <= cutoff}
     return sessions, cycles
+
+
+def reviewed_ids(state_root, cutoff=None, lock=True):
+    root = review_root(state_root)
+    lock_path = root / "reviews" / ".lock"
+    review_state = root / "reviews"
+    if lock and review_state.is_dir() and any(review_state.glob("*.json")) and not lock_path.is_file():
+        fail("retained review state is missing its lock")
+    if lock and lock_path.is_file():
+        with lock_path.open("r", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH)
+            return reviewed_ids_unlocked(root, cutoff)
+    return reviewed_ids_unlocked(root, cutoff)
+
+
+def update_review_index(root, sessions=(), cycles=(), timestamp=None):
+    value = review_index(root)
+    timestamp = timestamp or int(datetime.now(timezone.utc).timestamp() * 1000)
+    for key in sessions:
+        value["sessions"].setdefault(key, timestamp)
+    for key in cycles:
+        value["cycles"].setdefault(key, timestamp)
+    private_json(root / "reviews" / "reviewed.json", value)
+    return value
+
+
+def prune_review_reports(root):
+    cutoff_ms = int((time.time() - REVIEW_RETENTION_SECONDS) * 1000)
+    reports, malformed_expired = [], []
+    directory = root / "reviews"
+    for path in directory.glob("*.json") if directory.is_dir() else ():
+        if path.name == "reviewed.json":
+            continue
+        try:
+            report, timestamp = read_review_report(path)
+            reports.append((path, report, timestamp))
+        except RuntimeError:
+            if path.stat().st_mtime_ns // 1_000_000 > cutoff_ms:
+                raise
+            malformed_expired.append(path)
+    index = review_index(root)
+    for _, report, timestamp in reports:
+        for key in report.get("session_ids", []):
+            index["sessions"][key] = max(index["sessions"].get(key, 0), timestamp)
+        for key in report.get("cycle_ids", []):
+            index["cycles"][key] = max(index["cycles"].get(key, 0), timestamp)
+    index_path = root / "reviews" / "reviewed.json"
+    if reports or index_path.exists():
+        private_json(index_path, index)
+    removed = 0
+    for path, _, timestamp in reports:
+        if timestamp <= cutoff_ms:
+            path.unlink()
+            removed += 1
+    for path in malformed_expired:
+        path.unlink()
+        removed += 1
+    if removed:
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    return removed
 
 
 def valid_gate_exception(gate):
@@ -1041,54 +1215,74 @@ def valid_gate_exception(gate):
 
 def correlated_cycles(directory, hinted_ids):
     if not directory:
-        return [], None
+        return []
     worktree = Path(directory)
     if not worktree.is_dir():
-        return [], None
+        return []
     common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
     if common_result.returncode:
-        return [], None
+        return []
     common = Path(common_result.stdout.strip())
     if not common.is_absolute():
         common = worktree / common
     records = common.resolve() / "dbsctr/cycles"
     if not records.is_dir():
-        return [], None
+        return []
     matched = []
-    resolved = worktree.resolve()
-    for path in sorted(records.glob("*.json"))[:500]:
+    top_result = git(worktree, "rev-parse", "--show-toplevel", check=False)
+    if top_result.returncode:
+        return []
+    resolved = Path(top_result.stdout.strip()).resolve()
+    for path in sorted(records.glob("*.json")):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             cycle_id = record.get("cycle_id")
-            recorded_path = record.get("worktree", {}).get("path")
-            if cycle_id in hinted_ids or (recorded_path and Path(recorded_path).resolve() == resolved):
+            if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+                fail("Cycle Record contains an invalid cycle ID")
+            source = record.get("source") if isinstance(record.get("source"), dict) else {}
+            recorded_paths = (record.get("worktree", {}).get("path"), source.get("path"))
+            if cycle_id in hinted_ids or any(value and Path(value).resolve() == resolved for value in recorded_paths):
                 matched.append(record)
-        except (OSError, json.JSONDecodeError, RuntimeError):
+        except (OSError, json.JSONDecodeError):
             continue
     if not matched:
-        return [], None
-    states = []
+        return []
+    output = []
     for record in matched:
         gates = record.get("gates", {}).values()
         if any(gate.get("applicability") == "required"
                and gate.get("result") in ("failed", "unavailable")
                and not valid_gate_exception(gate) for gate in gates):
-            states.append("blocked")
+            state = "blocked"
         elif record.get("state") == "completed":
-            states.append("completed")
+            state = "completed"
         elif record.get("state") == "active" and (not record.get("worktree", {}).get("path")
-                                                  or not Path(record["worktree"]["path"]).is_dir()):
-            states.append("abandoned")
+                                                   or not Path(record["worktree"]["path"]).is_dir()):
+            state = "abandoned"
         else:
-            states.append("active")
-    priority = ("blocked", "abandoned", "active", "completed")
-    return sorted({record["cycle_id"] for record in matched}), next(name for name in priority if name in states)
+            state = "active"
+        output.append({"cycle_id": record["cycle_id"], "state": state})
+    return sorted(output, key=lambda item: item["cycle_id"])
+
+
+def review_attention(cycles, timestamp, snapshot):
+    return (["dormant"] if any(item["state"] == "active" for item in cycles)
+            and snapshot - timestamp >= REVIEW_DORMANT_MS else [])
+
+
+def review_priority(item):
+    rank = {"blocked": 0, "abandoned": 1, "completed": 3, "active": 4}
+    values = [rank[cycle["state"]] for cycle in item["cycles"]]
+    if "dormant" in item["attention"]:
+        values.append(2)
+    return min(values, default=5)
 
 
 def review_scan(args):
     if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
         fail("review scan limit must be 1 through 100 and cursor non-negative")
     current_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    continuation = args.snapshot is not None
     snapshot = current_ms if args.snapshot is None else args.snapshot
     if not isinstance(snapshot, int) or snapshot < REVIEW_START_MS or snapshot > current_ms:
         fail("review scan snapshot must be a valid non-future millisecond cutoff")
@@ -1101,7 +1295,19 @@ def review_scan(args):
         if not {"session", "message", "part"} <= set(tables):
             fail("OpenCode database lacks required session/message/part tables")
         session, message, part = (tables[name] for name in ("session", "message", "part"))
+        session_ceiling = args.session_ceiling
+        part_ceiling = args.part_ceiling
+        if continuation and (session_ceiling is None or part_ceiling is None):
+            fail("review scan continuation requires row ceilings")
+        if session_ceiling is None:
+            session_ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid), 0) FROM "{session}"').fetchone()[0]
+        if part_ceiling is None:
+            part_ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid), 0) FROM "{part}"').fetchone()[0]
+        if (type(session_ceiling) is not int or not 0 <= session_ceiling <= 2**63 - 1
+                or type(part_ceiling) is not int or not 0 <= part_ceiling <= 2**63 - 1):
+            fail("review scan row ceilings must be non-negative integers")
         sid = sqlite_name(connection, session, ("id",))
+        pid = sqlite_name(connection, part, ("id",))
         parent = sqlite_name(connection, session, ("parentid", "parent")) if any(
             row[1].lower().replace("_", "") in ("parentid", "parent") for row in connection.execute(f"PRAGMA table_info({session})")
         ) else None
@@ -1116,6 +1322,15 @@ def review_scan(args):
         pmessage = sqlite_name(connection, part, ("messageid",))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
         part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        identity = hashlib.sha256()
+        for marker, value in connection.execute(
+                f'SELECT \'s\', "{sid}" FROM "{session}" WHERE "{created}" BETWEEN ? AND ? '
+                f'UNION ALL SELECT \'p\', "{pid}" FROM "{part}" WHERE "{part_time}" BETWEEN ? AND ? '
+                f'ORDER BY 1, 2', (REVIEW_START_MS, snapshot, REVIEW_START_MS, snapshot)):
+            identity.update(f"{marker}\0{value}\0".encode())
+        database_digest = identity.hexdigest()
+        if continuation and args.database_digest != database_digest:
+            fail("OpenCode database changed within the review snapshot")
         for table, column in ((session, created), (part, part_time)):
             invalid = connection.execute(
                 f'SELECT 1 FROM "{table}" WHERE "{column}" IS NOT NULL '
@@ -1128,19 +1343,23 @@ def review_scan(args):
         directory_value = f's."{directory}"' if directory else "NULL"
         agent_value = f's."{agent}"' if agent else "''"
         children = (f'(SELECT group_concat(c."{sid}", ",") FROM "{session}" c '
-                    f'WHERE c."{parent}"=content.session_id AND c."{created}" <= ?)') if parent else "NULL"
-        time_filter = f'(typeof(s."{created}") = \'integer\' AND s."{created}" BETWEEN ? AND ?)'
+                    f'WHERE c."{parent}"=content.session_id AND c."{created}" <= ? AND c.rowid <= ?)') if parent else "NULL"
+        time_filter = f'(typeof(s."{created}") = \'integer\' AND s."{created}" BETWEEN ? AND ? AND s.rowid <= ?)'
         part_order = f'p."{part_time}" DESC'
         part_source = (f'SELECT substr(p."{pbody}", 1, 2048) body FROM "{message}" m '
                        f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
-                       f'AND p."{part_time}" <= ?')
+                       f'AND p."{part_time}" <= ? AND p.rowid <= ?')
         body = (f'(SELECT group_concat(body, "\\n") FROM ('
                 f'SELECT body FROM ({part_source} ORDER BY {part_order.replace(" DESC", " ASC")} LIMIT 16) '
-                f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
+                 f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
+        last_activity = (f'MAX({created_value}, COALESCE((SELECT MAX(p."{part_time}") FROM "{message}" m '
+                         f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
+                         f'AND p."{part_time}" <= ? AND p.rowid <= ?), {created_value}))')
         query = f"""
             WITH RECURSIVE content AS (
                 SELECT s."{sid}" session_id, {parent_value} parent_id,
-                       {created_value} created_at, {directory_value} directory,
+                       {created_value} created_at, {last_activity} last_activity,
+                       {directory_value} directory,
                        {agent_value} agent, COALESCE({body}, '') body
                 FROM "{session}" s
                 WHERE {time_filter}
@@ -1157,23 +1376,30 @@ def review_scan(args):
                 SELECT session_id FROM seeds
                 UNION SELECT edges.target FROM edges JOIN expanded ON edges.source=expanded.session_id
             )
-            SELECT content.session_id, content.parent_id, content.created_at,
+            SELECT content.session_id, content.parent_id, content.created_at, content.last_activity,
                    {children}, content.body, content.directory
             FROM content JOIN expanded ON expanded.session_id=content.session_id
-            ORDER BY content.created_at, content.session_id LIMIT ? OFFSET ?
+            ORDER BY content.created_at, content.session_id
         """
-        parameters = (snapshot, snapshot, REVIEW_START_MS, snapshot,
-                      *((snapshot,) if parent else ()), args.limit + 1, args.cursor)
+        parameters = (snapshot, part_ceiling, snapshot, part_ceiling, snapshot, part_ceiling,
+                      REVIEW_START_MS, snapshot, session_ceiling,
+                      *((snapshot, session_ceiling) if parent else ()))
         rows = connection.execute(query, parameters).fetchall()
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
     finally:
         if 'connection' in locals():
             connection.close()
-    reviewed_sessions, _ = reviewed_ids(args.state_root)
-    candidates = []
-    for session_id, parent_id, timestamp, child_ids, text, directory in rows[:args.limit]:
+    reviewed_sessions, _ = reviewed_ids(args.state_root, snapshot if continuation else None,
+                                         lock=not getattr(args, "lock_held", False))
+    eligible = []
+    for session_id, parent_id, timestamp, last_activity, child_ids, text, directory in rows:
         session_id = str(session_id)
+        parent_id = str(parent_id) if parent_id else None
+        children_values = sorted(str(child_ids).split(","))[:16] if child_ids else []
+        if (not OPAQUE_ID.fullmatch(session_id) or parent_id is not None and not OPAQUE_ID.fullmatch(parent_id)
+                or not all(OPAQUE_ID.fullmatch(value) for value in children_values)):
+            fail("OpenCode session metadata contains an invalid opaque ID")
         if session_id in reviewed_sessions:
             continue
         text = str(text or "")[:65536]
@@ -1181,28 +1407,33 @@ def review_scan(args):
         cycle_ids.update(re.findall(r'["\']cycle_id["\']\s*:\s*["\']([A-Za-z0-9._-]+)', text))
         cycle_ids.update(re.findall(r"--cycle-id(?:\\?\"|\s)+([A-Za-z0-9._-]+)", text))
         cycle_ids.difference_update({"ID", "PATH", "CYCLE_ID"})
-        correlated, authoritative_state = correlated_cycles(directory, cycle_ids)
-        cycle_ids.update(correlated)
-        cycle_ids = sorted(cycle_ids)
-        cycle_ids = list(cycle_ids)[:8]
-        candidates.append({"session_id": session_id, "parent_session_id": str(parent_id) if parent_id else None,
-                           "child_session_ids": sorted(str(child_ids).split(","))[:16] if child_ids else [],
-                           "timestamp": str(timestamp)[:64] if timestamp is not None else None,
-                           "cycle_ids": cycle_ids, "state": authoritative_state or "unknown",
-                           "state_source": "cycle_record" if authoritative_state else "unavailable"})
+        cycles = correlated_cycles(directory, cycle_ids)
+        attention = review_attention(cycles, last_activity, snapshot)
+        eligible.append({"session_id": session_id, "parent_session_id": parent_id,
+                         "child_session_ids": children_values,
+                          "timestamp": str(timestamp)[:64] if timestamp is not None else None,
+                          "last_activity": str(last_activity)[:64] if last_activity is not None else None,
+                         "cycles": cycles, "attention": attention})
+    candidates = eligible[args.cursor:args.cursor + args.limit]
+    candidates.sort(key=lambda item: (review_priority(item), item["timestamp"] or "", item["session_id"]))
     session_ids = [item["session_id"] for item in candidates]
-    cycle_ids = sorted({value for item in candidates for value in item["cycle_ids"]})
-    result = {"schema_version": 1, "candidates": candidates, "scorecard": {
-        "active": sum(item["state"] == "active" for item in candidates),
-        "blocked": sum(item["state"] == "blocked" for item in candidates),
-        "abandoned": sum(item["state"] == "abandoned" for item in candidates),
-        "dormant": sum(item["state"] == "dormant" for item in candidates),
-        "completed": sum(item["state"] == "completed" for item in candidates),
-        "unknown": sum(item["state"] == "unknown" for item in candidates)},
-        "session_ids": session_ids, "cycle_ids": cycle_ids, "digest": review_digest(candidates, snapshot),
+    cycle_ids = sorted({cycle["cycle_id"] for item in candidates for cycle in item["cycles"]})
+    states = [cycle["state"] for item in candidates for cycle in item["cycles"]]
+    result = {"schema_version": 2, "candidates": candidates, "scorecard": {
+        "active": states.count("active"), "blocked": states.count("blocked"),
+        "abandoned": states.count("abandoned"),
+        "dormant": sum("dormant" in item["attention"] for item in candidates),
+        "completed": states.count("completed"),
+        "unknown": sum(not item["cycles"] for item in candidates)},
+        "session_ids": session_ids, "cycle_ids": cycle_ids,
+        "digest": review_digest(candidates, snapshot, session_ceiling, part_ceiling, database_digest),
         "limit": args.limit, "cursor": args.cursor, "snapshot": snapshot,
-        "continuation": {"cursor": args.cursor + args.limit, "snapshot": snapshot}
-        if len(rows) > args.limit else None}
+        "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
+        "database_digest": database_digest,
+        "continuation": {"cursor": args.cursor + args.limit, "snapshot": snapshot,
+                         "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
+                         "database_digest": database_digest}
+        if len(eligible) > args.cursor + args.limit else None}
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode()) > REVIEW_SCAN_HARD:
         fail("review scan response exceeds bound")
@@ -1220,7 +1451,8 @@ def command_review_complete(args):
     except (OSError, json.JSONDecodeError) as error:
         fail(f"cannot read review report: {error}")
     text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
-    allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "limit", "cursor", "decision", "notes", *text_fields}
+    allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+               "limit", "cursor", "decision", "notes", *text_fields}
     if not isinstance(report, dict) or set(report) - allowed:
         fail("review report has an invalid schema")
     sessions, cycles = report.get("session_ids"), report.get("cycle_ids", [])
@@ -1239,8 +1471,13 @@ def command_review_complete(args):
     digest = report.get("scan_digest")
     if not isinstance(digest, str) or args.scan_digest != digest:
         fail("review report does not match scan digest")
-    if (not isinstance(report.get("snapshot"), int) or not isinstance(report.get("limit"), int)
-            or not isinstance(report.get("cursor"), int)):
+    if (type(report.get("snapshot")) is not int or type(report.get("session_ceiling")) is not int
+            or type(report.get("part_ceiling")) is not int or type(report.get("limit")) is not int
+            or type(report.get("cursor")) is not int or not 1 <= report["limit"] <= REVIEW_MAX_LIMIT
+            or report["cursor"] < 0 or not 0 <= report["session_ceiling"] <= 2**63 - 1
+            or not 0 <= report["part_ceiling"] <= 2**63 - 1
+            or not isinstance(report.get("database_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", report["database_digest"])):
         fail("review report requires its scan snapshot, limit, and cursor")
     for name in text_fields:
         values = report.get(name, [])
@@ -1253,20 +1490,59 @@ def command_review_complete(args):
     if review_unsafe(" ".join(human_text)):
         fail("review report contains unsafe content")
     root = review_root(args.state_root)
+    require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        pruned = prune_review_reports(root)
+        current_sessions, _ = reviewed_ids(args.state_root, lock=False)
+        if current_sessions.intersection(sessions):
+            fail("review page was already completed")
         expected = review_scan(argparse.Namespace(
             database=args.database, state_root=args.state_root,
             limit=report["limit"], cursor=report["cursor"], snapshot=report["snapshot"],
+            session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
+            database_digest=report["database_digest"],
+            lock_held=True,
         ))
         if (expected["session_ids"] != sessions or expected["cycle_ids"] != cycles
                 or expected["digest"] != digest):
             fail("review report does not match the current scan page")
-        name = hashlib.sha256((digest + "\0" + json.dumps(report, sort_keys=True)).encode()).hexdigest()[:24]
-        target = root / "reviews" / f"{name}.json"
-        if not target.exists():
-            private_json(target, report)
-    print(json.dumps({"digest": digest, "reviewed_sessions": len(sessions), "reviewed_cycles": len(cycles)}, sort_keys=True))
+        forgotten = review_index(root)["forgotten_sessions"]
+        reviewed_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), report["snapshot"] + 1,
+                          *(forgotten.get(value, 0) + 1 for value in sessions))
+        persisted = {**report, "cycle_ids": cycles, "reviewed_at": reviewed_at}
+        name = hashlib.sha256((digest + "\0" + json.dumps(persisted, sort_keys=True)).encode()).hexdigest()[:24]
+        private_json(root / "reviews" / f"{name}.json", persisted)
+    print(json.dumps({"digest": digest, "reviewed_sessions": len(sessions),
+                      "reviewed_cycles": len(cycles), "pruned_reports": pruned}, sort_keys=True))
+
+
+def command_review_prune(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        removed = prune_review_reports(root)
+    print(json.dumps({"pruned_reports": removed}, sort_keys=True))
+
+
+def command_review_forget(args):
+    root = review_root(args.state_root)
+    if not OPAQUE_ID.fullmatch(args.session_id):
+        fail("invalid review forget ID")
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        prune_review_reports(root)
+        value = review_index(root)
+        session_times = [timestamp for _, report, timestamp in review_reports(root)
+                         if args.session_id in report["session_ids"]]
+        session_times.append(value["sessions"].get(args.session_id, 0))
+        removed = args.session_id in reviewed_ids_unlocked(root)[0]
+        value["forgotten_sessions"][args.session_id] = max(
+            int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
+        private_json(root / "reviews" / "reviewed.json", value)
+    print(json.dumps({"forgotten": removed}, sort_keys=True))
 
 
 def command_review(args):
@@ -1840,6 +2116,9 @@ def parser():
     review_scan.add_argument("--limit", required=True, type=int)
     review_scan.add_argument("--cursor", required=True, type=int)
     review_scan.add_argument("--snapshot", type=int)
+    review_scan.add_argument("--session-ceiling", type=int)
+    review_scan.add_argument("--part-ceiling", type=int)
+    review_scan.add_argument("--database-digest")
     review_scan.set_defaults(func=command_review_scan)
     review_complete = commands.add_parser("review-complete")
     report_source = review_complete.add_mutually_exclusive_group(required=True)
@@ -1849,6 +2128,13 @@ def parser():
     review_complete.add_argument("--database")
     review_complete.add_argument("--state-root")
     review_complete.set_defaults(func=command_review_complete)
+    review_prune = commands.add_parser("review-prune")
+    review_prune.add_argument("--state-root")
+    review_prune.set_defaults(func=command_review_prune)
+    review_forget = commands.add_parser("review-forget")
+    review_forget.add_argument("--state-root")
+    review_forget.add_argument("--session-id", required=True)
+    review_forget.set_defaults(func=command_review_forget)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))

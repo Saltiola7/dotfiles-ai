@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.12 complete | — | — |
+| V3.13-1 | Stabilize private review retention and queue semantics | high | active | V3.12-4 | review index, pruning, pagination, per-cycle correlation | V3.12 snapshots and Cycle Records | no | Complete remaining review audit findings without changing lifecycle authority | M | focused tests, private scan, deployment smoke |
 
 ## Completed
 

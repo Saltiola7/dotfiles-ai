@@ -108,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.12")
+        self.assertEqual(record["method_revision"], "3.13")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -1261,19 +1261,25 @@ class DbsctrctlTest(unittest.TestCase):
                               "--limit", "10", "--cursor", "0").stdout)
         self.assertEqual(database.stat().st_mtime_ns, before)
         self.assertEqual(scan["session_ids"], ["session-1", "child-1", "grandchild-1", "long-1"])
-        self.assertEqual(scan["candidates"][0]["state"], "unknown")
-        self.assertEqual(scan["candidates"][0]["state_source"], "unavailable")
+        self.assertEqual(scan["schema_version"], 2)
+        self.assertEqual(scan["candidates"][0]["cycles"], [])
+        self.assertEqual(scan["candidates"][0]["attention"], [])
+        self.assertNotIn("state", scan["candidates"][0])
         self.assertEqual(scan["scorecard"]["unknown"], 4)
         self.assertEqual(sum(scan["scorecard"].values()), len(scan["candidates"]))
+        self.assertEqual(scan["candidates"][-1]["last_activity"], "1784073603039")
         self.assertNotIn(str(Path.home()), json.dumps(scan))
         report = Path(self.temp.name) / "report.json"
         report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
-                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+                                       "database_digest": scan["database_digest"],
                                       "limit": 10, "cursor": 0,
                                       "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
             "--database", str(database), "--state-root", str(state))
-        saved = next((state / "reviews").glob("*.json"))
+        saved = next(path for path in (state / "reviews").glob("*.json") if path.name != "reviewed.json")
+        self.assertGreater(json.loads(saved.read_text())["reviewed_at"], scan["snapshot"])
         self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
         self.assertEqual(saved.parent.stat().st_mode & 0o777, 0o700)
         repeated = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
@@ -1287,14 +1293,27 @@ class DbsctrctlTest(unittest.TestCase):
         page_report.write_text(json.dumps({"session_ids": page_one["session_ids"],
                                            "cycle_ids": page_one["cycle_ids"],
                                            "scan_digest": page_one["digest"], "snapshot": page_one["snapshot"],
+                                           "session_ceiling": page_one["session_ceiling"],
+                                           "part_ceiling": page_one["part_ceiling"],
+                                           "database_digest": page_one["database_digest"],
                                            "limit": 1, "cursor": 0,
                                            "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(page_report), "--scan-digest", page_one["digest"],
             "--database", str(database), "--state-root", str(page_state))
+        stable = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                "--state-root", str(page_state), "--limit", "1", "--cursor", "0",
+                                "--snapshot", str(page_one["snapshot"]),
+                                "--session-ceiling", str(page_one["session_ceiling"]),
+                                "--part-ceiling", str(page_one["part_ceiling"]),
+                                "--database-digest", page_one["database_digest"]).stdout)
+        self.assertEqual(stable, page_one)
         page_two = json.loads(run(self.repo, "review-scan", "--database", str(database),
                                   "--state-root", str(page_state), "--limit", "1", "--cursor", "1",
-                                  "--snapshot", str(page_one["snapshot"])).stdout)
-        self.assertEqual(page_two["cycle_ids"], ["cycle-20260715"])
+                                  "--snapshot", str(page_one["snapshot"]),
+                                  "--session-ceiling", str(page_one["session_ceiling"]),
+                                  "--part-ceiling", str(page_one["part_ceiling"]),
+                                  "--database-digest", page_one["database_digest"]).stdout)
+        self.assertEqual(page_two["cycle_ids"], [])
 
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"
@@ -1315,18 +1334,20 @@ class DbsctrctlTest(unittest.TestCase):
         first = json.loads(run(self.repo, "review-scan", "--database", str(database),
                                "--state-root", str(state), "--limit", "1", "--cursor", "0").stdout)
         connection.execute("insert into session values ('session-new', null, 'DBSCTR new', ?)",
-                           (first["snapshot"] + 1,))
+                           (first["snapshot"],))
         connection.execute("insert into message values ('message-new', 'session-new', ?, '{}')",
-                           (first["snapshot"] + 1,))
+                           (first["snapshot"],))
         connection.execute("insert into part values ('part-new', 'message-new', 'session-new', ?, 'DBSCTR new')",
-                           (first["snapshot"] + 1,))
+                           (first["snapshot"],))
         connection.commit()
         connection.close()
-        second = json.loads(run(self.repo, "review-scan", "--database", str(database),
-                                "--state-root", str(state), "--limit", "10", "--cursor", "1",
-                                "--snapshot", str(first["snapshot"])).stdout)
-        self.assertEqual(second["session_ids"], ["session-2"])
-        self.assertIsNone(second["continuation"])
+        second = run(self.repo, "review-scan", "--database", str(database),
+                     "--state-root", str(state), "--limit", "10", "--cursor", "1",
+                     "--snapshot", str(first["snapshot"]),
+                     "--session-ceiling", str(first["session_ceiling"]),
+                     "--part-ceiling", str(first["part_ceiling"]),
+                     "--database-digest", first["database_digest"], ok=False)
+        self.assertIn("changed within the review snapshot", second.stderr)
 
     def test_review_completion_rejects_changed_candidate_metadata(self):
         database = Path(self.temp.name) / "changed.db"
@@ -1346,7 +1367,9 @@ class DbsctrctlTest(unittest.TestCase):
                               "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
         report = Path(self.temp.name) / "changed-report.json"
         report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
-                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+                                       "database_digest": scan["database_digest"],
                                       "limit": 10, "cursor": 0, "decision": "reviewed"}))
         connection.execute("update session set parent_id = null where id = 'session-2'")
         connection.commit()
@@ -1380,8 +1403,11 @@ class DbsctrctlTest(unittest.TestCase):
         connection.commit()
         connection.close()
         repeated = json.loads(run(self.repo, "review-scan", "--database", str(database),
-                                  "--state-root", str(state), "--limit", "10", "--cursor", "0",
-                                  "--snapshot", str(first["snapshot"])).stdout)
+                                   "--state-root", str(state), "--limit", "10", "--cursor", "0",
+                                   "--snapshot", str(first["snapshot"]),
+                                   "--session-ceiling", str(first["session_ceiling"]),
+                                   "--part-ceiling", str(first["part_ceiling"]),
+                                   "--database-digest", first["database_digest"]).stdout)
         self.assertEqual(repeated, first)
 
     def test_review_rejects_non_millisecond_timestamps(self):
@@ -1418,7 +1444,9 @@ class DbsctrctlTest(unittest.TestCase):
                               "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
         report = Path(self.temp.name) / "race-report.json"
         report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
-                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+                                       "database_digest": scan["database_digest"],
                                       "limit": 10, "cursor": 0, "decision": "reviewed"}))
         lock_path = state / "reviews/.lock"
         lock_path.parent.mkdir(parents=True)
@@ -1433,7 +1461,8 @@ class DbsctrctlTest(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_UN)
             results = [process.communicate(timeout=10) + (process.returncode,) for process in processes]
         self.assertEqual(sorted(result[2] for result in results), [0, 1])
-        self.assertEqual(len(list((state / "reviews").glob("*.json"))), 1)
+        self.assertEqual(len([path for path in (state / "reviews").glob("*.json")
+                              if path.name != "reviewed.json"]), 1)
 
     def test_review_completion_rejection_writes_no_marker(self):
         state = Path(self.temp.name) / "state"
@@ -1475,9 +1504,30 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        cycle_ids, state = module.correlated_cycles(str(self.repo), set())
-        self.assertEqual(cycle_ids, ["cycle-1"])
-        self.assertEqual(state, "active")
+        self.assertEqual(module.correlated_cycles(str(self.repo / "docs"), set()), [
+            {"cycle_id": "cycle-1", "state": "active"},
+        ])
+
+    def test_review_correlation_preserves_multiple_states_and_source_checkout(self):
+        self.start()
+        first = json.loads(self.record_path().read_text())
+        first["worktree"]["path"] = str(Path(self.temp.name) / "removed-worktree")
+        first["source"] = {"path": str(self.repo)}
+        first["gates"]["domain"]["result"] = "failed"
+        self.record_path().write_text(json.dumps(first))
+        second = json.loads(json.dumps(first))
+        second["cycle_id"] = "cycle-2"
+        second["state"] = "completed"
+        second["gates"]["domain"]["result"] = "passed"
+        (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_multi_cycle_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "blocked"},
+            {"cycle_id": "cycle-2", "state": "completed"},
+        ])
 
     def test_review_treats_failed_gate_with_null_exception_as_blocked(self):
         self.start()
@@ -1489,23 +1539,110 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
         record["gates"]["domain"]["exception"] = {"kind": "accepted_risk"}
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
         record["gates"]["domain"]["exception"] = {
             "kind": "accepted_risk", "rationale": "bounded", "owner": "maintainer",
             "review_condition": "next revision", "approved_at": "not-a-time",
         }
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
         record["gates"]["domain"]["exception"]["approved_at"] = "2026-07-15T00:00:00Z"
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "active"))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "active"}])
         record["gates"]["domain"]["applicability"] = "not_applicable"
         record["gates"]["domain"].pop("exception")
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "active"))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "active"}])
+
+    def test_review_prune_keeps_tombstone_until_explicit_forget(self):
+        database = Path(self.temp.name) / "retention.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-retained', null, 'DBSCTR', 1784073600000);
+            insert into message values ('message-retained', 'session-retained', 1784073600000, '{}');
+            insert into part values ('part-retained', 'message-retained', 'session-retained', 1784073600000, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "retention-state"
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                              "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        report = Path(self.temp.name) / "retention-report.json"
+        report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": [],
+                                       "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                       "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+                                       "database_digest": scan["database_digest"],
+                                       "limit": 10, "cursor": 0, "decision": "reviewed"}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
+            "--database", str(database), "--state-root", str(state))
+        saved = next(path for path in (state / "reviews").glob("*.json") if path.name != "reviewed.json")
+        old = time.time() - 2
+        saved_report = json.loads(saved.read_text())
+        saved_report["reviewed_at"] = int(old * 1000)
+        saved.write_text(json.dumps(saved_report))
+        marker = hashlib.sha256((saved_report["scan_digest"] + "\0" + json.dumps(saved_report, sort_keys=True)).encode()).hexdigest()[:24]
+        renamed = saved.with_name(f"{marker}.json")
+        saved.rename(renamed)
+        saved = renamed
+        os.utime(saved, (old, old))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_retention_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        module.REVIEW_RETENTION_SECONDS = 1
+        self.assertEqual(module.prune_review_reports(state), 1)
+        self.assertFalse(saved.exists())
+        self.assertIn("session-retained", json.loads((state / "reviews/reviewed.json").read_text())["sessions"])
+        repeated = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                  "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        self.assertEqual(repeated["session_ids"], [])
+        run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-retained")
+        eligible = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                  "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        self.assertEqual(eligible["session_ids"], ["session-retained"])
+
+    def test_review_priority_and_dormancy_are_presentational(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_review_priority_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        candidates = [
+            {"cycles": [], "attention": []},
+            {"cycles": [{"cycle_id": "active", "state": "active"}], "attention": []},
+            {"cycles": [{"cycle_id": "complete", "state": "completed"}], "attention": []},
+            {"cycles": [{"cycle_id": "dormant", "state": "active"}], "attention": ["dormant"]},
+            {"cycles": [{"cycle_id": "abandoned", "state": "abandoned"}], "attention": []},
+            {"cycles": [{"cycle_id": "blocked", "state": "blocked"}], "attention": []},
+        ]
+        self.assertEqual([module.review_priority(item) for item in reversed(candidates)], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(module.review_priority({
+            "cycles": [{"cycle_id": "blocked", "state": "blocked"},
+                       {"cycle_id": "active", "state": "active"}],
+            "attention": ["dormant"],
+        }), 0)
+        cutoff = 1784073600000
+        active = [{"cycle_id": "active", "state": "active"}]
+        self.assertEqual(module.review_attention(active, cutoff - module.REVIEW_DORMANT_MS, cutoff), ["dormant"])
+        self.assertEqual(module.review_attention(active, cutoff - module.REVIEW_DORMANT_MS + 1, cutoff), [])
+
+    def test_review_malformed_tombstone_fails_closed(self):
+        state = Path(self.temp.name) / "malformed-state"
+        (state / "reviews").mkdir(parents=True)
+        (state / "reviews/reviewed.json").write_text(
+            '{"schema_version":1,"sessions":[],"cycles":{},"forgotten_sessions":{}}')
+        (state / "reviews/.lock").touch()
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_malformed_review_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with self.assertRaisesRegex(RuntimeError, "invalid schema"):
+            module.reviewed_ids(str(state))
 
 
 if __name__ == "__main__":
