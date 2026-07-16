@@ -128,6 +128,12 @@ Given typed cycle begin runs, stable OpenCode tool context records the initiatin
 session and worktree in the Cycle Record. Optional Herdr launch metadata remains
 advisory, uses no-focus launch, and never changes lifecycle state or cleanup.
 
+Given `/dbsctr-review` is asked to inspect history, a separate read-only typed
+tool includes reviewed candidates through bounded composable filters and fixed
+cohort replay. A schema-validated history-save tool has standing authority only
+for sanitized private reports and cohort manifests; it never changes operational
+review markers or repository state and remains denied to Builder subagents.
+
 ## Contracts
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
@@ -144,6 +150,9 @@ advisory, uses no-focus launch, and never changes lifecycle state or cleanup.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.
 - `dbsctr_review` is read-only and allowed; `dbsctr_review_complete` asks before
   writing private operational state and remains denied to Builder subagents.
+- `dbsctr_review_history` is read-only and allowed. `dbsctr_review_history_save`
+  is allowed only for validated private history reports and remains denied to
+  Builder subagents.
 - Skill names visible to OpenCode are unique.
 - Unversioned lifecycle commands load DBSCTR V3; V1 is removed and V2 source is
   archived outside deployed skill paths.

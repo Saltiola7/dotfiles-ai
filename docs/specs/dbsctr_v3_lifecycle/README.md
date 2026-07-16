@@ -568,6 +568,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Safe linear upstream reconciliation for recorded cycle commits |
 | Overrides | Never rebase, cherry-pick, force-push, accept divergence, include unrecorded commits, or modify a dirty source checkout |
 
+### V3.16 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: derives and durably retains private operational aggregates under standing local write authorization |
+| Delivery intent | Deploy the managed helper, review skill, and OpenCode adapters locally after merge validation |
+| Scope | Repeatable historical review, durable sanitized evidence, composable filters, fixed-cohort replay, and versioned rubric reports |
+| Overrides | Preserve the unreviewed inbox and its tombstones; retain no prose, command arguments, paths, URLs, credentials, or raw events |
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -1294,6 +1303,39 @@ module routing without changing Cycle Record schema or public commands.
   evidence; a dirty or missing changed target still blocks.
 - Reconciliation never changes the source checkout. Dirty, missing, changed, or
   diverged primary checkouts remain untouched by post-push synchronization.
+
+### V3.16 Historical Review And Backtesting Contract
+
+- `/dbsctr-review` without a history request remains the operational inbox and
+  excludes reviewed tombstones. Historical mode is a separate read-only surface
+  that includes reviewed candidates without changing inbox markers.
+- Historical mode defaults to the latest 100 eligible sessions and supports
+  snapshot-stable pagination plus composable time, Method Revision, cycle ID,
+  lifecycle state, reviewed status, bounded-context, and project-digest filters.
+  Every continuation binds the same database identity and row ceilings.
+- Historical candidates contain only existing sanitized lifecycle metadata and
+  allowlisted aggregates: completion, approval operation counts when
+  attributable, tool and retry counts, elapsed time, delegation, authoritative
+  token/cost totals when available, correlation quality, Method Revision,
+  bounded context, and a project identity digest. Missing authority is explicit;
+  no aggregate is inferred from prose.
+- Successful operational completion archives the exact sanitized candidate
+  evidence under the private review lock before source-session retention can
+  remove it. A one-time backfill may archive still-available reviewed sessions.
+  The archive never stores transcript prose, command arguments, tool payloads,
+  machine paths, URLs, emails, credentials, or raw events.
+- A historical report binds an immutable cohort manifest, query digest, named
+  rubric and version, and rubric digest. Replaying that run selects the exact
+  archived cohort even when the live database or tombstones later change.
+  Historical reports and evidence remain until explicit forget.
+- Historical report persistence is a schema-validated standing local write to
+  the private review store. It cannot mutate repositories, Cycle Records, gates,
+  operational review tombstones, or external systems. Builder agents remain
+  denied this write.
+- Explicit forget removes the selected session's durable historical evidence
+  and invalidates or removes cohorts and reports that depend on it. Malformed
+  private history state fails closed. Writes are restrictive, locked, atomic,
+  and bounded; historical scans remain read-only.
 
 ## Validation Strategy
 

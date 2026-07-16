@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.15 complete | — | — |
+| V3.16-1 | Add repeatable historical review and backtesting | high | active | V3.13-1,V3.14-1 | helper, review skill, private archive, contracts, tests | OpenCode database, Cycle Records, tombstones | no | Re-evaluate reviewed history under evolving rubrics without raw evidence retention | M | Focused privacy, replay, adapter, deployment, and live-history checks |
 
 ## Completed
 
