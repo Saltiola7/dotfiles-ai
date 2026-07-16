@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-16 — V3.16 Historical Review And Backtesting
+
+- Added a separate read-only historical review surface with latest-100 defaults,
+  composable filters, reviewed-session inclusion, immutable continuation, and
+  report-ID/cursor replay of fixed cohorts under versioned rubrics.
+- Added durable sanitized evidence and atomic report-contained cohort storage,
+  explicit forget cleanup, standing typed local save authority, read-only-agent
+  denial, and no retention of prose, command arguments, paths, URLs, credentials,
+  or raw events. The operational unreviewed inbox and tombstones remain unchanged.
+- Validation: 118 affected tests passed and 1 skipped; Python/Bun checks, rendered
+  config, targeted deployment and idempotence, fresh resolved permissions, live
+  privacy smoke, and independent OpenAI review passed. A representative indexed
+  database with 1,648 sessions and 984,514 parts scanned in 4.92 seconds.
+  Gate Commits: `25fb2b1`, `e61a150`. Gate Exceptions: none. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-15 — V3.15 Linear Final Push Reconciliation
 
 - Allowed an advanced delivery target only when the recorded baseline is its

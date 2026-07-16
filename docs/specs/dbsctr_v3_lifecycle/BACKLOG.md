@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.16-1 | Add repeatable historical review and backtesting | high | active | V3.13-1,V3.14-1 | helper, review skill, private archive, contracts, tests | OpenCode database, Cycle Records, tombstones | no | Re-evaluate reviewed history under evolving rubrics without raw evidence retention | M | Focused privacy, replay, adapter, deployment, and live-history checks |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.16 complete | — | — |
 
 ## Completed
 
@@ -32,5 +32,6 @@ Discovery readiness: complete.
 | V3.13-1 | Stabilize private review retention and queue semantics | 2026-07-15 | `6e072b2` |
 | V3.14-1 | Add structured OpenCode and advisory Herdr correlation | 2026-07-15 | `537c3a2` |
 | V3.15-1 | Reconcile linearly integrated Final Push targets | 2026-07-15 | `bdf7fe8` |
+| V3.16-1 | Add repeatable historical review and backtesting | 2026-07-16 | `25fb2b1`, `e61a150` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.

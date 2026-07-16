@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-16 — V3.16 Historical Review And Backtesting
+
+- Added typed historical scan and atomic report-save tools, fixed-cohort replay,
+  composable filters, immutable scan identity, and standing local save authority
+  while denying the write to read-only and Builder subagents.
+- Validation: 118 affected tests passed and 1 skipped; Bun checks, rendered and
+  resolved config, targeted deployment/idempotence, live history/privacy probes,
+  and independent OpenAI review passed.
+
 ## 2026-07-15 — V3.14 Structured Runtime Correlation
 
 - Typed begin now forwards stable OpenCode tool-context identity. Optional Herdr
