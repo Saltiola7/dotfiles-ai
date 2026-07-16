@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import selectors
@@ -29,9 +30,10 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.15"
+CURRENT_METHOD_REVISION = "3.16"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
+HISTORY_SCAN_HARD = 256 * 1024
 REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
@@ -167,10 +169,41 @@ def review_lock(root):
     return path.open("a+", encoding="utf-8")
 
 
+def history_dir(root, name="", create=False):
+    path = root / "reviews" / "history" / name
+    if create:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(path, 0o700)
+    return path
+
+
+def history_id(value, name="history ID"):
+    if not isinstance(value, str) or not OPAQUE_ID.fullmatch(value):
+        fail(f"invalid {name}")
+    return value
+
+
+def history_digest(value, name="digest"):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        fail(f"invalid history {name}")
+    return value
+
+
 def require_review_lock_safe(root):
     directory = root / "reviews"
-    if directory.is_dir() and any(directory.glob("*.json")) and not (directory / ".lock").is_file():
+    if directory.is_dir() and (any(directory.glob("*.json")) or (directory / "history").exists()) and not (directory / ".lock").is_file():
         fail("retained review state is missing its lock")
+
+
+@contextlib.contextmanager
+def existing_review_lock(root, exclusive=False):
+    path = root / "reviews" / ".lock"
+    if path.is_file():
+        with path.open("r", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            yield
+    else:
+        yield
 
 
 def exclusive_json(path, value):
@@ -1227,40 +1260,52 @@ def valid_gate_exception(gate):
     return approved_at.utcoffset() == timedelta(0)
 
 
-def correlated_cycles(directory, hinted_ids, session_ids=()):
-    record_dirs, resolved = [], None
-    worktree = Path(directory) if directory else None
-    if worktree and worktree.is_dir():
-        common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
-        top_result = git(worktree, "rev-parse", "--show-toplevel", check=False)
-        if not common_result.returncode and not top_result.returncode:
-            common = Path(common_result.stdout.strip())
-            if not common.is_absolute():
-                common = worktree / common
-            record_dirs.append(common.resolve() / "dbsctr/cycles")
-            resolved = Path(top_result.stdout.strip()).resolve()
-    try:
-        current_records = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
-        if current_records not in record_dirs:
-            record_dirs.append(current_records)
-    except RuntimeError:
-        pass
-    matched = []
-    paths = sorted({path for records in record_dirs if records.is_dir() for path in records.glob("*.json")})
-    for path in paths:
+def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None):
+    cache_key = str(directory or "")
+    cached = cache.get(cache_key) if cache is not None else None
+    if cached is None:
+        record_dirs, resolved = [], None
+        worktree = Path(directory) if directory else None
+        if worktree and worktree.is_dir():
+            common_result = git(worktree, "rev-parse", "--git-common-dir", check=False)
+            top_result = git(worktree, "rev-parse", "--show-toplevel", check=False)
+            if not common_result.returncode and not top_result.returncode:
+                common = Path(common_result.stdout.strip())
+                if not common.is_absolute():
+                    common = worktree / common
+                record_dirs.append(common.resolve() / "dbsctr/cycles")
+                resolved = Path(top_result.stdout.strip()).resolve()
         try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-            cycle_id = record.get("cycle_id")
-            if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
-                fail("Cycle Record contains an invalid cycle ID")
-            source = record.get("source") if isinstance(record.get("source"), dict) else {}
-            recorded_paths = (record.get("worktree", {}).get("path"), source.get("path"))
-            runtime_ids = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
-            if (cycle_id in hinted_ids or set(session_ids).intersection(runtime_ids)
-                    or resolved is not None and any(value and Path(value).resolve() == resolved for value in recorded_paths)):
-                matched.append(record)
-        except (OSError, json.JSONDecodeError):
-            continue
+            current_records = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
+            if current_records not in record_dirs:
+                record_dirs.append(current_records)
+        except RuntimeError:
+            pass
+        records = []
+        paths = sorted({path for directory_path in record_dirs if directory_path.is_dir()
+                        for path in directory_path.glob("*.json")})
+        for path in paths:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                cycle_id = record.get("cycle_id")
+                if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+                    fail("Cycle Record contains an invalid cycle ID")
+                records.append(record)
+            except (OSError, json.JSONDecodeError):
+                continue
+        cached = (resolved, records)
+        if cache is not None:
+            cache[cache_key] = cached
+    resolved, records = cached
+    matched = []
+    for record in records:
+        cycle_id = record["cycle_id"]
+        source = record.get("source") if isinstance(record.get("source"), dict) else {}
+        recorded_paths = (record.get("worktree", {}).get("path"), source.get("path"))
+        runtime_ids = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
+        if (cycle_id in hinted_ids or set(session_ids).intersection(runtime_ids)
+                or resolved is not None and any(value and Path(value).resolve() == resolved for value in recorded_paths)):
+            matched.append(record)
     if not matched:
         return []
     output = []
@@ -1307,10 +1352,13 @@ def review_scan(args):
         fail("OpenCode database is missing")
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection.execute("BEGIN")
         tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"session", "message", "part"} <= set(tables):
             fail("OpenCode database lacks required session/message/part tables")
         session, message, part = (tables[name] for name in ("session", "message", "part"))
+        session_columns = {row[1].lower().replace("_", ""): row[1]
+                           for row in connection.execute(f'PRAGMA table_info("{session}")')}
         session_ceiling = args.session_ceiling
         part_ceiling = args.part_ceiling
         if continuation and (session_ceiling is None or part_ceiling is None):
@@ -1338,15 +1386,33 @@ def review_scan(args):
         pmessage = sqlite_name(connection, part, ("messageid",))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
         part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        part_columns = {row[1].lower().replace("_", ""): row[1]
+                        for row in connection.execute(f'PRAGMA table_info("{part}")')}
+        part_updated = part_columns.get("timeupdated")
         identity = hashlib.sha256()
-        for marker, value in connection.execute(
-                f'SELECT \'s\', "{sid}" FROM "{session}" WHERE "{created}" BETWEEN ? AND ? '
-                f'UNION ALL SELECT \'p\', "{pid}" FROM "{part}" WHERE "{part_time}" BETWEEN ? AND ? '
-                f'ORDER BY 1, 2', (REVIEW_START_MS, snapshot, REVIEW_START_MS, snapshot)):
-            identity.update(f"{marker}\0{value}\0".encode())
+        session_identity_columns = [sid, created]
+        for value in (parent, directory, agent, session_columns.get("projectid"), session_columns.get("cost"),
+                      *(session_columns.get(name) for name in (
+                          "tokensinput", "tokensoutput", "tokensreasoning", "tokenscacheread", "tokenscachewrite"
+                      ))):
+            if value and value not in session_identity_columns:
+                session_identity_columns.append(value)
+        selected = ", ".join(f'"{value}"' for value in session_identity_columns)
+        for row in connection.execute(
+                f'SELECT {selected} FROM "{session}" WHERE "{created}" BETWEEN ? AND ? '
+                f'AND rowid <= ? ORDER BY "{sid}"', (REVIEW_START_MS, snapshot, session_ceiling)):
+            identity.update(b"s\0")
+            identity.update(json.dumps(row, sort_keys=True, default=str).encode())
+        part_identity_values = f'"{pbody}"' + (f', "{part_updated}"' if part_updated else '')
+        for row in connection.execute(
+                f'SELECT "{pid}", "{part_time}", {part_identity_values} FROM "{part}" '
+                f'WHERE "{part_time}" BETWEEN ? AND ? AND rowid <= ? ORDER BY "{pid}"',
+                (REVIEW_START_MS, snapshot, part_ceiling)):
+            part_id, part_timestamp, *part_values = row
+            identity.update(f"p\0{part_id}\0{part_timestamp}\0".encode())
+            for part_value in part_values:
+                identity.update(hashlib.sha256(str(part_value).encode()).digest())
         database_digest = identity.hexdigest()
-        if continuation and args.database_digest != database_digest:
-            fail("OpenCode database changed within the review snapshot")
         for table, column in ((session, created), (part, part_time)):
             invalid = connection.execute(
                 f'SELECT 1 FROM "{table}" WHERE "{column}" IS NOT NULL '
@@ -1401,6 +1467,59 @@ def review_scan(args):
                       REVIEW_START_MS, snapshot, session_ceiling,
                       *((snapshot, session_ceiling) if parent else ()))
         rows = connection.execute(query, parameters).fetchall()
+        history_metrics = {}
+        if getattr(args, "history_metrics", False):
+            wanted_sessions = {str(row[0]) for row in rows}
+            project_column = session_columns.get("projectid")
+            cost_column = session_columns.get("cost")
+            token_columns = [session_columns[name] for name in (
+                "tokensinput", "tokensoutput", "tokensreasoning", "tokenscacheread", "tokenscachewrite"
+            ) if name in session_columns]
+            scalar_columns = [value for value in (project_column, cost_column, *token_columns) if value]
+            scalar_values = {}
+            if scalar_columns:
+                selected = ", ".join(f's."{value}"' for value in scalar_columns)
+                scalar_sql = (f'SELECT s."{sid}", {selected} FROM "{session}" s '
+                              f'WHERE {time_filter}')
+                for scalar_row in connection.execute(scalar_sql, (REVIEW_START_MS, snapshot, session_ceiling)):
+                    if str(scalar_row[0]) in wanted_sessions:
+                        scalar_values[str(scalar_row[0])] = dict(zip(scalar_columns, scalar_row[1:]))
+            for session_id in wanted_sessions:
+                scalar = scalar_values.get(session_id, {})
+                project_value = scalar.get(project_column) if project_column else None
+                project_digest = (hashlib.sha256(str(project_value).encode()).hexdigest()
+                                  if isinstance(project_value, str) and project_value else "unavailable")
+                cost = scalar.get(cost_column) if cost_column else None
+                cost_total = (cost if isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                              and math.isfinite(cost) and cost >= 0 else "unavailable")
+                tokens = [scalar.get(name) for name in token_columns]
+                token_total = (sum(tokens) if tokens and all(type(value) is int and value >= 0 for value in tokens)
+                               else "unavailable")
+                history_metrics[session_id] = {
+                    "project_digest": project_digest, "tool_count": "unavailable",
+                    "tool_call_count": "unavailable", "tool_error_count": "unavailable",
+                    "cost_total": cost_total, "token_total": token_total,
+                }
+            tool_case = (f'CASE WHEN json_valid(p."{pbody}") THEN '
+                         f'CASE WHEN json_extract(p."{pbody}", \'$.type\')=\'tool\' THEN 1 ELSE 0 END ELSE 0 END')
+            error_case = (f'CASE WHEN json_valid(p."{pbody}") THEN CASE WHEN '
+                          f'json_extract(p."{pbody}", \'$.type\')=\'tool\' AND '
+                          f'json_extract(p."{pbody}", \'$.state.status\') IN (\'error\',\'failed\') '
+                          f'THEN 1 ELSE 0 END ELSE 0 END')
+            if wanted_sessions:
+                placeholders = ",".join("?" for _ in wanted_sessions)
+                metric_sql = (f'SELECT m."{msession}", SUM({tool_case}), SUM({error_case}) '
+                              f'FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}" '
+                              f'WHERE m."{msession}" IN ({placeholders}) AND p."{part_time}" BETWEEN ? AND ? '
+                              f'AND p.rowid <= ? GROUP BY m."{msession}"')
+                metric_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, part_ceiling)
+                for session_value, tool_calls, tool_errors in connection.execute(metric_sql, metric_args):
+                    session_id = str(session_value)
+                    if session_id in history_metrics:
+                        history_metrics[session_id].update({
+                            "tool_count": int(tool_calls or 0), "tool_call_count": int(tool_calls or 0),
+                            "tool_error_count": int(tool_errors or 0),
+                        })
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
     finally:
@@ -1408,7 +1527,7 @@ def review_scan(args):
             connection.close()
     reviewed_sessions, _ = reviewed_ids(args.state_root, snapshot if continuation else None,
                                          lock=not getattr(args, "lock_held", False))
-    eligible = []
+    eligible, cycle_cache, identity_cache = [], {}, {}
     for session_id, parent_id, timestamp, last_activity, child_ids, text, directory in rows:
         session_id = str(session_id)
         parent_id = str(parent_id) if parent_id else None
@@ -1416,16 +1535,40 @@ def review_scan(args):
         if (not OPAQUE_ID.fullmatch(session_id) or parent_id is not None and not OPAQUE_ID.fullmatch(parent_id)
                 or not all(OPAQUE_ID.fullmatch(value) for value in children_values)):
             fail("OpenCode session metadata contains an invalid opaque ID")
-        if session_id in reviewed_sessions:
+        reviewed = session_id in reviewed_sessions
+        if reviewed and not getattr(args, "include_reviewed", False):
             continue
-        cycles = correlated_cycles(directory, set(), {session_id, *(children_values or []), *([parent_id] if parent_id else [])})
+        related_ids = {session_id, *(children_values or []), *([parent_id] if parent_id else [])}
+        cycles = correlated_cycles(directory, set(), related_ids, cycle_cache)
         attention = review_attention(cycles, last_activity, snapshot)
-        eligible.append({"session_id": session_id, "parent_session_id": parent_id,
+        candidate = {"session_id": session_id, "parent_session_id": parent_id,
                          "child_session_ids": children_values,
                           "timestamp": str(timestamp)[:64] if timestamp is not None else None,
                           "last_activity": str(last_activity)[:64] if last_activity is not None else None,
-                         "cycles": cycles, "attention": attention})
-    candidates = eligible[args.cursor:args.cursor + args.limit]
+                          "cycles": cycles, "attention": attention,
+                           "reviewed_status": "reviewed" if reviewed else "unreviewed"}
+        if getattr(args, "history_metrics", False):
+            metrics = history_metrics.get(session_id, {})
+            candidate["_history_metrics"] = metrics
+            candidate["_history_identity"] = history_identity(
+                cycles, directory, related_ids, metrics.get("project_digest", "unavailable"), identity_cache,
+            )
+        eligible.append(candidate)
+    manifest = []
+    for item in eligible:
+        value = {key: field for key, field in item.items() if not key.startswith("_")}
+        if getattr(args, "bind_history", False):
+            value["history_identity"] = item.get("_history_identity", {})
+            value["history_metrics"] = item.get("_history_metrics", {})
+        manifest.append(value)
+    database_digest = hashlib.sha256(
+        (database_digest + "\0" + json.dumps(manifest, sort_keys=True, separators=(",", ":"))).encode()
+    ).hexdigest()
+    if continuation and args.database_digest != database_digest:
+        fail("OpenCode database changed within the review snapshot")
+    if getattr(args, "include_reviewed", False):
+        eligible.sort(key=lambda item: (item["last_activity"] or "", item["session_id"]), reverse=True)
+    candidates = eligible if getattr(args, "history_all", False) else eligible[args.cursor:args.cursor + args.limit]
     candidates.sort(key=lambda item: (review_priority(item), item["timestamp"] or "", item["session_id"]))
     session_ids = [item["session_id"] for item in candidates]
     cycle_ids = sorted({cycle["cycle_id"] for item in candidates for cycle in item["cycles"]})
@@ -1444,15 +1587,370 @@ def review_scan(args):
         "continuation": {"cursor": args.cursor + args.limit, "snapshot": snapshot,
                          "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
                          "database_digest": database_digest}
-        if len(eligible) > args.cursor + args.limit else None}
+        if not getattr(args, "history_all", False) and len(eligible) > args.cursor + args.limit else None}
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if len(encoded.encode()) > REVIEW_SCAN_HARD:
+    if not getattr(args, "history_metrics", False) and len(encoded.encode()) > REVIEW_SCAN_HARD:
         fail("review scan response exceeds bound")
     return result
 
 
 def command_review_scan(args):
     print(json.dumps(review_scan(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def validate_history_evidence(value):
+    allowed = {"schema_version", "session_id", "completed_at", "method_revision", "context",
+               "project_digest", "cycles", "aggregates", "snapshot", "session_ceiling",
+               "part_ceiling", "database_digest", "reviewed_status"}
+    if (not isinstance(value, dict) or set(value) - allowed or value.get("schema_version") != 1
+            or not isinstance(value.get("completed_at"), str) or not value["completed_at"].isdigit()
+            or int(value["completed_at"]) < REVIEW_START_MS
+            or not isinstance(value.get("method_revision"), str) or (value["method_revision"] != "unavailable" and not re.fullmatch(r"3\.\d+", value["method_revision"]))
+            or not isinstance(value.get("context"), str) or (value["context"] != "unavailable" and not OPAQUE_ID.fullmatch(value["context"]))
+            or not isinstance(value.get("project_digest"), str)
+            or value.get("reviewed_status", "reviewed") not in ("reviewed", "unreviewed")):
+        fail("review history evidence has an invalid schema")
+    history_id(value.get("session_id"), "history session ID")
+    if value["project_digest"] != "unavailable":
+        history_digest(value["project_digest"], "project digest")
+    if not isinstance(value.get("cycles"), list) or len(value["cycles"]) > REVIEW_MAX_LIMIT:
+        fail("review history evidence has an invalid schema")
+    for cycle in value["cycles"]:
+        if (not isinstance(cycle, dict) or set(cycle) != {"cycle_id", "state"}
+                or cycle["state"] not in ("active", "blocked", "abandoned", "completed", "unknown")):
+            fail("review history evidence has an invalid schema")
+        history_id(cycle.get("cycle_id"), "history cycle ID")
+    aggregate_names = {"candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count", "tool_call_count",
+                       "tool_error_count", "approval_count", "retry_count", "cost_total", "token_total",
+                       "cycle_active_count", "cycle_blocked_count", "cycle_abandoned_count", "cycle_completed_count", "cycle_unknown_count"}
+    if not isinstance(value.get("aggregates"), dict) or set(value["aggregates"]) - aggregate_names:
+        fail("review history evidence has an invalid schema")
+    if not all(((isinstance(item, (int, float)) and not isinstance(item, bool)
+                  and math.isfinite(item) and 0 <= item <= 2**63 - 1) or item == "unavailable")
+               for item in value["aggregates"].values()):
+        fail("review history evidence has an invalid schema")
+    for name in ("snapshot", "session_ceiling", "part_ceiling"):
+        if name in value and (type(value[name]) is not int or value[name] < 0):
+            fail("review history evidence has an invalid schema")
+    if "database_digest" in value:
+        history_digest(value["database_digest"], "database digest")
+    return value
+
+
+def read_history_evidence(path):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read review history evidence: {error}")
+    return validate_history_evidence(value)
+
+
+def history_evidence(root):
+    directory = history_dir(root)
+    records = {}
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.json")):
+            record = read_history_evidence(path)
+            if path.name != f"{record['session_id']}.json":
+                fail("review history evidence marker does not match its content")
+            records[record["session_id"]] = record
+    reports = history_dir(root, "reports")
+    if reports.is_dir():
+        for path in sorted(reports.glob("*.json")):
+            for record in history_report(path)["evidence"]:
+                records.setdefault(record["session_id"], record)
+    return list(records.values())
+
+
+def archive_review_candidates(root, scan, mark_reviewed=True):
+    directory = history_dir(root, create=True)
+    for candidate in scan["candidates"]:
+        evidence = candidate_history_evidence(candidate, scan, mark_reviewed)
+        private_json(directory / f"{evidence['session_id']}.json", evidence)
+
+
+def candidate_history_evidence(candidate, scan, mark_reviewed=True):
+    session_id = history_id(candidate["session_id"], "history session ID")
+    cycles = candidate["cycles"]
+    identity = candidate.get("_history_identity") or history_identity(cycles)
+    return validate_history_evidence({
+        "schema_version": 1, "session_id": session_id,
+        "completed_at": str(candidate["last_activity"]), **identity, "cycles": cycles,
+        "aggregates": history_aggregates(candidate), "snapshot": scan["snapshot"],
+        "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+        "database_digest": scan["database_digest"],
+        "reviewed_status": "reviewed" if mark_reviewed else candidate.get("reviewed_status", "unreviewed"),
+    })
+
+
+def history_aggregates(candidate):
+    states = [item["state"] for item in candidate["cycles"]]
+    created, activity = candidate.get("timestamp"), candidate.get("last_activity")
+    elapsed = int(activity) - int(created) if str(created).isdigit() and str(activity).isdigit() else "unavailable"
+    structural = candidate.get("_history_metrics") if isinstance(candidate.get("_history_metrics"), dict) else {}
+    return {"candidate_count": 1, "cycle_count": len(states), "child_count": len(candidate.get("child_session_ids", [])),
+            "elapsed_ms": elapsed if isinstance(elapsed, int) and elapsed >= 0 else "unavailable",
+            "tool_count": structural.get("tool_count", "unavailable"),
+            "tool_call_count": structural.get("tool_call_count", "unavailable"),
+            "tool_error_count": structural.get("tool_error_count", "unavailable"),
+            "approval_count": "unavailable", "retry_count": "unavailable",
+            "cost_total": structural.get("cost_total", "unavailable"),
+            "token_total": structural.get("token_total", "unavailable"),
+            **{f"cycle_{state}_count": states.count(state) for state in ("active", "blocked", "abandoned", "completed", "unknown")}}
+
+
+def history_identity(cycles, session_directory=None, session_ids=(), project_digest="unavailable", cache=None):
+    """Use only unambiguous Cycle Record structure; never session prose or paths."""
+    cache_key = (str(session_directory or ""), tuple(item["cycle_id"] for item in cycles))
+    if cache is not None and cache_key in cache:
+        return {**cache[cache_key], "project_digest": project_digest}
+    directories = []
+    worktree = Path(session_directory) if session_directory else None
+    if worktree and worktree.is_dir():
+        result = git(worktree, "rev-parse", "--git-common-dir", check=False)
+        if not result.returncode:
+            directory = Path(result.stdout.strip())
+            directories.append((directory if directory.is_absolute() else worktree / directory).resolve() / "dbsctr/cycles")
+    try:
+        current = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
+        if current not in directories:
+            directories.append(current)
+    except RuntimeError:
+        pass
+    wanted = {item["cycle_id"] for item in cycles}
+    records = []
+    paths = sorted({path for directory in directories if directory.is_dir() for path in directory.glob("*.json")})
+    for path in paths:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+            runtime_ids = value.get("runtime", {}).get("opencode", {}).get("session_ids", [])
+            if value.get("cycle_id") in wanted or set(session_ids).intersection(runtime_ids):
+                records.append(value)
+        except (OSError, json.JSONDecodeError):
+            continue
+    def same(name, valid):
+        values = {item.get(name) for item in records if valid(item.get(name))}
+        return values.pop() if len(values) == 1 and len(records) == len(wanted) else "unavailable"
+    result = {"method_revision": same("method_revision", lambda value: isinstance(value, str) and re.fullmatch(r"3\.\d+", value)),
+              "context": same("context", lambda value: isinstance(value, str) and OPAQUE_ID.fullmatch(value))}
+    if cache is not None:
+        cache[cache_key] = result
+    return {**result, "project_digest": project_digest}
+
+
+def validate_history_report(value, path=None):
+    text_fields = {"findings", "scorecards", "trends", "proposals", "caveats"}
+    allowed = {"schema_version", "report_id", "cohort", "evidence", "query_digest", "rubric", *text_fields}
+    rubric = value.get("rubric") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or set(value) - allowed or not {"schema_version", "report_id", "cohort", "evidence", "query_digest", "rubric", "findings"} <= set(value) or value.get("schema_version") != 1
+            or not isinstance(value.get("report_id"), str) or not isinstance(value.get("cohort"), list)
+            or not isinstance(value.get("evidence"), list) or len(value["cohort"]) != len(value["evidence"])
+            or len(value["cohort"]) < 1 or len(value["cohort"]) > REVIEW_MAX_LIMIT
+            or not isinstance(rubric, dict) or set(rubric) != {"name", "version", "digest"}
+            or not all(isinstance(rubric.get(name), str) and rubric[name] for name in ("name", "version"))
+            or any(not isinstance(value.get(name, []), list) or len(value.get(name, [])) > 50
+                   for name in text_fields)):
+        fail("review history report has an invalid schema")
+    history_digest(value.get("query_digest"), "query digest")
+    history_digest(rubric.get("digest"), "rubric digest")
+    def valid_text(item, limit):
+        return isinstance(item, str) and 1 <= len(item.encode()) <= limit and not any(ord(char) < 32 or ord(char) == 127 for char in item)
+    if not valid_text(rubric["name"], 256) or not valid_text(rubric["version"], 256) or not all(
+            valid_text(item, 512) for name in text_fields for item in value.get(name, [])):
+        fail("review history report has an invalid schema")
+    if review_unsafe(" ".join([rubric["name"], rubric["version"], *(item for name in text_fields for item in value.get(name, []))])):
+        fail("review history report contains unsafe content")
+    expected = hashlib.sha256(json.dumps({key: value[key] for key in value if key != "report_id"}, sort_keys=True,
+                                         separators=(",", ":")).encode()).hexdigest()[:24]
+    if value["report_id"] != expected or path is not None and path.name != f"{expected}.json":
+        fail("review history report marker does not match its content")
+    ids = [history_id(item, "history cohort ID") for item in value["cohort"]]
+    if len(set(ids)) != len(ids):
+        fail("review history report has duplicate cohort IDs")
+    records = [validate_history_evidence(item) for item in value["evidence"]]
+    if [item["session_id"] for item in records] != ids:
+        fail("review history report evidence does not match its cohort")
+    return value
+
+
+def history_report(path):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"invalid review history report: {error}")
+    return validate_history_report(value, path)
+
+
+def history_reports(root):
+    directory = history_dir(root, "reports")
+    if not directory.is_dir():
+        return []
+    return [history_report(path) for path in sorted(directory.glob("*.json"))]
+
+
+def history_cohorts(root):
+    directory = history_dir(root, "cohorts")
+    if not directory.is_dir():
+        return []
+    return [history_report(path) for path in sorted(directory.glob("*.json"))]
+
+
+def validate_history_report_input(value):
+    text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
+    scan_fields = ("snapshot", "session_ceiling", "part_ceiling", "database_digest")
+    allowed = {"schema_version", "cohort", "query_digest", "rubric", *text_fields, *scan_fields}
+    if (not isinstance(value, dict) or set(value) - allowed
+            or not {"schema_version", "cohort", "query_digest", "rubric", "findings"} <= set(value)
+            or value.get("schema_version") != 1):
+        fail("review history report has an invalid schema")
+    cohort = value["cohort"]
+    if not isinstance(cohort, list) or not 1 <= len(cohort) <= REVIEW_MAX_LIMIT:
+        fail("review history report has an invalid cohort")
+    ids = [history_id(item, "history cohort ID") for item in cohort]
+    if len(set(ids)) != len(ids):
+        fail("review history report has duplicate cohort IDs")
+    history_digest(value.get("query_digest"), "query digest")
+    rubric = value.get("rubric")
+    if not isinstance(rubric, dict) or set(rubric) != {"name", "version", "digest"}:
+        fail("review history report has an invalid schema")
+    history_digest(rubric.get("digest"), "rubric digest")
+    def valid_text(item, limit):
+        return (isinstance(item, str) and 1 <= len(item.encode()) <= limit
+                and not any(ord(char) < 32 or ord(char) == 127 for char in item))
+    if not valid_text(rubric.get("name"), 256) or not valid_text(rubric.get("version"), 256):
+        fail("review history report has an invalid schema")
+    for name in text_fields:
+        items = value.get(name, [])
+        if (not isinstance(items, list) or len(items) > 50
+                or not all(valid_text(item, 512) for item in items)):
+            fail("review history report has an invalid schema")
+    if review_unsafe(" ".join([rubric["name"], rubric["version"],
+                               *(item for name in text_fields for item in value.get(name, []))])):
+        fail("review history report contains unsafe content")
+    present_scan = {name for name in scan_fields if name in value}
+    if present_scan and present_scan != set(scan_fields):
+        fail("review history report has incomplete scan identity")
+    if present_scan:
+        if any(type(value[name]) is not int or value[name] < 0 for name in scan_fields[:3]):
+            fail("review history report has invalid scan identity")
+        history_digest(value["database_digest"], "database digest")
+    return {**value, **{name: value.get(name, []) for name in text_fields}}
+
+
+def command_review_history(args):
+    root = review_root(args.state_root)
+    if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
+        fail("review history limit must be 1 through 100 and cursor non-negative")
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        records = history_evidence(root)
+        reports = history_reports(root)
+        history_cohorts(root)  # Fail closed on malformed retained replay evidence.
+        if args.replay:
+            report = next((item for item in reports if item["report_id"] == args.replay), None)
+            if report is None:
+                fail("review history replay report is missing")
+            records = report["evidence"]
+        elif not args.archive_only:
+            live = review_scan(argparse.Namespace(database=args.database, state_root=args.state_root,
+                               limit=REVIEW_MAX_LIMIT, cursor=0, snapshot=args.snapshot,
+                               session_ceiling=args.session_ceiling, part_ceiling=args.part_ceiling,
+                               database_digest=args.database_digest, lock_held=True,
+                               include_reviewed=True, history_metrics=True, history_all=True, bind_history=True))
+            live_candidates = live["candidates"]
+            live_records = [{"schema_version": 1, "session_id": item["session_id"],
+                            "completed_at": str(item["last_activity"]),
+                            **item.get("_history_identity", history_identity(item["cycles"])),
+                            "cycles": item["cycles"], "aggregates": history_aggregates(item),
+                            "snapshot": live["snapshot"], "session_ceiling": live["session_ceiling"],
+                            "part_ceiling": live["part_ceiling"], "database_digest": live["database_digest"],
+                            "reviewed_status": item["reviewed_status"]} for item in live_candidates]
+            archived = {item["session_id"]: item for item in records}
+            records = [{**archived.get(item["session_id"], {}), **item} for item in live_records]
+            records.extend(item for key, item in archived.items() if key not in {row["session_id"] for row in live_records})
+        for name, value in (("after", args.after), ("before", args.before)):
+            if value is not None and value < REVIEW_START_MS:
+                fail(f"review history {name} must be a valid millisecond cutoff")
+        if args.after is not None and args.before is not None and args.after > args.before:
+            fail("review history after must not exceed before")
+        def include(record):
+            timestamp = int(record["completed_at"])
+            return ((args.after is None or timestamp >= args.after) and (args.before is None or timestamp <= args.before)
+                    and (args.method_revision is None or record["method_revision"] == args.method_revision)
+                    and (args.context is None or record["context"] == args.context)
+                    and (args.project_digest is None or record["project_digest"] == args.project_digest)
+                    and (args.reviewed_status is None or record.get("reviewed_status", "reviewed") == args.reviewed_status)
+                    and (args.cycle_id is None or any(cycle["cycle_id"] == args.cycle_id for cycle in record["cycles"]))
+                    and (args.state is None or any(cycle["state"] == args.state for cycle in record["cycles"])))
+        records = sorted((record for record in records if include(record)),
+                         key=lambda item: (int(item["completed_at"]), item["session_id"]), reverse=True)
+        page = records[args.cursor:args.cursor + args.limit]
+        metadata = ({} if args.replay else live if not args.archive_only else
+                    (page[-1] if page else (records[-1] if records else {})))
+        result = {"schema_version": 1, "candidates": page, "session_ids": [item["session_id"] for item in page],
+                  "limit": args.limit, "cursor": args.cursor,
+                  "continuation": args.cursor + args.limit if len(records) > args.cursor + args.limit else None,
+                  "snapshot": metadata.get("snapshot"), "session_ceiling": metadata.get("session_ceiling"),
+                   "part_ceiling": metadata.get("part_ceiling"), "database_digest": metadata.get("database_digest")}
+        result["digest"] = review_digest(page, result["snapshot"], result["session_ceiling"],
+                                         result["part_ceiling"], result["database_digest"])
+        for name in ("snapshot", "session_ceiling", "part_ceiling", "database_digest"):
+            supplied = getattr(args, name)
+            if args.replay and supplied is not None:
+                fail("review history replay uses its report ID and cursor, not a live snapshot")
+            if supplied is not None and supplied != result[name]:
+                fail("review history replay does not match its immutable snapshot")
+    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode()) > HISTORY_SCAN_HARD:
+        fail("review history response exceeds bound")
+    print(encoded)
+
+
+def command_review_history_save(args):
+    try:
+        report = validate_history_report_input(json.loads(args.report_json, object_pairs_hook=no_duplicate_keys))
+    except json.JSONDecodeError as error:
+        fail(f"cannot read review history report: {error}")
+    root = review_root(args.state_root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        records = {item["session_id"]: item for item in history_evidence(root)}
+        text_fields = {"findings", "scorecards", "trends", "proposals", "caveats"}
+        scan_fields = {"snapshot", "session_ceiling", "part_ceiling", "database_digest"}
+        cohort = report["cohort"]
+        ids = [history_id(item, "history cohort ID") for item in cohort]
+        missing = [item for item in ids if item not in records]
+        if missing:
+            if (any(type(report.get(name)) is not int for name in ("snapshot", "session_ceiling", "part_ceiling"))
+                    or not isinstance(report.get("database_digest"), str)):
+                fail("review history report cohort evidence is unavailable")
+            history_digest(report["database_digest"], "database digest")
+            scan = review_scan(argparse.Namespace(
+                database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT,
+                cursor=0, snapshot=report["snapshot"],
+                session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
+                database_digest=report["database_digest"], lock_held=True,
+                include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
+            ))
+            candidates = scan["candidates"]
+            selected = {item["session_id"]: item for item in candidates if item["session_id"] in missing}
+            if set(selected) != set(missing):
+                fail("review history report cohort evidence is unavailable")
+            archive = {"snapshot": report["snapshot"], "session_ceiling": report["session_ceiling"],
+                       "part_ceiling": report["part_ceiling"], "database_digest": report["database_digest"]}
+            captured = {key: candidate_history_evidence(value, archive, mark_reviewed=False)
+                        for key, value in selected.items()}
+            records.update(captured)
+        else:
+            captured = {}
+        stored = {key: value for key, value in report.items() if key not in scan_fields}
+        stored.update({name: report.get(name, []) for name in text_fields})
+        stored["evidence"] = [records[item] for item in ids]
+        report_id = hashlib.sha256(json.dumps(stored, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        stored["report_id"] = report_id
+        history_report_value = validate_history_report(stored)
+        private_json(history_dir(root, "reports", create=True) / f"{report_id}.json", history_report_value)
+    print(json.dumps({"report_id": report_id}, sort_keys=True))
 
 
 def command_review_complete(args):
@@ -1523,6 +2021,16 @@ def command_review_complete(args):
                           *(forgotten.get(value, 0) + 1 for value in sessions))
         persisted = {**report, "cycle_ids": cycles, "reviewed_at": reviewed_at}
         name = hashlib.sha256((digest + "\0" + json.dumps(persisted, sort_keys=True)).encode()).hexdigest()[:24]
+        archive_scan = review_scan(argparse.Namespace(
+            database=args.database, state_root=args.state_root,
+            limit=report["limit"], cursor=report["cursor"], snapshot=report["snapshot"],
+            session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
+            database_digest=report["database_digest"], lock_held=True,
+            include_reviewed=False, history_metrics=True,
+        ))
+        if archive_scan["session_ids"] != sessions:
+            fail("review history archive does not match the current scan page")
+        archive_review_candidates(root, archive_scan)
         private_json(root / "reviews" / f"{name}.json", persisted)
     print(json.dumps({"digest": digest, "reviewed_sessions": len(sessions),
                       "reviewed_cycles": len(cycles), "pruned_reports": pruned}, sort_keys=True))
@@ -1545,6 +2053,15 @@ def command_review_forget(args):
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         prune_review_reports(root)
+        history_evidence(root)
+        reports = history_reports(root)
+        cohorts = history_cohorts(root)
+        evidence_path = history_dir(root) / f"{args.session_id}.json"
+        evidence_path.unlink(missing_ok=True)
+        dependent = {item["report_id"] for item in reports + cohorts if args.session_id in item["cohort"]}
+        for directory in (history_dir(root, "cohorts"), history_dir(root, "reports")):
+            for report_id in dependent:
+                (directory / f"{report_id}.json").unlink(missing_ok=True)
         value = review_index(root)
         session_times = [timestamp for _, report, timestamp in review_reports(root)
                          if args.session_id in report["session_ids"]]
@@ -2150,6 +2667,31 @@ def parser():
     review_scan.add_argument("--part-ceiling", type=int)
     review_scan.add_argument("--database-digest")
     review_scan.set_defaults(func=command_review_scan)
+    review_history = commands.add_parser("review-history")
+    review_history.add_argument("--database")
+    review_history.add_argument("--archive-only", action="store_true")
+    review_history.add_argument("--state-root")
+    review_history.add_argument("--limit", type=int, default=100, choices=range(1, REVIEW_MAX_LIMIT + 1))
+    review_history.add_argument("--cursor", type=int, default=0)
+    review_history.add_argument("--after", type=int)
+    review_history.add_argument("--before", type=int)
+    review_history.add_argument("--method-revision")
+    review_history.add_argument("--cycle-id")
+    review_history.add_argument("--state", choices=("active", "blocked", "abandoned", "completed", "unknown"))
+    review_history.add_argument("--context")
+    review_history.add_argument("--project-digest")
+    review_history.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
+    review_history.add_argument("--replay")
+    review_history.add_argument("--snapshot", type=int)
+    review_history.add_argument("--session-ceiling", type=int)
+    review_history.add_argument("--part-ceiling", type=int)
+    review_history.add_argument("--database-digest")
+    review_history.set_defaults(func=command_review_history)
+    review_history_save = commands.add_parser("review-history-save")
+    review_history_save.add_argument("--database")
+    review_history_save.add_argument("--state-root")
+    review_history_save.add_argument("--report-json", required=True)
+    review_history_save.set_defaults(func=command_review_history_save)
     review_complete = commands.add_parser("review-complete")
     report_source = review_complete.add_mutually_exclusive_group(required=True)
     report_source.add_argument("--report")

@@ -108,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.15")
+        self.assertEqual(record["method_revision"], "3.16")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -1467,14 +1467,18 @@ class DbsctrctlTest(unittest.TestCase):
         connection.execute("insert into part values ('part-new', 'message-new', 'session-new', ?, 'DBSCTR new')",
                            (first["snapshot"],))
         connection.commit()
+        continuation = ["review-scan", "--database", str(database), "--state-root", str(state),
+                        "--limit", "10", "--cursor", "1", "--snapshot", str(first["snapshot"]),
+                        "--session-ceiling", str(first["session_ceiling"]),
+                        "--part-ceiling", str(first["part_ceiling"]),
+                        "--database-digest", first["database_digest"]]
+        second = json.loads(run(self.repo, *continuation).stdout)
+        self.assertNotIn("session-new", second["session_ids"])
+        connection.execute("update part set data='neutral mutation' where id='part-2'")
+        connection.commit()
         connection.close()
-        second = run(self.repo, "review-scan", "--database", str(database),
-                     "--state-root", str(state), "--limit", "10", "--cursor", "1",
-                     "--snapshot", str(first["snapshot"]),
-                     "--session-ceiling", str(first["session_ceiling"]),
-                     "--part-ceiling", str(first["part_ceiling"]),
-                     "--database-digest", first["database_digest"], ok=False)
-        self.assertIn("changed within the review snapshot", second.stderr)
+        changed = run(self.repo, *continuation, ok=False)
+        self.assertIn("changed within the review snapshot", changed.stderr)
 
     def test_review_completion_rejects_changed_candidate_metadata(self):
         database = Path(self.temp.name) / "changed.db"
@@ -1504,7 +1508,7 @@ class DbsctrctlTest(unittest.TestCase):
         result = run(self.repo, "review-complete", "--report", str(report),
                      "--scan-digest", scan["digest"], "--database", str(database),
                      "--state-root", str(state), ok=False)
-        self.assertIn("current scan page", result.stderr)
+        self.assertIn("changed within the review snapshot", result.stderr)
         self.assertEqual(list((state / "reviews").glob("*.json")), [])
 
     def test_review_snapshot_excludes_later_parts_and_children(self):
@@ -1791,6 +1795,190 @@ class DbsctrctlTest(unittest.TestCase):
         loader.exec_module(module)
         with self.assertRaisesRegex(RuntimeError, "invalid schema"):
             module.reviewed_ids(str(state))
+
+    def test_review_history_includes_reviewed_with_stable_bounded_pagination(self):
+        database = Path(self.temp.name) / "history.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer,
+                                  project_id text, cost real, tokens_input integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        raw_payload = "DBSCTR secret prose /Users/private https://unsafe.invalid"
+        rows = [(f"session-{index:03}", None, "DBSCTR", 1784073600000 + index,
+                 "project-one", 1.25 if index == 100 else 0, 10 if index == 100 else 0)
+                for index in range(101)]
+        connection.executemany("insert into session values (?, ?, ?, ?, ?, ?, ?)", rows)
+        connection.executemany("insert into message values (?, ?, ?, '{}')",
+                               [(f"message-{index:03}", f"session-{index:03}", 1784073600000 + index)
+                                for index in range(101)])
+        connection.executemany("insert into part values (?, ?, ?, ?, ?, ?)",
+                               [(f"part-{index:03}", f"message-{index:03}", f"session-{index:03}",
+                                 1784073600000 + index, 1784073600000 + index, raw_payload) for index in range(101)])
+        connection.execute("update part set data=? where id='part-100'", (json.dumps({
+            "type": "tool", "tool": "bash", "state": {"status": "error", "input": "DBSCTR /Users/private"}
+        }),))
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-state"
+        read_only_state = Path(self.temp.name) / "history-read-only"
+        first_history = json.loads(run(self.repo, "review-history", "--database", str(database),
+                                       "--state-root", str(read_only_state)).stdout)
+        self.assertFalse(read_only_state.exists())
+        self.assertEqual(first_history["session_ids"][0], "session-100")
+        inbox = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+                               "--limit", "100", "--cursor", "0").stdout)
+        report = Path(self.temp.name) / "history-review.json"
+        report.write_text(json.dumps({"session_ids": inbox["session_ids"], "cycle_ids": inbox["cycle_ids"],
+                                      "scan_digest": inbox["digest"], "snapshot": inbox["snapshot"],
+                                      "session_ceiling": inbox["session_ceiling"], "part_ceiling": inbox["part_ceiling"],
+                                      "database_digest": inbox["database_digest"], "limit": 100, "cursor": 0,
+                                      "decision": "reviewed"}))
+        run(self.repo, "review-complete", "--report", str(report), "--scan-digest", inbox["digest"],
+            "--database", str(database), "--state-root", str(state))
+
+        self.assertEqual(json.loads(run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "100", "--cursor", "0").stdout)["session_ids"], ["session-100"])
+        history = json.loads(run(self.repo, "review-history", "--database", str(database),
+                                 "--state-root", str(state)).stdout)
+        self.assertEqual(history["session_ids"], [f"session-{index:03}" for index in range(100, 0, -1)])
+        self.assertEqual(history["limit"], 100)
+        self.assertEqual(history["cursor"], 0)
+        self.assertEqual(history["candidates"][0]["aggregates"]["tool_call_count"], 1)
+        self.assertEqual(history["candidates"][0]["aggregates"]["tool_error_count"], 1)
+        self.assertEqual(history["candidates"][0]["aggregates"]["token_total"], 10)
+        self.assertEqual(history["candidates"][0]["aggregates"]["cost_total"], 1.25)
+        self.assertRegex(history["candidates"][0]["project_digest"], r"^[0-9a-f]{64}$")
+        older = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "100", "--cursor", "100", "--snapshot", str(history["snapshot"]),
+            "--session-ceiling", str(history["session_ceiling"]), "--part-ceiling", str(history["part_ceiling"]),
+            "--database-digest", history["database_digest"],
+        ).stdout)
+        self.assertEqual(older["session_ids"], ["session-000"])
+        backfill = {
+            "schema_version": 1, "cohort": ["session-100"], "query_digest": history["digest"],
+            "rubric": {"name": "history", "version": "1", "digest": "c" * 64},
+            "snapshot": history["snapshot"], "session_ceiling": history["session_ceiling"],
+            "part_ceiling": history["part_ceiling"], "database_digest": history["database_digest"],
+            "findings": ["sanitized"],
+        }
+        run(self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+            "--report-json", json.dumps(backfill))
+        self.assertTrue(any((state / "reviews/history/reports").glob("*.json")))
+        self.assertTrue((state / "reviews/history").is_dir())
+        self.assertEqual((state / "reviews/history").stat().st_mode & 0o777, 0o700)
+        for path in (state / "reviews/history").rglob("*"):
+            if path.is_file():
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertNotIn(raw_payload, path.read_text())
+        bounded = run(self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+                      "--limit", "101", ok=False)
+        self.assertIn("100", bounded.stderr)
+        replay = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--snapshot", str(history["snapshot"]), "--session-ceiling", str(history["session_ceiling"]),
+            "--part-ceiling", str(history["part_ceiling"]), "--database-digest", history["database_digest"],
+        ).stdout)
+        self.assertEqual(replay, history)
+        connection = __import__("sqlite3").connect(database)
+        connection.execute("update part set data=? where id='part-100'", (json.dumps({
+            "type": "tool", "tool": "bash", "state": {"status": "completed", "input": "DBSCTR"}
+        }),))
+        connection.commit()
+        connection.close()
+        changed = run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--snapshot", str(history["snapshot"]), "--session-ceiling", str(history["session_ceiling"]),
+            "--part-ceiling", str(history["part_ceiling"]), "--database-digest", history["database_digest"],
+            ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
+
+    def test_review_history_filters_archives_replays_and_forgets_closed(self):
+        state = Path(self.temp.name) / "history-private"
+        history = state / "reviews/history"
+        history.mkdir(parents=True)
+        raw = "secret prose /Users/private https://unsafe.invalid"
+        evidence = {
+            "schema_version": 1, "session_id": "session-1", "completed_at": "1784073600001",
+            "method_revision": "3.16", "context": "test", "project_digest": "a" * 64,
+            "cycles": [{"cycle_id": "cycle-1", "state": "completed"}],
+            "aggregates": {"tool_count": 2, "retry_count": 0},
+        }
+        (history / "session-1.json").write_text(json.dumps(evidence))
+        report = {
+            "schema_version": 1, "cohort": ["session-1"], "query_digest": "b" * 64,
+            "rubric": {"name": "baseline", "version": "1", "digest": "c" * 64},
+            "findings": ["sanitized"],
+        }
+        self.assertFalse((state / "reviews/reviewed.json").exists())
+        saved = json.loads(run(
+            self.repo, "review-history-save", "--state-root", str(state), "--report-json", json.dumps(report)
+        ).stdout)
+        self.assertFalse((state / "reviews/reviewed.json").exists())
+        result = json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--after", "1784073600000",
+            "--before", "1784073600002", "--method-revision", "3.16", "--cycle-id", "cycle-1",
+            "--state", "completed", "--context", "test", "--project-digest", "a" * 64,
+            "--reviewed-status", "reviewed", "--replay", saved["report_id"],
+        ).stdout)
+        self.assertEqual(result["session_ids"], ["session-1"])
+        serialized = json.dumps(result)
+        self.assertNotIn(raw, serialized)
+        self.assertNotRegex(serialized, r"(?:/Users|https?://)")
+        (history / "session-1.json").unlink()
+        self.assertEqual(json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--replay", saved["report_id"]
+        ).stdout)["session_ids"], ["session-1"])
+        run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-1")
+        self.assertFalse((history / "session-1.json").exists())
+        self.assertFalse(any((history / "reports").glob("*.json")))
+        (history / "cohorts").mkdir(exist_ok=True)
+        (history / "cohorts/bad.json").write_text("not-json")
+        failed = run(self.repo, "review-history", "--state-root", str(state), ok=False)
+        self.assertIn("invalid", failed.stderr.lower())
+
+    def test_review_history_save_rejects_before_private_state_mutation(self):
+        state = Path(self.temp.name) / "invalid-history-save"
+        report = {"schema_version": 1, "cohort": ["session-1"], "query_digest": "b" * 64,
+                  "findings": ["sanitized"]}
+        result = run(self.repo, "review-history-save", "--state-root", str(state),
+                     "--report-json", json.dumps(report), ok=False)
+        self.assertIn("invalid schema", result.stderr)
+        self.assertFalse(state.exists())
+
+    def test_review_history_snapshot_binds_cycle_identity(self):
+        self.start()
+        database = Path(self.temp.name) / "history-cycle.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript(f"""
+            create table session (id text primary key, parent_id text, directory text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-cycle', null, {json.dumps(str(self.repo))}, 1784073600000);
+            insert into message values ('message-cycle', 'session-cycle', 1784073600000, '{{}}');
+            insert into part values ('part-cycle', 'message-cycle', 'session-cycle', 1784073600000, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-cycle-state"
+        first = json.loads(run(self.repo, "review-history", "--database", str(database),
+                               "--state-root", str(state)).stdout)
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.16")
+        record = json.loads(self.record_path().read_text())
+        record["method_revision"] = "3.15"
+        self.record_path().write_text(json.dumps(record))
+        changed = run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--snapshot", str(first["snapshot"]), "--session-ceiling", str(first["session_ceiling"]),
+            "--part-ceiling", str(first["part_ceiling"]), "--database-digest", first["database_digest"],
+            ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
 
 
 if __name__ == "__main__":

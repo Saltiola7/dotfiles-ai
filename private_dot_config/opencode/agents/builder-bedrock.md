@@ -6,6 +6,7 @@ variant: medium
 permission:
   dbsctr_begin: deny
   dbsctr_review_complete: deny
+  dbsctr_review_history_save: deny
   task: deny
   external_directory: deny
   bash:
@@ -18,6 +19,10 @@ permission:
     "*/dbsctrctl review-complete*": deny
     "env *dbsctrctl review-complete*": deny
     "command *dbsctrctl review-complete*": deny
+    "dbsctrctl review-history-save*": deny
+    "*/dbsctrctl review-history-save*": deny
+    "env *dbsctrctl review-history-save*": deny
+    "command *dbsctrctl review-history-save*": deny
     "npm publish*": deny
     "launchctl bootstrap*": deny
     "launchctl bootout*": deny

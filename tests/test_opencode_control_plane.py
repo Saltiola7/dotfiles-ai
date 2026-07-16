@@ -131,6 +131,12 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["*/dbsctrctl review-complete*"] == "ask"
     assert bash["env *dbsctrctl review-complete*"] == "ask"
     assert bash["command *dbsctrctl review-complete*"] == "ask"
+    for command in ("dbsctrctl review-history*", "*/dbsctrctl review-history*",
+                    "env *dbsctrctl review-history*", "command *dbsctrctl review-history*"):
+        assert bash[command] == "allow"
+    for command in ("dbsctrctl review-history-save*", "*/dbsctrctl review-history-save*",
+                    "env *dbsctrctl review-history-save*", "command *dbsctrctl review-history-save*"):
+        assert bash[command] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
@@ -144,6 +150,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_inspect"] == "allow"
     assert config["permission"]["dbsctr_review"] == "allow"
     assert config["permission"]["dbsctr_review_complete"] == "ask"
+    assert config["permission"]["dbsctr_review_history"] == "allow"
+    assert config["permission"]["dbsctr_review_history_save"] == "allow"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
     for command in (
         "git push --force*", "git push -f*", "git *push*--force*", "git push *+*",
@@ -157,12 +165,17 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert "edit: deny" in reviewer
     assert "task: deny" in reviewer
     assert "dbsctr_begin: deny" in reviewer
+    assert "dbsctr_review_history_save: deny" in reviewer
 
     for name in ("build-gpt.md", "build-claude.md"):
         assert "dbsctr_begin: allow" in (OC / "agents" / name).read_text()
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "dbsctr_begin: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_complete: deny" in (OC / "agents" / name).read_text()
+        assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
+    for name in ("reviewer-openai.md", "explore-openai.md", "explore-bedrock.md",
+                 "scout-openai.md", "scout-bedrock.md", "scout.md"):
+        assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
 
 
 def test_dbsctr_tools_and_herdr_config_are_managed():
@@ -173,6 +186,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const inspect = tool({' in tools
     assert 'export const review = tool({' in tools
     assert 'export const review_complete = tool({' in tools
+    assert 'export const review_history = tool({' in tools
+    assert 'export const review_history_save = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
     assert "snapshot: args.snapshot," in tools
@@ -183,6 +198,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "inspect", "--commit"' in runtime
     assert '["dbsctrctl", "review-scan"' in runtime
     assert '"dbsctrctl", "review-complete"' in runtime
+    assert '"dbsctrctl", "review-history"' in runtime
+    assert '"dbsctrctl", "review-history-save"' in runtime
     assert '"herdr", "agent", "start", "opencode"' in runtime
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
@@ -310,6 +327,27 @@ def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
                    text=True, capture_output=True, check=True)
     assert log.read_text().splitlines() == [
         "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>", "<--snapshot>", "<123>",
+    ]
+
+
+def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "history.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@" > "$HISTORY_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewHistory }} from {json.dumps(str(runtime))};'
+        'await reviewHistory({context:"x;touch nope",reviewedStatus:"reviewed",limit:100,cursor:0},process.cwd());'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HISTORY_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "<review-history>", "<--context>", "<x;touch nope>", "<--reviewed-status>", "<reviewed>",
+        "<--limit>", "<100>", "<--cursor>", "<0>",
     ]
 
 

@@ -29,7 +29,7 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.15`. Use the typed `dbsctr_status` tool when available,
+5. Report Method Revision `3.16` (Method Revision `3.15` records remain legacy-compatible). Use the typed `dbsctr_status` tool when available,
    otherwise `dbsctrctl status`, to resume the active Cycle
    Record. For a new write cycle, create an explicit JSON applicability plan
     bound to the committed Engineering Profile, then obtain authorization before `dbsctr_begin`;

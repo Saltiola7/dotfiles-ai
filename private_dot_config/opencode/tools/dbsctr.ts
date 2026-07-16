@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewScan } from "../lib/dbsctr-runtime"
+import { beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -88,6 +88,68 @@ export const review_complete = tool({
       cursor: args.cursor,
       decision: args.decision,
       notes: args.notes,
+      findings: args.findings,
+      scorecards: args.scorecards,
+      trends: args.trends,
+      proposals: args.proposals,
+      caveats: args.caveats,
+    }, context.worktree)
+  },
+})
+
+export const review_history = tool({
+  description: "Read bounded sanitized private DBSCTR review history, or replay an immutable saved cohort.",
+  args: {
+    after: tool.schema.number().int().min(0).optional(),
+    before: tool.schema.number().int().min(0).optional(),
+    methodRevision: tool.schema.string().optional(),
+    cycleId: tool.schema.string().optional(),
+    state: tool.schema.enum(["active", "blocked", "abandoned", "completed", "unknown"]).optional(),
+    context: tool.schema.string().optional(),
+    projectDigest: tool.schema.string().optional(),
+    reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
+    replay: tool.schema.string().optional(),
+    archiveOnly: tool.schema.boolean().optional().default(false),
+    snapshot: tool.schema.number().int().min(0).optional(),
+    sessionCeiling: tool.schema.number().int().min(0).optional(),
+    partCeiling: tool.schema.number().int().min(0).optional(),
+    databaseDigest: tool.schema.string().optional(),
+    limit: tool.schema.number().int().min(1).max(100).optional().default(100),
+    cursor: tool.schema.number().int().min(0).optional().default(0),
+  },
+  async execute(args, context) {
+    return await reviewHistory(args, context.worktree)
+  },
+})
+
+export const review_history_save = tool({
+  description: "Save an immutable, sanitized private review-history cohort under the standing local-write boundary.",
+  args: {
+    cohort: tool.schema.array(tool.schema.string()).min(1).max(100),
+    queryDigest: tool.schema.string(),
+    rubricName: tool.schema.string().max(256),
+    rubricVersion: tool.schema.string().max(256),
+    rubricDigest: tool.schema.string(),
+    snapshot: tool.schema.number().int().min(0).optional(),
+    sessionCeiling: tool.schema.number().int().min(0).optional(),
+    partCeiling: tool.schema.number().int().min(0).optional(),
+    databaseDigest: tool.schema.string().optional(),
+    findings: tool.schema.array(tool.schema.string().max(512)).max(50),
+    scorecards: tool.schema.array(tool.schema.string().max(512)).max(50).optional().default([]),
+    trends: tool.schema.array(tool.schema.string().max(512)).max(50).optional().default([]),
+    proposals: tool.schema.array(tool.schema.string().max(512)).max(50).optional().default([]),
+    caveats: tool.schema.array(tool.schema.string().max(512)).max(50).optional().default([]),
+  },
+  async execute(args, context) {
+    return await reviewHistorySave({
+      schema_version: 1,
+      cohort: args.cohort,
+      query_digest: args.queryDigest,
+      rubric: { name: args.rubricName, version: args.rubricVersion, digest: args.rubricDigest },
+      snapshot: args.snapshot,
+      session_ceiling: args.sessionCeiling,
+      part_ceiling: args.partCeiling,
+      database_digest: args.databaseDigest,
       findings: args.findings,
       scorecards: args.scorecards,
       trends: args.trends,

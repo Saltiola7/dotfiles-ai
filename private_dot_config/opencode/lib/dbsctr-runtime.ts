@@ -68,6 +68,56 @@ export async function reviewComplete(report: {
   ], cwd)
 }
 
+export async function reviewHistory(args: {
+  after?: number
+  before?: number
+  methodRevision?: string
+  cycleId?: string
+  state?: "active" | "blocked" | "abandoned" | "completed" | "unknown"
+  context?: string
+  projectDigest?: string
+  reviewedStatus?: "reviewed" | "unreviewed"
+  replay?: string
+  archiveOnly?: boolean
+  snapshot?: number
+  sessionCeiling?: number
+  partCeiling?: number
+  databaseDigest?: string
+  limit?: number
+  cursor?: number
+}, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "review-history"]
+  const names: Record<string, string> = {
+    methodRevision: "method-revision", cycleId: "cycle-id", projectDigest: "project-digest",
+    reviewedStatus: "reviewed-status", sessionCeiling: "session-ceiling", partCeiling: "part-ceiling",
+    databaseDigest: "database-digest",
+    archiveOnly: "archive-only",
+  }
+  for (const [name, value] of Object.entries(args)) {
+    if (value === true) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`)
+    else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`, String(value))
+  }
+  return await run(argv, cwd)
+}
+
+export async function reviewHistorySave(report: {
+  schema_version: 1
+  cohort: string[]
+  query_digest: string
+  rubric: { name: string; version: string; digest: string }
+  snapshot?: number
+  session_ceiling?: number
+  part_ceiling?: number
+  database_digest?: string
+  findings: string[]
+  scorecards?: string[]
+  trends?: string[]
+  proposals?: string[]
+  caveats?: string[]
+}, cwd = process.cwd()) {
+  return await run(["dbsctrctl", "review-history-save", "--report-json", JSON.stringify(report)], cwd)
+}
+
 export async function beginCycle(args: {
   cycleId: string
   context: string
