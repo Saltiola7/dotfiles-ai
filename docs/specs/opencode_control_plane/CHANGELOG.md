@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-15 — V3.14 Structured Runtime Correlation
+
+- Typed begin now forwards stable OpenCode tool-context identity. Optional Herdr
+  launch uses no-focus and returns advisory structured metadata without another
+  helper mutation.
+- Validation: 108 affected tests passed and 1 skipped; Bun build, resolved config,
+  targeted deployment, idempotence, and structured runtime fixtures passed.
+
 ## 2026-07-15 — V3.13 Review Queue And Retention
 
 - Propagated immutable session/part ceilings and database identity through the

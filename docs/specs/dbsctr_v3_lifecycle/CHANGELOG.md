@@ -1,5 +1,18 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-15 — V3.14 Structured Runtime Correlation
+
+- Bound authorized cycle begin to stable OpenCode session, directory, and
+  worktree context; review correlation now uses structured session adjacency and
+  repository identity without transcript-derived cycle IDs.
+- Changed optional Herdr launch to no-focus and returned validated v8 terminal
+  and OpenCode session IDs as advisory handoff metadata without another Cycle
+  Record mutation or any cleanup authority.
+- Validation: 108 affected tests passed and 1 skipped; Python compilation, Bun
+  build, diff check, targeted deployment, idempotence, resolved OpenCode config,
+  structured Herdr fixture, and independent security review passed. Gate Commit:
+  `537c3a2`. Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-15 — V3.13 Review Queue And Retention
 
 - Added 90-day detailed-report retention with durable reviewed-session

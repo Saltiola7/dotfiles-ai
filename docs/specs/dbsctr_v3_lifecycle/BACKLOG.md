@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.14-1 | Add structured OpenCode and advisory Herdr correlation | high | active | V3.13-1 | Cycle Record runtime metadata, typed begin adapter, review correlation | OpenCode tool context and Herdr v8 metadata | no | Remove transcript heuristics without changing lifecycle authority | M | focused tests, live runtime smoke |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.14 complete | — | — |
 
 ## Completed
 
@@ -30,5 +30,6 @@ Discovery readiness: complete.
 | V3.11-1–V3.11-4 | Add private lifecycle review and delivery hygiene | 2026-07-15 | `f2eb3f1` |
 | V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | 2026-07-15 | `e04aa78` |
 | V3.13-1 | Stabilize private review retention and queue semantics | 2026-07-15 | `6e072b2` |
+| V3.14-1 | Add structured OpenCode and advisory Herdr correlation | 2026-07-15 | `537c3a2` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.
