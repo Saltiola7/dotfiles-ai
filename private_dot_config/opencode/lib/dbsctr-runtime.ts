@@ -35,14 +35,17 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
-export async function reviewScan(limit = 25, cursor = 0, cwd = process.cwd()) {
-  return await run(["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)], cwd)
+export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)]
+  if (snapshot !== undefined) argv.push("--snapshot", String(snapshot))
+  return await run(argv, cwd)
 }
 
 export async function reviewComplete(report: {
   session_ids: string[]
   cycle_ids: string[]
   scan_digest: string
+  snapshot: number
   limit: number
   cursor: number
   decision: string

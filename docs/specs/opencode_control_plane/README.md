@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** V3.11 DBSCTR review integration implemented
+**Status:** V3.12 DBSCTR review correctness in progress
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -113,6 +113,11 @@ Given `/dbsctr-review` runs under any selected primary, it loads the unversioned
 review skill and uses a read-only typed scan. Persisting the sanitized private
 report asks through a separate typed completion permission. The completion tool
 writes only DBSCTR operational review state and grants no repository mutation.
+
+Given a review spans pages, when the first page captures a snapshot, then typed
+continuations and completion preserve that snapshot and reject changed sanitized
+candidate metadata. Session prose without structured lifecycle authority reports
+`unknown` rather than a guessed terminal state.
 
 ## Contracts
 

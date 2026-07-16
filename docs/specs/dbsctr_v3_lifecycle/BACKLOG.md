@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.11 complete | — | — |
+| V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | high | doing | V3.11-1–V3.11-4 | review contract, helper, typed adapters, tests | OpenCode metadata, Cycle Records | no | Prevent mutable pages, stale completion, and false blockers | M | focused tests, real scan, deployment |
 
 ## Completed
 

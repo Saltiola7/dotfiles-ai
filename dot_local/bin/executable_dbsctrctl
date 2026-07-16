@@ -28,7 +28,7 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.11"
+CURRENT_METHOD_REVISION = "3.12"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 REVIEW_MAX_LIMIT = 100
@@ -145,8 +145,8 @@ def review_unsafe(value):
             re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text))
 
 
-def review_digest(session_ids, cycle_ids):
-    return hashlib.sha256(json.dumps({"cycle_ids": sorted(cycle_ids), "session_ids": sorted(session_ids)},
+def review_digest(candidates, snapshot):
+    return hashlib.sha256(json.dumps({"candidates": candidates, "snapshot": snapshot},
                                      separators=(",", ":"), sort_keys=True).encode()).hexdigest()
 
 
@@ -1025,18 +1025,18 @@ def reviewed_ids(state_root):
     return sessions, cycles
 
 
-def cycle_state(text):
-    lower = text.lower()
-    # Priority is deliberate: an explicit blocker outranks every terminal-looking word.
-    if any(word in lower for word in ("blocked", "blocker", "cannot proceed")):
-        return "blocked"
-    if any(word in lower for word in ("abandoned", "cancelled", "canceled")):
-        return "abandoned"
-    if any(word in lower for word in ("dormant", "paused", "inactive")):
-        return "dormant"
-    if any(word in lower for word in ("completed", "final push", "pushed")):
-        return "completed"
-    return "active"
+def valid_gate_exception(gate):
+    exception = gate.get("exception")
+    if (not isinstance(exception, dict)
+            or exception.get("kind") not in ("deferred", "accepted_risk")
+            or not all(isinstance(exception.get(name), str) and exception[name].strip()
+                       for name in ("rationale", "owner", "review_condition", "approved_at"))):
+        return False
+    try:
+        approved_at = datetime.fromisoformat(exception["approved_at"].replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return approved_at.utcoffset() == timedelta(0)
 
 
 def correlated_cycles(directory, hinted_ids):
@@ -1070,7 +1070,9 @@ def correlated_cycles(directory, hinted_ids):
     states = []
     for record in matched:
         gates = record.get("gates", {}).values()
-        if any(gate.get("result") in ("failed", "unavailable") and "exception" not in gate for gate in gates):
+        if any(gate.get("applicability") == "required"
+               and gate.get("result") in ("failed", "unavailable")
+               and not valid_gate_exception(gate) for gate in gates):
             states.append("blocked")
         elif record.get("state") == "completed":
             states.append("completed")
@@ -1086,6 +1088,10 @@ def correlated_cycles(directory, hinted_ids):
 def review_scan(args):
     if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
         fail("review scan limit must be 1 through 100 and cursor non-negative")
+    current_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    snapshot = current_ms if args.snapshot is None else args.snapshot
+    if not isinstance(snapshot, int) or snapshot < REVIEW_START_MS or snapshot > current_ms:
+        fail("review scan snapshot must be a valid non-future millisecond cutoff")
     database = Path(args.database).expanduser() if args.database else Path.home() / ".local/share/opencode/opencode.db"
     if not database.is_file():
         fail("OpenCode database is missing")
@@ -1099,12 +1105,7 @@ def review_scan(args):
         parent = sqlite_name(connection, session, ("parentid", "parent")) if any(
             row[1].lower().replace("_", "") in ("parentid", "parent") for row in connection.execute(f"PRAGMA table_info({session})")
         ) else None
-        created = sqlite_name(connection, session, ("timecreated", "createdat", "time", "timestamp")) if any(
-            row[1].lower().replace("_", "") in ("timecreated", "createdat", "time", "timestamp") for row in connection.execute(f"PRAGMA table_info({session})")
-        ) else None
-        title = sqlite_name(connection, session, ("title",)) if any(
-            row[1].lower().replace("_", "") == "title" for row in connection.execute(f"PRAGMA table_info({session})")
-        ) else None
+        created = sqlite_name(connection, session, ("timecreated", "createdat", "time", "timestamp"))
         directory = sqlite_name(connection, session, ("directory",)) if any(
             row[1].lower().replace("_", "") == "directory" for row in connection.execute(f"PRAGMA table_info({session})")
         ) else None
@@ -1114,36 +1115,40 @@ def review_scan(args):
         mid, msession = sqlite_name(connection, message, ("id",)), sqlite_name(connection, message, ("sessionid",))
         pmessage = sqlite_name(connection, part, ("messageid",))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
-        part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp")) if any(
-            row[1].lower().replace("_", "") in ("timecreated", "createdat", "time", "timestamp")
-            for row in connection.execute(f"PRAGMA table_info({part})")
-        ) else None
+        part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        for table, column in ((session, created), (part, part_time)):
+            invalid = connection.execute(
+                f'SELECT 1 FROM "{table}" WHERE "{column}" IS NOT NULL '
+                f'AND (typeof("{column}") != \'integer\' OR "{column}" < 100000000000) LIMIT 1'
+            ).fetchone()
+            if invalid:
+                fail(f"OpenCode {table} timestamps must be integer milliseconds")
         parent_value = f's."{parent}"' if parent else "NULL"
-        created_value = f's."{created}"' if created else "NULL"
-        title_value = f's."{title}"' if title else "''"
+        created_value = f's."{created}"'
         directory_value = f's."{directory}"' if directory else "NULL"
         agent_value = f's."{agent}"' if agent else "''"
         children = (f'(SELECT group_concat(c."{sid}", ",") FROM "{session}" c '
-                    f'WHERE c."{parent}"=content.session_id)') if parent else "NULL"
-        time_filter = f'(typeof(s."{created}") != \'integer\' OR s."{created}" >= ?)' if created else "1"
-        part_order = f'p."{part_time}" DESC' if part_time else f'p."{pmessage}" DESC'
+                    f'WHERE c."{parent}"=content.session_id AND c."{created}" <= ?)') if parent else "NULL"
+        time_filter = f'(typeof(s."{created}") = \'integer\' AND s."{created}" BETWEEN ? AND ?)'
+        part_order = f'p."{part_time}" DESC'
         part_source = (f'SELECT substr(p."{pbody}", 1, 2048) body FROM "{message}" m '
-                       f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}"')
+                       f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
+                       f'AND p."{part_time}" <= ?')
         body = (f'(SELECT group_concat(body, "\\n") FROM ('
                 f'SELECT body FROM ({part_source} ORDER BY {part_order.replace(" DESC", " ASC")} LIMIT 16) '
                 f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
         query = f"""
             WITH RECURSIVE content AS (
                 SELECT s."{sid}" session_id, {parent_value} parent_id,
-                       {created_value} created_at, {title_value} title, {directory_value} directory,
+                       {created_value} created_at, {directory_value} directory,
                        {agent_value} agent, COALESCE({body}, '') body
                 FROM "{session}" s
                 WHERE {time_filter}
             ), seeds AS (
                 SELECT session_id FROM content
-                WHERE lower(title || '\\n' || body) LIKE '%dbsctr%'
-                   OR lower(title || '\\n' || body) LIKE '%/discovery%'
-                   OR lower(title || '\\n' || body) LIKE '%/qa%'
+                WHERE lower(body) LIKE '%dbsctr%'
+                   OR lower(body) LIKE '%/discovery%'
+                   OR lower(body) LIKE '%/qa%'
                    OR lower(agent) IN ('reviewer-openai', 'builder-openai', 'builder-bedrock')
             ), edges(source, target) AS (
                 SELECT session_id, parent_id FROM content WHERE parent_id IS NOT NULL
@@ -1157,7 +1162,8 @@ def review_scan(args):
             FROM content JOIN expanded ON expanded.session_id=content.session_id
             ORDER BY content.created_at, content.session_id LIMIT ? OFFSET ?
         """
-        parameters = ((REVIEW_START_MS,) if created else ()) + (args.limit + 1, args.cursor)
+        parameters = (snapshot, snapshot, REVIEW_START_MS, snapshot,
+                      *((snapshot,) if parent else ()), args.limit + 1, args.cursor)
         rows = connection.execute(query, parameters).fetchall()
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
@@ -1180,10 +1186,10 @@ def review_scan(args):
         cycle_ids = sorted(cycle_ids)
         cycle_ids = list(cycle_ids)[:8]
         candidates.append({"session_id": session_id, "parent_session_id": str(parent_id) if parent_id else None,
-                           "child_session_ids": str(child_ids).split(",")[:16] if child_ids else [],
+                           "child_session_ids": sorted(str(child_ids).split(","))[:16] if child_ids else [],
                            "timestamp": str(timestamp)[:64] if timestamp is not None else None,
-                           "cycle_ids": cycle_ids, "state": authoritative_state or cycle_state(text),
-                           "state_source": "cycle_record" if authoritative_state else "session_evidence"})
+                           "cycle_ids": cycle_ids, "state": authoritative_state or "unknown",
+                           "state_source": "cycle_record" if authoritative_state else "unavailable"})
     session_ids = [item["session_id"] for item in candidates]
     cycle_ids = sorted({value for item in candidates for value in item["cycle_ids"]})
     result = {"schema_version": 1, "candidates": candidates, "scorecard": {
@@ -1191,10 +1197,12 @@ def review_scan(args):
         "blocked": sum(item["state"] == "blocked" for item in candidates),
         "abandoned": sum(item["state"] == "abandoned" for item in candidates),
         "dormant": sum(item["state"] == "dormant" for item in candidates),
-        "completed": sum(item["state"] == "completed" for item in candidates)},
-        "session_ids": session_ids, "cycle_ids": cycle_ids, "digest": review_digest(session_ids, cycle_ids),
-        "limit": args.limit, "cursor": args.cursor,
-        "continuation": {"cursor": args.cursor + args.limit} if len(rows) > args.limit else None}
+        "completed": sum(item["state"] == "completed" for item in candidates),
+        "unknown": sum(item["state"] == "unknown" for item in candidates)},
+        "session_ids": session_ids, "cycle_ids": cycle_ids, "digest": review_digest(candidates, snapshot),
+        "limit": args.limit, "cursor": args.cursor, "snapshot": snapshot,
+        "continuation": {"cursor": args.cursor + args.limit, "snapshot": snapshot}
+        if len(rows) > args.limit else None}
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode()) > REVIEW_SCAN_HARD:
         fail("review scan response exceeds bound")
@@ -1212,7 +1220,7 @@ def command_review_complete(args):
     except (OSError, json.JSONDecodeError) as error:
         fail(f"cannot read review report: {error}")
     text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
-    allowed = {"session_ids", "cycle_ids", "scan_digest", "limit", "cursor", "decision", "notes", *text_fields}
+    allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "limit", "cursor", "decision", "notes", *text_fields}
     if not isinstance(report, dict) or set(report) - allowed:
         fail("review report has an invalid schema")
     sessions, cycles = report.get("session_ids"), report.get("cycle_ids", [])
@@ -1228,17 +1236,12 @@ def command_review_complete(args):
         fail("review report has invalid decision")
     if notes is not None and (not isinstance(notes, str) or len(notes.encode()) > 2048):
         fail("review report has invalid notes")
-    digest = review_digest(sessions, cycles)
-    if args.scan_digest != digest or report.get("scan_digest") != digest:
-        fail("review report IDs do not match scan digest")
-    if (not isinstance(report.get("limit"), int) or not isinstance(report.get("cursor"), int)):
-        fail("review report requires its scan limit and cursor")
-    expected = review_scan(argparse.Namespace(
-        database=args.database, state_root=args.state_root,
-        limit=report["limit"], cursor=report["cursor"],
-    ))
-    if expected["session_ids"] != sessions or expected["cycle_ids"] != cycles or expected["digest"] != digest:
-        fail("review report does not match the current scan page")
+    digest = report.get("scan_digest")
+    if not isinstance(digest, str) or args.scan_digest != digest:
+        fail("review report does not match scan digest")
+    if (not isinstance(report.get("snapshot"), int) or not isinstance(report.get("limit"), int)
+            or not isinstance(report.get("cursor"), int)):
+        fail("review report requires its scan snapshot, limit, and cursor")
     for name in text_fields:
         values = report.get(name, [])
         if (not isinstance(values, list) or len(values) > 50
@@ -1252,6 +1255,13 @@ def command_review_complete(args):
     root = review_root(args.state_root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        expected = review_scan(argparse.Namespace(
+            database=args.database, state_root=args.state_root,
+            limit=report["limit"], cursor=report["cursor"], snapshot=report["snapshot"],
+        ))
+        if (expected["session_ids"] != sessions or expected["cycle_ids"] != cycles
+                or expected["digest"] != digest):
+            fail("review report does not match the current scan page")
         name = hashlib.sha256((digest + "\0" + json.dumps(report, sort_keys=True)).encode()).hexdigest()[:24]
         target = root / "reviews" / f"{name}.json"
         if not target.exists():
@@ -1829,6 +1839,7 @@ def parser():
     review_scan.add_argument("--state-root")
     review_scan.add_argument("--limit", required=True, type=int)
     review_scan.add_argument("--cursor", required=True, type=int)
+    review_scan.add_argument("--snapshot", type=int)
     review_scan.set_defaults(func=command_review_scan)
     review_complete = commands.add_parser("review-complete")
     report_source = review_complete.add_mutually_exclusive_group(required=True)

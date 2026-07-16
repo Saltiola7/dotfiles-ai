@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -107,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.11")
+        self.assertEqual(record["method_revision"], "3.12")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -1260,11 +1261,15 @@ class DbsctrctlTest(unittest.TestCase):
                               "--limit", "10", "--cursor", "0").stdout)
         self.assertEqual(database.stat().st_mtime_ns, before)
         self.assertEqual(scan["session_ids"], ["session-1", "child-1", "grandchild-1", "long-1"])
-        self.assertEqual(scan["candidates"][0]["state"], "blocked")
+        self.assertEqual(scan["candidates"][0]["state"], "unknown")
+        self.assertEqual(scan["candidates"][0]["state_source"], "unavailable")
+        self.assertEqual(scan["scorecard"]["unknown"], 4)
+        self.assertEqual(sum(scan["scorecard"].values()), len(scan["candidates"]))
         self.assertNotIn(str(Path.home()), json.dumps(scan))
         report = Path(self.temp.name) / "report.json"
         report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
-                                      "scan_digest": scan["digest"], "limit": 10, "cursor": 0,
+                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                      "limit": 10, "cursor": 0,
                                       "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
             "--database", str(database), "--state-root", str(state))
@@ -1281,13 +1286,154 @@ class DbsctrctlTest(unittest.TestCase):
         page_report = Path(self.temp.name) / "page-report.json"
         page_report.write_text(json.dumps({"session_ids": page_one["session_ids"],
                                            "cycle_ids": page_one["cycle_ids"],
-                                           "scan_digest": page_one["digest"], "limit": 1, "cursor": 0,
+                                           "scan_digest": page_one["digest"], "snapshot": page_one["snapshot"],
+                                           "limit": 1, "cursor": 0,
                                            "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(page_report), "--scan-digest", page_one["digest"],
             "--database", str(database), "--state-root", str(page_state))
         page_two = json.loads(run(self.repo, "review-scan", "--database", str(database),
-                                  "--state-root", str(page_state), "--limit", "1", "--cursor", "1").stdout)
+                                  "--state-root", str(page_state), "--limit", "1", "--cursor", "1",
+                                  "--snapshot", str(page_one["snapshot"])).stdout)
         self.assertEqual(page_two["cycle_ids"], ["cycle-20260715"])
+
+    def test_review_snapshot_excludes_sessions_created_during_pagination(self):
+        database = Path(self.temp.name) / "snapshot.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR one', 1784073600000);
+            insert into session values ('session-2', null, 'DBSCTR two', 1784073601000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into message values ('message-2', 'session-2', 1784073601000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+            insert into part values ('part-2', 'message-2', 'session-2', 1784073601000, 'DBSCTR two');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "snapshot-state"
+        first = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                               "--state-root", str(state), "--limit", "1", "--cursor", "0").stdout)
+        connection.execute("insert into session values ('session-new', null, 'DBSCTR new', ?)",
+                           (first["snapshot"] + 1,))
+        connection.execute("insert into message values ('message-new', 'session-new', ?, '{}')",
+                           (first["snapshot"] + 1,))
+        connection.execute("insert into part values ('part-new', 'message-new', 'session-new', ?, 'DBSCTR new')",
+                           (first["snapshot"] + 1,))
+        connection.commit()
+        connection.close()
+        second = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                "--state-root", str(state), "--limit", "10", "--cursor", "1",
+                                "--snapshot", str(first["snapshot"])).stdout)
+        self.assertEqual(second["session_ids"], ["session-2"])
+        self.assertIsNone(second["continuation"])
+
+    def test_review_completion_rejects_changed_candidate_metadata(self):
+        database = Path(self.temp.name) / "changed.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR one', 1784073600000);
+            insert into session values ('session-2', 'session-1', 'child', 1784073601000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "changed-state"
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                              "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        report = Path(self.temp.name) / "changed-report.json"
+        report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                      "limit": 10, "cursor": 0, "decision": "reviewed"}))
+        connection.execute("update session set parent_id = null where id = 'session-2'")
+        connection.commit()
+        connection.close()
+        result = run(self.repo, "review-complete", "--report", str(report),
+                     "--scan-digest", scan["digest"], "--database", str(database),
+                     "--state-root", str(state), ok=False)
+        self.assertIn("current scan page", result.stderr)
+        self.assertEqual(list((state / "reviews").glob("*.json")), [])
+
+    def test_review_snapshot_excludes_later_parts_and_children(self):
+        database = Path(self.temp.name) / "later-content.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'one', 1784073600000);
+            insert into session values ('session-2', null, 'two', 1784073601000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "later-content-state"
+        first = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                               "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        later = first["snapshot"] + 1
+        connection.execute("insert into message values ('message-2', 'session-2', ?, '{}')", (later,))
+        connection.execute("insert into part values ('part-2', 'message-2', 'session-2', ?, 'DBSCTR two')", (later,))
+        connection.execute("insert into session values ('child-new', 'session-1', 'child', ?)", (later,))
+        connection.commit()
+        connection.close()
+        repeated = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                                  "--state-root", str(state), "--limit", "10", "--cursor", "0",
+                                  "--snapshot", str(first["snapshot"])).stdout)
+        self.assertEqual(repeated, first)
+
+    def test_review_rejects_non_millisecond_timestamps(self):
+        database = Path(self.temp.name) / "bad-time.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created text);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR', '1784073600000');
+        """)
+        connection.commit()
+        connection.close()
+        result = run(self.repo, "review-scan", "--database", str(database),
+                     "--state-root", str(Path(self.temp.name) / "bad-time-state"),
+                     "--limit", "10", "--cursor", "0", ok=False)
+        self.assertIn("integer milliseconds", result.stderr)
+
+    def test_review_completion_serializes_revalidation(self):
+        database = Path(self.temp.name) / "race.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'one', 1784073600000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "race-state"
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                              "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        report = Path(self.temp.name) / "race-report.json"
+        report.write_text(json.dumps({"session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+                                      "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+                                      "limit": 10, "cursor": 0, "decision": "reviewed"}))
+        lock_path = state / "reviews/.lock"
+        lock_path.parent.mkdir(parents=True)
+        with lock_path.open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            command = [sys.executable, str(SCRIPT), "review-complete", "--report", str(report),
+                       "--scan-digest", scan["digest"], "--database", str(database),
+                       "--state-root", str(state)]
+            processes = [subprocess.Popen(command, cwd=self.repo, text=True,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
+            time.sleep(0.2)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            results = [process.communicate(timeout=10) + (process.returncode,) for process in processes]
+        self.assertEqual(sorted(result[2] for result in results), [0, 1])
+        self.assertEqual(len(list((state / "reviews").glob("*.json"))), 1)
 
     def test_review_completion_rejection_writes_no_marker(self):
         state = Path(self.temp.name) / "state"
@@ -1332,6 +1478,34 @@ class DbsctrctlTest(unittest.TestCase):
         cycle_ids, state = module.correlated_cycles(str(self.repo), set())
         self.assertEqual(cycle_ids, ["cycle-1"])
         self.assertEqual(state, "active")
+
+    def test_review_treats_failed_gate_with_null_exception_as_blocked(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        record["gates"]["domain"]["result"] = "failed"
+        record["gates"]["domain"]["exception"] = None
+        self.record_path().write_text(json.dumps(record))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_blocked_cycle_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        record["gates"]["domain"]["exception"] = {"kind": "accepted_risk"}
+        self.record_path().write_text(json.dumps(record))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        record["gates"]["domain"]["exception"] = {
+            "kind": "accepted_risk", "rationale": "bounded", "owner": "maintainer",
+            "review_condition": "next revision", "approved_at": "not-a-time",
+        }
+        self.record_path().write_text(json.dumps(record))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "blocked"))
+        record["gates"]["domain"]["exception"]["approved_at"] = "2026-07-15T00:00:00Z"
+        self.record_path().write_text(json.dumps(record))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "active"))
+        record["gates"]["domain"]["applicability"] = "not_applicable"
+        record["gates"]["domain"].pop("exception")
+        self.record_path().write_text(json.dumps(record))
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), (["cycle-1"], "active"))
 
 
 if __name__ == "__main__":

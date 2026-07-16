@@ -13,11 +13,15 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
 
 ## Scan
 
-1. Call `dbsctr_review` repeatedly until its continuation is empty. Start from
-   V3.3 isolated-worktree adoption and include DBSCTR, Discovery, QA, parent,
-   child, fork, reviewer, and builder sessions selected by the helper.
+1. Call `dbsctr_review` for the first page and retain its `snapshot`. Pass that
+   same snapshot with every continuation until it is empty. Continue when a page
+   has no candidates but still has a continuation. Start from V3.3
+   isolated-worktree adoption and include DBSCTR, Discovery, QA, parent, child,
+   fork, reviewer, and builder sessions selected by the helper.
 2. Prioritize blocked candidates, then abandoned, dormant, active, and completed
-   candidates. Treat inferred state and cross-cycle cost attribution as caveats.
+   candidates. State is `unknown` when the returned state source is unavailable;
+   report it as unknown, never infer it from session prose. Treat cross-cycle
+   cost attribution as a caveat.
 3. Use only returned sanitized metadata. Do not quote, copy, or persist a raw
    transcript or raw transcript excerpt, tool payload, machine path, email
    address, credential, or URL.
@@ -29,10 +33,11 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
 ## Complete
 
 After the full report is successfully formed, call `dbsctr_review_complete` for
-each scan page with that page's exact session IDs, cycle IDs, digest, limit, and
-cursor plus the concise structured findings. Each permission-gated operation
+each scan page with that page's exact session IDs, cycle IDs, digest, snapshot,
+limit, and cursor plus the concise structured findings. Each permission-gated operation
 writes one private review report and review marker. If any completion is denied
 or fails, return the report and identify the pages not marked reviewed.
+Skip completion for pages with no candidate IDs.
 
 Completion is not approval. Every proposed fix requires user approval and a
 separate DBSCTR cycle. Never perform automatic remediation.

@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.11 observability review and delivery hygiene implemented
+**Status:** V3.12 review correctness in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -1176,6 +1176,29 @@ module routing without changing Cycle Record schema or public commands.
   approved DBSCTR cycle.
 - Graphify updates are Project Policy only; graph availability never implies an
   update obligation.
+
+### V3.12 Review Correctness Contract
+
+- The first review page captures an immutable millisecond cutoff. Every
+  continuation and completion carries that cutoff. Sessions, child relations,
+  and message parts created by the review itself cannot enter later pages;
+  mutable pre-cutoff metadata invalidates completion rather than being accepted.
+- A page digest binds the cutoff and complete ordered sanitized candidate
+  metadata, including state, state source, timestamp, cycle correlation, and
+  parent/child relationships. Completion rejects any changed candidate metadata.
+- Cycle Records remain the only authority for `blocked`, `active`, `abandoned`,
+  or `completed` lifecycle state. Session prose and tool text never infer state;
+  candidates without authoritative evidence report `unknown` until a structured
+  OpenCode status adapter exists.
+- A required failed or unavailable gate is blocked unless its Gate Exception is
+  valid and complete. Non-required gates do not block review state. Merely
+  serializing an `exception` key does not dispose the failure.
+- Snapshot validation rejects non-integer, future, negative, or otherwise
+  malformed cutoffs. Required OpenCode timestamps are integer milliseconds or
+  scanning fails closed. The database remains read-only throughout scan and
+  completion revalidation.
+- Completion acquires the private review lock before its fresh scan and holds it
+  through persistence, so concurrent attempts cannot mark one page twice.
 
 ## Validation Strategy
 

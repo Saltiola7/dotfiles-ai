@@ -39,9 +39,10 @@ export const review = tool({
   args: {
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
+    snapshot: tool.schema.number().int().min(0).optional(),
   },
   async execute(args, context) {
-    return await reviewScan(args.limit, args.cursor, context.worktree)
+    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree)
   },
 })
 
@@ -51,6 +52,7 @@ export const review_complete = tool({
     sessionIds: tool.schema.array(tool.schema.string()).min(1).max(100),
     cycleIds: tool.schema.array(tool.schema.string()).max(100),
     scanDigest: tool.schema.string(),
+    snapshot: tool.schema.number().int().min(0),
     limit: tool.schema.number().int().min(1).max(100),
     cursor: tool.schema.number().int().min(0),
     decision: tool.schema.string().max(256),
@@ -72,6 +74,7 @@ export const review_complete = tool({
       session_ids: args.sessionIds,
       cycle_ids: args.cycleIds,
       scan_digest: args.scanDigest,
+      snapshot: args.snapshot,
       limit: args.limit,
       cursor: args.cursor,
       decision: args.decision,

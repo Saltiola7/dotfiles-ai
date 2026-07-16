@@ -173,6 +173,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const inspect = tool({' in tools
     assert 'export const review = tool({' in tools
     assert 'export const review_complete = tool({' in tools
+    assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
+    assert "snapshot: tool.schema.number().int().min(0)," in tools
+    assert "snapshot: args.snapshot," in tools
     assert "default(false)" in tools
     runtime = (OC / "lib/dbsctr-runtime.ts").read_text()
     assert '["dbsctrctl", "status", "--json"]' in runtime
@@ -272,6 +275,28 @@ def test_dbsctr_inspect_runtime_preserves_argv(tmp_path):
         "<inspect>", "<--commit>", "<ref;touch nope>", "<--action>", "<search>",
         "<--path>", "<docs/specs>", "<--query>", "<literal.* value>",
         "<--limit>", "<7>", "<--cursor>", "<2>", "<--excerpt>", "<80>", "<--json>",
+    ]
+
+
+def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "review.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@" > "$REVIEW_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewScan }} from {json.dumps(str(runtime))};'
+        'await reviewScan(7, 2, process.argv[1] === "snapshot" ? 123 : undefined, process.cwd());'
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "REVIEW_LOG": str(log)}
+    subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == ["<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>"]
+    subprocess.run(["bun", "-e", script, "snapshot"], cwd=ROOT, env=env,
+                   text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>", "<--snapshot>", "<123>",
     ]
 
 
