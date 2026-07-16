@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.13-1 | Stabilize private review retention and queue semantics | high | active | V3.12-4 | review index, pruning, pagination, per-cycle correlation | V3.12 snapshots and Cycle Records | no | Complete remaining review audit findings without changing lifecycle authority | M | focused tests, private scan, deployment smoke |
+| — | No active lifecycle item | — | — | — | — | — | — | V3.13 complete | — | — |
 
 ## Completed
 
@@ -29,5 +29,6 @@ Discovery readiness: complete.
 | V3.10-1–V3.10-4 | Add conditional Product Intent and Web/UI guidance | 2026-07-12 | `d0bc5bd` |
 | V3.11-1–V3.11-4 | Add private lifecycle review and delivery hygiene | 2026-07-15 | `f2eb3f1` |
 | V3.12-1–V3.12-4 | Make private review snapshots and state trustworthy | 2026-07-15 | `e04aa78` |
+| V3.13-1 | Stabilize private review retention and queue semantics | 2026-07-15 | `6e072b2` |
 
 Graphify and Herdr runtime hygiene remain separate bounded-context work.

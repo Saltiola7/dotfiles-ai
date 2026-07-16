@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-15 — V3.13 Review Queue And Retention
+
+- Propagated immutable session/part ceilings and database identity through the
+  typed review tools, preserving stable completion while private detailed
+  reports age into compact tombstones.
+- Validation: 106 affected tests passed and 1 skipped; Bun build, resolved
+  permissions, real scan, targeted deployment, and idempotence passed.
+
 ## 2026-07-15 — Trustworthy DBSCTR Review Snapshots
 
 - Propagated one immutable review cutoff through typed scans, continuations, and

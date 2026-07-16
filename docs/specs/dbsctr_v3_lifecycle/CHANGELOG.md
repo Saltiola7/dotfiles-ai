@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-15 — V3.13 Review Queue And Retention
+
+- Added 90-day detailed-report retention with durable reviewed-session
+  tombstones, explicit forget precedence, strict private marker validation, and
+  serialized migration/pruning.
+- Made review pages cutoff-stable with session/part row ceilings and database
+  identity, removed reviewed candidates before pagination, added page-local
+  urgency and seven-day inactivity attention, and exposed every matched Cycle
+  Record state without aggregation.
+- Validation: 106 affected tests passed and 1 skipped; Python compilation, Bun
+  build, diff check, real OpenCode SQLite scan, targeted chezmoi deployment and
+  idempotence, deployed identity, resolved permissions, and independent privacy
+  review passed. Gate Commit: `6e072b2`. Gate Exceptions: none. Intended Final
+  Push: `origin/main`.
+
 ## 2026-07-15 — V3.12 Review Correctness
 
 - Added one immutable millisecond cutoff across review pages and excluded later
