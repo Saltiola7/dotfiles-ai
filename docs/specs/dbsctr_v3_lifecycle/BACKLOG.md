@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.14 complete | — | — |
+| V3.15-1 | Reconcile linearly integrated Final Push targets | high | active | V3.14-1 | Final Push ancestry and commit ownership validation | Cycle Record baseline, upstream and Gate Commits | no | Resume safe delivery when the remote advanced along the recorded cycle lineage | S | focused linear/divergent/unrecorded tests |
 
 ## Completed
 

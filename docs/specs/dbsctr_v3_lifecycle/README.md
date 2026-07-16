@@ -559,6 +559,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Stable OpenCode tool-context identity, advisory Herdr launch metadata, and structured review correlation |
 | Overrides | Cycle Records remain sole lifecycle authority; no transcript inference, Herdr gating, pane closure, or experimental OpenCode status dependency |
 
+### V3.15 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the final remote-delivery safety decision |
+| Delivery intent | Deploy the managed helper locally after merge validation |
+| Scope | Safe linear upstream reconciliation for recorded cycle commits |
+| Overrides | Never rebase, cherry-pick, force-push, accept divergence, include unrecorded commits, or modify a dirty source checkout |
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -932,7 +941,7 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.14` retain schema version `3`; new records use
+Method Revisions `3.9` through `3.15` retain schema version `3`; new records use
 the helper's single `CURRENT_METHOD_REVISION = "3.11"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
@@ -1264,6 +1273,22 @@ module routing without changing Cycle Record schema or public commands.
 - Herdr and OpenCode runtime status never approve gates, determine completion,
   authorize cleanup, or close panes. Cycle Records remain the sole lifecycle
   authority and cleanup never terminates Herdr resources.
+
+### V3.15 Linear Final Push Reconciliation Contract
+
+- After fetching the recorded destination, an active cycle may reconcile an
+  advanced upstream only when the old baseline is its ancestor, the upstream is
+  an ancestor of cycle HEAD, and the complete old-baseline-to-HEAD lineage is
+  exactly the recorded Gate Commits.
+- The commits still ahead of the advanced upstream must be exactly the remaining
+  recorded Gate Commits. Divergence, reordered history, or any unrecorded commit
+  fails before baseline mutation or push.
+- Profile identity, Evidence Envelopes, required gates, artifacts, remote
+  identity, clean worktree, changed-path scope, and applicable DVC evidence are
+  validated under the original baseline. Only then is the fetched upstream saved
+  as the reconciled baseline and normal Final Push continues.
+- Reconciliation never changes the source checkout. Dirty, missing, changed, or
+  diverged primary checkouts remain untouched by post-push synchronization.
 
 ## Validation Strategy
 

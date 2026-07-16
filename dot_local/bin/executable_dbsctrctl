@@ -29,7 +29,7 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.14"
+CURRENT_METHOD_REVISION = "3.15"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 REVIEW_MAX_LIMIT = 100
@@ -2054,15 +2054,29 @@ def finish_push(root, path, record):
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
     git(root, "fetch", remote, remote_branch)
-    if record["state"] == "active" and git(root, "rev-parse", current_upstream).stdout.strip() != baseline["head"]:
-        fail("delivery target advanced since cycle start; reconcile and revalidate")
-    current_ahead = ahead(root, current_upstream)
+    cycle_base = baseline["head"]
+    target_head = git(root, "rev-parse", current_upstream).stdout.strip()
     recorded_commits = [entry["id"] for entry in record["commits"]]
-    if current_ahead and (set(current_ahead) != set(recorded_commits) or len(current_ahead) != len(recorded_commits)):
+    integrated = []
+    reconciled = False
+    if target_head != cycle_base:
+        if (git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
+                or git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode):
+            fail("delivery target advanced outside the cycle lineage")
+        cycle_lineage = git(root, "rev-list", "--reverse", f"{cycle_base}..HEAD").stdout.splitlines()
+        if cycle_lineage != recorded_commits:
+            fail("cycle lineage is not exactly the recorded cycle commits")
+        integrated = git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()
+        if recorded_commits[:len(integrated)] != integrated:
+            fail("advanced target is not an ordered prefix of recorded cycle commits")
+        reconciled = True
+    current_ahead = git(root, "rev-list", "--reverse", f"{current_upstream}..HEAD").stdout.splitlines()
+    expected_ahead = recorded_commits[len(integrated):]
+    if current_ahead != expected_ahead:
         fail("ahead commits are not exactly the recorded cycle commits")
-    if not current_ahead and record["state"] != "finalizing":
+    if not current_ahead and record["state"] != "finalizing" and not reconciled:
         fail("recorded cycle commits are not ahead of upstream")
-    changed = set(git(root, "diff", "--name-only", f"{baseline['head']}..HEAD").stdout.splitlines())
+    changed = set(git(root, "diff", "--name-only", f"{cycle_base}..HEAD").stdout.splitlines())
     changelog_path = record["artifact_reviews"]["CHANGELOG"]["path"]
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
@@ -2083,6 +2097,9 @@ def finish_push(root, path, record):
         git(root, "push", remote, f"HEAD:{remote_branch}")
     if git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
+    if reconciled:
+        baseline["head"] = target_head
+        baseline["reconciled_at"] = now()
     record["state"] = "completed"
     record["completed_at"] = now()
     save(path, record)

@@ -108,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.14")
+        self.assertEqual(record["method_revision"], "3.15")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -1055,6 +1055,114 @@ class DbsctrctlTest(unittest.TestCase):
         result = run(self.repo, "final-push", ok=False)
         self.assertIn("delivery target advanced", result.stderr)
         self.assertEqual(json.loads(self.record_path().read_text())["state"], "active")
+
+    def test_final_push_accepts_recorded_linear_target_advance(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.start()
+        original_baseline = json.loads(self.record_path().read_text())["git"]["head"]
+        (self.repo / "tracked.txt").write_text("first gate\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "first gate", "--gates", "domain", "--paths", "tracked.txt")
+        first = json.loads(self.record_path().read_text())["commits"][0]["id"]
+        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
+        changelog = self.repo / "docs/specs/test/CHANGELOG.md"
+        changelog.write_text("completed\n")
+        self.record_gate("behavior", paths=("docs/specs/test/CHANGELOG.md",))
+        run(self.repo, "gate-commit", "--message", "closure", "--gates", "behavior", "--paths",
+            "docs/specs/test/CHANGELOG.md")
+        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        hook = remote / "hooks/pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        run(self.repo, "final-push", ok=False)
+        failed = json.loads(self.record_path().read_text())
+        self.assertEqual(failed["state"], "finalizing")
+        self.assertEqual(failed["git"]["head"], original_baseline)
+        hook.unlink()
+        run(self.repo, "final-push")
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["state"], "completed")
+        self.assertEqual(record["git"]["head"], first)
+        self.assertIn("reconciled_at", record["git"])
+
+    def test_final_push_rejects_unrecorded_commit_in_linear_advance(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.start()
+        (self.repo / "unrecorded.txt").write_text("unrecorded\n")
+        subprocess.run(["git", "add", "unrecorded.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "unrecorded"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
+        changelog = self.repo / "docs/specs/test/CHANGELOG.md"
+        changelog.write_text("completed\n")
+        self.record_gate("domain", paths=("docs/specs/test/CHANGELOG.md",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain", "--paths",
+            "docs/specs/test/CHANGELOG.md")
+        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        result = run(self.repo, "final-push", ok=False)
+        self.assertIn("cycle lineage is not exactly", result.stderr)
+
+    def test_final_push_accepts_fully_integrated_recorded_target(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.start()
+        changelog = self.repo / "docs/specs/test/CHANGELOG.md"
+        changelog.write_text("completed\n")
+        self.record_gate("domain", paths=("docs/specs/test/CHANGELOG.md",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain", "--paths",
+            "docs/specs/test/CHANGELOG.md")
+        for name in ("README", "BACKLOG"):
+            run(self.repo, "review-artifact", name, "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        subprocess.run(["git", "push"], cwd=self.repo, check=True, capture_output=True)
+        run(self.repo, "final-push")
+        self.assertEqual(json.loads(self.record_path().read_text())["state"], "completed")
+
+    def test_final_push_rejects_reordered_recorded_commits(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.start()
+        (self.repo / "tracked.txt").write_text("first\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "first", "--gates", "domain", "--paths", "tracked.txt")
+        changelog = self.repo / "docs/specs/test/CHANGELOG.md"
+        changelog.write_text("completed\n")
+        self.record_gate("behavior", paths=("docs/specs/test/CHANGELOG.md",))
+        run(self.repo, "gate-commit", "--message", "second", "--gates", "behavior", "--paths",
+            "docs/specs/test/CHANGELOG.md")
+        for name in ("README", "BACKLOG"):
+            run(self.repo, "review-artifact", name, "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        record = json.loads(self.record_path().read_text())
+        record["commits"].reverse()
+        self.record_path().write_text(json.dumps(record))
+        result = run(self.repo, "final-push", ok=False)
+        self.assertIn("ahead commits are not exactly", result.stderr)
 
     def test_final_push_refuses_changed_remote_url(self):
         remote = Path(self.temp.name) / "remote.git"
