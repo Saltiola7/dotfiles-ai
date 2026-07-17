@@ -2325,6 +2325,8 @@ class DbsctrctlTest(unittest.TestCase):
         backup = state / "reviews/backups" / migrated["backup"]
         self.assertTrue((backup / "history/session-1.json").is_file())
         self.assertEqual((backup / "history/session-1.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual((history / "session-1.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(history.stat().st_mode & 0o777, 0o700)
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute("select count(*) from review_reports").fetchone()[0], 1)
         self.assertEqual(connection.execute("select count(*) from history_reports").fetchone()[0], 1)
@@ -2370,7 +2372,7 @@ class DbsctrctlTest(unittest.TestCase):
         outside.write_text("{}")
         (history / "linked.json").symlink_to(outside)
         failed = run(self.repo, "review-migrate", "--state-root", str(state), ok=False)
-        self.assertIn("unsafe file", failed.stderr)
+        self.assertIn("unsafe", failed.stderr)
         self.assertFalse((state / "reviews/ledger.sqlite3").exists())
 
     def test_review_ledger_backup_restore_and_future_schema_fail_closed(self):
@@ -2490,10 +2492,23 @@ class DbsctrctlTest(unittest.TestCase):
         outside = Path(self.temp.name) / "outside-lock"
         outside.write_text("unchanged")
         (reviews / ".lock").symlink_to(outside)
+        failed = run(self.repo, "review-history", "--state-root", str(state), "--archive-only", ok=False)
+        self.assertTrue(failed.stderr)
         failed = run(self.repo, "review-prune", "--state-root", str(state), ok=False)
         self.assertTrue(failed.stderr)
         self.assertEqual(outside.read_text(), "unchanged")
         self.assertFalse((reviews / "ledger.sqlite3").exists())
+
+    def test_review_recovery_rejects_unowned_quarantine_names(self):
+        state = Path(self.temp.name) / "quarantine-name"
+        run(self.repo, "review-prune", "--state-root", str(state))
+        quarantine = state / "reviews/.forget-user-data"
+        quarantine.mkdir(mode=0o700)
+        marker = quarantine / "keep"
+        marker.write_text("unchanged")
+        failed = run(self.repo, "review-prune", "--state-root", str(state), ok=False)
+        self.assertIn("quarantine is unsafe", failed.stderr)
+        self.assertEqual(marker.read_text(), "unchanged")
 
     def test_review_completion_rolls_back_archives_when_marker_insert_fails(self):
         database = Path(self.temp.name) / "ledger-atomic.db"

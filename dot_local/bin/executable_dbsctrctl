@@ -200,6 +200,19 @@ def review_lock(root):
         raise
 
 
+def open_existing_review_lock(path):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        details = os.fstat(descriptor)
+        if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
+            fail("private review lock is unsafe")
+        return os.fdopen(descriptor, "r", encoding="utf-8")
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 def excluded_review_family(connection, session, session_id):
     """Return the caller's connected parent/child family without exposing IDs."""
     sid = sqlite_name(connection, session, ("id",))
@@ -482,6 +495,7 @@ def create_empty_ledger(root):
         connection.close()
         os.replace(temporary, ledger_path(root))
         os.chmod(ledger_path(root), 0o600)
+        fsync_directory(directory)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -601,6 +615,7 @@ def create_ledger_backup(root, prefix="ledger"):
     os.chmod(target, 0o600)
     with ledger_connection(root, path=target) as check:
         ledger_integrity(check)
+    fsync_directory(target.parent)
     return name, file_digest(target)
 
 
@@ -611,6 +626,7 @@ def backup_legacy_json(root):
     target = backup_directory(root) / name
     target.mkdir(mode=0o700)
     digest = hashlib.sha256()
+    directories = {target}
     for source in files:
         if source.is_symlink() or not source.is_file():
             fail("legacy private review state contains an unsafe file")
@@ -618,18 +634,37 @@ def backup_legacy_json(root):
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(destination.parent, 0o700)
+        directories.update(parent for parent in destination.parents
+                           if parent == target or target in parent.parents)
         shutil.copyfile(source, destination)
         os.chmod(destination, 0o600)
+        with destination.open("rb") as handle:
+            os.fsync(handle.fileno())
         digest.update(relative.as_posix().encode() + b"\0" + source.read_bytes())
+    for directory in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+        fsync_directory(directory)
+    fsync_directory(target.parent)
     return name, digest.hexdigest()
 
 
 def legacy_json_files(root):
     reviews = root / "reviews"
-    files = sorted([*reviews.glob("*.json"), *((reviews / "history").rglob("*.json")
-                                               if (reviews / "history").is_dir() else [])])
-    if any(path.is_symlink() or not path.is_file() for path in files):
-        fail("legacy private review state contains an unsafe file")
+    history = reviews / "history"
+    if history.is_symlink():
+        fail("legacy private review state contains an unsafe directory")
+    entries = list(history.rglob("*")) if history.is_dir() else []
+    directories = [history, *(path for path in entries if path.is_dir() or path.is_symlink())] if history.exists() else []
+    files = sorted([*reviews.glob("*.json"), *(path for path in entries if path.suffix == ".json")])
+    for directory in directories:
+        details = directory.lstat()
+        if stat.S_IFMT(details.st_mode) != stat.S_IFDIR or details.st_uid != os.getuid():
+            fail("legacy private review state contains an unsafe directory")
+        os.chmod(directory, 0o700)
+    for path in files:
+        details = path.lstat()
+        if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
+            fail("legacy private review state contains an unsafe file")
+        os.chmod(path, 0o600)
     return files
 
 
@@ -638,6 +673,7 @@ def stage_pre_forget_state(root, name=None):
     quarantine = reviews / (name or f".forget-{uuid.uuid4().hex}")
     quarantine.mkdir(mode=0o700)
     moved = []
+    modified = {reviews, quarantine}
     try:
         for source in legacy_json_files(root):
             destination = quarantine / "legacy" / source.relative_to(reviews)
@@ -645,6 +681,9 @@ def stage_pre_forget_state(root, name=None):
             os.chmod(destination.parent, 0o700)
             os.replace(source, destination)
             moved.append((source, destination))
+            modified.update((source.parent, destination.parent))
+            modified.update(parent for parent in destination.parents
+                            if parent == quarantine or quarantine in parent.parents)
         backups = reviews / "backups"
         if backups.is_symlink():
             fail("private review backup directory is unsafe")
@@ -652,8 +691,10 @@ def stage_pre_forget_state(root, name=None):
             destination = quarantine / "backups"
             os.replace(backups, destination)
             moved.append((backups, destination))
-        fsync_directory(reviews)
-        fsync_directory(quarantine)
+            modified.update((backups.parent, destination.parent))
+        for directory in sorted(modified):
+            if directory.is_dir():
+                fsync_directory(directory)
         return quarantine, moved
     except Exception:
         restore_staged_forget(quarantine, moved)
@@ -661,12 +702,18 @@ def stage_pre_forget_state(root, name=None):
 
 
 def restore_staged_forget(quarantine, moved):
+    modified = {quarantine.parent}
     for source, destination in reversed(moved):
         if destination.exists():
             source.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.replace(destination, source)
+            modified.update((source.parent, destination.parent))
+            modified.update(parent for parent in source.parents
+                            if parent == quarantine.parent or quarantine.parent in parent.parents)
     shutil.rmtree(quarantine, ignore_errors=True)
-    fsync_directory(quarantine.parent)
+    for directory in sorted(modified):
+        if directory.is_dir():
+            fsync_directory(directory)
 
 
 def discard_staged_forget(quarantine):
@@ -699,6 +746,8 @@ def recover_forget_state(root, connection):
     pending = row[0] if row else None
     quarantines = sorted(reviews.glob(".forget-*")) if reviews.is_dir() else []
     for quarantine in quarantines:
+        if not re.fullmatch(r"\.forget-[0-9a-f]{32}", quarantine.name):
+            fail("private review forget quarantine is unsafe")
         private_path(quarantine, stat.S_IFDIR, 0o700, "forget quarantine")
         if quarantine.name == pending:
             discard_staged_forget(quarantine)
@@ -720,7 +769,7 @@ def require_review_lock_safe(root):
 def existing_review_lock(root, exclusive=False):
     path = root / "reviews" / ".lock"
     if path.is_file():
-        with path.open("r", encoding="utf-8") as handle:
+        with open_existing_review_lock(path) as handle:
             fcntl.flock(handle, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
             yield
     else:
@@ -1772,7 +1821,7 @@ def reviewed_ids(state_root, cutoff=None, lock=True):
     if lock and review_state.is_dir() and (any(review_state.glob("*.json")) or ledger_exists(root)) and not lock_path.is_file():
         fail("retained review state is missing its lock")
     if lock and lock_path.is_file():
-        with lock_path.open("r", encoding="utf-8") as handle:
+        with open_existing_review_lock(lock_path) as handle:
             fcntl.flock(handle, fcntl.LOCK_SH)
             return reviewed_ids_unlocked(root, cutoff)
     return reviewed_ids_unlocked(root, cutoff)
@@ -2702,6 +2751,7 @@ def command_review_migrate(args):
             connection.close()
             os.replace(temporary, ledger_path(root))
             os.chmod(ledger_path(root), 0o600)
+            fsync_directory(directory)
         except Exception:
             if "connection" in locals():
                 connection.close()
@@ -2780,6 +2830,7 @@ def command_review_restore(args):
                 ledger_integrity(check)
             os.replace(temporary, ledger_path(root))
             os.chmod(ledger_path(root), 0o600)
+            fsync_directory(directory)
         finally:
             temporary.unlink(missing_ok=True)
     print(json.dumps({"restored": args.backup, "rollback": rollback}, sort_keys=True))
