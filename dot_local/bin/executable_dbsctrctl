@@ -185,9 +185,19 @@ def review_lock(root):
         fail("private review directory is unsafe")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)
-    handle = path.open("a+", encoding="utf-8")
-    os.chmod(path, 0o600)
-    return handle
+    private_path(path.parent, stat.S_IFDIR, 0o700, "review directory")
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        details = os.fstat(descriptor)
+        if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
+            fail("private review lock is unsafe")
+        os.fchmod(descriptor, 0o600)
+        return os.fdopen(descriptor, "a+", encoding="utf-8")
+    except Exception:
+        if "descriptor" in locals():
+            os.close(descriptor)
+        raise
 
 
 def excluded_review_family(connection, session, session_id):
@@ -392,6 +402,13 @@ def ledger_integrity(connection):
 
 
 def ledger_semantic_integrity(connection):
+    meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup"}
+            or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
+            or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
+            or "pending_forget_cleanup" in meta
+            and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])):
+        fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
     for kind, item_id, timestamp in connection.execute(
@@ -474,7 +491,9 @@ def ensure_ledger_for_write(root):
         if legacy_review_exists(root):
             fail("legacy private review state requires review-migrate")
         create_empty_ledger(root)
-    return ledger_connection(root, write=True)
+    connection = ledger_connection(root, write=True)
+    recover_forget_state(root, connection)
+    return connection
 
 
 def ledger_payload(value):
@@ -614,9 +633,9 @@ def legacy_json_files(root):
     return files
 
 
-def stage_pre_forget_state(root):
+def stage_pre_forget_state(root, name=None):
     reviews = root / "reviews"
-    quarantine = reviews / f".forget-{uuid.uuid4().hex}"
+    quarantine = reviews / (name or f".forget-{uuid.uuid4().hex}")
     quarantine.mkdir(mode=0o700)
     moved = []
     try:
@@ -653,6 +672,41 @@ def restore_staged_forget(quarantine, moved):
 def discard_staged_forget(quarantine):
     shutil.rmtree(quarantine)
     fsync_directory(quarantine.parent)
+
+
+def restore_forget_quarantine(quarantine):
+    reviews = quarantine.parent
+    moved = []
+    legacy = quarantine / "legacy"
+    if legacy.is_dir():
+        for destination in sorted(legacy.rglob("*.json")):
+            source = reviews / destination.relative_to(legacy)
+            if source.exists() or source.is_symlink():
+                fail("cannot recover staged private review state")
+            moved.append((source, destination))
+    staged_backups = quarantine / "backups"
+    if staged_backups.is_dir():
+        source = reviews / "backups"
+        if source.exists() or source.is_symlink():
+            fail("cannot recover staged private review backups")
+        moved.append((source, staged_backups))
+    restore_staged_forget(quarantine, moved)
+
+
+def recover_forget_state(root, connection):
+    reviews = root / "reviews"
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='pending_forget_cleanup'").fetchone()
+    pending = row[0] if row else None
+    quarantines = sorted(reviews.glob(".forget-*")) if reviews.is_dir() else []
+    for quarantine in quarantines:
+        private_path(quarantine, stat.S_IFDIR, 0o700, "forget quarantine")
+        if quarantine.name == pending:
+            discard_staged_forget(quarantine)
+        else:
+            restore_forget_quarantine(quarantine)
+    if pending is not None:
+        connection.execute("DELETE FROM ledger_meta WHERE key='pending_forget_cleanup'")
+        connection.commit()
 
 
 def require_review_lock_safe(root):
@@ -2600,7 +2654,8 @@ def command_review_migrate(args):
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if ledger_exists(root):
-            with ledger_connection(root) as connection:
+            with ledger_connection(root, write=True) as connection:
+                recover_forget_state(root, connection)
                 ledger_integrity(connection)
                 digest = content_digest(ledger_content(connection))
             print(json.dumps({"migrated": False, "digest": digest}, sort_keys=True))
@@ -2662,6 +2717,9 @@ def command_review_backup(args):
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
+        recover_forget_state(root, connection)
+        connection.close()
         name, digest = create_ledger_backup(root)
     print(json.dumps({"backup": name, "digest": digest}, sort_keys=True))
 
@@ -2671,13 +2729,16 @@ def command_review_restore(args):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.sqlite3", args.backup):
         fail("invalid private review backup name")
     source_path = root / "reviews" / "backups" / args.backup
-    if source_path.is_symlink() or not source_path.is_file():
-        fail("private review backup is missing or unsafe")
-    if source_path.stat().st_mode & 0o077:
-        fail("private review backup permissions are too broad")
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
+        recover_forget_state(root, connection)
+        connection.close()
+        if source_path.is_symlink() or not source_path.is_file():
+            fail("private review backup is missing or unsafe")
+        if source_path.stat().st_mode & 0o077:
+            fail("private review backup permissions are too broad")
         forgotten = review_index(root)["forgotten_sessions"]
         with ledger_connection(root, path=source_path) as source:
             ledger_integrity(source)
@@ -2915,6 +2976,7 @@ def command_review_forget(args):
         removed = args.session_id in reviewed_ids_unlocked(root)[0]
         forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
         staged = None
+        quarantine_name = f".forget-{uuid.uuid4().hex}"
         try:
             connection.execute("BEGIN IMMEDIATE")
             prune_review_reports(root, connection=connection)
@@ -2927,16 +2989,18 @@ def command_review_forget(args):
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
                 (args.session_id, forgotten_at),
             )
-            staged = stage_pre_forget_state(root)
+            connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
+                               (quarantine_name,))
+            staged = stage_pre_forget_state(root, quarantine_name)
             connection.commit()
         except Exception:
             connection.rollback()
             if staged is not None:
                 restore_staged_forget(*staged)
-            raise
-        finally:
             connection.close()
-        discard_staged_forget(staged[0])
+            raise
+        recover_forget_state(root, connection)
+        connection.close()
     print(json.dumps({"forgotten": removed}, sort_keys=True))
 
 

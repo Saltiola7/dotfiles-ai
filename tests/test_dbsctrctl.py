@@ -2450,6 +2450,51 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertTrue(legacy.exists())
         self.assertEqual(backup.read_bytes(), b"backup")
 
+    def test_review_forget_recovers_pre_and_post_commit_crashes(self):
+        state = Path(self.temp.name) / "forget-recovery"
+        run(self.repo, "review-prune", "--state-root", str(state))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_forget_recovery", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        history = state / "reviews/history"
+        history.mkdir()
+        legacy = history / "session-1.json"
+        legacy.write_text("{}")
+        orphan_name = f".forget-{'a' * 32}"
+        module.stage_pre_forget_state(state, orphan_name)
+        run(self.repo, "review-prune", "--state-root", str(state))
+        self.assertTrue(legacy.exists())
+        self.assertFalse((state / "reviews" / orphan_name).exists())
+
+        legacy.write_text("{}")
+        pending_name = f".forget-{'b' * 32}"
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        connection.execute("insert into ledger_meta values ('pending_forget_cleanup', ?)", (pending_name,))
+        module.stage_pre_forget_state(state, pending_name)
+        connection.commit()
+        connection.close()
+        run(self.repo, "review-prune", "--state-root", str(state))
+        self.assertFalse(legacy.exists())
+        self.assertFalse((state / "reviews" / pending_name).exists())
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        self.assertIsNone(connection.execute(
+            "select value from ledger_meta where key='pending_forget_cleanup'"
+        ).fetchone())
+        connection.close()
+
+    def test_review_lock_symlink_fails_without_touching_target(self):
+        state = Path(self.temp.name) / "lock-symlink"
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True, mode=0o700)
+        outside = Path(self.temp.name) / "outside-lock"
+        outside.write_text("unchanged")
+        (reviews / ".lock").symlink_to(outside)
+        failed = run(self.repo, "review-prune", "--state-root", str(state), ok=False)
+        self.assertTrue(failed.stderr)
+        self.assertEqual(outside.read_text(), "unchanged")
+        self.assertFalse((reviews / "ledger.sqlite3").exists())
+
     def test_review_completion_rolls_back_archives_when_marker_insert_fails(self):
         database = Path(self.temp.name) / "ledger-atomic.db"
         connection = sqlite3.connect(database)

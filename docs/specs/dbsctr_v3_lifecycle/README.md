@@ -1528,9 +1528,11 @@ module routing without changing Cycle Record schema or public commands.
   carries forward current forget suppressions and removes their historical
   evidence from the restored copy. Explicit forget purges pre-forget backups and
   ignored legacy JSON through a same-filesystem quarantine restored on transaction
-  failure, so retained recovery material cannot resurrect forgotten evidence and
-  failed forget cannot destroy recovery data. Restore is explicit maintenance and
-  never runs during ordinary review.
+  failure. A committed pending-cleanup marker makes pre-commit orphan restoration
+  and post-commit purge retry idempotent after process termination, so retained
+  recovery material cannot resurrect forgotten evidence and failed forget cannot
+  destroy recovery data. Restore is explicit maintenance and never runs during
+  ordinary review.
 - SQLite uses full synchronous commits, a bounded busy timeout, and rollback
   journaling beneath the existing process lock. Maintenance verifies schema,
   integrity, exact payload-to-member and payload-to-ledger-entry projections,
