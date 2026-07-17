@@ -1434,6 +1434,10 @@ module routing without changing Cycle Record schema or public commands.
   read-only message-to-session relation and excludes both resolved families.
   Missing or malformed message identity fails closed; message IDs are never
   emitted or persisted.
+- The first scan emits only a one-way digest of its excluded root. Continuations
+  and completion carry that digest so separate tool invocations recover the same
+  private family from the live database; the digest cannot become a reviewed ID,
+  archive field, or Cycle Record identity.
 - `dbsctrctl attach-runtime` accepts the current opaque OpenCode session ID and
   runtime paths only for the active cycle's recorded worktree. It serializes the
   Cycle Record update, is idempotent, rejects completed or mismatched cycles,
