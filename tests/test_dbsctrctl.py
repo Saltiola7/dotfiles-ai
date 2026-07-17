@@ -1480,6 +1480,83 @@ class DbsctrctlTest(unittest.TestCase):
         changed = run(self.repo, *continuation, ok=False)
         self.assertIn("changed within the review snapshot", changed.stderr)
 
+    def test_review_excludes_active_reviewer_tree_from_snapshot_completion_and_history_save(self):
+        database = Path(self.temp.name) / "excluded-reviewer.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('active-tool', null, 'DBSCTR active', 1784073600000);
+            insert into session values ('active-child', 'active-tool', 'DBSCTR child', 1784073600001);
+            insert into session values ('included-1', null, 'DBSCTR one', 1784073600002);
+            insert into session values ('included-2', null, 'DBSCTR two', 1784073600003);
+            insert into message values ('message-active', 'active-tool', 1784073600000, '{}');
+            insert into message values ('message-child', 'active-child', 1784073600001, '{}');
+            insert into message values ('message-one', 'included-1', 1784073600002, '{}');
+            insert into message values ('message-two', 'included-2', 1784073600003, '{}');
+            insert into part values ('part-active', 'message-active', 'active-tool', 1784073600000, 'DBSCTR active');
+            insert into part values ('part-child', 'message-child', 'active-child', 1784073600001, 'DBSCTR child');
+            insert into part values ('part-one', 'message-one', 'included-1', 1784073600002, 'DBSCTR one');
+            insert into part values ('part-two', 'message-two', 'included-2', 1784073600003, 'DBSCTR two');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "excluded-reviewer-state"
+        invalid = run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+                      "--limit", "1", "--cursor", "0", "--excluded-session-id", "/active-tool", ok=False)
+        self.assertIn("invalid excluded session ID", invalid.stderr)
+        first = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+                               "--limit", "1", "--cursor", "0", "--excluded-session-id", "active-tool").stdout)
+        self.assertEqual(first["session_ids"], ["included-1"])
+        self.assertNotIn("active-tool", json.dumps(first))
+        self.assertNotIn("active-child", json.dumps(first))
+        connection.execute("update part set data='active mutation' where id='part-child'")
+        connection.commit()
+        continued = json.loads(run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--cursor", "1", "--snapshot", str(first["snapshot"]),
+            "--session-ceiling", str(first["session_ceiling"]), "--part-ceiling", str(first["part_ceiling"]),
+            "--database-digest", first["database_digest"], "--excluded-session-id", "active-tool",
+        ).stdout)
+        self.assertEqual(continued["session_ids"], ["included-2"])
+        report = {
+            "session_ids": first["session_ids"], "cycle_ids": first["cycle_ids"], "scan_digest": first["digest"],
+            "snapshot": first["snapshot"], "session_ceiling": first["session_ceiling"],
+            "part_ceiling": first["part_ceiling"], "database_digest": first["database_digest"],
+            "limit": 1, "cursor": 0, "decision": "reviewed",
+        }
+        run(self.repo, "review-complete", "--report-json", json.dumps(report), "--scan-digest", first["digest"],
+            "--database", str(database), "--state-root", str(state), "--excluded-session-id", "active-tool")
+        saved = "".join(path.read_text() for path in (state / "reviews").rglob("*.json"))
+        self.assertNotIn("active-tool", saved)
+        self.assertNotIn("active-child", saved)
+        history_scan = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--excluded-session-id", "active-tool",
+        ).stdout)
+        history = {
+            "schema_version": 1, "cohort": ["included-2"], "query_digest": history_scan["digest"],
+            "rubric": {"name": "history", "version": "1", "digest": "a" * 64},
+            "snapshot": history_scan["snapshot"], "session_ceiling": history_scan["session_ceiling"],
+            "part_ceiling": history_scan["part_ceiling"], "database_digest": history_scan["database_digest"],
+            "findings": ["sanitized"],
+        }
+        connection.execute("update part set data='another active mutation' where id='part-active'")
+        connection.commit()
+        run(self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+            "--report-json", json.dumps(history), "--excluded-session-id", "active-tool")
+        self.assertNotIn("active-tool", "".join(path.read_text() for path in (state / "reviews").rglob("*.json")))
+        connection.execute("update part set data='included mutation' where id='part-two'")
+        connection.commit()
+        connection.close()
+        changed = run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--cursor", "1", "--snapshot", str(first["snapshot"]),
+            "--session-ceiling", str(first["session_ceiling"]), "--part-ceiling", str(first["part_ceiling"]),
+            "--database-digest", first["database_digest"], "--excluded-session-id", "active-tool", ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
+
     def test_review_completion_rejects_changed_candidate_metadata(self):
         database = Path(self.temp.name) / "changed.db"
         connection = __import__("sqlite3").connect(database)
@@ -1540,6 +1617,93 @@ class DbsctrctlTest(unittest.TestCase):
                                    "--part-ceiling", str(first["part_ceiling"]),
                                    "--database-digest", first["database_digest"]).stdout)
         self.assertEqual(repeated, first)
+
+    def test_historical_exclusion_covers_archives_replays_and_existing_evidence(self):
+        database = Path(self.temp.name) / "historical-family.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('caller', null, 1784073600000);
+            insert into session values ('child', 'caller', 1784073600001);
+            insert into session values ('grandchild', 'child', 1784073600002);
+            insert into session values ('other', null, 1784073600003);
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "historical-family-state"
+        history = state / "reviews/history"
+        history.mkdir(parents=True)
+        (state / "reviews/.lock").touch()
+        for index, session_id in enumerate(("caller", "child", "grandchild", "other")):
+            (history / f"{session_id}.json").write_text(json.dumps({
+                "schema_version": 1, "session_id": session_id,
+                "completed_at": str(1784073600000 + index), "method_revision": "3.16", "context": "test",
+                "project_digest": "a" * 64, "cycles": [], "aggregates": {}, "reviewed_status": "reviewed",
+            }))
+        archive_only = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--archive-only", "--excluded-session-id", "caller",
+        ).stdout)
+        self.assertEqual(archive_only["session_ids"], ["other"])
+        report = {"schema_version": 1, "cohort": ["child"], "query_digest": "b" * 64,
+                  "rubric": {"name": "history", "version": "1", "digest": "c" * 64}, "findings": ["safe"]}
+        saved = json.loads(run(self.repo, "review-history-save", "--database", str(database),
+                               "--state-root", str(state), "--report-json", json.dumps(report)).stdout)
+        replay = run(self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+                     "--replay", saved["report_id"], "--excluded-session-id", "caller", ok=False)
+        self.assertIn("intersects the excluded session family", replay.stderr)
+        report["cohort"] = ["grandchild"]
+        rejected = run(self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+                       "--report-json", json.dumps(report), "--excluded-session-id", "caller", ok=False)
+        self.assertIn("contains an excluded session", rejected.stderr)
+
+    def test_review_exclusion_handles_no_parent_schema_and_orphan_part_mutation(self):
+        no_parent = Path(self.temp.name) / "no-parent.db"
+        connection = __import__("sqlite3").connect(no_parent)
+        connection.executescript("""
+            create table session (id text primary key, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('caller', 1784073600000);
+            insert into session values ('other', 1784073600001);
+            insert into message values ('caller-message', 'caller', 1784073600000, '{}');
+            insert into message values ('other-message', 'other', 1784073600001, '{}');
+            insert into part values ('caller-part', 'caller-message', 'caller', 1784073600000, 'DBSCTR');
+            insert into part values ('other-part', 'other-message', 'other', 1784073600001, 'DBSCTR');
+        """)
+        connection.commit()
+        no_parent_scan = json.loads(run(
+            self.repo, "review-scan", "--database", str(no_parent), "--state-root", str(Path(self.temp.name) / "no-parent-state"),
+            "--limit", "10", "--cursor", "0", "--excluded-session-id", "caller",
+        ).stdout)
+        self.assertEqual(no_parent_scan["session_ids"], ["other"])
+        orphan = Path(self.temp.name) / "orphan.db"
+        connection = __import__("sqlite3").connect(orphan)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('included', null, 1784073600000);
+            insert into message values ('included-message', 'included', 1784073600000, '{}');
+            insert into part values ('included-part', 'included-message', 'included', 1784073600000, 'DBSCTR');
+            insert into part values ('orphan-part', 'missing-message', 'included', 1784073600001, 'before');
+        """)
+        connection.commit()
+        first = json.loads(run(self.repo, "review-scan", "--database", str(orphan),
+                               "--state-root", str(Path(self.temp.name) / "orphan-state"),
+                               "--limit", "10", "--cursor", "0").stdout)
+        connection.execute("update part set data='after' where id='orphan-part'")
+        connection.commit()
+        connection.close()
+        changed = run(
+            self.repo, "review-scan", "--database", str(orphan), "--state-root", str(Path(self.temp.name) / "orphan-state"),
+            "--limit", "10", "--cursor", "0", "--snapshot", str(first["snapshot"]),
+            "--session-ceiling", str(first["session_ceiling"]), "--part-ceiling", str(first["part_ceiling"]),
+            "--database-digest", first["database_digest"], ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
 
     def test_review_rejects_non_millisecond_timestamps(self):
         database = Path(self.temp.name) / "bad-time.db"

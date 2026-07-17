@@ -35,12 +35,13 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
-export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string) {
+export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string, excludedSessionID?: string) {
   const argv = ["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)]
   if (snapshot !== undefined) argv.push("--snapshot", String(snapshot))
   if (sessionCeiling !== undefined) argv.push("--session-ceiling", String(sessionCeiling))
   if (partCeiling !== undefined) argv.push("--part-ceiling", String(partCeiling))
   if (databaseDigest !== undefined) argv.push("--database-digest", databaseDigest)
+  if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
   return await run(argv, cwd)
 }
 
@@ -61,10 +62,11 @@ export async function reviewComplete(report: {
   trends: string[]
   proposals: string[]
   caveats: string[]
-}, cwd = process.cwd()) {
+}, cwd = process.cwd(), excludedSessionID?: string) {
   return await run([
     "dbsctrctl", "review-complete", "--report-json", JSON.stringify(report),
     "--scan-digest", report.scan_digest,
+    ...(excludedSessionID === undefined ? [] : ["--excluded-session-id", excludedSessionID]),
   ], cwd)
 }
 
@@ -85,7 +87,7 @@ export async function reviewHistory(args: {
   databaseDigest?: string
   limit?: number
   cursor?: number
-}, cwd = process.cwd()) {
+}, cwd = process.cwd(), excludedSessionID?: string) {
   const argv = ["dbsctrctl", "review-history"]
   const names: Record<string, string> = {
     methodRevision: "method-revision", cycleId: "cycle-id", projectDigest: "project-digest",
@@ -93,6 +95,7 @@ export async function reviewHistory(args: {
     databaseDigest: "database-digest",
     archiveOnly: "archive-only",
   }
+  if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
   for (const [name, value] of Object.entries(args)) {
     if (value === true) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`)
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`, String(value))
@@ -114,8 +117,10 @@ export async function reviewHistorySave(report: {
   trends?: string[]
   proposals?: string[]
   caveats?: string[]
-}, cwd = process.cwd()) {
-  return await run(["dbsctrctl", "review-history-save", "--report-json", JSON.stringify(report)], cwd)
+}, cwd = process.cwd(), excludedSessionID?: string) {
+  const argv = ["dbsctrctl", "review-history-save", "--report-json", JSON.stringify(report)]
+  if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  return await run(argv, cwd)
 }
 
 export async function beginCycle(args: {

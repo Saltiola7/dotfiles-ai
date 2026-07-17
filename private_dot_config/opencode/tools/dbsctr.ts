@@ -45,7 +45,7 @@ export const review = tool({
     databaseDigest: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest)
+    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID)
   },
 })
 
@@ -93,7 +93,7 @@ export const review_complete = tool({
       trends: args.trends,
       proposals: args.proposals,
       caveats: args.caveats,
-    }, context.worktree)
+    }, context.worktree, context.sessionID)
   },
 })
 
@@ -118,7 +118,7 @@ export const review_history = tool({
     cursor: tool.schema.number().int().min(0).optional().default(0),
   },
   async execute(args, context) {
-    return await reviewHistory(args, context.worktree)
+    return await reviewHistory(args, context.worktree, context.sessionID)
   },
 })
 
@@ -155,7 +155,7 @@ export const review_history_save = tool({
       trends: args.trends,
       proposals: args.proposals,
       caveats: args.caveats,
-    }, context.worktree)
+    }, context.worktree, context.sessionID)
   },
 })
 

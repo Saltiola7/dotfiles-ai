@@ -200,6 +200,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-complete"' in runtime
     assert '"dbsctrctl", "review-history"' in runtime
     assert '"dbsctrctl", "review-history-save"' in runtime
+    assert runtime.count('"--excluded-session-id"') == 4
+    assert "context.sessionID" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
@@ -328,6 +330,49 @@ def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>", "<--snapshot>", "<123>",
     ]
+    script = (
+        f'import {{ reviewScan }} from {json.dumps(str(runtime))};'
+        'await reviewScan(7, 2, undefined, process.cwd(), undefined, undefined, undefined, "active-tool");'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>",
+        "<--excluded-session-id>", "<active-tool>",
+    ]
+
+
+def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "review-adapters.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$REVIEW_ADAPTERS_LOG"\nprintf "<%s>\\n" "$@" >> "$REVIEW_ADAPTERS_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    report = {
+        "session_ids": ["included"], "cycle_ids": [], "scan_digest": "a" * 64,
+        "snapshot": 1784073600000, "session_ceiling": 1, "part_ceiling": 1, "database_digest": "b" * 64,
+        "limit": 1, "cursor": 0, "decision": "safe", "findings": [], "scorecards": [],
+        "trends": [], "proposals": [], "caveats": [],
+    }
+    history = {
+        "schema_version": 1, "cohort": ["included"], "query_digest": "c" * 64,
+        "rubric": {"name": "history", "version": "1", "digest": "d" * 64}, "findings": [],
+    }
+    script = (
+        f'import {{ reviewScan, reviewComplete, reviewHistory, reviewHistorySave }} from {json.dumps(str(runtime))};'
+        f'const report={json.dumps(report)};const history={json.dumps(history)};'
+        'await reviewScan(1,0,undefined,process.cwd(),undefined,undefined,undefined,"caller");'
+        'await reviewComplete(report,process.cwd(),"caller");'
+        'await reviewHistory({archiveOnly:true},process.cwd(),"caller");'
+        'await reviewHistorySave(history,process.cwd(),"caller");'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "REVIEW_ADAPTERS_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    calls = [line for line in log.read_text().splitlines() if line != "CALL"]
+    assert calls.count("<--excluded-session-id>") == 4
+    assert calls.count("<caller>") == 4
 
 
 def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
