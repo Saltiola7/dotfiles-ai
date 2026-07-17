@@ -17,6 +17,15 @@
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
+### OCP-16 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds an external documentation boundary and changes typed cycle-begin authorization |
+| Delivery intent | Deploy managed OpenCode configuration, Scout permissions, lifecycle routing, and tests locally |
+| Scope | Scout-only Context7 with optional environment credential; standing authorization for validated typed begin in Build |
+| Overrides | Plan remains read-only; Context7 is non-authoritative and optional; destructive and external writes remain permission-gated |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -134,6 +143,39 @@ cohort replay. A schema-validated history-save tool has standing authority only
 for sanitized private reports and cohort manifests; it never changes operational
 review markers or repository state and remains denied to Builder subagents.
 
+### Scout-only current documentation
+
+Given a Scout-class subagent needs current dependency documentation, when it
+uses Context7, then OpenCode connects to the managed remote MCP endpoint and
+exposes only `context7_*` tools to Scout-class agents. Primary, Builder,
+Reviewer, and Explore agents cannot use those tools.
+
+Given `CONTEXT7_API_KEY` is non-empty, Context7 requests use it through runtime
+environment substitution. Given it is absent, Context7 remains usable through
+its anonymous service and no credential is required. The key is never stored in
+Git, rendered source, agent prompts, logs, or tool arguments.
+
+Context7 results are research hints. Scout verifies material claims against
+project source or authoritative upstream documentation and reports uncertainty.
+
+### Standing typed cycle begin
+
+Given Build invokes `dbsctr_begin` with an applicability plan, when OpenCode
+dispatches the typed tool, then it runs without another permission prompt. The
+helper still validates the committed profile, upstream, worktree safety, ahead
+commits, plan, risk, and arguments before creating local cycle state.
+
+Plan continues to deny `dbsctr_begin` and returns a Build Handoff. Direct
+destructive operations, external writes, deployment, DVC push, and non-DBSCTR
+Git push retain their existing permission boundaries. Optional Herdr launch
+remains explicit through `launch=true` and never becomes lifecycle authority.
+
+Given the primary orchestrator operates on a helper-created isolated worktree,
+OpenCode allows external-directory access only beneath
+`~/.local/state/dbsctr/worktrees/**` without another prompt. Other external
+directories retain their normal guard, and Builder agents continue to deny
+external-directory access outside the worktree where they were launched.
+
 ## Contracts
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
@@ -153,6 +195,14 @@ review markers or repository state and remains denied to Builder subagents.
 - `dbsctr_review_history` is read-only and allowed. `dbsctr_review_history_save`
   is allowed only for validated private history reports and remains denied to
   Builder subagents.
+- `dbsctr_begin` is allowed for Build without an internal approval callback;
+  Plan denies it, and the helper remains the authoritative safety boundary.
+- The helper-owned DBSCTR worktree root is an allowed external directory for the
+  primary orchestrator; the rule does not broaden arbitrary home-directory or
+  Builder access.
+- Context7 is a managed remote MCP server. Its tools are globally disabled and
+  enabled only for Scout-class agents. Its API key is optional and environment-
+  backed when available.
 - Skill names visible to OpenCode are unique.
 - Unversioned lifecycle commands load DBSCTR V3; V1 is removed and V2 source is
   archived outside deployed skill paths.
@@ -168,6 +218,8 @@ review markers or repository state and remains denied to Builder subagents.
 | Chezmoi | Deployment and removals | dry-run, apply, status | Required |
 | Graphify | Skill, hooks, query | version, hook status, targeted query | Required |
 | Package/service inventory | Removed runtime | npm, pipx, launchctl, path checks | Required |
+| MCP runtime | Context7 connection, anonymous fallback, optional authenticated request, and role isolation | `opencode mcp list` plus fresh Scout/non-Scout probes | Required |
+| Typed begin | Prompt-free Build dispatch, helper-worktree access, and denied Plan dispatch | Focused tool/config tests plus fresh Build probe | Required |
 
 ## Risks
 
@@ -179,3 +231,6 @@ review markers or repository state and remains denied to Builder subagents.
   prevent unsupported aliases from silently returning.
 - OpenCode 1.17.20 cannot retarget native `plan_exit` to a custom primary;
   `Build-GPT` therefore requires manual selection and a new message.
+- Context7 is externally operated and may be unavailable, rate-limited, stale,
+  or incomplete; Scout reports degradation and falls back to authoritative
+  sources without blocking unrelated work.
