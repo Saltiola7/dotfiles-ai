@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-16 — V3.17 Self-Safe Historical Review
+
+- Excluded the invoking OpenCode session and its bounded live descendants from
+  operational/history snapshot identity, pagination, completion, archive, and
+  report-save revalidation. Included candidate and Cycle Record mutations still
+  fail closed; immutable replay survives source-session retention.
+- Reused the locked revalidated completion page for sanitized history archival,
+  preserved orphan-part digest compatibility, propagated caller identity through
+  all four typed adapters, and advanced the current Method Revision to `3.17`.
+- Validation: 124 affected tests passed and 1 skipped; Python/Bun checks,
+  adversarial archive/replay/orphan fixtures, merged OCP-16 integration,
+  independent privacy review, targeted deployment/idempotence, and deployed
+  identity passed. A nested child probe correctly failed closed while an
+  unrelated parent session remained mutable; normal-session verification remains
+  required after the user-requested OpenCode restart. Gate Exceptions: none.
+  Gate Commits: `caa1fd7`, `5b66415`, `c669a24`, `eb3c9fc`, `03a1958`.
+  Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — V3.16 Historical Review And Backtesting
 
 - Added a separate read-only historical review surface with latest-100 defaults,
