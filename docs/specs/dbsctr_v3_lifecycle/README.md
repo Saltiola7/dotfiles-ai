@@ -1359,8 +1359,9 @@ module routing without changing Cycle Record schema or public commands.
 
 - Typed operational and historical review calls pass their current OpenCode
   session ID as an excluded reviewer identity. The helper validates that opaque
-  ID and excludes the caller plus its session-family descendants before snapshot
-  identity, pagination, aggregates, archive backfill, and cohort selection.
+  ID and excludes the caller plus descendants structurally present within the
+  bounded live database snapshot before snapshot identity, pagination,
+  aggregates, archive backfill, and cohort selection.
 - Exclusion is explicit adapter context, never inferred from transcript prose,
   agent text, directory, timing, or a newest-session heuristic. Direct CLI calls
   without an excluded identity retain existing behavior.
@@ -1373,6 +1374,10 @@ module routing without changing Cycle Record schema or public commands.
   mutable boundary.
 - Excluded IDs are private transient inputs. They are never emitted, archived,
   persisted in reports, or treated as reviewed tombstones.
+- Sanitized immutable replay remains available after source retention deletes a
+  former descendant. An absent row cannot mutate the bounded live snapshot, and
+  persisting ancestry solely for later suppression would violate the transient
+  exclusion boundary.
 
 ## Validation Strategy
 
