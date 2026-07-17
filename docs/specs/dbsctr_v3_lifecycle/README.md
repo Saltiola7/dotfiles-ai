@@ -577,6 +577,24 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Repeatable historical review, durable sanitized evidence, composable filters, fixed-cohort replay, and versioned rubric reports |
 | Overrides | Preserve the unreviewed inbox and its tombstones; retain no prose, command arguments, paths, URLs, credentials, or raw events |
 
+### Approved V3.17-V3.23 Evolution
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes private review identity, correlation, persistence, telemetry, and autonomous evaluation behavior |
+| Delivery intent | Separate isolated deploy cycles with serialized helper ownership |
+| Scope | Self-safe history, exact correlation, private SQLite improvement ledger, compact captures, structured telemetry, longitudinal benchmarks, and bounded creative daily review |
+| Overrides | Review remains report-only; Cycle Records remain lifecycle authority; no raw session content, automatic remediation, manufactured finding, or mandatory external research service |
+
+### V3.17 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the immutable private-session snapshot boundary |
+| Delivery intent | Deploy the managed helper and typed history adapter locally after merge validation |
+| Scope | Exclude the invoking review session from live review cohorts while preserving external mutation detection |
+| Overrides | Ordinary scans remain read-only; durable manifests and performance work remain in V3.19-V3.20 |
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -1337,6 +1355,25 @@ module routing without changing Cycle Record schema or public commands.
   private history state fails closed. Writes are restrictive, locked, atomic,
   and bounded; historical scans remain read-only.
 
+### V3.17 Self-Safe Historical Snapshot Contract
+
+- Typed operational and historical review calls pass their current OpenCode
+  session ID as an excluded reviewer identity. The helper validates that opaque
+  ID and excludes the caller plus its session-family descendants before snapshot
+  identity, pagination, aggregates, archive backfill, and cohort selection.
+- Exclusion is explicit adapter context, never inferred from transcript prose,
+  agent text, directory, timing, or a newest-session heuristic. Direct CLI calls
+  without an excluded identity retain existing behavior.
+- The excluded reviewer cannot enter a returned page or change its digest when
+  OpenCode completes or updates the invoking tool part. Continuations and save
+  revalidation still fail closed when any included candidate, relation, Cycle
+  Record identity, or pre-snapshot qualifying part changes.
+- Operational completion archives evidence from its already revalidated page;
+  it does not perform a second equivalent full scan that can observe another
+  mutable boundary.
+- Excluded IDs are private transient inputs. They are never emitted, archived,
+  persisted in reports, or treated as reviewed tombstones.
+
 ## Validation Strategy
 
 | Concern | Authority | Scope | Availability | Baseline |
@@ -1349,6 +1386,7 @@ module routing without changing Cycle Record schema or public commands.
 | OpenCode loading | `opencode debug config` and command/skill smoke scenarios | Resolved config and workflow behavior | Available; restart required | No V1/V2 runtime routes |
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
+| Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

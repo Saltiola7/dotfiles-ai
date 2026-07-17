@@ -6,7 +6,13 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | No active lifecycle item | — | — | — | — | — | — | V3.16 complete | — | — |
+| V3.17-1 | Make live history self-safe | critical | in_progress | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed review currently invalidates itself | M | Active-tool mutation, continuation, save, privacy, and regression tests |
+| V3.18-1 | Correct correlation and attach resumed runtimes | critical | ready | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | Exact, family, worktree, source, ambiguous, and concurrent attachment fixtures |
+| V3.19-1 | Add private SQLite improvement ledger | high | ready | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | Migration, permissions, atomicity, integrity, backup, and restore tests |
+| V3.20-1 | Add multi-page captures and compact history transport | high | ready | V3.19-1 | Logical manifests, aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session replay, response-size, ordering, deletion, and latency tests |
+| V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, attribution status | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, and attribution tests |
+| V3.22-1 | Add longitudinal benchmarks and implementation effects | high | ready | V3.20-1,V3.21-1 | Benchmark runs, before/after windows, recurrence, effect tracking | Cycles, deployments, review runs | no | Implemented changes are not evaluated over time | M | Baseline, replay, confounder, neutral, invalid, and regression tests |
+| V3.23-1 | Make daily review autonomous and creatively adaptive | high | ready | V3.20-1,V3.22-1,OCP-16 | Default loop, steering, lens rotation, dedupe, proposal handoff | Ledger, Scout, Context7, backlogs | no | Daily use needs low-steering continuous improvement | M | New-session, no-session, no-finding, steering, creative-lens, and restart scenarios |
 
 ## Completed
 
