@@ -172,9 +172,10 @@ remains explicit through `launch=true` and never becomes lifecycle authority.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access only beneath
-`~/.local/state/dbsctr/worktrees/**` without another prompt. Other external
-directories retain their normal guard, and Builder agents continue to deny
-external-directory access outside the worktree where they were launched.
+`~/.local/state/dbsctr/worktrees/**` without another prompt. Only native Build,
+Build-GPT, and Build-Claude receive that allow rule. Plan and every subagent deny
+external-directory access; Builder agents remain confined to the worktree where
+they were launched.
 
 ## Contracts
 
@@ -198,8 +199,8 @@ external-directory access outside the worktree where they were launched.
 - `dbsctr_begin` is allowed for Build without an internal approval callback;
   Plan denies it, and the helper remains the authoritative safety boundary.
 - The helper-owned DBSCTR worktree root is an allowed external directory for the
-  primary orchestrator; the rule does not broaden arbitrary home-directory or
-  Builder access.
+  Build primary orchestrators only; the global default is deny and the rule does
+  not broaden arbitrary home-directory, Plan, or subagent access.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.
