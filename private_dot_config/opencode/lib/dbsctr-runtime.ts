@@ -50,7 +50,7 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
-export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string, excludedSessionID?: string, excludedMessageID?: string) {
+export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string, excludedSessionID?: string, excludedMessageID?: string, exclusionDigest?: string) {
   const argv = ["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)]
   if (snapshot !== undefined) argv.push("--snapshot", String(snapshot))
   if (sessionCeiling !== undefined) argv.push("--session-ceiling", String(sessionCeiling))
@@ -58,6 +58,7 @@ export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd 
   if (databaseDigest !== undefined) argv.push("--database-digest", databaseDigest)
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
   if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
+  if (exclusionDigest !== undefined) argv.push("--exclusion-digest", exclusionDigest)
   return await run(argv, cwd)
 }
 
@@ -69,6 +70,7 @@ export async function reviewComplete(report: {
     session_ceiling: number
     part_ceiling: number
     database_digest: string
+    exclusion_digest?: string
   limit: number
   cursor: number
   decision: string
@@ -102,6 +104,7 @@ export async function reviewHistory(args: {
   sessionCeiling?: number
   partCeiling?: number
   databaseDigest?: string
+  exclusionDigest?: string
   limit?: number
   cursor?: number
 }, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {

@@ -1551,17 +1551,18 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
             "--limit", "1", "--cursor", "1", "--snapshot", str(first["snapshot"]),
             "--session-ceiling", str(first["session_ceiling"]), "--part-ceiling", str(first["part_ceiling"]),
-            "--database-digest", first["database_digest"], "--excluded-session-id", "active-tool",
+            "--database-digest", first["database_digest"], "--exclusion-digest", first["exclusion_digest"],
         ).stdout)
         self.assertEqual(continued["session_ids"], ["included-2"])
         report = {
             "session_ids": first["session_ids"], "cycle_ids": first["cycle_ids"], "scan_digest": first["digest"],
             "snapshot": first["snapshot"], "session_ceiling": first["session_ceiling"],
             "part_ceiling": first["part_ceiling"], "database_digest": first["database_digest"],
+            "exclusion_digest": first["exclusion_digest"],
             "limit": 1, "cursor": 0, "decision": "reviewed",
         }
         run(self.repo, "review-complete", "--report-json", json.dumps(report), "--scan-digest", first["digest"],
-            "--database", str(database), "--state-root", str(state), "--excluded-session-id", "active-tool")
+            "--database", str(database), "--state-root", str(state))
         saved = "".join(path.read_text() for path in (state / "reviews").rglob("*.json"))
         self.assertNotIn("active-tool", saved)
         self.assertNotIn("active-child", saved)
@@ -1588,7 +1589,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
             "--limit", "1", "--cursor", "1", "--snapshot", str(first["snapshot"]),
             "--session-ceiling", str(first["session_ceiling"]), "--part-ceiling", str(first["part_ceiling"]),
-            "--database-digest", first["database_digest"], "--excluded-session-id", "active-tool", ok=False,
+            "--database-digest", first["database_digest"], "--exclusion-digest", first["exclusion_digest"], ok=False,
         )
         self.assertIn("changed within the review snapshot", changed.stderr)
 

@@ -57,9 +57,10 @@ export const review = tool({
     sessionCeiling: tool.schema.number().int().min(0).optional(),
     partCeiling: tool.schema.number().int().min(0).optional(),
     databaseDigest: tool.schema.string().optional(),
+    exclusionDigest: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID, context.messageID)
+    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID, context.messageID, args.exclusionDigest)
   },
 })
 
@@ -73,6 +74,7 @@ export const review_complete = tool({
     sessionCeiling: tool.schema.number().int().min(0),
     partCeiling: tool.schema.number().int().min(0),
     databaseDigest: tool.schema.string(),
+    exclusionDigest: tool.schema.string().optional(),
     limit: tool.schema.number().int().min(1).max(100),
     cursor: tool.schema.number().int().min(0),
     decision: tool.schema.string().max(256),
@@ -98,6 +100,7 @@ export const review_complete = tool({
       session_ceiling: args.sessionCeiling,
       part_ceiling: args.partCeiling,
       database_digest: args.databaseDigest,
+      exclusion_digest: args.exclusionDigest,
       limit: args.limit,
       cursor: args.cursor,
       decision: args.decision,
@@ -128,6 +131,7 @@ export const review_history = tool({
     sessionCeiling: tool.schema.number().int().min(0).optional(),
     partCeiling: tool.schema.number().int().min(0).optional(),
     databaseDigest: tool.schema.string().optional(),
+    exclusionDigest: tool.schema.string().optional(),
     limit: tool.schema.number().int().min(1).max(100).optional().default(100),
     cursor: tool.schema.number().int().min(0).optional().default(0),
   },

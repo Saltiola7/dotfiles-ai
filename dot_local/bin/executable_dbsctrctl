@@ -165,6 +165,10 @@ def review_digest(candidates, snapshot, session_ceiling=None, part_ceiling=None,
                                      separators=(",", ":"), sort_keys=True).encode()).hexdigest()
 
 
+def session_id_digest(session_id):
+    return hashlib.sha256(b"dbsctr-review-root\0" + session_id.encode()).hexdigest()
+
+
 def review_lock(root):
     path = root / "reviews" / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1520,6 +1524,9 @@ def review_scan(args):
         if not {"session", "message", "part"} <= set(tables):
             fail("OpenCode database lacks required session/message/part tables")
         session, message, part = (tables[name] for name in ("session", "message", "part"))
+        exclusion_digest = getattr(args, "exclusion_digest", None)
+        if exclusion_digest is not None and not re.fullmatch(r"[0-9a-f]{64}", exclusion_digest):
+            fail("invalid review exclusion digest")
         session_columns = {row[1].lower().replace("_", ""): row[1]
                            for row in connection.execute(f'PRAGMA table_info("{session}")')}
         session_ceiling = args.session_ceiling
@@ -1552,22 +1559,23 @@ def review_scan(args):
         part_columns = {row[1].lower().replace("_", ""): row[1]
                         for row in connection.execute(f'PRAGMA table_info("{part}")')}
         part_updated = part_columns.get("timeupdated")
-        excluded_roots = {value for value in (
-            excluded_session_id,
-            session_for_message(args.database, excluded_message_id) if excluded_message_id is not None else None,
-        ) if value is not None}
-        excluded_sessions = set().union(
-            *(excluded_review_family(connection, session, value) for value in excluded_roots)
-        ) if excluded_roots else set()
+        if exclusion_digest is not None:
+            root = next((str(row[0]) for row in connection.execute(f'SELECT "{sid}" FROM "{session}"')
+                         if session_id_digest(str(row[0])) == exclusion_digest), None)
+            if root is None:
+                fail("review exclusion digest does not match a session")
+        else:
+            root = (session_for_message(args.database, excluded_message_id)
+                    if excluded_message_id is not None else excluded_session_id)
+            exclusion_digest = session_id_digest(root) if root is not None else None
+        excluded_sessions = excluded_review_family(connection, session, root) if root is not None else set()
         excluded = tuple(sorted(excluded_sessions))
         session_exclusion = (f' AND "{sid}" NOT IN ({",".join("?" for _ in excluded)})' if excluded else "")
         message_exclusion = (f' AND (m."{msession}" NOT IN ({",".join("?" for _ in excluded)}) '
                              f'OR m."{msession}" IS NULL)' if excluded else "")
         identity = hashlib.sha256()
-        if excluded_session_id is not None:
-            identity.update(b"excluded\0" + excluded_session_id.encode())
-        if excluded_message_id is not None:
-            identity.update(b"excluded-message\0" + excluded_message_id.encode())
+        if exclusion_digest is not None:
+            identity.update(b"excluded\0" + exclusion_digest.encode())
         session_identity_columns = [sid, created]
         for value in (parent, directory, agent, session_columns.get("projectid"), session_columns.get("cost"),
                       *(session_columns.get(name) for name in (
@@ -1777,9 +1785,10 @@ def review_scan(args):
         "limit": args.limit, "cursor": args.cursor, "snapshot": snapshot,
         "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
         "database_digest": database_digest,
+        "exclusion_digest": exclusion_digest,
         "continuation": {"cursor": args.cursor + args.limit, "snapshot": snapshot,
-                         "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
-                         "database_digest": database_digest}
+                          "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
+                          "database_digest": database_digest, "exclusion_digest": exclusion_digest}
          if not getattr(args, "history_all", False) and len(eligible) > args.cursor + args.limit else None}
     result["_excluded_session_ids"] = sorted(excluded_sessions)
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -2059,9 +2068,10 @@ def command_review_history(args):
                                limit=REVIEW_MAX_LIMIT, cursor=0, snapshot=args.snapshot,
                                session_ceiling=args.session_ceiling, part_ceiling=args.part_ceiling,
                                 database_digest=args.database_digest, lock_held=True,
-                                include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
-                                 excluded_session_id=args.excluded_session_id,
-                                 excluded_message_id=args.excluded_message_id))
+                                 include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
+                                  excluded_session_id=args.excluded_session_id,
+                                  excluded_message_id=args.excluded_message_id,
+                                  exclusion_digest=args.exclusion_digest))
             live_candidates = live["candidates"]
             live_records = [{"schema_version": 1, "session_id": item["session_id"],
                             "completed_at": str(item["last_activity"]),
@@ -2101,10 +2111,11 @@ def command_review_history(args):
                   "limit": args.limit, "cursor": args.cursor,
                   "continuation": args.cursor + args.limit if len(records) > args.cursor + args.limit else None,
                   "snapshot": metadata.get("snapshot"), "session_ceiling": metadata.get("session_ceiling"),
-                   "part_ceiling": metadata.get("part_ceiling"), "database_digest": metadata.get("database_digest")}
+                   "part_ceiling": metadata.get("part_ceiling"), "database_digest": metadata.get("database_digest"),
+                   "exclusion_digest": metadata.get("exclusion_digest")}
         result["digest"] = review_digest(page, result["snapshot"], result["session_ceiling"],
                                          result["part_ceiling"], result["database_digest"])
-        for name in ("snapshot", "session_ceiling", "part_ceiling", "database_digest"):
+        for name in ("snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"):
             supplied = getattr(args, name)
             if args.replay and supplied is not None:
                 fail("review history replay uses its report ID and cursor, not a live snapshot")
@@ -2179,7 +2190,7 @@ def command_review_complete(args):
         fail(f"cannot read review report: {error}")
     text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
     allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
-               "limit", "cursor", "decision", "notes", *text_fields}
+               "exclusion_digest", "limit", "cursor", "decision", "notes", *text_fields}
     if not isinstance(report, dict) or set(report) - allowed:
         fail("review report has an invalid schema")
     sessions, cycles = report.get("session_ids"), report.get("cycle_ids", [])
@@ -2204,7 +2215,9 @@ def command_review_complete(args):
             or report["cursor"] < 0 or not 0 <= report["session_ceiling"] <= 2**63 - 1
             or not 0 <= report["part_ceiling"] <= 2**63 - 1
             or not isinstance(report.get("database_digest"), str)
-            or not re.fullmatch(r"[0-9a-f]{64}", report["database_digest"])):
+            or not re.fullmatch(r"[0-9a-f]{64}", report["database_digest"])
+            or report.get("exclusion_digest") is not None
+            and not re.fullmatch(r"[0-9a-f]{64}", report["exclusion_digest"])):
         fail("review report requires its scan snapshot, limit, and cursor")
     for name in text_fields:
         values = report.get(name, [])
@@ -2233,6 +2246,7 @@ def command_review_complete(args):
             history_metrics=True,
             excluded_session_id=args.excluded_session_id,
             excluded_message_id=args.excluded_message_id,
+            exclusion_digest=report.get("exclusion_digest"),
         ))
         if (expected["session_ids"] != sessions or expected["cycle_ids"] != cycles
                 or expected["digest"] != digest):
@@ -2240,7 +2254,8 @@ def command_review_complete(args):
         forgotten = review_index(root)["forgotten_sessions"]
         reviewed_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), report["snapshot"] + 1,
                           *(forgotten.get(value, 0) + 1 for value in sessions))
-        persisted = {**report, "cycle_ids": cycles, "reviewed_at": reviewed_at}
+        persisted = {key: value for key, value in report.items() if key != "exclusion_digest"}
+        persisted.update({"cycle_ids": cycles, "reviewed_at": reviewed_at})
         name = hashlib.sha256((digest + "\0" + json.dumps(persisted, sort_keys=True)).encode()).hexdigest()[:24]
         archive_review_candidates(root, expected)
         private_json(root / "reviews" / f"{name}.json", persisted)
@@ -2887,6 +2902,7 @@ def parser():
     review_scan.add_argument("--database-digest")
     review_scan.add_argument("--excluded-session-id")
     review_scan.add_argument("--excluded-message-id")
+    review_scan.add_argument("--exclusion-digest")
     review_scan.set_defaults(func=command_review_scan)
     review_history = commands.add_parser("review-history")
     review_history.add_argument("--database")
@@ -2909,6 +2925,7 @@ def parser():
     review_history.add_argument("--database-digest")
     review_history.add_argument("--excluded-session-id")
     review_history.add_argument("--excluded-message-id")
+    review_history.add_argument("--exclusion-digest")
     review_history.set_defaults(func=command_review_history)
     review_history_save = commands.add_parser("review-history-save")
     review_history_save.add_argument("--database")
