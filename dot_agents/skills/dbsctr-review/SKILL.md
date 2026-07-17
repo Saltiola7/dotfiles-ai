@@ -47,6 +47,8 @@ Skip completion for pages with no candidate IDs.
 Detailed reports expire after 90 days while compact opaque reviewed-ID
 tombstones remain until explicit forget. Scans never prune or write this state;
 completion and maintenance serialize changes under the private review lock.
+Migration, backup, restore, prune, and forget are explicit maintenance writes;
+ordinary operational and historical scans never invoke them.
 
 ## History and replay
 

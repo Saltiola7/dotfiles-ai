@@ -146,6 +146,9 @@ def test_builder_boundaries():
             "git *", "gh *", "chezmoi apply*", "dvc push*", "npm publish*",
             "dbsctrctl review-complete*", "*/dbsctrctl review-complete*",
             "env *dbsctrctl review-complete*", "command *dbsctrctl review-complete*",
+            *(form.format(command) for command in
+              ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget")
+              for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
         ):
             assert f'"{command}": deny' in body
 
@@ -198,8 +201,11 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
                     "env *dbsctrctl review-history*", "command *dbsctrctl review-history*"):
         assert bash[command] == "allow"
     for command in ("dbsctrctl review-history-save*", "*/dbsctrctl review-history-save*",
-                    "env *dbsctrctl review-history-save*", "command *dbsctrctl review-history-save*"):
+                     "env *dbsctrctl review-history-save*", "command *dbsctrctl review-history-save*"):
         assert bash[command] == "ask"
+    for command in ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget"):
+        for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
+            assert bash[form.format(command)] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",

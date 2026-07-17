@@ -24,6 +24,26 @@ permission:
     "*/dbsctrctl review-history-save*": deny
     "env *dbsctrctl review-history-save*": deny
     "command *dbsctrctl review-history-save*": deny
+    "dbsctrctl review-migrate*": deny
+    "*/dbsctrctl review-migrate*": deny
+    "env *dbsctrctl review-migrate*": deny
+    "command *dbsctrctl review-migrate*": deny
+    "dbsctrctl review-backup*": deny
+    "*/dbsctrctl review-backup*": deny
+    "env *dbsctrctl review-backup*": deny
+    "command *dbsctrctl review-backup*": deny
+    "dbsctrctl review-restore*": deny
+    "*/dbsctrctl review-restore*": deny
+    "env *dbsctrctl review-restore*": deny
+    "command *dbsctrctl review-restore*": deny
+    "dbsctrctl review-prune*": deny
+    "*/dbsctrctl review-prune*": deny
+    "env *dbsctrctl review-prune*": deny
+    "command *dbsctrctl review-prune*": deny
+    "dbsctrctl review-forget*": deny
+    "*/dbsctrctl review-forget*": deny
+    "env *dbsctrctl review-forget*": deny
+    "command *dbsctrctl review-forget*": deny
     "dbsctrctl attach-runtime*": deny
     "*/dbsctrctl attach-runtime*": deny
     "env *dbsctrctl attach-runtime*": deny

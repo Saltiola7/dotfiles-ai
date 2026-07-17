@@ -30,13 +30,14 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.18"
+CURRENT_METHOD_REVISION = "3.19"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
 REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
+REVIEW_LEDGER_SCHEMA = 1
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
@@ -172,7 +173,10 @@ def session_id_digest(session_id):
 def review_lock(root):
     path = root / "reviews" / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    return path.open("a+", encoding="utf-8")
+    os.chmod(path.parent, 0o700)
+    handle = path.open("a+", encoding="utf-8")
+    os.chmod(path, 0o600)
+    return handle
 
 
 def excluded_review_family(connection, session, session_id):
@@ -264,9 +268,292 @@ def history_digest(value, name="digest"):
     return value
 
 
+def ledger_path(root):
+    return root / "reviews" / "ledger.sqlite3"
+
+
+def ledger_exists(root):
+    path = ledger_path(root)
+    if path.is_symlink() or path.exists() and not path.is_file():
+        fail("private review ledger must be a regular file")
+    return path.is_file()
+
+
+def ledger_connection(root, write=False, path=None):
+    path = path or ledger_path(root)
+    if path.is_symlink() or not path.is_file():
+        fail("private review ledger is missing or unsafe")
+    try:
+        connection = sqlite3.connect(str(path) if write else f"file:{path}?mode=ro", uri=not write)
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=5000")
+        if write:
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA journal_mode=DELETE")
+        row = connection.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()
+        if row != (str(REVIEW_LEDGER_SCHEMA),):
+            fail("private review ledger has an unsupported schema")
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            fail("private review ledger foreign-key check failed")
+        return connection
+    except (sqlite3.Error, RuntimeError):
+        if "connection" in locals():
+            connection.close()
+        raise
+
+
+def ledger_schema(connection):
+    connection.executescript("""
+        CREATE TABLE ledger_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE review_reports (
+            report_id TEXT PRIMARY KEY,
+            reviewed_at INTEGER NOT NULL,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE review_report_sessions (
+            report_id TEXT NOT NULL REFERENCES review_reports(report_id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            PRIMARY KEY (report_id, position),
+            UNIQUE (report_id, session_id)
+        ) WITHOUT ROWID;
+        CREATE TABLE review_report_cycles (
+            report_id TEXT NOT NULL REFERENCES review_reports(report_id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            cycle_id TEXT NOT NULL,
+            PRIMARY KEY (report_id, position),
+            UNIQUE (report_id, cycle_id)
+        ) WITHOUT ROWID;
+        CREATE TABLE review_tombstones (
+            kind TEXT NOT NULL CHECK (kind IN ('session', 'cycle', 'forgotten_session')),
+            item_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            PRIMARY KEY (kind, item_id)
+        ) WITHOUT ROWID;
+        CREATE TABLE history_evidence (
+            session_id TEXT PRIMARY KEY,
+            completed_at INTEGER NOT NULL,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE history_reports (
+            report_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('report', 'cohort')),
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE history_report_members (
+            report_id TEXT NOT NULL REFERENCES history_reports(report_id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            PRIMARY KEY (report_id, position),
+            UNIQUE (report_id, session_id)
+        ) WITHOUT ROWID;
+        CREATE TABLE ledger_entries (
+            scope TEXT NOT NULL CHECK (scope IN ('operational', 'history')),
+            report_id TEXT NOT NULL,
+            category TEXT NOT NULL CHECK (category IN ('finding', 'scorecard', 'trend', 'proposal', 'caveat')),
+            position INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            PRIMARY KEY (scope, report_id, category, position)
+        ) WITHOUT ROWID;
+    """)
+    connection.execute("INSERT INTO ledger_meta VALUES ('schema_version', ?)", (str(REVIEW_LEDGER_SCHEMA),))
+
+
+def ledger_integrity(connection):
+    if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        fail("private review ledger integrity check failed")
+    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        fail("private review ledger foreign-key check failed")
+
+
+def legacy_review_exists(root):
+    directory = root / "reviews"
+    if not directory.is_dir():
+        return False
+    history = directory / "history"
+    return any(directory.glob("*.json")) or history.is_dir() and any(history.rglob("*.json"))
+
+
+def create_empty_ledger(root):
+    directory = root / "reviews"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(directory, 0o700)
+    descriptor, temporary = tempfile.mkstemp(prefix=".ledger-", suffix=".sqlite3", dir=directory)
+    os.close(descriptor)
+    temporary = Path(temporary)
+    try:
+        os.chmod(temporary, 0o600)
+        connection = sqlite3.connect(temporary)
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA synchronous=FULL")
+        ledger_schema(connection)
+        connection.commit()
+        ledger_integrity(connection)
+        connection.close()
+        os.replace(temporary, ledger_path(root))
+        os.chmod(ledger_path(root), 0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def ensure_ledger_for_write(root):
+    if not ledger_exists(root):
+        if legacy_review_exists(root):
+            fail("legacy private review state requires review-migrate")
+        create_empty_ledger(root)
+    return ledger_connection(root, write=True)
+
+
+def ledger_payload(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def ledger_entries(connection, scope, report_id, report):
+    names = {"findings": "finding", "scorecards": "scorecard", "trends": "trend",
+             "proposals": "proposal", "caveats": "caveat"}
+    connection.execute("DELETE FROM ledger_entries WHERE scope=? AND report_id=?", (scope, report_id))
+    for field, category in names.items():
+        connection.executemany(
+            "INSERT INTO ledger_entries VALUES (?, ?, ?, ?, ?)",
+            ((scope, report_id, category, position, text) for position, text in enumerate(report.get(field, []))),
+        )
+
+
+def ledger_put_review_report(connection, report_id, report):
+    connection.execute("INSERT OR REPLACE INTO review_reports VALUES (?, ?, ?)",
+                       (report_id, report["reviewed_at"], ledger_payload(report)))
+    connection.execute("DELETE FROM review_report_sessions WHERE report_id=?", (report_id,))
+    connection.execute("DELETE FROM review_report_cycles WHERE report_id=?", (report_id,))
+    connection.executemany("INSERT INTO review_report_sessions VALUES (?, ?, ?)",
+                           ((report_id, position, value) for position, value in enumerate(report["session_ids"])))
+    connection.executemany("INSERT INTO review_report_cycles VALUES (?, ?, ?)",
+                           ((report_id, position, value) for position, value in enumerate(report.get("cycle_ids", []))))
+    ledger_entries(connection, "operational", report_id, report)
+
+
+def ledger_put_history_evidence(connection, evidence):
+    connection.execute("INSERT OR REPLACE INTO history_evidence VALUES (?, ?, ?)",
+                       (evidence["session_id"], int(evidence["completed_at"]), ledger_payload(evidence)))
+
+
+def ledger_put_history_report(connection, kind, report):
+    report_id = report["report_id"]
+    connection.execute("INSERT OR REPLACE INTO history_reports VALUES (?, ?, ?)",
+                       (report_id, kind, ledger_payload(report)))
+    connection.execute("DELETE FROM history_report_members WHERE report_id=?", (report_id,))
+    connection.executemany("INSERT INTO history_report_members VALUES (?, ?, ?)",
+                           ((report_id, position, value) for position, value in enumerate(report["cohort"])))
+    ledger_entries(connection, "history", report_id, report)
+
+
+def ledger_content(connection):
+    tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
+    names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
+    for kind, item_id, timestamp in connection.execute(
+            "SELECT kind, item_id, timestamp FROM review_tombstones ORDER BY kind, item_id"):
+        tombstones[names[kind]][item_id] = timestamp
+    def payloads(query):
+        return [(key, json.loads(payload, object_pairs_hook=no_duplicate_keys))
+                for key, payload in connection.execute(query)]
+    return {
+        "index": tombstones,
+        "review_reports": payloads("SELECT report_id, payload FROM review_reports ORDER BY report_id"),
+        "history_evidence": [value for _, value in payloads(
+            "SELECT session_id, payload FROM history_evidence ORDER BY session_id")],
+        "history_reports": payloads(
+            "SELECT report_id, payload FROM history_reports WHERE kind='report' ORDER BY report_id"),
+        "history_cohorts": payloads(
+            "SELECT report_id, payload FROM history_reports WHERE kind='cohort' ORDER BY report_id"),
+    }
+
+
+def content_digest(value):
+    return hashlib.sha256(ledger_payload(value).encode()).hexdigest()
+
+
+def backup_directory(root):
+    directory = root / "reviews" / "backups"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(directory, 0o700)
+    return directory
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def create_ledger_backup(root, prefix="ledger"):
+    if not ledger_exists(root):
+        fail("private review ledger is missing")
+    name = f"{int(time.time() * 1000)}-{prefix}-{uuid.uuid4().hex[:8]}.sqlite3"
+    target = backup_directory(root) / name
+    source = ledger_connection(root)
+    destination = sqlite3.connect(target)
+    try:
+        source.backup(destination)
+        destination.commit()
+    except sqlite3.Error as error:
+        target.unlink(missing_ok=True)
+        fail(f"cannot back up private review ledger: {error}")
+    finally:
+        source.close()
+        destination.close()
+    os.chmod(target, 0o600)
+    with ledger_connection(root, path=target) as check:
+        ledger_integrity(check)
+    return name, file_digest(target)
+
+
+def backup_legacy_json(root):
+    reviews = root / "reviews"
+    files = legacy_json_files(root)
+    name = f"{int(time.time() * 1000)}-legacy-{uuid.uuid4().hex[:8]}"
+    target = backup_directory(root) / name
+    target.mkdir(mode=0o700)
+    digest = hashlib.sha256()
+    for source in files:
+        if source.is_symlink() or not source.is_file():
+            fail("legacy private review state contains an unsafe file")
+        relative = source.relative_to(reviews)
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(destination.parent, 0o700)
+        shutil.copyfile(source, destination)
+        os.chmod(destination, 0o600)
+        digest.update(relative.as_posix().encode() + b"\0" + source.read_bytes())
+    return name, digest.hexdigest()
+
+
+def legacy_json_files(root):
+    reviews = root / "reviews"
+    files = sorted([*reviews.glob("*.json"), *((reviews / "history").rglob("*.json")
+                                               if (reviews / "history").is_dir() else [])])
+    if any(path.is_symlink() or not path.is_file() for path in files):
+        fail("legacy private review state contains an unsafe file")
+    return files
+
+
+def purge_pre_forget_state(root):
+    for path in legacy_json_files(root):
+        path.unlink()
+    backups = root / "reviews" / "backups"
+    if backups.is_symlink():
+        fail("private review backup directory is unsafe")
+    if backups.is_dir():
+        shutil.rmtree(backups)
+
+
 def require_review_lock_safe(root):
     directory = root / "reviews"
-    if directory.is_dir() and (any(directory.glob("*.json")) or (directory / "history").exists()) and not (directory / ".lock").is_file():
+    if (directory.is_dir() and (any(directory.glob("*.json")) or (directory / "history").exists()
+                                or ledger_exists(root)) and not (directory / ".lock").is_file()):
         fail("retained review state is missing its lock")
 
 
@@ -1189,13 +1476,22 @@ def sqlite_name(connection, table, choices):
 
 
 def review_index(root):
-    path = root / "reviews" / "reviewed.json"
-    if not path.exists():
-        return {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
-    except (OSError, json.JSONDecodeError) as error:
-        fail(f"cannot read reviewed tombstones: {error}")
+    if ledger_exists(root):
+        with ledger_connection(root) as connection:
+            value = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
+            names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
+            for kind, item_id, timestamp in connection.execute(
+                    "SELECT kind, item_id, timestamp FROM review_tombstones"):
+                value[names[kind]][item_id] = timestamp
+    else:
+        path = root / "reviews" / "reviewed.json"
+        if not path.exists():
+            value = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
+        else:
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+            except (OSError, json.JSONDecodeError) as error:
+                fail(f"cannot read reviewed tombstones: {error}")
     if (not isinstance(value, dict) or set(value) != {"schema_version", "sessions", "cycles", "forgotten_sessions"}
             or value["schema_version"] != 1 or not isinstance(value["sessions"], dict)
             or not isinstance(value["cycles"], dict) or not isinstance(value["forgotten_sessions"], dict)):
@@ -1208,11 +1504,8 @@ def review_index(root):
     return value
 
 
-def read_review_report(path):
-    try:
-        report = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
-    except (OSError, json.JSONDecodeError) as error:
-        fail(f"cannot read retained review report: {error}")
+def validate_review_report(report, marker_name, timestamp):
+    path = Path(marker_name)
     text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
     allowed = {"session_ids", "cycle_ids", "scan_digest", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
                "limit", "cursor", "decision", "notes", "reviewed_at", *text_fields}
@@ -1257,16 +1550,33 @@ def read_review_report(path):
     expected = hashlib.sha256((report["scan_digest"] + "\0" + json.dumps(report, sort_keys=True)).encode()).hexdigest()[:24]
     if path.stem != expected:
         fail("retained review report marker does not match its content")
-    timestamp = report.get("reviewed_at")
-    if timestamp is None:
-        timestamp = path.stat().st_mtime_ns // 1_000_000
     if (not isinstance(timestamp, int) or timestamp < REVIEW_START_MS
             or timestamp > int(datetime.now(timezone.utc).timestamp() * 1000) + 1000):
         fail("retained review report has an invalid review timestamp")
     return report, timestamp
 
 
+def read_review_report(path):
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read retained review report: {error}")
+    return validate_review_report(report, path.name, report.get("reviewed_at", path.stat().st_mtime_ns // 1_000_000))
+
+
 def review_reports(root):
+    if ledger_exists(root):
+        reports = []
+        with ledger_connection(root) as connection:
+            for report_id, payload, timestamp in connection.execute(
+                    "SELECT report_id, payload, reviewed_at FROM review_reports ORDER BY report_id"):
+                try:
+                    report = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                except json.JSONDecodeError as error:
+                    fail(f"cannot read retained review report: {error}")
+                report, timestamp = validate_review_report(report, f"{report_id}.json", timestamp)
+                reports.append((None, report, timestamp))
+        return reports
     directory = root / "reviews"
     if not directory.is_dir():
         return []
@@ -1300,7 +1610,7 @@ def reviewed_ids(state_root, cutoff=None, lock=True):
     root = review_root(state_root)
     lock_path = root / "reviews" / ".lock"
     review_state = root / "reviews"
-    if lock and review_state.is_dir() and any(review_state.glob("*.json")) and not lock_path.is_file():
+    if lock and review_state.is_dir() and (any(review_state.glob("*.json")) or ledger_exists(root)) and not lock_path.is_file():
         fail("retained review state is missing its lock")
     if lock and lock_path.is_file():
         with lock_path.open("r", encoding="utf-8") as handle:
@@ -1309,19 +1619,47 @@ def reviewed_ids(state_root, cutoff=None, lock=True):
     return reviewed_ids_unlocked(root, cutoff)
 
 
-def update_review_index(root, sessions=(), cycles=(), timestamp=None):
+def update_review_index(root, sessions=(), cycles=(), timestamp=None, connection=None):
     value = review_index(root)
     timestamp = timestamp or int(datetime.now(timezone.utc).timestamp() * 1000)
     for key in sessions:
-        value["sessions"].setdefault(key, timestamp)
+        value["sessions"][key] = max(value["sessions"].get(key, 0), timestamp)
     for key in cycles:
-        value["cycles"].setdefault(key, timestamp)
-    private_json(root / "reviews" / "reviewed.json", value)
+        value["cycles"][key] = max(value["cycles"].get(key, 0), timestamp)
+    if ledger_exists(root):
+        owned = connection is None
+        connection = connection or ledger_connection(root, write=True)
+        connection.executemany(
+            "INSERT INTO review_tombstones VALUES (?, ?, ?) ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
+            [("session", key, value["sessions"][key]) for key in sessions]
+            + [("cycle", key, value["cycles"][key]) for key in cycles],
+        )
+        if owned:
+            connection.commit()
+            connection.close()
+    else:
+        private_json(root / "reviews" / "reviewed.json", value)
     return value
 
 
-def prune_review_reports(root):
+def prune_review_reports(root, connection=None):
     cutoff_ms = int((time.time() - REVIEW_RETENTION_SECONDS) * 1000)
+    if ledger_exists(root):
+        owned = connection is None
+        connection = connection or ledger_connection(root, write=True)
+        expired = list(connection.execute(
+            "SELECT report_id, payload, reviewed_at FROM review_reports WHERE reviewed_at <= ?", (cutoff_ms,)))
+        for report_id, payload, timestamp in expired:
+            report, _ = validate_review_report(json.loads(payload, object_pairs_hook=no_duplicate_keys),
+                                               f"{report_id}.json", timestamp)
+            update_review_index(root, report.get("session_ids", []), report.get("cycle_ids", []), timestamp,
+                                connection=connection)
+            connection.execute("DELETE FROM ledger_entries WHERE scope='operational' AND report_id=?", (report_id,))
+            connection.execute("DELETE FROM review_reports WHERE report_id=?", (report_id,))
+        if owned:
+            connection.commit()
+            connection.close()
+        return len(expired)
     reports, malformed_expired = [], []
     directory = root / "reviews"
     for path in directory.glob("*.json") if directory.is_dir() else ():
@@ -1853,6 +2191,16 @@ def read_history_evidence(path):
 
 
 def history_evidence(root):
+    if ledger_exists(root):
+        records = {}
+        with ledger_connection(root) as connection:
+            for payload, in connection.execute("SELECT payload FROM history_evidence ORDER BY session_id"):
+                record = validate_history_evidence(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+                records[record["session_id"]] = record
+            for payload, in connection.execute("SELECT payload FROM history_reports WHERE kind='report' ORDER BY report_id"):
+                for record in validate_history_report(json.loads(payload, object_pairs_hook=no_duplicate_keys))["evidence"]:
+                    records.setdefault(record["session_id"], record)
+        return list(records.values())
     directory = history_dir(root)
     records = {}
     if directory.is_dir():
@@ -1869,7 +2217,11 @@ def history_evidence(root):
     return list(records.values())
 
 
-def archive_review_candidates(root, scan, mark_reviewed=True):
+def archive_review_candidates(root, scan, mark_reviewed=True, connection=None):
+    if connection is not None:
+        for candidate in scan["candidates"]:
+            ledger_put_history_evidence(connection, candidate_history_evidence(candidate, scan, mark_reviewed))
+        return
     directory = history_dir(root, create=True)
     for candidate in scan["candidates"]:
         evidence = candidate_history_evidence(candidate, scan, mark_reviewed)
@@ -1990,6 +2342,11 @@ def history_report(path):
 
 
 def history_reports(root):
+    if ledger_exists(root):
+        with ledger_connection(root) as connection:
+            return [validate_history_report(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+                    for payload, in connection.execute(
+                        "SELECT payload FROM history_reports WHERE kind='report' ORDER BY report_id")]
     directory = history_dir(root, "reports")
     if not directory.is_dir():
         return []
@@ -1997,6 +2354,11 @@ def history_reports(root):
 
 
 def history_cohorts(root):
+    if ledger_exists(root):
+        with ledger_connection(root) as connection:
+            return [validate_history_report(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+                    for payload, in connection.execute(
+                        "SELECT payload FROM history_reports WHERE kind='cohort' ORDER BY report_id")]
     directory = history_dir(root, "cohorts")
     if not directory.is_dir():
         return []
@@ -2127,6 +2489,136 @@ def command_review_history(args):
     print(encoded)
 
 
+def command_review_migrate(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if ledger_exists(root):
+            with ledger_connection(root) as connection:
+                ledger_integrity(connection)
+                digest = content_digest(ledger_content(connection))
+            print(json.dumps({"migrated": False, "digest": digest}, sort_keys=True))
+            return
+        legacy_json_files(root)
+        index = review_index(root)
+        reports = [(path.stem, report) for path, report, _ in review_reports(root)]
+        evidence = sorted(history_evidence(root), key=lambda item: item["session_id"])
+        saved_reports = sorted(((item["report_id"], item) for item in history_reports(root)))
+        cohorts = sorted(((item["report_id"], item) for item in history_cohorts(root)))
+        source = {"index": index, "review_reports": reports, "history_evidence": evidence,
+                  "history_reports": saved_reports, "history_cohorts": cohorts}
+        source_digest = content_digest(source)
+        backup_name, backup_digest = backup_legacy_json(root)
+        directory = root / "reviews"
+        descriptor, temporary = tempfile.mkstemp(prefix=".ledger-migrate-", suffix=".sqlite3", dir=directory)
+        os.close(descriptor)
+        temporary = Path(temporary)
+        try:
+            os.chmod(temporary, 0o600)
+            connection = sqlite3.connect(temporary)
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA synchronous=FULL")
+            ledger_schema(connection)
+            connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            names = {"sessions": "session", "cycles": "cycle", "forgotten_sessions": "forgotten_session"}
+            for field, kind in names.items():
+                connection.executemany("INSERT INTO review_tombstones VALUES (?, ?, ?)",
+                                       ((kind, key, value) for key, value in index[field].items()))
+            for report_id, report in reports:
+                ledger_put_review_report(connection, report_id, report)
+            for item in evidence:
+                ledger_put_history_evidence(connection, item)
+            for _, item in saved_reports:
+                ledger_put_history_report(connection, "report", item)
+            for _, item in cohorts:
+                ledger_put_history_report(connection, "cohort", item)
+            connection.execute("INSERT INTO ledger_meta VALUES ('migration_digest', ?)", (source_digest,))
+            connection.commit()
+            ledger_integrity(connection)
+            if content_digest(ledger_content(connection)) != source_digest:
+                fail("private review ledger migration content mismatch")
+            connection.close()
+            os.replace(temporary, ledger_path(root))
+            os.chmod(ledger_path(root), 0o600)
+        except Exception:
+            if "connection" in locals():
+                connection.close()
+            raise
+        finally:
+            temporary.unlink(missing_ok=True)
+    print(json.dumps({"migrated": True, "digest": source_digest, "backup": backup_name,
+                      "backup_digest": backup_digest}, sort_keys=True))
+
+
+def command_review_backup(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        name, digest = create_ledger_backup(root)
+    print(json.dumps({"backup": name, "digest": digest}, sort_keys=True))
+
+
+def command_review_restore(args):
+    root = review_root(args.state_root)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.sqlite3", args.backup):
+        fail("invalid private review backup name")
+    source_path = root / "reviews" / "backups" / args.backup
+    if source_path.is_symlink() or not source_path.is_file():
+        fail("private review backup is missing or unsafe")
+    if source_path.stat().st_mode & 0o077:
+        fail("private review backup permissions are too broad")
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        forgotten = review_index(root)["forgotten_sessions"]
+        with ledger_connection(root, path=source_path) as source:
+            ledger_integrity(source)
+        rollback, _ = create_ledger_backup(root, prefix="rollback")
+        directory = root / "reviews"
+        descriptor, temporary = tempfile.mkstemp(prefix=".ledger-restore-", suffix=".sqlite3", dir=directory)
+        os.close(descriptor)
+        temporary = Path(temporary)
+        try:
+            os.chmod(temporary, 0o600)
+            source = ledger_connection(root, path=source_path)
+            destination = sqlite3.connect(temporary)
+            source.backup(destination)
+            destination.commit()
+            source.close()
+            destination.close()
+            restored = ledger_connection(root, write=True, path=temporary)
+            try:
+                restored.execute("BEGIN IMMEDIATE")
+                for session_id, timestamp in forgotten.items():
+                    dependent = [row[0] for row in restored.execute(
+                        "SELECT report_id FROM history_report_members WHERE session_id=?", (session_id,))]
+                    restored.execute("DELETE FROM history_evidence WHERE session_id=?", (session_id,))
+                    for report_id in dependent:
+                        restored.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
+                        restored.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
+                    restored.execute(
+                        "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
+                        "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
+                        (session_id, timestamp),
+                    )
+                restored.commit()
+            except Exception:
+                restored.rollback()
+                raise
+            finally:
+                restored.close()
+            with ledger_connection(root, path=temporary) as check:
+                ledger_integrity(check)
+            os.replace(temporary, ledger_path(root))
+            os.chmod(ledger_path(root), 0o600)
+        finally:
+            temporary.unlink(missing_ok=True)
+    print(json.dumps({"restored": args.backup, "rollback": rollback}, sort_keys=True))
+
+
 def command_review_history_save(args):
     try:
         report = validate_history_report_input(json.loads(args.report_json, object_pairs_hook=no_duplicate_keys))
@@ -2137,6 +2629,7 @@ def command_review_history_save(args):
                                                  args.excluded_message_id)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
         records = {item["session_id"]: item for item in history_evidence(root)}
         text_fields = {"findings", "scorecards", "trends", "proposals", "caveats"}
         scan_fields = {"snapshot", "session_ceiling", "part_ceiling", "database_digest"}
@@ -2178,7 +2671,15 @@ def command_review_history_save(args):
         report_id = hashlib.sha256(json.dumps(stored, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
         stored["report_id"] = report_id
         history_report_value = validate_history_report(stored)
-        private_json(history_dir(root, "reports", create=True) / f"{report_id}.json", history_report_value)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            ledger_put_history_report(connection, "report", history_report_value)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
     print(json.dumps({"report_id": report_id}, sort_keys=True))
 
 
@@ -2233,7 +2734,6 @@ def command_review_complete(args):
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        pruned = prune_review_reports(root)
         current_sessions, _ = reviewed_ids(args.state_root, lock=False)
         if current_sessions.intersection(sessions):
             fail("review page was already completed")
@@ -2257,8 +2757,18 @@ def command_review_complete(args):
         persisted = {key: value for key, value in report.items() if key != "exclusion_digest"}
         persisted.update({"cycle_ids": cycles, "reviewed_at": reviewed_at})
         name = hashlib.sha256((digest + "\0" + json.dumps(persisted, sort_keys=True)).encode()).hexdigest()[:24]
-        archive_review_candidates(root, expected)
-        private_json(root / "reviews" / f"{name}.json", persisted)
+        connection = ensure_ledger_for_write(root)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            pruned = prune_review_reports(root, connection=connection)
+            archive_review_candidates(root, expected, connection=connection)
+            ledger_put_review_report(connection, name, persisted)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
     print(json.dumps({"digest": digest, "reviewed_sessions": len(sessions),
                       "reviewed_cycles": len(cycles), "pruned_reports": pruned}, sort_keys=True))
 
@@ -2268,7 +2778,16 @@ def command_review_prune(args):
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        removed = prune_review_reports(root)
+        connection = ensure_ledger_for_write(root)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            removed = prune_review_reports(root, connection=connection)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
     print(json.dumps({"pruned_reports": removed}, sort_keys=True))
 
 
@@ -2279,24 +2798,36 @@ def command_review_forget(args):
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        prune_review_reports(root)
+        connection = ensure_ledger_for_write(root)
         history_evidence(root)
         reports = history_reports(root)
         cohorts = history_cohorts(root)
-        evidence_path = history_dir(root) / f"{args.session_id}.json"
-        evidence_path.unlink(missing_ok=True)
         dependent = {item["report_id"] for item in reports + cohorts if args.session_id in item["cohort"]}
-        for directory in (history_dir(root, "cohorts"), history_dir(root, "reports")):
-            for report_id in dependent:
-                (directory / f"{report_id}.json").unlink(missing_ok=True)
         value = review_index(root)
         session_times = [timestamp for _, report, timestamp in review_reports(root)
                          if args.session_id in report["session_ids"]]
         session_times.append(value["sessions"].get(args.session_id, 0))
         removed = args.session_id in reviewed_ids_unlocked(root)[0]
-        value["forgotten_sessions"][args.session_id] = max(
-            int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
-        private_json(root / "reviews" / "reviewed.json", value)
+        forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            prune_review_reports(root, connection=connection)
+            connection.execute("DELETE FROM history_evidence WHERE session_id=?", (args.session_id,))
+            for report_id in dependent:
+                connection.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
+                connection.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
+            connection.execute(
+                "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
+                "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
+                (args.session_id, forgotten_at),
+            )
+            purge_pre_forget_state(root)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
     print(json.dumps({"forgotten": removed}, sort_keys=True))
 
 
@@ -2934,6 +3465,16 @@ def parser():
     review_history_save.add_argument("--excluded-session-id")
     review_history_save.add_argument("--excluded-message-id")
     review_history_save.set_defaults(func=command_review_history_save)
+    review_migrate = commands.add_parser("review-migrate")
+    review_migrate.add_argument("--state-root")
+    review_migrate.set_defaults(func=command_review_migrate)
+    review_backup = commands.add_parser("review-backup")
+    review_backup.add_argument("--state-root")
+    review_backup.set_defaults(func=command_review_backup)
+    review_restore = commands.add_parser("review-restore")
+    review_restore.add_argument("--state-root")
+    review_restore.add_argument("--backup", required=True)
+    review_restore.set_defaults(func=command_review_restore)
     review_complete = commands.add_parser("review-complete")
     report_source = review_complete.add_mutually_exclusive_group(required=True)
     report_source.add_argument("--report")
@@ -3029,7 +3570,7 @@ def main():
     try:
         args = parser().parse_args()
         args.func(args)
-    except (RuntimeError, OSError, json.JSONDecodeError) as error:
+    except (RuntimeError, OSError, json.JSONDecodeError, sqlite3.Error) as error:
         print(f"dbsctrctl: {error}", file=sys.stderr)
         return 1
     return 0

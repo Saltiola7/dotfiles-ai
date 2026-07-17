@@ -1523,7 +1523,10 @@ module routing without changing Cycle Record schema or public commands.
   accepts only a regular non-symlink backup inside the private backup directory,
   validates permissions, supported schema, integrity, and foreign keys, creates
   a rollback backup, then atomically replaces the ledger under the lock. Restore
-  is explicit maintenance and never runs during ordinary review.
+  carries forward current forget suppressions and removes their historical
+  evidence from the restored copy. Explicit forget purges pre-forget backups and
+  ignored legacy JSON so retained recovery material cannot resurrect forgotten
+  evidence. Restore is explicit maintenance and never runs during ordinary review.
 - SQLite uses full synchronous commits, a bounded busy timeout, and rollback
   journaling beneath the existing process lock. Maintenance verifies schema,
   integrity, backup retention, migration compatibility, and recoverability;

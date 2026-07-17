@@ -6,6 +6,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,18 @@ def run(repo, *args, ok=True, env=None, input_text=None):
     if not ok and not result.returncode:
         raise AssertionError(f"{args}: unexpectedly succeeded")
     return result
+
+
+def ledger_text(state):
+    connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+    try:
+        values = []
+        for table, column in (("review_reports", "payload"), ("history_evidence", "payload"),
+                              ("history_reports", "payload"), ("ledger_entries", "text")):
+            values.extend(row[0] for row in connection.execute(f"SELECT {column} FROM {table}"))
+        return "".join(values)
+    finally:
+        connection.close()
 
 
 class DbsctrctlTest(unittest.TestCase):
@@ -108,7 +121,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.18")
+        self.assertEqual(record["method_revision"], "3.19")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -1427,10 +1440,13 @@ class DbsctrctlTest(unittest.TestCase):
                                       "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
             "--database", str(database), "--state-root", str(state))
-        saved = next(path for path in (state / "reviews").glob("*.json") if path.name != "reviewed.json")
-        self.assertGreater(json.loads(saved.read_text())["reviewed_at"], scan["snapshot"])
-        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(saved.parent.stat().st_mode & 0o777, 0o700)
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        self.assertGreater(connection.execute("SELECT reviewed_at FROM review_reports").fetchone()[0], scan["snapshot"])
+        connection.close()
+        self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(ledger.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((ledger.parent / ".lock").stat().st_mode & 0o777, 0o600)
         repeated = json.loads(run(self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
                                   "--limit", "10", "--cursor", "0").stdout)
         self.assertEqual(repeated["session_ids"], [])
@@ -1563,7 +1579,7 @@ class DbsctrctlTest(unittest.TestCase):
         }
         run(self.repo, "review-complete", "--report-json", json.dumps(report), "--scan-digest", first["digest"],
             "--database", str(database), "--state-root", str(state))
-        saved = "".join(path.read_text() for path in (state / "reviews").rglob("*.json"))
+        saved = ledger_text(state)
         self.assertNotIn("active-tool", saved)
         self.assertNotIn("active-child", saved)
         history_scan = json.loads(run(
@@ -1581,7 +1597,7 @@ class DbsctrctlTest(unittest.TestCase):
         connection.commit()
         run(self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
             "--report-json", json.dumps(history), "--excluded-session-id", "active-tool")
-        self.assertNotIn("active-tool", "".join(path.read_text() for path in (state / "reviews").rglob("*.json")))
+        self.assertNotIn("active-tool", ledger_text(state))
         connection.execute("update part set data='included mutation' where id='part-two'")
         connection.commit()
         connection.close()
@@ -1685,6 +1701,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(archive_only["session_ids"], ["other"])
         report = {"schema_version": 1, "cohort": ["child"], "query_digest": "b" * 64,
                   "rubric": {"name": "history", "version": "1", "digest": "c" * 64}, "findings": ["safe"]}
+        run(self.repo, "review-migrate", "--state-root", str(state))
         saved = json.loads(run(self.repo, "review-history-save", "--database", str(database),
                                "--state-root", str(state), "--report-json", json.dumps(report)).stdout)
         replay = run(self.repo, "review-history", "--database", str(database), "--state-root", str(state),
@@ -1792,8 +1809,9 @@ class DbsctrctlTest(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_UN)
             results = [process.communicate(timeout=10) + (process.returncode,) for process in processes]
         self.assertEqual(sorted(result[2] for result in results), [0, 1])
-        self.assertEqual(len([path for path in (state / "reviews").glob("*.json")
-                              if path.name != "reviewed.json"]), 1)
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        self.assertEqual(connection.execute("SELECT count(*) FROM review_reports").fetchone()[0], 1)
+        connection.close()
 
     def test_review_completion_rejection_writes_no_marker(self):
         state = Path(self.temp.name) / "state"
@@ -2021,24 +2039,13 @@ class DbsctrctlTest(unittest.TestCase):
                                        "limit": 10, "cursor": 0, "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", scan["digest"],
             "--database", str(database), "--state-root", str(state))
-        saved = next(path for path in (state / "reviews").glob("*.json") if path.name != "reviewed.json")
-        old = time.time() - 2
-        saved_report = json.loads(saved.read_text())
-        saved_report["reviewed_at"] = int(old * 1000)
-        saved.write_text(json.dumps(saved_report))
-        marker = hashlib.sha256((saved_report["scan_digest"] + "\0" + json.dumps(saved_report, sort_keys=True)).encode()).hexdigest()[:24]
-        renamed = saved.with_name(f"{marker}.json")
-        saved.rename(renamed)
-        saved = renamed
-        os.utime(saved, (old, old))
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_retention_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        module.REVIEW_RETENTION_SECONDS = 1
+        module.REVIEW_RETENTION_SECONDS = -1
         self.assertEqual(module.prune_review_reports(state), 1)
-        self.assertFalse(saved.exists())
-        self.assertIn("session-retained", json.loads((state / "reviews/reviewed.json").read_text())["sessions"])
+        self.assertIn("session-retained", module.review_index(state)["sessions"])
         repeated = json.loads(run(self.repo, "review-scan", "--database", str(database),
                                   "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
         self.assertEqual(repeated["session_ids"], [])
@@ -2156,13 +2163,12 @@ class DbsctrctlTest(unittest.TestCase):
         }
         run(self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
             "--report-json", json.dumps(backfill))
-        self.assertTrue(any((state / "reviews/history/reports").glob("*.json")))
-        self.assertTrue((state / "reviews/history").is_dir())
-        self.assertEqual((state / "reviews/history").stat().st_mode & 0o777, 0o700)
-        for path in (state / "reviews/history").rglob("*"):
-            if path.is_file():
-                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-                self.assertNotIn(raw_payload, path.read_text())
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute("SELECT count(*) FROM history_reports").fetchone()[0], 1)
+        connection.close()
+        self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn(raw_payload, ledger_text(state))
         bounded = run(self.repo, "review-history", "--database", str(database), "--state-root", str(state),
                       "--limit", "101", ok=False)
         self.assertIn("100", bounded.stderr)
@@ -2198,12 +2204,14 @@ class DbsctrctlTest(unittest.TestCase):
             "aggregates": {"tool_count": 2, "retry_count": 0},
         }
         (history / "session-1.json").write_text(json.dumps(evidence))
+        (state / "reviews/.lock").touch()
         report = {
             "schema_version": 1, "cohort": ["session-1"], "query_digest": "b" * 64,
             "rubric": {"name": "baseline", "version": "1", "digest": "c" * 64},
             "findings": ["sanitized"],
         }
         self.assertFalse((state / "reviews/reviewed.json").exists())
+        run(self.repo, "review-migrate", "--state-root", str(state))
         saved = json.loads(run(
             self.repo, "review-history-save", "--state-root", str(state), "--report-json", json.dumps(report)
         ).stdout)
@@ -2224,11 +2232,15 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)["session_ids"], ["session-1"])
         run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-1")
         self.assertFalse((history / "session-1.json").exists())
-        self.assertFalse(any((history / "reports").glob("*.json")))
+        self.assertFalse((state / "reviews/backups").exists())
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        self.assertEqual(connection.execute("SELECT count(*) FROM history_reports").fetchone()[0], 0)
+        connection.close()
         (history / "cohorts").mkdir(exist_ok=True)
         (history / "cohorts/bad.json").write_text("not-json")
-        failed = run(self.repo, "review-history", "--state-root", str(state), ok=False)
-        self.assertIn("invalid", failed.stderr.lower())
+        self.assertEqual(json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--archive-only"
+        ).stdout)["session_ids"], [])
 
     def test_review_history_save_rejects_before_private_state_mutation(self):
         state = Path(self.temp.name) / "invalid-history-save"
@@ -2256,7 +2268,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.18")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.19")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
@@ -2267,6 +2279,169 @@ class DbsctrctlTest(unittest.TestCase):
             ok=False,
         )
         self.assertIn("changed within the review snapshot", changed.stderr)
+
+    def test_review_ledger_migrates_once_and_ignores_legacy_after_cutover(self):
+        state = Path(self.temp.name) / "ledger-migration"
+        history = state / "reviews/history"
+        history.mkdir(parents=True)
+        (state / "reviews/.lock").touch()
+        evidence = {
+            "schema_version": 1, "session_id": "session-1", "completed_at": "1784073600001",
+            "method_revision": "3.18", "context": "test", "project_digest": "a" * 64,
+            "cycles": [], "aggregates": {}, "reviewed_status": "reviewed",
+        }
+        (history / "session-1.json").write_text(json.dumps(evidence))
+        (state / "reviews/reviewed.json").write_text(json.dumps({
+            "schema_version": 1, "sessions": {"session-1": 1784073600001},
+            "cycles": {}, "forgotten_sessions": {},
+        }))
+        operational = {
+            "session_ids": ["session-1"], "cycle_ids": [], "scan_digest": "b" * 64,
+            "snapshot": 1784073600000, "session_ceiling": 1, "part_ceiling": 1,
+            "database_digest": "c" * 64, "limit": 1, "cursor": 0,
+            "decision": "reviewed", "reviewed_at": 1784073600001,
+        }
+        marker = hashlib.sha256((operational["scan_digest"] + "\0" + json.dumps(
+            operational, sort_keys=True)).encode()).hexdigest()[:24]
+        (state / "reviews" / f"{marker}.json").write_text(json.dumps(operational))
+        saved = {
+            "schema_version": 1, "cohort": ["session-1"], "evidence": [evidence],
+            "query_digest": "d" * 64,
+            "rubric": {"name": "migration", "version": "1", "digest": "e" * 64},
+            "findings": ["sanitized"],
+        }
+        saved["report_id"] = hashlib.sha256(json.dumps(
+            saved, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        reports = history / "reports"
+        reports.mkdir()
+        (reports / f"{saved['report_id']}.json").write_text(json.dumps(saved))
+
+        migrated = json.loads(run(self.repo, "review-migrate", "--state-root", str(state)).stdout)
+        self.assertTrue(migrated["migrated"])
+        self.assertRegex(migrated["digest"], r"^[0-9a-f]{64}$")
+        ledger = state / "reviews/ledger.sqlite3"
+        self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(ledger.parent.stat().st_mode & 0o777, 0o700)
+        backup = state / "reviews/backups" / migrated["backup"]
+        self.assertTrue((backup / "history/session-1.json").is_file())
+        self.assertEqual((backup / "history/session-1.json").stat().st_mode & 0o777, 0o600)
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute("select count(*) from review_reports").fetchone()[0], 1)
+        self.assertEqual(connection.execute("select count(*) from history_reports").fetchone()[0], 1)
+        self.assertEqual(connection.execute("select count(*) from review_tombstones").fetchone()[0], 1)
+        connection.close()
+        repeated = json.loads(run(self.repo, "review-migrate", "--state-root", str(state)).stdout)
+        self.assertFalse(repeated["migrated"])
+        self.assertEqual(repeated["digest"], migrated["digest"])
+
+        (history / "session-1.json").write_text("not-json")
+        archived = json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--archive-only"
+        ).stdout)
+        self.assertEqual(archived["session_ids"], ["session-1"])
+
+    def test_review_ledger_migration_rejects_malformed_legacy_without_cutover(self):
+        state = Path(self.temp.name) / "ledger-malformed"
+        history = state / "reviews/history"
+        history.mkdir(parents=True)
+        (state / "reviews/.lock").touch()
+        (history / "bad.json").write_text("not-json")
+        failed = run(self.repo, "review-migrate", "--state-root", str(state), ok=False)
+        self.assertIn("cannot read review history evidence", failed.stderr)
+        self.assertFalse((state / "reviews/ledger.sqlite3").exists())
+        (history / "bad.json").unlink()
+        outside = Path(self.temp.name) / "outside.json"
+        outside.write_text("{}")
+        (history / "linked.json").symlink_to(outside)
+        failed = run(self.repo, "review-migrate", "--state-root", str(state), ok=False)
+        self.assertIn("unsafe file", failed.stderr)
+        self.assertFalse((state / "reviews/ledger.sqlite3").exists())
+
+    def test_review_ledger_backup_restore_and_future_schema_fail_closed(self):
+        state = Path(self.temp.name) / "ledger-backup"
+        run(self.repo, "review-prune", "--state-root", str(state))
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("insert into review_tombstones values ('session', 'session-1', 1784073600001)")
+        connection.commit()
+        connection.close()
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        backup_path = state / "reviews/backups" / backup["backup"]
+        self.assertEqual(backup_path.stat().st_mode & 0o777, 0o600)
+
+        connection = sqlite3.connect(ledger)
+        connection.execute("update review_tombstones set timestamp=1784073600002")
+        connection.commit()
+        connection.close()
+        restored = json.loads(run(
+            self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"]
+        ).stdout)
+        self.assertRegex(restored["rollback"], r"rollback.*\.sqlite3$")
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute("select timestamp from review_tombstones").fetchone()[0], 1784073600001)
+        connection.execute("insert into review_tombstones values ('forgotten_session', 'forgotten-1', 1784073600003)")
+        connection.commit()
+        connection.close()
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select timestamp from review_tombstones where kind='forgotten_session'"
+        ).fetchone()[0], 1784073600003)
+        connection.close()
+
+        future = backup_path.with_name("future.sqlite3")
+        future.write_bytes(backup_path.read_bytes())
+        os.chmod(future, 0o600)
+        connection = sqlite3.connect(future)
+        connection.execute("update ledger_meta set value='99' where key='schema_version'")
+        connection.commit()
+        connection.close()
+        failed = run(self.repo, "review-restore", "--state-root", str(state),
+                     "--backup", future.name, ok=False)
+        self.assertIn("unsupported schema", failed.stderr)
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select timestamp from review_tombstones where kind='session'"
+        ).fetchone()[0], 1784073600001)
+        connection.close()
+
+    def test_review_completion_rolls_back_archives_when_marker_insert_fails(self):
+        database = Path(self.temp.name) / "ledger-atomic.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR', 1784073600000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "ledger-atomic"
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                              "--state-root", str(state), "--limit", "10", "--cursor", "0").stdout)
+        run(self.repo, "review-prune", "--state-root", str(state))
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        connection.execute("create trigger fail_report before insert on review_reports "
+                           "begin select raise(abort, 'forced failure'); end")
+        connection.commit()
+        connection.close()
+        report = {
+            "session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+            "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+            "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+            "database_digest": scan["database_digest"], "limit": 10, "cursor": 0,
+            "decision": "reviewed",
+        }
+        failed = run(self.repo, "review-complete", "--report-json", json.dumps(report),
+                     "--scan-digest", scan["digest"], "--database", str(database),
+                     "--state-root", str(state), ok=False)
+        self.assertIn("forced failure", failed.stderr)
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        self.assertEqual(connection.execute("select count(*) from review_reports").fetchone()[0], 0)
+        self.assertEqual(connection.execute("select count(*) from history_evidence").fetchone()[0], 0)
+        connection.close()
 
 
 if __name__ == "__main__":
