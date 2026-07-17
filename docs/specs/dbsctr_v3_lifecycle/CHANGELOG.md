@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-16 — V3.19 Private SQLite Improvement Ledger
+
+- Replaced per-file private review writes with one authoritative normalized
+  SQLite ledger after an explicit locked, backed-up, digest-verified legacy JSON
+  migration. Operational and historical command JSON contracts remain stable;
+  read-only scans never create or migrate state.
+- Added transactional completion, history save, pruning, and forget; semantic
+  payload/member/entry integrity; restrictive owner/mode/symlink checks; durable
+  crash-recovery markers; and explicit backup/restore that preserves forget
+  suppressions. Method Revision advanced to `3.19`, and direct maintenance writes
+  require confirmation while builders remain denied.
+- Validation: 136 affected tests passed and 1 skipped; Python compilation, diff
+  integrity, targeted chezmoi rendering/deployment, resolved OpenCode config,
+  live migration and idempotence, live read probes, deployed identity, independent
+  privacy/data-loss review, and disposable backup/restore passed. Gate Exceptions:
+  none. Gate Commits: `7bae6a4`, `5cd1fd5`, `8bacd60`, `37db7d0`, `ee01bc5`,
+  `8468feb`. Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — V3.18 Exact Runtime Correlation
 
 - Replaced broad path fan-out with explicit exact-session, unambiguous-family,
