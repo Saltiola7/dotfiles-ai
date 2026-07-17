@@ -7,7 +7,7 @@ Discovery readiness: complete.
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
 | V3.17-1 | Make live history self-safe | critical | done | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed caller self-mutation is excluded without weakening unrelated mutation detection | M | 124 tests, live deployment, independent privacy review, active-tool continuation/save fixtures |
-| V3.18-1 | Correct correlation and attach resumed runtimes | critical | active | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | Exact, family, worktree, source, ambiguous, and concurrent attachment fixtures |
+| V3.18-1 | Correct correlation and attach resumed runtimes | critical | done | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | 128 tests, typed context fixtures, live quality scan, deployment, independent review |
 | V3.19-1 | Add private SQLite improvement ledger | high | ready | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | Migration, permissions, atomicity, integrity, backup, and restore tests |
 | V3.20-1 | Add multi-page captures and compact history transport | high | ready | V3.19-1 | Logical manifests, aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session replay, response-size, ordering, deletion, and latency tests |
 | V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, attribution status | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, and attribution tests |
@@ -18,6 +18,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.18-1 | Add exact runtime correlation and resumed-runtime attachment | 2026-07-16 | `4729796`, `d506ab7` |
 | V3-1–V3-15 | Implement and deploy DBSCTR V3 lifecycle | 2026-07-11 | `3151772` |
 | V3-16 | Automate Gate Commits and Final Push | 2026-07-11 | `f7b11ca` |
 | V3.1-1–V3.1-5 | Add deterministic V3.1 cycles and OpenCode integration | 2026-07-12 | `c9827e0` |

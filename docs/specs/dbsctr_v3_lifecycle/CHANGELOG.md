@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-16 — V3.18 Exact Runtime Correlation
+
+- Replaced broad path fan-out with explicit exact-session, unambiguous-family,
+  exact-worktree, unique-source, and ambiguous correlation quality. Recursive
+  session families now correlate nested builders and reviewers without assigning
+  multiple lower-confidence cycles.
+- Added authorized, idempotent `dbsctr_attach` for validated Build primaries,
+  retained Plan/subagent denial, and advanced Method Revision to `3.18`.
+  Structured message identity plus a transient one-way exclusion digest keeps
+  review continuation and completion bound to the original private family across
+  separate tool invocations without persisting excluded IDs.
+- Validation: 128 affected tests passed and 1 skipped; Python/Bun checks,
+  controlled continuation/completion, legacy history, permission, deployment,
+  live quality-scan, and independent review passed. The live 27-session review
+  page remained unmarked because another included active family mutated; the
+  helper correctly failed closed. Gate Exceptions: none. Gate Commits:
+  `feee8ae`, `4729796`, `b0a8583`, `3f5b20c`, `8b580d0`, `9275466`,
+  `67b8651`, `d506ab7`. Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — V3.17 Self-Safe Historical Review
 
 - Excluded the invoking OpenCode session and its bounded live descendants from
