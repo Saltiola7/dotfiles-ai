@@ -177,6 +177,11 @@ Build-GPT, and Build-Claude receive that allow rule. Plan and every subagent den
 external-directory access; Builder agents remain confined to the worktree where
 they were launched.
 
+Given a Build primary deploys the standalone AI dotfiles source, it may read and
+edit only the machine-local `~/.config/dotfiles-ai/chezmoi.toml` config outside
+the worktree. Plan and subagents remain denied, and no other personal chezmoi,
+home-directory, credential, or arbitrary external path is exposed.
+
 ## Contracts
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
@@ -201,6 +206,9 @@ they were launched.
 - The helper-owned DBSCTR worktree root is an allowed external directory for the
   Build primary orchestrators only; the global default is deny and the rule does
   not broaden arbitrary home-directory, Plan, or subagent access.
+- The standalone `~/.config/dotfiles-ai/chezmoi.toml` is allowed for Build
+  primaries only so managed machine-local deployment values can be maintained;
+  the personal chezmoi config and all other external paths remain denied.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.

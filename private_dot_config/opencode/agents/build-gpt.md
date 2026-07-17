@@ -9,6 +9,7 @@ permission:
   dbsctr_attach: allow
   external_directory:
     ~/.local/state/dbsctr/worktrees/**: allow
+    ~/.config/dotfiles-ai/chezmoi.toml: allow
   task:
     "*": deny
     explore-openai: allow

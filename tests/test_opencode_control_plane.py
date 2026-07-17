@@ -156,13 +156,14 @@ def test_builder_boundaries():
 def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     config = rendered_config()
     worktrees = "~/.local/state/dbsctr/worktrees/**"
+    local_config = "~/.config/dotfiles-ai/chezmoi.toml"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["external_directory"] == "deny"
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
-        "external_directory": {worktrees: "allow"},
+        "external_directory": {worktrees: "allow", local_config: "allow"},
     }
 
     build_primaries = {"build-gpt.md", "build-claude.md"}
@@ -173,11 +174,13 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_begin: allow" in body
             assert "dbsctr_attach: allow" in body
             assert f"external_directory:\n    {worktrees}: allow" in body
+            assert f"    {local_config}: allow" in body
         else:
             assert "mode: subagent" in body
             assert "dbsctr_begin: allow" not in body
             assert "dbsctr_attach: allow" not in body
             assert worktrees not in body
+            assert local_config not in body
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "external_directory: deny" in (OC / "agents" / name).read_text()
 
