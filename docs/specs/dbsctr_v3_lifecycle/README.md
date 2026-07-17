@@ -462,7 +462,7 @@ records, and retirement decisions. External writes remain approval-gated.
 
 **Scenario: Exclude the task-owning review family**
 - Given OpenCode may execute a typed review tool in a child of the task-owning conversation
-- When the adapter supplies that invoking session ID
+- When the adapter supplies the invoking session and message IDs
 - Then review excludes its complete connected parent/child family before snapshot identity
 - And no transcript, timing, path, or newest-session heuristic determines the owner
 
@@ -1430,6 +1430,10 @@ module routing without changing Cycle Record schema or public commands.
   its structurally connected parent/child family. This covers child-executed tool
   calls while keeping the excluded IDs transient and preserving fail-closed
   detection for every unrelated session family.
+- The helper resolves the supplied structured message ID through OpenCode's
+  read-only message-to-session relation and excludes both resolved families.
+  Missing or malformed message identity fails closed; message IDs are never
+  emitted or persisted.
 - `dbsctrctl attach-runtime` accepts the current opaque OpenCode session ID and
   runtime paths only for the active cycle's recorded worktree. It serializes the
   Cycle Record update, is idempotent, rejects completed or mismatched cycles,
