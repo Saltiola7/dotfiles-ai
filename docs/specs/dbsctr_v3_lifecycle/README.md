@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.17 self-safe historical review implemented
+**Status:** V3.18 runtime correlation in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -446,6 +446,26 @@ records, and retirement decisions. External writes remain approval-gated.
 - When a lifecycle cycle changes source or artifacts
 - Then Graphify is updated only when explicit Project Policy requires it
 
+### Feature: V3.18 Exact Runtime Correlation
+
+**Scenario: Prefer the strongest unambiguous identity**
+- Given retained Cycle Records share runtime, worktree, or source identities
+- When a Review Run correlates a session family
+- Then it evaluates exact session, unambiguous family, exact worktree, and unique source evidence in that order
+- And it reports the selected correlation quality without multiplying ambiguous path matches
+
+**Scenario: Correlate a complete session family**
+- Given a cycle runtime starts a nested parent, child, reviewer, or builder session
+- When any descendant enters a Review Run
+- Then recursive family identity can correlate it to one unambiguous Cycle Record
+- But an ambiguous family falls through to stronger exact-worktree evidence or remains unknown
+
+**Scenario: Attach a resumed Build runtime**
+- Given a validated Build primary resumes an active cycle in its recorded worktree
+- When it invokes the authorized typed runtime attachment
+- Then the current opaque OpenCode session ID is added idempotently to that Cycle Record
+- But Plan, subagents, mismatched worktrees, completed cycles, and malformed identities cannot attach
+
 ## Engineering Profile
 
 ### Defaults
@@ -594,6 +614,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | Deploy the managed helper and typed history adapter locally after merge validation |
 | Scope | Exclude the invoking review session from live review cohorts while preserving external mutation detection |
 | Overrides | Ordinary scans remain read-only; durable manifests and performance work remain in V3.19-V3.20 |
+
+### V3.18 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes private session-to-cycle attribution and Cycle Record runtime identity |
+| Delivery intent | Deploy the managed helper, DBSCTR skill, OpenCode adapter, and permissions locally after merge validation |
+| Scope | Tiered correlation quality, recursive session families, and authorized resumed-runtime attachment |
+| Overrides | Preserve Cycle Record authority and schema compatibility; no transcript inference, broad ambiguous path attribution, or automatic attachment outside validated Build primaries |
 
 ## Gate Ledger — V3.1 Completion
 
@@ -1378,6 +1407,26 @@ module routing without changing Cycle Record schema or public commands.
   former descendant. An absent row cannot mutate the bounded live snapshot, and
   persisting ancestry solely for later suppression would violate the transient
   exclusion boundary.
+
+### V3.18 Runtime Correlation And Attachment Contract
+
+- Review correlation evaluates validated Cycle Record evidence by tier: an exact
+  session ID, one unambiguous recursive family match, one exact cycle-worktree
+  match, then one source-checkout match. A tier with multiple matches is
+  ambiguous and cannot multiply lower-confidence attribution.
+- Every candidate exposes `correlation_quality` as `exact`, `family`, `worktree`,
+  `source`, `ambiguous`, or `unavailable`. Historical evidence preserves that
+  bounded value without persisting new runtime or transcript content.
+- Legacy Cycle Records without runtime metadata may use only an unambiguous
+  worktree or source fallback. Existing schema-3 runtime metadata remains
+  compatible and no Cycle Record migration is required.
+- `dbsctrctl attach-runtime` accepts the current opaque OpenCode session ID and
+  runtime paths only for the active cycle's recorded worktree. It serializes the
+  Cycle Record update, is idempotent, rejects completed or mismatched cycles,
+  and stores no transcript, prompt, tool payload, credential, or external ID.
+- The typed `dbsctr_attach` adapter requests its dedicated permission. Native
+  Build primaries receive standing authorization; Plan and subagents remain
+  denied. Reading status never mutates runtime metadata.
 
 ## Validation Strategy
 
