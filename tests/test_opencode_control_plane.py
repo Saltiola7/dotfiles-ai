@@ -156,7 +156,7 @@ def test_builder_boundaries():
 def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     config = rendered_config()
     worktrees = "~/.local/state/dbsctr/worktrees/**"
-    local_config = "~/.config/dotfiles-ai/chezmoi.toml"
+    local_config = "~/.config/dotfiles-ai/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["external_directory"] == "deny"

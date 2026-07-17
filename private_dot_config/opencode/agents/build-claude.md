@@ -9,7 +9,7 @@ permission:
   dbsctr_attach: allow
   external_directory:
     ~/.local/state/dbsctr/worktrees/**: allow
-    ~/.config/dotfiles-ai/chezmoi.toml: allow
+    ~/.config/dotfiles-ai/**: allow
   task:
     "*": deny
     explore-bedrock: allow
