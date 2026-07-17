@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.16 historical review and backtesting implemented
+**Status:** V3.17 self-safe historical review implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -968,8 +968,8 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.16` retain schema version `3`; new records use
-the helper's single `CURRENT_METHOD_REVISION = "3.16"` constant.
+Method Revisions `3.9` through `3.17` retain schema version `3`; new records use
+the helper's single `CURRENT_METHOD_REVISION = "3.17"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
