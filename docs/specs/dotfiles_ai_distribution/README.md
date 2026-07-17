@@ -109,9 +109,9 @@ control-plane behavior, and shell authentication behavior.
   `[data.dotfiles_ai]` overrides.
 - The actual config lives at `~/.config/dotfiles-ai/chezmoi.toml` with separate
   persistent state.
-- `[data.dotfiles_ai.hermes]` selects enablement, executable, non-secret provider,
-  review cron, delivery, update calendar, and an explicit logical-name/path
-  repository allowlist. Paths remain machine-local.
+- `[data.dotfiles_ai.hermes]` selects enablement, executable, non-secret provider
+  and model, review cron, delivery, update calendar, and an explicit
+  logical-name/path repository allowlist. Paths remain machine-local.
 - The official Hermes installer owns `~/.hermes/hermes-agent`, `bin`, Node,
   Python, virtual environments, sessions, memories, logs, credentials, and
   mutable runtime databases.
@@ -127,6 +127,8 @@ control-plane behavior, and shell authentication behavior.
   exceptions, and new external-write authority pause for the user.
 - OpenAI Codex OAuth is authenticated through `hermes auth add openai-codex` as
   the gateway's macOS user. OpenCode OAuth files are not copied or reused.
+- Cron creation follows noninteractive `hermes config set` of the selected
+  provider/model so Hermes records a coherent provider snapshot.
 - Public templates contain no usernames, home paths, account IDs, UUIDs,
   credential values, or private repository names.
 - Vendor-managed OpenCode plugins remain vendor-managed and are validated, not

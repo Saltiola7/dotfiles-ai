@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.dotfiles-ai.hermes-update</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{ printf "%s/.local/bin/hermes-update" .chezmoi.homeDir | html }}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ .chezmoi.homeDir | html }}</string>
+        <key>PATH</key>
+        <string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>{{ .dotfiles_ai.hermes.update_weekday }}</integer>
+        <key>Hour</key>
+        <integer>{{ .dotfiles_ai.hermes.update_hour }}</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{ printf "%s/Library/Logs/hermes-update.log" .chezmoi.homeDir | html }}</string>
+    <key>StandardErrorPath</key>
+    <string>{{ printf "%s/Library/Logs/hermes-update.err.log" .chezmoi.homeDir | html }}</string>
+</dict>
+</plist>

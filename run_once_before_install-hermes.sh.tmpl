@@ -1,0 +1,19 @@
+#!/bin/bash
+
+set -euo pipefail
+{{ if not .dotfiles_ai.hermes.enabled -}}
+exit 0
+{{ end -}}
+
+HERMES={{ .dotfiles_ai.hermes.executable | quote }}
+if [[ "$HERMES" == "~/"* ]]; then
+    HERMES="$HOME/${HERMES#~/}"
+fi
+[[ -x "$HERMES" ]] && exit 0
+command -v curl >/dev/null || { echo "curl is required to install Hermes" >&2; exit 1; }
+
+installer=$(mktemp "${TMPDIR:-/tmp}/hermes-install.XXXXXX")
+trap 'rm -f "$installer"' EXIT
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o "$installer"
+/bin/bash "$installer" --non-interactive --skip-setup --skip-browser
+[[ -x "$HERMES" ]] || { echo "Hermes installer did not create $HERMES" >&2; exit 1; }

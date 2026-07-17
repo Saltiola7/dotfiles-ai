@@ -15,6 +15,27 @@ theme = "catppuccin"
 launchagent = true
 executable = "/opt/homebrew/bin/herdr"
 
+[data.dotfiles_ai.hermes]
+# Hermes uses its official installer, not Homebrew, and owns ~/.hermes runtime state.
+enabled = false
+executable = "/Users/you/.local/bin/hermes"
+# Authenticate separately with: hermes auth add openai-codex
+provider = "openai-codex"
+model = "gpt-5.5"
+review_schedule = "0 9 * * *"
+review_delivery = "local"
+review_tab = "dbsctr review"
+update_weekday = 0
+update_hour = 4
+
+[[data.dotfiles_ai.hermes.repositories]]
+name = "dotfiles-ai"
+path = "/Users/you/.local/share/chezmoi-dotfiles-ai"
+
+[[data.dotfiles_ai.hermes.repositories]]
+name = "seo-data-science"
+path = "/Users/you/src/seo-data-science"
+
 [data.dotfiles_ai.onepassword]
 # Enable only when `op` is installed and the account-specific values are set.
 enabled = false

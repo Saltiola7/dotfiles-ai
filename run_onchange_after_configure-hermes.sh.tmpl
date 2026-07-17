@@ -1,0 +1,74 @@
+#!/bin/bash
+# supervisor skill: {{ include "private_dot_hermes/skills/dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
+# schedule: {{ .dotfiles_ai.hermes.review_schedule }}
+# delivery: {{ .dotfiles_ai.hermes.review_delivery }}
+
+set -euo pipefail
+
+HERMES={{ .dotfiles_ai.hermes.executable | quote }}
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+if [[ "$HERMES" == "~/"* ]]; then
+    HERMES="$HOME/${HERMES#~/}"
+fi
+id_file="$HOME/.local/state/dotfiles-ai/hermes-review-cron-id"
+{{ if not .dotfiles_ai.hermes.enabled -}}
+if [[ -x "$HERMES" && -f "$id_file" ]]; then
+    IFS= read -r job_id < "$id_file"
+    [[ "$job_id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes review cron ID in $id_file" >&2; exit 1; }
+    "$HERMES" cron remove "$job_id"
+    rm -f "$id_file"
+fi
+exit 0
+{{ end -}}
+[[ -x "$HERMES" ]] || { echo "Hermes is enabled but not installed: $HERMES" >&2; exit 1; }
+[[ -x "$HERDR" ]] || { echo "Herdr is required for Hermes supervision: $HERDR" >&2; exit 1; }
+hermes() { "$HERMES" "$@"; }
+herdr() { "$HERDR" "$@"; }
+
+hermes gateway install
+herdr integration install opencode
+herdr integration install hermes
+hermes config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
+hermes config set model.default {{ .dotfiles_ai.hermes.model | quote }}
+hermes gateway restart
+
+prompt="Load the dbsctr-supervisor skill and run exactly one bounded supervision cohort."
+mkdir -p "${id_file%/*}"
+
+if [[ -f "$id_file" ]]; then
+    IFS= read -r job_id < "$id_file"
+    if [[ ! "$job_id" =~ ^[0-9a-f]{12}$ ]]; then
+        echo "invalid Hermes review cron ID in $id_file" >&2
+        exit 1
+    fi
+    if ! hermes cron edit "$job_id" \
+        --schedule {{ .dotfiles_ai.hermes.review_schedule | quote }} \
+        --prompt "$prompt" \
+        --workdir {{ .chezmoi.sourceDir | quote }} \
+        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}; then
+        echo "saved Hermes review cron ID is stale; refusing to create a duplicate" >&2
+        exit 1
+    fi
+else
+    umask 077
+    printf 'creating\n' > "$id_file.tmp"
+    mv "$id_file.tmp" "$id_file"
+    if ! output=$(hermes cron create \
+        {{ .dotfiles_ai.hermes.review_schedule | quote }} "$prompt" \
+        --name "dotfiles-ai DBSCTR supervisor" \
+        --workdir {{ .chezmoi.sourceDir | quote }} \
+        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}); then
+        rm -f "$id_file"
+        exit 1
+    fi
+    first_line=${output%%$'\n'*}
+    job_id=${first_line#Created job: }
+    if [[ "$first_line" != "Created job: $job_id" || ! "$job_id" =~ ^[0-9a-f]{12}$ ]]; then
+        printf 'unknown\n' > "$id_file.tmp"
+        mv "$id_file.tmp" "$id_file"
+        echo "Hermes cron create returned an unrecognized job ID" >&2
+        exit 1
+    fi
+    printf '%s\n' "$job_id" > "$id_file.tmp"
+    mv "$id_file.tmp" "$id_file"
+fi

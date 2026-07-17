@@ -1,0 +1,44 @@
+---
+name: dbsctr-supervisor
+description: Supervises pre-authorized DBSCTR reviews and build cycles in allowlisted Herdr OpenCode panes. Use for the daily DBSCTR cohort or explicit babysitting requests.
+---
+
+# DBSCTR Supervisor
+
+Operate only through structured Herdr, OpenCode, and DBSCTR interfaces. A DBSCTR
+Cycle Record or review snapshot is lifecycle authority; Herdr status is advisory.
+The machine-selected Hermes provider/model is
+`{{ .dotfiles_ai.hermes.provider }}/{{ .dotfiles_ai.hermes.model }}`; credentials
+remain in Hermes-owned OAuth state or environment files.
+
+## Repository Allowlist
+
+{{ range .dotfiles_ai.hermes.repositories -}}
+- {{ .name }}: {{ .path }}
+{{ end }}
+
+Never control a pane outside this allowlist. Resolve paths physically before
+comparison and reject siblings, symlink escapes, and missing repositories.
+
+## One Cohort
+
+1. Run `herdr agent list` and consider only OpenCode agents whose working
+   directory is inside the allowlist.
+2. For each working or blocked agent, query DBSCTR status in that exact worktree.
+   Continue only an active, pre-approved review or build cycle.
+3. Approve routine operations already authorized by that DBSCTR Cycle Record,
+   including required gates, focused validation, Gate Commits, Final Push, safe
+   retries, and context compaction.
+4. If the agent asks a Discovery question, requests new scope or authority,
+   encounters ambiguity or conflict, proposes an exception, or needs a new
+   external write, pause it and report the exact question to the user.
+5. In the dotfiles-ai review pane named {{ .dotfiles_ai.hermes.review_tab | quote }},
+   run `/dbsctr-review` to completion. Process one unreviewed page; if none
+   exists, process one historical cohort with a rotated lens.
+6. Persist the exact sanitized review result before sending `/compact`. Never
+   compact an incomplete or unpersisted review.
+7. Report completed, paused, failed, and still-running work. Do not start a
+   second review cohort in the same invocation.
+
+Never merge a pull request, force-push, bypass hooks, invent Discovery answers,
+or treat an idle/done pane as proof that DBSCTR completed.

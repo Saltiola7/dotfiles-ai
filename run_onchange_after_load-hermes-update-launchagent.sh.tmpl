@@ -1,0 +1,24 @@
+#!/bin/bash
+# plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl" | sha256sum }}
+# enabled: {{ .dotfiles_ai.hermes.enabled }}
+
+set -u
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+PLIST="$HOME/Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist"
+DOMAIN="gui/$(id -u)"
+LABEL="dev.dotfiles-ai.hermes-update"
+
+{{ if not .dotfiles_ai.hermes.enabled -}}
+/bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+PLIST_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
+if [[ "$PLIST_LABEL" == "$LABEL" ]]; then
+    /bin/rm -f "$PLIST"
+fi
+exit 0
+{{ end -}}
+
+[[ -f "$PLIST" ]] || exit 0
+mkdir -p "$HOME/Library/Logs"
+/bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+/bin/launchctl bootstrap "$DOMAIN" "$PLIST"

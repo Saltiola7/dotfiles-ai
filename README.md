@@ -12,8 +12,8 @@ independent chezmoi source repository.
 - Python 3.12+ and `uv` for repository tests
 - Optional: 1Password CLI for the opt-in `op-session` helper
 
-This repository configures those tools. It does not install them or store
-provider credentials.
+This repository configures those tools and can opt in to the official Hermes
+installer. It does not install OpenCode or Herdr or store provider credentials.
 
 ## Install
 
@@ -36,13 +36,32 @@ Restart OpenCode after applying because it loads configuration only at startup.
 
 - `opencode`: Bedrock profile/region, default models, and LM Studio endpoint.
 - `herdr`: theme, LaunchAgent toggle, and executable path.
+- `hermes`: opt-in installation, provider name, repository allowlist, DBSCTR
+  review schedule, gateway integration, and checked update schedule.
 - `onepassword`: optional account UUID, account alias, and Keychain service.
 
 When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode
 remain usable with their normal environment-based authentication.
 
-Repository mappings are intentionally absent. Herdr and OpenCode operate on the
-current directory, while zoxide or another navigator remains user-owned.
+When Hermes is enabled, the first apply installs its current supported release
+noninteractively and creates its gateway, integrations, review cron, and update
+LaunchAgent. Authenticate the selected provider separately, then verify it:
+
+```sh
+hermes auth add openai-codex
+hermes doctor
+hermes gateway status
+herdr integration status
+hermes cron status
+```
+
+Hermes owns `~/.hermes` runtime, OAuth, sessions, memories, logs, and mutable
+configuration. Chezmoi owns only the managed supervisor skill and bootstrap
+policy. OpenCode's OAuth state is not reused.
+
+OpenCode and Herdr still operate on the current directory. Hermes alone receives
+an explicit machine-local repository allowlist because autonomous supervision
+must not discover or control unrelated checkouts.
 
 ## Existing Personal-Chezmoi Migration
 
