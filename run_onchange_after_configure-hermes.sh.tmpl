@@ -7,6 +7,7 @@ set -euo pipefail
 
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+REVIEW_WORKDIR={{ .dotfiles_ai.hermes.review_workdir | quote }}
 if [[ "$HERMES" == "~/"* ]]; then
     HERMES="$HOME/${HERMES#~/}"
 fi
@@ -22,6 +23,7 @@ exit 0
 {{ end -}}
 [[ -x "$HERMES" ]] || { echo "Hermes is enabled but not installed: $HERMES" >&2; exit 1; }
 [[ -x "$HERDR" ]] || { echo "Herdr is required for Hermes supervision: $HERDR" >&2; exit 1; }
+[[ -d "$REVIEW_WORKDIR" ]] || { echo "Hermes review workdir does not exist: $REVIEW_WORKDIR" >&2; exit 1; }
 hermes() { "$HERMES" "$@"; }
 herdr() { "$HERDR" "$@"; }
 
@@ -44,7 +46,7 @@ if [[ -f "$id_file" ]]; then
     if ! hermes cron edit "$job_id" \
         --schedule {{ .dotfiles_ai.hermes.review_schedule | quote }} \
         --prompt "$prompt" \
-        --workdir {{ .chezmoi.sourceDir | quote }} \
+        --workdir "$REVIEW_WORKDIR" \
         --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}; then
         echo "saved Hermes review cron ID is stale; refusing to create a duplicate" >&2
         exit 1
@@ -56,7 +58,7 @@ else
     if ! output=$(hermes cron create \
         {{ .dotfiles_ai.hermes.review_schedule | quote }} "$prompt" \
         --name "dotfiles-ai DBSCTR supervisor" \
-        --workdir {{ .chezmoi.sourceDir | quote }} \
+        --workdir "$REVIEW_WORKDIR" \
         --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}); then
         rm -f "$id_file"
         exit 1

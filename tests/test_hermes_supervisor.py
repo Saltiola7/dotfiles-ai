@@ -10,6 +10,7 @@ def values(
     enabled: bool = True,
     hermes_executable: str = "~/.local/bin/hermes",
     herdr_executable: str = "/opt/homebrew/bin/herdr",
+    review_workdir: str = "/tmp/dotfiles-ai",
 ) -> dict:
     return {
         "dotfiles_ai": {
@@ -30,6 +31,7 @@ def values(
                 "executable": hermes_executable,
                 "provider": "openai-codex",
                 "model": "gpt-5.5",
+                "review_workdir": review_workdir,
                 "review_schedule": "0 9 * * *",
                 "review_delivery": "local",
                 "review_tab": "dbsctr review",
@@ -130,6 +132,8 @@ def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
     assert "printf 'unknown" in script
     assert "refusing to create a duplicate" in script
     assert ".local/state/dotfiles-ai/hermes-review-cron-id" in script
+    assert 'REVIEW_WORKDIR="/tmp/dotfiles-ai"' in script
+    assert '--workdir "$REVIEW_WORKDIR"' in script
 
     disabled = subprocess.run(
         [
@@ -164,7 +168,10 @@ def test_configurator_creates_then_edits_exact_cron_id(tmp_path: Path) -> None:
     herdr.chmod(0o755)
     rendered = render_source(
         "run_onchange_after_configure-hermes.sh.tmpl",
-        values(hermes_executable=str(hermes), herdr_executable=str(herdr)),
+        values(
+            hermes_executable=str(hermes), herdr_executable=str(herdr),
+            review_workdir=str(tmp_path),
+        ),
     )
     env = {"HOME": str(home), "COMMAND_LOG": str(log), "PATH": "/usr/bin:/bin"}
 
@@ -206,7 +213,7 @@ def test_example_documents_machine_local_hermes_settings() -> None:
     example = (ROOT / "config.example.toml").read_text()
     for term in (
         "[data.dotfiles_ai.hermes]", "review_schedule", "review_delivery",
-        "provider", "openai-codex", "model", "gpt-5.5", "review_tab",
+        "provider", "openai-codex", "model", "gpt-5.5", "review_workdir", "review_tab",
         "update_weekday", "update_hour",
         "[[data.dotfiles_ai.hermes.repositories]]",
     ):

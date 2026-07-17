@@ -110,7 +110,7 @@ control-plane behavior, and shell authentication behavior.
 - The actual config lives at `~/.config/dotfiles-ai/chezmoi.toml` with separate
   persistent state.
 - `[data.dotfiles_ai.hermes]` selects enablement, executable, non-secret provider
-  and model, review cron, delivery, update calendar, and an explicit
+  and model, review workdir, cron, delivery, update calendar, and an explicit
   logical-name/path repository allowlist. Paths remain machine-local.
 - The official Hermes installer owns `~/.hermes/hermes-agent`, `bin`, Node,
   Python, virtual environments, sessions, memories, logs, credentials, and

@@ -22,6 +22,7 @@ executable = "/Users/you/.local/bin/hermes"
 # Authenticate separately with: hermes auth add openai-codex
 provider = "openai-codex"
 model = "gpt-5.5"
+review_workdir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 review_schedule = "0 9 * * *"
 review_delivery = "local"
 review_tab = "dbsctr review"

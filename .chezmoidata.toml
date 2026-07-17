@@ -15,6 +15,7 @@ enabled = false
 executable = "~/.local/bin/hermes"
 provider = "openai-codex"
 model = "gpt-5.5"
+review_workdir = ""
 review_schedule = "0 9 * * *"
 review_delivery = "local"
 review_tab = "dbsctr review"
