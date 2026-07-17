@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.18 exact runtime correlation implemented
+**Status:** V3.19 private SQLite improvement ledger in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -472,6 +472,42 @@ records, and retirement decisions. External writes remain approval-gated.
 - Then the current opaque OpenCode session ID is added idempotently to that Cycle Record
 - But Plan, subagents, mismatched worktrees, completed cycles, and malformed identities cannot attach
 
+### Feature: V3.19 Private SQLite Improvement Ledger
+
+**Scenario: Migrate retained review state atomically**
+- Given validated private review markers, tombstones, history evidence, cohorts,
+  and reports exist as legacy JSON
+- When `dbsctrctl review-migrate` runs under the private review lock
+- Then it creates a restrictive verified backup and imports every retained item
+  in one SQLite transaction
+- And SQLite becomes authoritative only after schema, count, digest, foreign-key,
+  and integrity checks pass
+- But malformed input or interruption leaves the legacy store authoritative and
+  no partially authoritative ledger
+
+**Scenario: Keep read-only review operations read-only**
+- Given no authoritative ledger exists yet
+- When an operational or historical scan runs
+- Then it reads compatible legacy JSON without creating, migrating, or modifying
+  private state
+- And after migration it returns the same bounded JSON contract from SQLite
+
+**Scenario: Complete one review transactionally**
+- Given a review page still matches its immutable scan
+- When completion archives evidence, records its sanitized report, and marks its
+  sessions and cycles reviewed
+- Then all ledger rows commit together or none of them do
+- And findings, scorecards, trends, proposals, and caveats become queryable
+  sanitized ledger entries without gaining remediation authority
+
+**Scenario: Back up and restore the ledger safely**
+- Given an authoritative ledger passes integrity and foreign-key checks
+- When a backup or explicitly requested restore runs under the private lock
+- Then SQLite's backup API produces or validates a restrictive consistent copy
+- And restore replaces the ledger only after validation while retaining a
+  rollback copy
+- But a corrupt, incompatible, symlinked, or out-of-scope source fails closed
+
 ## Engineering Profile
 
 ### Defaults
@@ -629,6 +665,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | Deploy the managed helper, DBSCTR skill, OpenCode adapter, and permissions locally after merge validation |
 | Scope | Tiered correlation quality, recursive session families, and authorized resumed-runtime attachment |
 | Overrides | Preserve Cycle Record authority and schema compatibility; no transcript inference, broad ambiguous path attribution, or automatic attachment outside validated Build primaries |
+
+### V3.19 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: migrates retained private review state and changes its authoritative persistence engine |
+| Delivery intent | Deploy the managed helper locally, migrate under lock, and verify the live private ledger |
+| Scope | SQLite schema, one-way legacy JSON migration, stable JSON command responses, transactional review writes, backup, restore, and integrity operations |
+| Overrides | SQLite is authoritative after verified migration; no dual writes, raw transcript retention, automatic remediation, read-triggered migration, or speculative benchmark schema |
 
 ## Gate Ledger — V3.1 Completion
 
@@ -1445,6 +1490,44 @@ module routing without changing Cycle Record schema or public commands.
 - The typed `dbsctr_attach` adapter requests its dedicated permission. Native
   Build primaries receive standing authorization; Plan and subagents remain
   denied. Reading status never mutates runtime metadata.
+
+### V3.19 Private Ledger Contract
+
+- The authoritative private store is `~/.local/state/dbsctr/reviews/ledger.sqlite3`.
+  Its schema version is recorded transactionally and unknown future versions
+  fail closed. The parent directory remains mode `0700`; the database, rollback
+  journals, and backups remain mode `0600`.
+- The normalized schema owns retained review reports and their session/cycle
+  members, reviewed and forgotten tombstones, sanitized history evidence,
+  immutable rubric reports and cohort members, and ordered sanitized ledger
+  entries. Foreign keys are mandatory. Cycle Records remain separate lifecycle
+  authority and no transcript, tool payload, command argument, path, URL, email,
+  credential, or raw event enters the ledger.
+- `review-migrate` validates the complete legacy JSON store before writing. It
+  creates a consistent restrictive backup, imports in one `BEGIN IMMEDIATE`
+  transaction, compares source and destination counts and content digests, runs
+  `foreign_key_check` and `integrity_check`, and marks SQLite authoritative only
+  in that commit. Repeated migration is idempotent. Legacy JSON is retained only
+  as migration backup material and is never dual-written.
+- Read-only scans and history queries never initialize or migrate state. Before
+  migration they retain the V3.18 JSON reader; after migration they open SQLite
+  read-only. Existing command and typed-adapter JSON schemas remain compatible.
+  A fresh store with no legacy state may initialize SQLite on its first
+  authorized write.
+- Review completion, historical save, pruning, and forget hold the existing
+  private writer lock and each mutate all related rows in one transaction.
+  Validation and immutable-snapshot revalidation happen before commit; any
+  exception rolls back every row.
+- `review-backup` uses SQLite's backup API under the private lock, validates the
+  result, and returns only a bounded backup name and digest. `review-restore`
+  accepts only a regular non-symlink backup inside the private backup directory,
+  validates permissions, supported schema, integrity, and foreign keys, creates
+  a rollback backup, then atomically replaces the ledger under the lock. Restore
+  is explicit maintenance and never runs during ordinary review.
+- SQLite uses full synchronous commits, a bounded busy timeout, and rollback
+  journaling beneath the existing process lock. Maintenance verifies schema,
+  integrity, backup retention, migration compatibility, and recoverability;
+  malformed ledger or legacy state fails closed.
 
 ## Validation Strategy
 
