@@ -172,7 +172,7 @@ def review_lock(root):
 
 
 def excluded_review_family(connection, session, session_id):
-    """Return the caller and descendants without exposing their IDs."""
+    """Return the caller's connected parent/child family without exposing IDs."""
     sid = sqlite_name(connection, session, ("id",))
     parent = sqlite_name(connection, session, ("parentid", "parent")) if any(
         row[1].lower().replace("_", "") in ("parentid", "parent")
@@ -181,10 +181,13 @@ def excluded_review_family(connection, session, session_id):
     if parent is None:
         return {session_id}
     return {str(row[0]) for row in connection.execute(f"""
-        WITH RECURSIVE excluded(session_id) AS (
+        WITH RECURSIVE edges(source, target) AS (
+            SELECT "{sid}", "{parent}" FROM "{session}" WHERE "{parent}" IS NOT NULL
+            UNION SELECT "{parent}", "{sid}" FROM "{session}" WHERE "{parent}" IS NOT NULL
+        ), excluded(session_id) AS (
             SELECT "{sid}" FROM "{session}" WHERE "{sid}" = ?
             UNION
-            SELECT s."{sid}" FROM "{session}" s JOIN excluded e ON s."{parent}" = e.session_id
+            SELECT edges.target FROM edges JOIN excluded ON edges.source = excluded.session_id
         ) SELECT session_id FROM excluded
     """, (session_id,))} or {session_id}
 

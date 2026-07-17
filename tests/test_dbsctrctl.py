@@ -1532,6 +1532,12 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(first["session_ids"], ["included-1"])
         self.assertNotIn("active-tool", json.dumps(first))
         self.assertNotIn("active-child", json.dumps(first))
+        from_child = json.loads(run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "10", "--cursor", "0", "--excluded-session-id", "active-child",
+        ).stdout)
+        self.assertEqual(from_child["session_ids"], ["included-1", "included-2"])
+        self.assertNotIn("active-tool", json.dumps(from_child))
         connection.execute("update part set data='active mutation' where id='part-child'")
         connection.commit()
         continued = json.loads(run(
