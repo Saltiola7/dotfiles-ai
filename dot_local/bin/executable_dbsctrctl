@@ -192,10 +192,35 @@ def excluded_review_family(connection, session, session_id):
     """, (session_id,))} or {session_id}
 
 
-def historical_excluded_family(database_value, session_id):
-    if session_id is None:
+def session_for_message(database_value, message_id):
+    if not OPAQUE_ID.fullmatch(message_id):
+        fail("invalid excluded message ID")
+    database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
+    if not database.is_file():
+        fail("OpenCode database is missing")
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "message" not in tables:
+            fail("OpenCode database lacks required message table")
+        message = tables["message"]
+        mid = sqlite_name(connection, message, ("id",))
+        session = sqlite_name(connection, message, ("sessionid",))
+        row = connection.execute(f'SELECT "{session}" FROM "{message}" WHERE "{mid}" = ?', (message_id,)).fetchone()
+        if row is None or not isinstance(row[0], str) or not OPAQUE_ID.fullmatch(row[0]):
+            fail("OpenCode message has no valid session")
+        return row[0]
+    except sqlite3.Error as error:
+        fail(f"cannot read OpenCode database: {error}")
+    finally:
+        if 'connection' in locals():
+            connection.close()
+
+
+def historical_excluded_family(database_value, session_id, message_id=None):
+    if session_id is None and message_id is None:
         return set()
-    if not OPAQUE_ID.fullmatch(session_id):
+    if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
         fail("invalid excluded session ID")
     database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
     if not database.is_file():
@@ -205,7 +230,9 @@ def historical_excluded_family(database_value, session_id):
         tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "session" not in tables:
             fail("OpenCode database lacks required session table")
-        return excluded_review_family(connection, tables["session"], session_id)
+        roots = {value for value in (session_id, session_for_message(database_value, message_id)
+                                     if message_id is not None else None) if value is not None}
+        return set().union(*(excluded_review_family(connection, tables["session"], value) for value in roots))
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
     finally:
@@ -580,7 +607,9 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
     }
-    session_id = getattr(args, "opencode_session_id", None)
+    message_id = getattr(args, "opencode_message_id", None)
+    session_id = (session_for_message(None, message_id) if message_id is not None
+                  else getattr(args, "opencode_session_id", None))
     if session_id is not None:
         if (not OPAQUE_ID.fullmatch(session_id) or not getattr(args, "opencode_worktree", None)
                 or not getattr(args, "opencode_directory", None)):
@@ -1112,7 +1141,9 @@ def command_status(args):
 
 def command_attach_runtime(args):
     root = root_dir().resolve()
-    if not OPAQUE_ID.fullmatch(args.opencode_session_id):
+    session_id = (session_for_message(None, args.opencode_message_id)
+                  if args.opencode_message_id is not None else args.opencode_session_id)
+    if not OPAQUE_ID.fullmatch(session_id):
         fail("invalid OpenCode session ID")
     runtime_worktree = Path(args.opencode_worktree).resolve()
     runtime_directory = Path(args.opencode_directory).resolve()
@@ -1134,11 +1165,11 @@ def command_attach_runtime(args):
         if (not isinstance(session_ids, list) or len(session_ids) > REVIEW_MAX_LIMIT
                 or not all(isinstance(value, str) and OPAQUE_ID.fullmatch(value) for value in session_ids)):
             fail("Cycle Record contains invalid OpenCode runtime metadata")
-        attached = args.opencode_session_id not in session_ids
+        attached = session_id not in session_ids
         if attached:
             if len(session_ids) == REVIEW_MAX_LIMIT:
                 fail("Cycle Record OpenCode runtime limit reached")
-            session_ids.append(args.opencode_session_id)
+            session_ids.append(session_id)
         opencode["worktree"] = str(runtime_worktree)
         save(path, record)
     print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,
@@ -1479,6 +1510,9 @@ def review_scan(args):
     excluded_session_id = getattr(args, "excluded_session_id", None)
     if excluded_session_id is not None and not OPAQUE_ID.fullmatch(excluded_session_id):
         fail("invalid excluded session ID")
+    excluded_message_id = getattr(args, "excluded_message_id", None)
+    if excluded_message_id is not None and not OPAQUE_ID.fullmatch(excluded_message_id):
+        fail("invalid excluded message ID")
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         connection.execute("BEGIN")
@@ -1518,8 +1552,13 @@ def review_scan(args):
         part_columns = {row[1].lower().replace("_", ""): row[1]
                         for row in connection.execute(f'PRAGMA table_info("{part}")')}
         part_updated = part_columns.get("timeupdated")
-        excluded_sessions = (excluded_review_family(connection, session, excluded_session_id)
-                             if excluded_session_id is not None else set())
+        excluded_roots = {value for value in (
+            excluded_session_id,
+            session_for_message(args.database, excluded_message_id) if excluded_message_id is not None else None,
+        ) if value is not None}
+        excluded_sessions = set().union(
+            *(excluded_review_family(connection, session, value) for value in excluded_roots)
+        ) if excluded_roots else set()
         excluded = tuple(sorted(excluded_sessions))
         session_exclusion = (f' AND "{sid}" NOT IN ({",".join("?" for _ in excluded)})' if excluded else "")
         message_exclusion = (f' AND (m."{msession}" NOT IN ({",".join("?" for _ in excluded)}) '
@@ -1527,6 +1566,8 @@ def review_scan(args):
         identity = hashlib.sha256()
         if excluded_session_id is not None:
             identity.update(b"excluded\0" + excluded_session_id.encode())
+        if excluded_message_id is not None:
+            identity.update(b"excluded-message\0" + excluded_message_id.encode())
         session_identity_columns = [sid, created]
         for value in (parent, directory, agent, session_columns.get("projectid"), session_columns.get("cost"),
                       *(session_columns.get(name) for name in (
@@ -1997,7 +2038,8 @@ def validate_history_report_input(value):
 
 def command_review_history(args):
     root = review_root(args.state_root)
-    excluded_family = historical_excluded_family(args.database, args.excluded_session_id)
+    excluded_family = historical_excluded_family(args.database, args.excluded_session_id,
+                                                 args.excluded_message_id)
     if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
         fail("review history limit must be 1 through 100 and cursor non-negative")
     require_review_lock_safe(root)
@@ -2018,7 +2060,8 @@ def command_review_history(args):
                                session_ceiling=args.session_ceiling, part_ceiling=args.part_ceiling,
                                 database_digest=args.database_digest, lock_held=True,
                                 include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
-                                excluded_session_id=args.excluded_session_id))
+                                 excluded_session_id=args.excluded_session_id,
+                                 excluded_message_id=args.excluded_message_id))
             live_candidates = live["candidates"]
             live_records = [{"schema_version": 1, "session_id": item["session_id"],
                             "completed_at": str(item["last_activity"]),
@@ -2079,7 +2122,8 @@ def command_review_history_save(args):
     except json.JSONDecodeError as error:
         fail(f"cannot read review history report: {error}")
     root = review_root(args.state_root)
-    excluded_family = historical_excluded_family(args.database, args.excluded_session_id)
+    excluded_family = historical_excluded_family(args.database, args.excluded_session_id,
+                                                 args.excluded_message_id)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         records = {item["session_id"]: item for item in history_evidence(root)}
@@ -2101,7 +2145,8 @@ def command_review_history_save(args):
                 session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
                 database_digest=report["database_digest"], lock_held=True,
                 include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
-                excluded_session_id=args.excluded_session_id,
+                 excluded_session_id=args.excluded_session_id,
+                 excluded_message_id=args.excluded_message_id,
             ))
             candidates = scan["candidates"]
             if set(ids).intersection(scan["_excluded_session_ids"]):
@@ -2187,6 +2232,7 @@ def command_review_complete(args):
             lock_held=True,
             history_metrics=True,
             excluded_session_id=args.excluded_session_id,
+            excluded_message_id=args.excluded_message_id,
         ))
         if (expected["session_ids"] != sessions or expected["cycle_ids"] != cycles
                 or expected["digest"] != digest):
@@ -2817,6 +2863,7 @@ def parser():
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
+    begin.add_argument("--opencode-message-id")
     begin.add_argument("--opencode-directory")
     begin.add_argument("--opencode-worktree")
     begin.set_defaults(func=command_begin)
@@ -2825,6 +2872,7 @@ def parser():
     status.set_defaults(func=command_status)
     attach = commands.add_parser("attach-runtime")
     attach.add_argument("--opencode-session-id", required=True)
+    attach.add_argument("--opencode-message-id")
     attach.add_argument("--opencode-directory", required=True)
     attach.add_argument("--opencode-worktree", required=True)
     attach.set_defaults(func=command_attach_runtime)
@@ -2838,6 +2886,7 @@ def parser():
     review_scan.add_argument("--part-ceiling", type=int)
     review_scan.add_argument("--database-digest")
     review_scan.add_argument("--excluded-session-id")
+    review_scan.add_argument("--excluded-message-id")
     review_scan.set_defaults(func=command_review_scan)
     review_history = commands.add_parser("review-history")
     review_history.add_argument("--database")
@@ -2859,12 +2908,14 @@ def parser():
     review_history.add_argument("--part-ceiling", type=int)
     review_history.add_argument("--database-digest")
     review_history.add_argument("--excluded-session-id")
+    review_history.add_argument("--excluded-message-id")
     review_history.set_defaults(func=command_review_history)
     review_history_save = commands.add_parser("review-history-save")
     review_history_save.add_argument("--database")
     review_history_save.add_argument("--state-root")
     review_history_save.add_argument("--report-json", required=True)
     review_history_save.add_argument("--excluded-session-id")
+    review_history_save.add_argument("--excluded-message-id")
     review_history_save.set_defaults(func=command_review_history_save)
     review_complete = commands.add_parser("review-complete")
     report_source = review_complete.add_mutually_exclusive_group(required=True)
@@ -2874,6 +2925,7 @@ def parser():
     review_complete.add_argument("--database")
     review_complete.add_argument("--state-root")
     review_complete.add_argument("--excluded-session-id")
+    review_complete.add_argument("--excluded-message-id")
     review_complete.set_defaults(func=command_review_complete)
     review_prune = commands.add_parser("review-prune")
     review_prune.add_argument("--state-root")

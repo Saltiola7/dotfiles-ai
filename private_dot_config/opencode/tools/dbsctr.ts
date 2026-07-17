@@ -16,6 +16,7 @@ export const attach = tool({
     await context.ask({ permission: "dbsctr_attach", patterns: ["*"], always: [] })
     return await attachRuntime(context.worktree, {
       sessionID: context.sessionID,
+      messageID: context.messageID,
       directory: context.directory,
       worktree: context.worktree,
     })
@@ -58,7 +59,7 @@ export const review = tool({
     databaseDigest: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID)
+    return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID, context.messageID)
   },
 })
 
@@ -106,7 +107,7 @@ export const review_complete = tool({
       trends: args.trends,
       proposals: args.proposals,
       caveats: args.caveats,
-    }, context.worktree, context.sessionID)
+    }, context.worktree, context.sessionID, context.messageID)
   },
 })
 
@@ -131,7 +132,7 @@ export const review_history = tool({
     cursor: tool.schema.number().int().min(0).optional().default(0),
   },
   async execute(args, context) {
-    return await reviewHistory(args, context.worktree, context.sessionID)
+    return await reviewHistory(args, context.worktree, context.sessionID, context.messageID)
   },
 })
 
@@ -168,7 +169,7 @@ export const review_history_save = tool({
       trends: args.trends,
       proposals: args.proposals,
       caveats: args.caveats,
-    }, context.worktree, context.sessionID)
+    }, context.worktree, context.sessionID, context.messageID)
   },
 })
 
@@ -185,6 +186,7 @@ export const begin = tool({
   async execute(args, context) {
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
       sessionID: context.sessionID,
+      messageID: context.messageID,
       directory: context.directory,
       worktree: context.worktree,
     }))

@@ -430,10 +430,10 @@ def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
     script = (
         f'import {{ reviewScan, reviewComplete, reviewHistory, reviewHistorySave }} from {json.dumps(str(runtime))};'
         f'const report={json.dumps(report)};const history={json.dumps(history)};'
-        'await reviewScan(1,0,undefined,process.cwd(),undefined,undefined,undefined,"caller");'
-        'await reviewComplete(report,process.cwd(),"caller");'
-        'await reviewHistory({archiveOnly:true},process.cwd(),"caller");'
-        'await reviewHistorySave(history,process.cwd(),"caller");'
+        'await reviewScan(1,0,undefined,process.cwd(),undefined,undefined,undefined,"caller","message");'
+        'await reviewComplete(report,process.cwd(),"caller","message");'
+        'await reviewHistory({archiveOnly:true},process.cwd(),"caller","message");'
+        'await reviewHistorySave(history,process.cwd(),"caller","message");'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
                    env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "REVIEW_ADAPTERS_LOG": str(log)},
@@ -441,6 +441,8 @@ def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
     calls = [line for line in log.read_text().splitlines() if line != "CALL"]
     assert calls.count("<--excluded-session-id>") == 4
     assert calls.count("<caller>") == 4
+    assert calls.count("<--excluded-message-id>") == 4
+    assert calls.count("<message>") == 4
 
 
 def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
@@ -474,13 +476,14 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ attachRuntime }} from {json.dumps(str(runtime))};'
-        'await attachRuntime(process.cwd(),{sessionID:"session-resumed",directory:process.cwd(),worktree:process.cwd()});'
+        'await attachRuntime(process.cwd(),{sessionID:"session-resumed",messageID:"message-resumed",directory:process.cwd(),worktree:process.cwd()});'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
                    env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATTACH_LOG": str(log)},
                    text=True, capture_output=True, check=True)
     assert log.read_text().splitlines() == [
         "<attach-runtime>", "<--opencode-session-id>", "<session-resumed>",
+        "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
     ]
 
@@ -494,7 +497,7 @@ def test_dbsctr_begin_runs_without_a_prompt(tmp_path):
     helper.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ begin }} from {json.dumps(str(tools))};
-const context = {{ worktree: process.cwd(), directory: process.cwd(), sessionID: "session-tool", ask: async () => {{
+ const context = {{ worktree: process.cwd(), directory: process.cwd(), sessionID: "session-tool", messageID: "message-tool", ask: async () => {{
   throw new Error("unexpected prompt");
 }} }};
 try {{ console.log(await begin.execute({{cycleId:"x",context:"ctx",risk:"routine",deliveryIntent:"local",planPath:"/tmp/plan"}}, context)); }}
@@ -506,6 +509,7 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<begin>", "<--cycle-id>", "<x>", "<--context>", "<ctx>",
         "<--risk>", "<routine>", "<--delivery-intent>", "<local>",
         "<--plan>", "</tmp/plan>", "<--opencode-session-id>", "<session-tool>",
+        "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
     ]
 

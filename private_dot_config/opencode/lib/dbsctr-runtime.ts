@@ -15,12 +15,14 @@ export async function cycleStatus(cwd: string) {
 
 export async function attachRuntime(cwd: string, runtime: {
   sessionID: string
+  messageID: string
   directory: string
   worktree: string
 }) {
   return await run([
     "dbsctrctl", "attach-runtime",
     "--opencode-session-id", runtime.sessionID,
+    "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
     "--opencode-worktree", runtime.worktree,
   ], cwd)
@@ -48,13 +50,14 @@ export async function fixedCommitInspect(args: {
   return await run(argv, cwd)
 }
 
-export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string, excludedSessionID?: string) {
+export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd = process.cwd(), sessionCeiling?: number, partCeiling?: number, databaseDigest?: string, excludedSessionID?: string, excludedMessageID?: string) {
   const argv = ["dbsctrctl", "review-scan", "--limit", String(limit), "--cursor", String(cursor)]
   if (snapshot !== undefined) argv.push("--snapshot", String(snapshot))
   if (sessionCeiling !== undefined) argv.push("--session-ceiling", String(sessionCeiling))
   if (partCeiling !== undefined) argv.push("--part-ceiling", String(partCeiling))
   if (databaseDigest !== undefined) argv.push("--database-digest", databaseDigest)
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   return await run(argv, cwd)
 }
 
@@ -75,11 +78,12 @@ export async function reviewComplete(report: {
   trends: string[]
   proposals: string[]
   caveats: string[]
-}, cwd = process.cwd(), excludedSessionID?: string) {
+}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   return await run([
     "dbsctrctl", "review-complete", "--report-json", JSON.stringify(report),
     "--scan-digest", report.scan_digest,
     ...(excludedSessionID === undefined ? [] : ["--excluded-session-id", excludedSessionID]),
+    ...(excludedMessageID === undefined ? [] : ["--excluded-message-id", excludedMessageID]),
   ], cwd)
 }
 
@@ -100,7 +104,7 @@ export async function reviewHistory(args: {
   databaseDigest?: string
   limit?: number
   cursor?: number
-}, cwd = process.cwd(), excludedSessionID?: string) {
+}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   const argv = ["dbsctrctl", "review-history"]
   const names: Record<string, string> = {
     methodRevision: "method-revision", cycleId: "cycle-id", projectDigest: "project-digest",
@@ -109,6 +113,7 @@ export async function reviewHistory(args: {
     archiveOnly: "archive-only",
   }
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   for (const [name, value] of Object.entries(args)) {
     if (value === true) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`)
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`, String(value))
@@ -130,9 +135,10 @@ export async function reviewHistorySave(report: {
   trends?: string[]
   proposals?: string[]
   caveats?: string[]
-}, cwd = process.cwd(), excludedSessionID?: string) {
+}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   const argv = ["dbsctrctl", "review-history-save", "--report-json", JSON.stringify(report)]
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   return await run(argv, cwd)
 }
 
@@ -144,11 +150,13 @@ export async function beginCycle(args: {
   planPath: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
+  messageID: string
   directory: string
   worktree: string
 }) {
   const runtimeArgv = runtime ? [
     "--opencode-session-id", runtime.sessionID,
+    "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
     "--opencode-worktree", runtime.worktree,
   ] : []
