@@ -3,8 +3,9 @@
 ## Users And Outcomes
 
 Developers should be able to install one public configuration repository and
-receive a working DBSCTR, OpenCode, and Herdr environment without adopting the
-maintainer's personal paths, account identifiers, or secrets.
+receive a working DBSCTR, OpenCode, Herdr, and opt-in Hermes supervision
+environment without adopting the maintainer's personal paths, account
+identifiers, or secrets.
 
 The maintainer must be able to migrate an existing installation without losing
 working configuration or allowing two chezmoi repositories to own the same
@@ -20,6 +21,9 @@ target files.
    1Password never blocks Herdr or shell startup.
 4. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
+5. A developer opts into Hermes, supplies machine-local repository paths and a
+   review schedule, and receives one supervised DBSCTR review loop without
+   granting Hermes access to unrelated repositories.
 
 ## Constraints And Trust
 
@@ -28,7 +32,10 @@ target files.
 - macOS is the initial supported platform.
 - Existing personal configuration remains authoritative until live cutover
   validation passes.
-- Repository paths are not modeled until a concrete consumer needs them.
+- Repository paths are modeled only as machine-local Hermes allowlist entries;
+  they are never public defaults or general navigation metadata.
+- Hermes runtime state and credentials remain Hermes-owned; the public source
+  owns only bootstrap and stable supervision policy.
 
 ## Success Evidence
 
@@ -38,3 +45,5 @@ target files.
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
   cutover.
+- Hermes installation, gateway, Herdr integration, allowlist, and review job are
+  repeatable, while Discovery questions still pause for human input.
