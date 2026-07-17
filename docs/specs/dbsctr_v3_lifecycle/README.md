@@ -460,6 +460,12 @@ records, and retirement decisions. External writes remain approval-gated.
 - Then recursive family identity can correlate it to one unambiguous Cycle Record
 - But an ambiguous family falls through to stronger exact-worktree evidence or remains unknown
 
+**Scenario: Exclude the task-owning review family**
+- Given OpenCode may execute a typed review tool in a child of the task-owning conversation
+- When the adapter supplies that invoking session ID
+- Then review excludes its complete connected parent/child family before snapshot identity
+- And no transcript, timing, path, or newest-session heuristic determines the owner
+
 **Scenario: Attach a resumed Build runtime**
 - Given a validated Build primary resumes an active cycle in its recorded worktree
 - When it invokes the authorized typed runtime attachment
@@ -1420,6 +1426,10 @@ module routing without changing Cycle Record schema or public commands.
 - Legacy Cycle Records without runtime metadata may use only an unambiguous
   worktree or source fallback. Existing schema-3 runtime metadata remains
   compatible and no Cycle Record migration is required.
+- Reviewer exclusion treats the supplied invoking session as an entry point into
+  its structurally connected parent/child family. This covers child-executed tool
+  calls while keeping the excluded IDs transient and preserving fail-closed
+  detection for every unrelated session family.
 - `dbsctrctl attach-runtime` accepts the current opaque OpenCode session ID and
   runtime paths only for the active cycle's recorded worktree. It serializes the
   Cycle Record update, is idempotent, rejects completed or mismatched cycles,
