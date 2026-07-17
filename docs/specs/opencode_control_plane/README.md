@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** V3.14 structured DBSCTR runtime correlation implemented
+**Status:** OCP-16 Scout-only Context7 and prompt-free safe begin implemented
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
