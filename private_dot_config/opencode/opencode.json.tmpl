@@ -87,7 +87,23 @@
       }
     }
   },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" }
+    }
+  },
   "agent": {
+    "build": {
+      "permission": {
+        "dbsctr_begin": "allow",
+        "external_directory": {
+          "~/.local/state/dbsctr/worktrees/**": "allow"
+        }
+      }
+    },
     "plan": {
       "model": {{ .dotfiles_ai.opencode.default_model | toJson }},
       "variant": "medium",
@@ -109,13 +125,15 @@
   "plugin": ["@dietrichgebert/ponytail@4.8.4"],
   "permission": {
     "dbsctr_status": "allow",
-    "dbsctr_begin": "ask",
+    "dbsctr_begin": "deny",
     "dbsctr_audit": "allow",
     "dbsctr_inspect": "allow",
     "dbsctr_review": "allow",
     "dbsctr_review_complete": "ask",
     "dbsctr_review_history": "allow",
     "dbsctr_review_history_save": "allow",
+    "context7_*": "deny",
+    "external_directory": "deny",
     "bash": {
       "*": "allow",
       "rm *": "ask",

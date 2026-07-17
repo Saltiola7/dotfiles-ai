@@ -264,17 +264,17 @@ def test_v36_audit_is_fixed_commit_report_only_and_distinct_from_qa():
     assert 'Treat "DBSCTR audit" as a report-only' in agents
 
 
-def test_v362_requires_begin_authorization_and_method_revision_compatibility():
+def test_v362_uses_validated_build_begin_authorization_and_method_revision_compatibility():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     assert "CURRENT_METHOD_REVISION = \"3.16\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
-    assert "context.ask" in tools
+    assert "context.ask" not in tools.partition("export const begin = tool({")[2]
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
-    assert "authorization before `dbsctr_begin`" in dbsctr
+    assert "standing authorization for validated Build-primary" in dbsctr
 
 
 def test_v316_review_skill_has_separate_private_history_and_replay_modes():

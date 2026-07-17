@@ -6,6 +6,8 @@ model: openai/gpt-5.6-sol
 variant: medium
 permission:
   dbsctr_begin: allow
+  external_directory:
+    ~/.local/state/dbsctr/worktrees/**: allow
   task:
     "*": deny
     explore-openai: allow

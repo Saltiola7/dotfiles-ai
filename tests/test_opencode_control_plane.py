@@ -36,7 +36,7 @@ def text(path: str) -> str:
     return (ROOT / path).read_text()
 
 
-def rendered_config() -> dict:
+def rendered_config(env: dict[str, str] | None = None) -> dict:
     result = subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
@@ -46,6 +46,7 @@ def rendered_config() -> dict:
         text=True,
         capture_output=True,
         check=True,
+        env={**os.environ, **(env or {})},
     )
     return json.loads(result.stdout)
 
@@ -68,6 +69,30 @@ def test_provider_and_primary_contracts():
         p == {"effect": "deny", "action": "provider.use", "resource": "anthropic"}
         for p in config["experimental"]["policies"]
     )
+
+
+def test_context7_is_remote_optional_key_and_scout_only():
+    anonymous = rendered_config({"CONTEXT7_API_KEY": ""})
+    context7 = anonymous["mcp"]["context7"]
+    assert context7 == {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp",
+        "enabled": True,
+        "headers": {"CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"},
+    }
+
+    authenticated = rendered_config({"CONTEXT7_API_KEY": "test-context7-key"})
+    assert authenticated["mcp"]["context7"] == context7
+    assert "test-context7-key" not in text("private_dot_config/opencode/opencode.json.tmpl")
+    assert authenticated["permission"]["context7_*"] == "deny"
+
+    scouts = {"scout-openai.md", "scout-bedrock.md", "scout.md"}
+    for agent in (OC / "agents").glob("*.md"):
+        body = agent.read_text()
+        if agent.name in scouts:
+            assert "context7_*: allow" in body
+        else:
+            assert "context7_*: allow" not in body
 
 
 def test_oauth_incompatible_pro_agents_are_absent():
@@ -119,6 +144,31 @@ def test_builder_boundaries():
             assert f'"{command}": deny' in body
 
 
+def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
+    config = rendered_config()
+    worktrees = "~/.local/state/dbsctr/worktrees/**"
+    assert config["permission"]["dbsctr_begin"] == "deny"
+    assert config["permission"]["external_directory"] == "deny"
+    assert config["agent"]["build"]["permission"] == {
+        "dbsctr_begin": "allow",
+        "external_directory": {worktrees: "allow"},
+    }
+
+    build_primaries = {"build-gpt.md", "build-claude.md"}
+    for agent in (OC / "agents").glob("*.md"):
+        body = agent.read_text()
+        if agent.name in build_primaries:
+            assert "mode: primary" in body
+            assert "dbsctr_begin: allow" in body
+            assert f"external_directory:\n    {worktrees}: allow" in body
+        else:
+            assert "mode: subagent" in body
+            assert "dbsctr_begin: allow" not in body
+            assert worktrees not in body
+    for name in ("builder-openai.md", "builder-bedrock.md"):
+        assert "external_directory: deny" in (OC / "agents" / name).read_text()
+
+
 def test_dbsctr_safe_git_permissions_and_reviewer():
     config = rendered_config()
     bash = config["permission"]["bash"]
@@ -145,7 +195,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     ):
         assert bash[command] == "ask"
     assert config["permission"]["dbsctr_status"] == "allow"
-    assert config["permission"]["dbsctr_begin"] == "ask"
+    assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_audit"] == "allow"
     assert config["permission"]["dbsctr_inspect"] == "allow"
     assert config["permission"]["dbsctr_review"] == "allow"
@@ -351,7 +401,7 @@ def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
     ]
 
 
-def test_dbsctr_begin_asks_before_running_helper(tmp_path):
+def test_dbsctr_begin_runs_without_a_prompt(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     helper_log = tmp_path / "helper.log"
@@ -360,25 +410,14 @@ def test_dbsctr_begin_asks_before_running_helper(tmp_path):
     helper.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ begin }} from {json.dumps(str(tools))};
-const context = {{ worktree: process.cwd(), directory: process.cwd(), sessionID: "session-tool", ask: async (input) => {{
-  if (process.argv[1] !== "allow") throw new Error(process.argv[1]);
-  console.log(JSON.stringify(input));
+const context = {{ worktree: process.cwd(), directory: process.cwd(), sessionID: "session-tool", ask: async () => {{
+  throw new Error("unexpected prompt");
 }} }};
 try {{ console.log(await begin.execute({{cycleId:"x",context:"ctx",risk:"routine",deliveryIntent:"local",planPath:"/tmp/plan"}}, context)); }}
 catch (error) {{ console.error(error.message); process.exit(1); }}'''
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HELPER_LOG": str(helper_log)}
-    for outcome in ("denied", "cancelled"):
-        result = subprocess.run(["bun", "-e", script, outcome], cwd=ROOT, env=env, text=True,
-                                capture_output=True)
-        assert result.returncode != 0
-        assert outcome in result.stderr
-        assert not helper_log.exists()
-
-    result = subprocess.run(["bun", "-e", script, "allow"], cwd=ROOT, env=env, text=True,
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
                             capture_output=True, check=True)
-    ask = json.loads(result.stdout.splitlines()[0])
-    assert ask["permission"] == "dbsctr_begin"
-    assert ask["patterns"] == ["*"]
     assert helper_log.read_text().splitlines() == [
         "<begin>", "<--cycle-id>", "<x>", "<--context>", "<ctx>",
         "<--risk>", "<routine>", "<--delivery-intent>", "<local>",

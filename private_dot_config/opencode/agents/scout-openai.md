@@ -4,6 +4,7 @@ mode: subagent
 model: openai/gpt-5.6-terra
 variant: medium
 permission:
+  context7_*: allow
   dbsctr_review_history_save: deny
   edit: deny
   bash: deny
