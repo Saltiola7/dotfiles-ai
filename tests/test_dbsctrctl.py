@@ -1687,13 +1687,17 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "historical-family-state"
         history = state / "reviews/history"
         history.mkdir(parents=True)
+        os.chmod(state / "reviews", 0o700)
+        os.chmod(history, 0o700)
         (state / "reviews/.lock").touch()
         for index, session_id in enumerate(("caller", "child", "grandchild", "other")):
-            (history / f"{session_id}.json").write_text(json.dumps({
+            path = history / f"{session_id}.json"
+            path.write_text(json.dumps({
                 "schema_version": 1, "session_id": session_id,
                 "completed_at": str(1784073600000 + index), "method_revision": "3.16", "context": "test",
                 "project_digest": "a" * 64, "cycles": [], "aggregates": {}, "reviewed_status": "reviewed",
             }))
+            os.chmod(path, 0o600)
         archive_only = json.loads(run(
             self.repo, "review-history", "--database", str(database), "--state-root", str(state),
             "--archive-only", "--excluded-session-id", "caller",
@@ -2081,8 +2085,11 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_malformed_tombstone_fails_closed(self):
         state = Path(self.temp.name) / "malformed-state"
         (state / "reviews").mkdir(parents=True)
-        (state / "reviews/reviewed.json").write_text(
+        os.chmod(state / "reviews", 0o700)
+        index = state / "reviews/reviewed.json"
+        index.write_text(
             '{"schema_version":1,"sessions":[],"cycles":{},"forgotten_sessions":{}}')
+        os.chmod(index, 0o600)
         (state / "reviews/.lock").touch()
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_malformed_review_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -2371,6 +2378,9 @@ class DbsctrctlTest(unittest.TestCase):
         outside = Path(self.temp.name) / "outside.json"
         outside.write_text("{}")
         (history / "linked.json").symlink_to(outside)
+        failed = run(self.repo, "review-history", "--state-root", str(state),
+                     "--archive-only", ok=False)
+        self.assertIn("unsafe", failed.stderr)
         failed = run(self.repo, "review-migrate", "--state-root", str(state), ok=False)
         self.assertIn("unsafe", failed.stderr)
         self.assertFalse((state / "reviews/ledger.sqlite3").exists())

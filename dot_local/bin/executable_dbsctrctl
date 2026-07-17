@@ -324,6 +324,19 @@ def private_path(path, kind, mode, name):
     return path
 
 
+def private_legacy_file(root, path):
+    reviews = root / "reviews"
+    private_path(reviews, stat.S_IFDIR, 0o700, "review directory")
+    parent = path.parent
+    while parent != reviews:
+        if reviews not in parent.parents:
+            fail("legacy private review path is outside its store")
+        private_path(parent, stat.S_IFDIR, 0o700, "legacy review directory")
+        parent = parent.parent
+    private_path(path, stat.S_IFREG, 0o600, "legacy review file")
+    return path
+
+
 def ledger_connection(root, write=False, path=None):
     path = path or ledger_path(root)
     private_path(path.parent, stat.S_IFDIR, 0o700, "ledger directory")
@@ -1697,6 +1710,7 @@ def review_index(root):
             value = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
         else:
             try:
+                private_legacy_file(root, path)
                 value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
             except (OSError, json.JSONDecodeError) as error:
                 fail(f"cannot read reviewed tombstones: {error}")
@@ -1764,8 +1778,10 @@ def validate_review_report(report, marker_name, timestamp):
     return report, timestamp
 
 
-def read_review_report(path):
+def read_review_report(path, root=None):
     try:
+        if root is not None:
+            private_legacy_file(root, path)
         report = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         fail(f"cannot read retained review report: {error}")
@@ -1792,7 +1808,7 @@ def review_reports(root):
     for path in directory.glob("*.json"):
         if path.name == "reviewed.json":
             continue
-        report, timestamp = read_review_report(path)
+        report, timestamp = read_review_report(path, root)
         reports.append((path, report, timestamp))
     return reports
 
@@ -1874,7 +1890,7 @@ def prune_review_reports(root, connection=None):
         if path.name == "reviewed.json":
             continue
         try:
-            report, timestamp = read_review_report(path)
+            report, timestamp = read_review_report(path, root)
             reports.append((path, report, timestamp))
         except RuntimeError:
             if path.stat().st_mtime_ns // 1_000_000 > cutoff_ms:
@@ -2390,8 +2406,10 @@ def validate_history_evidence(value):
     return {**value, "correlation_quality": value.get("correlation_quality", "unavailable")}
 
 
-def read_history_evidence(path):
+def read_history_evidence(path, root=None):
     try:
+        if root is not None:
+            private_legacy_file(root, path)
         value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         fail(f"cannot read review history evidence: {error}")
@@ -2413,14 +2431,14 @@ def history_evidence(root):
     records = {}
     if directory.is_dir():
         for path in sorted(directory.glob("*.json")):
-            record = read_history_evidence(path)
+            record = read_history_evidence(path, root)
             if path.name != f"{record['session_id']}.json":
                 fail("review history evidence marker does not match its content")
             records[record["session_id"]] = record
     reports = history_dir(root, "reports")
     if reports.is_dir():
         for path in sorted(reports.glob("*.json")):
-            for record in history_report(path)["evidence"]:
+            for record in history_report(path, root)["evidence"]:
                 records.setdefault(record["session_id"], record)
     return list(records.values())
 
@@ -2541,8 +2559,10 @@ def validate_history_report(value, path=None):
     return value
 
 
-def history_report(path):
+def history_report(path, root=None):
     try:
+        if root is not None:
+            private_legacy_file(root, path)
         value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         fail(f"invalid review history report: {error}")
@@ -2558,7 +2578,7 @@ def history_reports(root):
     directory = history_dir(root, "reports")
     if not directory.is_dir():
         return []
-    return [history_report(path) for path in sorted(directory.glob("*.json"))]
+    return [history_report(path, root) for path in sorted(directory.glob("*.json"))]
 
 
 def history_cohorts(root):
@@ -2570,7 +2590,7 @@ def history_cohorts(root):
     directory = history_dir(root, "cohorts")
     if not directory.is_dir():
         return []
-    return [history_report(path) for path in sorted(directory.glob("*.json"))]
+    return [history_report(path, root) for path in sorted(directory.glob("*.json"))]
 
 
 def validate_history_report_input(value):
