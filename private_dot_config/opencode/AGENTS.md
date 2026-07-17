@@ -26,6 +26,11 @@ policy authorizes only a normal push to the cycle-start upstream. Stop and ask w
 upstream, includes pre-cycle commits, changes destination, requires force, or
 fails required Git/DVC evidence.
 
+A validated Build-primary agent has standing authorization to use typed
+`dbsctr_begin` with its committed applicability plan and DBSCTR worktree access.
+Plan and subagents remain denied; this authorization does not cover destructive
+or external writes.
+
 DVC synchronization is a separate external write only when cycle commits alter
 DVC metadata or output identity: require confirmation for `dvc push`, then
 record its evidence before Final Push. Unrelated cycles in DVC repositories do

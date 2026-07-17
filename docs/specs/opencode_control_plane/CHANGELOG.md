@@ -1,5 +1,18 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-16 — Scout Context7 And Standing Build Begin
+
+- Added the managed Context7 remote MCP with optional environment-backed
+  1Password credential use, global denial, and Scout-only access. Fresh anonymous
+  and authenticated connections passed, and a fresh Scout query used Context7.
+- Replaced redundant typed-begin approval with standing authorization for native
+  and provider-affine Build primaries. Plan and every subagent remain denied;
+  only Build primaries may access helper-owned DBSCTR worktrees without prompts.
+- Validation: 39 affected tests, Bun transpilation, rendered and resolved config,
+  independent security review, targeted deployment/idempotence, role isolation,
+  MCP connectivity, and fresh Scout use passed. Gate Exceptions: none. Gate
+  Commits: `30789fa`, `9abea1b`, `791bc22`. Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — V3.16 Historical Review And Backtesting
 
 - Added typed historical scan and atomic report-save tools, fixed-cohort replay,

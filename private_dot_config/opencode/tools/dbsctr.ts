@@ -170,17 +170,6 @@ export const begin = tool({
     launch: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
-    await context.ask({
-      permission: "dbsctr_begin",
-      patterns: ["*"],
-      always: [],
-      metadata: {
-        cycleId: args.cycleId,
-        context: args.context,
-        risk: args.risk,
-        deliveryIntent: args.deliveryIntent,
-      },
-    })
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
       sessionID: context.sessionID,
       directory: context.directory,
