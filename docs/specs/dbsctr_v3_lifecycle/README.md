@@ -1496,7 +1496,9 @@ module routing without changing Cycle Record schema or public commands.
 - The authoritative private store is `~/.local/state/dbsctr/reviews/ledger.sqlite3`.
   Its schema version is recorded transactionally and unknown future versions
   fail closed. The parent directory remains mode `0700`; the database, rollback
-  journals, and backups remain mode `0600`.
+  journals, and backups remain mode `0600`. The current owner, exact modes,
+  regular-file types, and non-symlink review and backup directories are checked
+  before use.
 - The normalized schema owns retained review reports and their session/cycle
   members, reviewed and forgotten tombstones, sanitized history evidence,
   immutable rubric reports and cohort members, and ordered sanitized ledger
@@ -1525,12 +1527,15 @@ module routing without changing Cycle Record schema or public commands.
   a rollback backup, then atomically replaces the ledger under the lock. Restore
   carries forward current forget suppressions and removes their historical
   evidence from the restored copy. Explicit forget purges pre-forget backups and
-  ignored legacy JSON so retained recovery material cannot resurrect forgotten
-  evidence. Restore is explicit maintenance and never runs during ordinary review.
+  ignored legacy JSON through a same-filesystem quarantine restored on transaction
+  failure, so retained recovery material cannot resurrect forgotten evidence and
+  failed forget cannot destroy recovery data. Restore is explicit maintenance and
+  never runs during ordinary review.
 - SQLite uses full synchronous commits, a bounded busy timeout, and rollback
   journaling beneath the existing process lock. Maintenance verifies schema,
-  integrity, backup retention, migration compatibility, and recoverability;
-  malformed ledger or legacy state fails closed.
+  integrity, exact payload-to-member and payload-to-ledger-entry projections,
+  backup retention, migration compatibility, and recoverability; malformed
+  ledger or legacy state fails closed.
 
 ## Validation Strategy
 

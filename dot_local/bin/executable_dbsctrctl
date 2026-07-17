@@ -13,6 +13,7 @@ import selectors
 import signal
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -145,6 +146,14 @@ def private_json(path, value):
         Path(temporary).unlink(missing_ok=True)
 
 
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def review_root(value=None):
     return Path(value).expanduser() if value else Path.home() / ".local/state/dbsctr"
 
@@ -172,6 +181,8 @@ def session_id_digest(session_id):
 
 def review_lock(root):
     path = root / "reviews" / ".lock"
+    if path.parent.is_symlink():
+        fail("private review directory is unsafe")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)
     handle = path.open("a+", encoding="utf-8")
@@ -274,15 +285,26 @@ def ledger_path(root):
 
 def ledger_exists(root):
     path = ledger_path(root)
-    if path.is_symlink() or path.exists() and not path.is_file():
-        fail("private review ledger must be a regular file")
+    if path.exists() or path.is_symlink():
+        private_path(path.parent, stat.S_IFDIR, 0o700, "review directory")
+        private_path(path, stat.S_IFREG, 0o600, "review ledger")
     return path.is_file()
+
+
+def private_path(path, kind, mode, name):
+    try:
+        details = path.lstat()
+    except OSError as error:
+        fail(f"cannot inspect private {name}: {error}")
+    if stat.S_IFMT(details.st_mode) != kind or details.st_uid != os.getuid() or stat.S_IMODE(details.st_mode) != mode:
+        fail(f"private {name} is unsafe")
+    return path
 
 
 def ledger_connection(root, write=False, path=None):
     path = path or ledger_path(root)
-    if path.is_symlink() or not path.is_file():
-        fail("private review ledger is missing or unsafe")
+    private_path(path.parent, stat.S_IFDIR, 0o700, "ledger directory")
+    private_path(path, stat.S_IFREG, 0o600, "review ledger")
     try:
         connection = sqlite3.connect(str(path) if write else f"file:{path}?mode=ro", uri=not write)
         connection.execute("PRAGMA foreign_keys=ON")
@@ -293,8 +315,7 @@ def ledger_connection(root, write=False, path=None):
         row = connection.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()
         if row != (str(REVIEW_LEDGER_SCHEMA),):
             fail("private review ledger has an unsupported schema")
-        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
-            fail("private review ledger foreign-key check failed")
+        ledger_integrity(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
         if "connection" in locals():
@@ -367,6 +388,55 @@ def ledger_integrity(connection):
         fail("private review ledger integrity check failed")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         fail("private review ledger foreign-key check failed")
+    ledger_semantic_integrity(connection)
+
+
+def ledger_semantic_integrity(connection):
+    names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
+    tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
+    for kind, item_id, timestamp in connection.execute(
+            "SELECT kind, item_id, timestamp FROM review_tombstones"):
+        if kind not in names:
+            fail("private review ledger contains an invalid tombstone")
+        tombstones[names[kind]][item_id] = timestamp
+    for values in (tombstones["sessions"], tombstones["cycles"], tombstones["forgotten_sessions"]):
+        if not all(isinstance(key, str) and OPAQUE_ID.fullmatch(key) and isinstance(timestamp, int)
+                   and timestamp >= REVIEW_START_MS for key, timestamp in values.items()):
+            fail("private review ledger contains an invalid tombstone")
+    expected_entries = set()
+    categories = {"findings": "finding", "scorecards": "scorecard", "trends": "trend",
+                  "proposals": "proposal", "caveats": "caveat"}
+    for report_id, timestamp, payload in connection.execute(
+            "SELECT report_id, reviewed_at, payload FROM review_reports"):
+        report, _ = validate_review_report(json.loads(payload, object_pairs_hook=no_duplicate_keys),
+                                           f"{report_id}.json", timestamp)
+        sessions = [row[0] for row in connection.execute(
+            "SELECT session_id FROM review_report_sessions WHERE report_id=? ORDER BY position", (report_id,))]
+        cycles = [row[0] for row in connection.execute(
+            "SELECT cycle_id FROM review_report_cycles WHERE report_id=? ORDER BY position", (report_id,))]
+        if sessions != report["session_ids"] or cycles != report.get("cycle_ids", []):
+            fail("private review ledger report membership mismatch")
+        expected_entries.update(("operational", report_id, category, position, text)
+                                for field, category in categories.items()
+                                for position, text in enumerate(report.get(field, [])))
+    for session_id, completed_at, payload in connection.execute(
+            "SELECT session_id, completed_at, payload FROM history_evidence"):
+        evidence = validate_history_evidence(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+        if evidence["session_id"] != session_id or int(evidence["completed_at"]) != completed_at:
+            fail("private review ledger history evidence mismatch")
+    for report_id, _, payload in connection.execute("SELECT report_id, kind, payload FROM history_reports"):
+        report = validate_history_report(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+        members = [row[0] for row in connection.execute(
+            "SELECT session_id FROM history_report_members WHERE report_id=? ORDER BY position", (report_id,))]
+        if report["report_id"] != report_id or members != report["cohort"]:
+            fail("private review ledger history membership mismatch")
+        expected_entries.update(("history", report_id, category, position, text)
+                                for field, category in categories.items()
+                                for position, text in enumerate(report.get(field, [])))
+    actual_entries = set(connection.execute(
+        "SELECT scope, report_id, category, position, text FROM ledger_entries"))
+    if actual_entries != expected_entries:
+        fail("private review ledger entry mismatch")
 
 
 def legacy_review_exists(root):
@@ -476,8 +546,12 @@ def content_digest(value):
 
 def backup_directory(root):
     directory = root / "reviews" / "backups"
+    private_path(directory.parent, stat.S_IFDIR, 0o700, "review directory")
+    if directory.is_symlink():
+        fail("private review backup directory is unsafe")
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(directory, 0o700)
+    private_path(directory, stat.S_IFDIR, 0o700, "backup directory")
     return directory
 
 
@@ -540,14 +614,45 @@ def legacy_json_files(root):
     return files
 
 
-def purge_pre_forget_state(root):
-    for path in legacy_json_files(root):
-        path.unlink()
-    backups = root / "reviews" / "backups"
-    if backups.is_symlink():
-        fail("private review backup directory is unsafe")
-    if backups.is_dir():
-        shutil.rmtree(backups)
+def stage_pre_forget_state(root):
+    reviews = root / "reviews"
+    quarantine = reviews / f".forget-{uuid.uuid4().hex}"
+    quarantine.mkdir(mode=0o700)
+    moved = []
+    try:
+        for source in legacy_json_files(root):
+            destination = quarantine / "legacy" / source.relative_to(reviews)
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(destination.parent, 0o700)
+            os.replace(source, destination)
+            moved.append((source, destination))
+        backups = reviews / "backups"
+        if backups.is_symlink():
+            fail("private review backup directory is unsafe")
+        if backups.is_dir():
+            destination = quarantine / "backups"
+            os.replace(backups, destination)
+            moved.append((backups, destination))
+        fsync_directory(reviews)
+        fsync_directory(quarantine)
+        return quarantine, moved
+    except Exception:
+        restore_staged_forget(quarantine, moved)
+        raise
+
+
+def restore_staged_forget(quarantine, moved):
+    for source, destination in reversed(moved):
+        if destination.exists():
+            source.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.replace(destination, source)
+    shutil.rmtree(quarantine, ignore_errors=True)
+    fsync_directory(quarantine.parent)
+
+
+def discard_staged_forget(quarantine):
+    shutil.rmtree(quarantine)
+    fsync_directory(quarantine.parent)
 
 
 def require_review_lock_safe(root):
@@ -2809,6 +2914,7 @@ def command_review_forget(args):
         session_times.append(value["sessions"].get(args.session_id, 0))
         removed = args.session_id in reviewed_ids_unlocked(root)[0]
         forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
+        staged = None
         try:
             connection.execute("BEGIN IMMEDIATE")
             prune_review_reports(root, connection=connection)
@@ -2821,13 +2927,16 @@ def command_review_forget(args):
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
                 (args.session_id, forgotten_at),
             )
-            purge_pre_forget_state(root)
+            staged = stage_pre_forget_state(root)
             connection.commit()
         except Exception:
             connection.rollback()
+            if staged is not None:
+                restore_staged_forget(*staged)
             raise
         finally:
             connection.close()
+        discard_staged_forget(staged[0])
     print(json.dumps({"forgotten": removed}, sort_keys=True))
 
 

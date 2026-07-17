@@ -2330,6 +2330,18 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(connection.execute("select count(*) from history_reports").fetchone()[0], 1)
         self.assertEqual(connection.execute("select count(*) from review_tombstones").fetchone()[0], 1)
         connection.close()
+        backup_result = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        backup_path = state / "reviews/backups" / backup_result["backup"]
+        semantic = backup_path.with_name("semantic.sqlite3")
+        semantic.write_bytes(backup_path.read_bytes())
+        os.chmod(semantic, 0o600)
+        connection = sqlite3.connect(semantic)
+        connection.execute("delete from history_report_members")
+        connection.commit()
+        connection.close()
+        failed = run(self.repo, "review-restore", "--state-root", str(state),
+                     "--backup", semantic.name, ok=False)
+        self.assertIn("history membership mismatch", failed.stderr)
         repeated = json.loads(run(self.repo, "review-migrate", "--state-root", str(state)).stdout)
         self.assertFalse(repeated["migrated"])
         self.assertEqual(repeated["digest"], migrated["digest"])
@@ -2339,6 +2351,10 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "review-history", "--state-root", str(state), "--archive-only"
         ).stdout)
         self.assertEqual(archived["session_ids"], ["session-1"])
+        os.chmod(ledger, 0o644)
+        failed = run(self.repo, "review-history", "--state-root", str(state), "--archive-only", ok=False)
+        self.assertIn("review ledger is unsafe", failed.stderr)
+        os.chmod(ledger, 0o600)
 
     def test_review_ledger_migration_rejects_malformed_legacy_without_cutover(self):
         state = Path(self.temp.name) / "ledger-malformed"
@@ -2404,6 +2420,35 @@ class DbsctrctlTest(unittest.TestCase):
             "select timestamp from review_tombstones where kind='session'"
         ).fetchone()[0], 1784073600001)
         connection.close()
+        backups = state / "reviews/backups"
+        real_backups = state / "reviews/backups-real"
+        backups.rename(real_backups)
+        backups.symlink_to(real_backups, target_is_directory=True)
+        failed = run(self.repo, "review-backup", "--state-root", str(state), ok=False)
+        self.assertIn("backup directory is unsafe", failed.stderr)
+        backups.unlink()
+        real_backups.rename(backups)
+
+    def test_review_forget_staging_can_restore_recovery_material(self):
+        state = Path(self.temp.name) / "forget-staging"
+        history = state / "reviews/history"
+        history.mkdir(parents=True)
+        legacy = history / "session-1.json"
+        legacy.write_text("{}")
+        backups = state / "reviews/backups"
+        backups.mkdir()
+        backup = backups / "ledger.sqlite3"
+        backup.write_bytes(b"backup")
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_forget_staging", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        staged = module.stage_pre_forget_state(state)
+        self.assertFalse(legacy.exists())
+        self.assertFalse(backups.exists())
+        module.restore_staged_forget(*staged)
+        self.assertTrue(legacy.exists())
+        self.assertEqual(backup.read_bytes(), b"backup")
 
     def test_review_completion_rolls_back_archives_when_marker_insert_fails(self):
         database = Path(self.temp.name) / "ledger-atomic.db"
