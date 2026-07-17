@@ -13,6 +13,19 @@ export async function cycleStatus(cwd: string) {
   return await run(["dbsctrctl", "status", "--json"], cwd)
 }
 
+export async function attachRuntime(cwd: string, runtime: {
+  sessionID: string
+  directory: string
+  worktree: string
+}) {
+  return await run([
+    "dbsctrctl", "attach-runtime",
+    "--opencode-session-id", runtime.sessionID,
+    "--opencode-directory", runtime.directory,
+    "--opencode-worktree", runtime.worktree,
+  ], cwd)
+}
+
 export async function lifecycleAudit(cwd: string, commit = "HEAD") {
   return await run(["dbsctrctl", "audit", "--commit", commit, "--json"], cwd)
 }

@@ -30,7 +30,7 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
-CURRENT_METHOD_REVISION = "3.17"
+CURRENT_METHOD_REVISION = "3.18"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -1107,6 +1107,41 @@ def command_status(args):
         print(f"{record['cycle_id']} {record['state']} {record['risk']} {record['delivery_intent']}")
 
 
+def command_attach_runtime(args):
+    root = root_dir().resolve()
+    if not OPAQUE_ID.fullmatch(args.opencode_session_id):
+        fail("invalid OpenCode session ID")
+    runtime_worktree = Path(args.opencode_worktree).resolve()
+    runtime_directory = Path(args.opencode_directory).resolve()
+    if (not runtime_worktree.is_dir() or not runtime_directory.is_dir()
+            or runtime_worktree not in runtime_directory.parents and runtime_directory != runtime_worktree):
+        fail("invalid OpenCode runtime paths")
+    path, record = load(root)
+    cycle_id = record["cycle_id"]
+    with evidence_lock(root, cycle_id):
+        path, record = load(root)
+        if record["cycle_id"] != cycle_id:
+            fail("active DBSCTR cycle changed during runtime attachment")
+        require_active(record)
+        recorded_worktree = Path(record.get("worktree", {}).get("path", "")).resolve()
+        if runtime_worktree != root or runtime_worktree != recorded_worktree:
+            fail("OpenCode runtime must match the recorded cycle worktree")
+        opencode = record.setdefault("runtime", {}).setdefault("opencode", {})
+        session_ids = opencode.setdefault("session_ids", [])
+        if (not isinstance(session_ids, list) or len(session_ids) > REVIEW_MAX_LIMIT
+                or not all(isinstance(value, str) and OPAQUE_ID.fullmatch(value) for value in session_ids)):
+            fail("Cycle Record contains invalid OpenCode runtime metadata")
+        attached = args.opencode_session_id not in session_ids
+        if attached:
+            if len(session_ids) == REVIEW_MAX_LIMIT:
+                fail("Cycle Record OpenCode runtime limit reached")
+            session_ids.append(args.opencode_session_id)
+        opencode["worktree"] = str(runtime_worktree)
+        save(path, record)
+    print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,
+                     separators=(",", ":")))
+
+
 def sqlite_name(connection, table, choices):
     columns = {row[1].lower().replace("_", ""): row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
     for choice in choices:
@@ -1301,7 +1336,8 @@ def valid_gate_exception(gate):
     return approved_at.utcoffset() == timedelta(0)
 
 
-def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None):
+def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_session_id=None,
+                      with_quality=False):
     cache_key = str(directory or "")
     cached = cache.get(cache_key) if cache is not None else None
     if cached is None:
@@ -1338,17 +1374,39 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None):
         if cache is not None:
             cache[cache_key] = cached
     resolved, records = cached
-    matched = []
-    for record in records:
-        cycle_id = record["cycle_id"]
-        source = record.get("source") if isinstance(record.get("source"), dict) else {}
-        recorded_paths = (record.get("worktree", {}).get("path"), source.get("path"))
-        runtime_ids = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
-        if (cycle_id in hinted_ids or set(session_ids).intersection(runtime_ids)
-                or resolved is not None and any(value and Path(value).resolve() == resolved for value in recorded_paths)):
-            matched.append(record)
+    def runtime_ids(record):
+        values = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
+        return set(values) if isinstance(values, list) else set()
+
+    def unique(matches, quality):
+        return (matches, quality) if len(matches) == 1 else ([], "ambiguous" if matches else None)
+
+    exact_ids = {exact_session_id} if exact_session_id is not None else set(session_ids)
+    exact = [record for record in records if exact_ids.intersection(runtime_ids(record))]
+    hinted = [record for record in records if record["cycle_id"] in hinted_ids]
+    if exact:
+        matched, quality = unique(exact, "exact")
+    elif hinted:
+        matched, quality = unique(hinted, "exact")
+    else:
+        family_ids = set(session_ids) - exact_ids
+        family, family_quality = unique(
+            [record for record in records if family_ids.intersection(runtime_ids(record))], "family"
+        )
+        worktrees = [record for record in records if resolved is not None
+                     and record.get("worktree", {}).get("path")
+                     and Path(record["worktree"]["path"]).resolve() == resolved]
+        worktree, worktree_quality = unique(worktrees, "worktree")
+        sources = [record for record in records if resolved is not None
+                   and isinstance(record.get("source"), dict) and record["source"].get("path")
+                   and Path(record["source"]["path"]).resolve() == resolved]
+        source, source_quality = unique(sources, "source")
+        matched, quality = next(((items, value) for items, value in (
+            (family, family_quality), (worktree, worktree_quality), (source, source_quality)
+        ) if items), ([], "ambiguous" if "ambiguous" in (family_quality, worktree_quality, source_quality)
+                       else "unavailable"))
     if not matched:
-        return []
+        return ([], quality) if with_quality else []
     output = []
     for record in matched:
         gates = record.get("gates", {}).values()
@@ -1364,7 +1422,31 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None):
         else:
             state = "active"
         output.append({"cycle_id": record["cycle_id"], "state": state})
-    return sorted(output, key=lambda item: item["cycle_id"])
+    output = sorted(output, key=lambda item: item["cycle_id"])
+    return (output, quality) if with_quality else output
+
+
+def session_family_map(rows):
+    adjacency = {}
+    for row in rows:
+        session_id, parent_id = str(row[0]), str(row[1]) if row[1] else None
+        adjacency.setdefault(session_id, set())
+        if parent_id:
+            adjacency[session_id].add(parent_id)
+            adjacency.setdefault(parent_id, set()).add(session_id)
+    families, remaining = {}, set(adjacency)
+    while remaining:
+        member = remaining.pop()
+        family, pending = {member}, [member]
+        while pending:
+            current = pending.pop()
+            new = adjacency[current] - family
+            family.update(new)
+            pending.extend(new)
+        remaining.difference_update(family)
+        for session_id in family:
+            families[session_id] = family
+    return families
 
 
 def review_attention(cycles, timestamp, snapshot):
@@ -1591,6 +1673,7 @@ def review_scan(args):
     reviewed_sessions, _ = reviewed_ids(args.state_root, snapshot if continuation else None,
                                          lock=not getattr(args, "lock_held", False))
     eligible, cycle_cache, identity_cache = [], {}, {}
+    families = session_family_map(rows)
     for session_id, parent_id, timestamp, last_activity, child_ids, text, directory in rows:
         session_id = str(session_id)
         parent_id = str(parent_id) if parent_id else None
@@ -1601,14 +1684,17 @@ def review_scan(args):
         reviewed = session_id in reviewed_sessions
         if reviewed and not getattr(args, "include_reviewed", False):
             continue
-        related_ids = {session_id, *(children_values or []), *([parent_id] if parent_id else [])}
-        cycles = correlated_cycles(directory, set(), related_ids, cycle_cache)
+        related_ids = families.get(session_id, {session_id})
+        cycles, correlation_quality = correlated_cycles(
+            directory, set(), related_ids, cycle_cache, exact_session_id=session_id, with_quality=True,
+        )
         attention = review_attention(cycles, last_activity, snapshot)
         candidate = {"session_id": session_id, "parent_session_id": parent_id,
                          "child_session_ids": children_values,
                           "timestamp": str(timestamp)[:64] if timestamp is not None else None,
                           "last_activity": str(last_activity)[:64] if last_activity is not None else None,
                           "cycles": cycles, "attention": attention,
+                           "correlation_quality": correlation_quality,
                            "reviewed_status": "reviewed" if reviewed else "unreviewed"}
         if getattr(args, "history_metrics", False):
             metrics = history_metrics.get(session_id, {})
@@ -1667,14 +1753,16 @@ def command_review_scan(args):
 def validate_history_evidence(value):
     allowed = {"schema_version", "session_id", "completed_at", "method_revision", "context",
                "project_digest", "cycles", "aggregates", "snapshot", "session_ceiling",
-               "part_ceiling", "database_digest", "reviewed_status"}
+               "part_ceiling", "database_digest", "reviewed_status", "correlation_quality"}
     if (not isinstance(value, dict) or set(value) - allowed or value.get("schema_version") != 1
             or not isinstance(value.get("completed_at"), str) or not value["completed_at"].isdigit()
             or int(value["completed_at"]) < REVIEW_START_MS
             or not isinstance(value.get("method_revision"), str) or (value["method_revision"] != "unavailable" and not re.fullmatch(r"3\.\d+", value["method_revision"]))
             or not isinstance(value.get("context"), str) or (value["context"] != "unavailable" and not OPAQUE_ID.fullmatch(value["context"]))
             or not isinstance(value.get("project_digest"), str)
-            or value.get("reviewed_status", "reviewed") not in ("reviewed", "unreviewed")):
+            or value.get("reviewed_status", "reviewed") not in ("reviewed", "unreviewed")
+            or value.get("correlation_quality", "unavailable") not in (
+                "exact", "family", "worktree", "source", "ambiguous", "unavailable")):
         fail("review history evidence has an invalid schema")
     history_id(value.get("session_id"), "history session ID")
     if value["project_digest"] != "unavailable":
@@ -1700,7 +1788,7 @@ def validate_history_evidence(value):
             fail("review history evidence has an invalid schema")
     if "database_digest" in value:
         history_digest(value["database_digest"], "database digest")
-    return value
+    return {**value, "correlation_quality": value.get("correlation_quality", "unavailable")}
 
 
 def read_history_evidence(path):
@@ -1742,6 +1830,7 @@ def candidate_history_evidence(candidate, scan, mark_reviewed=True):
     return validate_history_evidence({
         "schema_version": 1, "session_id": session_id,
         "completed_at": str(candidate["last_activity"]), **identity, "cycles": cycles,
+        "correlation_quality": candidate.get("correlation_quality", "unavailable"),
         "aggregates": history_aggregates(candidate), "snapshot": scan["snapshot"],
         "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
         "database_digest": scan["database_digest"],
@@ -1931,7 +2020,9 @@ def command_review_history(args):
             live_records = [{"schema_version": 1, "session_id": item["session_id"],
                             "completed_at": str(item["last_activity"]),
                             **item.get("_history_identity", history_identity(item["cycles"])),
-                            "cycles": item["cycles"], "aggregates": history_aggregates(item),
+                             "cycles": item["cycles"],
+                             "correlation_quality": item.get("correlation_quality", "unavailable"),
+                             "aggregates": history_aggregates(item),
                             "snapshot": live["snapshot"], "session_ceiling": live["session_ceiling"],
                             "part_ceiling": live["part_ceiling"], "database_digest": live["database_digest"],
                             "reviewed_status": item["reviewed_status"]} for item in live_candidates]
@@ -2729,6 +2820,11 @@ def parser():
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
+    attach = commands.add_parser("attach-runtime")
+    attach.add_argument("--opencode-session-id", required=True)
+    attach.add_argument("--opencode-directory", required=True)
+    attach.add_argument("--opencode-worktree", required=True)
+    attach.set_defaults(func=command_attach_runtime)
     review_scan = commands.add_parser("review-scan")
     review_scan.add_argument("--database")
     review_scan.add_argument("--state-root")

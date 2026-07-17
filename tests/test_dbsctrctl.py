@@ -108,7 +108,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.17")
+        self.assertEqual(record["method_revision"], "3.18")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -523,6 +523,28 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-structured"])
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
+
+    def test_attach_runtime_is_idempotent_and_worktree_bounded(self):
+        self.start()
+        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed",
+            "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo))
+        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed",
+            "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo))
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-resumed"])
+        other = Path(self.temp.name) / "other"
+        other.mkdir()
+        wrong = run(self.repo, "attach-runtime", "--opencode-session-id", "session-wrong",
+                    "--opencode-directory", str(other),
+                    "--opencode-worktree", str(other), ok=False)
+        self.assertIn("recorded cycle worktree", wrong.stderr)
+
+        record["state"] = "completed"
+        self.record_path().write_text(json.dumps(record))
+        completed = run(self.repo, "attach-runtime", "--opencode-session-id", "session-late",
+                        "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo),
+                        ok=False)
+        self.assertIn("not active", completed.stderr)
 
     def test_begin_fetches_before_classifying_ahead_commits(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1803,7 +1825,7 @@ class DbsctrctlTest(unittest.TestCase):
             {"cycle_id": "cycle-1", "state": "active"},
         ])
 
-    def test_review_correlation_preserves_multiple_states_and_source_checkout(self):
+    def test_review_correlation_rejects_ambiguous_source_checkout(self):
         self.start()
         first = json.loads(self.record_path().read_text())
         first["worktree"]["path"] = str(Path(self.temp.name) / "removed-worktree")
@@ -1819,10 +1841,7 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
-            {"cycle_id": "cycle-1", "state": "blocked"},
-            {"cycle_id": "cycle-2", "state": "completed"},
-        ])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [])
 
     def test_review_correlates_structured_session_without_path_match(self):
         self.start()
@@ -1844,6 +1863,97 @@ class DbsctrctlTest(unittest.TestCase):
             ])
         finally:
             os.chdir(previous)
+
+    def test_review_correlation_uses_tiered_unambiguous_identity(self):
+        self.start()
+        first = json.loads(self.record_path().read_text())
+        first["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
+        first["source"] = {"path": str(self.repo)}
+        self.record_path().write_text(json.dumps(first))
+        second = json.loads(json.dumps(first))
+        second["cycle_id"] = "cycle-2"
+        second["runtime"] = {"opencode": {"session_ids": ["other-root"]}}
+        second["worktree"]["path"] = str(Path(self.temp.name) / "other-worktree")
+        second["source"] = {"path": str(self.repo)}
+        (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_tiered_cycle_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        exact, quality = module.correlated_cycles(
+            str(self.repo), set(), {"runtime-root", "other-root"}, exact_session_id="runtime-root",
+            with_quality=True,
+        )
+        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(quality, "exact")
+        exact, quality = module.correlated_cycles(
+            str(self.repo), {"cycle-2"}, {"runtime-root"}, exact_session_id="runtime-root",
+            with_quality=True,
+        )
+        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(quality, "exact")
+        family, quality = module.correlated_cycles(
+            str(self.repo), set(), {"runtime-root"}, exact_session_id="child", with_quality=True,
+        )
+        self.assertEqual(family, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(quality, "family")
+
+        first["runtime"] = {"opencode": {"session_ids": ["shared-parent"]}}
+        self.record_path().write_text(json.dumps(first))
+        second["runtime"] = {"opencode": {"session_ids": ["shared-parent"]}}
+        (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
+        ambiguous, quality = module.correlated_cycles(
+            str(self.repo), set(), {"shared-parent"}, exact_session_id="shared-parent",
+            with_quality=True,
+        )
+        self.assertEqual(ambiguous, [])
+        self.assertEqual(quality, "ambiguous")
+        worktree, quality = module.correlated_cycles(
+            str(self.repo), set(), {"shared-parent"}, exact_session_id="child", with_quality=True,
+        )
+        self.assertEqual(worktree, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(quality, "worktree")
+
+        first["worktree"]["path"] = str(Path(self.temp.name) / "missing-one")
+        self.record_path().write_text(json.dumps(first))
+        second["worktree"]["path"] = str(Path(self.temp.name) / "missing-two")
+        (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
+        ambiguous, quality = module.correlated_cycles(
+            str(self.repo), set(), set(), exact_session_id="unlinked", with_quality=True,
+        )
+        self.assertEqual(ambiguous, [])
+        self.assertEqual(quality, "ambiguous")
+
+    def test_review_correlates_recursive_family_and_reports_quality(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        record["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
+        record["worktree"]["path"] = str(Path(self.temp.name) / "missing")
+        self.record_path().write_text(json.dumps(record))
+        database = Path(self.temp.name) / "recursive-family.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('runtime-root', null, 'DBSCTR root', 1784073600000);
+            insert into session values ('child', 'runtime-root', 'child', 1784073600001);
+            insert into session values ('grandchild', 'child', 'grandchild', 1784073600002);
+            insert into message values ('message-root', 'runtime-root', 1784073600000, '{}');
+            insert into part values ('part-root', 'message-root', 'runtime-root', 1784073600000, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        scan = json.loads(run(self.repo, "review-scan", "--database", str(database),
+                              "--state-root", str(Path(self.temp.name) / "family-state"),
+                              "--limit", "10", "--cursor", "0").stdout)
+        candidates = {item["session_id"]: item for item in scan["candidates"]}
+        self.assertEqual(candidates["runtime-root"]["correlation_quality"], "exact")
+        self.assertEqual(candidates["grandchild"]["correlation_quality"], "family")
+        self.assertEqual(candidates["grandchild"]["cycles"], [
+            {"cycle_id": "cycle-1", "state": "abandoned"},
+        ])
 
     def test_review_treats_failed_gate_with_null_exception_as_blocked(self):
         self.start()
@@ -2132,7 +2242,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.17")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.18")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))

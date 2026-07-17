@@ -57,7 +57,13 @@ def test_provider_and_primary_contracts():
     assert config["default_agent"] == "plan"
     assert not config["agent"].get("build", {}).get("disable", False)
     assert config["agent"]["plan"]["permission"]["edit"] == "deny"
-    assert config["agent"]["plan"]["permission"]["bash"] == "ask"
+    assert config["agent"]["plan"]["permission"]["bash"] == {
+        "*": "ask",
+        "dbsctrctl attach-runtime*": "deny",
+        "*/dbsctrctl attach-runtime*": "deny",
+        "env *dbsctrctl attach-runtime*": "deny",
+        "command *dbsctrctl attach-runtime*": "deny",
+    }
     assert "amazon-bedrock" in config["provider"]
     assert "lmstudio" in config["provider"]
     assert "headroom" not in config["provider"]
@@ -148,9 +154,11 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     config = rendered_config()
     worktrees = "~/.local/state/dbsctr/worktrees/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
+    assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["external_directory"] == "deny"
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
+        "dbsctr_attach": "allow",
         "external_directory": {worktrees: "allow"},
     }
 
@@ -160,10 +168,12 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         if agent.name in build_primaries:
             assert "mode: primary" in body
             assert "dbsctr_begin: allow" in body
+            assert "dbsctr_attach: allow" in body
             assert f"external_directory:\n    {worktrees}: allow" in body
         else:
             assert "mode: subagent" in body
             assert "dbsctr_begin: allow" not in body
+            assert "dbsctr_attach: allow" not in body
             assert worktrees not in body
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "external_directory: deny" in (OC / "agents" / name).read_text()
@@ -177,6 +187,9 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["dbsctrctl approve-exception*"] == "ask"
     assert bash["dbsctrctl record-dvc-push*"] == "ask"
     assert bash["dbsctrctl record-evidence*"] == "ask"
+    for command in ("dbsctrctl attach-runtime*", "*/dbsctrctl attach-runtime*",
+                    "env *dbsctrctl attach-runtime*", "command *dbsctrctl attach-runtime*"):
+        assert bash[command] == "deny"
     assert bash["dbsctrctl review-complete*"] == "ask"
     assert bash["*/dbsctrctl review-complete*"] == "ask"
     assert bash["env *dbsctrctl review-complete*"] == "ask"
@@ -196,6 +209,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert bash[command] == "ask"
     assert config["permission"]["dbsctr_status"] == "allow"
     assert config["permission"]["dbsctr_begin"] == "deny"
+    assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["dbsctr_audit"] == "allow"
     assert config["permission"]["dbsctr_inspect"] == "allow"
     assert config["permission"]["dbsctr_review"] == "allow"
@@ -203,6 +217,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_review_history"] == "allow"
     assert config["permission"]["dbsctr_review_history_save"] == "allow"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
+    assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     for command in (
         "git push --force*", "git push -f*", "git *push*--force*", "git push *+*",
         "git commit --no-verify*", "git commit -n*", "git *commit*--no-verify*",
@@ -219,8 +234,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
 
     for name in ("build-gpt.md", "build-claude.md"):
         assert "dbsctr_begin: allow" in (OC / "agents" / name).read_text()
+        assert "dbsctr_attach: allow" in (OC / "agents" / name).read_text()
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "dbsctr_begin: deny" in (OC / "agents" / name).read_text()
+        assert "dbsctr_attach: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_complete: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
     for name in ("reviewer-openai.md", "explore-openai.md", "explore-bedrock.md",
@@ -231,6 +248,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
 def test_dbsctr_tools_and_herdr_config_are_managed():
     tools = (OC / "tools/dbsctr.ts").read_text()
     assert 'export const status = tool({' in tools
+    assert 'export const attach = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const audit = tool({' in tools
     assert 'export const inspect = tool({' in tools
@@ -443,6 +461,27 @@ def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<review-history>", "<--context>", "<x;touch nope>", "<--reviewed-status>", "<reviewed>",
         "<--limit>", "<100>", "<--cursor>", "<0>",
+    ]
+
+
+def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "attach.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@" > "$ATTACH_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ attachRuntime }} from {json.dumps(str(runtime))};'
+        'await attachRuntime(process.cwd(),{sessionID:"session-resumed",directory:process.cwd(),worktree:process.cwd()});'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATTACH_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "<attach-runtime>", "<--opencode-session-id>", "<session-resumed>",
+        "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
     ]
 
 

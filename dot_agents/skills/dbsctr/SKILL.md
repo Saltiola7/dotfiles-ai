@@ -29,9 +29,11 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.17` (Method Revision `3.16` records remain legacy-compatible). Use the typed `dbsctr_status` tool when available,
-   otherwise `dbsctrctl status`, to resume the active Cycle
-   Record. For a new write cycle, create an explicit JSON applicability plan
+5. Report Method Revision `3.18` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
+    otherwise `dbsctrctl status`, to resume the active Cycle
+    Record. A validated Build primary resuming an active cycle calls typed
+    `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
+    subagents never attach. For a new write cycle, create an explicit JSON applicability plan
     bound to the committed Engineering Profile, then use the standing authorization for validated Build-primary
     begin with typed `dbsctr_begin` or
    `dbsctrctl begin --plan PATH` to create an upstream-based branch/worktree and
@@ -162,8 +164,8 @@ After completion, `cleanup` removes only a clean DBSCTR-owned worktree whose
 commits reached target; retain successful worktrees for 24 hours by default and
 never auto-remove failed or dirty work.
 Typed OpenCode tools are argument-safe adapters over `dbsctrctl`, not another
-state machine. Standing authorization for validated Build-primary begin permits
-`dbsctr_begin` and DBSCTR worktree access after its committed applicability plan;
+state machine. Standing authorization for validated Build-primary begin and resume permits
+`dbsctr_begin`, `dbsctr_attach`, and DBSCTR worktree access after its committed applicability plan;
 Plan and subagents remain denied and Plan hands off the validated plan. The `launch` argument defaults to `false`; when
 explicitly true in a Herdr pane, the same authorization covers launching OpenCode
 in the new worktree. Herdr state is presentation only and never gate evidence.

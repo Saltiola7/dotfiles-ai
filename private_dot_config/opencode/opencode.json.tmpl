@@ -99,6 +99,7 @@
     "build": {
       "permission": {
         "dbsctr_begin": "allow",
+        "dbsctr_attach": "allow",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow"
         }
@@ -109,8 +110,15 @@
       "variant": "medium",
       "permission": {
         "edit": "deny",
-        "bash": "ask",
+        "bash": {
+          "*": "ask",
+          "dbsctrctl attach-runtime*": "deny",
+          "*/dbsctrctl attach-runtime*": "deny",
+          "env *dbsctrctl attach-runtime*": "deny",
+          "command *dbsctrctl attach-runtime*": "deny"
+        },
         "dbsctr_begin": "deny",
+        "dbsctr_attach": "deny",
         "task": {
           "*": "deny",
           "explore-openai": "allow",
@@ -126,6 +134,7 @@
   "permission": {
     "dbsctr_status": "allow",
     "dbsctr_begin": "deny",
+    "dbsctr_attach": "deny",
     "dbsctr_audit": "allow",
     "dbsctr_inspect": "allow",
     "dbsctr_review": "allow",
@@ -151,6 +160,10 @@
       "dbsctrctl approve-exception*": "ask",
       "dbsctrctl record-dvc-push*": "ask",
       "dbsctrctl record-evidence*": "ask",
+      "dbsctrctl attach-runtime*": "deny",
+      "*/dbsctrctl attach-runtime*": "deny",
+      "env *dbsctrctl attach-runtime*": "deny",
+      "command *dbsctrctl attach-runtime*": "deny",
       "dbsctrctl review-complete*": "ask",
       "*/dbsctrctl review-complete*": "ask",
       "env *dbsctrctl review-complete*": "ask",

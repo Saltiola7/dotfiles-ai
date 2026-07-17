@@ -5,6 +5,7 @@ model: amazon-bedrock/global.anthropic.claude-sonnet-5
 variant: medium
 permission:
   dbsctr_begin: deny
+  dbsctr_attach: deny
   dbsctr_review_complete: deny
   dbsctr_review_history_save: deny
   task: deny
@@ -23,6 +24,10 @@ permission:
     "*/dbsctrctl review-history-save*": deny
     "env *dbsctrctl review-history-save*": deny
     "command *dbsctrctl review-history-save*": deny
+    "dbsctrctl attach-runtime*": deny
+    "*/dbsctrctl attach-runtime*": deny
+    "env *dbsctrctl attach-runtime*": deny
+    "command *dbsctrctl attach-runtime*": deny
     "npm publish*": deny
     "launchctl bootstrap*": deny
     "launchctl bootout*": deny

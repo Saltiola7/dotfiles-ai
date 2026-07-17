@@ -27,7 +27,8 @@ upstream, includes pre-cycle commits, changes destination, requires force, or
 fails required Git/DVC evidence.
 
 A validated Build-primary agent has standing authorization to use typed
-`dbsctr_begin` with its committed applicability plan and DBSCTR worktree access.
+`dbsctr_begin` with its committed applicability plan, typed `dbsctr_attach` when
+resuming an active cycle in its recorded worktree, and DBSCTR worktree access.
 Plan and subagents remain denied; this authorization does not cover destructive
 or external writes.
 

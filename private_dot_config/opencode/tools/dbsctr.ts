@@ -1,11 +1,24 @@
 import { tool } from "@opencode-ai/plugin"
-import { beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
+import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
   args: {},
   async execute(_args, context) {
     return await cycleStatus(context.worktree)
+  },
+})
+
+export const attach = tool({
+  description: "Attach the current validated Build runtime to the active DBSCTR cycle.",
+  args: {},
+  async execute(_args, context) {
+    await context.ask({ permission: "dbsctr_attach", patterns: ["*"], always: [] })
+    return await attachRuntime(context.worktree, {
+      sessionID: context.sessionID,
+      directory: context.directory,
+      worktree: context.worktree,
+    })
   },
 })
 
