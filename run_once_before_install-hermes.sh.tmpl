@@ -9,7 +9,7 @@ HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 if [[ "$HERMES" == "~/"* ]]; then
     HERMES="$HOME/${HERMES#~/}"
 fi
-[[ -x "$HERMES" ]] && exit 0
+[[ -x "$HERMES" ]] && "$HERMES" --version >/dev/null 2>&1 && exit 0
 command -v curl >/dev/null || { echo "curl is required to install Hermes" >&2; exit 1; }
 
 installer=$(mktemp "${TMPDIR:-/tmp}/hermes-install.XXXXXX")

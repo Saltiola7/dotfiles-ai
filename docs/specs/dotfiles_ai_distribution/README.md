@@ -76,28 +76,32 @@ control-plane behavior, and shell authentication behavior.
 
 ### Opt-in Hermes bootstrap
 
-- Given Hermes is enabled in machine-local data and is absent, when this source
-  applies, then it downloads the current official installer to a temporary file,
-  installs noninteractively with bundled skills, and preserves Hermes-owned
-  configuration and runtime state.
+- Given Hermes is enabled in machine-local data and is absent or its launcher
+  cannot report a version, when this source applies, then it downloads the
+  current official installer to a temporary file, installs noninteractively
+  with bundled skills, and preserves Hermes-owned configuration and runtime
+  state.
 - Given Hermes is disabled, when this source applies, then no installer,
   integration, gateway, schedule, or update job runs.
 
 ### Supervised DBSCTR review
 
 - Given the review schedule fires, when Hermes invokes the managed supervisor
-  skill, then it processes one bounded unreviewed page or one historical cohort
-  from the global OpenCode database and persists review completion before
-  compacting the designated review session.
+  skill, then it explicitly requests one bounded unreviewed page or, when none
+  exists, one historical cohort from the global OpenCode database and persists
+  review completion before compacting the designated review session.
+- Given the designated global review pane has no active Cycle Record, when its
+  review snapshot is available, then Hermes may continue that review; active
+  Cycle Records remain required for supervised implementation panes.
 - Given a resumed idle OpenCode process has not yet emitted its native session
   ID, when exactly one Herdr pane reports foreground argv `opencode -s
   <configured-session>`, then Hermes may adopt that pane; otherwise it pauses
   without guessing from labels, recency, screen content, or directories and
   without invoking review helpers directly.
-- Given the designated pane is in Plan or its primary cannot be verified, when
-  the schedule fires, then Hermes pauses and requests one-time `/agents`
-  selection of a Build primary; it never cycles agents with order-dependent
-  keystrokes.
+- Given the designated pane is in Plan, uses a custom Build primary, or its
+  primary cannot be verified, when the schedule fires, then Hermes pauses and
+  requests one-time `/agents` selection of native Build; it never cycles agents
+  with order-dependent keystrokes.
 - Given one submitted review reports a blocker or no processed cohort, when
   Hermes observes the final output, then it reports and stops without retrying
   `/dbsctr-review` in that invocation.
@@ -137,7 +141,8 @@ control-plane behavior, and shell authentication behavior.
 - One saved Hermes cron job ID is the reconciliation identity; a stale or
   ambiguous ID fails closed instead of creating a duplicate review job.
 - The supervisor uses Herdr's structured agent inventory and native OpenCode
-  session IDs. DBSCTR Cycle Records and review records remain authoritative.
+  session IDs through individual commands without inline shell parsers. DBSCTR
+  Cycle Records and review records remain authoritative.
 - Private review access remains behind OpenCode's managed `/dbsctr-review`
   command and typed tools; Hermes never calls `dbsctrctl review-*` or reads the
   OpenCode database directly.

@@ -101,6 +101,7 @@ def test_installer_is_noninteractive_and_not_curl_to_shell() -> None:
     assert "curl -fsSL" in installer
     assert "| bash" not in installer
     assert 'mktemp "${TMPDIR:-/tmp}/hermes-install.XXXXXX"' in installer
+    assert '"$HERMES" --version >/dev/null 2>&1 && exit 0' in installer
 
 
 def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
@@ -110,6 +111,8 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "dotfiles-ai: /tmp/dotfiles-ai" in skill
     assert "seo-data-science: /tmp/seo-data-science" in skill
     assert "Never control a pane outside this allowlist" in skill
+    assert "Never use a heredoc, inline script, or shell" in skill
+    assert "never call `skill_manage`" in skill
     assert "DBSCTR Cycle Record" in skill
     assert "pause" in skill.lower()
     assert "Discovery" in skill
@@ -118,19 +121,26 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "/compact" in skill
     assert "ses_testreview" in skill
     assert "herdr pane process-info" in skill
+    assert "process-info --pane <pane_id>" in skill
     assert "foreground argv is exactly `opencode -s ses_testreview`" in skill
     assert "Do not\n   guess from tab labels" in skill
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill
     assert "managed OpenCode" in skill
-    assert "select a Build primary through `/agents`" in skill
+    assert "visible OpenCode primary is native `Build`" in skill
+    assert "select native `Build` through `/agents`" in skill
+    assert "`Build-GPT`" not in skill
     assert "never automate `Tab`" in skill
+    assert "/dbsctr-review Process one unreviewed page" in skill
+    assert "staged in the input area" in skill
     assert "exactly once" in skill
     assert "never retry the command" in skill
-    assert "poll `herdr agent get`" in skill
+    assert "review pane does not require an active Cycle Record" in skill
+    assert "poll `herdr agent get <designated-pane-id>`" in skill
     assert "dbsctr_review_complete" in skill
     assert "dbsctr_review_history_save" in skill
     assert "Never select `Allow always`" in skill
+    assert "complete that single compaction" in skill
 
 
 def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:

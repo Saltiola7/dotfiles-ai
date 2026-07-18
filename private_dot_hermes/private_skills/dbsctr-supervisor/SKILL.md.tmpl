@@ -7,6 +7,9 @@ description: Supervises pre-authorized DBSCTR reviews and build cycles in allowl
 
 Operate only through structured Herdr, OpenCode, and DBSCTR interfaces. A DBSCTR
 Cycle Record or review snapshot is lifecycle authority; Herdr status is advisory.
+Invoke Herdr commands individually. Never use a heredoc, inline script, or shell
+parser to transform their output. Never edit this skill or any configuration,
+and never call `skill_manage`.
 The machine-selected Hermes provider/model is
 `{{ .dotfiles_ai.hermes.provider }}/{{ .dotfiles_ai.hermes.model }}`; credentials
 remain in Hermes-owned OAuth state or environment files.
@@ -27,18 +30,21 @@ comparison and reject siblings, symlink escapes, and missing repositories.
 2. Use `herdr agent list` to locate exactly one OpenCode pane whose native
    `agent_session.value` is `{{ .dotfiles_ai.hermes.review_session_id }}`. A
    resumed idle OpenCode process may not report that value until its next event;
-   only then may `herdr pane process-info` supply the fallback, and only when one
+   only then may `herdr pane process-info --pane <pane_id>` supply the fallback
+   (the pane ID is not positional), and only when one
    foreground argv is exactly `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}`.
    If neither exact identity is unique, pause and tell the user to run
    `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}` inside Herdr. Do not
    guess from tab labels, screen content, recency, or working directory, and do
    not substitute a headless OpenCode session or direct helper command.
 3. Read the designated pane before sending input. Continue only when it is idle
-   and the visible OpenCode primary is `Build-GPT`, `Build-Claude`, or native
-   `Build`. If it shows `Plan` or the primary cannot be verified, pause and tell
-   the user to select a Build primary through `/agents`; never automate `Tab`.
-4. For each working or blocked agent, query DBSCTR status in that exact worktree.
-   Continue only an active, pre-approved review or build cycle.
+   and the visible OpenCode primary is native `Build`. If it shows `Plan`, a
+   custom Build primary, or the primary cannot be verified, pause and tell the
+   user to select native `Build` through `/agents`; never automate `Tab`.
+4. The designated global review pane does not require an active Cycle Record;
+   its review snapshot is authority. For every other working or blocked agent,
+   query DBSCTR status in that exact worktree and continue only an active,
+   pre-approved build cycle.
 5. Approve routine operations already authorized by that DBSCTR Cycle Record,
    including required gates, focused validation, Gate Commits, Final Push, safe
    retries, and context compaction.
@@ -46,20 +52,28 @@ comparison and reject siblings, symlink escapes, and missing repositories.
    encounters ambiguity or conflict, proposes an exception, or needs a new
    external write, pause it and report the exact question to the user.
 7. In the designated review pane, use `herdr agent send` to submit
-   `/dbsctr-review` exactly once. Observe bounded pane output and Herdr state to
-   completion. If OpenCode reports a blocker or says no cohort was processed,
-   report it and stop; never retry the command in the same invocation. Process
-   one unreviewed page; if none exists, process one historical cohort with a
-   rotated lens.
-8. While the pane is working, poll `herdr agent get` at intervals no longer than
-   10 seconds; do not wait only for `idle`. When it becomes `blocked`, read the
-   pane. Approve once with `herdr pane send-keys <pane> Enter` only when the
+   `/dbsctr-review Process one unreviewed page; if none exists, process one historical cohort
+   with a rotated lens.` exactly once. Immediately run `herdr agent get
+   <designated-pane-id>`; if it remains `idle`, read the pane. If the command is
+   staged in the input area, press `herdr pane send-keys <pane> Enter` once to
+   complete that single submission. Observe bounded pane output and Herdr state
+   to completion. If OpenCode reports a blocker or says no cohort was processed,
+   report it and stop; never retry the command in the same invocation.
+8. While the pane is working, poll `herdr agent get <designated-pane-id>` at
+   intervals no longer than 10 seconds; do not wait only for `idle`. When it
+   becomes `blocked`, read the pane. Approve once with
+   `herdr pane send-keys <pane> Enter` only when the
    visible prompt is `Permission required`, the default selection is
    `Allow once`, and the tool is exactly `dbsctr_review_complete` or
    `dbsctr_review_history_save`. Never select `Allow always`. Pause for every
    other permission, question, or ambiguous screen.
 9. Persist the exact sanitized review result before sending `/compact`. Never
-   compact an incomplete or unpersisted review.
+   compact an incomplete or unpersisted review. Send `/compact` through
+   `herdr agent send`, then immediately run `herdr agent get
+   <designated-pane-id>` and read the pane if it remains idle or done. If
+   `/compact` is staged in the input area, press `herdr pane send-keys <pane>
+   Enter` once to complete that single compaction. Do not send or retry another
+   review command.
 10. Report completed, paused, failed, and still-running work. Do not start a
    second review cohort in the same invocation.
 
