@@ -89,6 +89,10 @@ control-plane behavior, and shell authentication behavior.
   skill, then it processes one bounded unreviewed page or one historical cohort
   from the global OpenCode database and persists review completion before
   compacting the designated review session.
+- Given the exact configured Herdr review tab is absent, ambiguous, or lacks a
+  native OpenCode session ID, when the schedule fires, then Hermes pauses and
+  reports the missing prerequisite without invoking review helpers or the
+  OpenCode database directly.
 - Given an allowlisted Herdr OpenCode pane has an active DBSCTR cycle, when its
   workflow is blocked on an already-authorized lifecycle operation, then Hermes
   may continue it; questions requiring Discovery or new authority pause and are
@@ -122,6 +126,9 @@ control-plane behavior, and shell authentication behavior.
   ambiguous ID fails closed instead of creating a duplicate review job.
 - The supervisor uses Herdr's structured agent inventory and native OpenCode
   session IDs. DBSCTR Cycle Records and review records remain authoritative.
+- Private review access remains behind OpenCode's managed `/dbsctr-review`
+  command and typed tools; Hermes never calls `dbsctrctl review-*` or reads the
+  OpenCode database directly.
 - Hermes may approve only operations already authorized by an active DBSCTR
   review or build cycle. Discovery questions, scope expansion, conflicts,
   exceptions, and new external-write authority pause for the user.

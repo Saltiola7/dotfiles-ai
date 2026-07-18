@@ -116,6 +116,10 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "merge" in skill.lower()
     assert "one historical cohort" in skill
     assert "/compact" in skill
+    assert "absent, ambiguous" in skill
+    assert "Never invoke" in skill
+    assert "dbsctrctl review-scan" in skill
+    assert "managed OpenCode" in skill
 
 
 def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:

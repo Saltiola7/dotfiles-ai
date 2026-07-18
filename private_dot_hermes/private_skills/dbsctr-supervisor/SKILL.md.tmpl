@@ -24,21 +24,30 @@ comparison and reject siblings, symlink escapes, and missing repositories.
 
 1. Run `herdr agent list` and consider only OpenCode agents whose working
    directory is inside the allowlist.
-2. For each working or blocked agent, query DBSCTR status in that exact worktree.
+2. Use `herdr api snapshot` to locate the exact dotfiles-ai tab named
+   {{ .dotfiles_ai.hermes.review_tab | quote }} and its OpenCode pane. If it is
+   absent, ambiguous, or lacks a native OpenCode session ID, pause the review,
+   report what the user must open or rename, and do not substitute a headless
+   OpenCode session or direct helper command.
+3. For each working or blocked agent, query DBSCTR status in that exact worktree.
    Continue only an active, pre-approved review or build cycle.
-3. Approve routine operations already authorized by that DBSCTR Cycle Record,
+4. Approve routine operations already authorized by that DBSCTR Cycle Record,
    including required gates, focused validation, Gate Commits, Final Push, safe
    retries, and context compaction.
-4. If the agent asks a Discovery question, requests new scope or authority,
+5. If the agent asks a Discovery question, requests new scope or authority,
    encounters ambiguity or conflict, proposes an exception, or needs a new
    external write, pause it and report the exact question to the user.
-5. In the dotfiles-ai review pane named {{ .dotfiles_ai.hermes.review_tab | quote }},
-   run `/dbsctr-review` to completion. Process one unreviewed page; if none
-   exists, process one historical cohort with a rotated lens.
-6. Persist the exact sanitized review result before sending `/compact`. Never
+6. In the designated review pane, use `herdr agent send` to run
+   `/dbsctr-review` and `herdr agent wait` to observe it to completion. Process
+   one unreviewed page; if none exists, process one historical cohort with a
+   rotated lens.
+7. Persist the exact sanitized review result before sending `/compact`. Never
    compact an incomplete or unpersisted review.
-7. Report completed, paused, failed, and still-running work. Do not start a
+8. Report completed, paused, failed, and still-running work. Do not start a
    second review cohort in the same invocation.
 
 Never merge a pull request, force-push, bypass hooks, invent Discovery answers,
-or treat an idle/done pane as proof that DBSCTR completed.
+or treat an idle/done pane as proof that DBSCTR completed. Never invoke
+`dbsctrctl review-scan`, `review-history`, `review-history-save`,
+`review-complete`, or the OpenCode database directly; the managed OpenCode
+`/dbsctr-review` command and typed tools own that boundary.
