@@ -3172,38 +3172,42 @@ def scopes_overlap(left, right):
 
 
 def command_improvement_update(args):
-    worker_id = improvement_id(args.worker_id, "worker ID")
+    if (args.worker_id is None) == (args.session_id is None):
+        fail("improvement update requires exactly one worker or session ID")
+    requested_worker_id = improvement_id(args.worker_id, "worker ID") if args.worker_id is not None else None
+    requested_session_id = improvement_id(args.session_id, "session ID") if args.session_id is not None else None
     state = args.state
     identifiers = {name: improvement_id(value, name.replace("_", " "))
                    for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
                                        ("pane_id", args.pane_id), ("cycle_id", args.cycle_id))
                    if value is not None}
     paths = sorted(set(improvement_path(value) for value in args.path or []))
-    if args.pr_number is not None and args.pr_number < 1:
-        fail("invalid improvement pull request number")
-    if args.pr_url is not None and not re.fullmatch(
-            r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*", args.pr_url):
-        fail("invalid improvement pull request URL")
     transitions = {
         "reviewing": {"blocked", "abandoned"},
         "claimed": {"discovery", "blocked", "abandoned"},
         "discovery": {"implementing", "blocked", "abandoned"},
-        "implementing": {"draft_pr", "blocked", "abandoned"},
+        "implementing": {"blocked", "abandoned"},
         "draft_pr": {"merged", "closed", "blocked"},
         "blocked": set(), "merged": set(), "closed": set(), "abandoned": set(),
     }
     root = review_root(args.state_root)
 
     def update(connection):
+        if requested_worker_id is None:
+            row = connection.execute("SELECT worker_id FROM improvement_workers WHERE session_id=?",
+                                     (requested_session_id,)).fetchone()
+            if row is None:
+                fail("improvement worker is missing")
+            worker_id = row[0]
+        else:
+            worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
             fail("implementing requires a cycle ID and declared scope paths")
-        if state == "draft_pr" and (args.pr_number is None or args.pr_url is None):
-            fail("draft_pr requires a pull request number and URL")
-        if ((args.pr_number is not None or args.pr_url is not None) and state != "draft_pr"):
-            fail("pull request identity is only valid for draft_pr")
+        if state == "draft_pr":
+            fail("draft_pr state is recorded only by verified Final Push")
         if paths:
             if current["opportunity_id"] is None:
                 fail("improvement scope requires a claimed opportunity")
@@ -3227,9 +3231,6 @@ def command_improvement_update(args):
         for name, value in identifiers.items():
             assignments.append(f"{name}=?")
             values.append(value)
-        if args.pr_number is not None:
-            assignments.extend(["pr_number=?", "pr_url=?"])
-            values.extend([args.pr_number, args.pr_url])
         values.append(worker_id)
         connection.execute(f"UPDATE improvement_workers SET {', '.join(assignments)} WHERE worker_id=?", values)
         if state == "abandoned":
@@ -4233,14 +4234,13 @@ def parser():
     improvement_claim.set_defaults(func=command_improvement_claim)
     improvement_update = commands.add_parser("improvement-update")
     improvement_update.add_argument("--state-root")
-    improvement_update.add_argument("--worker-id", required=True)
+    improvement_update.add_argument("--worker-id")
+    improvement_update.add_argument("--session-id")
     improvement_update.add_argument("--state", required=True, choices=tuple(sorted(IMPROVEMENT_STATES)))
     improvement_update.add_argument("--workspace-id")
     improvement_update.add_argument("--tab-id")
     improvement_update.add_argument("--pane-id")
     improvement_update.add_argument("--cycle-id")
-    improvement_update.add_argument("--pr-number", type=int)
-    improvement_update.add_argument("--pr-url")
     improvement_update.add_argument("--path", action="append")
     improvement_update.set_defaults(func=command_improvement_update)
     improvement_recover = commands.add_parser("improvement-recover")

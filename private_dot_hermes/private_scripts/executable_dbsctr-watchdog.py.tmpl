@@ -20,25 +20,29 @@ def command(argv):
 
 workers = command([DBSCTRCTL, "improvement-status"])["workers"]
 token = None
+pr_failures = set()
 for index, worker in enumerate(workers):
     if worker["state"] != "draft_pr" or not worker.get("pr_url"):
         continue
-    if token is None:
-        token = subprocess.run(
-            [GH, "auth", "token", "--hostname", "github.com", "--user", GITHUB_ACCOUNT],
-            check=True, text=True, capture_output=True,
-        ).stdout.strip()
-        if not token:
-            raise RuntimeError("configured GitHub account returned no token")
-    result = subprocess.run(
-        [GH, "pr", "view", worker["pr_url"], "--repo", GITHUB_REPOSITORY, "--json", "state,isDraft"],
-        check=True, text=True, capture_output=True, env={**os.environ, "GH_TOKEN": token},
-    )
-    pull_request = json.loads(result.stdout)
-    state = {"MERGED": "merged", "CLOSED": "closed"}.get(pull_request.get("state"))
-    if state:
-        worker = command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", state])
-        workers[index] = worker
+    try:
+        if token is None:
+            token = subprocess.run(
+                [GH, "auth", "token", "--hostname", "github.com", "--user", GITHUB_ACCOUNT],
+                check=True, text=True, capture_output=True,
+            ).stdout.strip()
+            if not token:
+                raise RuntimeError("configured GitHub account returned no token")
+        result = subprocess.run(
+            [GH, "pr", "view", worker["pr_url"], "--repo", GITHUB_REPOSITORY, "--json", "state,isDraft"],
+            check=True, text=True, capture_output=True, env={**os.environ, "GH_TOKEN": token},
+        )
+        pull_request = json.loads(result.stdout)
+        state = {"MERGED": "merged", "CLOSED": "closed"}.get(pull_request.get("state"))
+        if state:
+            worker = command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", state])
+            workers[index] = worker
+    except (subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError):
+        pr_failures.add(worker["worker_id"])
 
 agents = command([HERDR, "agent", "list"])
 agents = agents.get("result", agents).get("agents", [])
@@ -46,6 +50,9 @@ actionable = []
 for worker in workers:
     if worker["state"] in TERMINAL:
         continue
+    if worker["worker_id"] in pr_failures:
+        actionable.append({"worker_id": worker["worker_id"], "state": worker["state"],
+                           "status": "pr_check_failed", "recovery_attempts": worker["recovery_attempts"]})
     matches = [agent for agent in agents if agent.get("agent_session", {}).get("value") == worker["session_id"]]
     status = matches[0].get("agent_status", "unknown") if len(matches) == 1 else (
         "missing" if not matches else "ambiguous"
@@ -69,7 +76,8 @@ try:
 finally:
     Path(temporary).unlink(missing_ok=True)
 
-urgent = any(item["status"] in {"missing", "ambiguous"} for item in actionable)
+urgent = any(item["status"] == "missing" and item["state"] != "blocked"
+             and item["recovery_attempts"] < 3 for item in actionable)
 if actionable and (urgent or payload != previous):
     print(json.dumps({"wakeAgent": True, "context": {"workers": actionable}}, separators=(",", ":")))
 else:

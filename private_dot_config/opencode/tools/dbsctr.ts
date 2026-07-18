@@ -199,8 +199,6 @@ export const improvement_update = tool({
   args: {
     state: tool.schema.enum(["claimed", "discovery", "implementing", "draft_pr", "blocked", "merged", "closed", "abandoned"]),
     cycleId: tool.schema.string().optional(),
-    prNumber: tool.schema.number().int().min(1).optional(),
-    prUrl: tool.schema.string().max(2048).optional(),
     paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
   },
   async execute(args, context) {
@@ -208,10 +206,8 @@ export const improvement_update = tool({
     return await improvementUpdate(context.sessionID, {
       state: args.state,
       cycleID: args.cycleId,
-      prNumber: args.prNumber,
-      prURL: args.prUrl,
       paths: args.paths,
-    }, context.worktree)
+    }, context.worktree, true)
   },
 })
 

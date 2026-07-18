@@ -294,6 +294,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "improvement-update"' in runtime
     assert runtime.count('"--excluded-session-id"') == 4
     assert "context.sessionID" in tools
+    assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
@@ -501,7 +502,7 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     script = (
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
         'await improvementClaim("session-1","safe; literal",process.cwd());'
-        'await improvementUpdate("worker-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd());'
+        'await improvementUpdate("session-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd(),true);'
         'await improvementStatus("worker-1",process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
@@ -511,7 +512,7 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     assert calls == [
         "CALL", "<improvement-claim>", "<--session-id>", "<session-1>",
         "<--summary>", "<safe; literal>",
-        "CALL", "<improvement-update>", "<--worker-id>", "<worker-1>",
+        "CALL", "<improvement-update>", "<--session-id>", "<session-1>",
         "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
         "<--path>", "<a b>", "<--path>", "<x;nope>",
         "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",

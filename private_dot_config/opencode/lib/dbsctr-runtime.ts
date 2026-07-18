@@ -166,14 +166,11 @@ export async function improvementUpdate(workerID: string, args: {
   tabID?: string
   paneID?: string
   cycleID?: string
-  prNumber?: number
-  prURL?: string
   paths?: string[]
-}, cwd = process.cwd()) {
-  const argv = ["dbsctrctl", "improvement-update", "--worker-id", workerID, "--state", args.state]
+}, cwd = process.cwd(), bySession = false) {
+  const argv = ["dbsctrctl", "improvement-update", bySession ? "--session-id" : "--worker-id", workerID, "--state", args.state]
   const names: Record<string, string> = {
     workspaceID: "workspace-id", tabID: "tab-id", paneID: "pane-id", cycleID: "cycle-id",
-    prNumber: "pr-number", prURL: "pr-url",
   }
   for (const [name, value] of Object.entries(args)) {
     if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))

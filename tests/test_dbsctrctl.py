@@ -1315,6 +1315,21 @@ class DbsctrctlTest(unittest.TestCase):
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
         self.start("draft_pr")
+        home = Path(self.temp.name) / "home"
+        home.mkdir()
+        worker_env = {**os.environ, "HOME": str(home)}
+        run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
+            env=worker_env)
+        run(self.repo, "improvement-claim", "--session-id", "session-1",
+            "--summary", "Improve draft delivery", env=worker_env)
+        run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "discovery",
+            env=worker_env)
+        run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
+            "--cycle-id", "cycle-1", "--path", "tracked.txt", env=worker_env)
+        record = json.loads(self.record_path().read_text())
+        record["runtime"] = {"opencode": {"session_ids": ["session-1"],
+                                             "worktree": str(self.repo), "directory": str(self.repo)}}
+        self.record_path().write_text(json.dumps(record))
         (self.repo / "tracked.txt").write_text("draft cycle\n")
         (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
         self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
@@ -1341,7 +1356,7 @@ class DbsctrctlTest(unittest.TestCase):
             "esac\n"
         )
         gh.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GH_LOG": str(gh_log)}
+        env = {**worker_env, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GH_LOG": str(gh_log)}
         result = run(self.repo, "final-push", env=env)
         self.assertIn("draft_pr", result.stdout)
         feature = subprocess.run(["git", "rev-parse", "refs/heads/dbsctr/test/cycle-1"], cwd=remote,
@@ -1358,6 +1373,10 @@ class DbsctrctlTest(unittest.TestCase):
         record = json.loads(self.record_path().read_text())
         self.assertTrue(record["delivery"]["pull_request"]["draft"])
         self.assertEqual(record["source_sync"]["status"], "not_applicable")
+        worker = json.loads(run(self.repo, "improvement-status", "--worker-id", "worker-1",
+                                env=worker_env).stdout)["workers"][0]
+        self.assertEqual(worker["state"], "draft_pr")
+        self.assertEqual(worker["pr_number"], 1)
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -2686,17 +2705,11 @@ class DbsctrctlTest(unittest.TestCase):
             "--path", "dot_local/bin", ok=False,
         )
         self.assertIn("scope conflicts", conflict.stderr)
-        draft = json.loads(run(
+        draft = run(
             self.repo, "improvement-update", "--state-root", str(state),
-            "--worker-id", "worker-1", "--state", "draft_pr", "--pr-number", "7",
-            "--pr-url", "https://github.com/Saltiola7/dotfiles-ai/pull/7",
-        ).stdout)
-        self.assertEqual(draft["pr_number"], 7)
-        merged = json.loads(run(
-            self.repo, "improvement-update", "--state-root", str(state),
-            "--worker-id", "worker-1", "--state", "merged",
-        ).stdout)
-        self.assertEqual(merged["state"], "merged")
+            "--worker-id", "worker-1", "--state", "draft_pr", ok=False,
+        )
+        self.assertIn("invalid improvement transition", draft.stderr)
 
     def test_improvement_recovery_blocks_then_requires_retry_or_abandon(self):
         state = Path(self.temp.name) / "improvement-recovery"

@@ -290,6 +290,13 @@ def test_watchdog_wakes_only_on_changed_actionable_worker_state(tmp_path: Path) 
     assert json.loads(missing.stdout)["wakeAgent"] is True
     missing_again = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
     assert json.loads(missing_again.stdout)["wakeAgent"] is True
+    dbsctrctl.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"blocked\",\"recovery_attempts\":3}]}'\n"
+    )
+    exhausted = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(exhausted.stdout)["wakeAgent"] is True
+    exhausted_again = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(exhausted_again.stdout) == {"wakeAgent": False}
     assert '"pr", "view"' in script
     assert '"MERGED": "merged", "CLOSED": "closed"' in script
 
@@ -328,6 +335,20 @@ def test_watchdog_records_human_pr_outcome_without_waking_agent(tmp_path: Path) 
     assert "improvement-update --worker-id worker-1 --state merged" in commands
     assert "gh pr view" in commands and "token=set" in commands
     assert "test-token" not in commands
+    dbsctrctl.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":["
+        "{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"draft_pr\",\"recovery_attempts\":0,\"pr_url\":\"https://github.com/Saltiola7/dotfiles-ai/pull/7\"},"
+        "{\"worker_id\":\"worker-2\",\"session_id\":\"session-2\",\"state\":\"reviewing\",\"recovery_attempts\":0}]}'\n"
+    )
+    gh.write_text("#!/bin/sh\nexit 1\n")
+    degraded = subprocess.run(
+        ["python3"], input=script, text=True, capture_output=True, check=True,
+        env={**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr), "GH": str(gh),
+             "COMMAND_LOG": str(log), "DBSCTR_WATCHDOG_STATE": str(tmp_path / "degraded.json")},
+    )
+    context = json.loads(degraded.stdout)["context"]["workers"]
+    assert any(item["status"] == "pr_check_failed" for item in context)
+    assert any(item["worker_id"] == "worker-2" and item["status"] == "missing" for item in context)
 
 
 def test_example_documents_machine_local_hermes_settings() -> None:
