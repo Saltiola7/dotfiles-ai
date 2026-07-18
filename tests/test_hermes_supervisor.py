@@ -349,6 +349,24 @@ def test_watchdog_records_human_pr_outcome_without_waking_agent(tmp_path: Path) 
     context = json.loads(degraded.stdout)["context"]["workers"]
     assert any(item["status"] == "pr_check_failed" for item in context)
     assert any(item["worker_id"] == "worker-2" and item["status"] == "missing" for item in context)
+    missing_gh = subprocess.run(
+        ["python3"], input=script, text=True, capture_output=True, check=True,
+        env={**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr),
+             "GH": str(bin_dir / "missing-gh"), "COMMAND_LOG": str(log),
+             "DBSCTR_WATCHDOG_STATE": str(tmp_path / "missing-gh.json")},
+    )
+    assert any(item["status"] == "pr_check_failed"
+               for item in json.loads(missing_gh.stdout)["context"]["workers"])
+    gh.write_text(
+        "#!/bin/sh\nif [ \"$1 $2\" = 'auth token' ]; then printf 'test-token\\n'; else printf '[]\\n'; fi\n"
+    )
+    non_object = subprocess.run(
+        ["python3"], input=script, text=True, capture_output=True, check=True,
+        env={**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr), "GH": str(gh),
+             "COMMAND_LOG": str(log), "DBSCTR_WATCHDOG_STATE": str(tmp_path / "non-object.json")},
+    )
+    assert any(item["status"] == "pr_check_failed"
+               for item in json.loads(non_object.stdout)["context"]["workers"])
 
 
 def test_example_documents_machine_local_hermes_settings() -> None:

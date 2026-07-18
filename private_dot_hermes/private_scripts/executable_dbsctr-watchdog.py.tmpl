@@ -37,11 +37,13 @@ for index, worker in enumerate(workers):
             check=True, text=True, capture_output=True, env={**os.environ, "GH_TOKEN": token},
         )
         pull_request = json.loads(result.stdout)
+        if not isinstance(pull_request, dict):
+            raise RuntimeError("GitHub pull request response is not an object")
         state = {"MERGED": "merged", "CLOSED": "closed"}.get(pull_request.get("state"))
         if state:
             worker = command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", state])
             workers[index] = worker
-    except (subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError):
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError):
         pr_failures.add(worker["worker_id"])
 
 agents = command([HERDR, "agent", "list"])
