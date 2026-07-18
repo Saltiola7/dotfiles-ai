@@ -50,8 +50,12 @@ mkdir -p "$state_dir"
 reconcile_job() {
     local id_file=$1 schedule=$2 prompt=$3 name=$4 script=${5:-}
     local job_id output first_line
-    local extra=(--skill dbsctr-supervisor)
-    [[ -z "$script" ]] || extra+=(--script "$script" --agent)
+    local create_extra=(--skill dbsctr-supervisor)
+    local edit_extra=(--skill dbsctr-supervisor)
+    if [[ -n "$script" ]]; then
+        create_extra+=(--script "$script")
+        edit_extra+=(--script "$script" --agent)
+    fi
     if [[ -f "$id_file" ]]; then
         IFS= read -r job_id < "$id_file"
         if [[ ! "$job_id" =~ ^[0-9a-f]{12}$ ]]; then
@@ -61,7 +65,7 @@ reconcile_job() {
         if ! hermes cron edit "$job_id" \
             --schedule "$schedule" --prompt "$prompt" --name "$name" \
             --workdir "$REVIEW_WORKDIR" --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }} \
-            "${extra[@]}"; then
+            "${edit_extra[@]}"; then
             echo "saved Hermes cron ID is stale; refusing to create a duplicate" >&2
             return 1
         fi
@@ -72,7 +76,7 @@ reconcile_job() {
     mv "$id_file.tmp" "$id_file"
     if ! output=$(hermes cron create "$schedule" "$prompt" \
         --name "$name" --workdir "$REVIEW_WORKDIR" \
-        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }} "${extra[@]}"); then
+        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }} "${create_extra[@]}"); then
         rm -f "$id_file"
         return 1
     fi

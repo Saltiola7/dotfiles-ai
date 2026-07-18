@@ -169,6 +169,8 @@ def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
     assert '"every 5m"' in script
     assert '"dbsctr-watchdog.py"' in script
     assert "--skill dbsctr-supervisor" in script
+    assert 'create_extra+=(--script "$script")' in script
+    assert 'edit_extra+=(--script "$script" --agent)' in script
     assert 'REVIEW_WORKDIR="/tmp/dotfiles-ai"' in script
     assert '--workdir "$REVIEW_WORKDIR"' in script
 
