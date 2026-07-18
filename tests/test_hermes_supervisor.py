@@ -129,15 +129,19 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "Never use `-s` for a scheduled worker" in skill
     assert "herdr tab create" in skill
     assert "herdr pane run" in skill
+    assert "herdr agent start" in skill
+    assert "herdr pane move" in skill
+    assert "--env\n   PATH=" in skill
     assert "Hermes" in skill
     assert "/.local/bin:/opt/homebrew/bin" in skill
     assert "--prompt /dbsctr-improve" in skill
     assert 'herdr pane run <pane> "env PATH=' in skill
     assert "dbsctrctl improvement-register" in skill
     assert "opencode -s <session> --agent build" in skill
+    assert "foreground argv" in skill
     assert "three failures" in skill
     assert "explicit retry or abandonment" in skill
-    assert "exact newly-created tab" in skill
+    assert "disposable" in skill
     assert "single shell-only `Hermes` pane" in skill
     assert "Do not guess from labels" in skill
     assert "Never invoke" in skill
@@ -149,7 +153,6 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "Never select `Allow always`" in skill
     assert "leave the tab open" in skill
     assert "Never merge or mark a pull request ready" in skill
-    assert "herdr agent start" not in skill
 
     command = (ROOT / "private_dot_config/opencode/commands/dbsctr-improve.md").read_text()
     assert "one unreviewed global page" in command
@@ -309,6 +312,39 @@ def test_watchdog_wakes_only_on_changed_actionable_worker_state(tmp_path: Path) 
     assert json.loads(exhausted_again.stdout) == {"wakeAgent": False}
     assert '"pr", "view"' in script
     assert '"MERGED": "merged", "CLOSED": "closed"' in script
+
+
+def test_watchdog_recognizes_exact_resumed_worker_argv(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    dbsctrctl = bin_dir / "dbsctrctl"
+    herdr = bin_dir / "herdr"
+    dbsctrctl.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"reviewing\",\"recovery_attempts\":0,\"workspace_id\":\"w7\",\"tab_id\":\"w7:t6\",\"pane_id\":\"w7:p6\"}]}'\n"
+    )
+    herdr.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1 $2\" = 'agent list' ]; then\n"
+        "  printf '%s\\n' '{\"result\":{\"agents\":[{\"agent\":\"opencode\",\"agent_status\":\"working\",\"cwd\":\"/tmp/dotfiles-ai\",\"workspace_id\":\"w7\",\"tab_id\":\"w7:t6\",\"pane_id\":\"w7:p6\"}]}}';\n"
+        "elif [ \"$1 $2\" = 'pane list' ]; then\n"
+        "  printf '%s\\n' '{\"result\":{\"panes\":[{\"tab_id\":\"w7:t6\",\"pane_id\":\"w7:p6\"}]}}';\n"
+        "else printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"-s\",\"session-1\",\"--agent\",\"build\"]}]}}}'; fi\n"
+    )
+    dbsctrctl.chmod(0o755)
+    herdr.chmod(0o755)
+    script = render_source("private_dot_hermes/private_scripts/executable_dbsctr-watchdog.py.tmpl")
+    env = {**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr),
+           "DBSCTR_WATCHDOG_STATE": str(tmp_path / "watchdog.json")}
+    for _ in range(2):
+        result = subprocess.run(["python3"], input=script, env=env, text=True,
+                                capture_output=True, check=True)
+        assert json.loads(result.stdout) == {"wakeAgent": False}
+    herdr.write_text(herdr.read_text().replace('/tmp/dotfiles-ai', '/tmp/unmanaged'))
+    wrong_cwd = subprocess.run(
+        ["python3"], input=script, text=True, capture_output=True, check=True,
+        env={**env, "DBSCTR_WATCHDOG_STATE": str(tmp_path / "wrong-cwd.json")},
+    )
+    assert json.loads(wrong_cwd.stdout)["wakeAgent"] is True
 
 
 def test_watchdog_records_human_pr_outcome_without_waking_agent(tmp_path: Path) -> None:

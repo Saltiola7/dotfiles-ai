@@ -10,12 +10,19 @@ HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
 GH = os.environ.get("GH", "gh")
 GITHUB_ACCOUNT = {{ .dotfiles_ai.hermes.github_account | quote }}
 GITHUB_REPOSITORY = {{ .dotfiles_ai.hermes.github_repository | quote }}
+REVIEW_WORKDIR = Path({{ .dotfiles_ai.hermes.review_workdir | quote }}).resolve()
 STATE = Path(os.environ.get("DBSCTR_WATCHDOG_STATE", {{ printf "%s/.local/state/dotfiles-ai/hermes-watchdog.json" .chezmoi.homeDir | quote }}))
 TERMINAL = {"merged", "closed", "abandoned"}
 
 
 def command(argv):
     return json.loads(subprocess.run(argv, check=True, text=True, capture_output=True).stdout)
+
+
+def managed_cwd(value):
+    if not isinstance(value, str):
+        return False
+    return Path(value).resolve() == REVIEW_WORKDIR
 
 
 workers = command([DBSCTRCTL, "improvement-status"])["workers"]
@@ -56,6 +63,25 @@ for worker in workers:
         actionable.append({"worker_id": worker["worker_id"], "state": worker["state"],
                            "status": "pr_check_failed", "recovery_attempts": worker["recovery_attempts"]})
     matches = [agent for agent in agents if agent.get("agent_session", {}).get("value") == worker["session_id"]]
+    if not matches and worker.get("pane_id") and worker.get("tab_id") and worker.get("workspace_id"):
+        recorded = [agent for agent in agents
+                    if agent.get("pane_id") == worker["pane_id"]
+                    and agent.get("tab_id") == worker["tab_id"]
+                    and agent.get("workspace_id") == worker["workspace_id"]
+                    and managed_cwd(agent.get("foreground_cwd") or agent.get("cwd"))]
+        if len(recorded) == 1:
+            try:
+                panes = command([HERDR, "pane", "list", "--workspace", worker["workspace_id"]])
+                panes = panes.get("result", panes).get("panes", [])
+                tab_panes = [pane for pane in panes if pane.get("tab_id") == worker["tab_id"]]
+                info = command([HERDR, "pane", "process-info", "--pane", worker["pane_id"]])
+                processes = info.get("result", info).get("process_info", {}).get("foreground_processes", [])
+                expected = ["opencode", "-s", worker["session_id"], "--agent", "build"]
+                if ([pane.get("pane_id") for pane in tab_panes] == [worker["pane_id"]]
+                        and sum(process.get("argv") == expected for process in processes) == 1):
+                    matches = recorded
+            except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+                pass
     status = matches[0].get("agent_status", "unknown") if len(matches) == 1 else (
         "missing" if not matches else "ambiguous"
     )

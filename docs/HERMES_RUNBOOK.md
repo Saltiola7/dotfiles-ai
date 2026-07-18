@@ -117,7 +117,8 @@ OpenCode session, DBSCTR worktree, and draft PR no longer need recovery.
 
 The watchdog matches only exact OpenCode session IDs. A missing pane is recreated
 in a fresh tab with `opencode -s SESSION_ID --agent build`. Managed launches add
-`~/.local/bin` to PATH. Three failed recoveries leave the
+`~/.local/bin` to PATH. Herdr may omit resumed native session metadata, so exactly
+one allowlisted pane with that foreground argv is adopted. Three failed recoveries leave the
 worker durably blocked. Ambiguous duplicate panes, missing sessions, unsafe
 worktrees, ownership conflicts, and unrecognized permissions fail closed.
 
