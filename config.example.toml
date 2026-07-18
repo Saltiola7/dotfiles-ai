@@ -25,7 +25,8 @@ model = "gpt-5.5"
 review_workdir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 review_schedule = "0 9 * * *"
 review_delivery = "local"
-review_tab = "dbsctr review"
+# Open this saved session inside Herdr with: opencode -s ses_...
+review_session_id = "ses_..."
 update_weekday = 0
 update_hour = 4
 

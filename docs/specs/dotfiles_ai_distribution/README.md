@@ -89,10 +89,10 @@ control-plane behavior, and shell authentication behavior.
   skill, then it processes one bounded unreviewed page or one historical cohort
   from the global OpenCode database and persists review completion before
   compacting the designated review session.
-- Given the exact configured Herdr review tab is absent, ambiguous, or lacks a
-  native OpenCode session ID, when the schedule fires, then Hermes pauses and
-  reports the missing prerequisite without invoking review helpers or the
-  OpenCode database directly.
+- Given the configured native OpenCode review session ID is absent or ambiguous
+  in Herdr, when the schedule fires, then Hermes pauses and reports the exact
+  `opencode -s <session>` prerequisite without guessing from labels, recency,
+  screen content, or directories and without invoking review helpers directly.
 - Given the designated pane is in Plan or its primary cannot be verified, when
   the schedule fires, then Hermes pauses and requests one-time `/agents`
   selection of a Build primary; it never cycles agents with order-dependent
@@ -121,7 +121,7 @@ control-plane behavior, and shell authentication behavior.
 - The actual config lives at `~/.config/dotfiles-ai/chezmoi.toml` with separate
   persistent state.
 - `[data.dotfiles_ai.hermes]` selects enablement, executable, non-secret provider
-  and model, review workdir, cron, delivery, update calendar, and an explicit
+  and model, review workdir and session ID, cron, delivery, update calendar, and an explicit
   logical-name/path repository allowlist. Paths remain machine-local.
 - The official Hermes installer owns `~/.hermes/hermes-agent`, `bin`, Node,
   Python, virtual environments, sessions, memories, logs, credentials, and

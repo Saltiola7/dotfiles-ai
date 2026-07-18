@@ -24,11 +24,13 @@ comparison and reject siblings, symlink escapes, and missing repositories.
 
 1. Run `herdr agent list` and consider only OpenCode agents whose working
    directory is inside the allowlist.
-2. Use `herdr api snapshot` to locate the exact dotfiles-ai tab named
-   {{ .dotfiles_ai.hermes.review_tab | quote }} and its OpenCode pane. If it is
-   absent, ambiguous, or lacks a native OpenCode session ID, pause the review,
-   report what the user must open or rename, and do not substitute a headless
-   OpenCode session or direct helper command.
+2. Use `herdr agent list` to locate exactly one OpenCode pane whose native
+   `agent_session.value` is
+   `{{ .dotfiles_ai.hermes.review_session_id }}`. If it is absent or ambiguous,
+   pause and tell the user to run
+   `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}` inside Herdr. Do not
+   guess from tab labels, screen content, recency, or working directory, and do
+   not substitute a headless OpenCode session or direct helper command.
 3. Read the designated pane before sending input. Continue only when it is idle
    and the visible OpenCode primary is `Build-GPT`, `Build-Claude`, or native
    `Build`. If it shows `Plan` or the primary cannot be verified, pause and tell

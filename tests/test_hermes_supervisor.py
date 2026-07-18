@@ -34,7 +34,7 @@ def values(
                 "review_workdir": review_workdir,
                 "review_schedule": "0 9 * * *",
                 "review_delivery": "local",
-                "review_tab": "dbsctr review",
+                "review_session_id": "ses_testreview",
                 "update_weekday": 0,
                 "update_hour": 4,
                 "repositories": [
@@ -116,7 +116,8 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "merge" in skill.lower()
     assert "one historical cohort" in skill
     assert "/compact" in skill
-    assert "absent, ambiguous" in skill
+    assert "ses_testreview" in skill
+    assert "Do not\n   guess from tab labels" in skill
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill
     assert "managed OpenCode" in skill
@@ -221,7 +222,8 @@ def test_example_documents_machine_local_hermes_settings() -> None:
     example = (ROOT / "config.example.toml").read_text()
     for term in (
         "[data.dotfiles_ai.hermes]", "review_schedule", "review_delivery",
-        "provider", "openai-codex", "model", "gpt-5.5", "review_workdir", "review_tab",
+        "provider", "openai-codex", "model", "gpt-5.5", "review_workdir",
+        "review_session_id",
         "update_weekday", "update_hour",
         "[[data.dotfiles_ai.hermes.repositories]]",
     ):
