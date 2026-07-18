@@ -93,6 +93,13 @@ control-plane behavior, and shell authentication behavior.
   native OpenCode session ID, when the schedule fires, then Hermes pauses and
   reports the missing prerequisite without invoking review helpers or the
   OpenCode database directly.
+- Given the designated pane is in Plan or its primary cannot be verified, when
+  the schedule fires, then Hermes pauses and requests one-time `/agents`
+  selection of a Build primary; it never cycles agents with order-dependent
+  keystrokes.
+- Given one submitted review reports a blocker or no processed cohort, when
+  Hermes observes the final output, then it reports and stops without retrying
+  `/dbsctr-review` in that invocation.
 - Given an allowlisted Herdr OpenCode pane has an active DBSCTR cycle, when its
   workflow is blocked on an already-authorized lifecycle operation, then Hermes
   may continue it; questions requiring Discovery or new authority pause and are

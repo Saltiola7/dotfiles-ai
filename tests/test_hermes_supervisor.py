@@ -120,6 +120,10 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill
     assert "managed OpenCode" in skill
+    assert "select a Build primary through `/agents`" in skill
+    assert "never automate `Tab`" in skill
+    assert "exactly once" in skill
+    assert "never retry the command" in skill
 
 
 def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:

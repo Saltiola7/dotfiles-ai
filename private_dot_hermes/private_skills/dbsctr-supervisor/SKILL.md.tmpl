@@ -29,21 +29,27 @@ comparison and reject siblings, symlink escapes, and missing repositories.
    absent, ambiguous, or lacks a native OpenCode session ID, pause the review,
    report what the user must open or rename, and do not substitute a headless
    OpenCode session or direct helper command.
-3. For each working or blocked agent, query DBSCTR status in that exact worktree.
+3. Read the designated pane before sending input. Continue only when it is idle
+   and the visible OpenCode primary is `Build-GPT`, `Build-Claude`, or native
+   `Build`. If it shows `Plan` or the primary cannot be verified, pause and tell
+   the user to select a Build primary through `/agents`; never automate `Tab`.
+4. For each working or blocked agent, query DBSCTR status in that exact worktree.
    Continue only an active, pre-approved review or build cycle.
-4. Approve routine operations already authorized by that DBSCTR Cycle Record,
+5. Approve routine operations already authorized by that DBSCTR Cycle Record,
    including required gates, focused validation, Gate Commits, Final Push, safe
    retries, and context compaction.
-5. If the agent asks a Discovery question, requests new scope or authority,
+6. If the agent asks a Discovery question, requests new scope or authority,
    encounters ambiguity or conflict, proposes an exception, or needs a new
    external write, pause it and report the exact question to the user.
-6. In the designated review pane, use `herdr agent send` to run
-   `/dbsctr-review` and `herdr agent wait` to observe it to completion. Process
+7. In the designated review pane, use `herdr agent send` to submit
+   `/dbsctr-review` exactly once. Observe bounded pane output and Herdr state to
+   completion. If OpenCode reports a blocker or says no cohort was processed,
+   report it and stop; never retry the command in the same invocation. Process
    one unreviewed page; if none exists, process one historical cohort with a
    rotated lens.
-7. Persist the exact sanitized review result before sending `/compact`. Never
+8. Persist the exact sanitized review result before sending `/compact`. Never
    compact an incomplete or unpersisted review.
-8. Report completed, paused, failed, and still-running work. Do not start a
+9. Report completed, paused, failed, and still-running work. Do not start a
    second review cohort in the same invocation.
 
 Never merge a pull request, force-push, bypass hooks, invent Discovery answers,
