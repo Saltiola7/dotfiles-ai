@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-18 - Capability-First Autonomous Improvement
+
+- Added additive transactional improvement coordination to the private SQLite
+  ledger, including exact worker/session identity, deterministic opportunity
+  claims, overlapping path rejection, Discovery/implementation transitions,
+  bounded recovery, and human PR outcomes.
+- Added `draft_pr` delivery that preserves normal gate/evidence checks, pushes
+  only the feature branch, acquires the configured GitHub token in memory,
+  verifies an open draft, links it to the initiating worker, and never updates
+  the base branch or source checkout.
+- Validation: 157 passed, 1 skipped; independent review reported no findings.
+  Gate Exceptions: none. Deployment: managed helper and OpenCode adapters.
+  Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — V3.19 Private SQLite Improvement Ledger
 
 - Replaced per-file private review writes with one authoritative normalized

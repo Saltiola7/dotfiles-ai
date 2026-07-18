@@ -1,6 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
-## Unreleased — DAI-002
+## 2026-07-18 - DAI-003 Autonomous R&D Loop
+
+- Replaced the fixed review session with one fresh native-Build OpenCode tab per
+  daily run in a managed Herdr workspace, while preserving global private review
+  and limiting public changes to this source.
+- Added transactional non-expiring worker, opportunity, scope, recovery, and PR
+  outcome state to the private SQLite ledger, with exact-session autoheal and
+  explicit retry or abandonment after three failures.
+- Added a five-minute zero-token watchdog gate, isolated GitHub degradation,
+  capability-first Discovery workflow, branch-only `draft_pr` delivery, and
+  Final-Push-only verified PR binding. Automatic merge, ready, release, and
+  deployment remain impossible.
+- Added README quickstart and the complete Hermes operator runbook.
+- Validation: 157 passed, 1 skipped; render, shell, Python compile, resolved
+  OpenCode config, draft-only local-remote fixture, independent review, targeted
+  deployment, gateway, cron, Herdr, and empty-ledger health checks passed.
+- Deployment: local managed targets; Hermes jobs `e4ccd3101611` and
+  `e3290c4b76b8` active. Gate Exceptions: none. Intended Final Push:
+  `origin/main`.
+
+## 2026-07-17 - DAI-002 Hermes Supervisor PoC
 
 - Added opt-in Hermes bootstrap, gateway supervision, Herdr integration, daily
   DBSCTR review scheduling, checked updates, and machine-local repository policy.

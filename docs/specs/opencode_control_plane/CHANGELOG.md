@@ -1,5 +1,16 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-18 - Autonomous R&D Worker
+
+- Added provider-neutral typed improvement status, claim, and update tools with
+  native-Build-only mutation authority and explicit Builder denial.
+- Added `/dbsctr-improve` for global sanitized review, holistic research,
+  distinct claim, Discovery pause, explicit proceed, isolated draft-PR DBSCTR,
+  and truthful no-finding escalation.
+- Validation: 157 passed, 1 skipped; resolved config, fresh command/tool
+  deployment, role isolation, and independent review passed. Gate Exceptions:
+  none. Intended Final Push: `origin/main`.
+
 ## 2026-07-16 — Scout Context7 And Standing Build Begin
 
 - Added the managed Context7 remote MCP with optional environment-backed

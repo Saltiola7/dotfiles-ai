@@ -12,12 +12,12 @@ Discovery readiness: complete.
 | V3.20-1 | Add multi-page captures and compact history transport | high | ready | V3.19-1 | Logical manifests, aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session replay, response-size, ordering, deletion, and latency tests |
 | V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, attribution status | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, and attribution tests |
 | V3.22-1 | Add longitudinal benchmarks and implementation effects | high | ready | V3.20-1,V3.21-1 | Benchmark runs, before/after windows, recurrence, effect tracking | Cycles, deployments, review runs | no | Implemented changes are not evaluated over time | M | Baseline, replay, confounder, neutral, invalid, and regression tests |
-| V3.23-1 | Add capability-first autonomous improvement coordination | high | active | V3.19-1,OCP-16 | Ledger migration, opportunity/scope claims, worker recovery, draft-PR delivery | Review reports, Cycle Records, Git remotes | no | Safe concurrency and human-merge-only delivery must precede optional analytics | L | Migration, concurrent claim, overlap, recovery, branch-only push, draft-only PR, restart scenarios |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.23-1 | Add capability-first autonomous improvement coordination and draft-PR delivery | 2026-07-18 | `9b77969`, `5f12796`, `7b863d8`, `04627bf`, `6f9a112` |
 | V3.19-1 | Add transactional private SQLite review ledger | 2026-07-16 | `5cd1fd5`, `8468feb` |
 | V3.18-1 | Add exact runtime correlation and resumed-runtime attachment | 2026-07-16 | `4729796`, `d506ab7` |
 | V3-1–V3-15 | Implement and deploy DBSCTR V3 lifecycle | 2026-07-11 | `3151772` |
