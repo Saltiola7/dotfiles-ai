@@ -2,14 +2,19 @@
 name: dbsctr-supervisor
 description: Supervises pre-authorized DBSCTR reviews and build cycles in allowlisted Herdr OpenCode panes. Use for the daily DBSCTR cohort or explicit babysitting requests.
 ---
+{{ $managedPath := printf "%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" .chezmoi.homeDir -}}
+{{ $hermesCommand := printf "env PATH=%s hermes" ($managedPath | quote) -}}
+{{ $workerCommand := printf "env PATH=%s opencode %s --agent build --prompt /dbsctr-improve" ($managedPath | quote) (.dotfiles_ai.hermes.review_workdir | quote) -}}
+{{ $recoveryCommand := printf "env PATH=%s opencode -s <session> --agent build" ($managedPath | quote) -}}
 
 # DBSCTR Supervisor
 
 Operate only through structured Herdr, OpenCode, and DBSCTR interfaces. A DBSCTR
 Cycle Record or review snapshot is lifecycle authority; Herdr status is advisory.
 Invoke Herdr commands individually. Never use a heredoc, inline script, or shell
-parser to transform their output. Never edit this skill or any configuration,
-and never call `skill_manage`.
+parser to transform their output. `herdr pane run` is permitted only for the
+exact managed launch commands below in a new single-pane tab. Never edit this
+skill or any configuration, and never call `skill_manage`.
 The machine-selected Hermes provider/model is
 `{{ .dotfiles_ai.hermes.provider }}/{{ .dotfiles_ai.hermes.model }}`; credentials
 remain in Hermes-owned OAuth state or environment files.
@@ -33,17 +38,26 @@ or traceable provenance into this public source.
    `herdr workspace create --cwd {{ .dotfiles_ai.hermes.review_workdir }} --label
    {{ .dotfiles_ai.hermes.workspace_label | quote }} --no-focus`. Multiple exact
    matches are ambiguous and must pause.
-2. Generate one opaque worker name and start one fresh tab without focus using
-   `herdr agent start <worker> --cwd {{ .dotfiles_ai.hermes.review_workdir }}
-   --workspace <workspace> --no-focus -- opencode
-   {{ .dotfiles_ai.hermes.review_workdir }} --agent build --prompt
-   /dbsctr-improve`. Never use `-s` for a scheduled worker and never suppress a
-   run because earlier workers exist.
-3. Poll only that returned terminal until Herdr reports one native OpenCode
+2. Ensure exactly one single-pane tab named `Hermes`. Rename the initial tab
+   returned by a new workspace with `herdr tab rename <tab> Hermes` and reuse its
+   shell pane; otherwise create it with `herdr tab create
+   --workspace <workspace> --cwd {{ .dotfiles_ai.hermes.review_workdir }} --label
+   Hermes --no-focus`. Start or retry its shell pane with `herdr pane run <pane> {{ $hermesCommand | quote }}`.
+   Leave one healthy Hermes process untouched; a
+   single shell-only `Hermes` pane is the only safe retry state. An ambiguous,
+   split, or occupied non-Hermes tab must pause.
+3. Generate one opaque worker name, create one fresh single-pane tab with `herdr
+   tab create --workspace <workspace> --cwd
+   {{ .dotfiles_ai.hermes.review_workdir }} --label <worker> --no-focus`, then run
+   `herdr pane run <pane> {{ $workerCommand | quote }}`. Never use `-s` for a scheduled worker.
+   Never suppress a run because earlier workers exist.
+4. Poll only that returned terminal until Herdr reports one native OpenCode
    session ID. Register the exact worker, session, workspace, tab, and pane with
    `dbsctrctl improvement-register`. If identity stays unavailable or registration
-   conflicts, report the pane and stop without starting another worker.
-4. Observe the worker until it reaches Discovery, completes, or requests new
+   conflicts, close only the exact newly-created tab if it still contains that
+   one unregistered shell pane, then report and stop without starting another
+   worker.
+5. Observe the worker until it reaches Discovery, completes, or requests new
    authority. Never answer Discovery, infer approval, or send `proceed`.
 
 ## Watchdog Reconciliation
@@ -53,12 +67,13 @@ or traceable provenance into this public source.
    never trust the prompt context alone.
 2. Match workers only by exact `session_id`. Do not guess from labels, screen
    content, recency, directories, or positional pane IDs.
-3. When no pane owns a nonterminal session, recreate it in the managed workspace
-   with `herdr agent start <worker> --cwd {{ .dotfiles_ai.hermes.review_workdir }}
-   --workspace <workspace> --no-focus -- opencode -s <session> --agent build`.
-   On success update its presentation IDs and record recovery success. On failure
-   run `dbsctrctl improvement-recover --action failed`; after three failures the
-   durable worker remains blocked for explicit retry or abandonment.
+3. When no pane owns a nonterminal session, create a fresh single-pane tab using
+   the Daily Spawner's `herdr tab create` command, then run `herdr pane run <pane> {{ $recoveryCommand | quote }}`.
+   On success update its presentation IDs and
+   record recovery success. On failure close only the exact newly-created tab if
+   it still contains that one shell pane, then run `dbsctrctl improvement-recover
+   --action failed`; after three failures the durable worker remains blocked for
+   explicit retry or abandonment.
 4. If multiple panes claim one session, the session is missing, the workspace is
    ambiguous, or the recorded worktree is unsafe, block and report without
    closing panes or releasing claims.
@@ -75,7 +90,8 @@ or traceable provenance into this public source.
 
 Never merge or mark a pull request ready, force-push, bypass hooks, invent a
 finding or Discovery answer, release, deploy, close a Herdr tab, or treat pane
-state as lifecycle proof. Never invoke `dbsctrctl review-scan`, `review-history`,
+state as lifecycle proof. The only tab-close exception is the exact unregistered
+single-shell compensation above. Never invoke `dbsctrctl review-scan`, `review-history`,
 `review-history-save`, `review-complete`, or the OpenCode database directly; the
 managed OpenCode tools own private review access. The purpose-built
 `improvement-*` commands own only sanitized coordination state.

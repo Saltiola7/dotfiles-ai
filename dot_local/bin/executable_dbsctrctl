@@ -44,6 +44,7 @@ IMPROVEMENT_SCHEMA = 1
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
@@ -547,7 +548,7 @@ def improvement_integrity(connection):
             FROM improvement_workers
     """):
         worker_id, session_id, opportunity_id, summary, state, resume_state, attempts, *rest = row
-        optional_ids = rest[:4]
+        presentation_ids, cycle_id = rest[:3], rest[3]
         pr_number, pr_url, created_at, updated_at = rest[4:]
         if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
                 or opportunity_id is not None and not re.fullmatch(r"[0-9a-f]{64}", opportunity_id)
@@ -558,7 +559,9 @@ def improvement_integrity(connection):
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
                 or not isinstance(attempts, int) or not 0 <= attempts <= 3
-                or any(value is not None and not OPAQUE_ID.fullmatch(value) for value in optional_ids)
+                or any(value is not None and not PRESENTATION_ID.fullmatch(value)
+                       for value in presentation_ids)
+                or cycle_id is not None and not OPAQUE_ID.fullmatch(cycle_id)
                 or pr_number is not None and (not isinstance(pr_number, int) or pr_number < 1)
                 or pr_url is not None and (not isinstance(pr_url, str) or len(pr_url) > 2048)
                 or not isinstance(created_at, int) or not isinstance(updated_at, int)
@@ -3034,6 +3037,12 @@ def improvement_id(value, name):
     return value
 
 
+def improvement_presentation_id(value, name):
+    if not isinstance(value, str) or not PRESENTATION_ID.fullmatch(value):
+        fail(f"invalid improvement {name}")
+    return value
+
+
 def improvement_path(value):
     if not isinstance(value, str):
         fail("invalid improvement scope path")
@@ -3143,9 +3152,9 @@ def command_improvement_claim(args):
 def command_improvement_register(args):
     worker_id = improvement_id(args.worker_id, "worker ID")
     session_id = improvement_id(args.session_id, "session ID")
-    identifiers = {name: improvement_id(value, name.replace("_", " "))
-                   for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
-                                       ("pane_id", args.pane_id)) if value is not None}
+    identifiers = {name: improvement_presentation_id(value, name.replace("_", " "))
+                    for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
+                                        ("pane_id", args.pane_id)) if value is not None}
     timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
     root = review_root(args.state_root)
 
@@ -3177,10 +3186,12 @@ def command_improvement_update(args):
     requested_worker_id = improvement_id(args.worker_id, "worker ID") if args.worker_id is not None else None
     requested_session_id = improvement_id(args.session_id, "session ID") if args.session_id is not None else None
     state = args.state
-    identifiers = {name: improvement_id(value, name.replace("_", " "))
-                   for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
-                                       ("pane_id", args.pane_id), ("cycle_id", args.cycle_id))
-                   if value is not None}
+    identifiers = {name: improvement_presentation_id(value, name.replace("_", " "))
+                    for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
+                                        ("pane_id", args.pane_id))
+                    if value is not None}
+    if args.cycle_id is not None:
+        identifiers["cycle_id"] = improvement_id(args.cycle_id, "cycle ID")
     paths = sorted(set(improvement_path(value) for value in args.path or []))
     transitions = {
         "reviewing": {"blocked", "abandoned"},

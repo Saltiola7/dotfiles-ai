@@ -13,8 +13,8 @@ jobs:
 Missed recurring times collapse into one catch-up run after wake. Every scheduled
 run creates a new worker even when older workers are waiting in Discovery.
 
-Use `herdr` to attach to the visible workspace. `hermes` starts an ordinary
-interactive chat; it is not required for automatic operation.
+Use `herdr` to attach to the visible workspace. The managed `Hermes` tab is an
+ordinary interactive chat and is not required for automatic operation.
 
 ## Configure
 
@@ -54,7 +54,8 @@ Open the workspace:
 herdr
 ```
 
-Each scheduled worker appears in its own tab. A blocked Discovery worker is an
+The R&D workspace has one single-pane `Hermes` tab and one single-pane tab per
+scheduled worker. A blocked Discovery worker is an
 operator inbox item. Read its questions, answer in that tab, and type an explicit
 instruction such as `proceed with the discovered scope` only when satisfied.
 Hermes notices the state change within five minutes and continues supervision.
@@ -115,7 +116,8 @@ OpenCode session, DBSCTR worktree, and draft PR no longer need recovery.
 ## Recovery
 
 The watchdog matches only exact OpenCode session IDs. A missing pane is recreated
-with `opencode -s SESSION_ID --agent build`. Three failed recoveries leave the
+in a fresh tab with `opencode -s SESSION_ID --agent build`. Managed launches add
+`~/.local/bin` to PATH. Three failed recoveries leave the
 worker durably blocked. Ambiguous duplicate panes, missing sessions, unsafe
 worktrees, ownership conflicts, and unrecognized permissions fail closed.
 

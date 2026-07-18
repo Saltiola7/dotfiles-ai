@@ -127,11 +127,18 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "merge" in skill.lower()
     assert "/compact" in skill
     assert "Never use `-s` for a scheduled worker" in skill
-    assert "--prompt\n   /dbsctr-improve" in skill
+    assert "herdr tab create" in skill
+    assert "herdr pane run" in skill
+    assert "Hermes" in skill
+    assert "/.local/bin:/opt/homebrew/bin" in skill
+    assert "--prompt /dbsctr-improve" in skill
+    assert 'herdr pane run <pane> "env PATH=' in skill
     assert "dbsctrctl improvement-register" in skill
     assert "opencode -s <session> --agent build" in skill
     assert "three failures" in skill
     assert "explicit retry or abandonment" in skill
+    assert "exact newly-created tab" in skill
+    assert "single shell-only `Hermes` pane" in skill
     assert "Do not guess from labels" in skill
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill
@@ -142,6 +149,7 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "Never select `Allow always`" in skill
     assert "leave the tab open" in skill
     assert "Never merge or mark a pull request ready" in skill
+    assert "herdr agent start" not in skill
 
     command = (ROOT / "private_dot_config/opencode/commands/dbsctr-improve.md").read_text()
     assert "one unreviewed global page" in command

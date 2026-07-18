@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| DAI-003F | Harden R&D tabs and runtime PATH | high | active | DAI-003 | Herdr R&D tab layout, managed launch PATH, presentation IDs | Supervisor policy and runtime smoke | no | First production worker exposed split-pane and PATH failures | S | Rendering, focused tests, deployment, exact-session recovery |
 | DAI-004 | Add longitudinal loop analytics | medium | ready | DAI-003,V3.20-1,V3.21-1,V3.22-1 | Effect dashboards and adaptive scheduling | Worker and PR outcomes | no | Enrich a proven loop without delaying its first useful delivery | M | Baseline, recurrence, confounder, regression, and cost scenarios |
 
 ## Completed

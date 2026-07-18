@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-003 autonomous R&D loop implemented and deployed
+**Status:** DAI-003 autonomous R&D loop runtime hardening active
 
 ## Engineering Profile
 
@@ -121,6 +121,11 @@ control-plane behavior, and shell authentication behavior.
 
 ### Autonomous R&D workers
 
+- Given the managed R&D workspace is created or reconciled, when Hermes starts
+  its operator console and an OpenCode worker, then each process occupies one
+  dedicated single-pane tab and new workers never split an existing tab.
+- Given a managed process starts under launchd, when it invokes DBSCTR tooling,
+  then the runtime PATH includes the managed user-local binary directory.
 - Given the daily schedule fires, when the managed improvement workspace is
   healthy, then Hermes starts one unfocused native-Build OpenCode tab with a new
   session even when earlier workers are still active or awaiting Discovery.
@@ -181,9 +186,10 @@ control-plane behavior, and shell authentication behavior.
 - Draft-PR delivery records the base branch, feature branch, remote push URL,
   configured GitHub account, and returned pull-request identity. Tokens remain in
   the GitHub CLI credential store and never enter config, argv, logs, or reports.
-- The supervisor uses Herdr's structured agent inventory and native OpenCode
-  session IDs through individual commands without inline shell parsers. DBSCTR
-  Cycle Records and review records remain authoritative.
+- The supervisor uses Herdr's structured inventory and native OpenCode session
+  IDs through individual commands. It may run only exact managed launch commands
+  in a newly created shell pane; it never parses command output through a shell.
+  DBSCTR Cycle Records and review records remain authoritative.
 - Private review access remains behind OpenCode's managed `/dbsctr-review`
   command and typed tools; Hermes never calls `dbsctrctl review-*` or reads the
   OpenCode database directly.

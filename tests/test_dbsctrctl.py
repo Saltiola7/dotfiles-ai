@@ -2643,10 +2643,17 @@ class DbsctrctlTest(unittest.TestCase):
         registered = json.loads(run(
             self.repo, "improvement-register", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1",
-            "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1",
+            "--workspace-id", "w1", "--tab-id", "w1:t1", "--pane-id", "w1:p1",
         ).stdout)
         self.assertEqual(registered["state"], "reviewing")
+        self.assertEqual(registered["tab_id"], "w1:t1")
+        self.assertEqual(registered["pane_id"], "w1:p1")
         self.assertIsNone(registered["opportunity_id"])
+        invalid_worker = run(
+            self.repo, "improvement-register", "--state-root", str(state),
+            "--worker-id", "worker:2", "--session-id", "session-2", ok=False,
+        )
+        self.assertIn("invalid improvement worker ID", invalid_worker.stderr)
         first = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--session-id", "session-1", "--summary", summary,
