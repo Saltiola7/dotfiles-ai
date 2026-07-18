@@ -89,10 +89,11 @@ control-plane behavior, and shell authentication behavior.
   skill, then it processes one bounded unreviewed page or one historical cohort
   from the global OpenCode database and persists review completion before
   compacting the designated review session.
-- Given the configured native OpenCode review session ID is absent or ambiguous
-  in Herdr, when the schedule fires, then Hermes pauses and reports the exact
-  `opencode -s <session>` prerequisite without guessing from labels, recency,
-  screen content, or directories and without invoking review helpers directly.
+- Given a resumed idle OpenCode process has not yet emitted its native session
+  ID, when exactly one Herdr pane reports foreground argv `opencode -s
+  <configured-session>`, then Hermes may adopt that pane; otherwise it pauses
+  without guessing from labels, recency, screen content, or directories and
+  without invoking review helpers directly.
 - Given the designated pane is in Plan or its primary cannot be verified, when
   the schedule fires, then Hermes pauses and requests one-time `/agents`
   selection of a Build primary; it never cycles agents with order-dependent

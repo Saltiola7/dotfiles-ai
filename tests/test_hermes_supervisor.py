@@ -117,6 +117,8 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "one historical cohort" in skill
     assert "/compact" in skill
     assert "ses_testreview" in skill
+    assert "herdr pane process-info" in skill
+    assert "foreground argv is exactly `opencode -s ses_testreview`" in skill
     assert "Do not\n   guess from tab labels" in skill
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill

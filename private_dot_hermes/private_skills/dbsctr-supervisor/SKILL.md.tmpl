@@ -25,9 +25,11 @@ comparison and reject siblings, symlink escapes, and missing repositories.
 1. Run `herdr agent list` and consider only OpenCode agents whose working
    directory is inside the allowlist.
 2. Use `herdr agent list` to locate exactly one OpenCode pane whose native
-   `agent_session.value` is
-   `{{ .dotfiles_ai.hermes.review_session_id }}`. If it is absent or ambiguous,
-   pause and tell the user to run
+   `agent_session.value` is `{{ .dotfiles_ai.hermes.review_session_id }}`. A
+   resumed idle OpenCode process may not report that value until its next event;
+   only then may `herdr pane process-info` supply the fallback, and only when one
+   foreground argv is exactly `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}`.
+   If neither exact identity is unique, pause and tell the user to run
    `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}` inside Herdr. Do not
    guess from tab labels, screen content, recency, or working directory, and do
    not substitute a headless OpenCode session or direct helper command.
