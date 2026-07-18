@@ -155,7 +155,12 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "Never merge or mark a pull request ready" in skill
 
     command = (ROOT / "private_dot_config/opencode/commands/dbsctr-improve.md").read_text()
-    assert "one unreviewed global page" in command
+    assert "without a `reviewedStatus` filter" in command
+    assert "previously reviewed and unreviewed" in command
+    assert "do not call `dbsctr_review_complete`" in command
+    assert "ranked shortlist" in command
+    assert "history scope" in command
+    assert "supporting evidence" in command
     assert "dbsctr_improvement_claim" in command
     assert "at least 95% confident" in command
     assert "explicitly instruct you to proceed" in command

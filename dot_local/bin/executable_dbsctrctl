@@ -2996,7 +2996,9 @@ def command_review_history_save(args):
         if set(ids).intersection(excluded_family):
             fail("review history report cohort contains an excluded session")
         missing = [item for item in ids if item not in records]
-        if missing:
+        refresh = all(name in report for name in scan_fields)
+        wanted = ids if refresh else missing
+        if wanted:
             if (any(type(report.get(name)) is not int for name in ("snapshot", "session_ceiling", "part_ceiling"))
                     or not isinstance(report.get("database_digest"), str)):
                 fail("review history report cohort evidence is unavailable")
@@ -3013,8 +3015,8 @@ def command_review_history_save(args):
             candidates = scan["candidates"]
             if set(ids).intersection(scan["_excluded_session_ids"]):
                 fail("review history report cohort contains an excluded session")
-            selected = {item["session_id"]: item for item in candidates if item["session_id"] in missing}
-            if set(selected) != set(missing):
+            selected = {item["session_id"]: item for item in candidates if item["session_id"] in wanted}
+            if set(wanted) - set(selected) - set(records):
                 fail("review history report cohort evidence is unavailable")
             archive = {"snapshot": report["snapshot"], "session_ceiling": report["session_ceiling"],
                        "part_ceiling": report["part_ceiling"], "database_digest": report["database_digest"]}

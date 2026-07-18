@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| DAI-003G | Apply every autonomous lens across full review history | high | active | DAI-003,DAI-003F,V3.12-5 | R&D evidence scope and Discovery handoff | Reviewed markers, history cohorts, correlation metadata | no | First-page exclusion loses new-lens insights and produces context-free Discovery | S | Command contracts, render, live replacement worker |
 | DAI-004 | Add longitudinal loop analytics | medium | ready | DAI-003,V3.20-1,V3.21-1,V3.22-1 | Effect dashboards and adaptive scheduling | Worker and PR outcomes | no | Enrich a proven loop without delaying its first useful delivery | M | Baseline, recurrence, confounder, regression, and cost scenarios |
 
 ## Completed

@@ -121,6 +121,16 @@ control-plane behavior, and shell authentication behavior.
 
 ### Autonomous R&D workers
 
+- Given a worker starts a new named review lens, when it gathers evidence, then
+  it applies that lens across all matching live history, including previously
+  reviewed sessions, and saves each sanitized cohort without changing review
+  markers. Reviewed status is retained as a filter and never defaults to evidence
+  exclusion.
+- Given a full-history lens produces multiple proposals, when the worker selects
+  one for Discovery, then it first presents the history scope, ranked concrete
+  issues, selected problem, evidence, impact, affected behavior, and non-goals in
+  plain language. Correlation metadata remains supporting evidence and is not an
+  improvement by itself without a concrete workflow failure.
 - Given the managed R&D workspace is created or reconciled, when Hermes starts
   its operator console and an OpenCode worker, then each process occupies one
   dedicated single-pane tab and new workers never split an existing tab.

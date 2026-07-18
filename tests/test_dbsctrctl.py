@@ -2294,6 +2294,12 @@ class DbsctrctlTest(unittest.TestCase):
                                       "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", inbox["digest"],
             "--database", str(database), "--state-root", str(state))
+        connection = sqlite3.connect(database)
+        connection.execute("delete from part where id='part-099'")
+        connection.execute("delete from message where id='message-099'")
+        connection.execute("delete from session where id='session-099'")
+        connection.commit()
+        connection.close()
 
         self.assertEqual(json.loads(run(
             self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
@@ -2316,7 +2322,7 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         self.assertEqual(older["session_ids"], ["session-000"])
         backfill = {
-            "schema_version": 1, "cohort": ["session-100"], "query_digest": history["digest"],
+            "schema_version": 1, "cohort": ["session-100", "session-099"], "query_digest": history["digest"],
             "rubric": {"name": "history", "version": "1", "digest": "c" * 64},
             "snapshot": history["snapshot"], "session_ceiling": history["session_ceiling"],
             "part_ceiling": history["part_ceiling"], "database_digest": history["database_digest"],
@@ -2327,6 +2333,14 @@ class DbsctrctlTest(unittest.TestCase):
         ledger = state / "reviews/ledger.sqlite3"
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute("SELECT count(*) FROM history_reports").fetchone()[0], 1)
+        saved_report = json.loads(connection.execute(
+            "SELECT payload FROM history_reports WHERE kind='report'"
+        ).fetchone()[0])
+        self.assertEqual(saved_report["evidence"][0]["aggregates"]["tool_error_count"], 1)
+        self.assertEqual(saved_report["evidence"][0]["aggregates"]["token_total"], 10)
+        self.assertNotEqual(saved_report["evidence"][0]["project_digest"], "unavailable")
+        self.assertEqual(saved_report["evidence"][1]["session_id"], "session-099")
+        self.assertEqual(saved_report["evidence"][1]["project_digest"], "unavailable")
         connection.close()
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
         self.assertNotIn(raw_payload, ledger_text(state))

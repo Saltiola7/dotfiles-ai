@@ -1463,6 +1463,10 @@ module routing without changing Cycle Record schema or public commands.
   rubric and version, and rubric digest. Replaying that run selects the exact
   archived cohort even when the live database or tombstones later change.
   Historical reports and evidence remain until explicit forget.
+- Given a history save carries a live snapshot identity, persistence revalidates
+  and refreshes every cohort member from that snapshot even when older archived
+  evidence exists. Reviewed markers remain unchanged and unavailable old metrics
+  never override richer validated live evidence.
 - Historical report persistence is a schema-validated standing local write to
   the private review store. It cannot mutate repositories, Cycle Records, gates,
   operational review tombstones, or external systems. Builder agents remain
