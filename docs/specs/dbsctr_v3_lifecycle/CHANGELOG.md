@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-18 - V3.12-5 Concurrent Review Completion
+
+- Kept global database identity strict for pagination while binding completion
+  to a private digest of the selected sessions' source fields and message parts.
+  Unrelated concurrent writes no longer block an unchanged page; selected source,
+  membership, order, metadata, and cycle changes still fail closed.
+- Replaced caller-supplied completion identity with fresh page recomputation,
+  overwrote stale global identity on persistence, and archived unavailable rather
+  than unbound hidden telemetry.
+- Validation: 120 passed, 1 skipped; compilation, diff checks, selected/unrelated
+  mutation fixtures, pagination guards, and independent security review passed.
+- Deployment: managed helper applied. Live worker persisted eight sessions while
+  the global OpenCode database remained active, then continued proposal research.
+  Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-18 - Capability-First Autonomous Improvement
 
 - Added additive transactional improvement coordination to the private SQLite
