@@ -1,5 +1,24 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-18 - DAI-003F R&D Runtime Hardening
+
+- Added one persistent single-pane Hermes console and one final single-pane tab
+  per OpenCode worker. Argv-safe OpenCode starts in a disposable staging tab so
+  Herdr's required split never remains in the operator layout.
+- Added the managed user-local binary directory to launch and worker PATH, and
+  accepted colon-form Herdr workspace, tab, and pane presentation IDs without
+  widening worker, session, or cycle identifiers.
+- Added exact resumed-process fallback reconciliation using recorded workspace,
+  tab, pane, one-pane topology, physical cwd, and foreground argv.
+- Validation: 116 passed, 1 skipped; rendering, Python compilation, diff checks,
+  independent review, targeted deployment, quoted-command and real Herdr staging
+  smokes, exact-session resume, and repeated watchdog checks passed.
+- Deployment: helper, supervisor, watchdog, and LaunchAgent plist applied without
+  restarting Herdr. Explicit worker PATH is active now; LaunchAgent PATH applies
+  at the next normal Herdr restart. The worker reached private review, then a
+  separate concurrent-database snapshot issue blocked persistence for follow-up.
+- Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-18 - DAI-003 Autonomous R&D Loop
 
 - Replaced the fixed review session with one fresh native-Build OpenCode tab per
