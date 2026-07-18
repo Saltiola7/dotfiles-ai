@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution Changelog
 
-## Unreleased
+## Unreleased — DAI-002
 
 - Added opt-in Hermes bootstrap, gateway supervision, Herdr integration, daily
   DBSCTR review scheduling, checked updates, and machine-local repository policy.
