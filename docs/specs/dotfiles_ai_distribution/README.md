@@ -101,6 +101,10 @@ control-plane behavior, and shell authentication behavior.
 - Given one submitted review reports a blocker or no processed cohort, when
   Hermes observes the final output, then it reports and stops without retrying
   `/dbsctr-review` in that invocation.
+- Given the review pane requests permission for `dbsctr_review_complete` or
+  `dbsctr_review_history_save`, when the visible default is `Allow once`, then
+  Hermes approves once; every other permission or ambiguous screen pauses for
+  the user, and `Allow always` is never selected.
 - Given an allowlisted Herdr OpenCode pane has an active DBSCTR cycle, when its
   workflow is blocked on an already-authorized lifecycle operation, then Hermes
   may continue it; questions requiring Discovery or new authority pause and are

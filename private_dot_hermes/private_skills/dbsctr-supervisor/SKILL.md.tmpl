@@ -51,9 +51,16 @@ comparison and reject siblings, symlink escapes, and missing repositories.
    report it and stop; never retry the command in the same invocation. Process
    one unreviewed page; if none exists, process one historical cohort with a
    rotated lens.
-8. Persist the exact sanitized review result before sending `/compact`. Never
+8. While the pane is working, poll `herdr agent get` at intervals no longer than
+   10 seconds; do not wait only for `idle`. When it becomes `blocked`, read the
+   pane. Approve once with `herdr pane send-keys <pane> Enter` only when the
+   visible prompt is `Permission required`, the default selection is
+   `Allow once`, and the tool is exactly `dbsctr_review_complete` or
+   `dbsctr_review_history_save`. Never select `Allow always`. Pause for every
+   other permission, question, or ambiguous screen.
+9. Persist the exact sanitized review result before sending `/compact`. Never
    compact an incomplete or unpersisted review.
-9. Report completed, paused, failed, and still-running work. Do not start a
+10. Report completed, paused, failed, and still-running work. Do not start a
    second review cohort in the same invocation.
 
 Never merge a pull request, force-push, bypass hooks, invent Discovery answers,

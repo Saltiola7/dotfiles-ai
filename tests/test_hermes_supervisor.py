@@ -127,6 +127,10 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     assert "never automate `Tab`" in skill
     assert "exactly once" in skill
     assert "never retry the command" in skill
+    assert "poll `herdr agent get`" in skill
+    assert "dbsctr_review_complete" in skill
+    assert "dbsctr_review_history_save" in skill
+    assert "Never select `Allow always`" in skill
 
 
 def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
