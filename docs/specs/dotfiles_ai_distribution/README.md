@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-002 Hermes supervisor PoC validated
+**Status:** DAI-003 autonomous R&D loop active
 
 ## Engineering Profile
 
@@ -17,14 +17,14 @@
 | Operational owner | Saltiola7 maintains releases, compatibility, and migration guidance |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
 
-### DAI-002 Cycle Overrides
+### DAI-003 Cycle Overrides
 
 | Field | Value |
 |---|---|
-| Risk | Elevated: installs a mutable external agent runtime and grants it control of current-user Herdr/OpenCode sessions |
-| Delivery intent | Merge and deploy the opt-in Hermes bootstrap, gateway, supervision policy, schedules, and tests locally |
-| Scope | Latest supported Hermes installer, machine-local allowlist and schedules, one global review cohort per run, active DBSCTR session babysitting |
-| Overrides | Local-user PoC is intentionally unsandboxed; pause for Discovery questions; no autonomous merge, arbitrary repository mutation, or draft-PR delivery in this cycle |
+| Risk | Elevated: adds concurrent autonomous review workers, durable private coordination, branch publication, and draft-PR creation |
+| Delivery intent | Merge and deploy the capability-first global review-to-draft-PR loop locally |
+| Scope | Daily fresh OpenCode workers, atomic improvement claims, Discovery handoff, exact-session recovery, draft-PR delivery, and operator runbook |
+| Overrides | Review evidence may come from the global OpenCode database, but public changes target only this source and omit private project provenance; merge, release, and deployment remain human-controlled |
 
 ## Bounded Context
 
@@ -43,14 +43,17 @@ control-plane behavior, and shell authentication behavior.
 - Transfer managed targets from personal dotfiles without downtime or overlap.
 - Provide an opt-in Hermes supervisor that can continue already-authorized
   DBSCTR work while preserving human judgment at Discovery boundaries.
+- Turn distinct, sanitized global-session improvement patterns into concurrently
+  discoverable changes and human-merge-only draft pull requests for this source.
 
 ## Non-goals
 
 - Managing unrelated shell, AWS, editor, Kitty, or personal secret bundles.
 - Installing OpenCode, Herdr, 1Password, Graphify, RTK, or provider credentials.
 - Treating Hermes, Herdr, or OpenCode status as DBSCTR lifecycle authority.
-- Automatically implementing review findings or publishing draft pull requests
-  before those DBSCTR delivery contracts are implemented.
+- Modifying repositories observed in the global OpenCode database; project-level
+  patterns may produce only generalized improvements in this source.
+- Automatically merging pull requests, releasing artifacts, or deploying changes.
 - Managing general repository navigation beyond Hermes's explicit supervision
   allowlist.
 - Supporting Linux or Windows in the first release.
@@ -116,6 +119,37 @@ control-plane behavior, and shell authentication behavior.
 - Given a pane is outside the machine-local repository allowlist, when Hermes
   inventories Herdr, then it does not read, control, or resume that pane.
 
+### Autonomous R&D workers
+
+- Given the daily schedule fires, when the managed improvement workspace is
+  healthy, then Hermes starts one unfocused native-Build OpenCode tab with a new
+  session even when earlier workers are still active or awaiting Discovery.
+- Given the Mac misses one or more daily occurrences, when the Hermes gateway
+  resumes, then the recurring schedule produces at most one catch-up worker.
+- Given a worker reviews the global OpenCode database, when it selects an
+  improvement, then the private ledger atomically claims one sanitized,
+  deterministic opportunity identity before Discovery or implementation.
+- Given another worker already owns the opportunity or overlapping declared
+  scope, when a claim is attempted, then the new worker selects another finding
+  without reading private provenance from the existing claim.
+- Given all configured local and external research lenses are exhausted without
+  a defensible distinct finding, when the worker cannot proceed truthfully, then
+  it blocks in Discovery for operator guidance rather than manufacturing one.
+- Given Discovery has unresolved material questions, when the worker reaches the
+  boundary, then it waits in its own Herdr tab until the operator answers and
+  explicitly instructs it to proceed.
+- Given the operator authorizes the discovered scope, when required DBSCTR gates
+  pass, then the worker pushes only its isolated feature branch and creates a
+  draft pull request against the recorded base branch. It never merges, marks the
+  pull request ready, releases, or deploys.
+- Given a worker pane disappears, when the five-minute watchdog finds its exact
+  durable session identity, then Hermes recreates the pane with that session up
+  to three times. Ambiguous or exhausted recovery remains claimed and blocked
+  until explicit retry or abandonment.
+- Given a draft pull request is merged or closed by a human, when the watchdog
+  observes its state, then it records that terminal outcome for future dedupe and
+  leaves the Herdr tab under manual ownership.
+
 ### Latest-track maintenance
 
 - Given Hermes is enabled, when the configured update schedule runs, then the
@@ -130,16 +164,23 @@ control-plane behavior, and shell authentication behavior.
 - The actual config lives at `~/.config/dotfiles-ai/chezmoi.toml` with separate
   persistent state.
 - `[data.dotfiles_ai.hermes]` selects enablement, executable, non-secret provider
-  and model, review workdir and session ID, cron, delivery, update calendar, and an explicit
-  logical-name/path repository allowlist. Paths remain machine-local.
+  and model, review workdir, managed workspace label, daily cron, watchdog
+  interval, delivery, update calendar, GitHub account, and the single writable
+  source repository. Paths and account names remain machine-local.
 - The official Hermes installer owns `~/.hermes/hermes-agent`, `bin`, Node,
   Python, virtual environments, sessions, memories, logs, credentials, and
   mutable runtime databases.
 - This source may bootstrap missing Hermes configuration and apply targeted
   stable policy, but it does not continuously replace all of
   `~/.hermes/config.yaml`.
-- One saved Hermes cron job ID is the reconciliation identity; a stale or
-  ambiguous ID fails closed instead of creating a duplicate review job.
+- Saved Hermes spawner and watchdog cron IDs are reconciliation identities; a
+  stale or ambiguous ID fails closed instead of creating duplicate jobs.
+- The private SQLite review ledger owns opportunity, worker, recovery, declared
+  scope, and pull-request outcome state. Hermes memory and Herdr labels are never
+  coordination authority.
+- Draft-PR delivery records the base branch, feature branch, remote push URL,
+  configured GitHub account, and returned pull-request identity. Tokens remain in
+  the GitHub CLI credential store and never enter config, argv, logs, or reports.
 - The supervisor uses Herdr's structured agent inventory and native OpenCode
   session IDs through individual commands without inline shell parsers. DBSCTR
   Cycle Records and review records remain authoritative.

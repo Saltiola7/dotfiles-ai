@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** OCP-16 Scout-only Context7 and prompt-free safe begin implemented
+**Status:** OCP-19 autonomous R&D worker active
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -25,6 +25,15 @@
 | Delivery intent | Deploy managed OpenCode configuration, Scout permissions, lifecycle routing, and tests locally |
 | Scope | Scout-only Context7 with optional environment credential; standing authorization for validated typed begin in Build |
 | Overrides | Plan remains read-only; Context7 is non-authoritative and optional; destructive and external writes remain permission-gated |
+
+### OCP-19 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: grants a native-Build workflow bounded claim and draft-PR delivery interfaces |
+| Delivery intent | Deploy the managed worker command, typed coordination adapters, and narrow permissions locally |
+| Scope | Global review, holistic research, atomic claim, Discovery pause, explicit proceed, isolated DBSCTR cycle, and draft PR |
+| Overrides | Only `chezmoi-dotfiles-ai` is writable; private provenance is withheld; no automatic merge, release, deployment, or Discovery answer |
 
 ## Overview
 
@@ -132,6 +141,27 @@ Given detailed reports exceed 90 days, completion or explicit maintenance prunes
 them while compact private reviewed-ID tombstones preserve review progress.
 Candidates expose independent Cycle Record states and page-local urgency without
 inventing an aggregate state.
+
+### Autonomous R&D worker
+
+Given a fresh scheduled native-Build session, when its managed worker command
+runs, then it processes global sanitized review evidence, compares it with the
+private improvement ledger, this repository's specs/source/tests and GitHub
+state, and authoritative external documentation through Scout when useful.
+
+Given a defensible distinct opportunity, when the worker claims it atomically,
+then it runs Discovery in the same session and stops for every material question.
+Answering questions does not itself authorize implementation; the operator must
+explicitly instruct the worker to proceed.
+
+Given explicit proceed and completed Discovery, when the worker begins DBSCTR,
+then it edits only the helper-owned isolated worktree for this source and may use
+the typed claim and draft-PR delivery interfaces. Builder and read-only subagents
+remain denied those writes.
+
+Given no distinct finding after every configured lens is exhausted, when the
+worker cannot justify a change, then it asks the operator where to research next.
+It never manufactures a proposal merely to finish the scheduled run.
 
 Given typed cycle begin runs, stable OpenCode tool context records the initiating
 session and worktree in the Cycle Record. Optional Herdr launch metadata remains

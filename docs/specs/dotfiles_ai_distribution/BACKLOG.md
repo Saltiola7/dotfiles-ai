@@ -4,7 +4,8 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-003 | Add autonomous draft-PR remediation | high | blocked | DAI-002,V3.23-1,OCP-19 | Discovery handoff, PR delivery contract, isolated workers | Review proposals, DBSCTR delivery locks | no | Turn implementation-ready findings into human-merge-only draft PRs | L | Discovery pause, worktree isolation, branch push, draft PR, required checks, no-merge proof |
+| DAI-003 | Add autonomous R&D-to-draft-PR loop | high | active | DAI-002 | Hermes workspace/spawner/watchdog, operator docs | V3.23 coordination and OCP-19 worker contracts | no | Turn distinct global-session patterns into human-merge-only improvements of this source | L | Concurrent claims, Discovery pause, exact-session recovery, branch push, draft PR, no-merge proof, live smoke |
+| DAI-004 | Add longitudinal loop analytics | medium | ready | DAI-003,V3.20-1,V3.21-1,V3.22-1 | Effect dashboards and adaptive scheduling | Worker and PR outcomes | no | Enrich a proven loop without delaying its first useful delivery | M | Baseline, recurrence, confounder, regression, and cost scenarios |
 
 ## Completed
 

@@ -675,6 +675,41 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | SQLite schema, one-way legacy JSON migration, stable JSON command responses, transactional review writes, backup, restore, and integrity operations |
 | Overrides | SQLite is authoritative after verified migration; no dual writes, raw transcript retention, automatic remediation, read-triggered migration, or speculative benchmark schema |
 
+### V3.23 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds durable autonomous-worker coordination and a new external draft-PR delivery path |
+| Delivery intent | Merge and deploy the capability-first coordination and delivery kernel locally |
+| Scope | Forward ledger migration, opportunity and scope claims, exact worker identity and recovery, branch-only Final Push, and draft-only PR evidence |
+| Overrides | Analytics remain optional follow-up work; no automatic claim expiry, private provenance, merge, ready-for-review transition, release, or deployment authority |
+
+### V3.23 Autonomous Improvement Contract
+
+- Improvement opportunities are sanitized public-safe statements with a
+  deterministic identity. Their source session, private project, path, and raw
+  content are neither persisted in the opportunity nor returned to workers.
+- One SQLite transaction atomically creates or acquires an opportunity claim.
+  Active, Discovery-blocked, implementing, and draft-PR claims do not expire.
+- A worker records one exact OpenCode session and optional Herdr workspace, tab,
+  and pane identity. Presentation metadata never replaces the ledger or Cycle
+  Record as authority.
+- Declared implementation ownership uses normalized repository-relative paths.
+  Overlapping path prefixes conflict while either claim can still write.
+- Recovery always resumes the same OpenCode session. Three failed attempts move
+  the worker to blocked; only explicit retry or abandonment changes that state.
+- Abandonment releases implementation ownership but retains the opportunity and
+  outcome history so later workers can distinguish retry from a novel finding.
+- `draft_pr` delivery records an existing base upstream and a new feature branch.
+  Final Push verifies all normal gate/evidence conditions, pushes only the
+  feature branch, creates a draft pull request, verifies draft state, and records
+  its number and URL. It never updates the base branch or source checkout.
+- GitHub authentication is selected by configured non-secret account through a
+  project-owned wrapper. Tokens remain in the credential store and are never
+  accepted as helper arguments or persisted evidence.
+- Human merge or close is an observed terminal outcome, not an authority granted
+  to DBSCTR. Pull-request comments and revisions are outside the first slice.
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |

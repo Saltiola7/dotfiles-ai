@@ -21,9 +21,12 @@ target files.
    1Password never blocks Herdr or shell startup.
 4. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
-5. A developer opts into Hermes, supplies machine-local repository paths and a
-   review schedule, and receives one supervised DBSCTR review loop without
-   granting Hermes access to unrelated repositories.
+5. A developer opts into Hermes, supplies machine-local source and GitHub
+   identity, and receives visible daily OpenCode R&D workers that review global
+   history but publish only sanitized draft pull requests for this source.
+6. The operator opens `herdr`, answers Discovery questions in blocked worker
+   tabs, explicitly authorizes implementation, and manually manages resulting
+   draft pull requests.
 
 ## Constraints And Trust
 
@@ -36,6 +39,8 @@ target files.
   they are never public defaults or general navigation metadata.
 - Hermes runtime state and credentials remain Hermes-owned; the public source
   owns only bootstrap and stable supervision policy.
+- Private session, project, and repository provenance never appears in public
+  findings, branches, documentation, or pull requests.
 
 ## Success Evidence
 
@@ -47,3 +52,5 @@ target files.
   cutover.
 - Hermes installation, gateway, Herdr integration, allowlist, and review job are
   repeatable, while Discovery questions still pause for human input.
+- Concurrent workers claim distinct opportunities durably, recover exact
+  sessions without duplicate work, and cannot merge their draft pull requests.
