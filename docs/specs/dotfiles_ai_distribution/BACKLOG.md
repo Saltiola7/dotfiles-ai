@@ -10,5 +10,5 @@
 
 | id | title | completed | commit |
 |---|---|---|---|
-| DAI-002 | Install and configure Hermes supervisor PoC | 2026-07-17 | Gate Commits `4133cc6` through `f6ec262` |
+| DAI-002 | Install and configure Hermes supervisor PoC | 2026-07-17 | Gate Commits `4133cc6` through `76269ed` |
 | DAI-001 | Build and migrate portable AI configuration | 2026-07-13 | Gate Commits `ea9eaeb`, `224a483`; closure pending |
