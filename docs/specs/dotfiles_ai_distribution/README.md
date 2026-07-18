@@ -151,6 +151,10 @@ control-plane behavior, and shell authentication behavior.
   durable session identity, then Hermes recreates the pane with that session up
   to three times. Ambiguous or exhausted recovery remains claimed and blocked
   until explicit retry or abandonment.
+- Given Herdr omits native session metadata for a resumed process, when exactly
+  one allowlisted pane reports foreground argv `opencode -s <durable-session>
+  --agent build`, then recovery adopts that pane; every other shape remains
+  missing or ambiguous.
 - Given a draft pull request is merged or closed by a human, when the watchdog
   observes its state, then it records that terminal outcome for future dedupe and
   leaves the Herdr tab under manual ownership.
@@ -186,10 +190,12 @@ control-plane behavior, and shell authentication behavior.
 - Draft-PR delivery records the base branch, feature branch, remote push URL,
   configured GitHub account, and returned pull-request identity. Tokens remain in
   the GitHub CLI credential store and never enter config, argv, logs, or reports.
-- The supervisor uses Herdr's structured inventory and native OpenCode session
-  IDs through individual commands. It may run only exact managed launch commands
-  in a newly created shell pane; it never parses command output through a shell.
-  DBSCTR Cycle Records and review records remain authoritative.
+- The supervisor uses Herdr's argv-safe agent launcher and native OpenCode session
+  IDs through individual commands. Because the launcher splits its target tab,
+  OpenCode starts in a disposable staging tab before its pane moves to a dedicated
+  tab. Only the exact Hermes console command may run in a shell pane; command
+  output is never parsed through a shell. DBSCTR Cycle Records and review records
+  remain authoritative.
 - Private review access remains behind OpenCode's managed `/dbsctr-review`
   command and typed tools; Hermes never calls `dbsctrctl review-*` or reads the
   OpenCode database directly.
