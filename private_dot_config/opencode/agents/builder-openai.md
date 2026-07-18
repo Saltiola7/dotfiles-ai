@@ -8,6 +8,8 @@ permission:
   dbsctr_attach: deny
   dbsctr_review_complete: deny
   dbsctr_review_history_save: deny
+  dbsctr_improvement_claim: deny
+  dbsctr_improvement_update: deny
   task: deny
   external_directory: deny
   bash:
@@ -44,6 +46,10 @@ permission:
     "*/dbsctrctl review-forget*": deny
     "env *dbsctrctl review-forget*": deny
     "command *dbsctrctl review-forget*": deny
+    "dbsctrctl improvement-*": deny
+    "*/dbsctrctl improvement-*": deny
+    "env *dbsctrctl improvement-*": deny
+    "command *dbsctrctl improvement-*": deny
     "dbsctrctl attach-runtime*": deny
     "*/dbsctrctl attach-runtime*": deny
     "env *dbsctrctl attach-runtime*": deny

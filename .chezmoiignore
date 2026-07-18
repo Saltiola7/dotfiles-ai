@@ -28,6 +28,7 @@ Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
 {{ end }}
 {{ if not .dotfiles_ai.hermes.enabled }}
 .hermes/skills/dbsctr-supervisor
+.hermes/scripts/dbsctr-watchdog.py
 .local/bin/hermes-update
 Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
 {{ end }}

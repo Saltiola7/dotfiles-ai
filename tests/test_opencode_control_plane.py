@@ -149,6 +149,8 @@ def test_builder_boundaries():
             *(form.format(command) for command in
               ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget")
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
+            "dbsctrctl improvement-*", "*/dbsctrctl improvement-*",
+            "env *dbsctrctl improvement-*", "command *dbsctrctl improvement-*",
         ):
             assert f'"{command}": deny' in body
 
@@ -163,6 +165,8 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_improvement_claim": "allow",
+        "dbsctr_improvement_update": "allow",
         "external_directory": {worktrees: "allow", local_config: "allow"},
     }
 
@@ -225,6 +229,9 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_review_complete"] == "ask"
     assert config["permission"]["dbsctr_review_history"] == "allow"
     assert config["permission"]["dbsctr_review_history_save"] == "allow"
+    assert config["permission"]["dbsctr_improvement_status"] == "allow"
+    assert config["permission"]["dbsctr_improvement_claim"] == "deny"
+    assert config["permission"]["dbsctr_improvement_update"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     for command in (
@@ -249,6 +256,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_attach: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_complete: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
+        assert "dbsctr_improvement_claim: deny" in (OC / "agents" / name).read_text()
+        assert "dbsctr_improvement_update: deny" in (OC / "agents" / name).read_text()
     for name in ("reviewer-openai.md", "explore-openai.md", "explore-bedrock.md",
                  "scout-openai.md", "scout-bedrock.md", "scout.md"):
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
@@ -265,6 +274,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const review_complete = tool({' in tools
     assert 'export const review_history = tool({' in tools
     assert 'export const review_history_save = tool({' in tools
+    assert 'export const improvement_status = tool({' in tools
+    assert 'export const improvement_claim = tool({' in tools
+    assert 'export const improvement_update = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
     assert "snapshot: args.snapshot," in tools
@@ -277,6 +289,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-complete"' in runtime
     assert '"dbsctrctl", "review-history"' in runtime
     assert '"dbsctrctl", "review-history-save"' in runtime
+    assert '"dbsctrctl", "improvement-status"' in runtime
+    assert '"dbsctrctl", "improvement-claim"' in runtime
+    assert '"dbsctrctl", "improvement-update"' in runtime
     assert runtime.count('"--excluded-session-id"') == 4
     assert "context.sessionID" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
@@ -472,6 +487,33 @@ def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<review-history>", "<--context>", "<x;touch nope>", "<--reviewed-status>", "<reviewed>",
         "<--limit>", "<100>", "<--cursor>", "<0>",
+    ]
+
+
+def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "improvement.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$IMPROVEMENT_LOG"\nprintf "<%s>\\n" "$@" >> "$IMPROVEMENT_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
+        'await improvementClaim("worker-1","session-1","safe; literal",process.cwd());'
+        'await improvementUpdate("worker-1",{state:"implementing",paths:["a b","x;nope"]},process.cwd());'
+        'await improvementStatus("worker-1",process.cwd());'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "IMPROVEMENT_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    calls = log.read_text().splitlines()
+    assert calls == [
+        "CALL", "<improvement-claim>", "<--worker-id>", "<worker-1>",
+        "<--session-id>", "<session-1>", "<--summary>", "<safe; literal>",
+        "CALL", "<improvement-update>", "<--worker-id>", "<worker-1>",
+        "<--state>", "<implementing>", "<--path>", "<a b>", "<--path>", "<x;nope>",
+        "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",
     ]
 
 

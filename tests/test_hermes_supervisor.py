@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -33,8 +34,12 @@ def values(
                 "model": "gpt-5.5",
                 "review_workdir": review_workdir,
                 "review_schedule": "0 9 * * *",
+                "watchdog_schedule": "every 5m",
                 "review_delivery": "local",
                 "review_session_id": "ses_testreview",
+                "workspace_label": "DBSCTR R&D",
+                "github_account": "Saltiola7",
+                "github_repository": "Saltiola7/dotfiles-ai",
                 "update_weekday": 0,
                 "update_hour": 4,
                 "repositories": [
@@ -84,6 +89,7 @@ def test_hermes_targets_are_opt_in() -> None:
     disabled = set(chezmoi("managed", enabled=False).stdout.splitlines())
     targets = {
         ".hermes/skills/dbsctr-supervisor/SKILL.md",
+        ".hermes/scripts/dbsctr-watchdog.py",
         ".local/bin/hermes-update",
         "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
     }
@@ -108,39 +114,40 @@ def test_supervisor_policy_is_allowlisted_and_pauses_for_discovery() -> None:
     skill = chezmoi(
         "cat", str(Path.home() / ".hermes/skills/dbsctr-supervisor/SKILL.md")
     ).stdout
-    assert "dotfiles-ai: /tmp/dotfiles-ai" in skill
-    assert "seo-data-science: /tmp/seo-data-science" in skill
-    assert "Never control a pane outside this allowlist" in skill
+    assert "Writable source: /tmp/dotfiles-ai" in skill
+    assert "Herdr workspace label: DBSCTR R&D" in skill
+    assert "GitHub account: Saltiola7" in skill
+    assert "Global OpenCode history is review evidence, not a repository allowlist" in skill
     assert "Never use a heredoc, inline script, or shell" in skill
     assert "never call `skill_manage`" in skill
-    assert "DBSCTR Cycle Record" in skill
+    assert "Cycle Record" in skill
     assert "pause" in skill.lower()
     assert "Discovery" in skill
     assert "merge" in skill.lower()
-    assert "one historical cohort" in skill
     assert "/compact" in skill
-    assert "ses_testreview" in skill
-    assert "herdr pane process-info" in skill
-    assert "process-info --pane <pane_id>" in skill
-    assert "foreground argv is exactly `opencode -s ses_testreview`" in skill
-    assert "Do not\n   guess from tab labels" in skill
+    assert "Never use `-s` for a scheduled worker" in skill
+    assert "--prompt\n   /dbsctr-improve" in skill
+    assert "dbsctrctl improvement-register" in skill
+    assert "opencode -s <session> --agent build" in skill
+    assert "three failures" in skill
+    assert "explicit retry or abandonment" in skill
+    assert "Do not guess from labels" in skill
     assert "Never invoke" in skill
     assert "dbsctrctl review-scan" in skill
     assert "managed OpenCode" in skill
-    assert "visible OpenCode primary is native `Build`" in skill
-    assert "select native `Build` through `/agents`" in skill
     assert "`Build-GPT`" not in skill
-    assert "never automate `Tab`" in skill
-    assert "/dbsctr-review Process one unreviewed page" in skill
-    assert "staged in the input area" in skill
-    assert "exactly once" in skill
-    assert "never retry the command" in skill
-    assert "review pane does not require an active Cycle Record" in skill
-    assert "poll `herdr agent get <designated-pane-id>`" in skill
     assert "dbsctr_review_complete" in skill
     assert "dbsctr_review_history_save" in skill
     assert "Never select `Allow always`" in skill
-    assert "complete that single compaction" in skill
+    assert "leave the tab open" in skill
+    assert "Never merge or mark a pull request ready" in skill
+
+    command = (ROOT / "private_dot_config/opencode/commands/dbsctr-improve.md").read_text()
+    assert "one unreviewed global page" in command
+    assert "dbsctr_improvement_claim" in command
+    assert "at least 95% confident" in command
+    assert "explicitly instruct you to proceed" in command
+    assert "`draft_pr` DBSCTR cycle" in command
 
 
 def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
@@ -156,7 +163,11 @@ def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
     assert "printf 'creating" in script
     assert "printf 'unknown" in script
     assert "refusing to create a duplicate" in script
-    assert ".local/state/dotfiles-ai/hermes-review-cron-id" in script
+    assert "hermes-review-cron-id" in script
+    assert "hermes-watchdog-cron-id" in script
+    assert '"every 5m"' in script
+    assert '"dbsctr-watchdog.py"' in script
+    assert "--skill dbsctr-supervisor" in script
     assert 'REVIEW_WORKDIR="/tmp/dotfiles-ai"' in script
     assert '--workdir "$REVIEW_WORKDIR"' in script
 
@@ -180,12 +191,16 @@ def test_configurator_creates_then_edits_exact_cron_id(tmp_path: Path) -> None:
     hermes = home / ".local/bin/hermes"
     herdr = bin_dir / "herdr"
     hermes.parent.mkdir(parents=True)
+    scripts = home / ".hermes/scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "dbsctr-watchdog.py").write_text("# test\n")
     bin_dir.mkdir()
     log = tmp_path / "commands.log"
     hermes.write_text(
         "#!/bin/bash\n"
         'printf "hermes %s\\n" "$*" >> "$COMMAND_LOG"\n'
-        'if [[ "$1 $2" == "cron create" ]]; then printf "Created job: abcdef123456\\n"; fi\n'
+        'if [[ "$1 $2" == "cron create" && "$*" == *watchdog* ]]; then printf "Created job: fedcba654321\\n";\n'
+        'elif [[ "$1 $2" == "cron create" ]]; then printf "Created job: abcdef123456\\n"; fi\n'
         'if [[ "$1 $2" == "cron edit" && -n "${FAIL_EDIT:-}" ]]; then exit 1; fi\n'
     )
     herdr.write_text('#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$COMMAND_LOG"\n')
@@ -203,13 +218,16 @@ def test_configurator_creates_then_edits_exact_cron_id(tmp_path: Path) -> None:
     first = subprocess.run(["bash"], input=rendered, env=env, text=True, capture_output=True)
     assert first.returncode == 0, first.stderr
     id_file = home / ".local/state/dotfiles-ai/hermes-review-cron-id"
+    watchdog_id_file = home / ".local/state/dotfiles-ai/hermes-watchdog-cron-id"
     assert id_file.read_text() == "abcdef123456\n"
+    assert watchdog_id_file.read_text() == "fedcba654321\n"
 
     second = subprocess.run(["bash"], input=rendered, env=env, text=True, capture_output=True)
     assert second.returncode == 0, second.stderr
     commands = log.read_text()
-    assert commands.count("cron create") == 1
+    assert commands.count("cron create") == 2
     assert "cron edit abcdef123456" in commands
+    assert "cron edit fedcba654321" in commands
 
     failed = subprocess.run(
         ["bash"], input=rendered, env={**env, "FAIL_EDIT": "1"},
@@ -217,7 +235,7 @@ def test_configurator_creates_then_edits_exact_cron_id(tmp_path: Path) -> None:
     )
     assert failed.returncode != 0
     assert "refusing to create a duplicate" in failed.stderr
-    assert log.read_text().count("cron create") == 1
+    assert log.read_text().count("cron create") == 2
 
 
 def test_updater_tracks_latest_with_backup_and_health_check() -> None:
@@ -234,12 +252,36 @@ def test_updater_tracks_latest_with_backup_and_health_check() -> None:
     assert "<key>Hour</key>\n        <integer>4</integer>" in plist
 
 
+def test_watchdog_wakes_only_on_changed_actionable_worker_state(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    dbsctrctl = bin_dir / "dbsctrctl"
+    herdr = bin_dir / "herdr"
+    dbsctrctl.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"discovery\"}]}'\n"
+    )
+    herdr.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"agents\":[{\"agent_session\":{\"value\":\"session-1\"},\"agent_status\":\"blocked\"}]}}'\n"
+    )
+    dbsctrctl.chmod(0o755)
+    herdr.chmod(0o755)
+    script = render_source("private_dot_hermes/private_scripts/executable_dbsctr-watchdog.py.tmpl")
+    state = tmp_path / "watchdog.json"
+    env = {**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr),
+           "DBSCTR_WATCHDOG_STATE": str(state)}
+    first = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(first.stdout)["wakeAgent"] is True
+    repeated = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(repeated.stdout) == {"wakeAgent": False}
+    assert state.stat().st_mode & 0o777 == 0o600
+
+
 def test_example_documents_machine_local_hermes_settings() -> None:
     example = (ROOT / "config.example.toml").read_text()
     for term in (
         "[data.dotfiles_ai.hermes]", "review_schedule", "review_delivery",
         "provider", "openai-codex", "model", "gpt-5.5", "review_workdir",
-        "review_session_id",
+        "watchdog_schedule", "workspace_label", "github_account", "github_repository",
         "update_weekday", "update_hour",
         "[[data.dotfiles_ai.hermes.repositories]]",
     ):

@@ -44,8 +44,9 @@ When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode
 remain usable with their normal environment-based authentication.
 
 When Hermes is enabled, the first apply installs its current supported release
-noninteractively and creates its gateway, integrations, review cron, and update
-LaunchAgent. Authenticate the selected provider separately, then verify it:
+noninteractively and creates its gateway, integrations, daily R&D worker
+spawner, five-minute conditional watchdog, and update LaunchAgent. Configure the
+machine-local workspace and GitHub values, authenticate separately, then verify:
 
 ```sh
 hermes auth add openai-codex
@@ -55,9 +56,23 @@ herdr integration status
 hermes cron status
 ```
 
+Hermes runs the loop in the background; opening a terminal does not require a
+startup command. Run `herdr` to attach to the persistent workspace and review
+one OpenCode tab per scheduled worker. Running `hermes` instead starts an
+ordinary interactive Hermes chat and does not start or attach to the supervisor.
+
+Each worker reviews sanitized evidence from the global OpenCode database but may
+change only this source. It claims one distinct improvement, waits in Discovery
+for your answers and explicit `proceed`, then completes an isolated DBSCTR cycle,
+pushes only its feature branch, and opens a human-merge-only draft pull request.
+Workers and claims are durable across terminal or pane failures.
+
+See [`docs/HERMES_RUNBOOK.md`](docs/HERMES_RUNBOOK.md) for status, manual runs,
+Discovery handoff, pause, recovery, logs, and rollback.
+
 Hermes owns `~/.hermes` runtime, OAuth, sessions, memories, logs, and mutable
-configuration. Chezmoi owns only the managed supervisor skill and bootstrap
-policy. OpenCode's OAuth state is not reused.
+configuration. Chezmoi owns the managed supervisor skill, watchdog script, and
+bootstrap policy. OpenCode's OAuth state is not reused.
 
 OpenCode and Herdr still operate on the current directory. Hermes alone receives
 an explicit machine-local repository allowlist because autonomous supervision

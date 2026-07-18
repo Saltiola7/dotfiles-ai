@@ -90,8 +90,11 @@ class DbsctrctlTest(unittest.TestCase):
 
     def start(self, intent="local"):
         plan = self.plan_path(intent)
-        return run(self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
-                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan))
+        command = ["start", "--cycle-id", "cycle-1", "--context", "test",
+                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan)]
+        if intent == "draft_pr":
+            command += ["--github-account", "Saltiola7", "--github-repository", "Saltiola7/dotfiles-ai"]
+        return run(self.repo, *command)
 
     def record_path(self, repo=None):
         return (repo or self.repo) / ".git/dbsctr/cycles/cycle-1.json"
@@ -1298,6 +1301,63 @@ class DbsctrctlTest(unittest.TestCase):
         pushed = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
                                 text=True, capture_output=True).stdout.strip()
         self.assertEqual(local, pushed)
+
+    def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "checkout", "-b", "dbsctr/test/cycle-1"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
+                       capture_output=True)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                              capture_output=True).stdout.strip()
+        self.start("draft_pr")
+        (self.repo / "tracked.txt").write_text("draft cycle\n")
+        (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
+        self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
+        run(self.repo, "gate-commit", "--message", "draft cycle", "--gates", "domain", "--paths",
+            "tracked.txt", "docs/specs/test/CHANGELOG.md")
+        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
+        run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
+            "--path", "docs/specs/test/CHANGELOG.md")
+        self.pass_gates()
+        fake_bin = Path(self.temp.name) / "bin"
+        fake_bin.mkdir()
+        gh_log = Path(self.temp.name) / "gh.log"
+        gh = fake_bin / "gh"
+        gh.write_text(
+            "#!/bin/sh\n"
+            "printf '<%s>\\n' \"$@\" >> \"$GH_LOG\"\n"
+            "[ -n \"${GH_TOKEN:-}\" ] && printf 'TOKEN_SET\\n' >> \"$GH_LOG\"\n"
+            "case \"$1 $2\" in\n"
+            "  'auth token') printf 'test-token\\n' ;;\n"
+            "  'pr list') printf '[]\\n' ;;\n"
+            "  'pr create') printf 'https://github.com/Saltiola7/dotfiles-ai/pull/1\\n' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/Saltiola7/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "esac\n"
+        )
+        gh.chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GH_LOG": str(gh_log)}
+        result = run(self.repo, "final-push", env=env)
+        self.assertIn("draft_pr", result.stdout)
+        feature = subprocess.run(["git", "rev-parse", "refs/heads/dbsctr/test/cycle-1"], cwd=remote,
+                                 check=True, text=True, capture_output=True).stdout.strip()
+        main = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
+                              text=True, capture_output=True).stdout.strip()
+        self.assertEqual(feature, subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                                 text=True, capture_output=True).stdout.strip())
+        self.assertEqual(main, base)
+        log = gh_log.read_text()
+        self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<Saltiola7>", log)
+        self.assertIn("<pr>\n<create>", log)
+        self.assertNotIn("<merge>", log)
+        record = json.loads(self.record_path().read_text())
+        self.assertTrue(record["delivery"]["pull_request"]["draft"])
+        self.assertEqual(record["source_sync"]["status"], "not_applicable")
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -2557,6 +2617,90 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(connection.execute("select count(*) from review_reports").fetchone()[0], 0)
         self.assertEqual(connection.execute("select count(*) from history_evidence").fetchone()[0], 0)
         connection.close()
+
+    def test_improvement_claim_is_atomic_private_and_deduplicated(self):
+        state = Path(self.temp.name) / "improvement-claim"
+        summary = "Generalize repeated lifecycle recovery failures"
+        registered = json.loads(run(
+            self.repo, "improvement-register", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1",
+        ).stdout)
+        self.assertEqual(registered["state"], "reviewing")
+        self.assertIsNone(registered["opportunity_id"])
+        first = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+        ).stdout)
+        self.assertRegex(first["opportunity_id"], r"^[0-9a-f]{64}$")
+        self.assertEqual(first["state"], "claimed")
+        duplicate = run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-2", "--session-id", "session-2",
+            "--summary", "  generalize  repeated lifecycle recovery failures ", ok=False,
+        )
+        self.assertIn("already claimed", duplicate.stderr)
+        unsafe = run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-3", "--session-id", "session-3",
+            "--summary", "Observed in /Users/private/repo", ok=False,
+        )
+        self.assertIn("unsafe improvement summary", unsafe.stderr)
+        ledger = state / "reviews/ledger.sqlite3"
+        self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+
+    def test_improvement_scope_claims_reject_overlapping_paths(self):
+        state = Path(self.temp.name) / "improvement-scope"
+        for worker, session, summary in (
+            ("worker-1", "session-1", "Improve lifecycle helper"),
+            ("worker-2", "session-2", "Improve supervisor policy"),
+        ):
+            run(self.repo, "improvement-claim", "--state-root", str(state),
+                "--worker-id", worker, "--session-id", session, "--summary", summary)
+        updated = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "implementing",
+            "--path", "dot_local/bin/executable_dbsctrctl",
+        ).stdout)
+        self.assertEqual(updated["paths"], ["dot_local/bin/executable_dbsctrctl"])
+        conflict = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-2", "--state", "implementing",
+            "--path", "dot_local/bin", ok=False,
+        )
+        self.assertIn("scope conflicts", conflict.stderr)
+
+    def test_improvement_recovery_blocks_then_requires_retry_or_abandon(self):
+        state = Path(self.temp.name) / "improvement-recovery"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Recover exact worker sessions")
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "discovery",
+            "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1")
+        for attempt in range(1, 4):
+            worker = json.loads(run(
+                self.repo, "improvement-recover", "--state-root", str(state),
+                "--worker-id", "worker-1", "--action", "failed",
+            ).stdout)
+            self.assertEqual(worker["recovery_attempts"], attempt)
+        self.assertEqual(worker["state"], "blocked")
+        retried = json.loads(run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-1", "--action", "retry",
+        ).stdout)
+        self.assertEqual(retried["state"], "discovery")
+        self.assertEqual(retried["recovery_attempts"], 0)
+        abandoned = json.loads(run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-1", "--action", "abandon",
+        ).stdout)
+        self.assertEqual(abandoned["state"], "abandoned")
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertEqual(status["workers"], [abandoned])
 
 
 if __name__ == "__main__":

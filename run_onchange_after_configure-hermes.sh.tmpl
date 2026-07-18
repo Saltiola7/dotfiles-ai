@@ -1,6 +1,7 @@
 #!/bin/bash
 # supervisor skill: {{ include "private_dot_hermes/private_skills/dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
 # schedule: {{ .dotfiles_ai.hermes.review_schedule }}
+# watchdog: {{ .dotfiles_ai.hermes.watchdog_schedule }}
 # delivery: {{ .dotfiles_ai.hermes.review_delivery }}
 
 set -euo pipefail
@@ -11,19 +12,25 @@ REVIEW_WORKDIR={{ .dotfiles_ai.hermes.review_workdir | quote }}
 if [[ "$HERMES" == "~/"* ]]; then
     HERMES="$HOME/${HERMES#~/}"
 fi
-id_file="$HOME/.local/state/dotfiles-ai/hermes-review-cron-id"
+state_dir="$HOME/.local/state/dotfiles-ai"
+spawner_id_file="$state_dir/hermes-review-cron-id"
+watchdog_id_file="$state_dir/hermes-watchdog-cron-id"
 {{ if not .dotfiles_ai.hermes.enabled -}}
-if [[ -x "$HERMES" && -f "$id_file" ]]; then
-    IFS= read -r job_id < "$id_file"
-    [[ "$job_id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes review cron ID in $id_file" >&2; exit 1; }
-    "$HERMES" cron remove "$job_id"
-    rm -f "$id_file"
+if [[ -x "$HERMES" ]]; then
+    for id_file in "$spawner_id_file" "$watchdog_id_file"; do
+        [[ -f "$id_file" ]] || continue
+        IFS= read -r job_id < "$id_file"
+        [[ "$job_id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes cron ID in $id_file" >&2; exit 1; }
+        "$HERMES" cron remove "$job_id"
+        rm -f "$id_file"
+    done
 fi
 exit 0
 {{ end -}}
 [[ -x "$HERMES" ]] || { echo "Hermes is enabled but not installed: $HERMES" >&2; exit 1; }
 [[ -x "$HERDR" ]] || { echo "Herdr is required for Hermes supervision: $HERDR" >&2; exit 1; }
 [[ -d "$REVIEW_WORKDIR" ]] || { echo "Hermes review workdir does not exist: $REVIEW_WORKDIR" >&2; exit 1; }
+[[ -f "$HOME/.hermes/scripts/dbsctr-watchdog.py" ]] || { echo "Hermes watchdog script is missing" >&2; exit 1; }
 hermes() { "$HERMES" "$@"; }
 herdr() { "$HERDR" "$@"; }
 
@@ -34,34 +41,36 @@ hermes config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
 hermes config set model.default {{ .dotfiles_ai.hermes.model | quote }}
 hermes gateway restart
 
-prompt="Load the dbsctr-supervisor skill and run exactly one bounded supervision cohort."
-mkdir -p "${id_file%/*}"
+mkdir -p "$state_dir"
 
-if [[ -f "$id_file" ]]; then
-    IFS= read -r job_id < "$id_file"
-    if [[ ! "$job_id" =~ ^[0-9a-f]{12}$ ]]; then
-        echo "invalid Hermes review cron ID in $id_file" >&2
-        exit 1
+reconcile_job() {
+    local id_file=$1 schedule=$2 prompt=$3 name=$4 script=${5:-}
+    local job_id output first_line
+    local extra=(--skill dbsctr-supervisor)
+    [[ -z "$script" ]] || extra+=(--script "$script" --agent)
+    if [[ -f "$id_file" ]]; then
+        IFS= read -r job_id < "$id_file"
+        if [[ ! "$job_id" =~ ^[0-9a-f]{12}$ ]]; then
+            echo "invalid Hermes cron ID in $id_file" >&2
+            return 1
+        fi
+        if ! hermes cron edit "$job_id" \
+            --schedule "$schedule" --prompt "$prompt" --name "$name" \
+            --workdir "$REVIEW_WORKDIR" --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }} \
+            "${extra[@]}"; then
+            echo "saved Hermes cron ID is stale; refusing to create a duplicate" >&2
+            return 1
+        fi
+        return
     fi
-    if ! hermes cron edit "$job_id" \
-        --schedule {{ .dotfiles_ai.hermes.review_schedule | quote }} \
-        --prompt "$prompt" \
-        --workdir "$REVIEW_WORKDIR" \
-        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}; then
-        echo "saved Hermes review cron ID is stale; refusing to create a duplicate" >&2
-        exit 1
-    fi
-else
     umask 077
     printf 'creating\n' > "$id_file.tmp"
     mv "$id_file.tmp" "$id_file"
-    if ! output=$(hermes cron create \
-        {{ .dotfiles_ai.hermes.review_schedule | quote }} "$prompt" \
-        --name "dotfiles-ai DBSCTR supervisor" \
-        --workdir "$REVIEW_WORKDIR" \
-        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }}); then
+    if ! output=$(hermes cron create "$schedule" "$prompt" \
+        --name "$name" --workdir "$REVIEW_WORKDIR" \
+        --deliver {{ .dotfiles_ai.hermes.review_delivery | quote }} "${extra[@]}"); then
         rm -f "$id_file"
-        exit 1
+        return 1
     fi
     first_line=${output%%$'\n'*}
     job_id=${first_line#Created job: }
@@ -69,8 +78,15 @@ else
         printf 'unknown\n' > "$id_file.tmp"
         mv "$id_file.tmp" "$id_file"
         echo "Hermes cron create returned an unrecognized job ID" >&2
-        exit 1
+        return 1
     fi
     printf '%s\n' "$job_id" > "$id_file.tmp"
     mv "$id_file.tmp" "$id_file"
-fi
+}
+
+reconcile_job "$spawner_id_file" {{ .dotfiles_ai.hermes.review_schedule | quote }} \
+    "Start exactly one fresh autonomous R&D worker, then supervise it until it completes, pauses for Discovery, or needs user authority." \
+    "dotfiles-ai R&D worker spawner"
+reconcile_job "$watchdog_id_file" {{ .dotfiles_ai.hermes.watchdog_schedule | quote }} \
+    "Reconcile only actionable durable workers from the watchdog context. Never spawn a scheduled worker." \
+    "dotfiles-ai R&D worker watchdog" "dbsctr-watchdog.py"

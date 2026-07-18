@@ -31,6 +31,7 @@ ARTIFACTS = ("README", "BACKLOG", "CHANGELOG")
 SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "password")
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
+DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
 CURRENT_METHOD_REVISION = "3.19"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
@@ -39,6 +40,9 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
+IMPROVEMENT_SCHEMA = 1
+IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
+IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
@@ -429,11 +433,12 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
-            and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])):
+            and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])
+            or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)):
         fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
@@ -480,6 +485,83 @@ def ledger_semantic_integrity(connection):
         "SELECT scope, report_id, category, position, text FROM ledger_entries"))
     if actual_entries != expected_entries:
         fail("private review ledger entry mismatch")
+    if "improvement_schema" in meta:
+        improvement_integrity(connection)
+
+
+def ensure_improvement_schema(connection):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
+    if row == (str(IMPROVEMENT_SCHEMA),):
+        return
+    if row is not None:
+        fail("private improvement ledger has an unsupported schema")
+    connection.executescript("""
+        CREATE TABLE improvement_workers (
+            worker_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL UNIQUE,
+            opportunity_id TEXT UNIQUE,
+            summary TEXT,
+            state TEXT NOT NULL CHECK (state IN (
+                'reviewing', 'claimed', 'discovery', 'implementing', 'draft_pr',
+                'blocked', 'merged', 'closed', 'abandoned'
+            )),
+            resume_state TEXT NOT NULL CHECK (resume_state IN (
+                'reviewing', 'claimed', 'discovery', 'implementing', 'draft_pr'
+            )),
+            recovery_attempts INTEGER NOT NULL DEFAULT 0 CHECK (recovery_attempts BETWEEN 0 AND 3),
+            workspace_id TEXT,
+            tab_id TEXT,
+            pane_id TEXT,
+            cycle_id TEXT,
+            pr_number INTEGER,
+            pr_url TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE improvement_scope (
+            worker_id TEXT NOT NULL REFERENCES improvement_workers(worker_id) ON DELETE CASCADE,
+            path TEXT NOT NULL,
+            PRIMARY KEY (worker_id, path)
+        ) WITHOUT ROWID;
+    """)
+    connection.execute("INSERT INTO ledger_meta VALUES ('improvement_schema', ?)",
+                       (str(IMPROVEMENT_SCHEMA),))
+    connection.commit()
+
+
+def improvement_integrity(connection):
+    expected_tables = {"improvement_workers", "improvement_scope"}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'improvement_%'")}
+    if tables != expected_tables:
+        fail("private improvement ledger tables are invalid")
+    for row in connection.execute("""
+            SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+                   recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
+                   pr_number, pr_url, created_at, updated_at
+            FROM improvement_workers
+    """):
+        worker_id, session_id, opportunity_id, summary, state, resume_state, attempts, *rest = row
+        optional_ids = rest[:4]
+        pr_number, pr_url, created_at, updated_at = rest[4:]
+        if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
+                or opportunity_id is not None and not re.fullmatch(r"[0-9a-f]{64}", opportunity_id)
+                or summary is not None and (not isinstance(summary, str)
+                                             or not 1 <= len(summary.encode()) <= 512 or review_unsafe(summary))
+                or (opportunity_id is None) != (summary is None)
+                or state == "reviewing" and opportunity_id is not None
+                or state not in IMPROVEMENT_STATES
+                or resume_state not in IMPROVEMENT_RESUMABLE_STATES
+                or not isinstance(attempts, int) or not 0 <= attempts <= 3
+                or any(value is not None and not OPAQUE_ID.fullmatch(value) for value in optional_ids)
+                or pr_number is not None and (not isinstance(pr_number, int) or pr_number < 1)
+                or pr_url is not None and (not isinstance(pr_url, str) or len(pr_url) > 2048)
+                or not isinstance(created_at, int) or not isinstance(updated_at, int)
+                or created_at < REVIEW_START_MS or updated_at < created_at):
+            fail("private improvement ledger contains an invalid worker")
+    for worker_id, value in connection.execute("SELECT worker_id, path FROM improvement_scope"):
+        if not OPAQUE_ID.fullmatch(worker_id) or improvement_path(value) != value:
+            fail("private improvement ledger contains an invalid scope")
 
 
 def legacy_review_exists(root):
@@ -1095,6 +1177,26 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
     current_branch = branch(root)
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
+    if args.delivery_intent == "draft_pr":
+        account = getattr(args, "github_account", None)
+        repository = getattr(args, "github_repository", None)
+        if (not account or not OPAQUE_ID.fullmatch(account) or not repository
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)):
+            fail("draft_pr delivery requires a valid GitHub account and repository")
+        if not current_branch or current_branch == delivery_branch:
+            fail("draft_pr delivery requires a feature branch distinct from its base")
+        delivery = {
+            "upstream": current_upstream, "remote": delivery_remote,
+            "branch": current_branch, "base_branch": delivery_branch,
+            "github": {"host": "github.com", "account": account, "repository": repository},
+            "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
+                                        remote_branch=current_branch),
+        }
+    else:
+        delivery = {"upstream": current_upstream, "remote": delivery_remote,
+                    "branch": delivery_branch, "lock_id": delivery_lock_id(
+            remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
+        )}
     record = {
         "method_revision": CURRENT_METHOD_REVISION, "schema_version": 3, "created_at": now(), "cycle_id": args.cycle_id,
         "context": args.context, "risk": args.risk, "delivery_intent": args.delivery_intent,
@@ -1111,10 +1213,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
                      "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
                      "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
                      "created_by_dbsctr": created_by_dbsctr},
-        "delivery": {"upstream": current_upstream, "remote": delivery_remote,
-                     "branch": delivery_branch, "lock_id": delivery_lock_id(
-            remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
-        )},
+        "delivery": delivery,
         "state": "active", "commits": [], "gates": gates, "evidence": {"version": 1, "items": {}},
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
@@ -1246,8 +1345,12 @@ def command_cleanup(args):
     if worktree.is_dir() and expected != remote_destination(worktree, record["git"]["upstream"]):
         fail("remote push destination changed")
     if worktree.is_dir():
-        git(worktree, "fetch", remote, remote_branch)
-    target = record["git"]["upstream"]
+        if record.get("delivery_intent") == "draft_pr":
+            git(worktree, "fetch", remote, f"refs/heads/{remote_branch}:refs/remotes/{remote}/{remote_branch}")
+        else:
+            git(worktree, "fetch", remote, remote_branch)
+    target = (f"refs/remotes/{remote}/{remote_branch}" if record.get("delivery_intent") == "draft_pr"
+              else record["git"]["upstream"])
     for entry in record["commits"]:
         if worktree.is_dir() and git(worktree, "merge-base", "--is-ancestor", entry["id"], target, check=False).returncode:
             fail("cycle commits are not all contained in the delivery target")
@@ -2920,6 +3023,251 @@ def command_review_history_save(args):
     print(json.dumps({"report_id": report_id}, sort_keys=True))
 
 
+def improvement_id(value, name):
+    if not isinstance(value, str) or not OPAQUE_ID.fullmatch(value):
+        fail(f"invalid improvement {name}")
+    return value
+
+
+def improvement_path(value):
+    if not isinstance(value, str):
+        fail("invalid improvement scope path")
+    pure = PurePosixPath(value)
+    normalized = str(pure)
+    if pure.is_absolute() or not pure.parts or ".." in pure.parts or normalized in ("", "."):
+        fail("invalid improvement scope path")
+    return normalized
+
+
+def improvement_summary(value):
+    if not isinstance(value, str):
+        fail("invalid improvement summary")
+    normalized = " ".join(value.split())
+    if not 1 <= len(normalized.encode()) <= 512 or review_unsafe(normalized):
+        fail("unsafe improvement summary")
+    return normalized
+
+
+def improvement_opportunity_id(summary):
+    canonical = improvement_summary(summary).casefold()
+    return hashlib.sha256(b"dbsctr-improvement\0" + canonical.encode()).hexdigest()
+
+
+def improvement_worker(connection, worker_id):
+    row = connection.execute("""
+        SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+               recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
+               pr_number, pr_url, created_at, updated_at
+        FROM improvement_workers WHERE worker_id=?
+    """, (worker_id,)).fetchone()
+    if row is None:
+        fail("improvement worker is missing")
+    names = ("worker_id", "session_id", "opportunity_id", "summary", "state", "resume_state",
+             "recovery_attempts", "workspace_id", "tab_id", "pane_id", "cycle_id",
+             "pr_number", "pr_url", "created_at", "updated_at")
+    value = dict(zip(names, row))
+    value["paths"] = [item[0] for item in connection.execute(
+        "SELECT path FROM improvement_scope WHERE worker_id=? ORDER BY path", (worker_id,))]
+    return value
+
+
+def improvement_public(value):
+    return {key: item for key, item in value.items() if key != "resume_state"}
+
+
+def improvement_write(root, callback):
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        try:
+            ensure_improvement_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            result = callback(connection)
+            connection.commit()
+            ledger_integrity(connection)
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
+def command_improvement_claim(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    session_id = improvement_id(args.session_id, "session ID")
+    summary = improvement_summary(args.summary)
+    opportunity_id = improvement_opportunity_id(summary)
+    timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+    root = review_root(args.state_root)
+
+    def claim(connection):
+        existing = connection.execute("SELECT session_id, opportunity_id FROM improvement_workers "
+                                      "WHERE worker_id=?", (worker_id,)).fetchone()
+        try:
+            if existing is None:
+                connection.execute("""
+                    INSERT INTO improvement_workers (
+                        worker_id, session_id, opportunity_id, summary, state, resume_state,
+                        recovery_attempts, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
+                """, (worker_id, session_id, opportunity_id, summary, timestamp, timestamp))
+            elif existing != (session_id, None):
+                fail("improvement opportunity or worker is already claimed")
+            else:
+                connection.execute("""
+                    UPDATE improvement_workers SET opportunity_id=?, summary=?, state='claimed',
+                           resume_state='claimed', updated_at=? WHERE worker_id=?
+                """, (opportunity_id, summary, timestamp, worker_id))
+        except sqlite3.IntegrityError:
+            fail("improvement opportunity or worker is already claimed")
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, claim), sort_keys=True))
+
+
+def command_improvement_register(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    session_id = improvement_id(args.session_id, "session ID")
+    identifiers = {name: improvement_id(value, name.replace("_", " "))
+                   for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
+                                       ("pane_id", args.pane_id)) if value is not None}
+    timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+    root = review_root(args.state_root)
+
+    def register(connection):
+        columns = ["worker_id", "session_id", "state", "resume_state", "recovery_attempts",
+                   "created_at", "updated_at", *identifiers]
+        values = [worker_id, session_id, "reviewing", "reviewing", 0, timestamp, timestamp,
+                  *identifiers.values()]
+        try:
+            connection.execute(
+                f"INSERT INTO improvement_workers ({', '.join(columns)}) VALUES ({', '.join('?' for _ in values)})",
+                values,
+            )
+        except sqlite3.IntegrityError:
+            fail("improvement worker is already registered")
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, register), sort_keys=True))
+
+
+def scopes_overlap(left, right):
+    left, right = PurePosixPath(left).parts, PurePosixPath(right).parts
+    return left[:len(right)] == right or right[:len(left)] == left
+
+
+def command_improvement_update(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    state = args.state
+    identifiers = {name: improvement_id(value, name.replace("_", " "))
+                   for name, value in (("workspace_id", args.workspace_id), ("tab_id", args.tab_id),
+                                       ("pane_id", args.pane_id), ("cycle_id", args.cycle_id))
+                   if value is not None}
+    paths = sorted(set(improvement_path(value) for value in args.path or []))
+    transitions = {
+        "reviewing": {"blocked", "abandoned"},
+        "claimed": {"discovery", "implementing", "blocked", "abandoned"},
+        "discovery": {"implementing", "blocked", "abandoned"},
+        "implementing": {"draft_pr", "blocked", "abandoned"},
+        "draft_pr": {"merged", "closed", "blocked"},
+        "blocked": set(), "merged": set(), "closed": set(), "abandoned": set(),
+    }
+    root = review_root(args.state_root)
+
+    def update(connection):
+        current = improvement_worker(connection, worker_id)
+        if state != current["state"] and state not in transitions[current["state"]]:
+            fail(f"invalid improvement transition: {current['state']} -> {state}")
+        if paths:
+            if current["opportunity_id"] is None:
+                fail("improvement scope requires a claimed opportunity")
+            active = {"claimed", "discovery", "implementing", "draft_pr", "blocked"}
+            for owner, existing in connection.execute("""
+                    SELECT w.worker_id, s.path FROM improvement_scope s
+                    JOIN improvement_workers w USING (worker_id)
+                    WHERE w.worker_id != ? AND w.state IN (?, ?, ?, ?, ?)
+            """, (worker_id, *sorted(active))):
+                if any(scopes_overlap(path, existing) for path in paths):
+                    fail(f"improvement scope conflicts with {owner}")
+            connection.execute("DELETE FROM improvement_scope WHERE worker_id=?", (worker_id,))
+            connection.executemany("INSERT INTO improvement_scope VALUES (?, ?)",
+                                   ((worker_id, path) for path in paths))
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        assignments = ["state=?", "updated_at=?"]
+        values = [state, timestamp]
+        if state in IMPROVEMENT_RESUMABLE_STATES:
+            assignments.append("resume_state=?")
+            values.append(state)
+        for name, value in identifiers.items():
+            assignments.append(f"{name}=?")
+            values.append(value)
+        values.append(worker_id)
+        connection.execute(f"UPDATE improvement_workers SET {', '.join(assignments)} WHERE worker_id=?", values)
+        if state == "abandoned":
+            connection.execute("DELETE FROM improvement_scope WHERE worker_id=?", (worker_id,))
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, update), sort_keys=True))
+
+
+def command_improvement_recover(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    root = review_root(args.state_root)
+
+    def recover(connection):
+        current = improvement_worker(connection, worker_id)
+        if current["state"] in {"merged", "closed", "abandoned"}:
+            fail("terminal improvement worker cannot be recovered")
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if args.action == "failed":
+            attempts = min(current["recovery_attempts"] + 1, 3)
+            state = "blocked" if attempts == 3 else current["state"]
+            connection.execute("UPDATE improvement_workers SET state=?, recovery_attempts=?, updated_at=? "
+                               "WHERE worker_id=?", (state, attempts, timestamp, worker_id))
+        elif args.action == "retry":
+            if current["state"] != "blocked":
+                fail("only a blocked improvement worker can be retried")
+            connection.execute("UPDATE improvement_workers SET state=resume_state, recovery_attempts=0, "
+                               "updated_at=? WHERE worker_id=?", (timestamp, worker_id))
+        elif args.action == "success":
+            connection.execute("UPDATE improvement_workers SET recovery_attempts=0, updated_at=? WHERE worker_id=?",
+                               (timestamp, worker_id))
+        else:
+            connection.execute("UPDATE improvement_workers SET state='abandoned', updated_at=? WHERE worker_id=?",
+                               (timestamp, worker_id))
+            connection.execute("DELETE FROM improvement_scope WHERE worker_id=?", (worker_id,))
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, recover), sort_keys=True))
+
+
+def command_improvement_status(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    if not ledger_exists(root):
+        print(json.dumps({"workers": []}, sort_keys=True))
+        return
+    with existing_review_lock(root):
+        connection = ledger_connection(root)
+        try:
+            if connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone() is None:
+                workers = []
+            else:
+                query = "SELECT worker_id FROM improvement_workers"
+                values = ()
+                if args.worker_id is not None:
+                    query += " WHERE worker_id=?"
+                    values = (improvement_id(args.worker_id, "worker ID"),)
+                query += " ORDER BY created_at, worker_id"
+                workers = [improvement_public(improvement_worker(connection, row[0]))
+                           for row in connection.execute(query, values)]
+        finally:
+            connection.close()
+    print(json.dumps({"workers": workers}, sort_keys=True))
+
+
 def command_review_complete(args):
     try:
         raw_report = args.report_json if args.report_json is not None else Path(args.report).read_text(encoding="utf-8")
@@ -3529,13 +3877,77 @@ def sync_source_checkout(record, remote, remote_branch):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
+def github_environment(account):
+    result = subprocess.run(
+        ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
+        text=True, capture_output=True,
+    )
+    token = result.stdout.strip()
+    if result.returncode or not token:
+        fail(result.stderr.strip() or f"GitHub account is not authenticated: {account}")
+    return {**os.environ, "GH_TOKEN": token}
+
+
+def github_json(root, env, *args):
+    result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True)
+    if result.returncode:
+        fail(result.stderr.strip() or "GitHub CLI command failed")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        fail("GitHub CLI returned invalid JSON")
+
+
+def deliver_draft_pr(root, record):
+    delivery = record["delivery"]
+    github = delivery["github"]
+    env = github_environment(github["account"])
+    fields = "number,url,isDraft,state,baseRefName,headRefName"
+    head = f"{github['account']}:{delivery['branch']}"
+    existing = github_json(
+        root, env, "pr", "list", "--repo", github["repository"], "--head", head,
+        "--state", "all", "--limit", "2", "--json", fields,
+    )
+    if not isinstance(existing, list) or len(existing) > 1:
+        fail("GitHub returned ambiguous pull requests for the feature branch")
+    if existing:
+        pull_request = existing[0]
+    else:
+        title = f"{record['cycle_id']}: {record['context']} improvement"
+        body = "Automated DBSCTR improvement. Human review and merge are required."
+        result = subprocess.run([
+            "gh", "pr", "create", "--repo", github["repository"],
+            "--base", delivery["base_branch"], "--head", head,
+            "--draft", "--title", title, "--body", body,
+        ], cwd=root, env=env, text=True, capture_output=True)
+        if result.returncode or not result.stdout.strip():
+            fail(result.stderr.strip() or "GitHub draft pull request creation failed")
+        pull_request = github_json(
+            root, env, "pr", "view", result.stdout.strip(), "--repo", github["repository"],
+            "--json", fields,
+        )
+    if (not isinstance(pull_request, dict) or pull_request.get("isDraft") is not True
+            or pull_request.get("state") != "OPEN"
+            or pull_request.get("baseRefName") != delivery["base_branch"]
+            or pull_request.get("headRefName") != delivery["branch"]
+            or type(pull_request.get("number")) is not int or pull_request["number"] < 1
+            or not isinstance(pull_request.get("url"), str)
+            or not pull_request["url"].startswith("https://github.com/")):
+        fail("GitHub pull request is not the expected open draft")
+    return {
+        "number": pull_request["number"], "url": pull_request["url"], "draft": True,
+        "state": "OPEN", "verified_at": now(),
+    }
+
+
 def finish_push(root, path, record):
     pointer = active_path(root)
     if not pointer.exists():
         pointer = legacy_cycle_dir(root) / "active"
     if record["state"] == "completed":
         pointer.unlink(missing_ok=True)
-        print("pushed " + " ".join(entry["id"] for entry in record["commits"]))
+        prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
+        print(prefix + "pushed " + " ".join(entry["id"] for entry in record["commits"]))
         return
     require_pushable(record)
     require_current_profile(root, record)
@@ -3566,13 +3978,14 @@ def finish_push(root, path, record):
     delivery = record.get("delivery", {})
     remote = delivery.get("remote")
     remote_branch = delivery.get("branch")
+    base_branch = delivery.get("base_branch", remote_branch)
     if not remote or not remote_branch:
         remote, remote_branch = remote_for_upstream(root, current_upstream)
     if not remote or not remote_branch:
         fail("upstream is not a remote branch")
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
-    git(root, "fetch", remote, remote_branch)
+    git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
     target_head = git(root, "rev-parse", current_upstream).stdout.strip()
     recorded_commits = [entry["id"] for entry in record["commits"]]
@@ -3612,8 +4025,18 @@ def finish_push(root, path, record):
     if current_ahead:
         record["state"] = "finalizing"
         save(path, record)
+        if record["delivery_intent"] == "draft_pr":
+            remote_ref = f"refs/heads/{remote_branch}"
+            existing = git(root, "ls-remote", "--heads", remote, remote_ref).stdout.split()
+            if existing and git(root, "merge-base", "--is-ancestor", existing[0], "HEAD", check=False).returncode:
+                fail("feature branch changed remotely; normal push would not be safe")
         git(root, "push", remote, f"HEAD:{remote_branch}")
-    if git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
+    if record["delivery_intent"] == "draft_pr":
+        remote_head = git(root, "ls-remote", "--heads", remote, f"refs/heads/{remote_branch}").stdout.split()
+        if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
+            fail("push did not synchronize feature branch")
+        record["delivery"]["pull_request"] = deliver_draft_pr(root, record)
+    elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
     if reconciled:
         baseline["head"] = target_head
@@ -3621,11 +4044,14 @@ def finish_push(root, path, record):
     record["state"] = "completed"
     record["completed_at"] = now()
     save(path, record)
-    source_sync = sync_source_checkout(record, remote, remote_branch)
+    source_sync = ({"status": "not_applicable", "reason": "draft_pr_delivery"}
+                   if record["delivery_intent"] == "draft_pr"
+                   else sync_source_checkout(record, remote, remote_branch))
     record["source_sync"] = source_sync
     save(path, record)
     pointer.unlink()
-    print("pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"])
+    prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
+    print(prefix + "pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"])
 
 
 def command_final_push(args):
@@ -3642,15 +4068,19 @@ def parser():
     start.add_argument("--cycle-id", required=True)
     start.add_argument("--context", required=True)
     start.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
-    start.add_argument("--delivery-intent", required=True, choices=("local", "merge", "release", "deploy"))
+    start.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     start.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    start.add_argument("--github-account")
+    start.add_argument("--github-repository")
     start.set_defaults(func=command_start)
     begin = commands.add_parser("begin")
     begin.add_argument("--cycle-id", required=True)
     begin.add_argument("--context", required=True)
     begin.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
-    begin.add_argument("--delivery-intent", required=True, choices=("local", "merge", "release", "deploy"))
+    begin.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    begin.add_argument("--github-account")
+    begin.add_argument("--github-repository")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
     begin.add_argument("--opencode-message-id")
@@ -3736,6 +4166,39 @@ def parser():
     review_forget.add_argument("--state-root")
     review_forget.add_argument("--session-id", required=True)
     review_forget.set_defaults(func=command_review_forget)
+    improvement_register = commands.add_parser("improvement-register")
+    improvement_register.add_argument("--state-root")
+    improvement_register.add_argument("--worker-id", required=True)
+    improvement_register.add_argument("--session-id", required=True)
+    improvement_register.add_argument("--workspace-id")
+    improvement_register.add_argument("--tab-id")
+    improvement_register.add_argument("--pane-id")
+    improvement_register.set_defaults(func=command_improvement_register)
+    improvement_claim = commands.add_parser("improvement-claim")
+    improvement_claim.add_argument("--state-root")
+    improvement_claim.add_argument("--worker-id", required=True)
+    improvement_claim.add_argument("--session-id", required=True)
+    improvement_claim.add_argument("--summary", required=True)
+    improvement_claim.set_defaults(func=command_improvement_claim)
+    improvement_update = commands.add_parser("improvement-update")
+    improvement_update.add_argument("--state-root")
+    improvement_update.add_argument("--worker-id", required=True)
+    improvement_update.add_argument("--state", required=True, choices=tuple(sorted(IMPROVEMENT_STATES)))
+    improvement_update.add_argument("--workspace-id")
+    improvement_update.add_argument("--tab-id")
+    improvement_update.add_argument("--pane-id")
+    improvement_update.add_argument("--cycle-id")
+    improvement_update.add_argument("--path", action="append")
+    improvement_update.set_defaults(func=command_improvement_update)
+    improvement_recover = commands.add_parser("improvement-recover")
+    improvement_recover.add_argument("--state-root")
+    improvement_recover.add_argument("--worker-id", required=True)
+    improvement_recover.add_argument("--action", required=True, choices=("failed", "success", "retry", "abandon"))
+    improvement_recover.set_defaults(func=command_improvement_recover)
+    improvement_status = commands.add_parser("improvement-status")
+    improvement_status.add_argument("--state-root")
+    improvement_status.add_argument("--worker-id")
+    improvement_status.set_defaults(func=command_improvement_status)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))

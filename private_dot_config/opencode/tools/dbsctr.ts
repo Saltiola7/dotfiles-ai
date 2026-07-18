@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
+import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -177,14 +177,50 @@ export const review_history_save = tool({
   },
 })
 
+export const improvement_status = tool({
+  description: "Read durable sanitized autonomous-improvement worker and claim state.",
+  args: { workerId: tool.schema.string().optional() },
+  async execute(args, context) {
+    return await improvementStatus(args.workerId, context.worktree)
+  },
+})
+
+export const improvement_claim = tool({
+  description: "Atomically claim one sanitized distinct improvement for the current native-Build session.",
+  args: { summary: tool.schema.string().min(1).max(512) },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_improvement_claim", patterns: ["*"], always: [] })
+    return await improvementClaim(context.sessionID, context.sessionID, args.summary, context.worktree)
+  },
+})
+
+export const improvement_update = tool({
+  description: "Advance the current improvement claim and declare its exact repository-relative ownership.",
+  args: {
+    state: tool.schema.enum(["claimed", "discovery", "implementing", "draft_pr", "blocked", "merged", "closed", "abandoned"]),
+    cycleId: tool.schema.string().optional(),
+    paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_improvement_update", patterns: ["*"], always: [] })
+    return await improvementUpdate(context.sessionID, {
+      state: args.state,
+      cycleID: args.cycleId,
+      paths: args.paths,
+    }, context.worktree)
+  },
+})
+
 export const begin = tool({
   description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
     risk: tool.schema.enum(["routine", "elevated", "critical"]),
-    deliveryIntent: tool.schema.enum(["local", "merge", "release", "deploy"]),
+    deliveryIntent: tool.schema.enum(["local", "merge", "release", "deploy", "draft_pr"]),
     planPath: tool.schema.string(),
+    githubAccount: tool.schema.string().optional(),
+    githubRepository: tool.schema.string().optional(),
     launch: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {

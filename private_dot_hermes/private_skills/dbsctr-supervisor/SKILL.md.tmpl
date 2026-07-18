@@ -14,71 +14,68 @@ The machine-selected Hermes provider/model is
 `{{ .dotfiles_ai.hermes.provider }}/{{ .dotfiles_ai.hermes.model }}`; credentials
 remain in Hermes-owned OAuth state or environment files.
 
-## Repository Allowlist
+## Managed Boundary
 
-{{ range .dotfiles_ai.hermes.repositories -}}
-- {{ .name }}: {{ .path }}
-{{ end }}
+- Writable source: {{ .dotfiles_ai.hermes.review_workdir }}
+- Herdr workspace label: {{ .dotfiles_ai.hermes.workspace_label }}
+- GitHub account: {{ .dotfiles_ai.hermes.github_account }}
+- GitHub repository: {{ .dotfiles_ai.hermes.github_repository }}
 
-Never control a pane outside this allowlist. Resolve paths physically before
-comparison and reject siblings, symlink escapes, and missing repositories.
+Global OpenCode history is review evidence, not a repository allowlist. Control
+only OpenCode panes whose physical working directory is the writable source or a
+DBSCTR-owned worktree for it. Never copy private project names, paths, content,
+or traceable provenance into this public source.
 
-## One Cohort
+## Daily Spawner
 
-1. Run `herdr agent list` and consider only OpenCode agents whose working
-   directory is inside the allowlist.
-2. Use `herdr agent list` to locate exactly one OpenCode pane whose native
-   `agent_session.value` is `{{ .dotfiles_ai.hermes.review_session_id }}`. A
-   resumed idle OpenCode process may not report that value until its next event;
-   only then may `herdr pane process-info --pane <pane_id>` supply the fallback
-   (the pane ID is not positional), and only when one
-   foreground argv is exactly `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}`.
-   If neither exact identity is unique, pause and tell the user to run
-   `opencode -s {{ .dotfiles_ai.hermes.review_session_id }}` inside Herdr. Do not
-   guess from tab labels, screen content, recency, or working directory, and do
-   not substitute a headless OpenCode session or direct helper command.
-3. Read the designated pane before sending input. Continue only when it is idle
-   and the visible OpenCode primary is native `Build`. If it shows `Plan`, a
-   custom Build primary, or the primary cannot be verified, pause and tell the
-   user to select native `Build` through `/agents`; never automate `Tab`.
-4. The designated global review pane does not require an active Cycle Record;
-   its review snapshot is authority. For every other working or blocked agent,
-   query DBSCTR status in that exact worktree and continue only an active,
-   pre-approved build cycle.
-5. Approve routine operations already authorized by that DBSCTR Cycle Record,
-   including required gates, focused validation, Gate Commits, Final Push, safe
-   retries, and context compaction.
-6. If the agent asks a Discovery question, requests new scope or authority,
-   encounters ambiguity or conflict, proposes an exception, or needs a new
-   external write, pause it and report the exact question to the user.
-7. In the designated review pane, use `herdr agent send` to submit
-   `/dbsctr-review Process one unreviewed page; if none exists, process one historical cohort
-   with a rotated lens.` exactly once. Immediately run `herdr agent get
-   <designated-pane-id>`; if it remains `idle`, read the pane. If the command is
-   staged in the input area, press `herdr pane send-keys <pane> Enter` once to
-   complete that single submission. Observe bounded pane output and Herdr state
-   to completion. If OpenCode reports a blocker or says no cohort was processed,
-   report it and stop; never retry the command in the same invocation.
-8. While the pane is working, poll `herdr agent get <designated-pane-id>` at
-   intervals no longer than 10 seconds; do not wait only for `idle`. When it
-   becomes `blocked`, read the pane. Approve once with
-   `herdr pane send-keys <pane> Enter` only when the
-   visible prompt is `Permission required`, the default selection is
-   `Allow once`, and the tool is exactly `dbsctr_review_complete` or
-   `dbsctr_review_history_save`. Never select `Allow always`. Pause for every
-   other permission, question, or ambiguous screen.
-9. Persist the exact sanitized review result before sending `/compact`. Never
-   compact an incomplete or unpersisted review. Send `/compact` through
-   `herdr agent send`, then immediately run `herdr agent get
-   <designated-pane-id>` and read the pane if it remains idle or done. If
-   `/compact` is staged in the input area, press `herdr pane send-keys <pane>
-   Enter` once to complete that single compaction. Do not send or retry another
-   review command.
-10. Report completed, paused, failed, and still-running work. Do not start a
-   second review cohort in the same invocation.
+1. Run `herdr workspace list`. Use exactly one workspace whose label is
+   `{{ .dotfiles_ai.hermes.workspace_label }}`. If none exists, create it with
+   `herdr workspace create --cwd {{ .dotfiles_ai.hermes.review_workdir }} --label
+   {{ .dotfiles_ai.hermes.workspace_label | quote }} --no-focus`. Multiple exact
+   matches are ambiguous and must pause.
+2. Generate one opaque worker name and start one fresh tab without focus using
+   `herdr agent start <worker> --cwd {{ .dotfiles_ai.hermes.review_workdir }}
+   --workspace <workspace> --no-focus -- opencode
+   {{ .dotfiles_ai.hermes.review_workdir }} --agent build --prompt
+   /dbsctr-improve`. Never use `-s` for a scheduled worker and never suppress a
+   run because earlier workers exist.
+3. Poll only that returned terminal until Herdr reports one native OpenCode
+   session ID. Register the exact worker, session, workspace, tab, and pane with
+   `dbsctrctl improvement-register`. If identity stays unavailable or registration
+   conflicts, report the pane and stop without starting another worker.
+4. Observe the worker until it reaches Discovery, completes, or requests new
+   authority. Never answer Discovery, infer approval, or send `proceed`.
 
-Never merge a pull request, force-push, bypass hooks, invent Discovery answers,
-or treat an idle/done pane as proof that DBSCTR completed. Never invoke
-`dbsctrctl review-scan`, `review-history`, `review-history-save`,
-`review-complete`, or the OpenCode database directly; the managed OpenCode
-`/dbsctr-review` command and typed tools own that boundary.
+## Watchdog Reconciliation
+
+1. The watchdog context names only workers whose durable state changed and may
+   need attention. Re-read `dbsctrctl improvement-status` and `herdr agent list`;
+   never trust the prompt context alone.
+2. Match workers only by exact `session_id`. Do not guess from labels, screen
+   content, recency, directories, or positional pane IDs.
+3. When no pane owns a nonterminal session, recreate it in the managed workspace
+   with `herdr agent start <worker> --cwd {{ .dotfiles_ai.hermes.review_workdir }}
+   --workspace <workspace> --no-focus -- opencode -s <session> --agent build`.
+   On success update its presentation IDs and record recovery success. On failure
+   run `dbsctrctl improvement-recover --action failed`; after three failures the
+   durable worker remains blocked for explicit retry or abandonment.
+4. If multiple panes claim one session, the session is missing, the workspace is
+   ambiguous, or the recorded worktree is unsafe, block and report without
+   closing panes or releasing claims.
+5. Read an idle or blocked pane before acting. Discovery questions, exhausted
+   research, scope conflicts, exceptions, and new authority stay blocked for the
+   user. Existing active Cycle Records authorize only their recorded gates and
+   delivery.
+6. Approve once only when the visible prompt is `Permission required`, the
+   default is `Allow once`, and the tool is exactly `dbsctr_review_complete` or
+   `dbsctr_review_history_save`. Never select `Allow always`; every other
+   permission or ambiguous screen pauses.
+7. Persist review and claim state before compaction. After a draft PR is recorded,
+   allow `/compact` once and leave the tab open for manual management.
+
+Never merge or mark a pull request ready, force-push, bypass hooks, invent a
+finding or Discovery answer, release, deploy, close a Herdr tab, or treat pane
+state as lifecycle proof. Never invoke `dbsctrctl review-scan`, `review-history`,
+`review-history-save`, `review-complete`, or the OpenCode database directly; the
+managed OpenCode tools own private review access. The purpose-built
+`improvement-*` commands own only sanitized coordination state.

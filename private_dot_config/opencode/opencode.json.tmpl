@@ -100,6 +100,8 @@
       "permission": {
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_improvement_claim": "allow",
+        "dbsctr_improvement_update": "allow",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
           "~/.config/dotfiles-ai/**": "allow"
@@ -142,6 +144,9 @@
     "dbsctr_review_complete": "ask",
     "dbsctr_review_history": "allow",
     "dbsctr_review_history_save": "allow",
+    "dbsctr_improvement_status": "allow",
+    "dbsctr_improvement_claim": "deny",
+    "dbsctr_improvement_update": "deny",
     "context7_*": "deny",
     "external_directory": "deny",
     "bash": {
@@ -197,6 +202,18 @@
       "*/dbsctrctl review-forget*": "ask",
       "env *dbsctrctl review-forget*": "ask",
       "command *dbsctrctl review-forget*": "ask",
+      "dbsctrctl improvement-claim*": "ask",
+      "*/dbsctrctl improvement-claim*": "ask",
+      "env *dbsctrctl improvement-claim*": "ask",
+      "command *dbsctrctl improvement-claim*": "ask",
+      "dbsctrctl improvement-update*": "ask",
+      "*/dbsctrctl improvement-update*": "ask",
+      "env *dbsctrctl improvement-update*": "ask",
+      "command *dbsctrctl improvement-update*": "ask",
+      "dbsctrctl improvement-recover*": "ask",
+      "*/dbsctrctl improvement-recover*": "ask",
+      "env *dbsctrctl improvement-recover*": "ask",
+      "command *dbsctrctl improvement-recover*": "ask",
       "dbsctrctl cleanup*": "ask",
       "herdr server stop*": "ask",
       "herdr config reset-keys*": "ask",

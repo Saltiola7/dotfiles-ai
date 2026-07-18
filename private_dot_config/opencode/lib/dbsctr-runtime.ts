@@ -145,12 +145,49 @@ export async function reviewHistorySave(report: {
   return await run(argv, cwd)
 }
 
+export async function improvementStatus(workerID?: string, cwd = process.cwd()) {
+  return await run([
+    "dbsctrctl", "improvement-status",
+    ...(workerID === undefined ? [] : ["--worker-id", workerID]),
+  ], cwd)
+}
+
+export async function improvementClaim(workerID: string, sessionID: string, summary: string, cwd = process.cwd()) {
+  return await run([
+    "dbsctrctl", "improvement-claim",
+    "--worker-id", workerID,
+    "--session-id", sessionID,
+    "--summary", summary,
+  ], cwd)
+}
+
+export async function improvementUpdate(workerID: string, args: {
+  state: "claimed" | "discovery" | "implementing" | "draft_pr" | "blocked" | "merged" | "closed" | "abandoned"
+  workspaceID?: string
+  tabID?: string
+  paneID?: string
+  cycleID?: string
+  paths?: string[]
+}, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "improvement-update", "--worker-id", workerID, "--state", args.state]
+  const names: Record<string, string> = {
+    workspaceID: "workspace-id", tabID: "tab-id", paneID: "pane-id", cycleID: "cycle-id",
+  }
+  for (const [name, value] of Object.entries(args)) {
+    if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
+  }
+  for (const path of args.paths ?? []) argv.push("--path", path)
+  return await run(argv, cwd)
+}
+
 export async function beginCycle(args: {
   cycleId: string
   context: string
   risk: "routine" | "elevated" | "critical"
-  deliveryIntent: "local" | "merge" | "release" | "deploy"
+  deliveryIntent: "local" | "merge" | "release" | "deploy" | "draft_pr"
   planPath: string
+  githubAccount?: string
+  githubRepository?: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
   messageID: string
@@ -170,6 +207,8 @@ export async function beginCycle(args: {
     "--risk", args.risk,
     "--delivery-intent", args.deliveryIntent,
     "--plan", args.planPath,
+    ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
+    ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
     ...runtimeArgv,
   ], cwd)
   const handoff = JSON.parse(output)

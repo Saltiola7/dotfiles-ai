@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
+HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
+STATE = Path(os.environ.get("DBSCTR_WATCHDOG_STATE", {{ printf "%s/.local/state/dotfiles-ai/hermes-watchdog.json" .chezmoi.homeDir | quote }}))
+TERMINAL = {"merged", "closed", "abandoned"}
+
+
+def command(argv):
+    return json.loads(subprocess.run(argv, check=True, text=True, capture_output=True).stdout)
+
+
+workers = command([DBSCTRCTL, "improvement-status"])["workers"]
+agents = command([HERDR, "agent", "list"])
+agents = agents.get("result", agents).get("agents", [])
+actionable = []
+for worker in workers:
+    if worker["state"] in TERMINAL:
+        continue
+    matches = [agent for agent in agents if agent.get("agent_session", {}).get("value") == worker["session_id"]]
+    status = matches[0].get("agent_status", "unknown") if len(matches) == 1 else (
+        "missing" if not matches else "ambiguous"
+    )
+    if status in {"missing", "ambiguous", "blocked", "idle", "done", "unknown"}:
+        actionable.append({"worker_id": worker["worker_id"], "state": worker["state"], "status": status})
+
+payload = json.dumps(actionable, sort_keys=True, separators=(",", ":"))
+previous = STATE.read_text(encoding="utf-8") if STATE.is_file() else None
+STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+os.chmod(STATE.parent, 0o700)
+descriptor, temporary = tempfile.mkstemp(prefix=".hermes-watchdog-", dir=STATE.parent)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, STATE)
+finally:
+    Path(temporary).unlink(missing_ok=True)
+
+if actionable and payload != previous:
+    print(json.dumps({"wakeAgent": True, "context": {"workers": actionable}}, separators=(",", ":")))
+else:
+    print('{"wakeAgent":false}')
