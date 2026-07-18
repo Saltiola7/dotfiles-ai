@@ -2247,6 +2247,7 @@ def review_scan(args):
         message_exclusion = (f' AND (m."{msession}" NOT IN ({",".join("?" for _ in excluded)}) '
                              f'OR m."{msession}" IS NULL)' if excluded else "")
         identity = hashlib.sha256()
+        source_identities = {}
         if exclusion_digest is not None:
             identity.update(b"excluded\0" + exclusion_digest.encode())
         session_identity_columns = [sid, created]
@@ -2262,24 +2263,26 @@ def review_scan(args):
                 f'AND rowid <= ?{session_exclusion} ORDER BY "{sid}"',
                 (REVIEW_START_MS, snapshot, session_ceiling, *excluded)):
             identity.update(b"s\0")
-            identity.update(json.dumps(row, sort_keys=True, default=str).encode())
+            encoded = json.dumps(row, sort_keys=True, default=str).encode()
+            identity.update(encoded)
+            source_identities.setdefault(str(row[0]), hashlib.sha256()).update(b"s\0" + encoded)
         part_identity_values = f'p."{pbody}"' + (f', p."{part_updated}"' if part_updated else '')
         part_identity_query = (
-            f'SELECT p."{pid}", p."{part_time}", {part_identity_values} FROM "{part}" p '
+            f'SELECT m."{msession}", p."{pid}", p."{part_time}", {part_identity_values} FROM "{part}" p '
             f'LEFT JOIN "{message}" m ON p."{pmessage}"=m."{mid}" '
             f'WHERE p."{part_time}" BETWEEN ? AND ? AND p.rowid <= ?{message_exclusion} ORDER BY p."{pid}"'
-            if excluded else
-            f'SELECT "{pid}", "{part_time}", "{pbody}"'
-            f'{", \"" + part_updated + "\"" if part_updated else ""} FROM "{part}" '
-            f'WHERE "{part_time}" BETWEEN ? AND ? AND rowid <= ? ORDER BY "{pid}"'
         )
         for row in connection.execute(
                 part_identity_query,
                 (REVIEW_START_MS, snapshot, part_ceiling, *excluded)):
-            part_id, part_timestamp, *part_values = row
-            identity.update(f"p\0{part_id}\0{part_timestamp}\0".encode())
+            session_value, part_id, part_timestamp, *part_values = row
+            source = hashlib.sha256(f"p\0{session_value}\0{part_id}\0{part_timestamp}\0".encode())
             for part_value in part_values:
-                identity.update(hashlib.sha256(str(part_value).encode()).digest())
+                source.update(hashlib.sha256(str(part_value).encode()).digest())
+            encoded = source.digest()
+            identity.update(encoded)
+            if session_value is not None:
+                source_identities.setdefault(str(session_value), hashlib.sha256()).update(encoded)
         database_digest = identity.hexdigest()
         for table, column in ((session, created), (part, part_time)):
             invalid = connection.execute(
@@ -2438,12 +2441,19 @@ def review_scan(args):
     database_digest = hashlib.sha256(
         (database_digest + "\0" + json.dumps(manifest, sort_keys=True, separators=(",", ":"))).encode()
     ).hexdigest()
-    if continuation and args.database_digest != database_digest:
+    if (continuation and args.database_digest != database_digest
+            and not getattr(args, "allow_database_drift", False)):
         fail("OpenCode database changed within the review snapshot")
     if getattr(args, "include_reviewed", False):
         eligible.sort(key=lambda item: (item["last_activity"] or "", item["session_id"]), reverse=True)
     candidates = eligible if getattr(args, "history_all", False) else eligible[args.cursor:args.cursor + args.limit]
     candidates.sort(key=lambda item: (review_priority(item), item["timestamp"] or "", item["session_id"]))
+    page_identity = hashlib.sha256()
+    for candidate in candidates:
+        session_id = candidate["session_id"]
+        page_identity.update(session_id.encode() + b"\0")
+        page_identity.update(source_identities.get(session_id, hashlib.sha256()).digest())
+    page_digest = page_identity.hexdigest()
     session_ids = [item["session_id"] for item in candidates]
     cycle_ids = sorted({cycle["cycle_id"] for item in candidates for cycle in item["cycles"]})
     states = [cycle["state"] for item in candidates for cycle in item["cycles"]]
@@ -2454,7 +2464,7 @@ def review_scan(args):
         "completed": states.count("completed"),
         "unknown": sum(not item["cycles"] for item in candidates)},
         "session_ids": session_ids, "cycle_ids": cycle_ids,
-        "digest": review_digest(candidates, snapshot, session_ceiling, part_ceiling, database_digest),
+        "digest": review_digest(candidates, snapshot, session_ceiling, part_ceiling, page_digest),
         "limit": args.limit, "cursor": args.cursor, "snapshot": snapshot,
         "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
         "database_digest": database_digest,
@@ -3367,18 +3377,26 @@ def command_review_complete(args):
             session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
             database_digest=report["database_digest"],
             lock_held=True,
-            history_metrics=True,
+            history_metrics=False,
             excluded_session_id=args.excluded_session_id,
             excluded_message_id=args.excluded_message_id,
             exclusion_digest=report.get("exclusion_digest"),
+            allow_database_drift=True,
         ))
         if (expected["session_ids"] != sessions or expected["cycle_ids"] != cycles
                 or expected["digest"] != digest):
-            fail("review report does not match the current scan page")
+            fail("OpenCode database changed within the review snapshot")
+        for candidate in expected["candidates"]:
+            candidate["_history_identity"] = {
+                "method_revision": "unavailable", "context": "unavailable",
+                "project_digest": "unavailable",
+            }
+            candidate["_history_metrics"] = {}
         forgotten = review_index(root)["forgotten_sessions"]
         reviewed_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), report["snapshot"] + 1,
                           *(forgotten.get(value, 0) + 1 for value in sessions))
         persisted = {key: value for key, value in report.items() if key != "exclusion_digest"}
+        persisted["database_digest"] = expected["database_digest"]
         persisted.update({"cycle_ids": cycles, "reviewed_at": reviewed_at})
         name = hashlib.sha256((digest + "\0" + json.dumps(persisted, sort_keys=True)).encode()).hexdigest()[:24]
         connection = ensure_ledger_for_write(root)

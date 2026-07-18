@@ -1688,6 +1688,81 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("changed within the review snapshot", changed.stderr)
 
+    def test_review_completion_allows_unrelated_snapshot_mutation(self):
+        database = Path(self.temp.name) / "concurrent-completion.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR one', 1784073600000);
+            insert into session values ('session-2', null, 'DBSCTR two', 1784073601000);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into message values ('message-2', 'session-2', 1784073601000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+            insert into part values ('part-2', 'message-2', 'session-2', 1784073601000, 'DBSCTR two');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "concurrent-completion-state"
+        scan = json.loads(run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--cursor", "0",
+        ).stdout)
+        self.assertEqual(scan["session_ids"], ["session-1"])
+        connection.execute("update part set data='unrelated active mutation' where id='part-2'")
+        connection.commit()
+        connection.close()
+        report = {
+            "session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+            "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+            "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+            "database_digest": "f" * 64, "limit": 1, "cursor": 0,
+            "decision": "reviewed",
+        }
+        run(self.repo, "review-complete", "--report-json", json.dumps(report),
+            "--scan-digest", scan["digest"], "--database", str(database), "--state-root", str(state))
+        stored = ledger_text(state)
+        self.assertIn("session-1", stored)
+        self.assertNotIn("f" * 64, stored)
+
+    def test_review_completion_rejects_selected_source_mutation(self):
+        database = Path(self.temp.name) / "selected-source.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (
+                id text primary key, parent_id text, title text, time_created integer,
+                project_id text, cost real, tokens_input integer
+            );
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR one', 1784073600000, 'project-1', 1.0, 10);
+            insert into message values ('message-1', 'session-1', 1784073600000, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600000, 'DBSCTR one');
+        """)
+        connection.commit()
+        state = Path(self.temp.name) / "selected-source-state"
+        scan = json.loads(run(
+            self.repo, "review-scan", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--cursor", "0",
+        ).stdout)
+        report = {
+            "session_ids": scan["session_ids"], "cycle_ids": scan["cycle_ids"],
+            "scan_digest": scan["digest"], "snapshot": scan["snapshot"],
+            "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+            "database_digest": scan["database_digest"], "limit": 1, "cursor": 0,
+            "decision": "reviewed",
+        }
+        connection.execute("update session set cost=2.0, tokens_input=20 where id='session-1'")
+        connection.execute("update part set data='DBSCTR changed' where id='part-1'")
+        connection.commit()
+        connection.close()
+        changed = run(
+            self.repo, "review-complete", "--report-json", json.dumps(report),
+            "--scan-digest", scan["digest"], "--database", str(database),
+            "--state-root", str(state), ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
+
     def test_review_completion_rejects_changed_candidate_metadata(self):
         database = Path(self.temp.name) / "changed.db"
         connection = __import__("sqlite3").connect(database)

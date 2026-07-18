@@ -1351,7 +1351,9 @@ module routing without changing Cycle Record schema or public commands.
 - The first review page captures an immutable millisecond cutoff. Every
   continuation and completion carries that cutoff. Sessions, child relations,
   and message parts created by the review itself cannot enter later pages;
-  mutable pre-cutoff metadata invalidates completion rather than being accepted.
+  mutable pre-cutoff metadata that changes the selected page invalidates
+  completion. Unrelated concurrent mutations outside that page do not prevent
+  its exact revalidation and atomic persistence.
 - A page digest binds the cutoff and complete ordered sanitized candidate
   metadata, including state, state source, timestamp, cycle correlation, and
   parent/child relationships. Completion rejects any changed candidate metadata.
