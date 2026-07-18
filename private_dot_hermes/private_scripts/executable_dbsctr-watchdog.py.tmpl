@@ -7,6 +7,9 @@ from pathlib import Path
 
 DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
 HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
+GH = os.environ.get("GH", "gh")
+GITHUB_ACCOUNT = {{ .dotfiles_ai.hermes.github_account | quote }}
+GITHUB_REPOSITORY = {{ .dotfiles_ai.hermes.github_repository | quote }}
 STATE = Path(os.environ.get("DBSCTR_WATCHDOG_STATE", {{ printf "%s/.local/state/dotfiles-ai/hermes-watchdog.json" .chezmoi.homeDir | quote }}))
 TERMINAL = {"merged", "closed", "abandoned"}
 
@@ -16,6 +19,27 @@ def command(argv):
 
 
 workers = command([DBSCTRCTL, "improvement-status"])["workers"]
+token = None
+for index, worker in enumerate(workers):
+    if worker["state"] != "draft_pr" or not worker.get("pr_url"):
+        continue
+    if token is None:
+        token = subprocess.run(
+            [GH, "auth", "token", "--hostname", "github.com", "--user", GITHUB_ACCOUNT],
+            check=True, text=True, capture_output=True,
+        ).stdout.strip()
+        if not token:
+            raise RuntimeError("configured GitHub account returned no token")
+    result = subprocess.run(
+        [GH, "pr", "view", worker["pr_url"], "--repo", GITHUB_REPOSITORY, "--json", "state,isDraft"],
+        check=True, text=True, capture_output=True, env={**os.environ, "GH_TOKEN": token},
+    )
+    pull_request = json.loads(result.stdout)
+    state = {"MERGED": "merged", "CLOSED": "closed"}.get(pull_request.get("state"))
+    if state:
+        worker = command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", state])
+        workers[index] = worker
+
 agents = command([HERDR, "agent", "list"])
 agents = agents.get("result", agents).get("agents", [])
 actionable = []
@@ -27,7 +51,8 @@ for worker in workers:
         "missing" if not matches else "ambiguous"
     )
     if status in {"missing", "ambiguous", "blocked", "idle", "done", "unknown"}:
-        actionable.append({"worker_id": worker["worker_id"], "state": worker["state"], "status": status})
+        actionable.append({"worker_id": worker["worker_id"], "state": worker["state"],
+                           "status": status, "recovery_attempts": worker["recovery_attempts"]})
 
 payload = json.dumps(actionable, sort_keys=True, separators=(",", ":"))
 previous = STATE.read_text(encoding="utf-8") if STATE.is_file() else None
@@ -44,7 +69,8 @@ try:
 finally:
     Path(temporary).unlink(missing_ok=True)
 
-if actionable and payload != previous:
+urgent = any(item["status"] in {"missing", "ambiguous"} for item in actionable)
+if actionable and (urgent or payload != previous):
     print(json.dumps({"wakeAgent": True, "context": {"workers": actionable}}, separators=(",", ":")))
 else:
     print('{"wakeAgent":false}')

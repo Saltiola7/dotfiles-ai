@@ -152,10 +152,9 @@ export async function improvementStatus(workerID?: string, cwd = process.cwd()) 
   ], cwd)
 }
 
-export async function improvementClaim(workerID: string, sessionID: string, summary: string, cwd = process.cwd()) {
+export async function improvementClaim(sessionID: string, summary: string, cwd = process.cwd()) {
   return await run([
     "dbsctrctl", "improvement-claim",
-    "--worker-id", workerID,
     "--session-id", sessionID,
     "--summary", summary,
   ], cwd)
@@ -167,11 +166,14 @@ export async function improvementUpdate(workerID: string, args: {
   tabID?: string
   paneID?: string
   cycleID?: string
+  prNumber?: number
+  prURL?: string
   paths?: string[]
 }, cwd = process.cwd()) {
   const argv = ["dbsctrctl", "improvement-update", "--worker-id", workerID, "--state", args.state]
   const names: Record<string, string> = {
     workspaceID: "workspace-id", tabID: "tab-id", paneID: "pane-id", cycleID: "cycle-id",
+    prNumber: "pr-number", prURL: "pr-url",
   }
   for (const [name, value] of Object.entries(args)) {
     if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))

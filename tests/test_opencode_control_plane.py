@@ -500,8 +500,8 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
-        'await improvementClaim("worker-1","session-1","safe; literal",process.cwd());'
-        'await improvementUpdate("worker-1",{state:"implementing",paths:["a b","x;nope"]},process.cwd());'
+        'await improvementClaim("session-1","safe; literal",process.cwd());'
+        'await improvementUpdate("worker-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd());'
         'await improvementStatus("worker-1",process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
@@ -509,10 +509,11 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
                    text=True, capture_output=True, check=True)
     calls = log.read_text().splitlines()
     assert calls == [
-        "CALL", "<improvement-claim>", "<--worker-id>", "<worker-1>",
-        "<--session-id>", "<session-1>", "<--summary>", "<safe; literal>",
+        "CALL", "<improvement-claim>", "<--session-id>", "<session-1>",
+        "<--summary>", "<safe; literal>",
         "CALL", "<improvement-update>", "<--worker-id>", "<worker-1>",
-        "<--state>", "<implementing>", "<--path>", "<a b>", "<--path>", "<x;nope>",
+        "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
+        "<--path>", "<a b>", "<--path>", "<x;nope>",
         "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",
     ]
 

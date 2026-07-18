@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -183,6 +184,16 @@ def test_configurator_reuses_saved_cron_id_and_fails_closed() -> None:
         check=True,
     ).stdout
     assert 'cron remove "$job_id"' in disabled
+    with tempfile.TemporaryDirectory() as disabled_temp:
+        disabled_home = Path(disabled_temp)
+        saved = disabled_home / ".local/state/dotfiles-ai/hermes-review-cron-id"
+        saved.parent.mkdir(parents=True)
+        saved.write_text("abcdef123456\n")
+        missing = subprocess.run(["bash"], input=disabled,
+                                 env={"HOME": str(disabled_home), "PATH": "/usr/bin:/bin"},
+                                 text=True, capture_output=True)
+        assert missing.returncode != 0
+        assert "cannot remove saved supervisor jobs" in missing.stderr
 
 
 def test_configurator_creates_then_edits_exact_cron_id(tmp_path: Path) -> None:
@@ -258,7 +269,7 @@ def test_watchdog_wakes_only_on_changed_actionable_worker_state(tmp_path: Path) 
     dbsctrctl = bin_dir / "dbsctrctl"
     herdr = bin_dir / "herdr"
     dbsctrctl.write_text(
-        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"discovery\"}]}'\n"
+        "#!/bin/sh\nprintf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"discovery\",\"recovery_attempts\":0}]}'\n"
     )
     herdr.write_text(
         "#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"agents\":[{\"agent_session\":{\"value\":\"session-1\"},\"agent_status\":\"blocked\"}]}}'\n"
@@ -274,6 +285,49 @@ def test_watchdog_wakes_only_on_changed_actionable_worker_state(tmp_path: Path) 
     repeated = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
     assert json.loads(repeated.stdout) == {"wakeAgent": False}
     assert state.stat().st_mode & 0o777 == 0o600
+    herdr.write_text("#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"agents\":[]}}'\n")
+    missing = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(missing.stdout)["wakeAgent"] is True
+    missing_again = subprocess.run(["python3"], input=script, env=env, text=True, capture_output=True, check=True)
+    assert json.loads(missing_again.stdout)["wakeAgent"] is True
+    assert '"pr", "view"' in script
+    assert '"MERGED": "merged", "CLOSED": "closed"' in script
+
+
+def test_watchdog_records_human_pr_outcome_without_waking_agent(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "commands.log"
+    dbsctrctl = bin_dir / "dbsctrctl"
+    herdr = bin_dir / "herdr"
+    gh = bin_dir / "gh"
+    dbsctrctl.write_text(
+        "#!/bin/sh\n"
+        "printf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
+        "if [ \"$1\" = improvement-status ]; then\n"
+        "  printf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"draft_pr\",\"recovery_attempts\":0,\"pr_url\":\"https://github.com/Saltiola7/dotfiles-ai/pull/7\"}]}'\n"
+        "else printf '%s\\n' '{\"worker_id\":\"worker-1\",\"session_id\":\"session-1\",\"state\":\"merged\",\"recovery_attempts\":0}'; fi\n"
+    )
+    herdr.write_text("#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"agents\":[]}}'\n")
+    gh.write_text(
+        "#!/bin/sh\n"
+        "printf 'gh %s token=%s\\n' \"$*\" \"${GH_TOKEN:+set}\" >> \"$COMMAND_LOG\"\n"
+        "if [ \"$1 $2\" = 'auth token' ]; then printf 'test-token\\n';\n"
+        "else printf '%s\\n' '{\"state\":\"MERGED\",\"isDraft\":false}'; fi\n"
+    )
+    for executable in (dbsctrctl, herdr, gh):
+        executable.chmod(0o755)
+    script = render_source("private_dot_hermes/private_scripts/executable_dbsctr-watchdog.py.tmpl")
+    result = subprocess.run(
+        ["python3"], input=script, text=True, capture_output=True, check=True,
+        env={**os.environ, "DBSCTRCTL": str(dbsctrctl), "HERDR": str(herdr), "GH": str(gh),
+             "COMMAND_LOG": str(log), "DBSCTR_WATCHDOG_STATE": str(tmp_path / "state.json")},
+    )
+    assert json.loads(result.stdout) == {"wakeAgent": False}
+    commands = log.read_text()
+    assert "improvement-update --worker-id worker-1 --state merged" in commands
+    assert "gh pr view" in commands and "token=set" in commands
+    assert "test-token" not in commands
 
 
 def test_example_documents_machine_local_hermes_settings() -> None:

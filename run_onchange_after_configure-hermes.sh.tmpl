@@ -16,6 +16,10 @@ state_dir="$HOME/.local/state/dotfiles-ai"
 spawner_id_file="$state_dir/hermes-review-cron-id"
 watchdog_id_file="$state_dir/hermes-watchdog-cron-id"
 {{ if not .dotfiles_ai.hermes.enabled -}}
+if [[ ! -x "$HERMES" && ( -f "$spawner_id_file" || -f "$watchdog_id_file" ) ]]; then
+    echo "Hermes is missing; cannot remove saved supervisor jobs" >&2
+    exit 1
+fi
 if [[ -x "$HERMES" ]]; then
     for id_file in "$spawner_id_file" "$watchdog_id_file"; do
         [[ -f "$id_file" ]] || continue

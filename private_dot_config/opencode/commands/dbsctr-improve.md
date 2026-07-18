@@ -24,7 +24,8 @@ Operate as one bounded native-Build R&D worker:
    to typed begin. Work only in the isolated worktree and complete every gate.
 6. Final Push may publish only the feature branch and create a draft pull request
    against the recorded base. Never merge, mark ready, release, or deploy.
-7. Record the draft-PR state, persist the final sanitized result, run `/compact`
-   once, and leave the Herdr tab open for the operator.
+7. Record the returned draft PR number and URL with the `draft_pr` state, persist
+   the final sanitized result, run `/compact` once, and leave the Herdr tab open
+   for the operator.
 
 $ARGUMENTS

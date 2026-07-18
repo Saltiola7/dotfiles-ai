@@ -2630,10 +2630,23 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIsNone(registered["opportunity_id"])
         first = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
-            "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+            "--session-id", "session-1", "--summary", summary,
         ).stdout)
         self.assertRegex(first["opportunity_id"], r"^[0-9a-f]{64}$")
         self.assertEqual(first["state"], "claimed")
+        bypass = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "implementing",
+            "--cycle-id", "cycle-1", "--path", "tracked.txt", ok=False,
+        )
+        self.assertIn("claimed -> implementing", bypass.stderr)
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "discovery")
+        missing_scope = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "implementing", ok=False,
+        )
+        self.assertIn("requires a cycle ID and declared scope", missing_scope.stderr)
         duplicate = run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-2", "--session-id", "session-2",
@@ -2657,18 +2670,33 @@ class DbsctrctlTest(unittest.TestCase):
         ):
             run(self.repo, "improvement-claim", "--state-root", str(state),
                 "--worker-id", worker, "--session-id", session, "--summary", summary)
+            run(self.repo, "improvement-update", "--state-root", str(state),
+                "--worker-id", worker, "--state", "discovery")
         updated = json.loads(run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
+            "--cycle-id", "cycle-1",
             "--path", "dot_local/bin/executable_dbsctrctl",
         ).stdout)
         self.assertEqual(updated["paths"], ["dot_local/bin/executable_dbsctrctl"])
         conflict = run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-2", "--state", "implementing",
+            "--cycle-id", "cycle-2",
             "--path", "dot_local/bin", ok=False,
         )
         self.assertIn("scope conflicts", conflict.stderr)
+        draft = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "draft_pr", "--pr-number", "7",
+            "--pr-url", "https://github.com/Saltiola7/dotfiles-ai/pull/7",
+        ).stdout)
+        self.assertEqual(draft["pr_number"], 7)
+        merged = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "merged",
+        ).stdout)
+        self.assertEqual(merged["state"], "merged")
 
     def test_improvement_recovery_blocks_then_requires_retry_or_abandon(self):
         state = Path(self.temp.name) / "improvement-recovery"
@@ -2701,6 +2729,30 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-1",
         ).stdout)
         self.assertEqual(status["workers"], [abandoned])
+
+    def test_improvement_schema_install_rolls_back_as_one_transaction(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_schema", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.execute("create table ledger_meta (key text primary key, value text not null)")
+        connection.execute("insert into ledger_meta values ('schema_version', '1')")
+        connection.commit()
+
+        def deny_scope(action, name, *_args):
+            return sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_CREATE_TABLE and name == "improvement_scope" else sqlite3.SQLITE_OK
+
+        connection.set_authorizer(deny_scope)
+        with self.assertRaises(sqlite3.DatabaseError):
+            module.ensure_improvement_schema(connection)
+        connection.set_authorizer(None)
+        tables = {row[0] for row in connection.execute(
+            "select name from sqlite_master where type='table' and name like 'improvement_%'")}
+        self.assertEqual(tables, set())
+        self.assertIsNone(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone())
+        connection.close()
 
 
 if __name__ == "__main__":
