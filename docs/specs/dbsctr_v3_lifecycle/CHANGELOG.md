@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-18 - V3.16-2 Live Cohort Refresh
+
+- History save now revalidates and refreshes every cohort member still present in
+  the bound live snapshot, while retaining validated archive evidence for members
+  no longer present in OpenCode. Missing unarchived members still fail closed.
+- Validation: included in DAI-003G's 130 passed, 1 skipped suite, mixed
+  live/archive-only regression, independent review, and targeted helper deploy.
+  Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-18 - V3.12-5 Concurrent Review Completion
 
 - Kept global database identity strict for pagination while binding completion

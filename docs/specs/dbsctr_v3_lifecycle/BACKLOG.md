@@ -6,7 +6,6 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.16-2 | Refresh live cohort evidence during history save | high | active | V3.16-1,V3.19-1 | History-save evidence selection | Archived and live cohort evidence | yes, with DAI-003G | Full-history lenses must not replay stale incomplete archives | S | Existing reviewed candidate retains live metrics and identity |
 | V3.17-1 | Make live history self-safe | critical | done | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed caller self-mutation is excluded without weakening unrelated mutation detection | M | 124 tests, live deployment, independent privacy review, active-tool continuation/save fixtures |
 | V3.18-1 | Correct correlation and attach resumed runtimes | critical | done | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | 128 tests, typed context fixtures, live quality scan, deployment, independent review |
 | V3.19-1 | Add private SQLite improvement ledger | high | done | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | 136 tests, live migration, semantic integrity, permission, crash recovery, backup, and restore verification |
@@ -18,6 +17,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.16-2 | Refresh mixed live and archive-only history cohorts during save | 2026-07-18 | `bc2bb08` |
 | V3.12-5 | Allow page-stable completion during unrelated OpenCode writes | 2026-07-18 | `9830b2f` |
 | V3.23-1 | Add capability-first autonomous improvement coordination and draft-PR delivery | 2026-07-18 | `9b77969`, `5f12796`, `7b863d8`, `04627bf`, `6f9a112` |
 | V3.19-1 | Add transactional private SQLite review ledger | 2026-07-16 | `5cd1fd5`, `8468feb` |

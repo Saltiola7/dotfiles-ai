@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-18 - DAI-003G Full-History Improvement Lenses
+
+- Changed autonomous R&D from one unreviewed page to every sanitized history
+  continuation with no reviewed-status filter. Review markers remain available
+  only as filters and are never changed by autonomous lens runs.
+- Required a bounded running shortlist and a plain-language evidence, impact,
+  interface, and non-goal summary before any claim or Discovery questions.
+  Correlation remains supporting evidence rather than a standalone proposal.
+- Refreshed validated live cohort evidence during history save while preserving
+  archive-only members, so existing incomplete archives cannot erase richer live
+  metrics and retained sessions remain replayable.
+- Validation: 130 passed, 1 skipped; compilation, diff checks, mixed live/archive
+  persistence, command rendering, independent review, targeted deployment, and
+  live full-history worker startup passed.
+- Deployment: managed helper and `/dbsctr-improve`; stale first-page Discovery
+  worker abandoned and replaced by registered worker `dbsctr-4f6c2a91` in its own
+  tab. Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-18 - DAI-003F R&D Runtime Hardening
 
 - Added one persistent single-pane Hermes console and one final single-pane tab
