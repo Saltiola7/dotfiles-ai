@@ -35,7 +35,8 @@ Restart OpenCode after applying because it loads configuration only at startup.
 
 ## Configuration
 
-- `opencode`: Bedrock profile/region, default models, and LM Studio endpoint.
+- `opencode`: Bedrock profile/region, default models, LM Studio endpoint, and an
+  optional machine-local `seo-data-science` repository reference.
 - `herdr`: theme, LaunchAgent toggle, and executable path.
 - `rnd`: opt-in daily review hour/minute, watchdog interval, managed workspace,
   writable source, and non-secret GitHub identity.

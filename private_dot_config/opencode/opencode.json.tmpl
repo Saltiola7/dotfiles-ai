@@ -87,6 +87,14 @@
       }
     }
   },
+{{ if ne .dotfiles_ai.opencode.seo_data_science_path "" -}}
+  "references": {
+    "seo-data-science": {
+      "path": {{ .dotfiles_ai.opencode.seo_data_science_path | toJson }},
+      "description": "Existing data-platform and observability architecture; use for compatible design decisions."
+    }
+  },
+{{ end -}}
   "mcp": {
     "context7": {
       "type": "remote",

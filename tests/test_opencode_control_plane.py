@@ -17,6 +17,7 @@ DATA = {
             "default_model": "openai/gpt-5.6-sol",
             "small_model": "openai/gpt-5.6-terra",
             "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+            "seo_data_science_path": "",
         },
         "herdr": {
             "theme": "catppuccin",
@@ -37,11 +38,11 @@ def text(path: str) -> str:
     return (ROOT / path).read_text()
 
 
-def rendered_config(env: dict[str, str] | None = None) -> dict:
+def rendered_config(env: dict[str, str] | None = None, data: dict | None = None) -> dict:
     result = subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
-            "--config-format", "toml", "--override-data", json.dumps(DATA),
+            "--config-format", "toml", "--override-data", json.dumps(data or DATA),
             "cat", str(Path.home() / ".config/opencode/opencode.json"),
         ],
         text=True,
@@ -50,6 +51,18 @@ def rendered_config(env: dict[str, str] | None = None) -> dict:
         env={**os.environ, **(env or {})},
     )
     return json.loads(result.stdout)
+
+
+def test_optional_local_repository_reference():
+    assert "references" not in rendered_config()
+    configured = json.loads(json.dumps(DATA))
+    configured["dotfiles_ai"]["opencode"]["seo_data_science_path"] = "/workspace/seo-data-science"
+    assert rendered_config(data=configured)["references"] == {
+        "seo-data-science": {
+            "path": "/workspace/seo-data-science",
+            "description": "Existing data-platform and observability architecture; use for compatible design decisions.",
+        }
+    }
 
 
 def test_provider_and_primary_contracts():

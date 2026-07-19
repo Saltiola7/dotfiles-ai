@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Portable Local Repository Reference
+
+- Added an optional machine-local `seo_data_science_path` that renders one named
+  OpenCode reference without committing teammate-specific absolute paths. Empty
+  shared defaults preserve the deny-by-default external-directory boundary.
+- Validation: 25 focused control-plane and portability tests passed; configured
+  and empty rendering passed; targeted chezmoi dry-run, deployment idempotence,
+  and `opencode debug config` passed. Existing OpenCode processes require
+  restart. Gate Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - Compact Analytics Adapters
 
 - Added read-only `dbsctr_history_capture`, `dbsctr_history_telemetry`, and
