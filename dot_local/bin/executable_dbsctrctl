@@ -2474,6 +2474,8 @@ def review_scan(args):
                           "database_digest": database_digest, "exclusion_digest": exclusion_digest}
          if not getattr(args, "history_all", False) and len(eligible) > args.cursor + args.limit else None}
     result["_excluded_session_ids"] = sorted(excluded_sessions)
+    if getattr(args, "history_metrics", False):
+        result["_source_identities"] = {key: value.hexdigest() for key, value in source_identities.items()}
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if not getattr(args, "history_metrics", False) and len(encoded.encode()) > REVIEW_SCAN_HARD:
         fail("review scan response exceeds bound")
@@ -2483,6 +2485,7 @@ def review_scan(args):
 def command_review_scan(args):
     scan = review_scan(args)
     scan.pop("_excluded_session_ids", None)
+    scan.pop("_source_identities", None)
     print(json.dumps(scan, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
@@ -2606,6 +2609,17 @@ def history_aggregates(candidate):
             **{f"cycle_{state}_count": states.count(state) for state in ("active", "blocked", "abandoned", "completed", "unknown")}}
 
 
+def history_page_digest(records, source_identities):
+    identity = hashlib.sha256()
+    for record in records:
+        session_id = record["session_id"]
+        identity.update(session_id.encode() + b"\0")
+        source = source_identities.get(session_id)
+        identity.update(bytes.fromhex(source) if source else hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).digest())
+    return identity.hexdigest()
+
+
 def history_identity(cycles, session_directory=None, session_ids=(), project_digest="unavailable", cache=None):
     """Use only unambiguous Cycle Record structure; never session prose or paths."""
     cache_key = (str(session_directory or ""), tuple(item["cycle_id"] for item in cycles))
@@ -2717,7 +2731,8 @@ def history_cohorts(root):
 def validate_history_report_input(value):
     text_fields = ("findings", "scorecards", "trends", "proposals", "caveats")
     scan_fields = ("snapshot", "session_ceiling", "part_ceiling", "database_digest")
-    allowed = {"schema_version", "cohort", "query_digest", "rubric", *text_fields, *scan_fields}
+    page_fields = ("limit", "cursor")
+    allowed = {"schema_version", "cohort", "query_digest", "rubric", *text_fields, *scan_fields, *page_fields}
     if (not isinstance(value, dict) or set(value) - allowed
             or not {"schema_version", "cohort", "query_digest", "rubric", "findings"} <= set(value)
             or value.get("schema_version") != 1):
@@ -2753,6 +2768,14 @@ def validate_history_report_input(value):
         if any(type(value[name]) is not int or value[name] < 0 for name in scan_fields[:3]):
             fail("review history report has invalid scan identity")
         history_digest(value["database_digest"], "database digest")
+    present_page = {name for name in page_fields if name in value}
+    if present_page and present_page != set(page_fields):
+        fail("review history report has incomplete page identity")
+    if present_page and not present_scan:
+        fail("review history report page identity requires scan identity")
+    if present_page and (type(value["limit"]) is not int or not 1 <= value["limit"] <= REVIEW_MAX_LIMIT
+                         or type(value["cursor"]) is not int or value["cursor"] < 0):
+        fail("review history report has invalid page identity")
     return {**value, **{name: value.get(name, []) for name in text_fields}}
 
 
@@ -2824,8 +2847,10 @@ def command_review_history(args):
                   "snapshot": metadata.get("snapshot"), "session_ceiling": metadata.get("session_ceiling"),
                    "part_ceiling": metadata.get("part_ceiling"), "database_digest": metadata.get("database_digest"),
                    "exclusion_digest": metadata.get("exclusion_digest")}
-        result["digest"] = review_digest(page, result["snapshot"], result["session_ceiling"],
-                                         result["part_ceiling"], result["database_digest"])
+        result["digest"] = review_digest(
+            page, result["snapshot"], result["session_ceiling"], result["part_ceiling"],
+            history_page_digest(page, live.get("_source_identities", {}) if not args.archive_only and not args.replay else {}),
+        )
         for name in ("snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"):
             supplied = getattr(args, name)
             if args.replay and supplied is not None:
@@ -2991,6 +3016,7 @@ def command_review_history_save(args):
         records = {item["session_id"]: item for item in history_evidence(root)}
         text_fields = {"findings", "scorecards", "trends", "proposals", "caveats"}
         scan_fields = {"snapshot", "session_ceiling", "part_ceiling", "database_digest"}
+        page_fields = {"limit", "cursor"}
         cohort = report["cohort"]
         ids = [history_id(item, "history cohort ID") for item in cohort]
         if set(ids).intersection(excluded_family):
@@ -3003,18 +3029,33 @@ def command_review_history_save(args):
                     or not isinstance(report.get("database_digest"), str)):
                 fail("review history report cohort evidence is unavailable")
             history_digest(report["database_digest"], "database digest")
+            page_bound = page_fields <= set(report)
             scan = review_scan(argparse.Namespace(
                 database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT,
                 cursor=0, snapshot=report["snapshot"],
                 session_ceiling=report["session_ceiling"], part_ceiling=report["part_ceiling"],
                 database_digest=report["database_digest"], lock_held=True,
                 include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
-                 excluded_session_id=args.excluded_session_id,
-                 excluded_message_id=args.excluded_message_id,
+                excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
+                allow_database_drift=page_bound,
             ))
             candidates = scan["candidates"]
             if set(ids).intersection(scan["_excluded_session_ids"]):
                 fail("review history report cohort contains an excluded session")
+            if page_bound:
+                archive = {name: report[name] for name in scan_fields}
+                live = {item["session_id"]: candidate_history_evidence(item, archive, mark_reviewed=False)
+                        for item in candidates}
+                if set(ids) - set(live) - set(records):
+                    fail("review history report cohort evidence is unavailable")
+                available = {key: {**records.get(key, {}), **value} for key, value in live.items()}
+                available.update({key: value for key, value in records.items() if key not in live})
+                page = [available[item] for item in ids]
+                current_query_digest = review_digest(page, report["snapshot"], report["session_ceiling"],
+                                                     report["part_ceiling"],
+                                                     history_page_digest(page, scan["_source_identities"]))
+                if current_query_digest != report["query_digest"]:
+                    fail("OpenCode database changed within the review snapshot")
             selected = {item["session_id"]: item for item in candidates if item["session_id"] in wanted}
             if set(wanted) - set(selected) - set(records):
                 fail("review history report cohort evidence is unavailable")
@@ -3025,7 +3066,7 @@ def command_review_history_save(args):
             records.update(captured)
         else:
             captured = {}
-        stored = {key: value for key, value in report.items() if key not in scan_fields}
+        stored = {key: value for key, value in report.items() if key not in scan_fields | page_fields}
         stored.update({name: report.get(name, []) for name in text_fields})
         stored["evidence"] = [records[item] for item in ids]
         report_id = hashlib.sha256(json.dumps(stored, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]

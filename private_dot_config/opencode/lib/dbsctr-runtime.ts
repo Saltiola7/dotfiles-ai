@@ -133,6 +133,8 @@ export async function reviewHistorySave(report: {
   session_ceiling?: number
   part_ceiling?: number
   database_digest?: string
+  limit?: number
+  cursor?: number
   findings: string[]
   scorecards?: string[]
   trends?: string[]

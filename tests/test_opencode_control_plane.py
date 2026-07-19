@@ -280,8 +280,16 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
     assert "snapshot: args.snapshot," in tools
+    history_save = tools.split("export const review_history_save = tool({", 1)[1]
+    assert "limit: tool.schema.number().int().min(1).max(100).optional()" in history_save
+    assert "cursor: tool.schema.number().int().min(0).optional()" in history_save
+    assert "limit: args.limit," in history_save
+    assert "cursor: args.cursor," in history_save
     assert "default(false)" in tools
     runtime = (OC / "lib/dbsctr-runtime.ts").read_text()
+    history_save_runtime = runtime.split("export async function reviewHistorySave", 1)[1]
+    assert "limit?: number" in history_save_runtime
+    assert "cursor?: number" in history_save_runtime
     assert '["dbsctrctl", "status", "--json"]' in runtime
     assert '["dbsctrctl", "audit", "--commit", commit, "--json"]' in runtime
     assert '"dbsctrctl", "inspect", "--commit"' in runtime

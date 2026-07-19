@@ -2367,6 +2367,89 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("changed within the review snapshot", changed.stderr)
 
+    def test_review_history_save_revalidates_exact_continuation_cohort(self):
+        database = Path(self.temp.name) / "history-continuation-save.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        for index in range(103):
+            timestamp = 1784073600000 + index
+            connection.execute("insert into session values (?, null, 'DBSCTR', ?)",
+                               (f"session-{index:03}", timestamp))
+            connection.execute("insert into message values (?, ?, ?, '{}')",
+                               (f"message-{index:03}", f"session-{index:03}", timestamp))
+            connection.execute("insert into part values (?, ?, ?, ?, ?, 'DBSCTR')",
+                               (f"part-{index:03}", f"message-{index:03}",
+                                f"session-{index:03}", timestamp, timestamp))
+        connection.commit()
+        state = Path(self.temp.name) / "history-continuation-save-state"
+        first = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "100", "--cursor", "0",
+        ).stdout)
+        older = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "100", "--cursor", "100", "--snapshot", str(first["snapshot"]),
+            "--session-ceiling", str(first["session_ceiling"]),
+            "--part-ceiling", str(first["part_ceiling"]), "--database-digest", first["database_digest"],
+        ).stdout)
+        self.assertEqual(older["session_ids"], ["session-002", "session-001", "session-000"])
+
+        def report(page, session_ids):
+            return json.dumps({
+                "schema_version": 1, "cohort": session_ids, "query_digest": page["digest"],
+                "rubric": {"name": "history", "version": "1", "digest": "c" * 64},
+                "snapshot": page["snapshot"], "session_ceiling": page["session_ceiling"],
+                "part_ceiling": page["part_ceiling"], "database_digest": page["database_digest"],
+                "limit": page["limit"], "cursor": page["cursor"],
+                "findings": ["sanitized"],
+            })
+
+        connection.execute("update part set data='DBSCTR selected change' where id='part-001'")
+        connection.commit()
+        changed = run(
+            self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+            "--report-json", report(older, older["session_ids"]), ok=False,
+        )
+        self.assertIn("changed within the review snapshot", changed.stderr)
+
+        connection.execute("update part set data='DBSCTR' where id='part-001'")
+        connection.execute("update part set data='unrelated change' where id='part-102'")
+        connection.commit()
+        saved = json.loads(run(
+            self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+            "--report-json", report(older, older["session_ids"]),
+        ).stdout)
+        self.assertRegex(saved["report_id"], r"^[0-9a-f]{24}$")
+
+        missing_state = Path(self.temp.name) / "history-continuation-missing-state"
+        missing_first = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(missing_state),
+            "--limit", "100", "--cursor", "0",
+        ).stdout)
+        missing_older = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(missing_state),
+            "--limit", "100", "--cursor", "100", "--snapshot", str(missing_first["snapshot"]),
+            "--session-ceiling", str(missing_first["session_ceiling"]),
+            "--part-ceiling", str(missing_first["part_ceiling"]),
+            "--database-digest", missing_first["database_digest"],
+        ).stdout)
+
+        connection.execute("delete from part where id='part-001'")
+        connection.execute("delete from message where id='message-001'")
+        connection.execute("delete from session where id='session-001'")
+        connection.commit()
+        connection.close()
+        missing = run(
+            self.repo, "review-history-save", "--database", str(database), "--state-root", str(missing_state),
+            "--report-json", report(missing_older, missing_older["session_ids"]), ok=False,
+        )
+        self.assertIn("cohort evidence is unavailable", missing.stderr)
+
     def test_review_history_filters_archives_replays_and_forgets_closed(self):
         state = Path(self.temp.name) / "history-private"
         history = state / "reviews/history"
@@ -2424,6 +2507,15 @@ class DbsctrctlTest(unittest.TestCase):
         result = run(self.repo, "review-history-save", "--state-root", str(state),
                      "--report-json", json.dumps(report), ok=False)
         self.assertIn("invalid schema", result.stderr)
+        self.assertFalse(state.exists())
+        report.update({
+            "rubric": {"name": "history", "version": "1", "digest": "c" * 64},
+            "snapshot": 1784073600000, "session_ceiling": 1, "part_ceiling": 1,
+            "database_digest": "d" * 64, "limit": 1,
+        })
+        result = run(self.repo, "review-history-save", "--state-root", str(state),
+                     "--report-json", json.dumps(report), ok=False)
+        self.assertIn("incomplete page identity", result.stderr)
         self.assertFalse(state.exists())
 
     def test_review_history_snapshot_binds_cycle_identity(self):
