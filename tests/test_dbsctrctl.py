@@ -1,6 +1,7 @@
 """Focused subprocess contracts for dbsctrctl."""
 
 import json
+import contextlib
 import fcntl
 import hashlib
 import importlib.machinery
@@ -2624,6 +2625,19 @@ class DbsctrctlTest(unittest.TestCase):
         connection = sqlite3.connect(ledger)
         connection.execute("update history_capture_members set session_id='session-2' "
                            "where capture_id=? and position=0", (saved["capture_id"],))
+        connection.execute("update history_capture_members set position=5 "
+                           "where capture_id=? and position=0", (saved["capture_id"],))
+        connection.commit()
+        connection.close()
+        position = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("member columns mismatch", position.stderr)
+
+        connection = sqlite3.connect(ledger)
+        connection.execute("update history_capture_members set position=0 "
+                           "where capture_id=? and position=5", (saved["capture_id"],))
         connection.commit()
         connection.close()
         run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-2")
@@ -2632,6 +2646,58 @@ class DbsctrctlTest(unittest.TestCase):
             "--capture-id", saved["capture_id"], ok=False,
         )
         self.assertIn("capture is missing", missing.stderr)
+
+    def test_history_capture_uses_one_read_under_the_write_lock(self):
+        database = Path(self.temp.name) / "history-capture-lock.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+            insert into session values ('session-1', null, 'DBSCTR', 1784073600001);
+            insert into message values ('message-1', 'session-1', 1784073600001, '{}');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600001, 1784073600001, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-capture-lock-state"
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_capture_lock_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        original_lock = module.review_lock
+        original_page = module.review_history_page
+        active = False
+        calls = 0
+
+        @contextlib.contextmanager
+        def tracked_lock(root):
+            nonlocal active
+            with original_lock(root) as handle:
+                active = True
+                try:
+                    yield handle
+                finally:
+                    active = False
+
+        def tracked_page(args, lock_held=False):
+            nonlocal calls
+            self.assertTrue(active)
+            self.assertTrue(lock_held)
+            calls += 1
+            return original_page(args, lock_held=lock_held)
+
+        args = SimpleNamespace(
+            database=str(database), state_root=str(state), page_size=100, after=None, before=None,
+            method_revision=None, cycle_id=None, state=None, context=None, project_digest=None,
+            reviewed_status=None, excluded_session_id=None, excluded_message_id=None,
+        )
+        with mock.patch.object(module, "review_lock", tracked_lock), \
+                mock.patch.object(module, "review_history_page", tracked_page), \
+                mock.patch("builtins.print"):
+            module.command_history_capture_save(args)
+        self.assertEqual(calls, 1)
 
     def test_review_history_filters_archives_replays_and_forgets_closed(self):
         state = Path(self.temp.name) / "history-private"
