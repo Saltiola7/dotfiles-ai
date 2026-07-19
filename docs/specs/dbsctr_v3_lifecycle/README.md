@@ -745,6 +745,18 @@ records, and retirement decisions. External writes remain approval-gated.
 - The validation authority covers at least 201 sessions, deterministic ordering,
   response bounds, aggregate/member mismatch, atomic deletion, replay, malformed
   state, and latency.
+- `dbsctrctl history-capture-save` accepts the existing sanitized history
+  filters plus a page size, internally follows one fixed snapshot through its
+  terminal continuation, and returns only a bounded summary and opaque capture
+  ID. Callers never submit authoritative pages or aggregates.
+- `dbsctrctl history-capture` returns that bounded summary by default. Supplying
+  a cursor returns at most 100 ordered sanitized members and an optional next
+  cursor. `dbsctrctl history-capture-delete` atomically removes the manifest and
+  members.
+- Capture tables are an additive, versioned private-ledger extension created on
+  first save. Existing review/history JSON contracts, reviewed markers,
+  migration, backup, restore, and explicit forget remain compatible; backup and
+  restore preserve captures, while forget removes every dependent capture.
 
 ### V3.21 Structured Telemetry Contract
 

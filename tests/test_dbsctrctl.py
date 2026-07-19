@@ -2464,6 +2464,132 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("cohort evidence is unavailable", missing.stderr)
 
+    def test_history_capture_saves_complete_snapshot_and_replays_bounded(self):
+        database = Path(self.temp.name) / "history-capture.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        for index in range(201):
+            timestamp = 1784073600000 + index
+            connection.execute("insert into session values (?, null, 'DBSCTR', ?)",
+                               (f"session-{index:03}", timestamp))
+            connection.execute("insert into message values (?, ?, ?, '{}')",
+                               (f"message-{index:03}", f"session-{index:03}", timestamp))
+            connection.execute("insert into part values (?, ?, ?, ?, ?, 'DBSCTR')",
+                               (f"part-{index:03}", f"message-{index:03}",
+                                f"session-{index:03}", timestamp, timestamp))
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-capture-state"
+
+        saved = json.loads(run(
+            self.repo, "history-capture-save", "--database", str(database),
+            "--state-root", str(state), "--page-size", "100",
+        ).stdout)
+        self.assertRegex(saved["capture_id"], r"^[0-9a-f]{24}$")
+        self.assertEqual(saved["member_count"], 201)
+        self.assertEqual(saved["page_count"], 3)
+        self.assertEqual(saved["aggregates"]["candidate_count"], 201)
+
+        summary = json.loads(run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"],
+        ).stdout)
+        self.assertEqual(summary, saved)
+        self.assertNotIn("members", summary)
+        middle = json.loads(run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], "--cursor", "100", "--limit", "100",
+        ).stdout)
+        self.assertEqual([item["session_id"] for item in middle["members"]],
+                         [f"session-{index:03}" for index in range(100, 0, -1)])
+        self.assertEqual(middle["continuation"], 200)
+        last = json.loads(run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], "--cursor", "200", "--limit", "100",
+        ).stdout)
+        self.assertEqual([item["session_id"] for item in last["members"]], ["session-000"])
+        self.assertIsNone(last["continuation"])
+        self.assertLess(len(json.dumps(middle).encode()), 256 * 1024)
+        self.assertEqual((state / "reviews/ledger.sqlite3").stat().st_mode & 0o777, 0o600)
+
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        run(self.repo, "history-capture-delete", "--state-root", str(state),
+            "--capture-id", saved["capture_id"])
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        self.assertEqual(json.loads(run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"],
+        ).stdout), saved)
+        deleted = json.loads(run(
+            self.repo, "history-capture-delete", "--state-root", str(state),
+            "--capture-id", saved["capture_id"],
+        ).stdout)
+        self.assertEqual(deleted, {"deleted": saved["capture_id"]})
+        missing = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("capture is missing", missing.stderr)
+
+    def test_history_capture_rejects_manifest_and_projection_tampering(self):
+        database = Path(self.temp.name) / "history-capture-integrity.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+            insert into session values ('session-2', null, 'DBSCTR', 1784073600002);
+            insert into session values ('session-1', null, 'DBSCTR', 1784073600001);
+            insert into session values ('session-0', null, 'DBSCTR', 1784073600000);
+            insert into message values ('message-2', 'session-2', 1784073600002, '{}');
+            insert into message values ('message-1', 'session-1', 1784073600001, '{}');
+            insert into message values ('message-0', 'session-0', 1784073600000, '{}');
+            insert into part values ('part-2', 'message-2', 'session-2', 1784073600002, 1784073600002, 'DBSCTR');
+            insert into part values ('part-1', 'message-1', 'session-1', 1784073600001, 1784073600001, 'DBSCTR');
+            insert into part values ('part-0', 'message-0', 'session-0', 1784073600000, 1784073600000, 'DBSCTR');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-capture-integrity-state"
+        saved = json.loads(run(
+            self.repo, "history-capture-save", "--database", str(database),
+            "--state-root", str(state), "--page-size", "2",
+        ).stdout)
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        payload = json.loads(connection.execute(
+            "select payload from history_captures where capture_id=?", (saved["capture_id"],)
+        ).fetchone()[0])
+        payload["aggregates"]["candidate_count"] = 99
+        connection.execute("update history_captures set payload=? where capture_id=?",
+                           (json.dumps(payload, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
+        connection.commit()
+        connection.close()
+        mismatched = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("aggregate projection mismatch", mismatched.stderr)
+
+        connection = sqlite3.connect(ledger)
+        payload["aggregates"]["candidate_count"] = 3
+        payload["pages"][1]["cursor"] = 3
+        connection.execute("update history_captures set payload=? where capture_id=?",
+                           (json.dumps(payload, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
+        connection.commit()
+        connection.close()
+        gap = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("page coverage", gap.stderr)
+
     def test_review_history_filters_archives_replays_and_forgets_closed(self):
         state = Path(self.temp.name) / "history-private"
         history = state / "reviews/history"

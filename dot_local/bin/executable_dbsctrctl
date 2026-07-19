@@ -41,6 +41,7 @@ REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 1
+CAPTURE_SCHEMA = 1
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -434,12 +435,13 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
             and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])
-            or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)):
+            or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)
+            or "capture_schema" in meta and meta["capture_schema"] != str(CAPTURE_SCHEMA)):
         fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
@@ -488,6 +490,8 @@ def ledger_semantic_integrity(connection):
         fail("private review ledger entry mismatch")
     if "improvement_schema" in meta:
         improvement_integrity(connection)
+    if "capture_schema" in meta:
+        capture_integrity(connection)
 
 
 def ensure_improvement_schema(connection):
@@ -570,6 +574,51 @@ def improvement_integrity(connection):
     for worker_id, value in connection.execute("SELECT worker_id, path FROM improvement_scope"):
         if not OPAQUE_ID.fullmatch(worker_id) or improvement_path(value) != value:
             fail("private improvement ledger contains an invalid scope")
+
+
+def ensure_capture_schema(connection):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone()
+    if row == (str(CAPTURE_SCHEMA),):
+        return
+    if row is not None:
+        fail("private history capture ledger has an unsupported schema")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE history_captures (
+            capture_id TEXT PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE history_capture_members (
+            capture_id TEXT NOT NULL REFERENCES history_captures(capture_id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            PRIMARY KEY (capture_id, position),
+            UNIQUE (capture_id, session_id)
+        ) WITHOUT ROWID""")
+        connection.execute("INSERT INTO ledger_meta VALUES ('capture_schema', ?)", (str(CAPTURE_SCHEMA),))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def capture_integrity(connection):
+    expected = {"history_captures", "history_capture_members"}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'history_capture%'")}
+    if tables != expected:
+        fail("private history capture tables are invalid")
+    for capture_id, payload in connection.execute("SELECT capture_id, payload FROM history_captures"):
+        try:
+            manifest = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+            members = [json.loads(row[0], object_pairs_hook=no_duplicate_keys) for row in connection.execute(
+                "SELECT payload FROM history_capture_members WHERE capture_id=? ORDER BY position", (capture_id,))]
+        except json.JSONDecodeError as error:
+            fail(f"private history capture is malformed: {error}")
+        if manifest.get("capture_id") != capture_id:
+            fail("private history capture identity mismatch")
+        validate_history_capture(manifest, members)
 
 
 def legacy_review_exists(root):
@@ -664,7 +713,7 @@ def ledger_content(connection):
     def payloads(query):
         return [(key, json.loads(payload, object_pairs_hook=no_duplicate_keys))
                 for key, payload in connection.execute(query)]
-    return {
+    result = {
         "index": tombstones,
         "review_reports": payloads("SELECT report_id, payload FROM review_reports ORDER BY report_id"),
         "history_evidence": [value for _, value in payloads(
@@ -674,6 +723,10 @@ def ledger_content(connection):
         "history_cohorts": payloads(
             "SELECT report_id, payload FROM history_reports WHERE kind='cohort' ORDER BY report_id"),
     }
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone() is not None:
+        result["history_captures"] = payloads(
+            "SELECT capture_id, payload FROM history_captures ORDER BY capture_id")
+    return result
 
 
 def content_digest(value):
@@ -2609,6 +2662,99 @@ def history_aggregates(candidate):
             **{f"cycle_{state}_count": states.count(state) for state in ("active", "blocked", "abandoned", "completed", "unknown")}}
 
 
+def history_capture_aggregates(records):
+    names = ("candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
+             "tool_call_count", "tool_error_count", "approval_count", "retry_count", "cost_total",
+             "token_total", "cycle_active_count", "cycle_blocked_count", "cycle_abandoned_count",
+             "cycle_completed_count", "cycle_unknown_count")
+    result = {}
+    for name in names:
+        values = [record["aggregates"].get(name, "unavailable") for record in records]
+        result[name] = (sum(values) if values and all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                                                      for value in values) else "unavailable")
+    return result
+
+
+def history_capture_query(args):
+    return {name: getattr(args, name, None) for name in (
+        "after", "before", "method_revision", "cycle_id", "state", "context", "project_digest",
+        "reviewed_status", "archive_only",
+    )}
+
+
+def validate_history_capture(value, members):
+    allowed = {"schema_version", "capture_id", "query", "snapshot", "session_ceiling", "part_ceiling",
+               "database_digest", "exclusion_digest", "page_size", "pages", "member_count",
+               "members_digest", "aggregates"}
+    if (not isinstance(value, dict) or set(value) != allowed or value.get("schema_version") != 1
+            or not isinstance(value.get("query"), dict)
+            or set(value["query"]) != {"after", "before", "method_revision", "cycle_id", "state", "context",
+                                       "project_digest", "reviewed_status", "archive_only"}
+            or type(value["query"]["archive_only"]) is not bool
+            or type(value.get("page_size")) is not int or not 1 <= value["page_size"] <= REVIEW_MAX_LIMIT
+            or type(value.get("member_count")) is not int or value["member_count"] < 1
+            or not isinstance(value.get("pages"), list) or not value["pages"]
+            or not isinstance(value.get("aggregates"), dict)):
+        fail("private history capture has an invalid schema")
+    for name in ("snapshot", "session_ceiling", "part_ceiling"):
+        if type(value.get(name)) is not int or value[name] < 0:
+            fail("private history capture has an invalid snapshot")
+    history_digest(value.get("database_digest"), "database digest")
+    if value.get("exclusion_digest") is not None:
+        history_digest(value["exclusion_digest"], "exclusion digest")
+    history_digest(value.get("members_digest"), "capture members digest")
+    for name in ("method_revision", "cycle_id", "state", "context", "reviewed_status"):
+        item = value["query"][name]
+        if item is not None and (not isinstance(item, str) or not OPAQUE_ID.fullmatch(item)):
+            fail("private history capture has an invalid query")
+    for name in ("after", "before"):
+        item = value["query"][name]
+        if item is not None and (type(item) is not int or item < REVIEW_START_MS):
+            fail("private history capture has an invalid query")
+    project_digest = value["query"]["project_digest"]
+    if project_digest is not None:
+        history_digest(project_digest, "project digest")
+    if value["query"]["state"] not in (None, "active", "blocked", "abandoned", "completed", "unknown"):
+        fail("private history capture has an invalid query")
+    if value["query"]["reviewed_status"] not in (None, "reviewed", "unreviewed"):
+        fail("private history capture has an invalid query")
+    expected_cursor = 0
+    total = 0
+    for position, page in enumerate(value["pages"]):
+        if (not isinstance(page, dict) or set(page) != {"cursor", "limit", "count", "continuation", "digest"}
+                or type(page.get("cursor")) is not int or page["cursor"] != expected_cursor
+                or page.get("limit") != value["page_size"] or type(page.get("count")) is not int
+                or not 1 <= page["count"] <= page["limit"]):
+            fail("private history capture page coverage is invalid")
+        history_digest(page.get("digest"), "capture page digest")
+        expected_continuation = expected_cursor + value["page_size"] if position < len(value["pages"]) - 1 else None
+        if page.get("continuation") != expected_continuation:
+            fail("private history capture page coverage is invalid")
+        expected_cursor += value["page_size"]
+        total += page["count"]
+    records = [validate_history_evidence(record) for record in members]
+    ids = [record["session_id"] for record in records]
+    if total != value["member_count"] or len(records) != value["member_count"] or len(set(ids)) != len(ids):
+        fail("private history capture membership mismatch")
+    aggregate = history_capture_aggregates(records)
+    if aggregate != value["aggregates"]:
+        fail("private history capture aggregate projection mismatch")
+    if hashlib.sha256(ledger_payload(records).encode()).hexdigest() != value["members_digest"]:
+        fail("private history capture members digest mismatch")
+    identity = {key: value[key] for key in value if key != "capture_id"}
+    expected_id = hashlib.sha256(ledger_payload(identity).encode()).hexdigest()[:24]
+    if value.get("capture_id") != expected_id:
+        fail("private history capture identity mismatch")
+    return value, records
+
+
+def history_capture_summary(value):
+    return {"schema_version": 1, "capture_id": value["capture_id"], "query": value["query"],
+            "snapshot": value["snapshot"], "page_size": value["page_size"],
+            "page_count": len(value["pages"]), "member_count": value["member_count"],
+            "aggregates": value["aggregates"]}
+
+
 def history_page_digest(records, source_identities, limit, cursor):
     identity = hashlib.sha256()
     identity.update(f"{limit}\0{cursor}\0".encode())
@@ -2780,7 +2926,7 @@ def validate_history_report_input(value):
     return {**value, **{name: value.get(name, []) for name in text_fields}}
 
 
-def command_review_history(args):
+def review_history_page(args):
     root = review_root(args.state_root)
     excluded_family = historical_excluded_family(args.database, args.excluded_session_id,
                                                  args.excluded_message_id)
@@ -2847,7 +2993,7 @@ def command_review_history(args):
                   "continuation": args.cursor + args.limit if len(records) > args.cursor + args.limit else None,
                   "snapshot": metadata.get("snapshot"), "session_ceiling": metadata.get("session_ceiling"),
                    "part_ceiling": metadata.get("part_ceiling"), "database_digest": metadata.get("database_digest"),
-                   "exclusion_digest": metadata.get("exclusion_digest")}
+                   "exclusion_digest": metadata.get("exclusion_digest"), "query": history_capture_query(args)}
         result["digest"] = review_digest(
             page, result["snapshot"], result["session_ceiling"], result["part_ceiling"],
             history_page_digest(page, live.get("_source_identities", {}) if not args.archive_only and not args.replay else {},
@@ -2862,7 +3008,135 @@ def command_review_history(args):
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode()) > HISTORY_SCAN_HARD:
         fail("review history response exceeds bound")
+    return result
+
+
+def command_review_history(args):
+    print(json.dumps(review_history_page(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def capture_history_args(args, cursor, identity=None):
+    identity = identity or {}
+    return argparse.Namespace(
+        database=args.database, state_root=args.state_root, archive_only=False,
+        limit=args.page_size, cursor=cursor, after=args.after, before=args.before,
+        method_revision=args.method_revision, cycle_id=args.cycle_id, state=args.state,
+        context=args.context, project_digest=args.project_digest, reviewed_status=args.reviewed_status,
+        replay=None, snapshot=identity.get("snapshot"), session_ceiling=identity.get("session_ceiling"),
+        part_ceiling=identity.get("part_ceiling"), database_digest=identity.get("database_digest"),
+        exclusion_digest=identity.get("exclusion_digest"),
+        excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
+    )
+
+
+def command_history_capture_save(args):
+    pages, members, cursor, identity = [], [], 0, None
+    while True:
+        page = review_history_page(capture_history_args(args, cursor, identity))
+        if identity is None:
+            identity = {name: page[name] for name in (
+                "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")}
+        if page["query"] != history_capture_query(capture_history_args(args, cursor, identity)):
+            fail("history capture query changed between pages")
+        records = [validate_history_evidence(item) for item in page["candidates"]]
+        if page["session_ids"] != [item["session_id"] for item in records]:
+            fail("history capture page membership is invalid")
+        if not records:
+            fail("history capture query selected no evidence")
+        pages.append({"cursor": page["cursor"], "limit": page["limit"], "count": len(records),
+                      "continuation": page["continuation"], "digest": page["digest"]})
+        members.extend(records)
+        if page["continuation"] is None:
+            break
+        cursor = page["continuation"]
+    query = history_capture_query(capture_history_args(args, 0, identity))
+    manifest = {"schema_version": 1, "query": query, **identity, "page_size": args.page_size,
+                "pages": pages, "member_count": len(members),
+                "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
+                "aggregates": history_capture_aggregates(members)}
+    manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
+    validate_history_capture(manifest, members)
+    root = review_root(args.state_root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        ensure_capture_schema(connection)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT payload FROM history_captures WHERE capture_id=?", (manifest["capture_id"],)).fetchone()
+            if existing is not None and existing[0] != ledger_payload(manifest):
+                fail("history capture identity collision")
+            if existing is None:
+                connection.execute("INSERT INTO history_captures VALUES (?, ?)",
+                                   (manifest["capture_id"], ledger_payload(manifest)))
+                connection.executemany("INSERT INTO history_capture_members VALUES (?, ?, ?, ?)",
+                                       ((manifest["capture_id"], position, record["session_id"], ledger_payload(record))
+                                        for position, record in enumerate(members)))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps(history_capture_summary(manifest), sort_keys=True, separators=(",", ":")))
+
+
+def load_history_capture(connection, capture_id):
+    if not isinstance(capture_id, str) or not re.fullmatch(r"[0-9a-f]{24}", capture_id):
+        fail("invalid history capture ID")
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone() is None:
+        fail("history capture is missing")
+    row = connection.execute("SELECT payload FROM history_captures WHERE capture_id=?", (capture_id,)).fetchone()
+    if row is None:
+        fail("history capture is missing")
+    manifest = json.loads(row[0], object_pairs_hook=no_duplicate_keys)
+    members = [json.loads(item[0], object_pairs_hook=no_duplicate_keys) for item in connection.execute(
+        "SELECT payload FROM history_capture_members WHERE capture_id=? ORDER BY position", (capture_id,))]
+    return validate_history_capture(manifest, members)
+
+
+def command_history_capture(args):
+    root = review_root(args.state_root)
+    if not ledger_exists(root):
+        fail("history capture is missing")
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        with ledger_connection(root) as connection:
+            manifest, members = load_history_capture(connection, args.capture_id)
+    result = history_capture_summary(manifest)
+    if args.cursor is not None:
+        if args.cursor < 0:
+            fail("history capture cursor must be non-negative")
+        page = members[args.cursor:args.cursor + args.limit]
+        result.update({"cursor": args.cursor, "limit": args.limit, "members": page,
+                       "continuation": args.cursor + args.limit
+                       if len(members) > args.cursor + args.limit else None})
+    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode()) > HISTORY_SCAN_HARD:
+        fail("history capture response exceeds bound")
     print(encoded)
+
+
+def command_history_capture_delete(args):
+    root = review_root(args.state_root)
+    if not ledger_exists(root):
+        fail("history capture is missing")
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
+        try:
+            load_history_capture(connection, args.capture_id)
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM history_captures WHERE capture_id=?", (args.capture_id,))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps({"deleted": args.capture_id}, sort_keys=True))
 
 
 def command_review_migrate(args):
@@ -2983,6 +3257,12 @@ def command_review_restore(args):
                     for report_id in dependent:
                         restored.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
                         restored.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
+                    if restored.execute(
+                            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_capture_members'").fetchone():
+                        captures = [row[0] for row in restored.execute(
+                            "SELECT capture_id FROM history_capture_members WHERE session_id=?", (session_id,))]
+                        restored.executemany("DELETE FROM history_captures WHERE capture_id=?",
+                                             ((capture_id,) for capture_id in captures))
                     restored.execute(
                         "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
                         "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
@@ -3491,6 +3771,10 @@ def command_review_forget(args):
         reports = history_reports(root)
         cohorts = history_cohorts(root)
         dependent = {item["report_id"] for item in reports + cohorts if args.session_id in item["cohort"]}
+        capture_dependent = ([row[0] for row in connection.execute(
+            "SELECT capture_id FROM history_capture_members WHERE session_id=?", (args.session_id,))]
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_capture_members'").fetchone() else [])
         value = review_index(root)
         session_times = [timestamp for _, report, timestamp in review_reports(root)
                          if args.session_id in report["session_ids"]]
@@ -3506,6 +3790,9 @@ def command_review_forget(args):
             for report_id in dependent:
                 connection.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
                 connection.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
+            if capture_dependent:
+                connection.executemany("DELETE FROM history_captures WHERE capture_id=?",
+                                       ((capture_id,) for capture_id in capture_dependent))
             connection.execute(
                 "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
@@ -4259,6 +4546,31 @@ def parser():
     review_history.add_argument("--excluded-message-id")
     review_history.add_argument("--exclusion-digest")
     review_history.set_defaults(func=command_review_history)
+    capture_save = commands.add_parser("history-capture-save")
+    capture_save.add_argument("--database")
+    capture_save.add_argument("--state-root")
+    capture_save.add_argument("--page-size", type=int, default=100, choices=range(1, REVIEW_MAX_LIMIT + 1))
+    capture_save.add_argument("--after", type=int)
+    capture_save.add_argument("--before", type=int)
+    capture_save.add_argument("--method-revision")
+    capture_save.add_argument("--cycle-id")
+    capture_save.add_argument("--state", choices=("active", "blocked", "abandoned", "completed", "unknown"))
+    capture_save.add_argument("--context")
+    capture_save.add_argument("--project-digest")
+    capture_save.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
+    capture_save.add_argument("--excluded-session-id")
+    capture_save.add_argument("--excluded-message-id")
+    capture_save.set_defaults(func=command_history_capture_save)
+    capture = commands.add_parser("history-capture")
+    capture.add_argument("--state-root")
+    capture.add_argument("--capture-id", required=True)
+    capture.add_argument("--cursor", type=int)
+    capture.add_argument("--limit", type=int, default=100, choices=range(1, REVIEW_MAX_LIMIT + 1))
+    capture.set_defaults(func=command_history_capture)
+    capture_delete = commands.add_parser("history-capture-delete")
+    capture_delete.add_argument("--state-root")
+    capture_delete.add_argument("--capture-id", required=True)
+    capture_delete.set_defaults(func=command_history_capture_delete)
     review_history_save = commands.add_parser("review-history-save")
     review_history_save.add_argument("--database")
     review_history_save.add_argument("--state-root")
