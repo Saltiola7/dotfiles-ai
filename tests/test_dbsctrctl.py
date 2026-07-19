@@ -2409,6 +2409,20 @@ class DbsctrctlTest(unittest.TestCase):
                 "findings": ["sanitized"],
             })
 
+        for mutation in (
+            {"cohort": older["session_ids"][1:]},
+            {"cohort": list(reversed(older["session_ids"]))},
+            {"limit": 99},
+            {"cursor": 99},
+        ):
+            altered = json.loads(report(older, older["session_ids"]))
+            altered.update(mutation)
+            rejected = run(
+                self.repo, "review-history-save", "--database", str(database), "--state-root", str(state),
+                "--report-json", json.dumps(altered), ok=False,
+            )
+            self.assertIn("changed within the review snapshot", rejected.stderr)
+
         connection.execute("update part set data='DBSCTR selected change' where id='part-001'")
         connection.commit()
         changed = run(
