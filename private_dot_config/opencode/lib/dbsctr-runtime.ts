@@ -11,15 +11,16 @@ export async function run(argv: string[], cwd: string) {
   return stdout.trim()
 }
 
-async function boundedText(stream: ReadableStream<Uint8Array>, limit: number) {
+async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaining: number }) {
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
+    if (value.byteLength > budget.remaining) throw new Error("command output exceeded bound")
+    budget.remaining -= value.byteLength
     size += value.byteLength
-    if (size > limit) throw new Error("command output exceeded bound")
     chunks.push(value)
   }
   const bytes = new Uint8Array(size)
@@ -33,6 +34,7 @@ async function boundedText(stream: ReadableStream<Uint8Array>, limit: number) {
 
 async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputLimit = 64 * 1024) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
+  const budget = { remaining: outputLimit }
   const killTree = () => {
     try {
       process.kill(-child.pid, "SIGKILL")
@@ -49,8 +51,8 @@ async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputL
   })
   try {
     const [stdout, stderr, exitCode] = await Promise.race([Promise.all([
-      boundedText(child.stdout, outputLimit),
-      boundedText(child.stderr, outputLimit),
+      boundedText(child.stdout, budget),
+      boundedText(child.stderr, budget),
       child.exited,
     ]), timeout])
     if (exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
