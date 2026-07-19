@@ -319,6 +319,14 @@ def history_digest(value, name="digest"):
     return value
 
 
+def model_family(value):
+    name = value.rsplit("/", 1)[-1].lower()
+    for family in ("gpt", "claude", "gemini", "llama", "mistral", "qwen"):
+        if name == family or name.startswith(family + "-"):
+            return family
+    return "unavailable"
+
+
 def ledger_path(root):
     return root / "reviews" / "ledger.sqlite3"
 
@@ -2307,6 +2315,12 @@ def review_scan(args):
             row[1].lower().replace("_", "") == "agent" for row in connection.execute(f"PRAGMA table_info({session})")
         ) else None
         mid, msession = sqlite_name(connection, message, ("id",)), sqlite_name(connection, message, ("sessionid",))
+        message_columns = {row[1].lower().replace("_", ""): row[1]
+                           for row in connection.execute(f'PRAGMA table_info("{message}")')}
+        mtime = next((message_columns[name] for name in ("timecreated", "createdat", "time", "timestamp")
+                      if name in message_columns), None)
+        mbody = next((message_columns[name] for name in ("data", "text", "content")
+                      if name in message_columns), None)
         pmessage = sqlite_name(connection, part, ("messageid",))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
         part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
@@ -2332,7 +2346,8 @@ def review_scan(args):
         if exclusion_digest is not None:
             identity.update(b"excluded\0" + exclusion_digest.encode())
         session_identity_columns = [sid, created]
-        for value in (parent, directory, agent, session_columns.get("projectid"), session_columns.get("cost"),
+        for value in (parent, directory, agent, session_columns.get("projectid"), session_columns.get("model"),
+                      session_columns.get("cost"),
                       *(session_columns.get(name) for name in (
                           "tokensinput", "tokensoutput", "tokensreasoning", "tokenscacheread", "tokenscachewrite"
                       ))):
@@ -2347,6 +2362,19 @@ def review_scan(args):
             encoded = json.dumps(row, sort_keys=True, default=str).encode()
             identity.update(encoded)
             source_identities.setdefault(str(row[0]), hashlib.sha256()).update(b"s\0" + encoded)
+        if mtime and mbody:
+            for row in connection.execute(
+                    f'SELECT m."{msession}", m."{mid}", m."{mtime}", m."{mbody}" FROM "{message}" m '
+                    f'JOIN "{session}" s ON s."{sid}"=m."{msession}" '
+                    f'WHERE s."{created}" BETWEEN ? AND ? AND s.rowid <= ? '
+                    f'AND m."{mtime}" BETWEEN ? AND ?{message_exclusion} ORDER BY m."{mid}"',
+                    (REVIEW_START_MS, snapshot, session_ceiling, REVIEW_START_MS, snapshot, *excluded)):
+                session_value, message_id, message_timestamp, message_body = row
+                encoded = hashlib.sha256(
+                    f"m\0{session_value}\0{message_id}\0{message_timestamp}\0".encode()
+                    + hashlib.sha256(str(message_body).encode()).digest()).digest()
+                identity.update(encoded)
+                source_identities.setdefault(str(session_value), hashlib.sha256()).update(encoded)
         part_identity_values = f'p."{pbody}"' + (f', p."{part_updated}"' if part_updated else '')
         part_identity_query = (
             f'SELECT m."{msession}", p."{pid}", p."{part_time}", {part_identity_values} FROM "{part}" p '
@@ -2425,10 +2453,11 @@ def review_scan(args):
             wanted_sessions = {str(row[0]) for row in rows}
             project_column = session_columns.get("projectid")
             cost_column = session_columns.get("cost")
+            model_column = session_columns.get("model")
             token_columns = [session_columns[name] for name in (
                 "tokensinput", "tokensoutput", "tokensreasoning", "tokenscacheread", "tokenscachewrite"
             ) if name in session_columns]
-            scalar_columns = [value for value in (project_column, cost_column, *token_columns) if value]
+            scalar_columns = [value for value in (project_column, cost_column, model_column, *token_columns) if value]
             scalar_values = {}
             if scalar_columns:
                 selected = ", ".join(f's."{value}"' for value in scalar_columns)
@@ -2449,10 +2478,13 @@ def review_scan(args):
                 tokens = [scalar.get(name) for name in token_columns]
                 token_total = (sum(tokens) if tokens and all(type(value) is int and value >= 0 for value in tokens)
                                else "unavailable")
+                model = scalar.get(model_column) if model_column else None
                 history_metrics[session_id] = {
                     "project_digest": project_digest, "tool_count": "unavailable",
                     "tool_call_count": "unavailable", "tool_error_count": "unavailable",
+                    "provider_error_count": "unavailable", "delegation_count": "unavailable",
                     "cost_total": cost_total, "token_total": token_total,
+                    "model_families": [model_family(model)] if isinstance(model, str) and model else "unavailable",
                 }
             tool_case = (f'CASE WHEN json_valid(p."{pbody}") THEN '
                          f'CASE WHEN json_extract(p."{pbody}", \'$.type\')=\'tool\' THEN 1 ELSE 0 END ELSE 0 END')
@@ -2462,6 +2494,15 @@ def review_scan(args):
                           f'THEN 1 ELSE 0 END ELSE 0 END')
             if wanted_sessions:
                 placeholders = ",".join("?" for _ in wanted_sessions)
+                if parent:
+                    delegation_sql = (f'SELECT s."{parent}", COUNT(*) FROM "{session}" s '
+                                      f'WHERE s."{parent}" IN ({placeholders}) AND s."{created}" BETWEEN ? AND ? '
+                                      f'AND s.rowid <= ?{session_exclusion} GROUP BY s."{parent}"')
+                    delegation_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, session_ceiling, *excluded)
+                    for session_value, delegation_count in connection.execute(delegation_sql, delegation_args):
+                        session_id = str(session_value)
+                        if session_id in history_metrics:
+                            history_metrics[session_id]["delegation_count"] = int(delegation_count)
                 metric_sql = (f'SELECT m."{msession}", SUM({tool_case}), SUM({error_case}) '
                               f'FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}" '
                               f'WHERE m."{msession}" IN ({placeholders}) AND p."{part_time}" BETWEEN ? AND ? '
@@ -2474,6 +2515,16 @@ def review_scan(args):
                             "tool_count": int(tool_calls or 0), "tool_call_count": int(tool_calls or 0),
                             "tool_error_count": int(tool_errors or 0),
                         })
+                if mtime and mbody:
+                    provider_sql = (f'SELECT m."{msession}", SUM(CASE WHEN json_valid(m."{mbody}") '
+                                    f'AND json_type(m."{mbody}", \'$.error\') IS NOT NULL THEN 1 ELSE 0 END) '
+                                    f'FROM "{message}" m WHERE m."{msession}" IN ({placeholders}) '
+                                    f'AND m."{mtime}" BETWEEN ? AND ?{message_exclusion} GROUP BY m."{msession}"')
+                    provider_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, *excluded)
+                    for session_value, provider_errors in connection.execute(provider_sql, provider_args):
+                        session_id = str(session_value)
+                        if session_id in history_metrics:
+                            history_metrics[session_id]["provider_error_count"] = int(provider_errors or 0)
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
     finally:
@@ -2508,6 +2559,7 @@ def review_scan(args):
         if getattr(args, "history_metrics", False):
             metrics = history_metrics.get(session_id, {})
             candidate["_history_metrics"] = metrics
+            candidate["telemetry"] = history_telemetry(candidate, metrics)
             candidate["_history_identity"] = history_identity(
                 cycles, directory, related_ids, metrics.get("project_digest", "unavailable"), identity_cache,
             )
@@ -2570,10 +2622,68 @@ def command_review_scan(args):
     print(json.dumps(scan, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
+def history_telemetry(candidate, metrics):
+    families = metrics.get("model_families", "unavailable")
+    if isinstance(families, list):
+        families = sorted({value for value in families if value != "unavailable"}) or "unavailable"
+    errors = {}
+    for source, name in (("provider_error_count", "provider_error"), ("tool_error_count", "tool_error")):
+        value = metrics.get(source, "unavailable")
+        if type(value) is int:
+            errors[name] = value
+    availability = {
+        "approval_count": "unavailable", "retry_count": "unavailable",
+        "delegation_count": "available" if type(metrics.get("delegation_count")) is int else "unavailable",
+        "model_families": "available" if isinstance(families, list) else "unavailable",
+        "error_classes": "available" if errors else "unavailable",
+        "token_total": "available" if type(metrics.get("token_total")) is int else "unavailable",
+        "cost_total": "available" if isinstance(metrics.get("cost_total"), (int, float))
+                      and not isinstance(metrics.get("cost_total"), bool) else "unavailable",
+    }
+    return {
+        "approval_count": "unavailable", "retry_count": "unavailable",
+        "delegation_count": metrics.get("delegation_count", "unavailable"),
+        "model_families": families, "error_classes": errors or "unavailable",
+        "token_total": metrics.get("token_total", "unavailable"),
+        "cost_total": metrics.get("cost_total", "unavailable"),
+        "availability": availability,
+        "attribution_status": candidate.get("correlation_quality", "unavailable"),
+    }
+
+
+def validate_history_telemetry(value):
+    fields = {"approval_count", "retry_count", "delegation_count", "model_families", "error_classes",
+              "token_total", "cost_total", "availability", "attribution_status"}
+    availability_fields = fields - {"availability", "attribution_status"}
+    statuses = {"exact", "family", "worktree", "source", "ambiguous", "unavailable"}
+    if (not isinstance(value, dict) or set(value) != fields
+            or value["approval_count"] != "unavailable" or value["retry_count"] != "unavailable"
+            or (value["delegation_count"] != "unavailable"
+                and (type(value["delegation_count"]) is not int or value["delegation_count"] < 0))
+            or not isinstance(value["availability"], dict) or set(value["availability"]) != availability_fields
+            or any(item not in ("available", "unavailable") for item in value["availability"].values())
+            or value["attribution_status"] not in statuses):
+        fail("review history telemetry has an invalid schema")
+    families = value["model_families"]
+    if families != "unavailable" and (not isinstance(families, list) or not families
+            or families != sorted(set(families)) or any(item not in {"gpt", "claude", "gemini", "llama", "mistral", "qwen"} for item in families)):
+        fail("review history telemetry has an invalid schema")
+    errors = value["error_classes"]
+    if errors != "unavailable" and (not isinstance(errors, dict) or set(errors) - {"provider_error", "tool_error"}
+            or not errors or any(type(item) is not int or item < 0 for item in errors.values())):
+        fail("review history telemetry has an invalid schema")
+    for name in ("token_total", "cost_total"):
+        item = value[name]
+        if item != "unavailable" and (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item < 0):
+            fail("review history telemetry has an invalid schema")
+    return value
+
+
 def validate_history_evidence(value):
     allowed = {"schema_version", "session_id", "completed_at", "method_revision", "context",
                "project_digest", "cycles", "aggregates", "snapshot", "session_ceiling",
-               "part_ceiling", "database_digest", "reviewed_status", "correlation_quality"}
+               "part_ceiling", "database_digest", "reviewed_status", "correlation_quality", "telemetry"}
     if (not isinstance(value, dict) or set(value) - allowed or value.get("schema_version") != 1
             or not isinstance(value.get("completed_at"), str) or not value["completed_at"].isdigit()
             or int(value["completed_at"]) < REVIEW_START_MS
@@ -2608,6 +2718,8 @@ def validate_history_evidence(value):
             fail("review history evidence has an invalid schema")
     if "database_digest" in value:
         history_digest(value["database_digest"], "database digest")
+    if "telemetry" in value:
+        validate_history_telemetry(value["telemetry"])
     return {**value, "correlation_quality": value.get("correlation_quality", "unavailable")}
 
 
@@ -2663,7 +2775,7 @@ def candidate_history_evidence(candidate, scan, mark_reviewed=True):
     session_id = history_id(candidate["session_id"], "history session ID")
     cycles = candidate["cycles"]
     identity = candidate.get("_history_identity") or history_identity(cycles)
-    return validate_history_evidence({
+    evidence = {
         "schema_version": 1, "session_id": session_id,
         "completed_at": str(candidate["last_activity"]), **identity, "cycles": cycles,
         "correlation_quality": candidate.get("correlation_quality", "unavailable"),
@@ -2671,7 +2783,10 @@ def candidate_history_evidence(candidate, scan, mark_reviewed=True):
         "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
         "database_digest": scan["database_digest"],
         "reviewed_status": "reviewed" if mark_reviewed else candidate.get("reviewed_status", "unreviewed"),
-    })
+    }
+    if "telemetry" in candidate:
+        evidence["telemetry"] = candidate["telemetry"]
+    return validate_history_evidence(evidence)
 
 
 def history_aggregates(candidate):
@@ -2992,7 +3107,9 @@ def review_history_page(args, lock_held=False):
                              "aggregates": history_aggregates(item),
                             "snapshot": live["snapshot"], "session_ceiling": live["session_ceiling"],
                             "part_ceiling": live["part_ceiling"], "database_digest": live["database_digest"],
-                            "reviewed_status": item["reviewed_status"]} for item in live_candidates]
+                             "reviewed_status": item["reviewed_status"],
+                             **({"telemetry": item["telemetry"]} if "telemetry" in item else {})}
+                            for item in live_candidates]
             archived = {item["session_id"]: item for item in records}
             records = [{**archived.get(item["session_id"], {}), **item} for item in live_records]
             records.extend(item for key, item in archived.items() if key not in {row["session_id"] for row in live_records})

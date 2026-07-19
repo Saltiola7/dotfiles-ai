@@ -2491,6 +2491,71 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("cohort evidence is unavailable", missing.stderr)
 
+    def test_review_history_exposes_structured_telemetry_without_error_content(self):
+        database = Path(self.temp.name) / "history-telemetry.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer,
+                                  model text, cost real, tokens_input integer, tokens_output integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+            insert into session values ('session-parent', null, 'DBSCTR', 1784073600000,
+                                        'openai/gpt-5.6-sol', 1.5, 10, 20);
+            insert into session values ('session-child', 'session-parent', 'DBSCTR', 1784073600001,
+                                        'amazon-bedrock/claude-sonnet-5', 0.5, 3, 4);
+        """)
+        private_error = "provider secret /Users/private https://unsafe.invalid"
+        connection.execute("insert into message values ('message-parent', 'session-parent', 1784073600000, ?)",
+                           (json.dumps({"role": "assistant", "error": {"message": private_error}}),))
+        connection.execute("insert into message values ('message-child', 'session-child', 1784073600001, '{}')")
+        connection.execute("insert into part values ('part-parent', 'message-parent', 'session-parent', "
+                           "1784073600000, 1784073600000, ?)", (json.dumps({
+                               "type": "tool", "tool": "bash", "marker": "DBSCTR", "state": {
+                                   "status": "error", "error": private_error,
+                               },
+                           }),))
+        connection.execute("insert into part values ('part-child', 'message-child', 'session-child', "
+                           "1784073600001, 1784073600001, ?)", (json.dumps({"type": "text", "text": private_error}),))
+        connection.commit()
+        connection.close()
+
+        result = json.loads(run(self.repo, "review-history", "--database", str(database),
+                                "--state-root", str(Path(self.temp.name) / "telemetry-state")).stdout)
+        parent = next(item for item in result["candidates"] if item["session_id"] == "session-parent")
+        telemetry = parent["telemetry"]
+        self.assertEqual(telemetry["model_families"], ["gpt"])
+        self.assertEqual(telemetry["delegation_count"], 1)
+        self.assertEqual(telemetry["error_classes"], {"provider_error": 1, "tool_error": 1})
+        self.assertEqual(telemetry["availability"]["approval_count"], "unavailable")
+        self.assertEqual(telemetry["availability"]["retry_count"], "unavailable")
+        self.assertEqual(telemetry["availability"]["model_families"], "available")
+        self.assertEqual(telemetry["attribution_status"], parent["correlation_quality"])
+        serialized = json.dumps(result)
+        self.assertNotIn(private_error, serialized)
+        self.assertNotRegex(serialized, r"(?:/Users|https?://)")
+
+        optional = Path(self.temp.name) / "history-telemetry-optional.db"
+        connection = sqlite3.connect(optional)
+        connection.executescript("""
+            create table session (id text primary key, title text, time_created integer);
+            create table message (id text primary key, session_id text);
+            create table part (id text primary key, message_id text, session_id text,
+                               time_created integer, data text);
+            insert into session values ('session-minimal', 'DBSCTR', 1784073600000);
+            insert into message values ('message-minimal', 'session-minimal');
+            insert into part values ('part-minimal', 'message-minimal', 'session-minimal',
+                                     1784073600000, '{"type":"text","text":"DBSCTR"}');
+        """)
+        connection.close()
+        minimal = json.loads(run(self.repo, "review-history", "--database", str(optional),
+                                 "--state-root", str(Path(self.temp.name) / "optional-state")).stdout)
+        telemetry = minimal["candidates"][0]["telemetry"]
+        self.assertEqual(telemetry["model_families"], "unavailable")
+        self.assertEqual(telemetry["delegation_count"], "unavailable")
+        self.assertEqual(telemetry["availability"]["error_classes"], "available")
+        self.assertEqual(telemetry["error_classes"], {"tool_error": 0})
+
     def test_history_capture_saves_complete_snapshot_and_replays_bounded(self):
         database = Path(self.temp.name) / "history-capture.db"
         connection = sqlite3.connect(database)
