@@ -118,15 +118,21 @@ then.
   weekly, twice-weekly, and daily. It steps up only with at least two improved
   observed merges, no regressions, and no more than 20 percent failed outcomes;
   it steps down after any regression or at least 50 percent failed outcomes.
-- A monthly cohort contains each immutable outcome event recorded after the prior
-  evaluation cutoff and no later than the current cutoff. Event precedence is
-  reverted, blocked, abandoned, closed without merge, merged with a complete
-  effect, then insufficient. Failed outcomes are reverted, blocked, abandoned,
-  and closed without merge; improved, neutral, regressed, and failed outcomes
-  form the denominator. Insufficient and still-active work are reported but
-  excluded. An empty denominator holds cadence. A blocked event remains a
-  historical failure; explicit retry starts a new attempt, whose later outcome
-  is a distinct event and never rewrites the prior monthly decision.
+- Immutable merge and activation events are benchmark inputs, not cadence
+  outcomes. After an activated merge's 30-day window closes, the ledger appends
+  exactly one `effect_finalized` event keyed by attempt identity, benchmark
+  definition version, and activation identity. It references its merge event and
+  records improved, neutral, regressed, or insufficient without rewriting prior
+  evidence. A uniqueness constraint prevents duplicate finalization.
+- A monthly cohort contains each immutable failed or `effect_finalized` outcome
+  event recorded after the prior evaluation cutoff and no later than the current
+  cutoff, ordered by recorded time then opaque event ID. Failed outcomes are
+  reverted, blocked, abandoned, and closed without merge; improved, neutral,
+  regressed, and failed outcomes form the denominator. Insufficient, pending
+  merges, and still-active work are reported but excluded. An empty denominator
+  holds cadence. A blocked event remains a historical failure; explicit retry
+  starts a new attempt identity, whose later finalized effect is distinct and
+  never rewrites the prior monthly decision.
 - Given three consecutive blocked, abandoned, or reverted outcomes or malformed
   authoritative state, spawning enters a persistent fail-closed halt. Only an
   explicit operator reset can resume it. Given three existing nonterminal
@@ -170,8 +176,9 @@ then.
   by default and JSON with an explicit flag. `dbsctr-rnd reset-schedule` is the
   only halt recovery command.
 - After DAI-004 deployment, scheduler state records the current cadence, last
-  monthly evaluation, immutable outcome-event cutoff and counters, halt reason,
-  and next eligible spawn time without private provenance.
+  monthly evaluation, immutable outcome-event cutoff and counters, attempt/event
+  identities, halt reason, and next eligible spawn time without private
+  provenance.
 - Commands use argument vectors and structured JSON. The runner never reads the
   OpenCode database or calls private review helpers directly.
 - GitHub tokens stay in the `gh` credential store and enter only a child process

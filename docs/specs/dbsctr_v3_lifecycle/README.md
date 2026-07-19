@@ -735,11 +735,16 @@ records, and retirement decisions. External writes remain approval-gated.
   evidence is available only through explicit ordered pagination with the same
   immutable capture identity; no encoded all-member payload bypasses response
   bounds.
+- The helper derives and stores the aggregate projection from the selected
+  members in the same transaction as the manifest. Callers cannot supply an
+  authoritative projection; replay recomputes and rejects any member/projection
+  mismatch rather than trusting a self-consistent stale hash.
 - Explicit forget or capture deletion removes dependent manifests and reports
   transactionally. Malformed, missing, reordered, or partially retained
   evidence never produces an approximate result.
 - The validation authority covers at least 201 sessions, deterministic ordering,
-  response bounds, atomic deletion, replay, malformed state, and latency.
+  response bounds, aggregate/member mismatch, atomic deletion, replay, malformed
+  state, and latency.
 
 ### V3.21 Structured Telemetry Contract
 
