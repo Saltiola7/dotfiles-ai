@@ -1,5 +1,29 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-19 - DAI-004 Adaptive Cadence
+
+- Added bounded human/JSON analytics, authoritative failed outcomes, immutable
+  merge references, exactly-once benchmark effect finalization, deterministic
+  monthly cohorts, and one-step weekly, twice-weekly, and daily cadence decisions.
+- Added a durable private scheduler SQLite ledger with semantic integrity,
+  transactional spawn reservations, a hard three-worker cap, persistent
+  three-failure/malformed-state halt, and history-preserving manual reset. The
+  fixed daily launchd tick now evaluates cadence without rewriting TOML or jobs.
+- Pending merges, incomplete/insufficient effects, and active work are reported
+  but excluded from the denominator. Cost is reported when authoritative and
+  never controls cadence or safety; ordinary workers remain draft-PR-only.
+- Validation: 17 distribution tests and rendered compilation on Python 3.12,
+  3.13, and 3.14 passed, covering concurrent admission, thresholds, retry
+  history, halt/reset, malformed state, exact finalization, pending/incomplete
+  exclusion, regression, and report-only cost. Independent review was unavailable
+  because the reviewer could not access the isolated worktree; direct primary
+  review hardened ownership, durability, event semantics, and worker identity.
+  Gate Commit: `b0568dc`. Gate Exceptions: none. Deployment: exact runner apply;
+  live analytics conservatively observed three historical failures, then explicit
+  reset restored an unhalted weekly schedule while preserving those events. The
+  first complete real 30-day effect remains scheduled. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-19 - Adaptive Cadence Discovery
 
 - Approved future CLI/JSON analytics and a private monthly cadence ladder with

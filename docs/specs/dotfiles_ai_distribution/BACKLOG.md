@@ -4,12 +4,12 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-004 | Add longitudinal CLI/JSON analytics and adaptive cadence | medium | ready | DAI-005,V3.20-1,V3.21-1,V3.22-1 | Effect reports, exactly-once finalized outcomes, private scheduler state, transactional fixed-tick spawn gating, halt/reset | Worker attempts, merge, activation, and benchmark outcomes | no | Enrich the native loop without weakening human delivery boundaries | M | Pending merge exclusion, unique effect finalization, deterministic monthly event cohort/denominator, blocked-retry history, cadence ladder, atomic 3-worker cap, halt/reset, recurrence, confounder, regression, malformed state, and report-only cost scenarios |
 
 ## Completed
 
 | id | title | completed | commit |
 |---|---|---|---|
+| DAI-004 | Add longitudinal analytics and adaptive cadence | 2026-07-19 | Gate Commit `b0568dc` |
 | DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | DAI-005B corrective Gate Commit |
 | DAI-003G | Apply every autonomous lens across full review history | 2026-07-18 | Gate Commit `bc2bb08` |
 | DAI-003F | Harden R&D tabs and runtime PATH | 2026-07-18 | Gate Commits `74011f7`, `9c514a1`, `6694574` |
