@@ -303,9 +303,10 @@ never enters shared defaults or generated documentation.
   `seo-data-science` local reference with a stable description; an empty value
   renders no reference or external-directory access.
 - When that reference is configured, global external-directory permissions keep
-  the broad deny first and append only the repository subtree allow. OpenCode's
-  last matching rule therefore grants the named reference without opening any
-  sibling or arbitrary external path.
+  the broad deny first and append distinct exact-root and recursive-subtree
+  allows. These patterns cannot be deduplicated against OpenCode's generated
+  `path/*` reference rule, so last-match resolution grants the named repository
+  without opening any sibling or arbitrary external path.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.

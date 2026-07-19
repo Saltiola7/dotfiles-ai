@@ -162,7 +162,8 @@
 {{ if ne .dotfiles_ai.opencode.seo_data_science_path "" -}}
     "external_directory": {
       "*": "deny",
-      {{ printf "%s/*" .dotfiles_ai.opencode.seo_data_science_path | toJson }}: "allow"
+      {{ .dotfiles_ai.opencode.seo_data_science_path | toJson }}: "allow",
+      {{ printf "%s/**" .dotfiles_ai.opencode.seo_data_science_path | toJson }}: "allow"
     },
 {{ else -}}
     "external_directory": "deny",

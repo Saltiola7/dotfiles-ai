@@ -2,6 +2,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-24 | Preserve exact reference root and subtree rules | high | active | OCP-23 | Non-duplicated exact-root and recursive permission patterns | OpenCode reference rule generation and deduplication | no | An explicit `path/*` rule duplicates the generated rule and remains before global deny | S | Resolved rule ordering, root and nested read probes, empty-default deny, focused tests, deployment identity |
 | OCP-23 | Preserve reference access after global deny | high | done | OCP-22 | Ordered external-directory permission rendering | OpenCode last-match permission semantics and local reference path | no | Auto-generated reference access precedes and loses to the explicit global deny | S | Empty-default deny, configured deny-then-allow ordering, resolved config, direct read, deployment identity |
 | OCP-22 | Render a portable local repository reference | high | done | OCP-21 | Optional machine-local reference path, conditional OpenCode reference | Existing standalone chezmoi config and OpenCode reference contract | yes | Teammates need the same named repository context without sharing machine-specific absolute paths | S | Empty-default omission, configured rendering, schema, dry-run, deployment identity, restart probe |
 | OCP-1 | Persist approved domain and behavior | high | done | - | control-plane spec | discovery decisions | no | Establish authority | S | Artifact review |

@@ -67,7 +67,8 @@ def test_optional_local_repository_reference():
     }
     assert list(rendered["permission"]["external_directory"].items()) == [
         ("*", "deny"),
-        ("/workspace/seo-data-science/*", "allow"),
+        ("/workspace/seo-data-science", "allow"),
+        ("/workspace/seo-data-science/**", "allow"),
     ]
 
 
