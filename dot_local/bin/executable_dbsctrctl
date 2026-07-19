@@ -42,6 +42,14 @@ REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 1
 CAPTURE_SCHEMA = 1
+BENCHMARK_SCHEMA = 1
+BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+BENCHMARK_METRICS = {
+    "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
+    "tool_call_count", "tool_error_count", "approval_count", "retry_count", "cost_total",
+    "token_total", "cycle_active_count", "cycle_blocked_count", "cycle_abandoned_count",
+    "cycle_completed_count", "cycle_unknown_count",
+}
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -454,13 +462,14 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
             and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])
             or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)
-            or "capture_schema" in meta and meta["capture_schema"] != str(CAPTURE_SCHEMA)):
+            or "capture_schema" in meta and meta["capture_schema"] != str(CAPTURE_SCHEMA)
+            or "benchmark_schema" in meta and meta["benchmark_schema"] != str(BENCHMARK_SCHEMA)):
         fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
@@ -511,6 +520,8 @@ def ledger_semantic_integrity(connection):
         improvement_integrity(connection)
     if "capture_schema" in meta:
         capture_integrity(connection)
+    if "benchmark_schema" in meta:
+        benchmark_integrity(connection)
 
 
 def ensure_improvement_schema(connection):
@@ -654,6 +665,102 @@ def history_capture_members(connection, capture_id):
     return members
 
 
+def ensure_benchmark_schema(connection):
+    ensure_capture_schema(connection)
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone()
+    if row == (str(BENCHMARK_SCHEMA),):
+        return
+    if row is not None:
+        fail("private benchmark ledger has an unsupported schema")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE benchmark_definitions (
+            version TEXT PRIMARY KEY,
+            metric_name TEXT NOT NULL,
+            direction TEXT NOT NULL CHECK (direction IN ('higher', 'lower'))
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE benchmark_effects (
+            benchmark_id TEXT PRIMARY KEY,
+            definition_version TEXT NOT NULL REFERENCES benchmark_definitions(version),
+            baseline_capture_id TEXT NOT NULL REFERENCES history_captures(capture_id),
+            observation_capture_id TEXT NOT NULL REFERENCES history_captures(capture_id),
+            activation_identity TEXT,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("INSERT INTO ledger_meta VALUES ('benchmark_schema', ?)",
+                           (str(BENCHMARK_SCHEMA),))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def benchmark_integrity(connection):
+    expected = {"benchmark_definitions", "benchmark_effects"}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'benchmark_%'")}
+    if tables != expected:
+        fail("private benchmark ledger tables are invalid")
+    definitions = {version: (metric, direction) for version, metric, direction in connection.execute(
+        "SELECT version, metric_name, direction FROM benchmark_definitions")}
+    if any(not OPAQUE_ID.fullmatch(version) or metric not in BENCHMARK_METRICS
+           or direction not in ("higher", "lower")
+           for version, (metric, direction) in definitions.items()):
+        fail("private benchmark definitions are invalid")
+    merges, activations = {}, {}
+    for benchmark_id, version, baseline, observation, activation, payload in connection.execute(
+            "SELECT benchmark_id, definition_version, baseline_capture_id, observation_capture_id, "
+            "activation_identity, payload FROM benchmark_effects"):
+        try:
+            report = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+        except json.JSONDecodeError as error:
+            fail(f"private benchmark evidence is malformed: {error}")
+        validate_benchmark(report)
+        merge_identity = report["inputs"]["merge_identity"]
+        merged_at = report["inputs"]["merged_at"]
+        if merge_identity in merges and merges[merge_identity] != merged_at:
+            fail("private benchmark merge identity is inconsistent")
+        merges[merge_identity] = merged_at
+        if report["inputs"]["activation_status"] == "verified":
+            verified_activation = (report["inputs"]["activation_identity"], report["inputs"]["activated_at"])
+            if merge_identity in activations and activations[merge_identity] != verified_activation:
+                fail("private benchmark activation identity is inconsistent")
+            activations[merge_identity] = verified_activation
+        if (report["benchmark_id"] != benchmark_id or report["definition"]["version"] != version
+                or report["definition"]["metric"] != definitions.get(version, (None, None))[0]
+                or report["definition"]["direction"] != definitions.get(version, (None, None))[1]
+                or report["inputs"]["baseline_capture_id"] != baseline
+                or report["inputs"]["observation_capture_id"] != observation
+                or report["inputs"]["activation_identity"] != activation):
+            fail("private benchmark evidence columns mismatch")
+        baseline_manifest, _ = load_history_capture(connection, baseline)
+        observation_manifest, _ = load_history_capture(connection, observation)
+        confounders = list(report["result"]["confounders"])
+        if baseline_manifest["member_count"] != observation_manifest["member_count"]:
+            if "population_drift" not in confounders:
+                fail("private benchmark evidence semantic mismatch")
+            confounders.remove("population_drift")
+        expected_report = benchmark_report(argparse.Namespace(
+            definition_version=version, metric=report["definition"]["metric"],
+            direction=report["definition"]["direction"],
+            merge_identity=report["inputs"]["merge_identity"], merged_at=report["inputs"]["merged_at"],
+            activation_status=report["inputs"]["activation_status"],
+            activation_identity=report["inputs"]["activation_identity"],
+            activated_at=report["inputs"]["activated_at"], evaluated_at=report["evaluated_at"],
+            confounder=confounders,
+        ), baseline_manifest, observation_manifest)
+        if expected_report != report:
+            fail("private benchmark evidence semantic mismatch")
+
+
+def delete_capture_benchmarks(connection, capture_ids):
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone() is not None:
+        connection.executemany(
+            "DELETE FROM benchmark_effects WHERE baseline_capture_id=? OR observation_capture_id=?",
+            ((capture_id, capture_id) for capture_id in capture_ids),
+        )
+
+
 def legacy_review_exists(root):
     directory = root / "reviews"
     if not directory.is_dir():
@@ -759,6 +866,13 @@ def ledger_content(connection):
     if connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone() is not None:
         result["history_captures"] = payloads(
             "SELECT capture_id, payload FROM history_captures ORDER BY capture_id")
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone() is not None:
+        result["benchmarks"] = payloads(
+            "SELECT benchmark_id, payload FROM benchmark_effects ORDER BY benchmark_id")
+        result["benchmark_definitions"] = [
+            {"version": version, "metric": metric, "direction": direction}
+            for version, metric, direction in connection.execute(
+                "SELECT version, metric_name, direction FROM benchmark_definitions ORDER BY version")]
     return result
 
 
@@ -3298,6 +3412,230 @@ def command_history_capture_delete(args):
     print(json.dumps({"deleted": args.capture_id}, sort_keys=True))
 
 
+def validate_benchmark(value):
+    top = {"schema_version", "benchmark_id", "definition", "inputs", "windows", "result", "evaluated_at"}
+    definition_fields = {"version", "metric", "direction"}
+    input_fields = {"baseline_capture_id", "observation_capture_id", "merge_identity", "merged_at",
+                    "activation_status", "activation_identity", "activated_at"}
+    result_fields = {"classification", "baseline_value", "observation_value", "delta", "confounders",
+                     "unavailable_metrics", "association_only", "reason"}
+    if (not isinstance(value, dict) or set(value) != top or value.get("schema_version") != 1
+            or not re.fullmatch(r"[0-9a-f]{24}", value.get("benchmark_id", ""))
+            or not isinstance(value.get("definition"), dict) or set(value["definition"]) != definition_fields
+            or not OPAQUE_ID.fullmatch(value["definition"].get("version", ""))
+            or value["definition"].get("metric") not in BENCHMARK_METRICS
+            or value["definition"].get("direction") not in ("higher", "lower")
+            or not isinstance(value.get("inputs"), dict) or set(value["inputs"]) != input_fields
+            or not isinstance(value.get("result"), dict) or set(value["result"]) != result_fields
+            or type(value.get("evaluated_at")) is not int or value["evaluated_at"] < REVIEW_START_MS):
+        fail("benchmark evidence has an invalid schema")
+    inputs, result = value["inputs"], value["result"]
+    if (not all(re.fullmatch(r"[0-9a-f]{24}", inputs[name] or "")
+                for name in ("baseline_capture_id", "observation_capture_id"))
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", inputs.get("merge_identity", ""))
+            or type(inputs.get("merged_at")) is not int or inputs["merged_at"] < REVIEW_START_MS
+            or inputs["merged_at"] > value["evaluated_at"]
+            or inputs.get("activation_status") not in ("verified", "missing", "ambiguous")):
+        fail("benchmark evidence has invalid inputs")
+    verified = inputs["activation_status"] == "verified"
+    if (verified and (not isinstance(inputs["activation_identity"], str)
+                     or not OPAQUE_ID.fullmatch(inputs["activation_identity"])
+                     or type(inputs["activated_at"]) is not int
+                     or not inputs["merged_at"] <= inputs["activated_at"] <= value["evaluated_at"])):
+        fail("benchmark evidence has invalid activation")
+    if not verified and (inputs["activation_identity"] is not None or inputs["activated_at"] is not None):
+        fail("benchmark evidence has invalid activation")
+    windows = value["windows"]
+    if verified:
+        if (not isinstance(windows, dict) or set(windows) != {"days", "baseline", "observation"}
+                or windows["days"] != 30 or any(not isinstance(windows[name], dict)
+                or set(windows[name]) != {"after", "before"} for name in ("baseline", "observation"))):
+            fail("benchmark evidence has invalid windows")
+        expected_windows = {"days": 30,
+                            "baseline": {"after": inputs["activated_at"] - BENCHMARK_WINDOW_MS,
+                                         "before": inputs["activated_at"] - 1},
+                            "observation": {"after": inputs["activated_at"],
+                                            "before": inputs["activated_at"] + BENCHMARK_WINDOW_MS - 1}}
+        if windows != expected_windows:
+            fail("benchmark evidence has invalid windows")
+    elif windows != "unavailable":
+        fail("benchmark evidence has invalid windows")
+    if (result.get("classification") not in ("improved", "neutral", "regressed", "insufficient")
+            or result.get("association_only") is not True
+            or not isinstance(result.get("confounders"), list)
+            or len(result["confounders"]) > 64
+            or result["confounders"] != sorted(set(result["confounders"]))
+            or any(not OPAQUE_ID.fullmatch(item) for item in result["confounders"])
+            or not isinstance(result.get("unavailable_metrics"), list)
+            or result["unavailable_metrics"] != sorted(set(result["unavailable_metrics"]))
+            or any(item not in BENCHMARK_METRICS for item in result["unavailable_metrics"])
+            or result.get("reason") not in ("complete", "activation_missing", "activation_ambiguous",
+                                             "window_incomplete", "window_mismatch", "metric_unavailable")):
+        fail("benchmark evidence has an invalid result")
+    for name in ("baseline_value", "observation_value", "delta"):
+        item = result[name]
+        if item != "unavailable" and (not isinstance(item, (int, float)) or isinstance(item, bool)
+                                      or not math.isfinite(item)):
+            fail("benchmark evidence has an invalid result")
+    if (not verified and result["reason"] != f"activation_{inputs['activation_status']}"
+            or verified and value["evaluated_at"] < inputs["activated_at"] + BENCHMARK_WINDOW_MS
+            and result["reason"] != "window_incomplete"
+            or result["unavailable_metrics"] not in ([], [value["definition"]["metric"]])):
+        fail("benchmark evidence has an invalid result")
+    if result["reason"] == "complete":
+        if any(item == "unavailable" for item in (result["baseline_value"], result["observation_value"])):
+            fail("benchmark evidence has an invalid result")
+        delta = result["observation_value"] - result["baseline_value"]
+        expected = ("neutral" if delta == 0 else "improved"
+                    if (delta > 0) == (value["definition"]["direction"] == "higher") else "regressed")
+        if result["delta"] != delta or result["classification"] != expected:
+            fail("benchmark evidence has an invalid result")
+    elif result["classification"] != "insufficient" or result["delta"] != "unavailable":
+        fail("benchmark evidence has an invalid result")
+    identity = {key: value[key] for key in ("definition", "inputs", "windows", "result", "evaluated_at")}
+    if value["benchmark_id"] != hashlib.sha256(ledger_payload(identity).encode()).hexdigest()[:24]:
+        fail("benchmark evidence identity mismatch")
+    return value
+
+
+def benchmark_report(args, baseline, observation):
+    definition = {"version": history_id(args.definition_version, "benchmark definition version"),
+                  "metric": args.metric, "direction": args.direction}
+    if args.metric not in BENCHMARK_METRICS:
+        fail("invalid benchmark metric")
+    if len(args.confounder) > 64:
+        fail("benchmark confounders exceed bound")
+    if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", args.merge_identity):
+        fail("invalid benchmark merge identity")
+    if args.merged_at < REVIEW_START_MS or args.evaluated_at < args.merged_at:
+        fail("invalid benchmark event time")
+    verified = args.activation_status == "verified"
+    if verified and (args.activation_identity is None or args.activated_at is None):
+        fail("verified benchmark activation requires identity and time")
+    if not verified and (args.activation_identity is not None or args.activated_at is not None):
+        fail("unverified benchmark activation cannot claim identity or time")
+    if verified:
+        history_id(args.activation_identity, "benchmark activation identity")
+        if not args.merged_at <= args.activated_at <= args.evaluated_at:
+            fail("invalid benchmark activation time")
+    inputs = {"baseline_capture_id": baseline["capture_id"],
+              "observation_capture_id": observation["capture_id"],
+              "merge_identity": args.merge_identity, "merged_at": args.merged_at,
+              "activation_status": args.activation_status,
+              "activation_identity": args.activation_identity, "activated_at": args.activated_at}
+    windows = "unavailable"
+    reason = f"activation_{args.activation_status}" if not verified else "complete"
+    if verified:
+        windows = {"days": 30,
+                   "baseline": {"after": args.activated_at - BENCHMARK_WINDOW_MS,
+                                "before": args.activated_at - 1},
+                   "observation": {"after": args.activated_at,
+                                   "before": args.activated_at + BENCHMARK_WINDOW_MS - 1}}
+        if args.evaluated_at < args.activated_at + BENCHMARK_WINDOW_MS:
+            reason = "window_incomplete"
+        elif (any(baseline["query"].get(name) != windows["baseline"][name] for name in ("after", "before"))
+              or any(observation["query"].get(name) != windows["observation"][name] for name in ("after", "before"))):
+            reason = "window_mismatch"
+    baseline_value = baseline["aggregates"].get(args.metric, "unavailable")
+    observation_value = observation["aggregates"].get(args.metric, "unavailable")
+    unavailable = ([args.metric] if "unavailable" in (baseline_value, observation_value) else [])
+    if reason == "complete" and unavailable:
+        reason = "metric_unavailable"
+    classification, delta = "insufficient", "unavailable"
+    if reason == "complete":
+        delta = observation_value - baseline_value
+        if delta == 0:
+            classification = "neutral"
+        elif (delta > 0) == (args.direction == "higher"):
+            classification = "improved"
+        else:
+            classification = "regressed"
+    confounders = set(args.confounder)
+    if baseline["member_count"] != observation["member_count"]:
+        confounders.add("population_drift")
+    result = {"classification": classification, "baseline_value": baseline_value,
+              "observation_value": observation_value, "delta": delta,
+              "confounders": sorted(confounders), "unavailable_metrics": unavailable,
+              "association_only": True, "reason": reason}
+    identity = {"definition": definition, "inputs": inputs, "windows": windows,
+                "result": result, "evaluated_at": args.evaluated_at}
+    report = {"schema_version": 1,
+              "benchmark_id": hashlib.sha256(ledger_payload(identity).encode()).hexdigest()[:24], **identity}
+    return validate_benchmark(report)
+
+
+def command_benchmark_save(args):
+    root = review_root(args.state_root)
+    if not ledger_exists(root):
+        fail("private review ledger is missing")
+    if args.evaluated_at > int(datetime.now(timezone.utc).timestamp() * 1000):
+        fail("benchmark evaluation time cannot be in the future")
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
+        try:
+            baseline, _ = load_history_capture(connection, args.baseline_capture_id)
+            observation, _ = load_history_capture(connection, args.observation_capture_id)
+            report = benchmark_report(args, baseline, observation)
+            ensure_benchmark_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            for payload, in connection.execute("SELECT payload FROM benchmark_effects"):
+                existing_report = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                if existing_report["inputs"]["merge_identity"] != args.merge_identity:
+                    continue
+                if existing_report["inputs"]["merged_at"] != args.merged_at:
+                    fail("benchmark merge identity is immutable")
+                if (args.activation_status == "verified"
+                        and existing_report["inputs"]["activation_status"] == "verified"
+                        and (existing_report["inputs"]["activation_identity"],
+                             existing_report["inputs"]["activated_at"])
+                        != (args.activation_identity, args.activated_at)):
+                    fail("benchmark first verified activation is immutable")
+            definition = connection.execute(
+                "SELECT metric_name, direction FROM benchmark_definitions WHERE version=?",
+                (args.definition_version,)).fetchone()
+            expected = (args.metric, args.direction)
+            if definition is not None and definition != expected:
+                fail("benchmark definition version is immutable")
+            if definition is None:
+                connection.execute("INSERT INTO benchmark_definitions VALUES (?, ?, ?)",
+                                   (args.definition_version, *expected))
+            existing = connection.execute("SELECT payload FROM benchmark_effects WHERE benchmark_id=?",
+                                          (report["benchmark_id"],)).fetchone()
+            if existing is None:
+                connection.execute("INSERT INTO benchmark_effects VALUES (?, ?, ?, ?, ?, ?)",
+                                   (report["benchmark_id"], args.definition_version,
+                                    args.baseline_capture_id, args.observation_capture_id,
+                                    args.activation_identity, ledger_payload(report)))
+            elif json.loads(existing[0], object_pairs_hook=no_duplicate_keys) != report:
+                fail("benchmark identity collision")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
+def command_benchmark(args):
+    root = review_root(args.state_root)
+    if not ledger_exists(root):
+        fail("benchmark evidence is missing")
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        with ledger_connection(root) as connection:
+            if connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone() is None:
+                fail("benchmark evidence is missing")
+            row = connection.execute("SELECT payload FROM benchmark_effects WHERE benchmark_id=?",
+                                     (args.benchmark_id,)).fetchone()
+            if row is None:
+                fail("benchmark evidence is missing")
+            report = validate_benchmark(json.loads(row[0], object_pairs_hook=no_duplicate_keys))
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
 def command_review_migrate(args):
     root = review_root(args.state_root)
     require_review_lock_safe(root)
@@ -3420,6 +3758,7 @@ def command_review_restore(args):
                             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_capture_members'").fetchone():
                         captures = [row[0] for row in restored.execute(
                             "SELECT capture_id FROM history_capture_members WHERE session_id=?", (session_id,))]
+                        delete_capture_benchmarks(restored, captures)
                         restored.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                              ((capture_id,) for capture_id in captures))
                     restored.execute(
@@ -3950,6 +4289,7 @@ def command_review_forget(args):
                 connection.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
                 connection.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
             if capture_dependent:
+                delete_capture_benchmarks(connection, capture_dependent)
                 connection.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                        ((capture_id,) for capture_id in capture_dependent))
             connection.execute(
@@ -4730,6 +5070,26 @@ def parser():
     capture_delete.add_argument("--state-root")
     capture_delete.add_argument("--capture-id", required=True)
     capture_delete.set_defaults(func=command_history_capture_delete)
+    benchmark_save = commands.add_parser("benchmark-save")
+    benchmark_save.add_argument("--state-root")
+    benchmark_save.add_argument("--definition-version", required=True)
+    benchmark_save.add_argument("--metric", required=True, choices=sorted(BENCHMARK_METRICS))
+    benchmark_save.add_argument("--direction", required=True, choices=("higher", "lower"))
+    benchmark_save.add_argument("--baseline-capture-id", required=True)
+    benchmark_save.add_argument("--observation-capture-id", required=True)
+    benchmark_save.add_argument("--merge-identity", required=True)
+    benchmark_save.add_argument("--merged-at", required=True, type=int)
+    benchmark_save.add_argument("--activation-status", required=True,
+                                choices=("verified", "missing", "ambiguous"))
+    benchmark_save.add_argument("--activation-identity")
+    benchmark_save.add_argument("--activated-at", type=int)
+    benchmark_save.add_argument("--evaluated-at", required=True, type=int)
+    benchmark_save.add_argument("--confounder", action="append", default=[])
+    benchmark_save.set_defaults(func=command_benchmark_save)
+    benchmark = commands.add_parser("benchmark")
+    benchmark.add_argument("--state-root")
+    benchmark.add_argument("--benchmark-id", required=True)
+    benchmark.set_defaults(func=command_benchmark)
     review_history_save = commands.add_parser("review-history-save")
     review_history_save.add_argument("--database")
     review_history_save.add_argument("--state-root")

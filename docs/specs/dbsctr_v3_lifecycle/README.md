@@ -793,6 +793,15 @@ records, and retirement decisions. External writes remain approval-gated.
   and observation windows remain immutable during replay.
 - Benchmark replay is deterministic from retained sanitized evidence. Changed
   definitions require a new version and never rewrite prior classifications.
+- `dbsctrctl benchmark-save` accepts one definition version, aggregate metric and
+  direction, two immutable capture IDs, a verified merged-implementation identity,
+  activation status and optional verified activation identity/time, a non-future
+  evaluation cutoff, and bounded opaque confounders. A definition version fixes
+  its metric and direction permanently. `dbsctrctl benchmark --benchmark-id ID`
+  returns the exact retained report.
+- Normal capture deletion is rejected while benchmark evidence references that
+  capture. Explicit privacy forget removes dependent benchmarks before removing
+  their captures; backup, restore, and semantic integrity include benchmark state.
 - Program delivery completes when the capability is merged, deployed, and
   smoke-tested; the first real 30-day observation is a scheduled follow-up, not
   a blocked implementation gate.

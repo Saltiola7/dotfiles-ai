@@ -2557,6 +2557,177 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(telemetry["availability"]["error_classes"], "available")
         self.assertEqual(telemetry["error_classes"], {"tool_error": 0})
 
+    def test_benchmarks_bind_windows_replay_and_classify_association(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_benchmark_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        state = Path(self.temp.name) / "benchmark-state"
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True, mode=0o700)
+        os.chmod(reviews, 0o700)
+        ledger = reviews / "ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        module.ledger_schema(connection)
+        connection.commit()
+        module.ensure_capture_schema(connection)
+
+        activation = module.REVIEW_START_MS + module.BENCHMARK_WINDOW_MS
+        evaluated = activation + module.BENCHMARK_WINDOW_MS
+
+        def capture(label, after, before, errors):
+            members = []
+            for index, count in enumerate(errors):
+                members.append({
+                    "schema_version": 1, "session_id": f"{label}-{index}",
+                    "completed_at": str(max(after, module.REVIEW_START_MS)),
+                    "method_revision": "unavailable", "context": "unavailable",
+                    "project_digest": "unavailable", "cycles": [],
+                    "aggregates": {"candidate_count": 1, "tool_error_count": count},
+                    "reviewed_status": "unreviewed", "correlation_quality": "unavailable",
+                })
+            query = {name: None for name in (
+                "after", "before", "method_revision", "cycle_id", "state", "context",
+                "project_digest", "reviewed_status")}
+            query.update({"after": after, "before": before, "archive_only": False})
+            manifest = {
+                "schema_version": 1, "query": query, "snapshot": evaluated,
+                "session_ceiling": len(members), "part_ceiling": len(members),
+                "database_digest": "0" * 64, "exclusion_digest": None,
+                "page_size": 100, "pages": [{"cursor": 0, "limit": 100,
+                                               "count": len(members), "continuation": None,
+                                               "digest": "1" * 64}],
+                "member_count": len(members),
+                "members_digest": hashlib.sha256(module.ledger_payload(members).encode()).hexdigest(),
+                "aggregates": module.history_capture_aggregates(members),
+            }
+            manifest["capture_id"] = hashlib.sha256(module.ledger_payload(manifest).encode()).hexdigest()[:24]
+            module.validate_history_capture(manifest, members)
+            connection.execute("insert into history_captures values (?, ?)",
+                               (manifest["capture_id"], module.ledger_payload(manifest)))
+            connection.executemany("insert into history_capture_members values (?, ?, ?, ?)",
+                                   ((manifest["capture_id"], index, member["session_id"],
+                                     module.ledger_payload(member)) for index, member in enumerate(members)))
+            return manifest
+
+        baseline = capture("baseline", activation - module.BENCHMARK_WINDOW_MS, activation - 1, [4])
+        observation = capture("observation", activation, activation + module.BENCHMARK_WINDOW_MS - 1, [1])
+        drifted = capture("drifted", activation, activation + module.BENCHMARK_WINDOW_MS - 1, [4, 0])
+        regressed = capture("regressed", activation, activation + module.BENCHMARK_WINDOW_MS - 1, [6])
+        connection.commit()
+        connection.close()
+        os.chmod(ledger, 0o600)
+        lock = reviews / ".lock"
+        lock.touch(mode=0o600)
+        os.chmod(lock, 0o600)
+
+        evaluated_now = int(time.time() * 1000)
+        common = (
+            "--state-root", str(state), "--definition-version", "tool-errors-v1",
+            "--metric", "tool_error_count", "--direction", "lower",
+            "--baseline-capture-id", baseline["capture_id"],
+            "--observation-capture-id", observation["capture_id"],
+            "--merge-identity", "a" * 40, "--merged-at", str(evaluated_now - 1000),
+            "--activation-status", "missing", "--evaluated-at", str(evaluated_now),
+        )
+        saved = json.loads(run(self.repo, "benchmark-save", *common).stdout)
+        self.assertEqual(saved["result"]["classification"], "insufficient")
+        self.assertEqual(saved["result"]["reason"], "activation_missing")
+        self.assertTrue(saved["result"]["association_only"])
+        self.assertEqual(json.loads(run(self.repo, "benchmark-save", *common).stdout), saved)
+        replay = json.loads(run(self.repo, "benchmark", "--state-root", str(state),
+                                "--benchmark-id", saved["benchmark_id"]).stdout)
+        self.assertEqual(replay, saved)
+        protected = run(self.repo, "history-capture-delete", "--state-root", str(state),
+                        "--capture-id", baseline["capture_id"], ok=False)
+        self.assertIn("FOREIGN KEY constraint failed", protected.stderr)
+
+        future = list(common)
+        future[future.index("--evaluated-at") + 1] = str(evaluated_now + 60_000)
+        invalid = run(self.repo, "benchmark-save", *future, ok=False)
+        self.assertIn("cannot be in the future", invalid.stderr)
+
+        immutable = run(self.repo, "benchmark-save", *(common[:7] + ("higher",) + common[8:]), ok=False)
+        self.assertIn("definition version is immutable", immutable.stderr)
+        changed_merge = list(common)
+        changed_merge[changed_merge.index("--merged-at") + 1] = str(evaluated_now - 2000)
+        self.assertIn("merge identity is immutable",
+                      run(self.repo, "benchmark-save", *changed_merge, ok=False).stderr)
+        ambiguous = json.loads(run(
+            self.repo, "benchmark-save", "--state-root", str(state),
+            "--definition-version", "tool-errors-v2", "--metric", "tool_error_count",
+            "--direction", "lower", "--baseline-capture-id", baseline["capture_id"],
+            "--observation-capture-id", observation["capture_id"], "--merge-identity", "b" * 40,
+            "--merged-at", str(evaluated_now - 1000), "--activation-status", "ambiguous",
+            "--evaluated-at", str(evaluated_now),
+        ).stdout)
+        self.assertEqual(ambiguous["result"]["classification"], "insufficient")
+        self.assertEqual(ambiguous["result"]["reason"], "activation_ambiguous")
+
+        verified = (
+            "--state-root", str(state), "--definition-version", "tool-errors-v3",
+            "--metric", "tool_error_count", "--direction", "lower",
+            "--baseline-capture-id", baseline["capture_id"],
+            "--observation-capture-id", observation["capture_id"],
+            "--merge-identity", "c" * 40, "--merged-at", str(evaluated_now - 1000),
+            "--activation-status", "verified", "--activation-identity", "deploy-first",
+            "--activated-at", str(evaluated_now - 500), "--evaluated-at", str(evaluated_now),
+        )
+        run(self.repo, "benchmark-save", *verified)
+        changed_activation = list(verified)
+        changed_activation[changed_activation.index("--activation-identity") + 1] = "deploy-second"
+        self.assertIn("first verified activation is immutable",
+                      run(self.repo, "benchmark-save", *changed_activation, ok=False).stderr)
+
+        args = SimpleNamespace(definition_version="tool-errors-v4", metric="tool_error_count",
+                               direction="lower", merge_identity="c" * 40,
+                               merged_at=activation - 1000, activation_status="verified",
+                               activation_identity="deploy-2", activated_at=activation,
+                               evaluated_at=evaluated, confounder=["overlapping_change"])
+        self.assertEqual(module.benchmark_report(args, baseline, observation)["result"]["classification"],
+                         "improved")
+        drift = module.benchmark_report(args, baseline, drifted)
+        self.assertEqual(drift["result"]["classification"], "neutral")
+        self.assertEqual(drift["result"]["confounders"], ["overlapping_change", "population_drift"])
+        self.assertEqual(module.benchmark_report(args, baseline, regressed)["result"]["classification"],
+                         "regressed")
+        mismatch = module.benchmark_report(args, {**baseline, "query": {**baseline["query"], "after": activation}}, observation)
+        self.assertEqual(mismatch["result"]["reason"], "window_mismatch")
+        self.assertEqual(mismatch["result"]["classification"], "insufficient")
+        incomplete_args = SimpleNamespace(**{**vars(args), "evaluated_at": evaluated - 1})
+        self.assertEqual(module.benchmark_report(incomplete_args, baseline, observation)["result"]["reason"],
+                         "window_incomplete")
+        ambiguous_args = SimpleNamespace(**{**vars(args), "activation_status": "ambiguous",
+                                             "activation_identity": None, "activated_at": None})
+        self.assertEqual(module.benchmark_report(ambiguous_args, baseline, observation)["result"]["reason"],
+                         "activation_ambiguous")
+        unavailable_args = SimpleNamespace(**{**vars(args), "definition_version": "approvals-v1",
+                                               "metric": "approval_count"})
+        self.assertEqual(module.benchmark_report(unavailable_args, baseline, observation)["result"]["reason"],
+                         "metric_unavailable")
+
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        connection = sqlite3.connect(ledger)
+        connection.execute("delete from benchmark_effects where benchmark_id=?", (saved["benchmark_id"],))
+        connection.commit()
+        connection.close()
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        restored = json.loads(run(self.repo, "benchmark", "--state-root", str(state),
+                                  "--benchmark-id", saved["benchmark_id"]).stdout)
+        self.assertEqual(restored, saved)
+
+        connection = sqlite3.connect(ledger)
+        payload = json.loads(connection.execute(
+            "select payload from benchmark_effects where benchmark_id=?", (saved["benchmark_id"],)).fetchone()[0])
+        payload["result"]["classification"] = "neutral"
+        connection.execute("update benchmark_effects set payload=? where benchmark_id=?",
+                           (json.dumps(payload), saved["benchmark_id"]))
+        connection.commit()
+        connection.close()
+        malformed = run(self.repo, "benchmark", "--state-root", str(state),
+                        "--benchmark-id", saved["benchmark_id"], ok=False)
+        self.assertIn("invalid result", malformed.stderr)
+
     def test_history_capture_saves_complete_snapshot_and_replays_bounded(self):
         database = Path(self.temp.name) / "history-capture.db"
         connection = sqlite3.connect(database)
