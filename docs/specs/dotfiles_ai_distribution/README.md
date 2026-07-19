@@ -24,6 +24,15 @@
 | Scope | Opt-in scheduling, fresh worker spawning, exact-session recovery, provider-affine Build identities, Hermes retirement, and operator guidance |
 | Overrides | Shared scheduling defaults remain disabled; this machine enables them locally; merge, release, and deployment remain human-controlled |
 
+### DAI-004 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: private analytics automatically controls local worker cadence |
+| Delivery intent | Merge and deploy analytics, scheduler state, runner behavior, and operator commands locally |
+| Scope | CLI/JSON effect summaries, monthly cadence ladder, concurrency cap, safety halt, and manual reset |
+| Overrides | User TOML remains unchanged; cost is report-only; ordinary workers retain draft-only delivery and human Discovery |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -97,6 +106,26 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a draft pull request is merged or closed by a human, then the watchdog
   records the terminal outcome and leaves its Herdr tab under manual ownership.
 
+### Longitudinal Analytics And Adaptive Cadence
+
+- Given retained benchmark windows are incomplete, when analytics runs, then it
+  reports `insufficient` and holds cadence rather than extrapolating.
+- Given a complete monthly evaluation, cadence may move by at most one step among
+  weekly, twice-weekly, and daily. It steps up only with at least two improved
+  observed merges, no regressions, and no more than 20 percent failed outcomes;
+  it steps down after any regression or at least 50 percent failed outcomes.
+- Given three consecutive blocked, abandoned, or reverted outcomes, malformed
+  authoritative state, or more than three nonterminal workers, spawning halts
+  fail closed. Only an explicit operator reset can resume it.
+- Given launchd invokes the fixed daily tick, the runner consults private
+  scheduler state and either starts one worker or returns a bounded no-op reason.
+  It never rewrites machine-local TOML or reloads launchd to tune cadence.
+- Given authoritative cost exists, analytics reports it. Cost and missing cost
+  never change cadence, halt spawning, or weaken another safety rule.
+- Given an ordinary R&D worker passes every DBSCTR gate, it still creates only a
+  draft pull request. Adaptive scheduling never grants merge, release, deploy,
+  Discovery-answering, or permission-selection authority.
+
 ### Provider-affine Build Agents
 
 - Given the operator selects `build-gpt` or `build-claude`, then the lowercase
@@ -118,7 +147,12 @@ OpenCode control-plane behavior, and shell authentication.
   `dev.dotfiles-ai.dbsctr-watchdog`; disabled apply removes only matching labels
   and plists.
 - The private SQLite ledger owns opportunities, workers, recovery attempts,
-  declared scope, and pull-request outcomes. Launchd and Herdr are advisory.
+  declared scope, pull-request outcomes, benchmark references, and scheduler
+  state. Launchd and Herdr are advisory.
+- `dbsctr-rnd analytics` returns a bounded human summary by default and JSON with
+  an explicit flag. `dbsctr-rnd reset-schedule` is the only halt recovery command.
+- Scheduler state records the current cadence, last monthly evaluation, outcome
+  counters, halt reason, and next eligible spawn time without private provenance.
 - Commands use argument vectors and structured JSON. The runner never reads the
   OpenCode database or calls private review helpers directly.
 - GitHub tokens stay in the `gh` credential store and enter only a child process

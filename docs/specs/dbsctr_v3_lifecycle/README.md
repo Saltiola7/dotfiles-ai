@@ -710,6 +710,68 @@ records, and retirement decisions. External writes remain approval-gated.
 - Human merge or close is an observed terminal outcome, not an authority granted
   to DBSCTR. Pull-request comments and revisions are outside the first slice.
 
+### V3.20-V3.22 Analytics Program Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes durable private evidence, attribution, and automated evaluation inputs |
+| Delivery intent | Separate merge/deploy cycles with serialized helper ownership |
+| Scope | Atomic multi-page captures, compact transport, structured telemetry, and longitudinal implementation effects |
+| Overrides | Structured sanitized evidence only; explicit unavailable values; association rather than causality; cost remains report-only |
+
+### V3.20 Atomic Capture Contract
+
+- A capture is one immutable logical manifest over every page selected from one
+  fixed history snapshot. Saving, replaying, or deleting only part of a capture
+  is invalid and fails closed.
+- Capture identity binds the ordered member identities, fixed snapshot,
+  filters, page coordinates, aggregate projection, and schema version. Replay
+  returns that exact cohort after live or archive retention changes.
+- Compact transport returns a bounded aggregate summary by default. Member
+  evidence is available only through explicit ordered pagination with the same
+  immutable capture identity; no encoded all-member payload bypasses response
+  bounds.
+- Explicit forget or capture deletion removes dependent manifests and reports
+  transactionally. Malformed, missing, reordered, or partially retained
+  evidence never produces an approximate result.
+- The validation authority covers at least 201 sessions, deterministic ordering,
+  response bounds, atomic deletion, replay, malformed state, and latency.
+
+### V3.21 Structured Telemetry Contract
+
+- Telemetry uses only schema-validated OpenCode data, Cycle Records, evidence
+  envelopes, and the private improvement ledger. Transcript prose, command
+  arguments, paths, URLs, credentials, and raw events remain forbidden.
+- Capability presence is detected per source schema. Approval operations,
+  retries, delegation, model family, stable error class, tokens, and cost expose
+  an explicit availability and attribution status; missing authority is never
+  inferred or converted to zero.
+- Correlation quality remains part of every attributable metric. Ambiguous or
+  unavailable correlation cannot become exact through aggregation.
+- Stable error classes describe bounded operational outcomes without retaining
+  private messages. Unknown future classes remain unavailable rather than being
+  guessed from text.
+- Authoritative cost is retained only as reportable telemetry. Missing or high
+  cost does not halt workers or change cadence under this program.
+
+### V3.22 Longitudinal Effect Contract
+
+- A benchmark binds a versioned metric definition, immutable capture inputs,
+  one merged implementation event, and 30-day baseline and observation windows.
+  An incomplete window reports `insufficient` rather than extrapolating.
+- Effect classifications are `improved`, `neutral`, `regressed`, or
+  `insufficient`. They describe association only and always expose overlapping
+  changes, unavailable metrics, population drift, and other detected
+  confounders.
+- Draft pull requests, unmerged commits, and local implementation attempts are
+  not successful implementation events. Merge identity and observation windows
+  remain immutable during replay.
+- Benchmark replay is deterministic from retained sanitized evidence. Changed
+  definitions require a new version and never rewrite prior classifications.
+- Program delivery completes when the capability is merged, deployed, and
+  smoke-tested; the first real 30-day observation is a scheduled follow-up, not
+  a blocked implementation gate.
+
 ## Gate Ledger — V3.1 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |

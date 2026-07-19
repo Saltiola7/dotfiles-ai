@@ -177,6 +177,25 @@ The save tool optionally forwards the source history page's `limit` and `cursor`
 so complete-page cohorts can use source-bound exact-member revalidation; callers
 that omit them retain strict whole-snapshot validation.
 
+### Runtime Health And Compact Analytics Interfaces
+
+Given a validated Build primary attaches its current runtime, the typed control
+plane persists only the helper-validated runtime identity and returns normalized
+Herdr health as advisory operational metadata. Health is one of `healthy`,
+`missing`, `ambiguous`, or `unavailable`; malformed Herdr output fails closed and
+never changes a Cycle Record, gate result, or improvement state.
+
+Given a caller requests compact history or benchmark evidence, typed adapters
+expose bounded capture summary, ordered member drill-down, exact replay, telemetry
+availability, and versioned benchmark results from finalized helper JSON
+contracts. Schemas reject unknown arguments, invalid cursors, oversized requests,
+and malformed helper output. No adapter returns an unbounded member collection.
+
+Plan, Reviewer, Explore, Scout, and Builder agents cannot attach runtimes or
+write analytics state. Read-only analytics access and permissioned private-state
+writes remain separate tools. OpenCode adapters never duplicate helper lifecycle,
+capture, attribution, or benchmark state machines.
+
 ### Scout-only current documentation
 
 Given a Scout-class subagent needs current dependency documentation, when it

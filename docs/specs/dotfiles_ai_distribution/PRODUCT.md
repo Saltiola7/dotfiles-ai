@@ -27,6 +27,10 @@ target files.
 6. The operator opens `herdr`, answers Discovery questions in blocked worker
    tabs, explicitly authorizes implementation, and manually manages resulting
    draft pull requests.
+7. An opted-in operator receives bounded CLI/JSON evidence about merged
+   improvement effects while private runtime state conservatively adjusts worker
+   cadence without changing source configuration or granting workers delivery
+   authority.
 
 ## Constraints And Trust
 
@@ -39,6 +43,8 @@ target files.
   general navigation allowlist.
 - Launchd owns process scheduling, Herdr owns terminal presentation, OpenCode
   owns agent execution, and the DBSCTR ledger owns durable coordination.
+- Adaptive cadence remains between weekly and daily, allows at most three
+  nonterminal workers, halts on repeated failures, and requires manual reset.
 - Private session, project, and repository provenance never appears in public
   findings, branches, documentation, or pull requests.
 
@@ -54,3 +60,6 @@ target files.
   repeatable, while Discovery questions still pause for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
+- Monthly cadence decisions are reproducible from sanitized evidence, preserve
+  the human Discovery and delivery boundaries, and fail closed on malformed
+  authoritative state.
