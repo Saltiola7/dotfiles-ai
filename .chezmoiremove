@@ -1,1 +1,5 @@
-# Intentionally empty: public apply must not delete targets it may not own.
+# Only targets previously installed and owned by this source.
+.hermes/skills/dbsctr-supervisor/SKILL.md
+.hermes/scripts/dbsctr-watchdog.py
+.local/bin/hermes-update
+Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist

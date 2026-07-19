@@ -12,8 +12,9 @@ independent chezmoi source repository.
 - Python 3.12+ and `uv` for repository tests
 - Optional: 1Password CLI for the opt-in `op-session` helper
 
-This repository configures those tools and can opt in to the official Hermes
-installer. It does not install OpenCode or Herdr or store provider credentials.
+This repository configures those tools and can opt in to native launchd
+scheduling for autonomous OpenCode review workers. It does not install OpenCode
+or Herdr or store provider credentials.
 
 ## Install
 
@@ -36,30 +37,26 @@ Restart OpenCode after applying because it loads configuration only at startup.
 
 - `opencode`: Bedrock profile/region, default models, and LM Studio endpoint.
 - `herdr`: theme, LaunchAgent toggle, and executable path.
-- `hermes`: opt-in installation, provider name, repository allowlist, DBSCTR
-  review schedule, gateway integration, and checked update schedule.
+- `rnd`: opt-in daily review hour/minute, watchdog interval, managed workspace,
+  writable source, and non-secret GitHub identity.
 - `onepassword`: optional account UUID, account alias, and Keychain service.
 
 When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode
 remain usable with their normal environment-based authentication.
 
-When Hermes is enabled, the first apply installs its current supported release
-noninteractively and creates its gateway, integrations, daily R&D worker
-spawner, five-minute conditional watchdog, and update LaunchAgent. Configure the
-machine-local workspace and GitHub values, authenticate separately, then verify:
+When R&D scheduling is enabled, apply loads a daily worker spawner and a
+five-minute watchdog through launchd. Shared defaults keep it disabled; enable
+it only in the machine-local config, authenticate GitHub separately, then verify:
 
 ```sh
-hermes auth add openai-codex
-hermes doctor
-hermes gateway status
 herdr integration status
-hermes cron status
+launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-spawner
+launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-watchdog
 ```
 
-Hermes runs the loop in the background; opening a terminal does not require a
+Launchd runs the loop in the background; opening a terminal does not require a
 startup command. Run `herdr` to attach to the persistent workspace and review
-one OpenCode tab per scheduled worker. Running `hermes` instead starts an
-ordinary interactive Hermes chat and does not start or attach to the supervisor.
+one OpenCode tab per scheduled worker.
 
 Each worker reviews sanitized evidence from the global OpenCode database but may
 change only this source. It claims one distinct improvement, waits in Discovery
@@ -67,16 +64,8 @@ for your answers and explicit `proceed`, then completes an isolated DBSCTR cycle
 pushes only its feature branch, and opens a human-merge-only draft pull request.
 Workers and claims are durable across terminal or pane failures.
 
-See [`docs/HERMES_RUNBOOK.md`](docs/HERMES_RUNBOOK.md) for status, manual runs,
+See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for status, manual runs,
 Discovery handoff, pause, recovery, logs, and rollback.
-
-Hermes owns `~/.hermes` runtime, OAuth, sessions, memories, logs, and mutable
-configuration. Chezmoi owns the managed supervisor skill, watchdog script, and
-bootstrap policy. OpenCode's OAuth state is not reused.
-
-OpenCode and Herdr still operate on the current directory. Hermes alone receives
-an explicit machine-local repository allowlist because autonomous supervision
-must not discover or control unrelated checkouts.
 
 ## Existing Personal-Chezmoi Migration
 

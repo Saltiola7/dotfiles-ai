@@ -74,7 +74,7 @@ def test_v2_is_archived_and_not_deployable():
     assert not any(path.is_file() for path in (SKILLS / "dbsctr2").rglob("*"))
 
     removals = [line for line in text(".chezmoiremove").splitlines() if not line.startswith("#")]
-    assert not removals
+    assert not [path for path in removals if "discovery2" in path or "dbsctr2" in path]
 
 
 def test_v3_module_registry_is_extensible_and_normalized():

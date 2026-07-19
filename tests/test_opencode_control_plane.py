@@ -132,9 +132,16 @@ def test_provider_affine_task_permissions():
     }
     for name, allowed in expected.items():
         body = (OC / "agents" / name).read_text()
+        assert "\nname:" not in body
         assert '"*": deny' in body
         for agent in allowed:
             assert f"{agent}: allow" in body
+    claude = (OC / "agents/build-claude.md").read_text()
+    assert "explore-openai: allow" not in claude
+    assert "scout-openai: allow" not in claude
+    assert "builder-openai: allow" not in claude
+    assert "exact runtime ID is\n`build-claude`" in claude
+    assert "exact runtime ID is\n`build-gpt`" in (OC / "agents/build-gpt.md").read_text()
 
 
 def test_builder_boundaries():
@@ -578,4 +585,9 @@ def test_removed_managed_integrations_are_absent():
     )
     assert not [path for path in removed if (ROOT / path).exists()]
     assert not list((ROOT / "private_dot_config/meridian").glob("*"))
-    assert not [line for line in text(".chezmoiremove").splitlines() if not line.startswith("#")]
+    assert {line for line in text(".chezmoiremove").splitlines() if line and not line.startswith("#")} == {
+        ".hermes/skills/dbsctr-supervisor/SKILL.md",
+        ".hermes/scripts/dbsctr-watchdog.py",
+        ".local/bin/hermes-update",
+        "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
+    }

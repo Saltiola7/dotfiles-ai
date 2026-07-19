@@ -44,7 +44,7 @@ surfaces.
 
 ## Goals
 
-- Keep native Plan and Build, plus provider-affine `Build-GPT` and `Build-Claude`.
+- Keep native Plan and Build, plus provider-affine `build-gpt` and `build-claude`.
 - Keep direct Bedrock Claude and raw LM Studio models.
 - Make workflow commands inherit the selected primary agent.
 - Allow local Build commands by default while gating external or destructive writes.
@@ -86,9 +86,10 @@ deployment, publishing, and Git-write commands require approval.
 ### Native Plan-to-Build handoff
 
 Given native Plan completes planning, its built-in exit path targets the native
-`build` agent. Native Build therefore remains enabled. `Build-GPT` remains a
-separate primary selected manually for OpenAI provider-affine Sol-to-Terra
-orchestration; changing only the model does not change the active agent.
+`build` agent. Native Build therefore remains enabled. `build-gpt` and
+`build-claude` are lowercase filename-derived custom-primary IDs selected through
+the agent control or exact `--agent` value; changing only the model does not
+change the active agent.
 
 ### Bounded Builder
 
@@ -99,13 +100,13 @@ state, deploy, publish, or perform external writes.
 ### Provider affinity
 
 Given an OpenAI primary, it delegates only to OpenAI optimized agents. Given
-`Build-Claude`, it delegates only to Bedrock optimized agents. No fallback
+`build-claude`, it delegates only to Bedrock optimized agents. No fallback
 crosses providers silently.
 
 ### ChatGPT OAuth model exposure
 
 Given OpenAI uses ChatGPT OAuth, only models and reasoning-effort variants
-supported by that route are exposed. Native Plan and `Build-GPT` use base
+supported by that route are exposed. Native Plan and `build-gpt` use base
 GPT-5.6 Sol with medium effort by default, while the user may select another
 supported effort variant. No agent or provider override claims unavailable Pro
 reasoning mode. The ChatGPT OAuth backend rejects base Sol requests containing
@@ -203,7 +204,7 @@ remains explicit through `launch=true` and never becomes lifecycle authority.
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access only beneath
 `~/.local/state/dbsctr/worktrees/**` without another prompt. Only native Build,
-Build-GPT, and Build-Claude receive that allow rule. Plan and every subagent deny
+`build-gpt`, and `build-claude` receive that allow rule. Plan and every subagent deny
 external-directory access; Builder agents remain confined to the worktree where
 they were launched.
 
@@ -222,7 +223,7 @@ personal chezmoi, credential, or arbitrary external path is exposed.
   built-in Plan exit target.
 - `gpt-5.6-sol-pro`, `Plan-GPT-Pro`, `Plan-GPT-Pro-Max`, and `Build-GPT-Pro`
   are absent while ChatGPT OAuth excludes Pro reasoning mode.
-- Native Plan and `Build-GPT` resolve to `openai/gpt-5.6-sol` with `medium` as
+- Native Plan and `build-gpt` resolve to `openai/gpt-5.6-sol` with `medium` as
   their default effort; OpenAI optimized subagents remain on Terra.
 - Commands contain no fixed `agent` field.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.
@@ -269,8 +270,9 @@ personal chezmoi, credential, or arbitrary external path is exposed.
   skill, graph, or hooks.
 - OpenCode provider behavior may change across upgrades; focused contract tests
   prevent unsupported aliases from silently returning.
-- OpenCode 1.17.20 cannot retarget native `plan_exit` to a custom primary;
-  `Build-GPT` therefore requires manual selection and a new message.
+- OpenCode cannot retarget native `plan_exit` to a custom primary; `build-gpt`
+  and `build-claude` therefore require exact manual agent selection and a new
+  message. Changing only the model leaves native Plan active.
 - Context7 is externally operated and may be unavailable, rate-limited, stale,
   or incomplete; Scout reports degradation and falls back to authoritative
   sources without blocking unrelated work.

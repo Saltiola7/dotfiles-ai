@@ -3,7 +3,7 @@
 ## Users And Outcomes
 
 Developers should be able to install one public configuration repository and
-receive a working DBSCTR, OpenCode, Herdr, and opt-in Hermes supervision
+receive a working DBSCTR, OpenCode, Herdr, and opt-in launchd R&D automation
 environment without adopting the maintainer's personal paths, account
 identifiers, or secrets.
 
@@ -21,7 +21,7 @@ target files.
    1Password never blocks Herdr or shell startup.
 4. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
-5. A developer opts into Hermes, supplies machine-local source and GitHub
+5. A developer opts into R&D scheduling, supplies machine-local source and GitHub
    identity, and receives visible daily OpenCode R&D workers that review global
    history but publish only sanitized draft pull requests for this source.
 6. The operator opens `herdr`, answers Discovery questions in blocked worker
@@ -35,10 +35,10 @@ target files.
 - macOS is the initial supported platform.
 - Existing personal configuration remains authoritative until live cutover
   validation passes.
-- Repository paths are modeled only as machine-local Hermes allowlist entries;
-  they are never public defaults or general navigation metadata.
-- Hermes runtime state and credentials remain Hermes-owned; the public source
-  owns only bootstrap and stable supervision policy.
+- The writable source path is machine-local and never a public default or
+  general navigation allowlist.
+- Launchd owns process scheduling, Herdr owns terminal presentation, OpenCode
+  owns agent execution, and the DBSCTR ledger owns durable coordination.
 - Private session, project, and repository provenance never appears in public
   findings, branches, documentation, or pull requests.
 
@@ -50,7 +50,7 @@ target files.
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
   cutover.
-- Hermes installation, gateway, Herdr integration, allowlist, and review job are
+- Enabled and disabled launchd rendering, Herdr integration, and review jobs are
   repeatable, while Discovery questions still pause for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.

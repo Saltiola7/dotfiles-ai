@@ -1,0 +1,58 @@
+#!/bin/bash
+# spawner plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl" | sha256sum }}
+# watchdog plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist.tmpl" | sha256sum }}
+# enabled: {{ .dotfiles_ai.rnd.enabled }}
+
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+DOMAIN="gui/$(id -u)"
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+REVIEW_WORKDIR={{ .dotfiles_ai.rnd.review_workdir | quote }}
+RUNNER="$HOME/.local/bin/dbsctr-rnd"
+mkdir -p "$HOME/Library/Logs"
+
+remove_job() {
+    local label=$1 plist=$2 plist_label
+    /bin/launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
+    plist_label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist" 2>/dev/null || true)
+    if [[ "$plist_label" == "$label" ]]; then
+        /bin/rm -f "$plist"
+    fi
+}
+
+# Retire the exact updater previously installed by this source.
+/bin/launchctl bootout "$DOMAIN/dev.dotfiles-ai.hermes-update" >/dev/null 2>&1 || true
+for id_file in \
+    "$HOME/.local/state/dotfiles-ai/hermes-review-cron-id" \
+    "$HOME/.local/state/dotfiles-ai/hermes-watchdog-cron-id"
+do
+    [[ -f "$id_file" ]] || continue
+    [[ -x "$HOME/.local/bin/hermes" ]] || { echo "Hermes is missing; cannot remove saved job" >&2; exit 1; }
+    IFS= read -r job_id < "$id_file"
+    [[ "$job_id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes job ID" >&2; exit 1; }
+    "$HOME/.local/bin/hermes" cron remove "$job_id"
+    /bin/rm -f "$id_file"
+done
+/bin/rm -f "$HOME/.local/state/dotfiles-ai/hermes-watchdog.json"
+
+{{ if not .dotfiles_ai.rnd.enabled -}}
+remove_job dev.dotfiles-ai.dbsctr-spawner "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist"
+remove_job dev.dotfiles-ai.dbsctr-watchdog "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist"
+exit 0
+{{ end -}}
+
+[[ -x "$HERDR" ]] || { echo "Herdr is required: $HERDR" >&2; exit 1; }
+[[ -x "$RUNNER" ]] || { echo "DBSCTR R&D runner is missing: $RUNNER" >&2; exit 1; }
+[[ -d "$REVIEW_WORKDIR" ]] || { echo "R&D review workdir does not exist: $REVIEW_WORKDIR" >&2; exit 1; }
+[[ {{ .dotfiles_ai.rnd.review_hour }} -ge 0 && {{ .dotfiles_ai.rnd.review_hour }} -le 23 ]] || { echo "review_hour must be 0..23" >&2; exit 1; }
+[[ {{ .dotfiles_ai.rnd.review_minute }} -ge 0 && {{ .dotfiles_ai.rnd.review_minute }} -le 59 ]] || { echo "review_minute must be 0..59" >&2; exit 1; }
+[[ {{ .dotfiles_ai.rnd.watchdog_interval_seconds }} -ge 60 ]] || { echo "watchdog_interval_seconds must be at least 60" >&2; exit 1; }
+"$HERDR" integration install opencode
+
+for label in dev.dotfiles-ai.dbsctr-spawner dev.dotfiles-ai.dbsctr-watchdog; do
+    plist="$HOME/Library/LaunchAgents/$label.plist"
+    [[ -f "$plist" ]] || { echo "missing LaunchAgent: $plist" >&2; exit 1; }
+    /bin/launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
+    /bin/launchctl bootstrap "$DOMAIN" "$plist"
+done

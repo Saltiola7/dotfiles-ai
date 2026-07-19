@@ -10,6 +10,7 @@
 
 | id | title | completed | commit |
 |---|---|---|---|
+| DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | DAI-005B corrective Gate Commit |
 | DAI-003G | Apply every autonomous lens across full review history | 2026-07-18 | Gate Commit `bc2bb08` |
 | DAI-003F | Harden R&D tabs and runtime PATH | 2026-07-18 | Gate Commits `74011f7`, `9c514a1`, `6694574` |
 | DAI-003 | Add autonomous global-history R&D-to-draft-PR loop | 2026-07-18 | Gate Commits `f002712` through `6f9a112` |

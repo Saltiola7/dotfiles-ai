@@ -10,22 +10,15 @@ theme = "catppuccin"
 launchagent = true
 executable = "/opt/homebrew/bin/herdr"
 
-[dotfiles_ai.hermes]
+[dotfiles_ai.rnd]
 enabled = false
-executable = "~/.local/bin/hermes"
-provider = "openai-codex"
-model = "gpt-5.5"
 review_workdir = ""
-review_schedule = "0 9 * * *"
-watchdog_schedule = "every 5m"
-review_delivery = "local"
-review_session_id = ""
+review_hour = 9
+review_minute = 0
+watchdog_interval_seconds = 300
 workspace_label = "DBSCTR R&D"
 github_account = ""
 github_repository = ""
-update_weekday = 0
-update_hour = 4
-repositories = []
 
 [dotfiles_ai.onepassword]
 enabled = false

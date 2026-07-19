@@ -15,32 +15,18 @@ theme = "catppuccin"
 launchagent = true
 executable = "/opt/homebrew/bin/herdr"
 
-[data.dotfiles_ai.hermes]
-# Hermes uses its official installer, not Homebrew, and owns ~/.hermes runtime state.
+[data.dotfiles_ai.rnd]
+# Keep false on machines that should not schedule autonomous review workers.
 enabled = false
-executable = "/Users/you/.local/bin/hermes"
-# Authenticate separately with: hermes auth add openai-codex
-provider = "openai-codex"
-model = "gpt-5.5"
 review_workdir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
-review_schedule = "0 9 * * *"
-watchdog_schedule = "every 5m"
-review_delivery = "local"
+review_hour = 9
+review_minute = 0
+watchdog_interval_seconds = 300
 # Herdr holds one managed workspace with a fresh OpenCode tab per scheduled run.
 workspace_label = "DBSCTR R&D"
 # Non-secret gh account name used for this source's draft pull requests.
-github_account = "Saltiola7"
-github_repository = "Saltiola7/dotfiles-ai"
-update_weekday = 0
-update_hour = 4
-
-[[data.dotfiles_ai.hermes.repositories]]
-name = "dotfiles-ai"
-path = "/Users/you/.local/share/chezmoi-dotfiles-ai"
-
-[[data.dotfiles_ai.hermes.repositories]]
-name = "seo-data-science"
-path = "/Users/you/src/seo-data-science"
+github_account = "your-account"
+github_repository = "your-account/dotfiles-ai"
 
 [data.dotfiles_ai.onepassword]
 # Enable only when `op` is installed and the account-specific values are set.

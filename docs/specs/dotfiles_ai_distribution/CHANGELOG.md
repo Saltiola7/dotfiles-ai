@@ -1,5 +1,28 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-18 - DAI-005 Native OpenCode R&D Scheduling
+
+- Replaced Hermes gateway, cron, supervisor skill, updater, and runtime ownership
+  with an opt-in launchd spawner and watchdog around Herdr, OpenCode, and the
+  existing DBSCTR ledger. Shared scheduling defaults remain disabled.
+- Preserved fresh full-history workers, single-pane terminal ownership, explicit
+  Discovery proceed, exact-session recovery, and human-merge-only draft PRs.
+- Normalized custom Build IDs to lowercase filename-derived `build-gpt` and
+  `build-claude`; model selection no longer masquerades as agent selection, and
+  Claude delegation remains hard-limited to Bedrock Sonnet 5 subagents.
+- Validation: 160 passed, 1 skipped; enabled/disabled rendering, plist parsing,
+  real Herdr 0.7.3 nested responses, exact registration, fallback cleanup,
+  recovery ambiguity, PR reconciliation, and independent review passed.
+- Deployment: launchd loaded the 09:00 spawner and 300-second watchdog; worker
+  `dbsctr-bdfc3d4d` registered in single-pane `w7:t1A`, began full-history
+  review, and a repeated watchdog run was a no-op.
+- Retirement: both Hermes cron jobs, gateway, Herdr integration, updater,
+  executable, `~/.hermes`, and source-owned reconciliation state are absent.
+  Gate Exceptions: none. Intended Final Push: `origin/main`.
+- Delivery correction: DAI-005B recomposed the reviewed final tree from
+  `origin/main` into one fully recorded Gate Commit after DAI-005 Final Push
+  rejected unrecorded intermediate commits.
+
 ## 2026-07-18 - DAI-003G Full-History Improvement Lenses
 
 - Changed autonomous R&D from one unreviewed page to every sanitized history

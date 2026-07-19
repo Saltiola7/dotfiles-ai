@@ -26,9 +26,7 @@ graphify-out/
 {{ if not .dotfiles_ai.herdr.launchagent }}
 Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
 {{ end }}
-{{ if not .dotfiles_ai.hermes.enabled }}
-.hermes/skills/dbsctr-supervisor
-.hermes/scripts/dbsctr-watchdog.py
-.local/bin/hermes-update
-Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
+{{ if not .dotfiles_ai.rnd.enabled }}
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ end }}
