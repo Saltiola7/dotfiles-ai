@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Portable Reference Permission Ordering
+
+- Replaced configured-reference scalar denial with ordered external-directory
+  rules: deny every external path first, then allow only the configured
+  `seo-data-science` subtree. Empty configurations retain scalar deny behavior.
+- Validation: red permission regression, 25 focused tests, targeted dry-run and
+  deployment passed. Existing OpenCode processes require restart. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - Portable Local Repository Reference
 
 - Added an optional machine-local `seo_data_science_path` that renders one named
