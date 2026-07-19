@@ -7,8 +7,8 @@
   must be contiguous and complete; missing authority remains unavailable.
 - Validation: 52 affected tests, diff checks, and two independent review rounds
   passed after tightening concurrency, activation, outcome-event, and future-
-  interface semantics. Gate Commits: `dcea012`, `bacdaaa`. Gate Exceptions:
-  none. Intended Final Push: `origin/main`.
+  interface semantics. Contract Gate Commits: `dcea012`, `bacdaaa`, `7c336b0`,
+  `a02bfce`. Gate Exceptions: none. Intended Final Push: `origin/main`.
 
 ## 2026-07-18 - V3.16-3 Exact Continuation Cohort Save
 
