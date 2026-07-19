@@ -612,13 +612,27 @@ def capture_integrity(connection):
     for capture_id, payload in connection.execute("SELECT capture_id, payload FROM history_captures"):
         try:
             manifest = json.loads(payload, object_pairs_hook=no_duplicate_keys)
-            members = [json.loads(row[0], object_pairs_hook=no_duplicate_keys) for row in connection.execute(
-                "SELECT payload FROM history_capture_members WHERE capture_id=? ORDER BY position", (capture_id,))]
         except json.JSONDecodeError as error:
             fail(f"private history capture is malformed: {error}")
         if manifest.get("capture_id") != capture_id:
             fail("private history capture identity mismatch")
+        members = history_capture_members(connection, capture_id)
         validate_history_capture(manifest, members)
+
+
+def history_capture_members(connection, capture_id):
+    members = []
+    for expected, (position, session_id, payload) in enumerate(connection.execute(
+            "SELECT position, session_id, payload FROM history_capture_members "
+            "WHERE capture_id=? ORDER BY position", (capture_id,))):
+        try:
+            record = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+        except json.JSONDecodeError as error:
+            fail(f"private history capture member is malformed: {error}")
+        if position != expected or record.get("session_id") != session_id:
+            fail("private history capture member columns mismatch")
+        members.append(record)
+    return members
 
 
 def legacy_review_exists(root):
@@ -2727,6 +2741,8 @@ def validate_history_capture(value, members):
                 or not 1 <= page["count"] <= page["limit"]):
             fail("private history capture page coverage is invalid")
         history_digest(page.get("digest"), "capture page digest")
+        if position < len(value["pages"]) - 1 and page["count"] != value["page_size"]:
+            fail("private history capture page coverage is invalid")
         expected_continuation = expected_cursor + value["page_size"] if position < len(value["pages"]) - 1 else None
         if page.get("continuation") != expected_continuation:
             fail("private history capture page coverage is invalid")
@@ -2926,14 +2942,14 @@ def validate_history_report_input(value):
     return {**value, **{name: value.get(name, []) for name in text_fields}}
 
 
-def review_history_page(args):
+def review_history_page(args, lock_held=False):
     root = review_root(args.state_root)
     excluded_family = historical_excluded_family(args.database, args.excluded_session_id,
                                                  args.excluded_message_id)
     if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
         fail("review history limit must be 1 through 100 and cursor non-negative")
     require_review_lock_safe(root)
-    with existing_review_lock(root):
+    with (contextlib.nullcontext() if lock_held else existing_review_lock(root)):
         records = history_evidence(root)
         reports = history_reports(root)
         history_cohorts(root)  # Fail closed on malformed retained replay evidence.
@@ -3005,6 +3021,11 @@ def review_history_page(args):
                 fail("review history replay uses its report ID and cursor, not a live snapshot")
             if supplied is not None and supplied != result[name]:
                 fail("review history replay does not match its immutable snapshot")
+        if getattr(args, "capture_all", False):
+            result["_capture_records"] = records
+            result["_capture_source_identities"] = (
+                live.get("_source_identities", {}) if not args.archive_only and not args.replay else {})
+            return result
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode()) > HISTORY_SCAN_HARD:
         fail("review history response exceeds bound")
@@ -3015,50 +3036,44 @@ def command_review_history(args):
     print(json.dumps(review_history_page(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
-def capture_history_args(args, cursor, identity=None):
-    identity = identity or {}
+def capture_history_args(args):
     return argparse.Namespace(
         database=args.database, state_root=args.state_root, archive_only=False,
-        limit=args.page_size, cursor=cursor, after=args.after, before=args.before,
+        limit=args.page_size, cursor=0, after=args.after, before=args.before,
         method_revision=args.method_revision, cycle_id=args.cycle_id, state=args.state,
         context=args.context, project_digest=args.project_digest, reviewed_status=args.reviewed_status,
-        replay=None, snapshot=identity.get("snapshot"), session_ceiling=identity.get("session_ceiling"),
-        part_ceiling=identity.get("part_ceiling"), database_digest=identity.get("database_digest"),
-        exclusion_digest=identity.get("exclusion_digest"),
+        replay=None, snapshot=None, session_ceiling=None, part_ceiling=None, database_digest=None,
+        exclusion_digest=None, capture_all=True,
         excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
     )
 
 
 def command_history_capture_save(args):
-    pages, members, cursor, identity = [], [], 0, None
-    while True:
-        page = review_history_page(capture_history_args(args, cursor, identity))
-        if identity is None:
-            identity = {name: page[name] for name in (
-                "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")}
-        if page["query"] != history_capture_query(capture_history_args(args, cursor, identity)):
-            fail("history capture query changed between pages")
-        records = [validate_history_evidence(item) for item in page["candidates"]]
-        if page["session_ids"] != [item["session_id"] for item in records]:
-            fail("history capture page membership is invalid")
-        if not records:
-            fail("history capture query selected no evidence")
-        pages.append({"cursor": page["cursor"], "limit": page["limit"], "count": len(records),
-                      "continuation": page["continuation"], "digest": page["digest"]})
-        members.extend(records)
-        if page["continuation"] is None:
-            break
-        cursor = page["continuation"]
-    query = history_capture_query(capture_history_args(args, 0, identity))
-    manifest = {"schema_version": 1, "query": query, **identity, "page_size": args.page_size,
-                "pages": pages, "member_count": len(members),
-                "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
-                "aggregates": history_capture_aggregates(members)}
-    manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
-    validate_history_capture(manifest, members)
     root = review_root(args.state_root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        source = review_history_page(capture_history_args(args), lock_held=True)
+        members = [validate_history_evidence(item) for item in source.pop("_capture_records")]
+        source_identities = source.pop("_capture_source_identities")
+        if not members:
+            fail("history capture query selected no evidence")
+        identity = {name: source[name] for name in (
+            "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")}
+        pages = []
+        for cursor in range(0, len(members), args.page_size):
+            records = members[cursor:cursor + args.page_size]
+            continuation = cursor + args.page_size if len(members) > cursor + args.page_size else None
+            pages.append({"cursor": cursor, "limit": args.page_size, "count": len(records),
+                          "continuation": continuation,
+                          "digest": review_digest(
+                              records, identity["snapshot"], identity["session_ceiling"], identity["part_ceiling"],
+                              history_page_digest(records, source_identities, args.page_size, cursor))})
+        manifest = {"schema_version": 1, "query": source["query"], **identity, "page_size": args.page_size,
+                    "pages": pages, "member_count": len(members),
+                    "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
+                    "aggregates": history_capture_aggregates(members)}
+        manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
+        validate_history_capture(manifest, members)
         connection = ensure_ledger_for_write(root)
         ensure_capture_schema(connection)
         try:
@@ -3091,8 +3106,7 @@ def load_history_capture(connection, capture_id):
     if row is None:
         fail("history capture is missing")
     manifest = json.loads(row[0], object_pairs_hook=no_duplicate_keys)
-    members = [json.loads(item[0], object_pairs_hook=no_duplicate_keys) for item in connection.execute(
-        "SELECT payload FROM history_capture_members WHERE capture_id=? ORDER BY position", (capture_id,))]
+    members = history_capture_members(connection, capture_id)
     return validate_history_capture(manifest, members)
 
 

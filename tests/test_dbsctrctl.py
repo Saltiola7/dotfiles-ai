@@ -2566,6 +2566,7 @@ class DbsctrctlTest(unittest.TestCase):
         payload = json.loads(connection.execute(
             "select payload from history_captures where capture_id=?", (saved["capture_id"],)
         ).fetchone()[0])
+        original = json.loads(json.dumps(payload))
         payload["aggregates"]["candidate_count"] = 99
         connection.execute("update history_captures set payload=? where capture_id=?",
                            (json.dumps(payload, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
@@ -2578,7 +2579,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("aggregate projection mismatch", mismatched.stderr)
 
         connection = sqlite3.connect(ledger)
-        payload["aggregates"]["candidate_count"] = 3
+        payload = json.loads(json.dumps(original))
         payload["pages"][1]["cursor"] = 3
         connection.execute("update history_captures set payload=? where capture_id=?",
                            (json.dumps(payload, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
@@ -2589,6 +2590,48 @@ class DbsctrctlTest(unittest.TestCase):
             "--capture-id", saved["capture_id"], ok=False,
         )
         self.assertIn("page coverage", gap.stderr)
+
+        connection = sqlite3.connect(ledger)
+        payload = json.loads(json.dumps(original))
+        payload["pages"][0]["count"] = 1
+        connection.execute("update history_captures set payload=? where capture_id=?",
+                           (json.dumps(payload, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
+        connection.commit()
+        connection.close()
+        short = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("page coverage", short.stderr)
+
+        connection = sqlite3.connect(ledger)
+        connection.execute("update history_captures set payload=? where capture_id=?",
+                           (json.dumps(original, sort_keys=True, separators=(",", ":")), saved["capture_id"]))
+        connection.execute("update history_capture_members set session_id='other-session' "
+                           "where capture_id=? and position=0", (saved["capture_id"],))
+        connection.commit()
+        connection.close()
+        columns = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("member columns mismatch", columns.stderr)
+        forgotten = run(
+            self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-2", ok=False,
+        )
+        self.assertIn("member columns mismatch", forgotten.stderr)
+
+        connection = sqlite3.connect(ledger)
+        connection.execute("update history_capture_members set session_id='session-2' "
+                           "where capture_id=? and position=0", (saved["capture_id"],))
+        connection.commit()
+        connection.close()
+        run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-2")
+        missing = run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], ok=False,
+        )
+        self.assertIn("capture is missing", missing.stderr)
 
     def test_review_history_filters_archives_replays_and_forgets_closed(self):
         state = Path(self.temp.name) / "history-private"
