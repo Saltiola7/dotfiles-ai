@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan } from "../lib/dbsctr-runtime"
+import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -18,6 +18,17 @@ export const attach = tool({
       sessionID: context.sessionID,
       messageID: context.messageID,
       directory: context.directory,
+      worktree: context.worktree,
+    })
+  },
+})
+
+export const runtime_health = tool({
+  description: "Read normalized advisory Herdr health for the current OpenCode runtime.",
+  args: {},
+  async execute(_args, context) {
+    return await runtimeHealth(context.worktree, {
+      sessionID: context.sessionID,
       worktree: context.worktree,
     })
   },

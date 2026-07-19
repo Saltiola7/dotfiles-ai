@@ -177,17 +177,24 @@ The save tool optionally forwards the source history page's `limit` and `cursor`
 so complete-page cohorts can use source-bound exact-member revalidation; callers
 that omit them retain strict whole-snapshot validation.
 
-### Approved Future Runtime Health And Compact Analytics Interfaces
+### Runtime Health And Approved Future Compact Analytics Interfaces
 
-The following contracts become current only when their ready backlog items are
-completed and deployed. Until then, the existing runtime and history interfaces
-remain authoritative.
+OCP-17 runtime health is current after deployment. Compact analytics contracts
+become current only when OCP-18 is completed and deployed; until then, existing
+history interfaces remain authoritative.
 
 Given a validated Build primary attaches its current runtime, the typed control
 plane persists only the helper-validated runtime identity and returns normalized
 Herdr health as advisory operational metadata. Health is one of `healthy`,
 `missing`, `ambiguous`, or `unavailable`; malformed Herdr output fails closed and
 never changes a Cycle Record, gate result, or improvement state.
+
+`dbsctr_runtime_health` invokes only structured `herdr pane current`. Outside a
+Herdr runtime or when the command is unavailable it returns `unavailable`; a
+valid absent pane returns `missing`; malformed output or mismatched OpenCode
+session/worktree identity returns `ambiguous`; and an exact current pane returns
+`healthy` with bounded presentation IDs and normalized agent status. It emits no
+path, command error, or private content and performs no write.
 
 Given a caller requests compact history or benchmark evidence after the matching
 helper interface is finalized and deployed, typed adapters

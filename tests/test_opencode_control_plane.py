@@ -274,6 +274,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     tools = (OC / "tools/dbsctr.ts").read_text()
     assert 'export const status = tool({' in tools
     assert 'export const attach = tool({' in tools
+    assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const audit = tool({' in tools
     assert 'export const inspect = tool({' in tools
@@ -311,6 +312,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "context.sessionID" in tools
     assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
+    assert '"herdr", "pane", "current"' in runtime
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
     assert ".dotfiles_ai.herdr.theme" in herdr
@@ -560,6 +562,47 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
     ]
+
+
+def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "herdr.log"
+    herdr = bin_dir / "herdr"
+    herdr.write_text(
+        "#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$HERDR_LOG\"\n"
+        "[ \"$HERDR_MODE\" = fail ] && { printf 'private failure /Users/nope\\n' >&2; exit 9; }\n"
+        "[ \"$HERDR_MODE\" = malformed ] && { printf 'not-json\\n'; exit 0; }\n"
+        "[ \"$HERDR_MODE\" = missing ] && { printf '{\"result\":{\"pane\":null}}\\n'; exit 0; }\n"
+        "printf '{\"result\":{\"pane\":{\"agent\":\"opencode\",\"agent_session\":{\"value\":\"%s\"},\"agent_status\":\"idle\",\"cwd\":\"%s\",\"pane_id\":\"w1:p2\",\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"terminal_id\":\"term_1\"}}}\\n' \"${HERDR_SESSION:-session-1}\" \"$HERDR_CWD\"\n"
+    )
+    herdr.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ runtimeHealth }} from {json.dumps(str(runtime))};'
+        'console.log(JSON.stringify(await runtimeHealth(process.cwd(),{sessionID:"session-1",worktree:process.cwd()},process.env)));'
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_LOG": str(log),
+           "HERDR_CWD": str(ROOT), "HERDR_ENV": "1"}
+    healthy = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
+                             capture_output=True, check=True)
+    assert json.loads(healthy.stdout) == {
+        "status": "healthy", "agent_status": "idle", "pane_id": "w1:p2",
+        "tab_id": "w1:t2", "workspace_id": "w1", "terminal_id": "term_1",
+    }
+    assert log.read_text().splitlines() == ["<pane>", "<current>"]
+    for mode, expected in (("missing", "missing"), ("malformed", "ambiguous"), ("fail", "unavailable")):
+        result = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_MODE": mode},
+                                text=True, capture_output=True, check=True)
+        assert json.loads(result.stdout) == {"status": expected}
+    mismatch = subprocess.run(["bun", "-e", script], cwd=ROOT,
+                              env={**env, "HERDR_SESSION": "other-session"}, text=True,
+                              capture_output=True, check=True)
+    assert json.loads(mismatch.stdout) == {"status": "ambiguous"}
+    unavailable = subprocess.run(["bun", "-e", script], cwd=ROOT,
+                                 env={key: value for key, value in env.items() if key != "HERDR_ENV"},
+                                 text=True, capture_output=True, check=True)
+    assert json.loads(unavailable.stdout) == {"status": "unavailable"}
 
 
 def test_dbsctr_begin_runs_without_a_prompt(tmp_path):

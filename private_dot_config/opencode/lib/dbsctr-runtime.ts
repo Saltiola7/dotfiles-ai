@@ -28,6 +28,45 @@ export async function attachRuntime(cwd: string, runtime: {
   ], cwd)
 }
 
+export async function runtimeHealth(cwd: string, runtime: {
+  sessionID: string
+  worktree: string
+}, env = process.env) {
+  if (env.HERDR_ENV !== "1") return { status: "unavailable" as const }
+  let output: string
+  try {
+    output = await run(["herdr", "pane", "current"], cwd)
+  } catch {
+    return { status: "unavailable" as const }
+  }
+  let value: any
+  try {
+    value = JSON.parse(output)
+  } catch {
+    return { status: "ambiguous" as const }
+  }
+  const pane = value?.result?.pane
+  if (pane === null) return { status: "missing" as const }
+  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  const agentStatus = ["idle", "working", "blocked", "unknown"].includes(pane?.agent_status)
+    ? pane.agent_status
+    : "unknown"
+  if (pane?.agent !== "opencode" || pane?.agent_session?.value !== runtime.sessionID
+      || (pane?.cwd !== runtime.worktree && pane?.foreground_cwd !== runtime.worktree)
+      || ![pane?.pane_id, pane?.tab_id, pane?.workspace_id, pane?.terminal_id].every(
+        value => typeof value === "string" && id.test(value))) {
+    return { status: "ambiguous" as const }
+  }
+  return {
+    status: "healthy" as const,
+    agent_status: agentStatus,
+    pane_id: pane.pane_id,
+    tab_id: pane.tab_id,
+    workspace_id: pane.workspace_id,
+    terminal_id: pane.terminal_id,
+  }
+}
+
 export async function lifecycleAudit(cwd: string, commit = "HEAD") {
   return await run(["dbsctrctl", "audit", "--commit", commit, "--json"], cwd)
 }
