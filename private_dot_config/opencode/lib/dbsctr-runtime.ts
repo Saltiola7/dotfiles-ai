@@ -211,6 +211,28 @@ export async function reviewHistory(args: {
   limit?: number
   cursor?: number
 }, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
+  return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
+}
+
+function reviewHistoryArgv(args: {
+  after?: number
+  before?: number
+  methodRevision?: string
+  cycleId?: string
+  state?: "active" | "blocked" | "abandoned" | "completed" | "unknown"
+  context?: string
+  projectDigest?: string
+  reviewedStatus?: "reviewed" | "unreviewed"
+  replay?: string
+  archiveOnly?: boolean
+  snapshot?: number
+  sessionCeiling?: number
+  partCeiling?: number
+  databaseDigest?: string
+  exclusionDigest?: string
+  limit?: number
+  cursor?: number
+}, excludedSessionID?: string, excludedMessageID?: string) {
   const argv = ["dbsctrctl", "review-history"]
   const names: Record<string, string> = {
     methodRevision: "method-revision", cycleId: "cycle-id", projectDigest: "project-digest",
@@ -224,7 +246,95 @@ export async function reviewHistory(args: {
     if (value === true) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`)
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}`, String(value))
   }
-  return await run(argv, cwd)
+  return argv
+}
+
+async function analyticsJSON(argv: string[], cwd: string) {
+  const output = await runBounded(argv, cwd, 30_000, 256 * 1024)
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  if (unsafe.test(output)) {
+    throw new Error("analytics helper returned unsafe content")
+  }
+  let value: any
+  try {
+    value = JSON.parse(output)
+  } catch {
+    throw new Error("analytics helper returned malformed JSON")
+  }
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    throw new Error("analytics helper returned malformed JSON")
+  }
+  if (unsafe.test(JSON.stringify(value))) throw new Error("analytics helper returned unsafe content")
+  return value
+}
+
+function exactKeys(value: any, keys: string[]) {
+  return value !== null && !Array.isArray(value) && typeof value === "object"
+    && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0")
+}
+
+export async function historyCapture(args: { captureID: string; cursor?: number; limit?: number }, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "history-capture", "--capture-id", args.captureID]
+  if (args.cursor !== undefined) argv.push("--cursor", String(args.cursor), "--limit", String(args.limit ?? 100))
+  const value = await analyticsJSON(argv, cwd)
+  const keys = ["schema_version", "capture_id", "query", "snapshot", "page_size", "page_count", "member_count", "aggregates"]
+  if (args.cursor !== undefined) keys.push("cursor", "limit", "members", "continuation")
+  if (!exactKeys(value, keys) || value.schema_version !== 1 || value.capture_id !== args.captureID
+      || !Number.isInteger(value.member_count) || value.member_count < 1
+      || value.query === null || typeof value.query !== "object" || Array.isArray(value.query)
+      || value.aggregates === null || typeof value.aggregates !== "object" || Array.isArray(value.aggregates)
+      || args.cursor !== undefined && (value.cursor !== args.cursor || value.limit !== (args.limit ?? 100)
+        || !Array.isArray(value.members) || value.members.length > value.limit
+        || value.continuation !== null && (!Number.isInteger(value.continuation) || value.continuation <= value.cursor))) {
+    throw new Error("analytics helper returned an invalid capture")
+  }
+  return JSON.stringify(value)
+}
+
+export async function historyTelemetry(args: Parameters<typeof reviewHistory>[0], cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
+  const value = await analyticsJSON(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
+  const limit = args.limit ?? 25
+  const telemetryKeys = ["approval_count", "retry_count", "delegation_count", "model_families", "error_classes",
+    "token_total", "cost_total", "availability", "attribution_status"]
+  const availabilityKeys = telemetryKeys.filter(key => !["availability", "attribution_status"].includes(key))
+  const attribution = ["exact", "family", "worktree", "source", "ambiguous", "unavailable"]
+  for (const candidate of Array.isArray(value.candidates) ? value.candidates : []) {
+    if (candidate !== null && typeof candidate === "object" && candidate.telemetry === undefined) candidate.telemetry = {
+      approval_count: "unavailable", retry_count: "unavailable", delegation_count: "unavailable",
+      model_families: "unavailable", error_classes: "unavailable", token_total: "unavailable",
+      cost_total: "unavailable",
+      availability: Object.fromEntries(availabilityKeys.map(key => [key, "unavailable"])),
+      attribution_status: attribution.includes(candidate?.correlation_quality)
+        ? candidate.correlation_quality : "unavailable",
+    }
+  }
+  if (value.schema_version !== 1 || !Array.isArray(value.candidates) || value.candidates.length > limit
+      || value.limit !== limit || value.cursor !== (args.cursor ?? 0)
+      || value.candidates.some((candidate: any) => candidate === null || typeof candidate !== "object"
+        || candidate.telemetry !== undefined && (!exactKeys(candidate.telemetry, telemetryKeys)
+          || !exactKeys(candidate.telemetry.availability, availabilityKeys)
+          || !Object.values(candidate.telemetry.availability).every(status => ["available", "unavailable"].includes(status as string))
+          || !attribution.includes(candidate.telemetry.attribution_status)))) {
+    throw new Error("analytics helper returned invalid telemetry")
+  }
+  return JSON.stringify(value)
+}
+
+export async function benchmarkResult(benchmarkID: string, cwd = process.cwd()) {
+  const value = await analyticsJSON(["dbsctrctl", "benchmark", "--benchmark-id", benchmarkID], cwd)
+  const classifications = ["improved", "neutral", "regressed", "insufficient"]
+  if (!exactKeys(value, ["schema_version", "benchmark_id", "definition", "inputs", "windows", "result", "evaluated_at"])
+      || value.schema_version !== 1 || value.benchmark_id !== benchmarkID
+      || !exactKeys(value.definition, ["version", "metric", "direction"])
+      || !exactKeys(value.inputs, ["baseline_capture_id", "observation_capture_id", "merge_identity", "merged_at",
+        "activation_status", "activation_identity", "activated_at"])
+      || !exactKeys(value.result, ["classification", "baseline_value", "observation_value", "delta", "confounders",
+        "unavailable_metrics", "association_only", "reason"])
+      || !classifications.includes(value.result.classification)
+      || value.result.association_only !== true) {
+    throw new Error("analytics helper returned an invalid benchmark")
+  }
+  return JSON.stringify(value)
 }
 
 export async function reviewHistorySave(report: {

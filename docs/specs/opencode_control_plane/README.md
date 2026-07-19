@@ -213,6 +213,12 @@ expose bounded capture summary, ordered member drill-down, exact replay, telemet
 availability, and versioned benchmark results from finalized helper JSON
 contracts. Schemas reject unknown arguments, invalid cursors, oversized requests,
 and malformed helper output. No adapter returns an unbounded member collection.
+The read-only tools are `dbsctr_history_capture`, `dbsctr_history_telemetry`, and
+`dbsctr_benchmark`. They execute argument vectors without a shell, cap combined
+helper output at 256 KiB with a 30-second timeout, reject unsafe path/URL content,
+and validate the returned contract before exposure. Legacy history without a
+telemetry envelope is normalized only to explicit `unavailable` fields; adapters
+never infer a value or classification.
 
 Plan, Reviewer, Explore, Scout, and Builder agents cannot attach runtimes or
 write analytics state. Read-only analytics access and permissioned private-state

@@ -283,6 +283,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const review_complete = tool({' in tools
     assert 'export const review_history = tool({' in tools
     assert 'export const review_history_save = tool({' in tools
+    assert 'export const history_capture = tool({' in tools
+    assert 'export const history_telemetry = tool({' in tools
+    assert 'export const benchmark = tool({' in tools
     assert 'export const improvement_status = tool({' in tools
     assert 'export const improvement_claim = tool({' in tools
     assert 'export const improvement_update = tool({' in tools
@@ -306,6 +309,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-complete"' in runtime
     assert '"dbsctrctl", "review-history"' in runtime
     assert '"dbsctrctl", "review-history-save"' in runtime
+    assert '"dbsctrctl", "history-capture"' in runtime
+    assert '"dbsctrctl", "benchmark"' in runtime
+    assert "30_000, 256 * 1024" in runtime
     assert '"dbsctrctl", "improvement-status"' in runtime
     assert '"dbsctrctl", "improvement-claim"' in runtime
     assert '"dbsctrctl", "improvement-update"' in runtime
@@ -314,6 +320,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
     assert '"herdr", "pane", "current"' in runtime
+    config = rendered_config()
+    for permission in ("dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
+        assert config["permission"][permission] == "allow"
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
     assert ".dotfiles_ai.herdr.theme" in herdr
@@ -419,6 +428,88 @@ def test_dbsctr_inspect_runtime_preserves_argv(tmp_path):
         "<--path>", "<docs/specs>", "<--query>", "<literal.* value>",
         "<--limit>", "<7>", "<--cursor>", "<2>", "<--excerpt>", "<80>", "<--json>",
     ]
+
+
+def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "analytics.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        '#!/bin/sh\nprintf "CALL\\n" >> "$ANALYTICS_LOG"\nprintf "<%s>\\n" "$@" >> "$ANALYTICS_LOG"\n'
+        '[ "$DBSCTR_MODE" = oversized ] && { dd if=/dev/zero bs=300000 count=1 2>/dev/null | tr "\\000" x; exit 0; }\n'
+        'case "$1" in\n'
+        '  history-capture) printf "%s\\n" "$CAPTURE_JSON" ;;\n'
+        '  review-history) printf "%s\\n" "$TELEMETRY_JSON" ;;\n'
+        '  benchmark) printf "%s\\n" "$BENCHMARK_JSON" ;;\n'
+        'esac\n'
+    )
+    helper.chmod(0o755)
+    capture_id = "a" * 24
+    benchmark_id = "b" * 24
+    capture = {"schema_version": 1, "capture_id": capture_id, "query": {}, "snapshot": 1,
+               "page_size": 100, "page_count": 1, "member_count": 1, "aggregates": {}}
+    telemetry = {"schema_version": 1, "candidates": [{"telemetry": {
+        "approval_count": "unavailable", "retry_count": "unavailable", "delegation_count": 1,
+        "model_families": ["gpt"], "error_classes": {"tool_error": 0}, "token_total": 2,
+        "cost_total": 0, "availability": {name: "available" for name in (
+            "approval_count", "retry_count", "delegation_count", "model_families",
+            "error_classes", "token_total", "cost_total")}, "attribution_status": "exact",
+    }}, {"correlation_quality": "ambiguous"}], "limit": 7, "cursor": 2}
+    benchmark = {"schema_version": 1, "benchmark_id": benchmark_id,
+                 "definition": {"version": "v1", "metric": "tool_error_count", "direction": "lower"},
+                 "inputs": {"baseline_capture_id": "c" * 24, "observation_capture_id": "d" * 24,
+                            "merge_identity": "e" * 40, "merged_at": 1, "activation_status": "missing",
+                            "activation_identity": None, "activated_at": None},
+                 "windows": "unavailable", "result": {"classification": "insufficient",
+                 "baseline_value": 1, "observation_value": 1, "delta": "unavailable",
+                 "confounders": [], "unavailable_metrics": [], "association_only": True,
+                 "reason": "activation_missing"}, "evaluated_at": 1}
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ historyCapture, historyTelemetry, benchmarkResult }} from {json.dumps(str(runtime))};'
+        f'console.log(await historyCapture({{captureID:{json.dumps(capture_id)}}},process.cwd()));'
+        'console.log(await historyTelemetry({limit:7,cursor:2},process.cwd(),"session;safe","message safe"));'
+        f'console.log(await benchmarkResult({json.dumps(benchmark_id)},process.cwd()));'
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ANALYTICS_LOG": str(log),
+           "CAPTURE_JSON": json.dumps(capture), "TELEMETRY_JSON": json.dumps(telemetry),
+           "BENCHMARK_JSON": json.dumps(benchmark)}
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
+                            capture_output=True, check=True)
+    outputs = [json.loads(line) for line in result.stdout.splitlines()]
+    assert outputs[0] == capture and outputs[2] == benchmark
+    assert outputs[1]["candidates"][0] == telemetry["candidates"][0]
+    legacy = outputs[1]["candidates"][1]["telemetry"]
+    assert legacy["attribution_status"] == "ambiguous"
+    assert set(legacy["availability"].values()) == {"unavailable"}
+    assert log.read_text().splitlines() == [
+        "CALL", "<history-capture>", "<--capture-id>", f"<{capture_id}>",
+        "CALL", "<review-history>", "<--excluded-session-id>", "<session;safe>",
+        "<--excluded-message-id>", "<message safe>", "<--limit>", "<7>", "<--cursor>", "<2>",
+        "CALL", "<benchmark>", "<--benchmark-id>", f"<{benchmark_id}>",
+    ]
+
+    malformed = subprocess.run(
+        ["bun", "-e", f'import {{ benchmarkResult }} from {json.dumps(str(runtime))};'
+         f'await benchmarkResult({json.dumps(benchmark_id)},process.cwd());'],
+        cwd=ROOT, env={**env, "BENCHMARK_JSON": "not-json"}, text=True, capture_output=True,
+    )
+    assert malformed.returncode != 0 and "malformed JSON" in malformed.stderr
+    unsafe = {**benchmark, "definition": {**benchmark["definition"], "version": "/Users/private"}}
+    rejected = subprocess.run(
+        ["bun", "-e", f'import {{ benchmarkResult }} from {json.dumps(str(runtime))};'
+         f'await benchmarkResult({json.dumps(benchmark_id)},process.cwd());'],
+        cwd=ROOT, env={**env, "BENCHMARK_JSON": json.dumps(unsafe).replace("/", "\\u002f")},
+        text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0 and "unsafe content" in rejected.stderr
+    oversized = subprocess.run(
+        ["bun", "-e", f'import {{ benchmarkResult }} from {json.dumps(str(runtime))};'
+         f'await benchmarkResult({json.dumps(benchmark_id)},process.cwd());'],
+        cwd=ROOT, env={**env, "DBSCTR_MODE": "oversized"}, text=True, capture_output=True,
+    )
+    assert oversized.returncode != 0 and "exceeded bound" in oversized.stderr
 
 
 def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):

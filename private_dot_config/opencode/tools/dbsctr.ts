@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, beginCycle, cycleStatus, fixedCommitInspect, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -148,6 +148,52 @@ export const review_history = tool({
   },
   async execute(args, context) {
     return await reviewHistory(args, context.worktree, context.sessionID, context.messageID)
+  },
+})
+
+export const history_capture = tool({
+  description: "Read a bounded immutable history-capture summary or ordered member page.",
+  args: {
+    captureId: tool.schema.string().regex(/^[0-9a-f]{24}$/),
+    cursor: tool.schema.number().int().min(0).optional(),
+    limit: tool.schema.number().int().min(1).max(100).optional().default(100),
+  },
+  async execute(args, context) {
+    return await historyCapture({ captureID: args.captureId, cursor: args.cursor, limit: args.limit }, context.worktree)
+  },
+})
+
+export const history_telemetry = tool({
+  description: "Read bounded structured history telemetry with explicit availability and attribution.",
+  args: {
+    after: tool.schema.number().int().min(0).optional(),
+    before: tool.schema.number().int().min(0).optional(),
+    methodRevision: tool.schema.string().optional(),
+    cycleId: tool.schema.string().optional(),
+    state: tool.schema.enum(["active", "blocked", "abandoned", "completed", "unknown"]).optional(),
+    context: tool.schema.string().optional(),
+    projectDigest: tool.schema.string().optional(),
+    reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
+    replay: tool.schema.string().optional(),
+    archiveOnly: tool.schema.boolean().optional().default(false),
+    snapshot: tool.schema.number().int().min(0).optional(),
+    sessionCeiling: tool.schema.number().int().min(0).optional(),
+    partCeiling: tool.schema.number().int().min(0).optional(),
+    databaseDigest: tool.schema.string().optional(),
+    exclusionDigest: tool.schema.string().optional(),
+    limit: tool.schema.number().int().min(1).max(100).optional().default(25),
+    cursor: tool.schema.number().int().min(0).optional().default(0),
+  },
+  async execute(args, context) {
+    return await historyTelemetry(args, context.worktree, context.sessionID, context.messageID)
+  },
+})
+
+export const benchmark = tool({
+  description: "Replay one immutable versioned longitudinal benchmark result.",
+  args: { benchmarkId: tool.schema.string().regex(/^[0-9a-f]{24}$/) },
+  async execute(args, context) {
+    return await benchmarkResult(args.benchmarkId, context.worktree)
   },
 })
 
