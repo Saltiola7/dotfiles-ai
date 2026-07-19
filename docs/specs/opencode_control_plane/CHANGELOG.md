@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Exact Local Reference Boundary
+
+- Replaced the duplicate generated `path/*` allow with distinct exact-root and
+  recursive-subtree rules after global deny. This preserves access after
+  OpenCode merges and deduplicates reference permissions.
+- Validation: red rule-shape regression, 25 focused tests, targeted dry-run and
+  deployment passed. Existing OpenCode processes require restart. Gate
+  Exceptions: none. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - Portable Reference Permission Ordering
 
 - Replaced configured-reference scalar denial with ordered external-directory
