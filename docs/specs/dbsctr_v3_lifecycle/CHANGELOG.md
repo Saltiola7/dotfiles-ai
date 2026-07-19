@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.22 Longitudinal Effects
+
+- Added immutable versioned benchmark definitions and capture-bound effect
+  reports with 30-day activation windows, association-only improved, neutral,
+  regressed, and insufficient classifications, deterministic replay, explicit
+  confounders, unavailable metrics, and population drift.
+- Merge time and first verified activation are immutable across evaluations.
+  Referenced captures reject ordinary deletion; privacy forget removes dependent
+  benchmarks, and backup/restore plus semantic integrity preserve benchmark state.
+- Validation: 109 passed, 1 skipped on Python 3.12, 3.13, and 3.14; compilation,
+  diff checks, replay, malformed-state, version/activation immutability, future-
+  time, incomplete-window, missing/ambiguous activation, confounder, neutral,
+  regression, deletion, and backup/restore checks passed. Independent review was
+  unavailable because the reviewer could not access the isolated worktree;
+  direct primary review found and fixed cross-report event immutability. Gate
+  Commit: `b4c5993`. Gate Exceptions: none. Deployment: targeted helper apply
+  and non-mutating command smoke passed. The first real complete 30-day
+  observation remains the scheduled follow-up. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - V3.21 Structured Telemetry
 
 - Added schema-detected model families, delegation counts, stable provider/tool
