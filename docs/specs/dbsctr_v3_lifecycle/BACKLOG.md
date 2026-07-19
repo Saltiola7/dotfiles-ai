@@ -12,6 +12,7 @@ Discovery readiness: complete.
 | V3.20-1 | Add multi-page captures and compact history transport | high | ready | V3.19-1 | Logical manifests, aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session replay, response-size, ordering, deletion, and latency tests |
 | V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, attribution status | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, and attribution tests |
 | V3.22-1 | Add longitudinal benchmarks and implementation effects | high | ready | V3.20-1,V3.21-1 | Benchmark runs, before/after windows, recurrence, effect tracking | Cycles, deployments, review runs | no | Implemented changes are not evaluated over time | M | Baseline, replay, confounder, neutral, invalid, and regression tests |
+| V3.16-3 | Save full-history continuation cohorts | high | active | V3.16-2,V3.17-1 | Exact-cohort fixed-snapshot refresh | Historical pages, archived evidence, caller exclusion | no | Missing evidence after the first 100 sessions cannot be persisted for replay | S | Beyond-100 save, unrelated mutation, selected mutation, and missing-member tests |
 
 ## Completed
 

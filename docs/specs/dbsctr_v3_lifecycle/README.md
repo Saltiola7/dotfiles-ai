@@ -1467,6 +1467,10 @@ module routing without changing Cycle Record schema or public commands.
   and refreshes every cohort member from that snapshot even when older archived
   evidence exists. Reviewed markers remain unchanged and unavailable old metrics
   never override richer validated live evidence.
+- Revalidation selects the exact requested cohort across every continuation in
+  the fixed snapshot rather than searching only its first 100 candidates.
+  Unrelated session changes do not block an unchanged cohort, but a changed
+  selected member or missing unarchived member rejects the whole save.
 - Historical report persistence is a schema-validated standing local write to
   the private review store. It cannot mutate repositories, Cycle Records, gates,
   operational review tombstones, or external systems. Builder agents remain
