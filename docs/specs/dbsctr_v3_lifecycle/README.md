@@ -727,6 +727,10 @@ records, and retirement decisions. External writes remain approval-gated.
 - Capture identity binds the ordered member identities, fixed snapshot,
   filters, page coordinates, aggregate projection, and schema version. Replay
   returns that exact cohort after live or archive retention changes.
+- Every page shares one snapshot and filter identity. A valid manifest starts at
+  cursor zero, covers contiguous non-overlapping coordinates through terminal
+  continuation, and contains unique ordered members; gaps, overlaps, duplicate
+  members, mixed filters, and missing terminal evidence reject the whole capture.
 - Compact transport returns a bounded aggregate summary by default. Member
   evidence is available only through explicit ordered pagination with the same
   immutable capture identity; no encoded all-member payload bypasses response
@@ -757,15 +761,17 @@ records, and retirement decisions. External writes remain approval-gated.
 ### V3.22 Longitudinal Effect Contract
 
 - A benchmark binds a versioned metric definition, immutable capture inputs,
-  one merged implementation event, and 30-day baseline and observation windows.
-  An incomplete window reports `insufficient` rather than extrapolating.
+  one merged implementation event, its first verified deployment or activation,
+  and 30-day baseline and observation windows around that effective event. An
+  absent or ambiguous activation and an incomplete window report `insufficient`
+  rather than treating inactive time as post-change evidence.
 - Effect classifications are `improved`, `neutral`, `regressed`, or
   `insufficient`. They describe association only and always expose overlapping
   changes, unavailable metrics, population drift, and other detected
   confounders.
 - Draft pull requests, unmerged commits, and local implementation attempts are
-  not successful implementation events. Merge identity and observation windows
-  remain immutable during replay.
+  not successful implementation events. Merge identity, effective activation,
+  and observation windows remain immutable during replay.
 - Benchmark replay is deterministic from retained sanitized evidence. Changed
   definitions require a new version and never rewrite prior classifications.
 - Program delivery completes when the capability is merged, deployed, and

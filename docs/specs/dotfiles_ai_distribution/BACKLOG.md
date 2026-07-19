@@ -4,7 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-004 | Add longitudinal CLI/JSON analytics and adaptive cadence | medium | ready | DAI-003,V3.20-1,V3.21-1,V3.22-1 | Effect reports, private scheduler state, fixed-tick spawn gating, halt/reset | Worker, merge, and benchmark outcomes | no | Enrich a proven loop without weakening human delivery boundaries | M | Monthly ladder, 3-worker cap, halt/reset, baseline, recurrence, confounder, regression, malformed state, and report-only cost scenarios |
+| DAI-004 | Add longitudinal CLI/JSON analytics and adaptive cadence | medium | ready | DAI-005,V3.20-1,V3.21-1,V3.22-1 | Effect reports, private scheduler state, transactional fixed-tick spawn gating, halt/reset | Worker, merge, activation, and benchmark outcomes | no | Enrich the native loop without weakening human delivery boundaries | M | Deterministic monthly cohort/denominator, cadence ladder, atomic 3-worker cap, halt/reset, baseline, recurrence, confounder, regression, malformed state, and report-only cost scenarios |
 
 ## Completed
 

@@ -106,7 +106,11 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a draft pull request is merged or closed by a human, then the watchdog
   records the terminal outcome and leaves its Herdr tab under manual ownership.
 
-### Longitudinal Analytics And Adaptive Cadence
+### Approved Future Longitudinal Analytics And Adaptive Cadence
+
+The following behavior and interfaces become current only after DAI-004 is
+completed and deployed. DAI-005 remains the current scheduler contract until
+then.
 
 - Given retained benchmark windows are incomplete, when analytics runs, then it
   reports `insufficient` and holds cadence rather than extrapolating.
@@ -114,9 +118,19 @@ OpenCode control-plane behavior, and shell authentication.
   weekly, twice-weekly, and daily. It steps up only with at least two improved
   observed merges, no regressions, and no more than 20 percent failed outcomes;
   it steps down after any regression or at least 50 percent failed outcomes.
-- Given three consecutive blocked, abandoned, or reverted outcomes, malformed
-  authoritative state, or more than three nonterminal workers, spawning halts
-  fail closed. Only an explicit operator reset can resume it.
+- A monthly cohort contains each worker whose first relevant terminal or failure
+  event occurred after the prior evaluation cutoff and no later than the current
+  cutoff. Precedence is reverted, blocked, abandoned, closed without merge,
+  merged with a complete effect, then insufficient. Failed outcomes are reverted,
+  blocked, abandoned, and closed without merge; improved, neutral, regressed,
+  and failed outcomes form the denominator. Insufficient and still-active work
+  are reported but excluded. An empty denominator holds cadence.
+- Given three consecutive blocked, abandoned, or reverted outcomes or malformed
+  authoritative state, spawning enters a persistent fail-closed halt. Only an
+  explicit operator reset can resume it. Given three existing nonterminal
+  workers, the current spawn is a bounded no-op without setting that persistent
+  halt. Worker count validation and spawn reservation occur in one SQLite
+  transaction so concurrent ticks cannot admit a fourth worker.
 - Given launchd invokes the fixed daily tick, the runner consults private
   scheduler state and either starts one worker or returns a bounded no-op reason.
   It never rewrites machine-local TOML or reloads launchd to tune cadence.
@@ -149,8 +163,9 @@ OpenCode control-plane behavior, and shell authentication.
 - The private SQLite ledger owns opportunities, workers, recovery attempts,
   declared scope, pull-request outcomes, benchmark references, and scheduler
   state. Launchd and Herdr are advisory.
-- `dbsctr-rnd analytics` returns a bounded human summary by default and JSON with
-  an explicit flag. `dbsctr-rnd reset-schedule` is the only halt recovery command.
+- After DAI-004 deployment, `dbsctr-rnd analytics` returns a bounded human summary
+  by default and JSON with an explicit flag. `dbsctr-rnd reset-schedule` is the
+  only halt recovery command.
 - Scheduler state records the current cadence, last monthly evaluation, outcome
   counters, halt reason, and next eligible spawn time without private provenance.
 - Commands use argument vectors and structured JSON. The runner never reads the
