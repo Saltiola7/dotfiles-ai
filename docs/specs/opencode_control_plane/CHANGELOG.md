@@ -1,5 +1,21 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Advisory Runtime Health
+
+- Added read-only `dbsctr_runtime_health` normalization over structured Herdr
+  current-pane output with canonical identity checks, a two-second process-group
+  timeout, one shared 64 KiB output budget, and no path or error disclosure.
+- Hardened runtime attachment below shell permissions: authoritative OpenCode
+  message ownership must match the supplied parentless primary session, and the
+  CLI accepts no database override. Builder child sessions fail closed.
+- Validation: 19 control-plane tests, focused helper attachment tests, Bun
+  bundle, diff checks, and independent security review passed with no findings.
+  Gate Commits: `c96093d`, `3f2a102`, `102abf5`, `51dcba4`. Gate Exceptions:
+  none. Deployment: targeted helper/runtime/tool apply, idempotence, source
+  identity, and live healthy-pane normalization passed. OpenCode restart is
+  required for existing processes to load the new tool. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-19 - Runtime And Analytics Interface Discovery
 
 - Approved future OCP-17 advisory runtime-health behavior and OCP-18 bounded

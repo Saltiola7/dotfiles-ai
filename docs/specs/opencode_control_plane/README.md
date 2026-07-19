@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** OCP-19 autonomous R&D worker implemented and deployed
+**Status:** OCP-17 advisory runtime health and OCP-19 autonomous worker implemented
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
