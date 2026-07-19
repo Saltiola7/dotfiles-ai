@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-18 - Exact History Cohort Save
+
+- Added optional `limit` and `cursor` fields to the typed history-save adapter,
+  preserving legacy payloads while enabling source-bound continuation cohorts.
+- Validation: executable adapter payload check, Bun bundle, 145 passed and 1
+  skipped across Python 3.12-3.14, and independent review with no findings.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull
+  request against `origin/main` only.
+
 ## 2026-07-18 - Autonomous R&D Worker
 
 - Added provider-neutral typed improvement status, claim, and update tools with

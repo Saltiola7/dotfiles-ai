@@ -1,5 +1,18 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-18 - V3.16-3 Exact Continuation Cohort Save
+
+- Added optional page identity to history save and bound its opaque query digest
+  to page coordinates, ordered cohort evidence, and selected source identities.
+  Unrelated history writes no longer block an unchanged full-page cohort;
+  selected changes and missing unarchived evidence still fail closed. Reports
+  without page identity retain strict whole-snapshot validation.
+- Validation: 145 passed, 1 skipped on Python 3.12, 3.13, and 3.14; Bun bundle,
+  compilation, diff checks, focused mutation/adapter tests, and independent
+  review passed. Dependabot alerts were unavailable because the repository has
+  them disabled. Gate Exceptions: none. Intended Final Push: feature branch and
+  draft pull request against `origin/main` only.
+
 ## 2026-07-18 - V3.16-2 Live Cohort Refresh
 
 - History save now revalidates and refreshes every cohort member still present in

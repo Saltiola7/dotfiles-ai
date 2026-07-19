@@ -12,12 +12,12 @@ Discovery readiness: complete.
 | V3.20-1 | Add multi-page captures and compact history transport | high | ready | V3.19-1 | Logical manifests, aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session replay, response-size, ordering, deletion, and latency tests |
 | V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, attribution status | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, and attribution tests |
 | V3.22-1 | Add longitudinal benchmarks and implementation effects | high | ready | V3.20-1,V3.21-1 | Benchmark runs, before/after windows, recurrence, effect tracking | Cycles, deployments, review runs | no | Implemented changes are not evaluated over time | M | Baseline, replay, confounder, neutral, invalid, and regression tests |
-| V3.16-3 | Save full-history continuation cohorts | high | active | V3.16-2,V3.17-1 | Source-bound exact-cohort refresh | Historical pages, archived evidence, caller exclusion | no | Unrelated writes during a full-history pass block later cohort persistence | S | Beyond-100 save, unrelated mutation, selected mutation, missing-member, and legacy tests |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.16-3 | Save source-bound continuation cohorts despite unrelated history writes | 2026-07-18 | `edf481a`, `920156b`, `d833df3` |
 | V3.16-2 | Refresh mixed live and archive-only history cohorts during save | 2026-07-18 | `bc2bb08` |
 | V3.12-5 | Allow page-stable completion during unrelated OpenCode writes | 2026-07-18 | `9830b2f` |
 | V3.23-1 | Add capability-first autonomous improvement coordination and draft-PR delivery | 2026-07-18 | `9b77969`, `5f12796`, `7b863d8`, `04627bf`, `6f9a112` |
