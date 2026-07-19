@@ -1,7 +1,9 @@
+import concurrent.futures
 import fcntl
 import json
 import os
 import plistlib
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -116,7 +118,8 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     )
     dbsctrctl.write_text(
         "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
-        "printf '%s\\n' '{\"worker_id\":\"registered\",\"state\":\"reviewing\"}'\n"
+        "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; "
+        "else printf '{\"worker_id\":\"%s\",\"state\":\"reviewing\"}\\n' \"$3\"; fi\n"
     )
     opencode.write_text(
         "#!/bin/sh\nif [ -f \"$SESSION_SEEN\" ]; then "
@@ -130,9 +133,10 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
            "OPENCODE_BIN": str(opencode), "COMMAND_LOG": str(log),
-           "SESSION_SEEN": str(tmp_path / "session-seen")}
+           "SESSION_SEEN": str(tmp_path / "session-seen"),
+           "DBSCTR_RND_STATE": str(tmp_path / "scheduler.sqlite3")}
     completed = subprocess.run(["python3", str(runner), "spawn"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout)["worker_id"] == "registered"
+    assert json.loads(completed.stdout)["worker_id"].startswith("dbsctr-")
     commands = log.read_text()
     assert "opencode run --agent build --command dbsctr-improve --interactive" in commands
     assert "pane move w7:p9 --new-tab" in commands
@@ -146,11 +150,15 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     herdr.write_text(no_identity)
     Path(env["SESSION_SEEN"]).unlink(missing_ok=True)
     failed = bin_dir / "dbsctrctl-fail"
-    failed.write_text("#!/bin/sh\nexit 1\n")
+    failed.write_text(
+        "#!/bin/sh\n[ \"$1\" = improvement-status ] && { printf '%s\\n' '{\"workers\":[]}'; exit 0; }\nexit 1\n"
+    )
     failed.chmod(0o755)
     rejected = subprocess.run(
         ["python3", str(runner), "spawn"],
-        env={**env, "DBSCTRCTL": str(failed)}, text=True, capture_output=True,
+        env={**env, "DBSCTRCTL": str(failed),
+             "DBSCTR_RND_STATE": str(tmp_path / "failed-scheduler.sqlite3")},
+        text=True, capture_output=True,
     )
     assert rejected.returncode != 0
     assert log.read_text().count("tab close w7:t9") == 1
@@ -159,7 +167,8 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     empty.chmod(0o755)
     timed_out = subprocess.run(
         ["python3", str(runner), "spawn"],
-        env={**env, "OPENCODE_BIN": str(empty), "DBSCTR_RND_SESSION_POLLS": "1"},
+        env={**env, "OPENCODE_BIN": str(empty), "DBSCTR_RND_SESSION_POLLS": "1",
+             "DBSCTR_RND_STATE": str(tmp_path / "timeout-scheduler.sqlite3")},
         text=True, capture_output=True,
     )
     assert timed_out.returncode != 0
@@ -320,7 +329,7 @@ def test_watchdog_records_human_pr_outcome(tmp_path):
     gh.write_text(
         "#!/bin/sh\nprintf 'gh %s token=%s\\n' \"$*\" \"${GH_TOKEN:+set}\" >> \"$COMMAND_LOG\"\n"
         "if [ \"$1 $2\" = 'auth token' ]; then printf 'secret-token\\n'; "
-        "else printf '%s\\n' '{\"state\":\"MERGED\",\"isDraft\":false}'; fi\n"
+        "else printf '%s\\n' '{\"state\":\"MERGED\",\"isDraft\":false,\"mergeCommit\":{\"oid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}'; fi\n"
     )
     for executable in (dbsctrctl, herdr, gh):
         executable.chmod(0o755)
@@ -334,6 +343,192 @@ def test_watchdog_records_human_pr_outcome(tmp_path):
     assert "improvement-update --worker-id worker-1 --state merged" in commands
     assert "gh pr view" in commands and "token=set" in commands
     assert "secret-token" not in commands
+
+
+def load_runner(tmp_path, monkeypatch, name):
+    state = tmp_path / f"{name}.sqlite3"
+    monkeypatch.setenv("DBSCTR_RND_STATE", str(state))
+    monkeypatch.setenv("DBSCTR_RND_LOCK", str(tmp_path / f"{name}.lock"))
+    source = render("dot_local/bin/executable_dbsctr-rnd.tmpl")
+    namespace = {"__name__": f"dbsctr_rnd_{name}"}
+    exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
+    return namespace, state
+
+
+def test_scheduler_caps_workers_halts_and_requires_reset(tmp_path, monkeypatch, capsys):
+    runner, state = load_runner(tmp_path, monkeypatch, "safety")
+    workers = [{"worker_id": f"worker-{index}", "state": "reviewing"} for index in range(2)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        reservations = list(pool.map(lambda _: runner["reserve_spawn"](workers, 100), range(2)))
+    assert sorted(reason for _, reason in reservations) == ["reserved", "worker_cap"]
+    reservation = next(value for value, reason in reservations if reason == "reserved")
+    runner["release_reservation"](reservation)
+    assert state.stat().st_mode & 0o777 == 0o600
+    assert state.parent.stat().st_mode & 0o777 == 0o700
+
+    connection = runner["state_connection"]()
+    connection.execute("BEGIN IMMEDIATE")
+    runner["sync_worker_outcomes"](connection, [
+        {"worker_id": "attempt-blocked", "state": "blocked"},
+        {"worker_id": "attempt-abandoned", "state": "abandoned"},
+        {"worker_id": "attempt-reverted", "state": "blocked"},
+    ], 200)
+    connection.commit()
+    connection.close()
+    assert runner["reserve_spawn"]([], 201) == (None, "halted")
+    runner["reset_schedule"]()
+    assert json.loads(capsys.readouterr().out) == {"status": "reset"}
+    resumed, reason = runner["reserve_spawn"]([], 201)
+    assert reason == "reserved"
+    runner["release_reservation"](resumed)
+    connection = sqlite3.connect(state)
+    assert connection.execute("select count(*) from outcome_events where kind='failed'").fetchone() == (3,)
+    assert connection.execute("select halt_reason from scheduler_state").fetchone() == (None,)
+    connection.execute("update scheduler_meta set value='broken' where key='schema_version'")
+    connection.commit()
+    connection.close()
+    try:
+        runner["state_connection"]()
+    except RuntimeError as error:
+        assert "unsupported schema" in str(error)
+    else:
+        raise AssertionError("malformed scheduler state was accepted")
+    connection = sqlite3.connect(state)
+    assert connection.execute("select halt_reason from scheduler_state").fetchone() == ("malformed_state",)
+    connection.close()
+
+    malformed, malformed_state = load_runner(tmp_path, monkeypatch, "malformed-event")
+    connection = malformed["state_connection"]()
+    identifier = malformed["event_id"]("bad-attempt", "failed", "", "")
+    connection.execute(
+        "insert into outcome_events values (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (identifier, "bad-attempt", "failed", "improved", "blocked", 1,
+         None, None, None, None, None, json.dumps("unavailable")))
+    connection.commit()
+    connection.close()
+    try:
+        malformed["state_connection"]()
+    except RuntimeError as error:
+        assert "malformed" in str(error)
+    else:
+        raise AssertionError("semantically malformed outcome was accepted")
+    connection = sqlite3.connect(malformed_state)
+    assert connection.execute("select halt_reason from scheduler_state").fetchone() == ("malformed_state",)
+    connection.close()
+
+
+def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):
+    runner, state = load_runner(tmp_path, monkeypatch, "effects")
+    activation = 1_000_000
+
+    def report(identifier, merge_identity, classification, version="errors-v1",
+               metric="tool_error_count", observation=1):
+        return {
+            "benchmark_id": identifier,
+            "definition": {"version": version, "metric": metric, "direction": "lower"},
+            "inputs": {"merge_identity": merge_identity, "activation_status": "verified",
+                       "activation_identity": f"activation-{identifier}", "activated_at": activation},
+            "result": {"classification": classification, "observation_value": observation},
+            "evaluated_at": activation + 30 * 86400 * 1000,
+        }
+
+    connection = runner["state_connection"]()
+    connection.execute("BEGIN IMMEDIATE")
+    for attempt, identity in (("attempt-1", "a" * 40), ("attempt-2", "b" * 40)):
+        runner["append_event"](connection, attempt, "merged", "merged", 100,
+                               merge_identity=identity)
+        request = {"attempt_id": attempt, "benchmark_id": f"benchmark-{attempt[-1]}"}
+        benchmark = report(request["benchmark_id"], identity, "improved")
+        first = runner["finalize_effect"](connection, request, benchmark, 100)
+        assert runner["finalize_effect"](connection, request, benchmark, 101) == first
+        conflicting = report(request["benchmark_id"], identity, "neutral")
+        try:
+            runner["finalize_effect"](connection, request, conflicting, 102)
+        except RuntimeError as error:
+            assert "conflicts" in str(error)
+        else:
+            raise AssertionError("finalized effect was rewritten")
+    cadence, changed, counts, cost = runner["evaluate_month"](connection, 100)
+    assert (cadence, changed, counts["improved"], counts["pending"], cost) == (
+        "twice_weekly", True, 2, 0, "unavailable")
+    connection.commit()
+
+    later = 100 + runner["MONTH_SECONDS"]
+    runner["append_event"](connection, "attempt-pending", "merged", "merged", later,
+                           merge_identity="c" * 40)
+    incomplete = report("benchmark-incomplete", "c" * 40, "insufficient")
+    incomplete["evaluated_at"] = activation + 1000
+    try:
+        runner["finalize_effect"](
+            connection, {"attempt_id": "attempt-pending", "benchmark_id": "benchmark-incomplete"},
+            incomplete, later)
+    except RuntimeError as error:
+        assert "incomplete" in str(error)
+    else:
+        raise AssertionError("incomplete benchmark was finalized")
+    runner["append_event"](connection, "attempt-regressed", "merged", "merged", later,
+                           merge_identity="d" * 40)
+    runner["finalize_effect"](
+        connection, {"attempt_id": "attempt-regressed", "benchmark_id": "benchmark-regressed"},
+        report("benchmark-regressed", "d" * 40, "regressed"), later)
+    runner["append_event"](connection, "attempt-insufficient", "merged", "merged", later,
+                           merge_identity="e" * 40)
+    runner["finalize_effect"](
+        connection, {"attempt_id": "attempt-insufficient", "benchmark_id": "benchmark-insufficient"},
+        report("benchmark-insufficient", "e" * 40, "insufficient"), later)
+    cadence, changed, counts, _ = runner["evaluate_month"](connection, later)
+    assert cadence == "weekly" and changed
+    assert counts["regressed"] == 1 and counts["insufficient"] == 1 and counts["pending"] == 1
+    connection.commit()
+
+    latest = later + runner["MONTH_SECONDS"]
+    runner["append_event"](connection, "attempt-cost", "merged", "merged", latest,
+                           merge_identity="f" * 40)
+    runner["finalize_effect"](
+        connection, {"attempt_id": "attempt-cost", "benchmark_id": "benchmark-cost"},
+        report("benchmark-cost", "f" * 40, "improved", "cost-v1", "cost_total", 5), latest)
+    cadence, changed, counts, cost = runner["evaluate_month"](connection, latest)
+    connection.commit()
+    connection.close()
+    assert cadence == "weekly" and not changed and counts["improved"] == 1 and cost == 5
+
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select count(*) from outcome_events where attempt_id='attempt-1' and kind='effect_finalized'"
+    ).fetchone() == (1,)
+    connection.close()
+    runner["command"] = lambda argv: {"workers": []}
+    runner["analytics"](latest + 1, True)
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["cadence"] == "weekly" and summary["cost_total"] == "unavailable"
+
+
+def test_analytics_cli_has_bounded_human_and_json_output(tmp_path):
+    helper = tmp_path / "dbsctrctl"
+    helper.write_text(
+        "#!/bin/sh\nprintf '%s\\n' "
+        "'{\"workers\":[{\"worker_id\":\"attempt-reverted\",\"state\":\"merged\"}]}'\n"
+    )
+    helper.chmod(0o755)
+    runner = tmp_path / "dbsctr-rnd"
+    runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl"))
+    state = tmp_path / "scheduler.sqlite3"
+    env = {**os.environ, "DBSCTRCTL": str(helper), "DBSCTR_RND_STATE": str(state),
+           "DBSCTR_RND_LOCK": str(tmp_path / "scheduler.lock")}
+    structured = subprocess.run(
+        ["python3", str(runner), "analytics", "--json", "--failure-json",
+         json.dumps({"attempt_id": "attempt-reverted", "reason": "reverted"})],
+        env=env, text=True, capture_output=True, check=True)
+    structured_result = json.loads(structured.stdout)
+    assert structured_result["cadence"] == "weekly" and structured_result["counts"]["failed"] == 1
+    human = subprocess.run(
+        ["python3", str(runner), "analytics"],
+        env=env, text=True, capture_output=True, check=True)
+    assert human.stdout.startswith("cadence=weekly") and len(human.stdout.encode()) < 1024
+    reset = subprocess.run(
+        ["python3", str(runner), "reset-schedule"], env=env,
+        text=True, capture_output=True, check=True)
+    assert json.loads(reset.stdout) == {"status": "reset"}
 
 
 def test_example_documents_only_neutral_rnd_settings():

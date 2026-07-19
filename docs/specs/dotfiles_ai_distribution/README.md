@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-005 native OpenCode R&D scheduling deployed
+**Status:** DAI-004 adaptive native OpenCode R&D scheduling deployed
 
 ## Engineering Profile
 
@@ -106,11 +106,7 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a draft pull request is merged or closed by a human, then the watchdog
   records the terminal outcome and leaves its Herdr tab under manual ownership.
 
-### Approved Future Longitudinal Analytics And Adaptive Cadence
-
-The following behavior and interfaces become current only after DAI-004 is
-completed and deployed. DAI-005 remains the current scheduler contract until
-then.
+### Longitudinal Analytics And Adaptive Cadence
 
 - Given retained benchmark windows are incomplete, when analytics runs, then it
   reports `insufficient` and holds cadence rather than extrapolating.
@@ -164,18 +160,22 @@ then.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
   supplies source path, workspace label, daily hour/minute, watchdog interval,
   and non-secret GitHub account/repository.
-- `~/.local/bin/dbsctr-rnd` provides only `spawn` and `watchdog`.
+- `~/.local/bin/dbsctr-rnd` provides `spawn`, `watchdog`, `analytics`, and
+  `reset-schedule`. `analytics --json` returns the bounded structured report;
+  human output is the default. `--finalize-json` binds one retained benchmark to
+  its merged attempt, while `--failure-json` accepts only an outcome matching the
+  authoritative worker state (including a reverted merged attempt).
 - LaunchAgent labels are `dev.dotfiles-ai.dbsctr-spawner` and
   `dev.dotfiles-ai.dbsctr-watchdog`; disabled apply removes only matching labels
   and plists.
-- The private SQLite ledger currently owns opportunities, workers, recovery
-  attempts, declared scope, and pull-request outcomes. After DAI-004 deployment,
-  it also owns benchmark references and scheduler state. Launchd and Herdr are
-  advisory.
-- After DAI-004 deployment, `dbsctr-rnd analytics` returns a bounded human summary
-  by default and JSON with an explicit flag. `dbsctr-rnd reset-schedule` is the
-  only halt recovery command.
-- After DAI-004 deployment, scheduler state records the current cadence, last
+- The DBSCTR private ledger owns opportunities, workers, recovery attempts,
+  declared scope, pull-request outcomes, captures, and benchmark references. A
+  separate mode-`0600` private scheduler SQLite ledger owns only reservations,
+  sanitized outcome references, and cadence state. Launchd and Herdr are advisory.
+- `dbsctr-rnd reset-schedule` is the only halt recovery command; it preserves
+  outcome history and cadence while clearing the halt, stale reservations, and
+  next-eligible cutoff.
+- Scheduler state records the current cadence, last
   monthly evaluation, immutable outcome-event cutoff and counters, attempt/event
   identities, halt reason, and next eligible spawn time without private
   provenance.
