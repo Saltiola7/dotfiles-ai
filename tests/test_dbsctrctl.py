@@ -2501,13 +2501,14 @@ class DbsctrctlTest(unittest.TestCase):
             create table part (id text primary key, message_id text, session_id text, time_created integer,
                                time_updated integer, data text);
             insert into session values ('session-parent', null, 'DBSCTR', 1784073600000,
-                                        'openai/gpt-5.6-sol', 1.5, 10, 20);
+                                        'unknown/private-model', 1.5, 10, 20);
             insert into session values ('session-child', 'session-parent', 'DBSCTR', 1784073600001,
                                         'amazon-bedrock/claude-sonnet-5', 0.5, 3, 4);
         """)
         private_error = "provider secret /Users/private https://unsafe.invalid"
         connection.execute("insert into message values ('message-parent', 'session-parent', 1784073600000, ?)",
-                           (json.dumps({"role": "assistant", "error": {"message": private_error}}),))
+                           (json.dumps({"role": "assistant", "model": {"modelID": "gpt-5.6-sol"},
+                                        "error": {"message": private_error}}),))
         connection.execute("insert into message values ('message-child', 'session-child', 1784073600001, '{}')")
         connection.execute("insert into part values ('part-parent', 'message-parent', 'session-parent', "
                            "1784073600000, 1784073600000, ?)", (json.dumps({

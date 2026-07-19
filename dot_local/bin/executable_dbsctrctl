@@ -2479,12 +2479,13 @@ def review_scan(args):
                 token_total = (sum(tokens) if tokens and all(type(value) is int and value >= 0 for value in tokens)
                                else "unavailable")
                 model = scalar.get(model_column) if model_column else None
+                family = model_family(model) if isinstance(model, str) else "unavailable"
                 history_metrics[session_id] = {
                     "project_digest": project_digest, "tool_count": "unavailable",
                     "tool_call_count": "unavailable", "tool_error_count": "unavailable",
                     "provider_error_count": "unavailable", "delegation_count": "unavailable",
                     "cost_total": cost_total, "token_total": token_total,
-                    "model_families": [model_family(model)] if isinstance(model, str) and model else "unavailable",
+                    "model_families": [family] if family != "unavailable" else "unavailable",
                 }
             tool_case = (f'CASE WHEN json_valid(p."{pbody}") THEN '
                          f'CASE WHEN json_extract(p."{pbody}", \'$.type\')=\'tool\' THEN 1 ELSE 0 END ELSE 0 END')
@@ -2516,6 +2517,19 @@ def review_scan(args):
                             "tool_error_count": int(tool_errors or 0),
                         })
                 if mtime and mbody:
+                    model_sql = (f'SELECT m."{msession}", COALESCE('
+                                 f'json_extract(m."{mbody}", \'$.model.modelID\'), '
+                                 f'json_extract(m."{mbody}", \'$.modelID\')) FROM "{message}" m '
+                                 f'WHERE m."{msession}" IN ({placeholders}) AND m."{mtime}" BETWEEN ? AND ? '
+                                 f'AND json_valid(m."{mbody}"){message_exclusion}')
+                    model_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, *excluded)
+                    for session_value, model_value in connection.execute(model_sql, model_args):
+                        session_id = str(session_value)
+                        family = model_family(model_value) if isinstance(model_value, str) else "unavailable"
+                        if session_id in history_metrics and family != "unavailable":
+                            families = history_metrics[session_id]["model_families"]
+                            history_metrics[session_id]["model_families"] = sorted(
+                                set(families if isinstance(families, list) else ()) | {family})
                     provider_sql = (f'SELECT m."{msession}", SUM(CASE WHEN json_valid(m."{mbody}") '
                                     f'AND json_type(m."{mbody}", \'$.error\') IS NOT NULL THEN 1 ELSE 0 END) '
                                     f'FROM "{message}" m WHERE m."{msession}" IN ({placeholders}) '
