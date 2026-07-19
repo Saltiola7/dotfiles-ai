@@ -2,6 +2,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-23 | Preserve reference access after global deny | high | active | OCP-22 | Ordered external-directory permission rendering | OpenCode last-match permission semantics and local reference path | no | Auto-generated reference access precedes and loses to the explicit global deny | S | Empty-default deny, configured deny-then-allow ordering, resolved config, direct read, deployment identity |
 | OCP-22 | Render a portable local repository reference | high | done | OCP-21 | Optional machine-local reference path, conditional OpenCode reference | Existing standalone chezmoi config and OpenCode reference contract | yes | Teammates need the same named repository context without sharing machine-specific absolute paths | S | Empty-default omission, configured rendering, schema, dry-run, deployment identity, restart probe |
 | OCP-1 | Persist approved domain and behavior | high | done | - | control-plane spec | discovery decisions | no | Establish authority | S | Artifact review |
 | OCP-2 | Add control-plane contract test | high | done | OCP-1 | focused test | config and agents | yes | Prevent routing and permission drift | M | 7 focused tests passed |

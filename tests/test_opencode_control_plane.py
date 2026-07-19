@@ -55,14 +55,20 @@ def rendered_config(env: dict[str, str] | None = None, data: dict | None = None)
 
 def test_optional_local_repository_reference():
     assert "references" not in rendered_config()
+    assert rendered_config()["permission"]["external_directory"] == "deny"
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["opencode"]["seo_data_science_path"] = "/workspace/seo-data-science"
-    assert rendered_config(data=configured)["references"] == {
+    rendered = rendered_config(data=configured)
+    assert rendered["references"] == {
         "seo-data-science": {
             "path": "/workspace/seo-data-science",
             "description": "Existing data-platform and observability architecture; use for compatible design decisions.",
         }
     }
+    assert list(rendered["permission"]["external_directory"].items()) == [
+        ("*", "deny"),
+        ("/workspace/seo-data-science/*", "allow"),
+    ]
 
 
 def test_provider_and_primary_contracts():
