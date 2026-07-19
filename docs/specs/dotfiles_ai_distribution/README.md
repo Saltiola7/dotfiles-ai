@@ -118,13 +118,15 @@ then.
   weekly, twice-weekly, and daily. It steps up only with at least two improved
   observed merges, no regressions, and no more than 20 percent failed outcomes;
   it steps down after any regression or at least 50 percent failed outcomes.
-- A monthly cohort contains each worker whose first relevant terminal or failure
-  event occurred after the prior evaluation cutoff and no later than the current
-  cutoff. Precedence is reverted, blocked, abandoned, closed without merge,
-  merged with a complete effect, then insufficient. Failed outcomes are reverted,
-  blocked, abandoned, and closed without merge; improved, neutral, regressed,
-  and failed outcomes form the denominator. Insufficient and still-active work
-  are reported but excluded. An empty denominator holds cadence.
+- A monthly cohort contains each immutable outcome event recorded after the prior
+  evaluation cutoff and no later than the current cutoff. Event precedence is
+  reverted, blocked, abandoned, closed without merge, merged with a complete
+  effect, then insufficient. Failed outcomes are reverted, blocked, abandoned,
+  and closed without merge; improved, neutral, regressed, and failed outcomes
+  form the denominator. Insufficient and still-active work are reported but
+  excluded. An empty denominator holds cadence. A blocked event remains a
+  historical failure; explicit retry starts a new attempt, whose later outcome
+  is a distinct event and never rewrites the prior monthly decision.
 - Given three consecutive blocked, abandoned, or reverted outcomes or malformed
   authoritative state, spawning enters a persistent fail-closed halt. Only an
   explicit operator reset can resume it. Given three existing nonterminal
@@ -160,14 +162,16 @@ then.
 - LaunchAgent labels are `dev.dotfiles-ai.dbsctr-spawner` and
   `dev.dotfiles-ai.dbsctr-watchdog`; disabled apply removes only matching labels
   and plists.
-- The private SQLite ledger owns opportunities, workers, recovery attempts,
-  declared scope, pull-request outcomes, benchmark references, and scheduler
-  state. Launchd and Herdr are advisory.
+- The private SQLite ledger currently owns opportunities, workers, recovery
+  attempts, declared scope, and pull-request outcomes. After DAI-004 deployment,
+  it also owns benchmark references and scheduler state. Launchd and Herdr are
+  advisory.
 - After DAI-004 deployment, `dbsctr-rnd analytics` returns a bounded human summary
   by default and JSON with an explicit flag. `dbsctr-rnd reset-schedule` is the
   only halt recovery command.
-- Scheduler state records the current cadence, last monthly evaluation, outcome
-  counters, halt reason, and next eligible spawn time without private provenance.
+- After DAI-004 deployment, scheduler state records the current cadence, last
+  monthly evaluation, immutable outcome-event cutoff and counters, halt reason,
+  and next eligible spawn time without private provenance.
 - Commands use argument vectors and structured JSON. The runner never reads the
   OpenCode database or calls private review helpers directly.
 - GitHub tokens stay in the `gh` credential store and enter only a child process

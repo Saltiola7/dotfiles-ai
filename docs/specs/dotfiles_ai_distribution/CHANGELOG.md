@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-19 - Adaptive Cadence Discovery
+
+- Approved future CLI/JSON analytics and a private monthly cadence ladder with
+  immutable outcome events, transactional three-worker admission, repeated-
+  failure halt, manual reset, unchanged user TOML, and report-only cost.
+- Validation: 52 affected tests, diff checks, and two independent review rounds.
+  Gate Commits: `dcea012`, `bacdaaa`. Gate Exceptions: none. Intended Final
+  Push: `origin/main`.
+
 ## 2026-07-18 - DAI-005 Native OpenCode R&D Scheduling
 
 - Replaced Hermes gateway, cron, supervisor skill, updater, and runtime ownership

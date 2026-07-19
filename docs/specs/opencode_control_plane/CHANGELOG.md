@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Runtime And Analytics Interface Discovery
+
+- Approved future OCP-17 advisory runtime-health behavior and OCP-18 bounded
+  capture, telemetry, and benchmark adapters without claiming those ready
+  interfaces are deployed.
+- Validation: 52 affected tests, diff checks, and independent contract review.
+  Gate Commits: `dcea012`, `bacdaaa`. Gate Exceptions: none. Intended Final
+  Push: `origin/main`.
+
 ## 2026-07-18 - Exact History Cohort Save
 
 - Added optional `limit` and `cursor` fields to the typed history-save adapter,

@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - Analytics Backlog Discovery
+
+- Froze atomic multi-page capture, explicit structured telemetry, and
+  activation-bound 30-day association contracts for V3.20-V3.22. Capture pages
+  must be contiguous and complete; missing authority remains unavailable.
+- Validation: 52 affected tests, diff checks, and two independent review rounds
+  passed after tightening concurrency, activation, outcome-event, and future-
+  interface semantics. Gate Commits: `dcea012`, `bacdaaa`. Gate Exceptions:
+  none. Intended Final Push: `origin/main`.
+
 ## 2026-07-18 - V3.16-3 Exact Continuation Cohort Save
 
 - Added optional page identity to history save and bound its opaque query digest
