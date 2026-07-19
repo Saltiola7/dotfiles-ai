@@ -576,6 +576,7 @@ def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
         "[ \"$HERDR_MODE\" = malformed ] && { printf 'not-json\\n'; exit 0; }\n"
         "[ \"$HERDR_MODE\" = missing ] && { printf '{\"result\":{\"pane\":null}}\\n'; exit 0; }\n"
         "[ \"$HERDR_MODE\" = timeout ] && exec sleep 5\n"
+        "[ \"$HERDR_MODE\" = descendant ] && { sleep 5 & exit 0; }\n"
         "[ \"$HERDR_MODE\" = oversized ] && { dd if=/dev/zero bs=70000 count=1 2>/dev/null; exit 0; }\n"
         "printf '{\"result\":{\"pane\":{\"agent\":\"opencode\",\"agent_session\":{\"value\":\"%s\"},\"agent_status\":\"idle\",\"cwd\":\"%s\",\"pane_id\":\"w1:p2\",\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"terminal_id\":\"term_1\"}}}\\n' \"${HERDR_SESSION:-session-1}\" \"$HERDR_CWD\"\n"
     )
@@ -603,7 +604,7 @@ def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
         result = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_MODE": mode},
                                 text=True, capture_output=True, check=True)
         assert json.loads(result.stdout) == {"status": expected}
-    for mode in ("timeout", "oversized"):
+    for mode in ("timeout", "descendant", "oversized"):
         started = time.monotonic()
         result = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_MODE": mode},
                                 text=True, capture_output=True, check=True)

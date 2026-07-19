@@ -32,25 +32,34 @@ async function boundedText(stream: ReadableStream<Uint8Array>, limit: number) {
 }
 
 async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputLimit = 64 * 1024) {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    child.kill()
-  }, timeoutMs)
+  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
+  const killTree = () => {
+    try {
+      process.kill(-child.pid, "SIGKILL")
+    } catch {
+      child.kill()
+    }
+  }
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      killTree()
+      reject(new Error("command timed out"))
+    }, timeoutMs)
+  })
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
+    const [stdout, stderr, exitCode] = await Promise.race([Promise.all([
       boundedText(child.stdout, outputLimit),
       boundedText(child.stderr, outputLimit),
       child.exited,
-    ])
-    if (timedOut || exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
+    ]), timeout])
+    if (exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
     return stdout
   } catch (error) {
-    child.kill()
+    killTree()
     throw error
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer!)
   }
 }
 

@@ -1844,7 +1844,9 @@ def command_attach_runtime(args):
     root = root_dir().resolve()
     if args.opencode_message_id is None:
         fail("runtime attachment requires structured message identity")
-    session_id = session_for_message(args.database, args.opencode_message_id, require_primary=True)
+    session_id = session_for_message(None, args.opencode_message_id, require_primary=True)
+    if session_id != args.opencode_session_id:
+        fail("OpenCode runtime session does not own the structured message")
     if not OPAQUE_ID.fullmatch(session_id):
         fail("invalid OpenCode session ID")
     runtime_worktree = Path(args.opencode_worktree).resolve()
@@ -4533,7 +4535,6 @@ def parser():
     attach = commands.add_parser("attach-runtime")
     attach.add_argument("--opencode-session-id", required=True)
     attach.add_argument("--opencode-message-id")
-    attach.add_argument("--database")
     attach.add_argument("--opencode-directory", required=True)
     attach.add_argument("--opencode-worktree", required=True)
     attach.set_defaults(func=command_attach_runtime)
