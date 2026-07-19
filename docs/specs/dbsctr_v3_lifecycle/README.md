@@ -744,7 +744,9 @@ records, and retirement decisions. External writes remain approval-gated.
   evidence never produces an approximate result.
 - The validation authority covers at least 201 sessions, deterministic ordering,
   response bounds, aggregate/member mismatch, atomic deletion, replay, malformed
-  state, and latency.
+  state, and latency. The 201-session local fixture save and each bounded replay
+  must complete within 30 seconds; this is a regression ceiling, not a production
+  service-level objective.
 - `dbsctrctl history-capture-save` accepts the existing sanitized history
   filters plus a page size, internally follows one fixed snapshot through its
   terminal continuation, and returns only a bounded summary and opaque capture

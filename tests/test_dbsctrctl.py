@@ -2487,10 +2487,12 @@ class DbsctrctlTest(unittest.TestCase):
         connection.close()
         state = Path(self.temp.name) / "history-capture-state"
 
+        started = time.monotonic()
         saved = json.loads(run(
             self.repo, "history-capture-save", "--database", str(database),
             "--state-root", str(state), "--page-size", "100",
         ).stdout)
+        self.assertLess(time.monotonic() - started, 30)
         self.assertRegex(saved["capture_id"], r"^[0-9a-f]{24}$")
         self.assertEqual(saved["member_count"], 201)
         self.assertEqual(saved["page_count"], 3)
@@ -2502,10 +2504,12 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         self.assertEqual(summary, saved)
         self.assertNotIn("members", summary)
+        started = time.monotonic()
         middle = json.loads(run(
             self.repo, "history-capture", "--state-root", str(state),
             "--capture-id", saved["capture_id"], "--cursor", "100", "--limit", "100",
         ).stdout)
+        self.assertLess(time.monotonic() - started, 30)
         self.assertEqual([item["session_id"] for item in middle["members"]],
                          [f"session-{index:03}" for index in range(100, 0, -1)])
         self.assertEqual(middle["continuation"], 200)
