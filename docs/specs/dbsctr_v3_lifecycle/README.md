@@ -1467,6 +1467,12 @@ module routing without changing Cycle Record schema or public commands.
   and refreshes every cohort member from that snapshot even when older archived
   evidence exists. Reviewed markers remain unchanged and unavailable old metrics
   never override richer validated live evidence.
+- A caller may add the history page's `limit` and `cursor` when its cohort is the
+  complete returned page. The opaque query digest binds that page's sanitized
+  evidence and source identities, so unrelated session changes do not block an
+  unchanged continuation cohort while a changed selected member or missing
+  unarchived member rejects the whole save. Reports without page identity retain
+  strict whole-snapshot revalidation for compatibility.
 - Historical report persistence is a schema-validated standing local write to
   the private review store. It cannot mutate repositories, Cycle Records, gates,
   operational review tombstones, or external systems. Builder agents remain

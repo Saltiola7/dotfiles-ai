@@ -173,6 +173,9 @@ tool includes reviewed candidates through bounded composable filters and fixed
 cohort replay. A schema-validated history-save tool has standing authority only
 for sanitized private reports and cohort manifests; it never changes operational
 review markers or repository state and remains denied to Builder subagents.
+The save tool optionally forwards the source history page's `limit` and `cursor`
+so complete-page cohorts can use source-bound exact-member revalidation; callers
+that omit them retain strict whole-snapshot validation.
 
 ### Scout-only current documentation
 

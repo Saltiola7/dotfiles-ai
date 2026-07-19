@@ -287,8 +287,16 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
     assert "snapshot: args.snapshot," in tools
+    history_save = tools.split("export const review_history_save = tool({", 1)[1]
+    assert "limit: tool.schema.number().int().min(1).max(100).optional()" in history_save
+    assert "cursor: tool.schema.number().int().min(0).optional()" in history_save
+    assert "limit: args.limit," in history_save
+    assert "cursor: args.cursor," in history_save
     assert "default(false)" in tools
     runtime = (OC / "lib/dbsctr-runtime.ts").read_text()
+    history_save_runtime = runtime.split("export async function reviewHistorySave", 1)[1]
+    assert "limit?: number" in history_save_runtime
+    assert "cursor?: number" in history_save_runtime
     assert '["dbsctrctl", "status", "--json"]' in runtime
     assert '["dbsctrctl", "audit", "--commit", commit, "--json"]' in runtime
     assert '"dbsctrctl", "inspect", "--commit"' in runtime
@@ -457,7 +465,9 @@ def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
     }
     history = {
         "schema_version": 1, "cohort": ["included"], "query_digest": "c" * 64,
-        "rubric": {"name": "history", "version": "1", "digest": "d" * 64}, "findings": [],
+        "rubric": {"name": "history", "version": "1", "digest": "d" * 64},
+        "snapshot": 1784073600000, "session_ceiling": 1, "part_ceiling": 1,
+        "database_digest": "e" * 64, "limit": 1, "cursor": 100, "findings": [],
     }
     script = (
         f'import {{ reviewScan, reviewComplete, reviewHistory, reviewHistorySave }} from {json.dumps(str(runtime))};'
@@ -475,6 +485,10 @@ def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
     assert calls.count("<caller>") == 4
     assert calls.count("<--excluded-message-id>") == 4
     assert calls.count("<message>") == 4
+    payloads = [json.loads(line[1:-1]) for line in calls if line.startswith("<{\"")]
+    saved_history = next(payload for payload in payloads if "cohort" in payload)
+    assert saved_history["limit"] == 1
+    assert saved_history["cursor"] == 100
 
 
 def test_dbsctr_review_history_runtime_preserves_literal_argv(tmp_path):

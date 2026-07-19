@@ -17,6 +17,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.16-3 | Save source-bound continuation cohorts despite unrelated history writes | 2026-07-18 | `edf481a`, `920156b`, `d833df3` |
 | V3.16-2 | Refresh mixed live and archive-only history cohorts during save | 2026-07-18 | `bc2bb08` |
 | V3.12-5 | Allow page-stable completion during unrelated OpenCode writes | 2026-07-18 | `9830b2f` |
 | V3.23-1 | Add capability-first autonomous improvement coordination and draft-PR delivery | 2026-07-18 | `9b77969`, `5f12796`, `7b863d8`, `04627bf`, `6f9a112` |
