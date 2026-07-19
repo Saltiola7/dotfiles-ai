@@ -9,7 +9,6 @@ Discovery readiness: complete.
 | V3.17-1 | Make live history self-safe | critical | done | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed caller self-mutation is excluded without weakening unrelated mutation detection | M | 124 tests, live deployment, independent privacy review, active-tool continuation/save fixtures |
 | V3.18-1 | Correct correlation and attach resumed runtimes | critical | done | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | 128 tests, typed context fixtures, live quality scan, deployment, independent review |
 | V3.19-1 | Add private SQLite improvement ledger | high | done | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | 136 tests, live migration, semantic integrity, permission, crash recovery, backup, and restore verification |
-| V3.20-1 | Add atomic multi-page captures and compact history transport | high | active | V3.19-1 | Immutable logical manifests, helper-derived aggregate projection, bounded drill-down, replay | Ledger and history filters | no | Cohorts exceed 100 and current output truncates | M | 201-session contiguous atomic save/replay, gap/overlap/duplicate/projection-mismatch rejection, response-size, ordering, deletion, malformed-state, backup/restore, and latency tests |
 | V3.21-1 | Add structured telemetry and attribution | high | ready | V3.18-1,V3.19-1 | Capability detection, stable error classes, model families, explicit availability and attribution | OpenCode schema and correlation quality | no | Approval, retry, delegation, and failure causes are unavailable | L | Optional-schema, unavailable-semantics, privacy, correlation, cost-reporting, and attribution tests |
 | V3.22-1 | Add longitudinal benchmarks and implementation effects | high | ready | V3.20-1,V3.21-1 | Versioned benchmark runs, activation-bound 30-day before/after windows, recurrence, association tracking | Captures, telemetry, merges, deployments, review runs | no | Implemented changes are not evaluated over time | M | Baseline, missing/ambiguous activation, incomplete-window, replay, confounder, neutral, invalid, and regression tests |
 
@@ -17,6 +16,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.20-1 | Add atomic multi-page captures and bounded summary/drill-down replay | 2026-07-19 | `f3f84b2`, `8ce2317`, `cdc91fc`, `2a4d27c` |
 | V3.16-3 | Save source-bound continuation cohorts despite unrelated history writes | 2026-07-18 | `edf481a`, `920156b`, `d833df3` |
 | V3.16-2 | Refresh mixed live and archive-only history cohorts during save | 2026-07-18 | `bc2bb08` |
 | V3.12-5 | Allow page-stable completion during unrelated OpenCode writes | 2026-07-18 | `9830b2f` |

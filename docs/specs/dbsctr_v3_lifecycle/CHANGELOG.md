@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.20 Atomic History Captures
+
+- Added a versioned private-ledger capture schema and helper-owned complete
+  fixed-snapshot collection. Compact summaries, bounded member replay, atomic
+  deletion, backup/restore, and forget cascading preserve existing history
+  interfaces and reviewed markers.
+- Capture integrity validates page coverage, ordered relational columns,
+  member-derived aggregates, immutable identity, and malformed state. The
+  201-session save and replay fixtures enforce a 30-second regression ceiling.
+- Validation: 106 passed, 1 skipped on Python 3.12, 3.13, and 3.14; compilation, diff checks,
+  red/green capture regressions, and independent review with no findings. Gate
+  Commits: `f3f84b2`, `8ce2317`, `cdc91fc`, `2a4d27c`. Gate Exceptions: none.
+  Deployment: targeted local helper apply, idempotence, source identity, and a
+  324-member live save/summary/drill-down/delete smoke passed. Intended Final
+  Push: `origin/main`.
+
 ## 2026-07-19 - Analytics Backlog Discovery
 
 - Froze atomic multi-page capture, explicit structured telemetry, and
