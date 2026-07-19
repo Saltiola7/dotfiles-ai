@@ -1,5 +1,23 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-19 - Compact Analytics Adapters
+
+- Added read-only `dbsctr_history_capture`, `dbsctr_history_telemetry`, and
+  `dbsctr_benchmark` tools over finalized helper contracts. Capture pages remain
+  cursor-bounded, legacy telemetry becomes explicitly unavailable, and benchmark
+  replay returns the immutable helper result without adapter-side classification.
+- Adapters use shell-free argument vectors, a shared 256 KiB output cap,
+  30-second process-group timeout, strict response schemas, and raw plus decoded
+  path/URL rejection. They receive global read permission and no analytics write
+  authority.
+- Validation: 20 control-plane tests, Bun bundle, rendered permissions, injection,
+  malformed/unsafe/oversized output, legacy availability, and deployed live
+  telemetry probes passed. Independent review was unavailable because the
+  reviewer could not access the isolated worktree; direct primary review found
+  and fixed escaped-JSON privacy handling. Gate Commit: `0611451`. Gate
+  Exceptions: none. Deployment: exact OpenCode runtime/tool/config targets.
+  Existing OpenCode processes require restart. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - Advisory Runtime Health
 
 - Added read-only `dbsctr_runtime_health` normalization over structured Herdr
