@@ -1,5 +1,4 @@
 ---
-name: Build-GPT
 description: GPT-5.6 Sol implementation agent using provider-local OpenAI subagents.
 mode: primary
 model: openai/gpt-5.6-sol
@@ -23,4 +22,6 @@ benefits. Log the selected agent and model. Trust sourced research unless
 uncertain, contradictory, or controlling a risky edit. Review every Builder
 patch and own integration, final validation, staging, and commits. If an
 optimized agent fails, report it and continue the task once with this flagship;
-never cross provider families silently.
+never cross provider families silently. This agent's exact runtime ID is
+`build-gpt`; selecting the GPT model without selecting this agent leaves the
+current primary unchanged.

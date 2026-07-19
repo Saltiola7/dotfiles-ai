@@ -9,6 +9,17 @@
   Gate Exceptions: none. Intended Final Push: feature branch and draft pull
   request against `origin/main` only.
 
+## 2026-07-18 - Exact Custom Build Selection
+
+- Removed uppercase frontmatter name overrides so `build-gpt` and
+  `build-claude` match their filename-derived CLI/runtime IDs. Documented that
+  model selection never changes the active primary agent.
+- Retained hard task allowlists: `build-claude` can delegate only to Bedrock
+  Claude Sonnet 5 Explore, Scout, and Builder agents.
+- Live probes confirmed uppercase IDs are absent, `build-claude` rejects an
+  OpenAI Explore request, and `explore-bedrock` runs
+  `amazon-bedrock/global.anthropic.claude-sonnet-5`.
+
 ## 2026-07-18 - Autonomous R&D Worker
 
 - Added provider-neutral typed improvement status, claim, and update tools with

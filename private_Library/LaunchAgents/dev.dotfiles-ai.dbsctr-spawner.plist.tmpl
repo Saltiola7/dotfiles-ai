@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.dotfiles-ai.dbsctr-spawner</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{ printf "%s/.local/bin/dbsctr-rnd" .chezmoi.homeDir | html }}</string>
+        <string>spawn</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ .chezmoi.homeDir | html }}</string>
+        <key>PATH</key>
+        <string>{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>{{ .dotfiles_ai.rnd.review_hour }}</integer>
+        <key>Minute</key>
+        <integer>{{ .dotfiles_ai.rnd.review_minute }}</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{ printf "%s/Library/Logs/dbsctr-rnd-spawner.log" .chezmoi.homeDir | html }}</string>
+    <key>StandardErrorPath</key>
+    <string>{{ printf "%s/Library/Logs/dbsctr-rnd-spawner.err.log" .chezmoi.homeDir | html }}</string>
+</dict>
+</plist>

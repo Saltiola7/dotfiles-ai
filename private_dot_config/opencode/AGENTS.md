@@ -69,8 +69,9 @@ The orchestrator reviews and validates integrated work and alone stages or
 commits; subagents never commit.
 
 OpenAI Plan agents may use `explore-openai` and `scout-openai`; OpenAI Build
-agents may also use `builder-openai`. `Build-Claude` may use only the matching
-Bedrock agents. Log each optimized route. On failure, report it and retry once
+agents may also use `builder-openai`. `build-claude` may use only the matching
+Bedrock agents. Agent IDs and models are independent: selecting a provider model
+never changes the active primary agent. Log each optimized route. On failure, report it and retry once
 by continuing directly with the same-provider flagship. Never cross providers
 silently. For other selected models, use generic inheriting subagents.
 

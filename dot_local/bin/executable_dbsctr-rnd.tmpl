@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import os
+import subprocess
+import time
+import uuid
+from pathlib import Path
+
+
+DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
+HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
+GH = os.environ.get("GH", "gh")
+OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
+REVIEW_WORKDIR = Path({{ .dotfiles_ai.rnd.review_workdir | quote }}).resolve()
+WORKSPACE_LABEL = {{ .dotfiles_ai.rnd.workspace_label | quote }}
+GITHUB_ACCOUNT = {{ .dotfiles_ai.rnd.github_account | quote }}
+GITHUB_REPOSITORY = {{ .dotfiles_ai.rnd.github_repository | quote }}
+MANAGED_PATH = {{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" .chezmoi.homeDir | quote }}
+TERMINAL = {"merged", "closed", "abandoned"}
+LOCK = Path(os.environ.get("DBSCTR_RND_LOCK", {{ printf "%s/.local/state/dotfiles-ai/dbsctr-rnd-watchdog.lock" .chezmoi.homeDir | quote }}))
+SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "60"))
+
+
+def command(argv, *, parse=True, env=None):
+    result = subprocess.run(argv, check=True, text=True, capture_output=True, env=env)
+    return json.loads(result.stdout) if parse else result.stdout
+
+
+def result(value):
+    return value.get("result", value)
+
+
+def records(value, key):
+    found = result(value).get(key, [])
+    if not isinstance(found, list):
+        raise RuntimeError(f"invalid {key} response")
+    return found
+
+
+def required_id(value, key):
+    found = set()
+
+    def visit(item):
+        if isinstance(item, dict):
+            if isinstance(item.get(key), str) and item[key]:
+                found.add(item[key])
+            for child in item.values():
+                visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+
+    visit(result(value))
+    if len(found) != 1:
+        raise RuntimeError(f"missing or ambiguous {key} in command response")
+    return found.pop()
+
+
+def required_path(value, *keys):
+    item = result(value)
+    for key in keys:
+        item = item.get(key) if isinstance(item, dict) else None
+    if not isinstance(item, str) or not item:
+        raise RuntimeError(f"missing {'.'.join(keys)} in command response")
+    return item
+
+
+def panes(workspace_id):
+    return records(command([HERDR, "pane", "list", "--workspace", workspace_id]), "panes")
+
+
+def close_unchanged_staging(workspace_id, tab_id, shell_pane_id):
+    current = [pane.get("pane_id") for pane in panes(workspace_id) if pane.get("tab_id") == tab_id]
+    if current == [shell_pane_id]:
+        command([HERDR, "tab", "close", tab_id], parse=False)
+
+
+def workspace():
+    matches = [item for item in records(command([HERDR, "workspace", "list"]), "workspaces")
+               if item.get("label") == WORKSPACE_LABEL]
+    if len(matches) > 1:
+        raise RuntimeError(f"multiple Herdr workspaces named {WORKSPACE_LABEL!r}")
+    if matches:
+        return required_id(matches[0], "workspace_id")
+    created = command([
+        HERDR, "workspace", "create", "--cwd", str(REVIEW_WORKDIR),
+        "--label", WORKSPACE_LABEL, "--no-focus",
+    ])
+    return required_id(created, "workspace_id")
+
+
+def session_ids():
+    value = command([OPENCODE, "session", "list", "--format", "json", "-n", "100"])
+    if not isinstance(value, list):
+        raise RuntimeError("invalid OpenCode session list")
+    return {item["id"] for item in value
+            if isinstance(item, dict) and item.get("directory") == str(REVIEW_WORKDIR)
+            and isinstance(item.get("id"), str)}
+
+
+def pane_runs(pane_id, expected_argv):
+    info = result(command([HERDR, "pane", "process-info", "--pane", pane_id]))
+    processes = info.get("process_info", {}).get("foreground_processes", [])
+    return len(processes) == 1 and processes[0].get("argv") == expected_argv
+
+
+def wait_for_session(pane_id, expected=None, before=None, expected_argv=None):
+    for _ in range(SESSION_POLLS):
+        matches = [agent for agent in records(command([HERDR, "agent", "list"]), "agents")
+                   if agent.get("pane_id") == pane_id]
+        if len(matches) == 1:
+            session = matches[0].get("agent_session", {}).get("value")
+            if isinstance(session, str) and session and (expected is None or session == expected):
+                return session
+        if expected_argv and pane_runs(pane_id, expected_argv):
+            current = session_ids()
+            if expected and expected in current:
+                return expected
+            created = current - (before or set())
+            if expected is None and len(created) == 1:
+                return created.pop()
+        time.sleep(0.5)
+    raise RuntimeError("OpenCode session identity did not become available")
+
+
+def launch(workspace_id, worker_id, session_id=None):
+    before = session_ids() if session_id is None else None
+    staging = command([
+        HERDR, "tab", "create", "--workspace", workspace_id,
+        "--cwd", str(REVIEW_WORKDIR), "--label", f"{worker_id}-staging", "--no-focus",
+    ])
+    staging_tab = required_path(staging, "tab", "tab_id")
+    shell_pane = required_path(staging, "root_pane", "pane_id")
+    agent_pane = worker_tab = None
+    try:
+        argv = (["opencode", "-s", session_id, "--agent", "build"] if session_id else
+                ["opencode", "run", "--agent", "build", "--command", "dbsctr-improve", "--interactive"])
+        started = command([
+            HERDR, "agent", "start", worker_id, "--cwd", str(REVIEW_WORKDIR),
+            "--tab", staging_tab, "--env", f"PATH={MANAGED_PATH}", "--no-focus", "--", *argv,
+        ])
+        agent_pane = required_id(started, "pane_id")
+        moved = command([
+            HERDR, "pane", "move", agent_pane, "--new-tab", "--workspace", workspace_id,
+            "--label", f"R&D {worker_id[-8:]}", "--no-focus",
+        ])
+        worker_tab = required_path(moved, "move_result", "created_tab", "tab_id")
+        destination = [pane.get("pane_id") for pane in panes(workspace_id)
+                       if pane.get("tab_id") == worker_tab]
+        if destination != [agent_pane]:
+            raise RuntimeError("worker destination tab is not single-pane")
+        close_unchanged_staging(workspace_id, staging_tab, shell_pane)
+        actual_session = wait_for_session(agent_pane, session_id, before, argv)
+        return actual_session, worker_tab, agent_pane
+    except Exception:
+        try:
+            if agent_pane and worker_tab:
+                close_pending_launch(workspace_id, worker_tab, agent_pane)
+            close_unchanged_staging(workspace_id, staging_tab, shell_pane)
+        except Exception:
+            pass
+        raise
+
+
+def close_pending_launch(workspace_id, tab_id, pane_id):
+    current = [pane.get("pane_id") for pane in panes(workspace_id) if pane.get("tab_id") == tab_id]
+    if current == [pane_id]:
+        command([HERDR, "tab", "close", tab_id], parse=False)
+        return True
+    return False
+
+
+def spawn():
+    if not REVIEW_WORKDIR.is_dir():
+        raise RuntimeError(f"review workdir does not exist: {REVIEW_WORKDIR}")
+    worker_id = f"dbsctr-{uuid.uuid4().hex[:8]}"
+    workspace_id = workspace()
+    session_id, tab_id, pane_id = launch(workspace_id, worker_id)
+    try:
+        worker = command([
+            DBSCTRCTL, "improvement-register", "--worker-id", worker_id,
+            "--session-id", session_id, "--workspace-id", workspace_id,
+            "--tab-id", tab_id, "--pane-id", pane_id,
+        ])
+    except Exception:
+        close_pending_launch(workspace_id, tab_id, pane_id)
+        raise
+    print(json.dumps(worker, separators=(",", ":")))
+
+
+def managed_cwd(value):
+    return isinstance(value, str) and Path(value).resolve() == REVIEW_WORKDIR
+
+
+def exact_resumed_agent(worker, agents):
+    recorded = [agent for agent in agents
+                if agent.get("pane_id") == worker.get("pane_id")
+                and agent.get("tab_id") == worker.get("tab_id")
+                and agent.get("workspace_id") == worker.get("workspace_id")
+                and managed_cwd(agent.get("foreground_cwd") or agent.get("cwd"))]
+    if len(recorded) != 1:
+        return []
+    tab_panes = [pane for pane in panes(worker["workspace_id"])
+                 if pane.get("tab_id") == worker["tab_id"]]
+    info = result(command([HERDR, "pane", "process-info", "--pane", worker["pane_id"]]))
+    processes = info.get("process_info", {}).get("foreground_processes", [])
+    expected = ["opencode", "-s", worker["session_id"], "--agent", "build"]
+    if ([pane.get("pane_id") for pane in tab_panes] == [worker["pane_id"]]
+            and len(processes) == 1 and processes[0].get("argv") == expected):
+        return recorded
+    return []
+
+
+def reconcile_pr(worker, token):
+    if worker["state"] != "draft_pr" or not worker.get("pr_url"):
+        return token, worker
+    if token is None:
+        token = command([
+            GH, "auth", "token", "--hostname", "github.com", "--user", GITHUB_ACCOUNT,
+        ], parse=False).strip()
+        if not token:
+            raise RuntimeError("configured GitHub account returned no token")
+    pull = command([
+        GH, "pr", "view", worker["pr_url"], "--repo", GITHUB_REPOSITORY,
+        "--json", "state,isDraft",
+    ], env={**os.environ, "GH_TOKEN": token})
+    if not isinstance(pull, dict):
+        raise RuntimeError("GitHub pull request response is not an object")
+    state = {"MERGED": "merged", "CLOSED": "closed"}.get(pull.get("state"))
+    if state:
+        worker = command([
+            DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", state,
+        ])
+    return token, worker
+
+
+def watchdog():
+    LOCK.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(LOCK.parent, 0o700)
+    lock = LOCK.open("a+")
+    os.chmod(LOCK, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print('{"events":[],"status":"already_running"}')
+        return
+    workers = command([DBSCTRCTL, "improvement-status"])["workers"]
+    agents = records(command([HERDR, "agent", "list"]), "agents")
+    token = None
+    events = []
+    for worker in workers:
+        try:
+            token, worker = reconcile_pr(worker, token)
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as error:
+            events.append({"worker_id": worker["worker_id"], "status": "pr_check_failed", "error": str(error)})
+        if worker["state"] in TERMINAL:
+            continue
+        matches = [agent for agent in agents
+                   if agent.get("agent_session", {}).get("value") == worker["session_id"]]
+        if not matches and worker.get("pane_id") and worker.get("tab_id") and worker.get("workspace_id"):
+            recorded = [agent for agent in agents
+                        if agent.get("pane_id") == worker["pane_id"]
+                        and agent.get("tab_id") == worker["tab_id"]
+                        and agent.get("workspace_id") == worker["workspace_id"]]
+            try:
+                matches = exact_resumed_agent(worker, agents) if len(recorded) == 1 else []
+            except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError):
+                matches = []
+            if recorded and not matches:
+                command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", "blocked"])
+                events.append({"worker_id": worker["worker_id"], "status": "ambiguous"})
+                continue
+        if len(matches) > 1:
+            command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", "blocked"])
+            events.append({"worker_id": worker["worker_id"], "status": "ambiguous"})
+            continue
+        if len(matches) == 1:
+            status = matches[0].get("agent_status")
+            if status in {"working", "idle", "blocked"}:
+                continue
+            if status != "missing":
+                command([DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"], "--state", "blocked"])
+                events.append({"worker_id": worker["worker_id"], "status": "unknown"})
+                continue
+        if worker["state"] == "blocked" or worker["recovery_attempts"] >= 3:
+            events.append({"worker_id": worker["worker_id"], "status": "blocked"})
+            continue
+        launched = None
+        try:
+            workspace_id = workspace()
+            session_id, tab_id, pane_id = launch(workspace_id, worker["worker_id"], worker["session_id"])
+            launched = (workspace_id, tab_id, pane_id, session_id)
+            command([
+                DBSCTRCTL, "improvement-update", "--worker-id", worker["worker_id"],
+                "--state", worker["state"], "--workspace-id", workspace_id,
+                "--tab-id", tab_id, "--pane-id", pane_id,
+            ])
+            command([DBSCTRCTL, "improvement-recover", "--worker-id", worker["worker_id"], "--action", "success"])
+            events.append({"worker_id": worker["worker_id"], "session_id": session_id, "status": "recovered"})
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as error:
+            if launched:
+                close_pending_launch(*launched[:3])
+            command([DBSCTRCTL, "improvement-recover", "--worker-id", worker["worker_id"], "--action", "failed"])
+            events.append({"worker_id": worker["worker_id"], "status": "recovery_failed", "error": str(error)})
+    print(json.dumps({"events": events}, separators=(",", ":")))
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("action", choices=("spawn", "watchdog"))
+args = parser.parse_args()
+try:
+    {"spawn": spawn, "watchdog": watchdog}[args.action]()
+except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as error:
+    raise SystemExit(str(error))
