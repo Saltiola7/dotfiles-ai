@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises"
+
 export async function run(argv: string[], cwd: string) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -7,6 +9,49 @@ export async function run(argv: string[], cwd: string) {
   ])
   if (exitCode !== 0) throw new Error(stderr.trim() || `${argv[0]} exited ${exitCode}`)
   return stdout.trim()
+}
+
+async function boundedText(stream: ReadableStream<Uint8Array>, limit: number) {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > limit) throw new Error("command output exceeded bound")
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes).trim()
+}
+
+async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputLimit = 64 * 1024) {
+  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill()
+  }, timeoutMs)
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      boundedText(child.stdout, outputLimit),
+      boundedText(child.stderr, outputLimit),
+      child.exited,
+    ])
+    if (timedOut || exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
+    return stdout
+  } catch (error) {
+    child.kill()
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function cycleStatus(cwd: string) {
@@ -35,7 +80,7 @@ export async function runtimeHealth(cwd: string, runtime: {
   if (env.HERDR_ENV !== "1") return { status: "unavailable" as const }
   let output: string
   try {
-    output = await run(["herdr", "pane", "current"], cwd)
+    output = await runBounded(["herdr", "pane", "current"], cwd)
   } catch {
     return { status: "unavailable" as const }
   }
@@ -51,8 +96,16 @@ export async function runtimeHealth(cwd: string, runtime: {
   const agentStatus = ["idle", "working", "blocked", "unknown"].includes(pane?.agent_status)
     ? pane.agent_status
     : "unknown"
+  const panePath = typeof pane?.foreground_cwd === "string" ? pane.foreground_cwd : pane?.cwd
+  let canonicalPane: string | null = null
+  let canonicalWorktree: string | null = null
+  try {
+    [canonicalPane, canonicalWorktree] = await Promise.all([realpath(panePath), realpath(runtime.worktree)])
+  } catch {
+    // Missing paths are ambiguous rather than evidence about lifecycle state.
+  }
   if (pane?.agent !== "opencode" || pane?.agent_session?.value !== runtime.sessionID
-      || (pane?.cwd !== runtime.worktree && pane?.foreground_cwd !== runtime.worktree)
+      || canonicalPane === null || canonicalPane !== canonicalWorktree
       || ![pane?.pane_id, pane?.tab_id, pane?.workspace_id, pane?.terminal_id].every(
         value => typeof value === "string" && id.test(value))) {
     return { status: "ambiguous" as const }

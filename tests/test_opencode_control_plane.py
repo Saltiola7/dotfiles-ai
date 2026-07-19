@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -574,6 +575,8 @@ def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
         "[ \"$HERDR_MODE\" = fail ] && { printf 'private failure /Users/nope\\n' >&2; exit 9; }\n"
         "[ \"$HERDR_MODE\" = malformed ] && { printf 'not-json\\n'; exit 0; }\n"
         "[ \"$HERDR_MODE\" = missing ] && { printf '{\"result\":{\"pane\":null}}\\n'; exit 0; }\n"
+        "[ \"$HERDR_MODE\" = timeout ] && exec sleep 5\n"
+        "[ \"$HERDR_MODE\" = oversized ] && { dd if=/dev/zero bs=70000 count=1 2>/dev/null; exit 0; }\n"
         "printf '{\"result\":{\"pane\":{\"agent\":\"opencode\",\"agent_session\":{\"value\":\"%s\"},\"agent_status\":\"idle\",\"cwd\":\"%s\",\"pane_id\":\"w1:p2\",\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"terminal_id\":\"term_1\"}}}\\n' \"${HERDR_SESSION:-session-1}\" \"$HERDR_CWD\"\n"
     )
     herdr.chmod(0o755)
@@ -591,10 +594,21 @@ def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
         "tab_id": "w1:t2", "workspace_id": "w1", "terminal_id": "term_1",
     }
     assert log.read_text().splitlines() == ["<pane>", "<current>"]
+    equivalent = tmp_path / "equivalent-worktree"
+    equivalent.symlink_to(ROOT)
+    same = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_CWD": str(equivalent)},
+                          text=True, capture_output=True, check=True)
+    assert json.loads(same.stdout)["status"] == "healthy"
     for mode, expected in (("missing", "missing"), ("malformed", "ambiguous"), ("fail", "unavailable")):
         result = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_MODE": mode},
                                 text=True, capture_output=True, check=True)
         assert json.loads(result.stdout) == {"status": expected}
+    for mode in ("timeout", "oversized"):
+        started = time.monotonic()
+        result = subprocess.run(["bun", "-e", script], cwd=ROOT, env={**env, "HERDR_MODE": mode},
+                                text=True, capture_output=True, check=True)
+        assert json.loads(result.stdout) == {"status": "unavailable"}
+        assert time.monotonic() - started < 4
     mismatch = subprocess.run(["bun", "-e", script], cwd=ROOT,
                               env={**env, "HERDR_SESSION": "other-session"}, text=True,
                               capture_output=True, check=True)

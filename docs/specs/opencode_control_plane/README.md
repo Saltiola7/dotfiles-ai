@@ -189,12 +189,19 @@ Herdr health as advisory operational metadata. Health is one of `healthy`,
 `missing`, `ambiguous`, or `unavailable`; malformed Herdr output fails closed and
 never changes a Cycle Record, gate result, or improvement state.
 
+Runtime attachment requires structured message identity that resolves through
+the OpenCode database to a parentless primary session. Child Builder sessions
+fail at the helper boundary even if a shell wrapper bypasses textual command
+matching; supplying a primary message can only idempotently attach that primary.
+
 `dbsctr_runtime_health` invokes only structured `herdr pane current`. Outside a
 Herdr runtime or when the command is unavailable it returns `unavailable`; a
 valid absent pane returns `missing`; malformed output or mismatched OpenCode
 session/worktree identity returns `ambiguous`; and an exact current pane returns
 `healthy` with bounded presentation IDs and normalized agent status. It emits no
-path, command error, or private content and performs no write.
+path, command error, or private content and performs no write. The Herdr probe
+has a two-second timeout and 64 KiB output cap, and compares canonical existing
+worktree paths so equivalent macOS/symlink spellings do not create false health.
 
 Given a caller requests compact history or benchmark evidence after the matching
 helper interface is finalized and deployed, typed adapters

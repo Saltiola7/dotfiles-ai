@@ -543,22 +543,42 @@ class DbsctrctlTest(unittest.TestCase):
 
     def test_attach_runtime_is_idempotent_and_worktree_bounded(self):
         self.start()
-        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed",
+        database = Path(self.temp.name) / "attach-opencode.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text);
+            create table message (id text primary key, session_id text);
+            insert into session values ('session-resumed', null);
+            insert into session values ('session-child', 'session-resumed');
+            insert into message values ('message-resumed', 'session-resumed');
+            insert into message values ('message-child', 'session-child');
+        """)
+        connection.commit()
+        connection.close()
+        common = ("--database", str(database), "--opencode-message-id", "message-resumed")
+        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
             "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo))
-        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed",
+        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
             "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo))
         record = json.loads(self.record_path().read_text())
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-resumed"])
+        child = run(self.repo, "attach-runtime", "--opencode-session-id", "session-child",
+                    "--database", str(database), "--opencode-message-id", "message-child",
+                    "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo), ok=False)
+        self.assertIn("primary OpenCode session", child.stderr)
+        unstructured = run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed",
+                           "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo), ok=False)
+        self.assertIn("structured message identity", unstructured.stderr)
         other = Path(self.temp.name) / "other"
         other.mkdir()
-        wrong = run(self.repo, "attach-runtime", "--opencode-session-id", "session-wrong",
+        wrong = run(self.repo, "attach-runtime", "--opencode-session-id", "session-wrong", *common,
                     "--opencode-directory", str(other),
                     "--opencode-worktree", str(other), ok=False)
         self.assertIn("recorded cycle worktree", wrong.stderr)
 
         record["state"] = "completed"
         self.record_path().write_text(json.dumps(record))
-        completed = run(self.repo, "attach-runtime", "--opencode-session-id", "session-late",
+        completed = run(self.repo, "attach-runtime", "--opencode-session-id", "session-late", *common,
                         "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo),
                         ok=False)
         self.assertIn("not active", completed.stderr)
