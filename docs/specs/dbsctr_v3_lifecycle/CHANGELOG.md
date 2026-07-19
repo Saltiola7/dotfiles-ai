@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.21 Structured Telemetry
+
+- Added schema-detected model families, delegation counts, stable provider/tool
+  error classes, token and cost reporting, explicit availability, and correlation
+  attribution to live and retained private history evidence. Approval and retry
+  counts remain explicitly unavailable because no authoritative source exists.
+- Message content contributes only to snapshot hashes and bounded structural
+  classification; raw errors, transcript prose, paths, URLs, and credentials are
+  never retained or returned. Legacy evidence without telemetry remains valid.
+- Validation: 108 passed, 1 skipped on Python 3.12, 3.13, and 3.14; optional-
+  schema, unavailable-semantics, privacy, attribution, fixed-snapshot, compilation,
+  and diff checks passed. Independent review was unavailable because the reviewer
+  could not access the isolated worktree; direct primary review found and fixed
+  optional-column handling. Gate Commits: `ae537d2`, `26589ce`. Gate Exceptions: none.
+  Deployment: targeted local helper apply and smoke verification. Intended Final
+  Push: `origin/main`.
+
 ## 2026-07-19 - V3.20 Atomic History Captures
 
 - Added a versioned private-ledger capture schema and helper-owned complete
