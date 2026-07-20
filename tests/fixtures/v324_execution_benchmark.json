@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "fixture_id": "v324-read-v1",
+  "warmup_pairs": 1,
+  "measured_pairs": 5,
+  "synthetic_delay_ms": 50,
+  "required_gates": [
+    "behavior",
+    "contract",
+    "domain",
+    "refactor",
+    "review_integrate",
+    "spec",
+    "test_driven_implementation"
+  ],
+  "dag": {
+    "nodes": [
+      {
+        "id": "read-helper",
+        "depends_on": [],
+        "operation": "read",
+        "ownership_paths": ["dot_local/bin/executable_dbsctrctl"]
+      },
+      {
+        "id": "read-runtime",
+        "depends_on": [],
+        "operation": "read",
+        "ownership_paths": ["private_dot_config/opencode/lib/dbsctr-runtime.ts"]
+      },
+      {
+        "id": "read-skill",
+        "depends_on": [],
+        "operation": "read",
+        "ownership_paths": ["dot_agents/skills/dbsctr/SKILL.md"]
+      },
+      {
+        "id": "read-tools",
+        "depends_on": [],
+        "operation": "read",
+        "ownership_paths": ["private_dot_config/opencode/tools/dbsctr.ts"]
+      },
+      {
+        "id": "reconcile",
+        "depends_on": ["read-helper", "read-runtime", "read-skill", "read-tools"],
+        "operation": "reconcile",
+        "ownership_paths": []
+      }
+    ],
+    "completed": []
+  }
+}

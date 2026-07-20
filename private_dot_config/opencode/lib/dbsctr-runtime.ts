@@ -109,21 +109,28 @@ export async function phaseSpan(args: {
 export async function validateExecutionDag(nodes: {
   id: string
   depends_on: string[]
-  operation: "read" | "readonly_qa"
+  operation: "read" | "readonly_qa" | "reconcile"
   ownership_paths: string[]
-}[], mode: "serial" | "benchmark" | "concurrent", cwd = process.cwd()) {
+}[], completed: string[], mode: "serial" | "benchmark" | "concurrent", cwd = process.cwd()) {
   return await run([
-    "dbsctrctl", "execution-dag", "--mode", mode, "--dag-json", JSON.stringify({ nodes }),
+    "dbsctrctl", "execution-dag", "--mode", mode, "--dag-json", JSON.stringify({ nodes, completed }),
   ], cwd)
 }
 
 export async function recordExecutionBenchmark(result: {
-  serial_ms: number[]
-  concurrent_ms: number[]
-  serial_failed_gates: number
-  concurrent_failed_gates: number
-  serial_remediation_rounds: number
-  concurrent_remediation_rounds: number
+  fixture: { id: string; commit: string; path: string; blob: string }
+  warmup_pairs: number
+  pairs: {
+    pair_id: string
+    serial_ms: number
+    concurrent_ms: number
+    serial_status: "passed"
+    concurrent_status: "passed"
+    serial_gate_digest: string
+    concurrent_gate_digest: string
+    serial_remediation_rounds: number
+    concurrent_remediation_rounds: number
+  }[]
 }, cwd = process.cwd()) {
   return await run([
     "dbsctrctl", "execution-benchmark", "--benchmark-json", JSON.stringify(result),

@@ -799,7 +799,9 @@ def phase_path(value):
     pure = PurePosixPath(value)
     normalized = str(pure)
     if (pure.is_absolute() or not pure.parts or ".." in pure.parts or normalized in ("", ".")
-            or len(normalized.encode()) > 512):
+            or len(normalized.encode()) > 512 or pure.parts[0].endswith(":")
+            or any(ord(character) < 32 or character == "\\" for character in normalized)
+            or review_unsafe(normalized)):
         fail("invalid phase ownership path")
     return normalized
 
@@ -814,7 +816,8 @@ def phase_record(row):
     except json.JSONDecodeError as error:
         fail(f"private phase span is malformed: {error}")
     if (not OPAQUE_ID.fullmatch(value["cycle_id"]) or not OPAQUE_ID.fullmatch(value["span_id"])
-            or value["parent_span_id"] is not None and not OPAQUE_ID.fullmatch(value["parent_span_id"])
+            or value["parent_span_id"] is not None and (not OPAQUE_ID.fullmatch(value["parent_span_id"])
+                or value["parent_span_id"] == value["span_id"])
             or value["phase"] not in PHASES or value["operation"] not in PHASE_OPERATIONS
             or value["attribution"] not in ("explicit", "adapter", "unavailable")
             or not isinstance(value["dependencies"], list)
@@ -838,10 +841,31 @@ def phase_integrity(connection):
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'phase_%'")}
     if tables != {"phase_spans"}:
         fail("private phase-span tables are invalid")
-    for row in connection.execute(
+    records = [phase_record(row) for row in connection.execute(
             "SELECT cycle_id, span_id, parent_span_id, phase, operation, attribution, dependencies, "
-            "ownership_paths, started_at, finished_at, result FROM phase_spans"):
-        phase_record(row)
+            "ownership_paths, started_at, finished_at, result FROM phase_spans")]
+    by_cycle = {}
+    for record in records:
+        by_cycle.setdefault(record["cycle_id"], {})[record["span_id"]] = record
+    for spans in by_cycle.values():
+        for record in spans.values():
+            if record["parent_span_id"] is not None and record["parent_span_id"] not in spans:
+                fail("private phase span parent is missing")
+            for dependency in record["dependencies"]:
+                if dependency not in spans:
+                    fail("private phase span dependency is missing")
+                parent = spans[dependency]
+                if parent["finished_at"] is None or record["started_at"] < parent["finished_at"]:
+                    fail("private phase span dependency timing is invalid")
+        pending = {key: set(record["dependencies"]) for key, record in spans.items()}
+        while pending:
+            ready = [key for key, dependencies in pending.items() if not dependencies]
+            if not ready:
+                fail("private phase span dependency cycle")
+            for key in ready:
+                pending.pop(key)
+            for dependencies in pending.values():
+                dependencies.difference_update(ready)
     activation_tables = {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='execution_activation'")}
     if activation_tables != {"execution_activation"}:
@@ -933,7 +957,9 @@ def phase_report(rows, cycle_id):
     longest = {}
     for span_id in order:
         dependencies = spans[span_id]["dependencies"]
-        longest[span_id] = durations[span_id] + max((longest[item] for item in dependencies), default=0)
+        longest[span_id] = durations[span_id] + max(
+            (longest[item] + spans[span_id]["started_at"] - spans[item]["finished_at"]
+             for item in dependencies), default=0)
     started = min(item["started_at"] for item in rows)
     finished = max(item["finished_at"] for item in rows)
     total = finished - started
@@ -1005,29 +1031,55 @@ def prune_phase_backup_spans(root):
 
 
 def validate_execution_benchmark(value):
-    fields = {"schema_version", "method_revision", "sample_count", "serial_median_ms",
-              "concurrent_median_ms", "improvement_percent", "serial_failed_gates",
-              "concurrent_failed_gates", "serial_remediation_rounds",
-              "concurrent_remediation_rounds", "activated", "recorded_at"}
+    fields = {"schema_version", "method_revision", "fixture", "warmup_pairs", "pairs",
+              "sample_count", "required_gate_digest", "serial_median_ms",
+              "concurrent_median_ms", "improvement_percent", "activated", "recorded_at"}
+    fixture_fields = {"id", "commit", "path", "blob"}
+    pair_fields = {"pair_id", "serial_ms", "concurrent_ms", "serial_status", "concurrent_status",
+                   "serial_gate_digest", "concurrent_gate_digest", "serial_remediation_rounds",
+                   "concurrent_remediation_rounds"}
     numbers = {"serial_median_ms", "concurrent_median_ms", "improvement_percent"}
-    integers = {"sample_count", "serial_failed_gates", "concurrent_failed_gates",
-                "serial_remediation_rounds", "concurrent_remediation_rounds", "recorded_at"}
+    integers = {"warmup_pairs", "sample_count", "recorded_at"}
     if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 1
             or not isinstance(value.get("method_revision"), str)
             or not OPAQUE_ID.fullmatch(value["method_revision"])
+            or not isinstance(value.get("fixture"), dict) or set(value["fixture"]) != fixture_fields
+            or not OPAQUE_ID.fullmatch(value["fixture"].get("id", ""))
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", value["fixture"].get("commit", ""))
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", value["fixture"].get("blob", ""))
+            or phase_path(value["fixture"].get("path")) != value["fixture"]["path"]
+            or not isinstance(value.get("pairs"), list) or not 5 <= len(value["pairs"]) <= 100
+            or not re.fullmatch(r"[0-9a-f]{64}", value.get("required_gate_digest", ""))
             or any(not isinstance(value.get(name), (int, float)) or isinstance(value.get(name), bool)
                    or not math.isfinite(value[name]) or value[name] < 0 for name in numbers)
             or any(type(value.get(name)) is not int or value[name] < 0 for name in integers)
-            or not isinstance(value.get("activated"), bool) or value["sample_count"] < 5
+            or value["warmup_pairs"] < 1 or value["sample_count"] != len(value["pairs"])
+            or not isinstance(value.get("activated"), bool)
             or value["recorded_at"] < REVIEW_START_MS):
         fail("execution benchmark result is invalid")
+    pair_ids = set()
+    for pair in value["pairs"]:
+        if (not isinstance(pair, dict) or set(pair) != pair_fields
+                or not OPAQUE_ID.fullmatch(pair.get("pair_id", "")) or pair["pair_id"] in pair_ids
+                or any(type(pair.get(name)) is not int or not 1 <= pair[name] <= 86_400_000
+                       for name in ("serial_ms", "concurrent_ms"))
+                or pair.get("serial_status") != "passed" or pair.get("concurrent_status") != "passed"
+                or pair.get("serial_gate_digest") != value["required_gate_digest"]
+                or pair.get("concurrent_gate_digest") != value["required_gate_digest"]
+                or any(type(pair.get(name)) is not int or pair[name] < 0 for name in (
+                    "serial_remediation_rounds", "concurrent_remediation_rounds"))):
+            fail("execution benchmark pair is invalid")
+        pair_ids.add(pair["pair_id"])
+    serial_median = median(pair["serial_ms"] for pair in value["pairs"])
+    concurrent_median = median(pair["concurrent_ms"] for pair in value["pairs"])
     expected_improvement = round(
-        (value["serial_median_ms"] - value["concurrent_median_ms"])
-        * 100 / value["serial_median_ms"], 2) if value["serial_median_ms"] else 0
-    expected = (value["concurrent_median_ms"] <= value["serial_median_ms"] * .9
-                and value["concurrent_failed_gates"] <= value["serial_failed_gates"]
-                and value["concurrent_remediation_rounds"] <= value["serial_remediation_rounds"])
-    if value["improvement_percent"] != expected_improvement or value["activated"] != expected:
+        (serial_median - concurrent_median) * 100 / serial_median, 2)
+    expected = (concurrent_median <= serial_median * .9
+                and all(pair["concurrent_remediation_rounds"] <= pair["serial_remediation_rounds"]
+                        for pair in value["pairs"]))
+    if (value["serial_median_ms"] != serial_median
+            or value["concurrent_median_ms"] != concurrent_median
+            or value["improvement_percent"] != expected_improvement or value["activated"] != expected):
         fail("execution benchmark activation is invalid")
     return value
 
@@ -3966,24 +4018,52 @@ def command_phase_span(args):
                        args.attribution, ledger_payload(dependencies), ledger_payload(ownership),
                        timestamp, None, None)
                 phase_record(row)
-                connection.execute("INSERT INTO phase_spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                if args.parent_span_id is not None and connection.execute(
+                        "SELECT 1 FROM phase_spans WHERE cycle_id=? AND span_id=?",
+                        (cycle_id, args.parent_span_id)).fetchone() is None:
+                    fail("phase span parent is missing")
+                for dependency in dependencies:
+                    dependency_row = connection.execute(
+                        "SELECT finished_at FROM phase_spans WHERE cycle_id=? AND span_id=?",
+                        (cycle_id, dependency),
+                    ).fetchone()
+                    if dependency_row is None or dependency_row[0] is None:
+                        fail("phase span dependency is incomplete")
+                    if timestamp < dependency_row[0]:
+                        fail("phase span dependency timing is invalid")
+                existing = connection.execute(
+                    "SELECT cycle_id, span_id, parent_span_id, phase, operation, attribution, dependencies, "
+                    "ownership_paths, started_at, finished_at, result FROM phase_spans "
+                    "WHERE cycle_id=? AND span_id=?", (cycle_id, args.span_id),
+                ).fetchone()
+                if existing is None:
+                    connection.execute("INSERT INTO phase_spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                else:
+                    existing = phase_record(existing)
+                    expected = phase_record(row)
+                    comparable = ("cycle_id", "span_id", "parent_span_id", "phase", "operation",
+                                  "attribution", "dependencies", "ownership_paths", "finished_at", "result")
+                    if any(existing[name] != expected[name] for name in comparable):
+                        fail("phase span ID conflicts with existing marker")
             else:
                 if args.result is None or any(value is not None for value in (
                         args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
                     fail("phase span finish requires only span ID and result")
                 row = connection.execute(
-                    "SELECT started_at, finished_at FROM phase_spans WHERE cycle_id=? AND span_id=?",
+                    "SELECT started_at, finished_at, result FROM phase_spans WHERE cycle_id=? AND span_id=?",
                     (cycle_id, args.span_id),
                 ).fetchone()
                 if row is None:
                     fail("phase span start is missing")
                 if row[1] is not None:
-                    fail("phase span is already finished")
-                connection.execute(
-                    "UPDATE phase_spans SET finished_at=max(started_at, ?), result=? "
-                    "WHERE cycle_id=? AND span_id=?",
-                    (timestamp, args.result, cycle_id, args.span_id),
-                )
+                    if row[2] != args.result:
+                        fail("phase span result conflicts with existing marker")
+                else:
+                    connection.execute(
+                        "UPDATE phase_spans SET finished_at=max(started_at, ?), result=? "
+                        "WHERE cycle_id=? AND span_id=?",
+                        (timestamp, args.result, cycle_id, args.span_id),
+                    )
             report = phase_report(phase_rows(connection, cycle_id), cycle_id)
             connection.commit()
             record["phase_profile"] = report
@@ -4006,7 +4086,8 @@ def command_phase_report(args):
 
 
 def execution_dag(value, requested_mode, risk, activated=False):
-    if (not isinstance(value, dict) or set(value) != {"nodes"} or not isinstance(value["nodes"], list)
+    if (not isinstance(value, dict) or set(value) != {"nodes", "completed"}
+            or not isinstance(value["nodes"], list) or not isinstance(value["completed"], list)
             or not 1 <= len(value["nodes"]) <= 100):
         fail("execution DAG has an invalid schema")
     nodes = {}
@@ -4014,17 +4095,24 @@ def execution_dag(value, requested_mode, risk, activated=False):
     for item in value["nodes"]:
         if (not isinstance(item, dict) or set(item) != fields
                 or not isinstance(item.get("id"), str) or not OPAQUE_ID.fullmatch(item["id"])
-                or item["id"] in nodes or item.get("operation") not in ("read", "readonly_qa")
+                or item["id"] in nodes or item.get("operation") not in ("read", "readonly_qa", "reconcile")
                 or not isinstance(item.get("depends_on"), list)
                 or len(item["depends_on"]) > 100 or len(set(item["depends_on"])) != len(item["depends_on"])
                 or any(not isinstance(dependency, str) or not OPAQUE_ID.fullmatch(dependency)
                        or dependency == item["id"] for dependency in item["depends_on"])
                 or not isinstance(item.get("ownership_paths"), list)
-                or not 1 <= len(item["ownership_paths"]) <= 100):
+                or not 0 <= len(item["ownership_paths"]) <= 100):
             fail("execution DAG node has an invalid operation or schema")
         nodes[item["id"]] = {**item, "depends_on": sorted(item["depends_on"]),
                              "ownership_paths": sorted(set(phase_path(path)
                                                             for path in item["ownership_paths"]))}
+        if ((item["operation"] == "reconcile") != (not item["ownership_paths"])):
+            fail("execution DAG reconciliation ownership is invalid")
+    completed = value["completed"]
+    if (len(completed) != len(set(completed)) or any(
+            not isinstance(item, str) or not OPAQUE_ID.fullmatch(item) or item not in nodes
+            for item in completed)):
+        fail("execution DAG completed nodes are invalid")
     for item in nodes.values():
         unknown = set(item["depends_on"]) - set(nodes)
         if unknown:
@@ -4035,7 +4123,6 @@ def execution_dag(value, requested_mode, risk, activated=False):
         for dependency in item["depends_on"]:
             children[dependency].append(key)
     ready = sorted(key for key, degree in indegree.items() if degree == 0)
-    initial_ready = list(ready)
     order = []
     while ready:
         key = ready.pop(0)
@@ -4053,10 +4140,19 @@ def execution_dag(value, requested_mode, risk, activated=False):
         ancestors[key] = set(nodes[key]["depends_on"])
         for dependency in nodes[key]["depends_on"]:
             ancestors[key].update(ancestors[dependency])
+    reconciliation = [key for key, item in nodes.items() if item["operation"] == "reconcile"]
+    if len(reconciliation) != 1:
+        fail("execution DAG requires one reconciliation node")
+    reconciliation_id = reconciliation[0]
+    workers = set(nodes) - {reconciliation_id}
+    if not workers <= ancestors[reconciliation_id]:
+        fail("execution DAG reconciliation must depend on every worker")
     overlapping = set()
     keys = sorted(nodes)
     for position, left in enumerate(keys):
         for right in keys[position + 1:]:
+            if reconciliation_id in (left, right):
+                continue
             if left in ancestors[right] or right in ancestors[left]:
                 continue
             left_paths = [PurePosixPath(path).parts for path in nodes[left]["ownership_paths"]]
@@ -4067,10 +4163,10 @@ def execution_dag(value, requested_mode, risk, activated=False):
     forced = set()
     if requested_mode == "serial":
         reasons.append("requested_serial")
-        forced.update(nodes)
+        forced.update(workers)
     elif risk == "critical":
         reasons.append("critical_risk")
-        forced.update(nodes)
+        forced.update(workers)
     elif overlapping:
         reasons.append("ownership_overlap")
         forced.update(overlapping)
@@ -4078,11 +4174,13 @@ def execution_dag(value, requested_mode, risk, activated=False):
         reasons.append("benchmark_only")
     elif not activated:
         reasons.append("benchmark_not_qualified")
-        forced.update(nodes)
+        forced.update(workers)
     mode = "serial" if forced else "concurrent"
+    ready_now = sorted(key for key, item in nodes.items()
+                       if key not in completed and set(item["depends_on"]) <= set(completed))
     return {"schema_version": 1, "requested_mode": requested_mode, "mode": mode,
-            "order": order, "ready": initial_ready, "forced_serial": sorted(forced),
-            "reasons": reasons}
+            "order": order, "ready": ready_now, "forced_serial": sorted(forced),
+            "reconciliation_id": reconciliation_id, "reasons": reasons}
 
 
 def command_execution_dag(args):
@@ -4098,36 +4196,65 @@ def command_execution_dag(args):
 
 
 def command_execution_benchmark(args):
-    _, record = load(root_dir())
+    repository = root_dir()
+    _, record = load(repository)
     require_active(record)
     try:
         value = json.loads(args.benchmark_json, object_pairs_hook=no_duplicate_keys)
     except json.JSONDecodeError as error:
         fail(f"cannot read execution benchmark: {error}")
-    fields = {"serial_ms", "concurrent_ms", "serial_failed_gates", "concurrent_failed_gates",
-              "serial_remediation_rounds", "concurrent_remediation_rounds"}
+    fields = {"fixture", "warmup_pairs", "pairs"}
     if not isinstance(value, dict) or set(value) != fields:
         fail("execution benchmark has an invalid schema")
-    serial, concurrent = value["serial_ms"], value["concurrent_ms"]
-    if (not isinstance(serial, list) or not isinstance(concurrent, list)
-            or not 5 <= len(serial) == len(concurrent) <= 100
-            or any(type(item) is not int or not 1 <= item <= 86_400_000
-                   for item in serial + concurrent)
-            or any(type(value[name]) is not int or value[name] < 0 for name in fields - {"serial_ms", "concurrent_ms"})):
-        fail("execution benchmark samples are invalid")
-    serial_median, concurrent_median = median(serial), median(concurrent)
+    fixture = value["fixture"]
+    if (not isinstance(fixture, dict) or set(fixture) != {"id", "commit", "path", "blob"}
+            or not OPAQUE_ID.fullmatch(fixture.get("id", ""))
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture.get("commit", ""))
+            or not fixture.get("path", "").startswith("tests/fixtures/")
+            or phase_path(fixture.get("path")) != fixture["path"]
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture.get("blob", ""))
+            or git_read(repository, "merge-base", "--is-ancestor", fixture["commit"], "HEAD", check=False).returncode
+            or git_read(repository, "rev-parse", f"{fixture['commit']}:{fixture['path']}", check=False).stdout.strip()
+            != fixture["blob"]):
+        fail("execution benchmark fixture identity is invalid")
+    fixture_text = git_read(repository, "show", f"{fixture['commit']}:{fixture['path']}").stdout
+    if len(fixture_text.encode()) > 64 * 1024:
+        fail("execution benchmark fixture is too large")
+    fixture_value = json.loads(fixture_text, object_pairs_hook=no_duplicate_keys)
+    fixture_fields = {"schema_version", "fixture_id", "warmup_pairs", "measured_pairs",
+                      "synthetic_delay_ms", "required_gates", "dag"}
+    if (not isinstance(fixture_value, dict) or set(fixture_value) != fixture_fields
+            or fixture_value.get("schema_version") != 1 or fixture_value.get("fixture_id") != fixture["id"]
+            or type(fixture_value.get("warmup_pairs")) is not int or fixture_value["warmup_pairs"] < 1
+            or type(fixture_value.get("measured_pairs")) is not int or fixture_value["measured_pairs"] < 5
+            or type(fixture_value.get("synthetic_delay_ms")) is not int
+            or not 1 <= fixture_value["synthetic_delay_ms"] <= 60_000
+            or not isinstance(fixture_value.get("required_gates"), list)
+            or fixture_value["required_gates"] != sorted(set(fixture_value["required_gates"]))
+            or any(gate not in GATES for gate in fixture_value["required_gates"])
+            or value["warmup_pairs"] != fixture_value["warmup_pairs"]
+            or not isinstance(value["pairs"], list)
+            or len(value["pairs"]) != fixture_value["measured_pairs"]
+            or any(not isinstance(pair, dict) or type(pair.get("serial_ms")) is not int
+                   or type(pair.get("concurrent_ms")) is not int or pair["serial_ms"] < 1
+                   or pair["concurrent_ms"] < 1 for pair in value["pairs"])):
+        fail("execution benchmark fixture contract is invalid")
+    authorization = execution_dag(fixture_value["dag"], "benchmark", record["risk"], False)
+    if authorization["mode"] != "concurrent" or authorization["reasons"] != ["benchmark_only"]:
+        fail("execution benchmark fixture is not concurrency-safe")
+    gate_digest = hashlib.sha256(ledger_payload(fixture_value["required_gates"]).encode()).hexdigest()
+    serial_median = median(pair.get("serial_ms", 0) for pair in value["pairs"])
+    concurrent_median = median(pair.get("concurrent_ms", 0) for pair in value["pairs"])
     improvement = round((serial_median - concurrent_median) * 100 / serial_median, 2)
     report = validate_execution_benchmark({
         "schema_version": 1, "method_revision": CURRENT_METHOD_REVISION,
-        "sample_count": len(serial), "serial_median_ms": serial_median,
+        "fixture": fixture, "warmup_pairs": value["warmup_pairs"], "pairs": value["pairs"],
+        "sample_count": len(value["pairs"]), "required_gate_digest": gate_digest,
+        "serial_median_ms": serial_median,
         "concurrent_median_ms": concurrent_median, "improvement_percent": improvement,
-        "serial_failed_gates": value["serial_failed_gates"],
-        "concurrent_failed_gates": value["concurrent_failed_gates"],
-        "serial_remediation_rounds": value["serial_remediation_rounds"],
-        "concurrent_remediation_rounds": value["concurrent_remediation_rounds"],
         "activated": concurrent_median <= serial_median * .9
-        and value["concurrent_failed_gates"] <= value["serial_failed_gates"]
-        and value["concurrent_remediation_rounds"] <= value["serial_remediation_rounds"],
+        and all(pair["concurrent_remediation_rounds"] <= pair["serial_remediation_rounds"]
+                for pair in value["pairs"]),
         "recorded_at": max(REVIEW_START_MS, int(time.time() * 1000)),
     })
     root = review_root(args.state_root)
@@ -5452,7 +5579,9 @@ def finish_push(root, path, record):
         dvc_push = record.get("dvc_push")
         if not dvc_push or dvc_push["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
             fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
-    record["phase_profile"] = load_phase_report(review_root(), record["cycle_id"])
+    record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
+                               if "phase_profile" in record
+                               else unavailable_phase_report(record["cycle_id"]))
     if current_ahead:
         record["state"] = "finalizing"
         save(path, record)

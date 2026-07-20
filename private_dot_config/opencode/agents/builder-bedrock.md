@@ -62,6 +62,10 @@ permission:
     "*/dbsctrctl execution-benchmark*": deny
     "env *dbsctrctl execution-benchmark*": deny
     "command *dbsctrctl execution-benchmark*": deny
+    "dbsctrctl execution-dag*": deny
+    "*/dbsctrctl execution-dag*": deny
+    "env *dbsctrctl execution-dag*": deny
+    "command *dbsctrctl execution-dag*": deny
     "npm publish*": deny
     "launchctl bootstrap*": deny
     "launchctl bootout*": deny

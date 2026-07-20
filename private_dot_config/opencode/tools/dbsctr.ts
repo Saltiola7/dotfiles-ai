@@ -61,36 +61,41 @@ export const execution_dag = tool({
   description: "Validate a bounded read-only DBSCTR execution DAG and return concurrent or forced-serial authorization.",
   args: {
     mode: tool.schema.enum(["serial", "benchmark", "concurrent"]),
+    completed: tool.schema.array(tool.schema.string()).max(100).optional().default([]),
     nodes: tool.schema.array(tool.schema.object({
       id: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
       depends_on: tool.schema.array(tool.schema.string()).max(100),
-      operation: tool.schema.enum(["read", "readonly_qa"]),
-      ownership_paths: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(100),
+      operation: tool.schema.enum(["read", "readonly_qa", "reconcile"]),
+      ownership_paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100),
     })).min(1).max(100),
   },
   async execute(args, context) {
-    return await validateExecutionDag(args.nodes, args.mode, context.worktree)
+    await context.ask({ permission: "dbsctr_execution_dag", patterns: ["*"], always: [] })
+    return await validateExecutionDag(args.nodes, args.completed, args.mode, context.worktree)
   },
 })
 
 export const execution_benchmark = tool({
   description: "Persist paired local execution evidence and activate concurrency only when the V3.24 threshold passes.",
   args: {
-    serialMs: tool.schema.array(tool.schema.number().int().min(1).max(86_400_000)).min(5).max(100),
-    concurrentMs: tool.schema.array(tool.schema.number().int().min(1).max(86_400_000)).min(5).max(100),
-    serialFailedGates: tool.schema.number().int().min(0),
-    concurrentFailedGates: tool.schema.number().int().min(0),
-    serialRemediationRounds: tool.schema.number().int().min(0),
-    concurrentRemediationRounds: tool.schema.number().int().min(0),
+    fixture: tool.schema.object({
+      id: tool.schema.string(), commit: tool.schema.string(), path: tool.schema.string(), blob: tool.schema.string(),
+    }),
+    warmupPairs: tool.schema.number().int().min(1),
+    pairs: tool.schema.array(tool.schema.object({
+      pair_id: tool.schema.string(),
+      serial_ms: tool.schema.number().int().min(1).max(86_400_000),
+      concurrent_ms: tool.schema.number().int().min(1).max(86_400_000),
+      serial_status: tool.schema.literal("passed"), concurrent_status: tool.schema.literal("passed"),
+      serial_gate_digest: tool.schema.string(), concurrent_gate_digest: tool.schema.string(),
+      serial_remediation_rounds: tool.schema.number().int().min(0),
+      concurrent_remediation_rounds: tool.schema.number().int().min(0),
+    })).min(5).max(100),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_execution_benchmark", patterns: ["*"], always: [] })
     return await recordExecutionBenchmark({
-      serial_ms: args.serialMs, concurrent_ms: args.concurrentMs,
-      serial_failed_gates: args.serialFailedGates,
-      concurrent_failed_gates: args.concurrentFailedGates,
-      serial_remediation_rounds: args.serialRemediationRounds,
-      concurrent_remediation_rounds: args.concurrentRemediationRounds,
+      fixture: args.fixture, warmup_pairs: args.warmupPairs, pairs: args.pairs,
     }, context.worktree)
   },
 })

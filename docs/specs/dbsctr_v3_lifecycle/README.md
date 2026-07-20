@@ -877,18 +877,23 @@ records, and retirement decisions. External writes remain approval-gated.
   requires a median wall-time reduction of at least 10 percent, unchanged required
   gates, and no increase in failed gates or remediation rounds.
 - `benchmark` DAG mode is fixture-only. A qualifying paired benchmark is retained
-  privately by Method Revision; real `concurrent` mode remains forced serial when
-  that activation is missing, stale, or below threshold.
+  privately by Method Revision with exact committed fixture/blob identity, warmup
+  count, per-pair status, equivalent required-gate digests, and remediation rounds;
+  real `concurrent` mode remains forced serial when that activation is missing,
+  stale, unverified, or below threshold.
 - The primary derives each Execution DAG from current artifacts and declares exact
   repository-relative ownership. The helper validates acyclicity, dependencies,
-  ownership overlap, allowed operation classes, risk, and reconciliation before
-  dispatch. Uncertain or overlapping nodes serialize.
+  ownership overlap, allowed operation classes, risk, and exactly one reconciliation
+  node that depends on every worker. Only a Build primary may request authorization;
+  uncertain or overlapping nodes serialize.
 - Initial automatic concurrency is limited to independent reads and
   profile-declared read-only QA in routine and elevated cycles. Critical cycles
   remain serial. DBSCTR adds no fixed worker cap: all validated ready nodes may run,
   subject to existing OpenCode and operating-system limits.
 - The primary alone reconciles concurrent outputs and reruns affected validation
-  before dependent gates pass. A node failure retains partial evidence and uses
+  before dependent gates pass. It resubmits completed worker identities and may
+  start the returned reconciliation node only after every dependency is complete.
+  A node failure retains partial evidence and uses
   normal gate remediation; it is not silently retried serially. Serial execution
   remains the deterministic fallback before dispatch when validation cannot prove
   safety.
@@ -1823,7 +1828,7 @@ module routing without changing Cycle Record schema or public commands.
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
-| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; fixture medians 667 ms serial and 205 ms concurrent | 69.27% lower median wall time with unchanged gates and no additional failures or remediation rounds |
+| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; committed-fixture activation replay pending | At least 10% lower median wall time with equivalent required gates and no additional remediation rounds |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

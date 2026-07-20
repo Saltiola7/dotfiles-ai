@@ -263,17 +263,21 @@ compact profile. Unsupported automatic tool or subagent timing remains
 `unavailable`; never infer a full critical path from message persistence times.
 
 Before parallel reads or profile-declared read-only QA, submit the complete
-candidate graph to typed `dbsctr_execution_dag`. It validates operation classes,
-dependencies, cycles, risk, and ownership overlap. The helper does not dispatch
+candidate graph, completed-node set, and exactly one reconciliation node to typed
+`dbsctr_execution_dag`. The reconciliation node depends directly or transitively
+on every worker. The helper validates operation classes, dependencies, cycles,
+risk, and ownership overlap. The helper does not dispatch
 work: the primary launches only returned ready nodes with existing parallel tool
-or task calls, reconciles every result, records finish spans, and reruns affected
-validation before dependent gates pass. A failed node follows normal gate
+or task calls, records finish spans, then resubmits completed worker IDs. Only the
+returned reconciliation node may integrate results and rerun affected validation
+before dependent gates pass. A failed node follows normal gate
 remediation and is never hidden by an automatic serial retry.
 
 `benchmark` mode authorizes only the repeatable fixture. Real `concurrent` mode
 remains forced serial until typed `dbsctr_execution_benchmark` records at least
-five paired samples with at least 10 percent lower median wall time, unchanged
-required-gate failures, and no added remediation rounds. Critical cycles,
+five successful post-warmup pairs bound to one committed fixture/blob, equivalent
+required-gate digests, at least 10 percent lower median wall time, and no added
+remediation rounds. Critical cycles,
 uncertain dependencies, and overlapping independent ownership always remain
 serial. DBSCTR adds no separate worker cap after independence is proven.
 

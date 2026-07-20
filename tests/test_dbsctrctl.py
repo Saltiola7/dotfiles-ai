@@ -2745,6 +2745,19 @@ class DbsctrctlTest(unittest.TestCase):
         partial = json.loads(run(self.repo, "phase-span", *common, "--event", "start").stdout)
         self.assertEqual(partial["status"], "partial")
         self.assertNotIn("docs/specs/a.md", json.dumps(partial))
+        self.assertEqual(json.loads(run(
+            self.repo, "phase-span", *common, "--event", "start",
+        ).stdout), partial)
+        self.assertIn("dependency is incomplete", run(
+            self.repo, "phase-span", "--state-root", str(state), "--span-id", "too-early",
+            "--phase", "behavior", "--operation", "read", "--attribution", "explicit",
+            "--dependency", "read-a", "--path", "docs/early", "--event", "start", ok=False,
+        ).stderr)
+        self.assertIn("parent is missing", run(
+            self.repo, "phase-span", "--state-root", str(state), "--span-id", "orphan",
+            "--parent-span-id", "missing", "--phase", "behavior", "--operation", "read",
+            "--attribution", "explicit", "--path", "docs/orphan", "--event", "start", ok=False,
+        ).stderr)
         time.sleep(0.002)
         complete = json.loads(run(
             self.repo, "phase-span", "--state-root", str(state), "--span-id", "read-a",
@@ -2761,6 +2774,20 @@ class DbsctrctlTest(unittest.TestCase):
         loader.exec_module(module)
         self.assertEqual(module.correlated_cycles(str(self.repo), {"cycle-1"})[0]["phase_profile"],
                          complete)
+        self.assertEqual(json.loads(run(
+            self.repo, "phase-span", "--state-root", str(state), "--span-id", "read-a",
+            "--event", "finish", "--result", "passed",
+        ).stdout), complete)
+        time.sleep(0.002)
+        run(self.repo, "phase-span", "--state-root", str(state), "--span-id", "read-b",
+            "--phase", "behavior", "--operation", "read", "--attribution", "explicit",
+            "--dependency", "read-a", "--path", "docs/specs/b.md", "--event", "start")
+        time.sleep(0.002)
+        chain = json.loads(run(
+            self.repo, "phase-span", "--state-root", str(state), "--span-id", "read-b",
+            "--event", "finish", "--result", "passed",
+        ).stdout)
+        self.assertEqual(chain["critical_path_ms"], chain["total_wall_ms"])
 
         ledger = state / "reviews/ledger.sqlite3"
         connection = sqlite3.connect(ledger)
@@ -2771,10 +2798,11 @@ class DbsctrctlTest(unittest.TestCase):
         connection.close()
         self.assertNotRegex(json.dumps(complete), r"(?:/Users|docs/specs/a\.md)")
 
-        for unsafe in ("/Users/private/file", "../outside", "."):
+        for index, unsafe in enumerate(("/Users/private/file", "../outside", ".",
+                                        "https:/host/token", "password=secret", "bad\npath")):
             rejected = run(
                 self.repo, "phase-span", "--state-root", str(state),
-                "--span-id", f"unsafe-{len(unsafe)}", "--phase", "domain",
+                "--span-id", f"unsafe-{index}", "--phase", "domain",
                 "--operation", "read", "--attribution", "explicit",
                 "--path", unsafe, "--event", "start", ok=False,
             )
@@ -2786,13 +2814,12 @@ class DbsctrctlTest(unittest.TestCase):
         connection.commit()
         connection.close()
         module.REVIEW_RETENTION_SECONDS = -1
-        self.assertEqual(module.prune_phase_spans(state), 1)
+        self.assertEqual(module.prune_phase_spans(state), 2)
         self.assertEqual(json.loads(run(
             self.repo, "phase-report", "--state-root", str(state),
         ).stdout)["status"], "unavailable")
 
     def test_execution_dag_authorizes_only_proven_independent_work(self):
-        self.start()
         safe = {"nodes": [
             {"id": "read-a", "depends_on": [], "operation": "read",
              "ownership_paths": ["docs/a"]},
@@ -2800,7 +2827,43 @@ class DbsctrctlTest(unittest.TestCase):
              "ownership_paths": ["tests/b"]},
             {"id": "read-c", "depends_on": ["read-a"], "operation": "read",
              "ownership_paths": ["docs/a/child"]},
-        ]}
+            {"id": "reconcile", "depends_on": ["qa-b", "read-c"], "operation": "reconcile",
+             "ownership_paths": []},
+        ], "completed": []}
+        required_gates = sorted(("domain", "behavior", "spec", "contract",
+                                 "test_driven_implementation", "refactor", "review_integrate"))
+        fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,
+                         "measured_pairs": 5, "synthetic_delay_ms": 1,
+                         "required_gates": required_gates, "dag": safe}
+        fixture_path = self.repo / "tests/fixtures/execution.json"
+        fixture_path.parent.mkdir(parents=True)
+        fixture_path.write_text(json.dumps(fixture_value))
+        subprocess.run(["git", "add", "tests/fixtures/execution.json"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "fixture"], cwd=self.repo, check=True,
+                       capture_output=True)
+        fixture_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo,
+                                        text=True, capture_output=True, check=True).stdout.strip()
+        fixture_blob = subprocess.run(
+            ["git", "rev-parse", f"{fixture_commit}:tests/fixtures/execution.json"], cwd=self.repo,
+            text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        fixture = {"id": "test-read-v1", "commit": fixture_commit,
+                   "path": "tests/fixtures/execution.json", "blob": fixture_blob}
+        gate_digest = hashlib.sha256(json.dumps(
+            required_gates, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        ).encode()).hexdigest()
+
+        def benchmark_input(concurrent_remediation=0):
+            return {"fixture": fixture, "warmup_pairs": 1, "pairs": [{
+                "pair_id": f"pair-{index}", "serial_ms": serial, "concurrent_ms": concurrent,
+                "serial_status": "passed", "concurrent_status": "passed",
+                "serial_gate_digest": gate_digest, "concurrent_gate_digest": gate_digest,
+                "serial_remediation_rounds": 0,
+                "concurrent_remediation_rounds": concurrent_remediation,
+            } for index, (serial, concurrent) in enumerate(zip(
+                [100, 101, 99, 100, 100], [80, 81, 79, 80, 80], strict=True))]}
+
+        self.start()
         blocked = json.loads(run(
             self.repo, "execution-dag", "--mode", "concurrent",
             "--state-root", str(Path(self.temp.name) / "dag-state"),
@@ -2817,12 +2880,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(experiment["reasons"], ["benchmark_only"])
         benchmark = json.loads(run(
             self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
-            "--benchmark-json", json.dumps({
-                "serial_ms": [100, 101, 99, 100, 100],
-                "concurrent_ms": [80, 81, 79, 80, 80],
-                "serial_failed_gates": 0, "concurrent_failed_gates": 0,
-                "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0,
-            }),
+            "--benchmark-json", json.dumps(benchmark_input()),
         ).stdout)
         self.assertTrue(benchmark["activated"])
         self.assertEqual(benchmark["improvement_percent"], 20.0)
@@ -2833,20 +2891,21 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         self.assertEqual(concurrent, {
             "schema_version": 1, "requested_mode": "concurrent", "mode": "concurrent",
-            "order": ["qa-b", "read-a", "read-c"], "ready": ["qa-b", "read-a"],
-            "forced_serial": [], "reasons": [],
+            "order": ["qa-b", "read-a", "read-c", "reconcile"], "ready": ["qa-b", "read-a"],
+            "forced_serial": [], "reconciliation_id": "reconcile", "reasons": [],
         })
+        reconciler = {**safe, "completed": ["qa-b", "read-a", "read-c"]}
+        self.assertEqual(json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(reconciler),
+        ).stdout)["ready"], ["reconcile"])
         backup = json.loads(run(
             self.repo, "review-backup", "--state-root", str(Path(self.temp.name) / "dag-state"),
         ).stdout)
         regressed = json.loads(run(
             self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
-            "--benchmark-json", json.dumps({
-                "serial_ms": [100, 101, 99, 100, 100],
-                "concurrent_ms": [80, 81, 79, 80, 80],
-                "serial_failed_gates": 0, "concurrent_failed_gates": 1,
-                "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0,
-            }),
+            "--benchmark-json", json.dumps(benchmark_input(concurrent_remediation=1)),
         ).stdout)
         self.assertFalse(regressed["activated"])
         run(self.repo, "review-restore", "--state-root", str(Path(self.temp.name) / "dag-state"),
@@ -2860,7 +2919,8 @@ class DbsctrctlTest(unittest.TestCase):
         overlap = {"nodes": safe["nodes"][:2] + [{
             "id": "read-b", "depends_on": [], "operation": "read",
             "ownership_paths": ["docs/a/file"],
-        }]}
+        }, {"id": "reconcile", "depends_on": ["qa-b", "read-a", "read-b"],
+            "operation": "reconcile", "ownership_paths": []}], "completed": []}
         serial = json.loads(run(
             self.repo, "execution-dag", "--mode", "concurrent",
             "--state-root", str(Path(self.temp.name) / "dag-state"),
@@ -2872,13 +2932,19 @@ class DbsctrctlTest(unittest.TestCase):
 
         for invalid, message in (
             ({"nodes": [{"id": "a", "depends_on": ["missing"], "operation": "read",
-                          "ownership_paths": ["a"]}]}, "unknown dependency"),
+                          "ownership_paths": ["a"]}, {"id": "reconcile", "depends_on": ["a"],
+                          "operation": "reconcile", "ownership_paths": []}], "completed": []},
+             "unknown dependency"),
             ({"nodes": [{"id": "a", "depends_on": ["b"], "operation": "read",
                           "ownership_paths": ["a"]},
                          {"id": "b", "depends_on": ["a"], "operation": "read",
-                          "ownership_paths": ["b"]}]}, "cycle"),
+                          "ownership_paths": ["b"]},
+                         {"id": "reconcile", "depends_on": ["a"], "operation": "reconcile",
+                          "ownership_paths": []}], "completed": []}, "cycle"),
             ({"nodes": [{"id": "a", "depends_on": [], "operation": "write",
-                          "ownership_paths": ["a"]}]}, "operation"),
+                          "ownership_paths": ["a"]},
+                         {"id": "reconcile", "depends_on": ["a"], "operation": "reconcile",
+                          "ownership_paths": []}], "completed": []}, "operation"),
         ):
             rejected = run(self.repo, "execution-dag", "--mode", "concurrent",
                            "--state-root", str(Path(self.temp.name) / "dag-state"),

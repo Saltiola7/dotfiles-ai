@@ -92,6 +92,10 @@ def test_provider_and_primary_contracts():
         "*/dbsctrctl execution-benchmark*": "deny",
         "env *dbsctrctl execution-benchmark*": "deny",
         "command *dbsctrctl execution-benchmark*": "deny",
+        "dbsctrctl execution-dag*": "deny",
+        "*/dbsctrctl execution-dag*": "deny",
+        "env *dbsctrctl execution-dag*": "deny",
+        "command *dbsctrctl execution-dag*": "deny",
     }
     assert "amazon-bedrock" in config["provider"]
     assert "lmstudio" in config["provider"]
@@ -205,6 +209,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_attach": "allow",
         "dbsctr_phase_span": "allow",
         "dbsctr_execution_benchmark": "allow",
+        "dbsctr_execution_dag": "allow",
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "external_directory": {worktrees: "allow", local_config: "allow"},
@@ -219,6 +224,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_attach: allow" in body
             assert "dbsctr_phase_span: allow" in body
             assert "dbsctr_execution_benchmark: allow" in body
+            assert "dbsctr_execution_dag: allow" in body
             assert f"external_directory:\n    {worktrees}: allow" in body
             assert f"    {local_config}: allow" in body
         else:
@@ -227,6 +233,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_attach: allow" not in body
             assert "dbsctr_phase_span: allow" not in body
             assert "dbsctr_execution_benchmark: allow" not in body
+            assert "dbsctr_execution_dag: allow" not in body
             assert worktrees not in body
             assert local_config not in body
     for name in ("builder-openai.md", "builder-bedrock.md"):
@@ -244,7 +251,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     for command in ("dbsctrctl attach-runtime*", "*/dbsctrctl attach-runtime*",
                     "env *dbsctrctl attach-runtime*", "command *dbsctrctl attach-runtime*"):
         assert bash[command] == "deny"
-    for operation in ("phase-span", "execution-benchmark"):
+    for operation in ("phase-span", "execution-benchmark", "execution-dag"):
         for command in (f"dbsctrctl {operation}*", f"*/dbsctrctl {operation}*",
                         f"env *dbsctrctl {operation}*", f"command *dbsctrctl {operation}*"):
             assert bash[command] == "deny"
@@ -273,7 +280,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
-    assert config["permission"]["dbsctr_execution_dag"] == "allow"
+    assert config["permission"]["dbsctr_execution_dag"] == "deny"
     assert config["permission"]["dbsctr_audit"] == "allow"
     assert config["permission"]["dbsctr_inspect"] == "allow"
     assert config["permission"]["dbsctr_review"] == "allow"
@@ -305,11 +312,13 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_attach: allow" in (OC / "agents" / name).read_text()
         assert "dbsctr_phase_span: allow" in (OC / "agents" / name).read_text()
         assert "dbsctr_execution_benchmark: allow" in (OC / "agents" / name).read_text()
+        assert "dbsctr_execution_dag: allow" in (OC / "agents" / name).read_text()
     for name in ("builder-openai.md", "builder-bedrock.md"):
         assert "dbsctr_begin: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_attach: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_phase_span: allow" not in (OC / "agents" / name).read_text()
         assert "dbsctr_execution_benchmark: allow" not in (OC / "agents" / name).read_text()
+        assert "dbsctr_execution_dag: allow" not in (OC / "agents" / name).read_text()
         assert "dbsctr_review_complete: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_improvement_claim: deny" in (OC / "agents" / name).read_text()
@@ -576,15 +585,23 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
     )
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
+    benchmark_request = {
+        "fixture": {"id": "fixture-v1", "commit": "a" * 40,
+                    "path": "tests/fixtures/fixture.json", "blob": "b" * 40},
+        "warmup_pairs": 1,
+        "pairs": [{"pair_id": f"pair-{index}", "serial_ms": 100, "concurrent_ms": 80,
+                   "serial_status": "passed", "concurrent_status": "passed",
+                   "serial_gate_digest": "c" * 64, "concurrent_gate_digest": "c" * 64,
+                   "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0}
+                  for index in range(5)],
+    }
     script = (
         f'import {{ phaseSpan, validateExecutionDag, recordExecutionBenchmark }} from {json.dumps(str(runtime))};'
         'await phaseSpan({spanID:"read-a",event:"start",phase:"domain",operation:"read",'
         'dependencies:["root"],ownershipPaths:["docs/a"],attribution:"explicit"},process.cwd());'
         'await validateExecutionDag([{id:"read-a",depends_on:[],operation:"read",ownership_paths:["docs/a"]}],'
-        '"benchmark",process.cwd());'
-        'await recordExecutionBenchmark({serial_ms:[100,100,100,100,100],concurrent_ms:[80,80,80,80,80],'
-        'serial_failed_gates:0,concurrent_failed_gates:0,serial_remediation_rounds:0,'
-        'concurrent_remediation_rounds:0},process.cwd());'
+        '[],"benchmark",process.cwd());'
+        f'await recordExecutionBenchmark({json.dumps(benchmark_request)},process.cwd());'
     )
     subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
@@ -596,11 +613,9 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
         "<--phase>", "<domain>", "<--operation>", "<read>", "<--attribution>", "<explicit>",
         "<--dependency>", "<root>", "<--path>", "<docs/a>",
         "CALL", "<execution-dag>", "<--mode>", "<benchmark>", "<--dag-json>",
-        '<{"nodes":[{"id":"read-a","depends_on":[],"operation":"read","ownership_paths":["docs/a"]}]}>',
+        '<{"nodes":[{"id":"read-a","depends_on":[],"operation":"read","ownership_paths":["docs/a"]}],"completed":[]}>',
         "CALL", "<execution-benchmark>", "<--benchmark-json>",
-        '<{"serial_ms":[100,100,100,100,100],"concurrent_ms":[80,80,80,80,80],'
-        '"serial_failed_gates":0,"concurrent_failed_gates":0,"serial_remediation_rounds":0,'
-        '"concurrent_remediation_rounds":0}>',
+        f'<{json.dumps(benchmark_request, separators=(",", ":"))}>',
     ]
 
 
