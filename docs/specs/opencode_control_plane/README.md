@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** OCP-17 advisory runtime health and OCP-19 autonomous worker implemented
+**Status:** OCP-17 through OCP-24 implemented and deployed
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -177,11 +177,11 @@ The save tool optionally forwards the source history page's `limit` and `cursor`
 so complete-page cohorts can use source-bound exact-member revalidation; callers
 that omit them retain strict whole-snapshot validation.
 
-### Runtime Health And Approved Future Compact Analytics Interfaces
+### Runtime Health And Compact Analytics Interfaces
 
-OCP-17 runtime health is current after deployment. Compact analytics contracts
-become current only when OCP-18 is completed and deployed; until then, existing
-history interfaces remain authoritative.
+OCP-17 runtime health and OCP-18 compact analytics are current after deployment.
+The typed adapters preserve the helper's authoritative history, telemetry, and
+benchmark contracts.
 
 Given a validated Build primary attaches its current runtime, the typed control
 plane persists only the helper-validated runtime identity and returns normalized
