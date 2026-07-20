@@ -6,6 +6,8 @@ variant: medium
 permission:
   dbsctr_begin: allow
   dbsctr_attach: allow
+  dbsctr_phase_span: allow
+  dbsctr_execution_benchmark: allow
   external_directory:
     ~/.local/state/dbsctr/worktrees/**: allow
     ~/.config/dotfiles-ai/**: allow

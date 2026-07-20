@@ -29,7 +29,7 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.19` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
+5. Report Method Revision `3.24` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
     otherwise `dbsctrctl status`, to resume the active Cycle
     Record. A validated Build primary resuming an active cycle calls typed
     `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
@@ -252,6 +252,30 @@ with the active same-provider flagship and never cross providers silently.
 Plan is read-only and ends with a Build Handoff. Build verifies source and
 artifact freshness before writing. Todos and child sessions hold current state;
 specs and Git are durable authority.
+
+## Critical-Path Profiling And Safe Concurrency
+
+For an active cycle, a validated Build primary brackets material lifecycle work
+with typed `dbsctr_phase_span` start and finish events. Declare only opaque span
+identity, phase/operation class, dependencies, repository-relative ownership,
+attribution, and final result. The helper owns timestamps and returns a path-free
+compact profile. Unsupported automatic tool or subagent timing remains
+`unavailable`; never infer a full critical path from message persistence times.
+
+Before parallel reads or profile-declared read-only QA, submit the complete
+candidate graph to typed `dbsctr_execution_dag`. It validates operation classes,
+dependencies, cycles, risk, and ownership overlap. The helper does not dispatch
+work: the primary launches only returned ready nodes with existing parallel tool
+or task calls, reconciles every result, records finish spans, and reruns affected
+validation before dependent gates pass. A failed node follows normal gate
+remediation and is never hidden by an automatic serial retry.
+
+`benchmark` mode authorizes only the repeatable fixture. Real `concurrent` mode
+remains forced serial until typed `dbsctr_execution_benchmark` records at least
+five paired samples with at least 10 percent lower median wall time, unchanged
+required-gate failures, and no added remediation rounds. Critical cycles,
+uncertain dependencies, and overlapping independent ownership always remain
+serial. DBSCTR adds no separate worker cap after independence is proven.
 
 For critical work, use an independent read-only reviewer when available. If no
 reviewer is available, record a capability gap; do not silently waive review.

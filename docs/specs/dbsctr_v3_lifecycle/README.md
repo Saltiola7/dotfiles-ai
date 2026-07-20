@@ -853,10 +853,12 @@ records, and retirement decisions. External writes remain approval-gated.
 
 - The profiler observes interactive DBSCTR runtime only. `/dbsctr-review` and
   autonomous-improvement worker performance are excluded from optimization scope.
-- Explicit lifecycle markers and supported automatic tool/subagent observations
-  produce Phase Spans with opaque identity, parent and dependency identity,
+- Explicit lifecycle markers produce Phase Spans with opaque identity, parent and dependency identity,
   phase or operation class, start/end timing, wait/active duration when available,
   result, attribution status, and repository-relative ownership paths.
+- OpenCode exposes no supported universal tool/subagent timing callback in the
+  configured runtime. Unsupported automatic observations remain unavailable;
+  message persistence times never substitute for operation boundaries.
 - Detailed spans remain in the restrictive local private store for 90 days.
   They never retain prompts, responses, file contents, command arguments, URLs,
   credentials, environment values, or absolute machine paths. Structured review
@@ -874,6 +876,9 @@ records, and retirement decisions. External writes remain approval-gated.
   least five paired successful serial/concurrent fixture runs after warmup and
   requires a median wall-time reduction of at least 10 percent, unchanged required
   gates, and no increase in failed gates or remediation rounds.
+- `benchmark` DAG mode is fixture-only. A qualifying paired benchmark is retained
+  privately by Method Revision; real `concurrent` mode remains forced serial when
+  that activation is missing, stale, or below threshold.
 - The primary derives each Execution DAG from current artifacts and declares exact
   repository-relative ownership. The helper validates acyclicity, dependencies,
   ownership overlap, allowed operation classes, risk, and reconciliation before
@@ -895,9 +900,9 @@ records, and retirement decisions. External writes remain approval-gated.
 - **Fact:** The existing OpenCode task runtime already supports concurrent
   independent operations; no separate workflow engine is required for the first
   slice.
-- **Assumption:** Supported adapters expose enough structured timing and identity
-  for automatic operation spans. Unsupported observations remain explicitly
-  unavailable and do not block explicit lifecycle markers.
+- **Fact:** The configured OpenCode adapter has no universal tool/subagent timing
+  callback. V3.24 therefore uses helper-timestamped explicit markers and reports
+  unsupported automatic observations as unavailable.
 - **Accepted risk:** Detailed local spans retain repository-relative ownership
   paths for 90 days to validate collision safety; path-free aggregates are the
   only span-derived input to review history.
@@ -1052,6 +1057,9 @@ tool and provider examples and load only when useful.
 | `dot_agents/skills/dbsctr-review/SKILL.md` | Private lifecycle observability review protocol | V3.11 review scenarios |
 | `private_dot_config/opencode/commands/dbsctr-review.md` | Stable review command surface | V3.11 review scenarios |
 | `private_dot_config/opencode/tools/dbsctr.ts` | Typed scan and completion adapters | Bounded read and permissioned private-state write |
+| `dbsctr_phase_span` | Record helper-timestamped explicit span boundaries | Private detail plus path-free compact profile |
+| `dbsctr_execution_dag` | Validate read/read-only-QA dependencies, ownership, risk, and activation | Concurrent authorization or deterministic serial fallback; no dispatch |
+| `dbsctr_execution_benchmark` | Retain paired fixture timing and quality evidence | Method-bound activation only after the configured threshold passes |
 | `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
 | `docs/archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
@@ -1298,8 +1306,8 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.17` retain schema version `3`; new records use
-the helper's single `CURRENT_METHOD_REVISION = "3.17"` constant.
+Method Revisions `3.9` through `3.24` retain schema version `3`; new records use
+the helper's single `CURRENT_METHOD_REVISION = "3.24"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
@@ -1814,8 +1822,8 @@ module routing without changing Cycle Record schema or public commands.
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
-| Critical-path profiler | Deterministic complete, partial, unavailable, retention, and privacy fixtures | Span capture, attribution, reports, and 90-day pruning | Planned for V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
-| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Planned for V3.24 | At least 10% lower median wall time with unchanged gates and no additional failures or remediation rounds |
+| Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
+| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; fixture medians 667 ms serial and 205 ms concurrent | 69.27% lower median wall time with unchanged gates and no additional failures or remediation rounds |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, recordExecutionBenchmark, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -31,6 +31,67 @@ export const runtime_health = tool({
       sessionID: context.sessionID,
       worktree: context.worktree,
     })
+  },
+})
+
+export const phase_span = tool({
+  description: "Record one private explicit DBSCTR phase-span boundary and return a path-free compact profile.",
+  args: {
+    spanId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+    event: tool.schema.enum(["start", "finish"]),
+    parentSpanId: tool.schema.string().optional(),
+    phase: tool.schema.enum(["domain", "behavior", "spec", "contract", "test_driven_implementation", "refactor", "operation"]).optional(),
+    operation: tool.schema.enum(["marker", "typed_tool", "task", "read", "readonly_qa"]).optional(),
+    dependencies: tool.schema.array(tool.schema.string()).max(100).optional().default([]),
+    ownershipPaths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
+    attribution: tool.schema.enum(["explicit", "adapter", "unavailable"]).optional(),
+    result: tool.schema.enum(["passed", "failed", "blocked", "abandoned", "unavailable"]).optional(),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_phase_span", patterns: ["*"], always: [] })
+    return await phaseSpan({
+      spanID: args.spanId, event: args.event, parentSpanID: args.parentSpanId,
+      phase: args.phase, operation: args.operation, dependencies: args.dependencies,
+      ownershipPaths: args.ownershipPaths, attribution: args.attribution, result: args.result,
+    }, context.worktree)
+  },
+})
+
+export const execution_dag = tool({
+  description: "Validate a bounded read-only DBSCTR execution DAG and return concurrent or forced-serial authorization.",
+  args: {
+    mode: tool.schema.enum(["serial", "benchmark", "concurrent"]),
+    nodes: tool.schema.array(tool.schema.object({
+      id: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      depends_on: tool.schema.array(tool.schema.string()).max(100),
+      operation: tool.schema.enum(["read", "readonly_qa"]),
+      ownership_paths: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(100),
+    })).min(1).max(100),
+  },
+  async execute(args, context) {
+    return await validateExecutionDag(args.nodes, args.mode, context.worktree)
+  },
+})
+
+export const execution_benchmark = tool({
+  description: "Persist paired local execution evidence and activate concurrency only when the V3.24 threshold passes.",
+  args: {
+    serialMs: tool.schema.array(tool.schema.number().int().min(1).max(86_400_000)).min(5).max(100),
+    concurrentMs: tool.schema.array(tool.schema.number().int().min(1).max(86_400_000)).min(5).max(100),
+    serialFailedGates: tool.schema.number().int().min(0),
+    concurrentFailedGates: tool.schema.number().int().min(0),
+    serialRemediationRounds: tool.schema.number().int().min(0),
+    concurrentRemediationRounds: tool.schema.number().int().min(0),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_execution_benchmark", patterns: ["*"], always: [] })
+    return await recordExecutionBenchmark({
+      serial_ms: args.serialMs, concurrent_ms: args.concurrentMs,
+      serial_failed_gates: args.serialFailedGates,
+      concurrent_failed_gates: args.concurrentFailedGates,
+      serial_remediation_rounds: args.serialRemediationRounds,
+      concurrent_remediation_rounds: args.concurrentRemediationRounds,
+    }, context.worktree)
   },
 })
 

@@ -125,7 +125,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.19")
+        self.assertEqual(record["method_revision"], "3.24")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -2728,6 +2728,175 @@ class DbsctrctlTest(unittest.TestCase):
                         "--benchmark-id", saved["benchmark_id"], ok=False)
         self.assertIn("invalid result", malformed.stderr)
 
+    def test_phase_spans_are_private_bounded_and_report_partial_truthfully(self):
+        self.start()
+        state = Path(self.temp.name) / "phase-state"
+        unavailable = json.loads(run(
+            self.repo, "phase-report", "--state-root", str(state),
+        ).stdout)
+        self.assertEqual(unavailable["status"], "unavailable")
+        self.assertFalse(state.exists())
+
+        common = (
+            "--state-root", str(state), "--span-id", "read-a",
+            "--phase", "domain", "--operation", "read",
+            "--attribution", "explicit", "--path", "docs/specs/a.md",
+        )
+        partial = json.loads(run(self.repo, "phase-span", *common, "--event", "start").stdout)
+        self.assertEqual(partial["status"], "partial")
+        self.assertNotIn("docs/specs/a.md", json.dumps(partial))
+        time.sleep(0.002)
+        complete = json.loads(run(
+            self.repo, "phase-span", "--state-root", str(state), "--span-id", "read-a",
+            "--event", "finish", "--result", "passed",
+        ).stdout)
+        self.assertEqual(complete["status"], "complete")
+        self.assertGreaterEqual(complete["total_wall_ms"], 1)
+        self.assertEqual(complete["critical_path_ms"], complete["total_wall_ms"])
+        self.assertEqual(complete["repeated_work"], 0)
+        self.assertEqual(json.loads(self.record_path().read_text())["phase_profile"], complete)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_phase_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        self.assertEqual(module.correlated_cycles(str(self.repo), {"cycle-1"})[0]["phase_profile"],
+                         complete)
+
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        stored = connection.execute(
+            "select ownership_paths from phase_spans where span_id='read-a'"
+        ).fetchone()[0]
+        self.assertEqual(json.loads(stored), ["docs/specs/a.md"])
+        connection.close()
+        self.assertNotRegex(json.dumps(complete), r"(?:/Users|docs/specs/a\.md)")
+
+        for unsafe in ("/Users/private/file", "../outside", "."):
+            rejected = run(
+                self.repo, "phase-span", "--state-root", str(state),
+                "--span-id", f"unsafe-{len(unsafe)}", "--phase", "domain",
+                "--operation", "read", "--attribution", "explicit",
+                "--path", unsafe, "--event", "start", ok=False,
+            )
+            self.assertIn("invalid phase ownership path", rejected.stderr)
+
+        connection = sqlite3.connect(ledger)
+        connection.execute("update phase_spans set started_at=?, finished_at=?",
+                           (module.REVIEW_START_MS, module.REVIEW_START_MS))
+        connection.commit()
+        connection.close()
+        module.REVIEW_RETENTION_SECONDS = -1
+        self.assertEqual(module.prune_phase_spans(state), 1)
+        self.assertEqual(json.loads(run(
+            self.repo, "phase-report", "--state-root", str(state),
+        ).stdout)["status"], "unavailable")
+
+    def test_execution_dag_authorizes_only_proven_independent_work(self):
+        self.start()
+        safe = {"nodes": [
+            {"id": "read-a", "depends_on": [], "operation": "read",
+             "ownership_paths": ["docs/a"]},
+            {"id": "qa-b", "depends_on": [], "operation": "readonly_qa",
+             "ownership_paths": ["tests/b"]},
+            {"id": "read-c", "depends_on": ["read-a"], "operation": "read",
+             "ownership_paths": ["docs/a/child"]},
+        ]}
+        blocked = json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)
+        self.assertEqual(blocked["mode"], "serial")
+        self.assertEqual(blocked["reasons"], ["benchmark_not_qualified"])
+        experiment = json.loads(run(
+            self.repo, "execution-dag", "--mode", "benchmark",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)
+        self.assertEqual(experiment["mode"], "concurrent")
+        self.assertEqual(experiment["reasons"], ["benchmark_only"])
+        benchmark = json.loads(run(
+            self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--benchmark-json", json.dumps({
+                "serial_ms": [100, 101, 99, 100, 100],
+                "concurrent_ms": [80, 81, 79, 80, 80],
+                "serial_failed_gates": 0, "concurrent_failed_gates": 0,
+                "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0,
+            }),
+        ).stdout)
+        self.assertTrue(benchmark["activated"])
+        self.assertEqual(benchmark["improvement_percent"], 20.0)
+        concurrent = json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)
+        self.assertEqual(concurrent, {
+            "schema_version": 1, "requested_mode": "concurrent", "mode": "concurrent",
+            "order": ["qa-b", "read-a", "read-c"], "ready": ["qa-b", "read-a"],
+            "forced_serial": [], "reasons": [],
+        })
+        backup = json.loads(run(
+            self.repo, "review-backup", "--state-root", str(Path(self.temp.name) / "dag-state"),
+        ).stdout)
+        regressed = json.loads(run(
+            self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--benchmark-json", json.dumps({
+                "serial_ms": [100, 101, 99, 100, 100],
+                "concurrent_ms": [80, 81, 79, 80, 80],
+                "serial_failed_gates": 0, "concurrent_failed_gates": 1,
+                "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0,
+            }),
+        ).stdout)
+        self.assertFalse(regressed["activated"])
+        run(self.repo, "review-restore", "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--backup", backup["backup"])
+        self.assertEqual(json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)["mode"], "concurrent")
+
+        overlap = {"nodes": safe["nodes"][:2] + [{
+            "id": "read-b", "depends_on": [], "operation": "read",
+            "ownership_paths": ["docs/a/file"],
+        }]}
+        serial = json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(overlap),
+        ).stdout)
+        self.assertEqual(serial["mode"], "serial")
+        self.assertEqual(serial["forced_serial"], ["read-a", "read-b"])
+        self.assertEqual(serial["reasons"], ["ownership_overlap"])
+
+        for invalid, message in (
+            ({"nodes": [{"id": "a", "depends_on": ["missing"], "operation": "read",
+                          "ownership_paths": ["a"]}]}, "unknown dependency"),
+            ({"nodes": [{"id": "a", "depends_on": ["b"], "operation": "read",
+                          "ownership_paths": ["a"]},
+                         {"id": "b", "depends_on": ["a"], "operation": "read",
+                          "ownership_paths": ["b"]}]}, "cycle"),
+            ({"nodes": [{"id": "a", "depends_on": [], "operation": "write",
+                          "ownership_paths": ["a"]}]}, "operation"),
+        ):
+            rejected = run(self.repo, "execution-dag", "--mode", "concurrent",
+                           "--state-root", str(Path(self.temp.name) / "dag-state"),
+                           "--dag-json", json.dumps(invalid), ok=False)
+            self.assertIn(message, rejected.stderr)
+
+        record = json.loads(self.record_path().read_text())
+        record["risk"] = "critical"
+        self.record_path().write_text(json.dumps(record))
+        critical = json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)
+        self.assertEqual(critical["mode"], "serial")
+        self.assertEqual(critical["forced_serial"], ["qa-b", "read-a", "read-c"])
+        self.assertEqual(critical["reasons"], ["critical_risk"])
+
     def test_history_capture_saves_complete_snapshot_and_replays_bounded(self):
         database = Path(self.temp.name) / "history-capture.db"
         connection = sqlite3.connect(database)
@@ -3051,7 +3220,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.19")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.24")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))

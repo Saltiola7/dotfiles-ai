@@ -216,7 +216,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.19`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.24`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -269,12 +269,30 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.19\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.24\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert "context.ask" not in tools.partition("export const begin = tool({")[2]
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
     assert "standing authorization for validated Build-primary" in dbsctr
+
+
+def test_v324_profiles_explicit_spans_and_keeps_dispatch_primary_mediated():
+    spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
+    dbsctr = text(SKILLS / "dbsctr/SKILL.md")
+    helper = text("dot_local/bin/executable_dbsctrctl")
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    for term in ("Phase Span", "Execution DAG", "90 days", "partial", "10 percent"):
+        assert term in spec
+    for term in ("dbsctr_phase_span", "dbsctr_execution_dag", "primary", "serial"):
+        assert term in dbsctr
+    assert "does not dispatch" in dbsctr
+    assert 'commands.add_parser("phase-span")' in helper
+    assert 'commands.add_parser("phase-report")' in helper
+    assert 'commands.add_parser("execution-dag")' in helper
+    assert 'commands.add_parser("execution-benchmark")' in helper
+    assert "export const phase_span" in tools
+    assert "export const execution_dag" in tools
 
 
 def test_v316_review_skill_has_separate_private_history_and_replay_modes():

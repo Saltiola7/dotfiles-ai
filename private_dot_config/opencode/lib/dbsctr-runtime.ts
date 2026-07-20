@@ -84,6 +84,52 @@ export async function attachRuntime(cwd: string, runtime: {
   ], cwd)
 }
 
+export async function phaseSpan(args: {
+  spanID: string
+  event: "start" | "finish"
+  parentSpanID?: string
+  phase?: "domain" | "behavior" | "spec" | "contract" | "test_driven_implementation" | "refactor" | "operation"
+  operation?: "marker" | "typed_tool" | "task" | "read" | "readonly_qa"
+  dependencies?: string[]
+  ownershipPaths?: string[]
+  attribution?: "explicit" | "adapter" | "unavailable"
+  result?: "passed" | "failed" | "blocked" | "abandoned" | "unavailable"
+}, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "phase-span", "--span-id", args.spanID, "--event", args.event]
+  const values: [string, string | undefined][] = [
+    ["parent-span-id", args.parentSpanID], ["phase", args.phase], ["operation", args.operation],
+    ["attribution", args.attribution], ["result", args.result],
+  ]
+  for (const [name, value] of values) if (value !== undefined) argv.push(`--${name}`, value)
+  for (const dependency of args.dependencies ?? []) argv.push("--dependency", dependency)
+  for (const path of args.ownershipPaths ?? []) argv.push("--path", path)
+  return await run(argv, cwd)
+}
+
+export async function validateExecutionDag(nodes: {
+  id: string
+  depends_on: string[]
+  operation: "read" | "readonly_qa"
+  ownership_paths: string[]
+}[], mode: "serial" | "benchmark" | "concurrent", cwd = process.cwd()) {
+  return await run([
+    "dbsctrctl", "execution-dag", "--mode", mode, "--dag-json", JSON.stringify({ nodes }),
+  ], cwd)
+}
+
+export async function recordExecutionBenchmark(result: {
+  serial_ms: number[]
+  concurrent_ms: number[]
+  serial_failed_gates: number
+  concurrent_failed_gates: number
+  serial_remediation_rounds: number
+  concurrent_remediation_rounds: number
+}, cwd = process.cwd()) {
+  return await run([
+    "dbsctrctl", "execution-benchmark", "--benchmark-json", JSON.stringify(result),
+  ], cwd)
+}
+
 export async function runtimeHealth(cwd: string, runtime: {
   sessionID: string
   worktree: string

@@ -54,6 +54,14 @@ permission:
     "*/dbsctrctl attach-runtime*": deny
     "env *dbsctrctl attach-runtime*": deny
     "command *dbsctrctl attach-runtime*": deny
+    "dbsctrctl phase-span*": deny
+    "*/dbsctrctl phase-span*": deny
+    "env *dbsctrctl phase-span*": deny
+    "command *dbsctrctl phase-span*": deny
+    "dbsctrctl execution-benchmark*": deny
+    "*/dbsctrctl execution-benchmark*": deny
+    "env *dbsctrctl execution-benchmark*": deny
+    "command *dbsctrctl execution-benchmark*": deny
     "npm publish*": deny
     "launchctl bootstrap*": deny
     "launchctl bootout*": deny

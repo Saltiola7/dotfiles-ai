@@ -21,6 +21,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
+from statistics import median
 
 
 GATES = (
@@ -32,7 +33,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.19"
+CURRENT_METHOD_REVISION = "3.24"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -43,6 +44,9 @@ REVIEW_LEDGER_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 1
 CAPTURE_SCHEMA = 1
 BENCHMARK_SCHEMA = 1
+PHASE_SCHEMA = 1
+PHASES = GATES[:6] + ("operation",)
+PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa")
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 BENCHMARK_METRICS = {
     "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
@@ -462,14 +466,15 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
             and not re.fullmatch(r"\.forget-[0-9a-f]{32}", meta["pending_forget_cleanup"])
             or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)
             or "capture_schema" in meta and meta["capture_schema"] != str(CAPTURE_SCHEMA)
-            or "benchmark_schema" in meta and meta["benchmark_schema"] != str(BENCHMARK_SCHEMA)):
+            or "benchmark_schema" in meta and meta["benchmark_schema"] != str(BENCHMARK_SCHEMA)
+            or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)):
         fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
@@ -522,6 +527,8 @@ def ledger_semantic_integrity(connection):
         capture_integrity(connection)
     if "benchmark_schema" in meta:
         benchmark_integrity(connection)
+    if "phase_schema" in meta:
+        phase_integrity(connection)
 
 
 def ensure_improvement_schema(connection):
@@ -753,6 +760,292 @@ def benchmark_integrity(connection):
             fail("private benchmark evidence semantic mismatch")
 
 
+def ensure_phase_schema(connection):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone()
+    if row == (str(PHASE_SCHEMA),):
+        return
+    if row is not None:
+        fail("private phase-span ledger has an unsupported schema")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE phase_spans (
+            cycle_id TEXT NOT NULL,
+            span_id TEXT NOT NULL,
+            parent_span_id TEXT,
+            phase TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            attribution TEXT NOT NULL,
+            dependencies TEXT NOT NULL,
+            ownership_paths TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            finished_at INTEGER,
+            result TEXT,
+            PRIMARY KEY (cycle_id, span_id)
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE execution_activation (
+            method_revision TEXT PRIMARY KEY,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("INSERT INTO ledger_meta VALUES ('phase_schema', ?)", (str(PHASE_SCHEMA),))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def phase_path(value):
+    if not isinstance(value, str):
+        fail("invalid phase ownership path")
+    pure = PurePosixPath(value)
+    normalized = str(pure)
+    if (pure.is_absolute() or not pure.parts or ".." in pure.parts or normalized in ("", ".")
+            or len(normalized.encode()) > 512):
+        fail("invalid phase ownership path")
+    return normalized
+
+
+def phase_record(row):
+    names = ("cycle_id", "span_id", "parent_span_id", "phase", "operation", "attribution",
+             "dependencies", "ownership_paths", "started_at", "finished_at", "result")
+    value = dict(zip(names, row))
+    try:
+        value["dependencies"] = json.loads(value["dependencies"], object_pairs_hook=no_duplicate_keys)
+        value["ownership_paths"] = json.loads(value["ownership_paths"], object_pairs_hook=no_duplicate_keys)
+    except json.JSONDecodeError as error:
+        fail(f"private phase span is malformed: {error}")
+    if (not OPAQUE_ID.fullmatch(value["cycle_id"]) or not OPAQUE_ID.fullmatch(value["span_id"])
+            or value["parent_span_id"] is not None and not OPAQUE_ID.fullmatch(value["parent_span_id"])
+            or value["phase"] not in PHASES or value["operation"] not in PHASE_OPERATIONS
+            or value["attribution"] not in ("explicit", "adapter", "unavailable")
+            or not isinstance(value["dependencies"], list)
+            or len(value["dependencies"]) > 100 or len(set(value["dependencies"])) != len(value["dependencies"])
+            or any(not isinstance(item, str) or not OPAQUE_ID.fullmatch(item)
+                   or item == value["span_id"] for item in value["dependencies"])
+            or not isinstance(value["ownership_paths"], list) or len(value["ownership_paths"]) > 100
+            or sorted(set(map(phase_path, value["ownership_paths"]))) != value["ownership_paths"]
+            or not isinstance(value["started_at"], int) or value["started_at"] < REVIEW_START_MS
+            or value["finished_at"] is not None and (not isinstance(value["finished_at"], int)
+                or value["finished_at"] < value["started_at"])
+            or (value["finished_at"] is None) != (value["result"] is None)
+            or value["result"] is not None
+            and value["result"] not in ("passed", "failed", "blocked", "abandoned", "unavailable")):
+        fail("private phase span is invalid")
+    return value
+
+
+def phase_integrity(connection):
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'phase_%'")}
+    if tables != {"phase_spans"}:
+        fail("private phase-span tables are invalid")
+    for row in connection.execute(
+            "SELECT cycle_id, span_id, parent_span_id, phase, operation, attribution, dependencies, "
+            "ownership_paths, started_at, finished_at, result FROM phase_spans"):
+        phase_record(row)
+    activation_tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='execution_activation'")}
+    if activation_tables != {"execution_activation"}:
+        fail("private execution activation table is invalid")
+    for method_revision, payload in connection.execute(
+            "SELECT method_revision, payload FROM execution_activation"):
+        report = validate_execution_benchmark(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+        if report["method_revision"] != method_revision:
+            fail("private execution activation identity mismatch")
+
+
+def phase_rows(connection, cycle_id):
+    return [phase_record(row) for row in connection.execute(
+        "SELECT cycle_id, span_id, parent_span_id, phase, operation, attribution, dependencies, "
+        "ownership_paths, started_at, finished_at, result FROM phase_spans "
+        "WHERE cycle_id=? ORDER BY span_id", (cycle_id,))]
+
+
+def unavailable_phase_report(cycle_id):
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "unavailable",
+            "total_wall_ms": "unavailable", "critical_path_ms": "unavailable",
+            "overlap_ms": "unavailable", "principal_waits": [], "repeated_work": 0,
+            "attribution_caveats": ["no_phase_spans"]}
+
+
+def validate_phase_profile(value, cycle_id=None):
+    fields = {"schema_version", "cycle_id", "status", "total_wall_ms", "critical_path_ms",
+              "overlap_ms", "principal_waits", "repeated_work", "attribution_caveats"}
+    caveats = {"no_phase_spans", "incomplete_spans", "adapter_timing", "unavailable_timing"}
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 1
+            or not isinstance(value.get("cycle_id"), str) or not OPAQUE_ID.fullmatch(value["cycle_id"])
+            or cycle_id is not None and value["cycle_id"] != cycle_id
+            or value.get("status") not in ("complete", "partial", "unavailable")
+            or type(value.get("repeated_work")) is not int or value["repeated_work"] < 0
+            or not isinstance(value.get("principal_waits"), list) or len(value["principal_waits"]) > 5
+            or not isinstance(value.get("attribution_caveats"), list)
+            or len(set(value["attribution_caveats"])) != len(value["attribution_caveats"])
+            or any(item not in caveats for item in value["attribution_caveats"])):
+        fail("phase profile is invalid")
+    timings = [value[name] for name in ("total_wall_ms", "critical_path_ms", "overlap_ms")]
+    if (value["status"] == "complete" and any(type(item) is not int or item < 0 for item in timings)
+            or value["status"] != "complete" and any(item != "unavailable" for item in timings)):
+        fail("phase profile timing is invalid")
+    for wait in value["principal_waits"]:
+        if (not isinstance(wait, dict) or set(wait) != {"span_id", "wait_ms"}
+                or not isinstance(wait.get("span_id"), str) or not OPAQUE_ID.fullmatch(wait["span_id"])
+                or type(wait.get("wait_ms")) is not int or wait["wait_ms"] < 0):
+            fail("phase profile wait is invalid")
+    return value
+
+
+def phase_report(rows, cycle_id):
+    if not rows:
+        return unavailable_phase_report(cycle_id)
+    spans = {item["span_id"]: item for item in rows}
+    missing = sorted({dependency for item in rows for dependency in item["dependencies"]
+                      if dependency not in spans})
+    order = []
+    if not missing:
+        indegree = {key: len(item["dependencies"]) for key, item in spans.items()}
+        children = {key: [] for key in spans}
+        for key, item in spans.items():
+            for dependency in item["dependencies"]:
+                children[dependency].append(key)
+        ready = sorted(key for key, degree in indegree.items() if degree == 0)
+        while ready:
+            key = ready.pop(0)
+            order.append(key)
+            for child in sorted(children[key]):
+                indegree[child] -= 1
+                if indegree[child] == 0:
+                    ready.append(child)
+                    ready.sort()
+    complete = (not missing and len(order) == len(spans)
+                and all(item["finished_at"] is not None for item in rows))
+    caveats = []
+    if not complete:
+        caveats.append("incomplete_spans")
+    if any(item["attribution"] == "adapter" for item in rows):
+        caveats.append("adapter_timing")
+    if any(item["attribution"] == "unavailable" for item in rows):
+        caveats.append("unavailable_timing")
+    repeated = len(rows) - len({(item["phase"], item["operation"], tuple(item["ownership_paths"]))
+                                for item in rows})
+    if not complete:
+        return validate_phase_profile({**unavailable_phase_report(cycle_id), "status": "partial",
+                                       "repeated_work": repeated, "attribution_caveats": caveats})
+    durations = {key: item["finished_at"] - item["started_at"] for key, item in spans.items()}
+    longest = {}
+    for span_id in order:
+        dependencies = spans[span_id]["dependencies"]
+        longest[span_id] = durations[span_id] + max((longest[item] for item in dependencies), default=0)
+    started = min(item["started_at"] for item in rows)
+    finished = max(item["finished_at"] for item in rows)
+    total = finished - started
+    waits = []
+    for item in rows:
+        if item["dependencies"]:
+            wait = max(0, item["started_at"] - max(spans[key]["finished_at"] for key in item["dependencies"]))
+            if wait:
+                waits.append({"span_id": item["span_id"], "wait_ms": wait})
+    waits.sort(key=lambda item: (-item["wait_ms"], item["span_id"]))
+    return validate_phase_profile({"schema_version": 1, "cycle_id": cycle_id, "status": "complete",
+                                   "total_wall_ms": total, "critical_path_ms": max(longest.values()),
+                                   "overlap_ms": max(0, sum(durations.values()) - total),
+                                   "principal_waits": waits[:5], "repeated_work": repeated,
+                                   "attribution_caveats": caveats})
+
+
+def load_phase_report(root, cycle_id):
+    if not ledger_exists(root):
+        return unavailable_phase_report(cycle_id)
+    with ledger_connection(root) as connection:
+        if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is None:
+            return unavailable_phase_report(cycle_id)
+        return phase_report(phase_rows(connection, cycle_id), cycle_id)
+
+
+def prune_phase_spans(root, connection=None):
+    if connection is None and not ledger_exists(root):
+        return 0
+    owned = connection is None
+    connection = connection or ledger_connection(root, write=True)
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is None:
+        if owned:
+            connection.close()
+        return 0
+    cutoff_ms = int((time.time() - REVIEW_RETENTION_SECONDS) * 1000)
+    removed = connection.execute(
+        "DELETE FROM phase_spans WHERE coalesce(finished_at, started_at) <= ?", (cutoff_ms,)
+    ).rowcount
+    if owned:
+        connection.commit()
+        connection.close()
+    return removed
+
+
+def prune_phase_backup_spans(root):
+    directory = root / "reviews" / "backups"
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    cutoff_ms = int((time.time() - REVIEW_RETENTION_SECONDS) * 1000)
+    for path in sorted(directory.glob("*.sqlite3")):
+        private_path(path, stat.S_IFREG, 0o600, "review backup")
+        connection = ledger_connection(root, write=True, path=path)
+        try:
+            if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is None:
+                continue
+            connection.execute("BEGIN IMMEDIATE")
+            removed += connection.execute(
+                "DELETE FROM phase_spans WHERE coalesce(finished_at, started_at) <= ?", (cutoff_ms,)
+            ).rowcount
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    return removed
+
+
+def validate_execution_benchmark(value):
+    fields = {"schema_version", "method_revision", "sample_count", "serial_median_ms",
+              "concurrent_median_ms", "improvement_percent", "serial_failed_gates",
+              "concurrent_failed_gates", "serial_remediation_rounds",
+              "concurrent_remediation_rounds", "activated", "recorded_at"}
+    numbers = {"serial_median_ms", "concurrent_median_ms", "improvement_percent"}
+    integers = {"sample_count", "serial_failed_gates", "concurrent_failed_gates",
+                "serial_remediation_rounds", "concurrent_remediation_rounds", "recorded_at"}
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 1
+            or not isinstance(value.get("method_revision"), str)
+            or not OPAQUE_ID.fullmatch(value["method_revision"])
+            or any(not isinstance(value.get(name), (int, float)) or isinstance(value.get(name), bool)
+                   or not math.isfinite(value[name]) or value[name] < 0 for name in numbers)
+            or any(type(value.get(name)) is not int or value[name] < 0 for name in integers)
+            or not isinstance(value.get("activated"), bool) or value["sample_count"] < 5
+            or value["recorded_at"] < REVIEW_START_MS):
+        fail("execution benchmark result is invalid")
+    expected_improvement = round(
+        (value["serial_median_ms"] - value["concurrent_median_ms"])
+        * 100 / value["serial_median_ms"], 2) if value["serial_median_ms"] else 0
+    expected = (value["concurrent_median_ms"] <= value["serial_median_ms"] * .9
+                and value["concurrent_failed_gates"] <= value["serial_failed_gates"]
+                and value["concurrent_remediation_rounds"] <= value["serial_remediation_rounds"])
+    if value["improvement_percent"] != expected_improvement or value["activated"] != expected:
+        fail("execution benchmark activation is invalid")
+    return value
+
+
+def load_execution_activation(root):
+    if not ledger_exists(root):
+        return False
+    with ledger_connection(root) as connection:
+        if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is None:
+            return False
+        row = connection.execute(
+            "SELECT payload FROM execution_activation WHERE method_revision=?",
+            (CURRENT_METHOD_REVISION,),
+        ).fetchone()
+        return row is not None and validate_execution_benchmark(
+            json.loads(row[0], object_pairs_hook=no_duplicate_keys))["activated"]
+
+
 def delete_capture_benchmarks(connection, capture_ids):
     if connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone() is not None:
         connection.executemany(
@@ -873,6 +1166,13 @@ def ledger_content(connection):
             {"version": version, "metric": metric, "direction": direction}
             for version, metric, direction in connection.execute(
                 "SELECT version, metric_name, direction FROM benchmark_definitions ORDER BY version")]
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is not None:
+        result["phase_spans"] = [
+            phase_record(row) for row in connection.execute(
+                "SELECT cycle_id, span_id, parent_span_id, phase, operation, attribution, dependencies, "
+                "ownership_paths, started_at, finished_at, result FROM phase_spans ORDER BY cycle_id, span_id")]
+        result["execution_activations"] = payloads(
+            "SELECT method_revision, payload FROM execution_activation ORDER BY method_revision")
     return result
 
 
@@ -2335,7 +2635,10 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
             state = "abandoned"
         else:
             state = "active"
-        output.append({"cycle_id": record["cycle_id"], "state": state})
+        item = {"cycle_id": record["cycle_id"], "state": state}
+        if "phase_profile" in record:
+            item["phase_profile"] = validate_phase_profile(record["phase_profile"], record["cycle_id"])
+        output.append(item)
     output = sorted(output, key=lambda item: item["cycle_id"])
     return (output, quality) if with_quality else output
 
@@ -2828,10 +3131,13 @@ def validate_history_evidence(value):
     if not isinstance(value.get("cycles"), list) or len(value["cycles"]) > REVIEW_MAX_LIMIT:
         fail("review history evidence has an invalid schema")
     for cycle in value["cycles"]:
-        if (not isinstance(cycle, dict) or set(cycle) != {"cycle_id", "state"}
+        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "phase_profile"}
+                or not {"cycle_id", "state"} <= set(cycle)
                 or cycle["state"] not in ("active", "blocked", "abandoned", "completed", "unknown")):
             fail("review history evidence has an invalid schema")
         history_id(cycle.get("cycle_id"), "history cycle ID")
+        if "phase_profile" in cycle:
+            validate_phase_profile(cycle["phase_profile"], cycle["cycle_id"])
     aggregate_names = {"candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count", "tool_call_count",
                        "tool_error_count", "approval_count", "retry_count", "cost_total", "token_total",
                        "cycle_active_count", "cycle_blocked_count", "cycle_abandoned_count", "cycle_completed_count", "cycle_unknown_count"}
@@ -3636,6 +3942,213 @@ def command_benchmark(args):
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
 
 
+def command_phase_span(args):
+    record_path, record = load(root_dir())
+    require_active(record)
+    cycle_id = record["cycle_id"]
+    root = review_root(args.state_root)
+    if not OPAQUE_ID.fullmatch(args.span_id):
+        fail("invalid phase span ID")
+    timestamp = max(REVIEW_START_MS, int(time.time() * 1000))
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        ensure_phase_schema(connection)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if args.event == "start":
+                if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
+                    fail("phase span start requires phase, operation, and attribution only")
+                dependencies = sorted(set(args.dependency or []))
+                ownership = sorted(set(phase_path(item) for item in (args.path or [])))
+                row = (cycle_id, args.span_id, args.parent_span_id, args.phase, args.operation,
+                       args.attribution, ledger_payload(dependencies), ledger_payload(ownership),
+                       timestamp, None, None)
+                phase_record(row)
+                connection.execute("INSERT INTO phase_spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+            else:
+                if args.result is None or any(value is not None for value in (
+                        args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
+                    fail("phase span finish requires only span ID and result")
+                row = connection.execute(
+                    "SELECT started_at, finished_at FROM phase_spans WHERE cycle_id=? AND span_id=?",
+                    (cycle_id, args.span_id),
+                ).fetchone()
+                if row is None:
+                    fail("phase span start is missing")
+                if row[1] is not None:
+                    fail("phase span is already finished")
+                connection.execute(
+                    "UPDATE phase_spans SET finished_at=max(started_at, ?), result=? "
+                    "WHERE cycle_id=? AND span_id=?",
+                    (timestamp, args.result, cycle_id, args.span_id),
+                )
+            report = phase_report(phase_rows(connection, cycle_id), cycle_id)
+            connection.commit()
+            record["phase_profile"] = report
+            save(record_path, record)
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
+def command_phase_report(args):
+    _, record = load(root_dir())
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        report = load_phase_report(root, record["cycle_id"])
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
+def execution_dag(value, requested_mode, risk, activated=False):
+    if (not isinstance(value, dict) or set(value) != {"nodes"} or not isinstance(value["nodes"], list)
+            or not 1 <= len(value["nodes"]) <= 100):
+        fail("execution DAG has an invalid schema")
+    nodes = {}
+    fields = {"id", "depends_on", "operation", "ownership_paths"}
+    for item in value["nodes"]:
+        if (not isinstance(item, dict) or set(item) != fields
+                or not isinstance(item.get("id"), str) or not OPAQUE_ID.fullmatch(item["id"])
+                or item["id"] in nodes or item.get("operation") not in ("read", "readonly_qa")
+                or not isinstance(item.get("depends_on"), list)
+                or len(item["depends_on"]) > 100 or len(set(item["depends_on"])) != len(item["depends_on"])
+                or any(not isinstance(dependency, str) or not OPAQUE_ID.fullmatch(dependency)
+                       or dependency == item["id"] for dependency in item["depends_on"])
+                or not isinstance(item.get("ownership_paths"), list)
+                or not 1 <= len(item["ownership_paths"]) <= 100):
+            fail("execution DAG node has an invalid operation or schema")
+        nodes[item["id"]] = {**item, "depends_on": sorted(item["depends_on"]),
+                             "ownership_paths": sorted(set(phase_path(path)
+                                                            for path in item["ownership_paths"]))}
+    for item in nodes.values():
+        unknown = set(item["depends_on"]) - set(nodes)
+        if unknown:
+            fail("execution DAG contains an unknown dependency")
+    indegree = {key: len(item["depends_on"]) for key, item in nodes.items()}
+    children = {key: [] for key in nodes}
+    for key, item in nodes.items():
+        for dependency in item["depends_on"]:
+            children[dependency].append(key)
+    ready = sorted(key for key, degree in indegree.items() if degree == 0)
+    initial_ready = list(ready)
+    order = []
+    while ready:
+        key = ready.pop(0)
+        order.append(key)
+        for child in sorted(children[key]):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                ready.append(child)
+                ready.sort()
+    if len(order) != len(nodes):
+        fail("execution DAG contains a cycle")
+
+    ancestors = {}
+    for key in order:
+        ancestors[key] = set(nodes[key]["depends_on"])
+        for dependency in nodes[key]["depends_on"]:
+            ancestors[key].update(ancestors[dependency])
+    overlapping = set()
+    keys = sorted(nodes)
+    for position, left in enumerate(keys):
+        for right in keys[position + 1:]:
+            if left in ancestors[right] or right in ancestors[left]:
+                continue
+            left_paths = [PurePosixPath(path).parts for path in nodes[left]["ownership_paths"]]
+            right_paths = [PurePosixPath(path).parts for path in nodes[right]["ownership_paths"]]
+            if any(a[:len(b)] == b or b[:len(a)] == a for a in left_paths for b in right_paths):
+                overlapping.update((left, right))
+    reasons = []
+    forced = set()
+    if requested_mode == "serial":
+        reasons.append("requested_serial")
+        forced.update(nodes)
+    elif risk == "critical":
+        reasons.append("critical_risk")
+        forced.update(nodes)
+    elif overlapping:
+        reasons.append("ownership_overlap")
+        forced.update(overlapping)
+    elif requested_mode == "benchmark":
+        reasons.append("benchmark_only")
+    elif not activated:
+        reasons.append("benchmark_not_qualified")
+        forced.update(nodes)
+    mode = "serial" if forced else "concurrent"
+    return {"schema_version": 1, "requested_mode": requested_mode, "mode": mode,
+            "order": order, "ready": initial_ready, "forced_serial": sorted(forced),
+            "reasons": reasons}
+
+
+def command_execution_dag(args):
+    _, record = load(root_dir())
+    require_active(record)
+    try:
+        value = json.loads(args.dag_json, object_pairs_hook=no_duplicate_keys)
+    except json.JSONDecodeError as error:
+        fail(f"cannot read execution DAG: {error}")
+    activated = load_execution_activation(review_root(args.state_root))
+    print(json.dumps(execution_dag(value, args.mode, record["risk"], activated),
+                     sort_keys=True, separators=(",", ":")))
+
+
+def command_execution_benchmark(args):
+    _, record = load(root_dir())
+    require_active(record)
+    try:
+        value = json.loads(args.benchmark_json, object_pairs_hook=no_duplicate_keys)
+    except json.JSONDecodeError as error:
+        fail(f"cannot read execution benchmark: {error}")
+    fields = {"serial_ms", "concurrent_ms", "serial_failed_gates", "concurrent_failed_gates",
+              "serial_remediation_rounds", "concurrent_remediation_rounds"}
+    if not isinstance(value, dict) or set(value) != fields:
+        fail("execution benchmark has an invalid schema")
+    serial, concurrent = value["serial_ms"], value["concurrent_ms"]
+    if (not isinstance(serial, list) or not isinstance(concurrent, list)
+            or not 5 <= len(serial) == len(concurrent) <= 100
+            or any(type(item) is not int or not 1 <= item <= 86_400_000
+                   for item in serial + concurrent)
+            or any(type(value[name]) is not int or value[name] < 0 for name in fields - {"serial_ms", "concurrent_ms"})):
+        fail("execution benchmark samples are invalid")
+    serial_median, concurrent_median = median(serial), median(concurrent)
+    improvement = round((serial_median - concurrent_median) * 100 / serial_median, 2)
+    report = validate_execution_benchmark({
+        "schema_version": 1, "method_revision": CURRENT_METHOD_REVISION,
+        "sample_count": len(serial), "serial_median_ms": serial_median,
+        "concurrent_median_ms": concurrent_median, "improvement_percent": improvement,
+        "serial_failed_gates": value["serial_failed_gates"],
+        "concurrent_failed_gates": value["concurrent_failed_gates"],
+        "serial_remediation_rounds": value["serial_remediation_rounds"],
+        "concurrent_remediation_rounds": value["concurrent_remediation_rounds"],
+        "activated": concurrent_median <= serial_median * .9
+        and value["concurrent_failed_gates"] <= value["serial_failed_gates"]
+        and value["concurrent_remediation_rounds"] <= value["serial_remediation_rounds"],
+        "recorded_at": max(REVIEW_START_MS, int(time.time() * 1000)),
+    })
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        ensure_phase_schema(connection)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("INSERT OR REPLACE INTO execution_activation VALUES (?, ?)",
+                               (CURRENT_METHOD_REVISION, ledger_payload(report)))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
 def command_review_migrate(args):
     root = review_root(args.state_root)
     require_review_lock_safe(root)
@@ -3766,6 +4279,7 @@ def command_review_restore(args):
                         "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
                         (session_id, timestamp),
                     )
+                prune_phase_spans(root, connection=restored)
                 restored.commit()
             except Exception:
                 restored.rollback()
@@ -4227,6 +4741,7 @@ def command_review_complete(args):
         try:
             connection.execute("BEGIN IMMEDIATE")
             pruned = prune_review_reports(root, connection=connection)
+            prune_phase_spans(root, connection=connection)
             archive_review_candidates(root, expected, connection=connection)
             ledger_put_review_report(connection, name, persisted)
             connection.commit()
@@ -4248,13 +4763,16 @@ def command_review_prune(args):
         try:
             connection.execute("BEGIN IMMEDIATE")
             removed = prune_review_reports(root, connection=connection)
+            removed_spans = prune_phase_spans(root, connection=connection)
             connection.commit()
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
-    print(json.dumps({"pruned_reports": removed}, sort_keys=True))
+        removed_backup_spans = prune_phase_backup_spans(root)
+    print(json.dumps({"pruned_reports": removed, "pruned_phase_spans": removed_spans,
+                      "pruned_backup_phase_spans": removed_backup_spans}, sort_keys=True))
 
 
 def command_review_forget(args):
@@ -4934,6 +5452,7 @@ def finish_push(root, path, record):
         dvc_push = record.get("dvc_push")
         if not dvc_push or dvc_push["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
             fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
+    record["phase_profile"] = load_phase_report(review_root(), record["cycle_id"])
     if current_ahead:
         record["state"] = "finalizing"
         save(path, record)
@@ -4964,7 +5483,9 @@ def finish_push(root, path, record):
     save(path, record)
     pointer.unlink()
     prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
-    print(prefix + "pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"])
+    profile = json.dumps(record["phase_profile"], sort_keys=True, separators=(",", ":"))
+    print(prefix + "pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"]
+          + " profile=" + profile)
 
 
 def command_final_push(args):
@@ -5009,6 +5530,30 @@ def parser():
     attach.add_argument("--opencode-directory", required=True)
     attach.add_argument("--opencode-worktree", required=True)
     attach.set_defaults(func=command_attach_runtime)
+    phase_span = commands.add_parser("phase-span")
+    phase_span.add_argument("--state-root")
+    phase_span.add_argument("--span-id", required=True)
+    phase_span.add_argument("--parent-span-id")
+    phase_span.add_argument("--phase", choices=PHASES)
+    phase_span.add_argument("--operation", choices=PHASE_OPERATIONS)
+    phase_span.add_argument("--event", required=True, choices=("start", "finish"))
+    phase_span.add_argument("--dependency", action="append")
+    phase_span.add_argument("--path", action="append")
+    phase_span.add_argument("--attribution", choices=("explicit", "adapter", "unavailable"))
+    phase_span.add_argument("--result", choices=("passed", "failed", "blocked", "abandoned", "unavailable"))
+    phase_span.set_defaults(func=command_phase_span)
+    phase_report = commands.add_parser("phase-report")
+    phase_report.add_argument("--state-root")
+    phase_report.set_defaults(func=command_phase_report)
+    execution_dag_parser = commands.add_parser("execution-dag")
+    execution_dag_parser.add_argument("--state-root")
+    execution_dag_parser.add_argument("--mode", required=True, choices=("serial", "benchmark", "concurrent"))
+    execution_dag_parser.add_argument("--dag-json", required=True)
+    execution_dag_parser.set_defaults(func=command_execution_dag)
+    execution_benchmark = commands.add_parser("execution-benchmark")
+    execution_benchmark.add_argument("--state-root")
+    execution_benchmark.add_argument("--benchmark-json", required=True)
+    execution_benchmark.set_defaults(func=command_execution_benchmark)
     review_scan = commands.add_parser("review-scan")
     review_scan.add_argument("--database")
     review_scan.add_argument("--state-root")
