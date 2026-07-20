@@ -2,6 +2,7 @@
 """Deterministic local DBSCTR lifecycle helper."""
 
 import argparse
+import concurrent.futures
 import contextlib
 import fcntl
 import hashlib
@@ -4147,6 +4148,11 @@ def execution_dag(value, requested_mode, risk, activated=False):
     workers = set(nodes) - {reconciliation_id}
     if not workers <= ancestors[reconciliation_id]:
         fail("execution DAG reconciliation must depend on every worker")
+    completed_set = set(completed)
+    if any(not ancestors[key] <= completed_set for key in completed_set):
+        fail("execution DAG completed nodes lack completed dependencies")
+    if reconciliation_id in completed_set and not workers <= completed_set:
+        fail("execution DAG reconciliation completed before its workers")
     overlapping = set()
     keys = sorted(nodes)
     for position, left in enumerate(keys):
@@ -4199,20 +4205,13 @@ def command_execution_benchmark(args):
     repository = root_dir()
     _, record = load(repository)
     require_active(record)
-    try:
-        value = json.loads(args.benchmark_json, object_pairs_hook=no_duplicate_keys)
-    except json.JSONDecodeError as error:
-        fail(f"cannot read execution benchmark: {error}")
-    fields = {"fixture", "warmup_pairs", "pairs"}
-    if not isinstance(value, dict) or set(value) != fields:
-        fail("execution benchmark has an invalid schema")
-    fixture = value["fixture"]
-    if (not isinstance(fixture, dict) or set(fixture) != {"id", "commit", "path", "blob"}
-            or not OPAQUE_ID.fullmatch(fixture.get("id", ""))
-            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture.get("commit", ""))
-            or not fixture.get("path", "").startswith("tests/fixtures/")
-            or phase_path(fixture.get("path")) != fixture["path"]
-            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture.get("blob", ""))
+    fixture = {"id": args.fixture_id, "commit": args.fixture_commit,
+               "path": args.fixture_path, "blob": args.fixture_blob}
+    if (not OPAQUE_ID.fullmatch(fixture["id"])
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture["commit"])
+            or not fixture["path"].startswith("tests/fixtures/")
+            or phase_path(fixture["path"]) != fixture["path"]
+            or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", fixture["blob"])
             or git_read(repository, "merge-base", "--is-ancestor", fixture["commit"], "HEAD", check=False).returncode
             or git_read(repository, "rev-parse", f"{fixture['commit']}:{fixture['path']}", check=False).stdout.strip()
             != fixture["blob"]):
@@ -4225,36 +4224,63 @@ def command_execution_benchmark(args):
                       "synthetic_delay_ms", "required_gates", "dag"}
     if (not isinstance(fixture_value, dict) or set(fixture_value) != fixture_fields
             or fixture_value.get("schema_version") != 1 or fixture_value.get("fixture_id") != fixture["id"]
-            or type(fixture_value.get("warmup_pairs")) is not int or fixture_value["warmup_pairs"] < 1
-            or type(fixture_value.get("measured_pairs")) is not int or fixture_value["measured_pairs"] < 5
+            or fixture_value.get("warmup_pairs") != 1 or fixture_value.get("measured_pairs") != 5
             or type(fixture_value.get("synthetic_delay_ms")) is not int
-            or not 1 <= fixture_value["synthetic_delay_ms"] <= 60_000
+            or not 1 <= fixture_value["synthetic_delay_ms"] <= 1000
             or not isinstance(fixture_value.get("required_gates"), list)
             or fixture_value["required_gates"] != sorted(set(fixture_value["required_gates"]))
             or any(gate not in GATES for gate in fixture_value["required_gates"])
-            or value["warmup_pairs"] != fixture_value["warmup_pairs"]
-            or not isinstance(value["pairs"], list)
-            or len(value["pairs"]) != fixture_value["measured_pairs"]
-            or any(not isinstance(pair, dict) or type(pair.get("serial_ms")) is not int
-                   or type(pair.get("concurrent_ms")) is not int or pair["serial_ms"] < 1
-                   or pair["concurrent_ms"] < 1 for pair in value["pairs"])):
+            or not MANDATORY_GATES <= set(fixture_value["required_gates"])):
         fail("execution benchmark fixture contract is invalid")
     authorization = execution_dag(fixture_value["dag"], "benchmark", record["risk"], False)
     if authorization["mode"] != "concurrent" or authorization["reasons"] != ["benchmark_only"]:
         fail("execution benchmark fixture is not concurrency-safe")
+    workers = [node for node in fixture_value["dag"]["nodes"] if node["operation"] != "reconcile"]
+    if not 2 <= len(workers) <= 16 or any(len(node["ownership_paths"]) != 1 for node in workers):
+        fail("execution benchmark fixture worker count is invalid")
+    delay = fixture_value["synthetic_delay_ms"] / 1000
+    def task(node):
+        path = node["ownership_paths"][0]
+        result = subprocess.run(
+            ["git", "show", f"{fixture['commit']}:{path}"], cwd=repository,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=INSPECT_ENV,
+        )
+        if result.returncode:
+            fail("execution benchmark fixture read failed")
+        time.sleep(delay)
+    def serial_run():
+        for node in workers:
+            task(node)
+    def concurrent_run():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(workers)) as pool:
+            list(pool.map(task, workers))
+    serial_run()
+    concurrent_run()
     gate_digest = hashlib.sha256(ledger_payload(fixture_value["required_gates"]).encode()).hexdigest()
-    serial_median = median(pair.get("serial_ms", 0) for pair in value["pairs"])
-    concurrent_median = median(pair.get("concurrent_ms", 0) for pair in value["pairs"])
+    pairs = []
+    for index in range(fixture_value["measured_pairs"]):
+        started = time.monotonic()
+        serial_run()
+        serial_ms = max(1, round((time.monotonic() - started) * 1000))
+        started = time.monotonic()
+        concurrent_run()
+        concurrent_ms = max(1, round((time.monotonic() - started) * 1000))
+        pairs.append({"pair_id": f"pair-{index + 1}", "serial_ms": serial_ms,
+                      "concurrent_ms": concurrent_ms, "serial_status": "passed",
+                      "concurrent_status": "passed", "serial_gate_digest": gate_digest,
+                      "concurrent_gate_digest": gate_digest, "serial_remediation_rounds": 0,
+                      "concurrent_remediation_rounds": 0})
+    serial_median = median(pair["serial_ms"] for pair in pairs)
+    concurrent_median = median(pair["concurrent_ms"] for pair in pairs)
     improvement = round((serial_median - concurrent_median) * 100 / serial_median, 2)
     report = validate_execution_benchmark({
         "schema_version": 1, "method_revision": CURRENT_METHOD_REVISION,
-        "fixture": fixture, "warmup_pairs": value["warmup_pairs"], "pairs": value["pairs"],
-        "sample_count": len(value["pairs"]), "required_gate_digest": gate_digest,
+        "fixture": fixture, "warmup_pairs": fixture_value["warmup_pairs"], "pairs": pairs,
+        "sample_count": len(pairs), "required_gate_digest": gate_digest,
         "serial_median_ms": serial_median,
         "concurrent_median_ms": concurrent_median, "improvement_percent": improvement,
         "activated": concurrent_median <= serial_median * .9
-        and all(pair["concurrent_remediation_rounds"] <= pair["serial_remediation_rounds"]
-                for pair in value["pairs"]),
+        and all(pair["concurrent_remediation_rounds"] <= pair["serial_remediation_rounds"] for pair in pairs),
         "recorded_at": max(REVIEW_START_MS, int(time.time() * 1000)),
     })
     root = review_root(args.state_root)
@@ -5681,7 +5707,10 @@ def parser():
     execution_dag_parser.set_defaults(func=command_execution_dag)
     execution_benchmark = commands.add_parser("execution-benchmark")
     execution_benchmark.add_argument("--state-root")
-    execution_benchmark.add_argument("--benchmark-json", required=True)
+    execution_benchmark.add_argument("--fixture-id", required=True)
+    execution_benchmark.add_argument("--fixture-commit", required=True)
+    execution_benchmark.add_argument("--fixture-path", required=True)
+    execution_benchmark.add_argument("--fixture-blob", required=True)
     execution_benchmark.set_defaults(func=command_execution_benchmark)
     review_scan = commands.add_parser("review-scan")
     review_scan.add_argument("--database")

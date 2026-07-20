@@ -81,22 +81,10 @@ export const execution_benchmark = tool({
     fixture: tool.schema.object({
       id: tool.schema.string(), commit: tool.schema.string(), path: tool.schema.string(), blob: tool.schema.string(),
     }),
-    warmupPairs: tool.schema.number().int().min(1),
-    pairs: tool.schema.array(tool.schema.object({
-      pair_id: tool.schema.string(),
-      serial_ms: tool.schema.number().int().min(1).max(86_400_000),
-      concurrent_ms: tool.schema.number().int().min(1).max(86_400_000),
-      serial_status: tool.schema.literal("passed"), concurrent_status: tool.schema.literal("passed"),
-      serial_gate_digest: tool.schema.string(), concurrent_gate_digest: tool.schema.string(),
-      serial_remediation_rounds: tool.schema.number().int().min(0),
-      concurrent_remediation_rounds: tool.schema.number().int().min(0),
-    })).min(5).max(100),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_execution_benchmark", patterns: ["*"], always: [] })
-    return await recordExecutionBenchmark({
-      fixture: args.fixture, warmup_pairs: args.warmupPairs, pairs: args.pairs,
-    }, context.worktree)
+    return await recordExecutionBenchmark(args.fixture, context.worktree)
   },
 })
 

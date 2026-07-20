@@ -277,7 +277,8 @@ remediation and is never hidden by an automatic serial retry.
 remains forced serial until typed `dbsctr_execution_benchmark` records at least
 five successful post-warmup pairs bound to one committed fixture/blob, equivalent
 required-gate digests, at least 10 percent lower median wall time, and no added
-remediation rounds. Critical cycles,
+remediation rounds. The helper executes and times the committed fixture; callers
+never submit benchmark durations or outcomes. Critical cycles,
 uncertain dependencies, and overlapping independent ownership always remain
 serial. DBSCTR adds no separate worker cap after independence is proven.
 

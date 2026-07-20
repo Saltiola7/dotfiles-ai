@@ -117,23 +117,13 @@ export async function validateExecutionDag(nodes: {
   ], cwd)
 }
 
-export async function recordExecutionBenchmark(result: {
-  fixture: { id: string; commit: string; path: string; blob: string }
-  warmup_pairs: number
-  pairs: {
-    pair_id: string
-    serial_ms: number
-    concurrent_ms: number
-    serial_status: "passed"
-    concurrent_status: "passed"
-    serial_gate_digest: string
-    concurrent_gate_digest: string
-    serial_remediation_rounds: number
-    concurrent_remediation_rounds: number
-  }[]
+export async function recordExecutionBenchmark(fixture: {
+  id: string; commit: string; path: string; blob: string
 }, cwd = process.cwd()) {
   return await run([
-    "dbsctrctl", "execution-benchmark", "--benchmark-json", JSON.stringify(result),
+    "dbsctrctl", "execution-benchmark",
+    "--fixture-id", fixture.id, "--fixture-commit", fixture.commit,
+    "--fixture-path", fixture.path, "--fixture-blob", fixture.blob,
   ], cwd)
 }
 

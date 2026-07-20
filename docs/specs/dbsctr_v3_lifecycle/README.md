@@ -879,6 +879,8 @@ records, and retirement decisions. External writes remain approval-gated.
 - `benchmark` DAG mode is fixture-only. A qualifying paired benchmark is retained
   privately by Method Revision with exact committed fixture/blob identity, warmup
   count, per-pair status, equivalent required-gate digests, and remediation rounds;
+  the helper executes the fixture and owns every timing and result rather than
+  accepting caller-supplied measurements;
   real `concurrent` mode remains forced serial when that activation is missing,
   stale, unverified, or below threshold.
 - The primary derives each Execution DAG from current artifacts and declares exact

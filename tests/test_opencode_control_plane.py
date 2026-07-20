@@ -585,16 +585,8 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
     )
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
-    benchmark_request = {
-        "fixture": {"id": "fixture-v1", "commit": "a" * 40,
-                    "path": "tests/fixtures/fixture.json", "blob": "b" * 40},
-        "warmup_pairs": 1,
-        "pairs": [{"pair_id": f"pair-{index}", "serial_ms": 100, "concurrent_ms": 80,
-                   "serial_status": "passed", "concurrent_status": "passed",
-                   "serial_gate_digest": "c" * 64, "concurrent_gate_digest": "c" * 64,
-                   "serial_remediation_rounds": 0, "concurrent_remediation_rounds": 0}
-                  for index in range(5)],
-    }
+    benchmark_request = {"id": "fixture-v1", "commit": "a" * 40,
+                         "path": "tests/fixtures/fixture.json", "blob": "b" * 40}
     script = (
         f'import {{ phaseSpan, validateExecutionDag, recordExecutionBenchmark }} from {json.dumps(str(runtime))};'
         'await phaseSpan({spanID:"read-a",event:"start",phase:"domain",operation:"read",'
@@ -614,8 +606,9 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
         "<--dependency>", "<root>", "<--path>", "<docs/a>",
         "CALL", "<execution-dag>", "<--mode>", "<benchmark>", "<--dag-json>",
         '<{"nodes":[{"id":"read-a","depends_on":[],"operation":"read","ownership_paths":["docs/a"]}],"completed":[]}>',
-        "CALL", "<execution-benchmark>", "<--benchmark-json>",
-        f'<{json.dumps(benchmark_request, separators=(",", ":"))}>',
+        "CALL", "<execution-benchmark>", "<--fixture-id>", "<fixture-v1>",
+        "<--fixture-commit>", f'<{"a" * 40}>', "<--fixture-path>", "<tests/fixtures/fixture.json>",
+        "<--fixture-blob>", f'<{"b" * 40}>',
     ]
 
 

@@ -2832,9 +2832,17 @@ class DbsctrctlTest(unittest.TestCase):
         ], "completed": []}
         required_gates = sorted(("domain", "behavior", "spec", "contract",
                                  "test_driven_implementation", "refactor", "review_integrate"))
+        fixture_dag = {"nodes": [
+            {"id": "fixture-a", "depends_on": [], "operation": "read",
+             "ownership_paths": ["tracked.txt"]},
+            {"id": "fixture-b", "depends_on": [], "operation": "read",
+             "ownership_paths": ["docs/specs/test/README.md"]},
+            {"id": "fixture-reconcile", "depends_on": ["fixture-a", "fixture-b"],
+             "operation": "reconcile", "ownership_paths": []},
+        ], "completed": []}
         fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,
-                         "measured_pairs": 5, "synthetic_delay_ms": 1,
-                         "required_gates": required_gates, "dag": safe}
+                         "measured_pairs": 5, "synthetic_delay_ms": 50,
+                         "required_gates": required_gates, "dag": fixture_dag}
         fixture_path = self.repo / "tests/fixtures/execution.json"
         fixture_path.parent.mkdir(parents=True)
         fixture_path.write_text(json.dumps(fixture_value))
@@ -2849,19 +2857,6 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout.strip()
         fixture = {"id": "test-read-v1", "commit": fixture_commit,
                    "path": "tests/fixtures/execution.json", "blob": fixture_blob}
-        gate_digest = hashlib.sha256(json.dumps(
-            required_gates, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
-        ).encode()).hexdigest()
-
-        def benchmark_input(concurrent_remediation=0):
-            return {"fixture": fixture, "warmup_pairs": 1, "pairs": [{
-                "pair_id": f"pair-{index}", "serial_ms": serial, "concurrent_ms": concurrent,
-                "serial_status": "passed", "concurrent_status": "passed",
-                "serial_gate_digest": gate_digest, "concurrent_gate_digest": gate_digest,
-                "serial_remediation_rounds": 0,
-                "concurrent_remediation_rounds": concurrent_remediation,
-            } for index, (serial, concurrent) in enumerate(zip(
-                [100, 101, 99, 100, 100], [80, 81, 79, 80, 80], strict=True))]}
 
         self.start()
         blocked = json.loads(run(
@@ -2880,10 +2875,11 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(experiment["reasons"], ["benchmark_only"])
         benchmark = json.loads(run(
             self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
-            "--benchmark-json", json.dumps(benchmark_input()),
+            "--fixture-id", fixture["id"], "--fixture-commit", fixture["commit"],
+            "--fixture-path", fixture["path"], "--fixture-blob", fixture["blob"],
         ).stdout)
         self.assertTrue(benchmark["activated"])
-        self.assertEqual(benchmark["improvement_percent"], 20.0)
+        self.assertGreaterEqual(benchmark["improvement_percent"], 10)
         concurrent = json.loads(run(
             self.repo, "execution-dag", "--mode", "concurrent",
             "--state-root", str(Path(self.temp.name) / "dag-state"),
@@ -2903,11 +2899,15 @@ class DbsctrctlTest(unittest.TestCase):
         backup = json.loads(run(
             self.repo, "review-backup", "--state-root", str(Path(self.temp.name) / "dag-state"),
         ).stdout)
-        regressed = json.loads(run(
-            self.repo, "execution-benchmark", "--state-root", str(Path(self.temp.name) / "dag-state"),
-            "--benchmark-json", json.dumps(benchmark_input(concurrent_remediation=1)),
-        ).stdout)
-        self.assertFalse(regressed["activated"])
+        connection = sqlite3.connect(Path(self.temp.name) / "dag-state/reviews/ledger.sqlite3")
+        connection.execute("delete from execution_activation")
+        connection.commit()
+        connection.close()
+        self.assertEqual(json.loads(run(
+            self.repo, "execution-dag", "--mode", "concurrent",
+            "--state-root", str(Path(self.temp.name) / "dag-state"),
+            "--dag-json", json.dumps(safe),
+        ).stdout)["mode"], "serial")
         run(self.repo, "review-restore", "--state-root", str(Path(self.temp.name) / "dag-state"),
             "--backup", backup["backup"])
         self.assertEqual(json.loads(run(
@@ -2945,6 +2945,8 @@ class DbsctrctlTest(unittest.TestCase):
                           "ownership_paths": ["a"]},
                          {"id": "reconcile", "depends_on": ["a"], "operation": "reconcile",
                           "ownership_paths": []}], "completed": []}, "operation"),
+            ({**safe, "completed": ["read-c"]}, "completed dependencies"),
+            ({**safe, "completed": ["reconcile"]}, "completed dependencies"),
         ):
             rejected = run(self.repo, "execution-dag", "--mode", "concurrent",
                            "--state-root", str(Path(self.temp.name) / "dag-state"),
