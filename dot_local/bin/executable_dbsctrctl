@@ -34,7 +34,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.24"
+CURRENT_METHOD_REVISION = "3.25"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -67,6 +67,13 @@ SECRET_OPTION = re.compile(r"(?:pass(?:word)?|secret|token|key|credential|auth(?
 SECRET_VALUE = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+|\w+://[^\s/@:]+:[^\s/@]+@)", re.I)
 HIGH_ENTROPY = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 SAFE_EVIDENCE_LINE = re.compile(r"(?:ok|pass(?:ed)?|success|succeeded|\d+ (?:passed|failed)(?:, \d+ skipped)?)", re.I)
+BACKLOG_COLUMNS = {
+    "active": ("id", "title", "priority", "status", "depends_on", "owns", "reads",
+               "parallel_safe", "reason", "effort", "validation"),
+    "completed": ("id", "outcome", "completed", "commit"),
+}
+BACKLOG_ACTIVE_STATUSES = {"pending", "in_progress", "blocked", "cancelled"}
+BACKLOG_COMMIT = re.compile(r"(?<![0-9a-f])[0-9a-f]{7,64}(?![0-9a-f])")
 
 
 def fail(message):
@@ -1965,6 +1972,10 @@ def command_audit(args):
                 "code": "missing_lifecycle_artifact", "severity": "medium", "context": context,
                 "path": f"docs/specs/{context}/{artifact}",
             })
+        if "BACKLOG.md" in present:
+            path = f"docs/specs/{context}/BACKLOG.md"
+            backlog = git_read(root, "show", f"{commit}:{path}").stdout
+            findings.extend(backlog_findings(root, commit, context, path, backlog))
     graph_path = "graphify-out/GRAPH_REPORT.md"
     graph = {"present": graph_path in files, "built_from": None, "stale": None}
     if graph["present"]:
@@ -2003,6 +2014,98 @@ def command_audit(args):
         print(f"{commit} contexts={len(inventory)} findings={len(findings)}")
         for finding in findings:
             print(f"{finding['severity']} {finding['code']} {finding['path']}")
+
+
+def backlog_cells(line):
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in stripped[1:-1].split("|"))
+
+
+def backlog_section(lines, section, path, context):
+    heading = f"## {section.title()}"
+    findings = []
+    try:
+        heading_index = lines.index(heading)
+    except ValueError:
+        return [{"code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                 "path": path, "section": section, "line": 1}], []
+    end = next((index for index in range(heading_index + 1, len(lines))
+                if lines[index].startswith("## ")), len(lines))
+    content = [index for index in range(heading_index + 1, end) if lines[index].strip()]
+    if not content:
+        return [{"code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                 "path": path, "section": section, "line": heading_index + 1}], []
+    header_index = content[0]
+    if backlog_cells(lines[header_index]) != BACKLOG_COLUMNS[section]:
+        return [{"code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                 "path": path, "section": section, "line": header_index + 1}], []
+    if len(content) < 2:
+        return [{"code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                 "path": path, "section": section, "line": header_index + 1}], []
+    separator_index = content[1]
+    separator = backlog_cells(lines[separator_index])
+    if (separator is None or len(separator) != len(BACKLOG_COLUMNS[section])
+            or any(not re.fullmatch(r":?-{3,}:?", cell) for cell in separator)):
+        return [{"code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                 "path": path, "section": section, "line": separator_index + 1}], []
+    rows = []
+    for index in content[2:]:
+        cells = backlog_cells(lines[index])
+        if cells is None or len(cells) != len(BACKLOG_COLUMNS[section]) or not cells[0]:
+            findings.append({
+                "code": "invalid_backlog_schema", "severity": "medium", "context": context,
+                "path": path, "section": section, "line": index + 1,
+            })
+            continue
+        rows.append((index + 1, cells[0], dict(zip(BACKLOG_COLUMNS[section], cells))))
+    return findings, rows
+
+
+def backlog_commit_reachable(root, audited_commit, evidence):
+    for candidate in BACKLOG_COMMIT.findall(evidence):
+        resolved = git_read(root, "rev-parse", "--verify", f"{candidate}^{{commit}}", check=False)
+        if (not resolved.returncode
+                and not git_read(root, "merge-base", "--is-ancestor", resolved.stdout.strip(),
+                                 audited_commit, check=False).returncode):
+            return True
+    return False
+
+
+def backlog_findings(root, commit, context, path, text):
+    lines = text.splitlines()
+    findings, rows = [], []
+    for section in ("active", "completed"):
+        section_findings, section_rows = backlog_section(lines, section, path, context)
+        findings.extend(section_findings)
+        rows.extend((section, *row) for row in section_rows)
+    identifiers = {}
+    for section, line, item_id, values in rows:
+        identifiers.setdefault(item_id, []).append((section, line, item_id, values))
+        common = {"severity": "medium", "context": context, "path": path,
+                  "section": section, "line": line, "item_id": item_id}
+        if section == "active" and values["status"] not in BACKLOG_ACTIVE_STATUSES:
+            findings.append({"code": "invalid_active_status", **common})
+        if section == "completed":
+            try:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", values["completed"]):
+                    raise ValueError
+                datetime.strptime(values["completed"], "%Y-%m-%d")
+            except ValueError:
+                findings.append({"code": "invalid_completed_date", **common})
+            if not backlog_commit_reachable(root, commit, values["commit"]):
+                findings.append({"code": "invalid_completed_commit", **common})
+    for duplicates in identifiers.values():
+        if len(duplicates) > 1:
+            for section, line, item_id, _ in duplicates:
+                findings.append({
+                    "code": "duplicate_backlog_id", "severity": "medium", "context": context,
+                    "path": path, "section": section, "line": line, "item_id": item_id,
+                })
+    rank = {"active": 0, "completed": 1, "document": 2}
+    return sorted(findings, key=lambda item: (
+        item["line"], item["code"], rank[item["section"]], item.get("item_id", "")))
 
 
 def inspect_path(path, required=False):

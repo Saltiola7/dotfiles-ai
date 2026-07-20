@@ -12,8 +12,9 @@
   only and may remain dirty.
 - Cycle state ultimately lives beneath the Git common directory, with one active
   cycle per worktree and serialized delivery per target branch.
-- Direct upstream remains the default delivery route. Pull-request delivery is
-  deferred until its authorization and completion contracts are specified.
+- Direct upstream remains the default delivery route. V3.23 permits one bounded
+  draft-only feature-branch pull-request flow; comments, ready transitions,
+  merge, release, and deployment authority remain deferred.
 - Completed commits, lifecycle artifacts, CI, and retained Cycle Records are the
   durable track record. Successful worktrees are initially retained for 24 hours;
   failed or dirty worktrees are never removed automatically.
@@ -132,7 +133,8 @@ folding runtime hygiene into these milestones.
 
 ## Deferred
 
-- Pull-request delivery and remote cycle branches.
+- General pull-request comments, revisions, ready transitions, merge authority,
+  and arbitrary remote cycle branches beyond V3.23's draft-only flow.
 - Automatic semantic rewriting of specifications.
 - Permanent worktree retention.
 - Herdr or OpenCode as lifecycle authority.

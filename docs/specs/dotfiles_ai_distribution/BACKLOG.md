@@ -8,12 +8,12 @@
 
 ## Completed
 
-| id | title | completed | commit |
+| id | outcome | completed | commit |
 |---|---|---|---|
-| DAI-004 | Add longitudinal analytics and adaptive cadence | 2026-07-19 | Gate Commit `b0568dc` |
-| DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | DAI-005B corrective Gate Commit |
-| DAI-003G | Apply every autonomous lens across full review history | 2026-07-18 | Gate Commit `bc2bb08` |
-| DAI-003F | Harden R&D tabs and runtime PATH | 2026-07-18 | Gate Commits `74011f7`, `9c514a1`, `6694574` |
-| DAI-003 | Add autonomous global-history R&D-to-draft-PR loop | 2026-07-18 | Gate Commits `f002712` through `6f9a112` |
-| DAI-002 | Install and configure Hermes supervisor PoC | 2026-07-17 | Gate Commits `4133cc6` through `76269ed` |
-| DAI-001 | Build and migrate portable AI configuration | 2026-07-13 | Gate Commits `ea9eaeb`, `224a483`; closure `d0d6f6f`; later deployed operation `225fa75` |
+| DAI-004 | Add longitudinal analytics and adaptive cadence | 2026-07-19 | `b0568dc` |
+| DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | `8870229` |
+| DAI-003G | Apply every autonomous lens across full review history | 2026-07-18 | `bc2bb08` |
+| DAI-003F | Harden R&D tabs and runtime PATH | 2026-07-18 | `74011f7`, `9c514a1`, `6694574` |
+| DAI-003 | Add autonomous global-history R&D-to-draft-PR loop | 2026-07-18 | `f002712`, `6f9a112` |
+| DAI-002 | Install and configure Hermes supervisor PoC | 2026-07-17 | `4133cc6`, `76269ed` |
+| DAI-001 | Build and migrate portable AI configuration | 2026-07-13 | `ea9eaeb`, `224a483`, `d0d6f6f`; later operation `225fa75` |

@@ -6,7 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.25-1 | Normalize lifecycle backlogs and audit their structure | high | pending | - | Lifecycle backlog contract, four current context backlogs, roadmap correction, fixed-commit audit findings, V3.17 restart verification | Committed lifecycle artifacts, Git history, current audit JSON contract, DAI-004 follow-up | no | Executable backlogs currently contain completed Active rows, duplicate IDs, stale decisions, and contradictory completion evidence that the audit does not detect | M | Red/green fixed-commit fixtures for every canonical rule, legacy artifact normalization, additive JSON compatibility, V3.17 live verification, affected pytest, diff check, deployment identity, and live report-only audit |
+| V3.25-1 | Normalize lifecycle backlogs and audit their structure | high | in_progress | - | Lifecycle backlog contract, four current context backlogs, roadmap correction, fixed-commit audit findings, V3.17 restart verification | Committed lifecycle artifacts, Git history, current audit JSON contract, DAI-004 follow-up | no | Executable backlogs currently contain completed Active rows, duplicate IDs, stale decisions, and contradictory completion evidence that the audit does not detect | M | Red/green fixed-commit fixtures for every canonical rule, legacy artifact normalization, additive JSON compatibility, V3.17 live verification, affected pytest, diff check, deployment identity, and live report-only audit |
 
 ## Completed
 

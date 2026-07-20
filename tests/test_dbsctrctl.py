@@ -125,7 +125,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.24")
+        self.assertEqual(record["method_revision"], "3.25")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -755,6 +755,79 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/BACKLOG.md"), findings)
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/CHANGELOG.md"), findings)
         self.assertIn(("stale_graph", "graphify-out/GRAPH_REPORT.md"), findings)
+
+    def test_audit_accepts_canonical_backlog(self):
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                              text=True, capture_output=True).stdout.strip()
+        context = self.repo / "docs/specs/canonical"
+        context.mkdir(parents=True)
+        (context / "README.md").write_text("# Canonical\n")
+        (context / "CHANGELOG.md").write_text("# Changelog\n")
+        (context / "BACKLOG.md").write_text(
+            "# Backlog\n\n## Active\n\n"
+            "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
+            "|---|---|---|---|---|---|---|---|---|---|---|\n\n"
+            "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
+            f"| CAN-1 | Shipped | 2026-01-01 | `{base[:7]}` |\n"
+        )
+        subprocess.run(["git", "add", "docs/specs/canonical"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "canonical backlog"], cwd=self.repo, check=True,
+                       capture_output=True)
+
+        result = json.loads(run(self.repo, "audit", "--json").stdout)
+        self.assertEqual([], [item for item in result["findings"]
+                              if item.get("context") == "canonical"])
+
+    def test_audit_reports_deterministic_backlog_findings_from_commit(self):
+        context = self.repo / "docs/specs/broken"
+        context.mkdir(parents=True)
+        (context / "README.md").write_text("# Broken\n")
+        (context / "CHANGELOG.md").write_text("# Changelog\n")
+        (context / "BACKLOG.md").write_text(
+            "# Broken\n\n## Active\n\n"
+            "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
+            "|---|---|---|---|---|---|---|---|---|---|---|\n"
+            "| SAME | First | high | done | - | x | y | no | stale | S | audit |\n"
+            "| SAME | Second | high | pending | - | x | y | no | duplicate | S | audit |\n\n"
+            "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
+            "| SAME | Broken | 2026-1-1 | `deadbee` |\n"
+        )
+        subprocess.run(["git", "add", "docs/specs/broken"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "broken backlog"], cwd=self.repo, check=True,
+                       capture_output=True)
+        audited = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                 text=True, capture_output=True).stdout.strip()
+        (context / "BACKLOG.md").write_text("dirty replacement\n")
+
+        result = json.loads(run(self.repo, "audit", "--commit", audited, "--json").stdout)
+        findings = [item for item in result["findings"] if item.get("context") == "broken"]
+        self.assertEqual([
+            ("duplicate_backlog_id", "active", 7, "SAME"),
+            ("invalid_active_status", "active", 7, "SAME"),
+            ("duplicate_backlog_id", "active", 8, "SAME"),
+            ("duplicate_backlog_id", "completed", 14, "SAME"),
+            ("invalid_completed_commit", "completed", 14, "SAME"),
+            ("invalid_completed_date", "completed", 14, "SAME"),
+        ], [(item["code"], item["section"], item["line"], item.get("item_id"))
+            for item in findings])
+
+    def test_audit_assigns_missing_sections_to_document_line_one(self):
+        context = self.repo / "docs/specs/missing_sections"
+        context.mkdir(parents=True)
+        for name, content in (("README.md", "# Missing\n"), ("BACKLOG.md", "# Backlog\n"),
+                              ("CHANGELOG.md", "# Changelog\n")):
+            (context / name).write_text(content)
+        subprocess.run(["git", "add", "docs/specs/missing_sections"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "missing backlog sections"], cwd=self.repo,
+                       check=True, capture_output=True)
+
+        result = json.loads(run(self.repo, "audit", "--json").stdout)
+        findings = [item for item in result["findings"]
+                    if item.get("context") == "missing_sections"]
+        self.assertEqual([
+            ("invalid_backlog_schema", "active", 1),
+            ("invalid_backlog_schema", "completed", 1),
+        ], [(item["code"], item["section"], item["line"]) for item in findings])
 
     def test_audit_flags_unverifiable_graph_metadata(self):
         graph = self.repo / "graphify-out"
@@ -3290,7 +3363,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.24")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.25")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))

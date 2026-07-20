@@ -1,29 +1,36 @@
 # OpenCode Control Plane Backlog
 
+## Active
+
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-24 | Preserve exact reference root and subtree rules | high | done | OCP-23 | Non-duplicated exact-root and recursive permission patterns | OpenCode reference rule generation and deduplication | no | An explicit `path/*` rule duplicates the generated rule and remains before global deny | S | Resolved rule ordering, root and nested read probes, empty-default deny, focused tests, deployment identity |
-| OCP-23 | Preserve reference access after global deny | high | done | OCP-22 | Ordered external-directory permission rendering | OpenCode last-match permission semantics and local reference path | no | Auto-generated reference access precedes and loses to the explicit global deny | S | Empty-default deny, configured deny-then-allow ordering, resolved config, direct read, deployment identity |
-| OCP-22 | Render a portable local repository reference | high | done | OCP-21 | Optional machine-local reference path, conditional OpenCode reference | Existing standalone chezmoi config and OpenCode reference contract | yes | Teammates need the same named repository context without sharing machine-specific absolute paths | S | Empty-default omission, configured rendering, schema, dry-run, deployment identity, restart probe |
-| OCP-1 | Persist approved domain and behavior | high | done | - | control-plane spec | discovery decisions | no | Establish authority | S | Artifact review |
-| OCP-2 | Add control-plane contract test | high | done | OCP-1 | focused test | config and agents | yes | Prevent routing and permission drift | M | 7 focused tests passed |
-| OCP-3 | Align routing and permissions | high | done | OCP-2 | OpenCode config, agents, commands, routing | contracts | no | Enforce selected behavior | M | Resolved assertions passed |
-| OCP-4 | Curate OpenCode skills | high | done | OCP-1 | installer, lock, ignores | installed skills | yes | Remove duplicates and incompatible skills | M | Unique inventory passed |
-| OCP-5 | Remove managed legacy integrations | high | done | OCP-1 | wrappers, Meridian, Headroom, OMO, docs | source inventory | yes | Eliminate unused surfaces | M | Static absence checks passed |
-| OCP-6 | Preserve Graphify without duplicate plugin | high | done | OCP-3 | Graphify installer and project runtime files | graph and hooks | no | Keep useful graph behavior | S | Version, hooks, and query passed |
-| OCP-7 | Clean approved machine runtime | high | done | OCP-3,OCP-4,OCP-5,OCP-6 | installed packages, services, state | package ownership | no | Match runtime to source | M | Runtime absence checks passed |
-| OCP-8 | Deploy and validate | high | done | OCP-7 | managed targets | all changes | no | Activate safely | M | Config and OpenAI probes passed; Bedrock blocked by expired SSO |
-| OCP-9 | Finalize artifacts | medium | done | OCP-8 | control-plane artifacts and indexes | evidence | no | Prevent stale docs | S | Final review passed |
-| OCP-10 | Retire unsupported Pro aliases and restore native Build | high | done | OCP-9 | OpenAI provider override, native/custom primary agents, control-plane artifacts and tests | OpenCode 1.17.20 OAuth behavior, Plan handoff source, PR #36694, and live probes | no | Keep model exposure truthful and preserve supported Plan-to-Build execution | S | Pro probe rejected; 35 affected tests, deployment, resolved config, native Build, and Build-GPT probes passed |
-| OCP-11 | Add provider-neutral private DBSCTR review tools and command | high | done | OCP-10 | review command, typed tools, permissions, tests | DBSCTR V3.11 contracts | no | Expose bounded review without general Plan writes | M | 95 affected tests, config, deployment, and fresh skill probe passed |
-| OCP-12 | Preserve immutable review snapshots through typed tools | high | done | OCP-11 | review tool, runtime adapter, skill, tests | DBSCTR V3.12 contract | no | Prevent mutable pages and stale private completion | S | 102 affected tests, build, deployment, real scan passed |
-| OCP-13 | Preserve review progress across bounded report retention | high | done | OCP-12 | review schema and skill | DBSCTR V3.13 contract | no | Keep pagination stable and expose independent cycle states | S | 106 affected tests, build, real scan, deployment and idempotence passed |
-| OCP-14 | Record structured OpenCode and advisory Herdr correlation | high | done | OCP-13 | typed begin and runtime adapter | DBSCTR V3.14 contract | no | Remove transcript identity heuristics without lifecycle coupling | M | 108 affected tests, build, deployment, resolved config and runtime fixtures passed |
-| OCP-15 | Add repeatable historical DBSCTR review tools | high | done | OCP-13,OCP-14 | typed history scan/save adapters, permissions, skill, tests | DBSCTR V3.16 contract | no | Re-evaluate reviewed history without weakening operational markers or privacy | M | 118 tests, deployment, fresh config/history probes, privacy smoke, and independent review passed |
-| OCP-16 | Add Scout-only Context7 and prompt-free safe begin | high | done | OCP-15 | MCP config, Scout permissions, typed begin permission, helper-worktree access, lifecycle routing, focused tests | Official OpenCode/Context7 contracts and helper safety | yes, with V3.17 | Context7 connected for Scout; validated Build begin/worktree access no longer prompts | M | 39 tests, render/Bun checks, anonymous/authenticated MCP, Scout query, role isolation, deployment/idempotence |
-| OCP-17 | Expose runtime attachment and advisory Herdr health | high | done | OCP-16,V3.18-1 | Typed tools, runtime adapter, permissions, normalized health | Helper interfaces and Herdr structured output | after interface freeze | Returned Herdr IDs are observed but not persisted | M | Primary-session helper enforcement; unavailable/missing/malformed/mismatched/timeout/oversized output; canonical path; advisory-only fixtures passed |
-| OCP-18 | Expose compact history, telemetry, and benchmark interfaces | high | done | OCP-17,V3.20-1,V3.21-1,V3.22-1 | Typed capture summary, drill-down, replay, telemetry, and benchmark adapters | Final helper JSON contracts | after interface freeze | Current history pages exceed practical transport | M | 20 control-plane tests, Bun bundle, argument safety, cursor/order, response bounds, availability, permissions, and live telemetry probe passed |
-| OCP-19 | Expose autonomous R&D worker behavior | high | done | OCP-16,V3.23-1 | Worker command, claim/delivery tools, permissions, Scout access | Loop contract and ledger interfaces | after interface freeze | Each fresh native-Build session must review globally, pause for Discovery, and deliver only a draft PR after explicit instruction | M | 157 tests, resolved config, claim collision, Discovery, recovery, draft-only delivery, deployment, independent review |
-| OCP-20 | Allow Build to maintain standalone local config | high | done | OCP-16,DAI-002 | Exact external-directory permission and tests | Standalone distribution config path | yes, with DAI-002 | Deployment must persist machine-local scheduling settings | S | Rendered native/custom Build allow; Plan/subagent denial; restart probe |
-| OCP-21 | Make custom Build selection and routing exact | high | done | OCP-10,DAI-005 | Lowercase runtime IDs, provider-local permissions, probes | OpenCode 1.18.3 agent loader and task enforcement | yes, with DAI-005 | Frontmatter names differ from filename IDs and model selection does not leave Plan | S | Lowercase IDs resolved; uppercase absent; Claude rejected OpenAI and delegated to Bedrock Sonnet 5 |
-| OCP-15-1 | Pass optional history-save page identity | high | done | OCP-15,V3.16-3 | Typed save limit/cursor fields | Existing history report schema | yes, with V3.16-3 | Full-history workers need exact-cohort revalidation without global write contention | S | 145 passed, 1 skipped across Python 3.12-3.14; executable adapter payload check |
+
+## Completed
+
+| id | outcome | completed | commit |
+|---|---|---|---|
+| OCP-24 | Preserve exact reference root and subtree rules | 2026-07-19 | `4b52a21` |
+| OCP-23 | Preserve reference access after global deny | 2026-07-19 | `d0c3942` |
+| OCP-22 | Render a portable local repository reference | 2026-07-19 | `ef70477` |
+| OCP-21 | Make custom Build selection and routing exact | 2026-07-18 | `8870229` |
+| OCP-20 | Allow Build to maintain standalone local config | 2026-07-17 | `b96dd0d` |
+| OCP-19 | Expose autonomous R&D worker behavior | 2026-07-18 | `9b77969` |
+| OCP-18 | Expose compact history, telemetry, and benchmark interfaces | 2026-07-19 | `0611451` |
+| OCP-17 | Expose runtime attachment and advisory Herdr health | 2026-07-19 | `c96093d` |
+| OCP-16 | Add Scout-only Context7 and prompt-free safe begin | 2026-07-16 | `791bc22` |
+| OCP-15-1 | Pass optional history-save page identity | 2026-07-18 | `920156b` |
+| OCP-15 | Add repeatable historical DBSCTR review tools | 2026-07-16 | `e61a150` |
+| OCP-14 | Record structured OpenCode and advisory Herdr correlation | 2026-07-15 | `537c3a2` |
+| OCP-13 | Preserve review progress across bounded report retention | 2026-07-15 | `6e072b2` |
+| OCP-12 | Preserve immutable review snapshots through typed tools | 2026-07-15 | `e04aa78` |
+| OCP-11 | Add provider-neutral private DBSCTR review tools and command | 2026-07-15 | `f2eb3f1` |
+| OCP-10 | Retire unsupported Pro aliases and restore native Build | 2026-07-13 | `dcebd6c` |
+| OCP-9 | Finalize artifacts | 2026-07-11 | `ea9eaeb` |
+| OCP-8 | Deploy and validate | 2026-07-11 | `ea9eaeb` |
+| OCP-7 | Clean approved machine runtime | 2026-07-11 | `ea9eaeb` |
+| OCP-6 | Preserve Graphify without duplicate plugin | 2026-07-11 | `ea9eaeb` |
+| OCP-5 | Remove managed legacy integrations | 2026-07-11 | `ea9eaeb` |
+| OCP-4 | Curate OpenCode skills | 2026-07-11 | `ea9eaeb` |
+| OCP-3 | Align routing and permissions | 2026-07-11 | `ea9eaeb` |
+| OCP-2 | Add control-plane contract test | 2026-07-11 | `ea9eaeb` |
+| OCP-1 | Persist approved domain and behavior | 2026-07-11 | `ea9eaeb` |
