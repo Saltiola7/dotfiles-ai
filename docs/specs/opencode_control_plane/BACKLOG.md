@@ -24,7 +24,7 @@
 | OCP-13 | Preserve review progress across bounded report retention | 2026-07-15 | `6e072b2` |
 | OCP-12 | Preserve immutable review snapshots through typed tools | 2026-07-15 | `e04aa78` |
 | OCP-11 | Add provider-neutral private DBSCTR review tools and command | 2026-07-15 | `f2eb3f1` |
-| OCP-10 | Retire unsupported Pro aliases and restore native Build | 2026-07-13 | `dcebd6c` |
+| OCP-10 | Retire unsupported Pro aliases and restore native Build | 2026-07-13 | Historical `dcebd6c`; imported by `ea9eaeb` |
 | OCP-9 | Finalize artifacts | 2026-07-11 | `ea9eaeb` |
 | OCP-8 | Deploy and validate | 2026-07-11 | `ea9eaeb` |
 | OCP-7 | Clean approved machine runtime | 2026-07-11 | `ea9eaeb` |

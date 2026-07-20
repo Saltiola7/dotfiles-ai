@@ -805,6 +805,8 @@ records, and retirement decisions. External writes remain approval-gated.
   `id`, `title`, `priority`, `status`, `depends_on`, `owns`, `reads`,
   `parallel_safe`, `reason`, `effort`, and `validation`. Active status is
   `pending`, `in_progress`, `blocked`, or `cancelled`; `done` is invalid.
+- Canonical cells are plain pipe-free text; escaped pipes and code-span pipes are
+  invalid rather than inputs to a general Markdown tokenizer.
 - Every Completed table uses `id`, `outcome`, `completed`, and `commit`. The date
   is ISO `YYYY-MM-DD`, and commit evidence names at least one Git commit that is
   reachable from the audited commit. `completed` records the original outcome

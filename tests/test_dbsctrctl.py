@@ -770,9 +770,19 @@ class DbsctrctlTest(unittest.TestCase):
             "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
             f"| CAN-1 | Shipped | 2026-01-01 | `{base[:7]}` |\n"
         )
-        subprocess.run(["git", "add", "docs/specs/canonical"], cwd=self.repo, check=True)
+        replacement_path = self.repo / "replacement-backlog.md"
+        replacement_path.write_text("# Replaced\n")
+        subprocess.run(["git", "add", "docs/specs/canonical", "replacement-backlog.md"],
+                       cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "canonical backlog"], cwd=self.repo, check=True,
                        capture_output=True)
+        original = subprocess.run(["git", "rev-parse", "HEAD:docs/specs/canonical/BACKLOG.md"],
+                                  cwd=self.repo, check=True, text=True,
+                                  capture_output=True).stdout.strip()
+        replacement = subprocess.run(["git", "rev-parse", "HEAD:replacement-backlog.md"],
+                                     cwd=self.repo, check=True, text=True,
+                                     capture_output=True).stdout.strip()
+        subprocess.run(["git", "replace", original, replacement], cwd=self.repo, check=True)
 
         result = json.loads(run(self.repo, "audit", "--json").stdout)
         self.assertEqual([], [item for item in result["findings"]
@@ -788,7 +798,8 @@ class DbsctrctlTest(unittest.TestCase):
             "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
             "|---|---|---|---|---|---|---|---|---|---|---|\n"
             "| SAME | First | high | done | - | x | y | no | stale | S | audit |\n"
-            "| SAME | Second | high | pending | - | x | y | no | duplicate | S | audit |\n\n"
+            "| SAME | Second | high | pending | - | x | y | no | duplicate | S | audit |\n"
+            "| SAME | malformed |\n\n"
             "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
             "| SAME | Broken | 2026-1-1 | `deadbee` |\n"
         )
@@ -805,9 +816,11 @@ class DbsctrctlTest(unittest.TestCase):
             ("duplicate_backlog_id", "active", 7, "SAME"),
             ("invalid_active_status", "active", 7, "SAME"),
             ("duplicate_backlog_id", "active", 8, "SAME"),
-            ("duplicate_backlog_id", "completed", 14, "SAME"),
-            ("invalid_completed_commit", "completed", 14, "SAME"),
-            ("invalid_completed_date", "completed", 14, "SAME"),
+            ("duplicate_backlog_id", "active", 9, "SAME"),
+            ("invalid_backlog_schema", "active", 9, "SAME"),
+            ("duplicate_backlog_id", "completed", 15, "SAME"),
+            ("invalid_completed_commit", "completed", 15, "SAME"),
+            ("invalid_completed_date", "completed", 15, "SAME"),
         ], [(item["code"], item["section"], item["line"], item.get("item_id"))
             for item in findings])
 

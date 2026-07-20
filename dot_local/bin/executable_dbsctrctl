@@ -1951,8 +1951,8 @@ def command_cleanup(args):
 
 def command_audit(args):
     root = root_dir()
-    commit = git_read(root, "rev-parse", "--verify", f"{args.commit}^{{commit}}").stdout.strip()
-    files = set(git_read(root, "ls-tree", "-r", "--name-only", commit).stdout.splitlines())
+    commit = inspect_git(root, "rev-parse", "--verify", f"{args.commit}^{{commit}}").stdout.strip()
+    files = set(inspect_git(root, "ls-tree", "-r", "--name-only", commit).stdout.splitlines())
     contexts = {}
     for name in files:
         parts = PurePosixPath(name).parts
@@ -1974,18 +1974,18 @@ def command_audit(args):
             })
         if "BACKLOG.md" in present:
             path = f"docs/specs/{context}/BACKLOG.md"
-            backlog = git_read(root, "show", f"{commit}:{path}").stdout
+            backlog = inspect_git(root, "show", f"{commit}:{path}").stdout
             findings.extend(backlog_findings(root, commit, context, path, backlog))
     graph_path = "graphify-out/GRAPH_REPORT.md"
     graph = {"present": graph_path in files, "built_from": None, "stale": None}
     if graph["present"]:
-        report = git_read(root, "show", f"{commit}:{graph_path}").stdout
+        report = inspect_git(root, "show", f"{commit}:{graph_path}").stdout
         match = re.search(r"Built from commit:\s*`([0-9a-f]+)`", report)
-        object_format = git_read(root, "rev-parse", "--show-object-format").stdout.strip()
+        object_format = inspect_git(root, "rev-parse", "--show-object-format").stdout.strip()
         expected_length = 64 if object_format == "sha256" else 40
         if match and len(match.group(1)) == expected_length:
             graph["built_from"] = match.group(1)
-            resolved = git_read(root, "rev-parse", "--verify", f"{graph['built_from']}^{{commit}}", check=False)
+            resolved = inspect_git(root, "rev-parse", "--verify", f"{graph['built_from']}^{{commit}}", check=False)
             if resolved.returncode:
                 findings.append({
                     "code": "unverified_graph_freshness", "severity": "medium", "path": graph_path,
@@ -2054,10 +2054,14 @@ def backlog_section(lines, section, path, context):
     for index in content[2:]:
         cells = backlog_cells(lines[index])
         if cells is None or len(cells) != len(BACKLOG_COLUMNS[section]) or not cells[0]:
-            findings.append({
+            finding = {
                 "code": "invalid_backlog_schema", "severity": "medium", "context": context,
                 "path": path, "section": section, "line": index + 1,
-            })
+            }
+            if cells and cells[0]:
+                finding["item_id"] = cells[0]
+                rows.append((index + 1, cells[0], None))
+            findings.append(finding)
             continue
         rows.append((index + 1, cells[0], dict(zip(BACKLOG_COLUMNS[section], cells))))
     return findings, rows
@@ -2065,10 +2069,10 @@ def backlog_section(lines, section, path, context):
 
 def backlog_commit_reachable(root, audited_commit, evidence):
     for candidate in BACKLOG_COMMIT.findall(evidence):
-        resolved = git_read(root, "rev-parse", "--verify", f"{candidate}^{{commit}}", check=False)
+        resolved = inspect_git(root, "rev-parse", "--verify", f"{candidate}^{{commit}}", check=False)
         if (not resolved.returncode
-                and not git_read(root, "merge-base", "--is-ancestor", resolved.stdout.strip(),
-                                 audited_commit, check=False).returncode):
+                and not inspect_git(root, "merge-base", "--is-ancestor", resolved.stdout.strip(),
+                                    audited_commit, check=False).returncode):
             return True
     return False
 
@@ -2083,6 +2087,8 @@ def backlog_findings(root, commit, context, path, text):
     identifiers = {}
     for section, line, item_id, values in rows:
         identifiers.setdefault(item_id, []).append((section, line, item_id, values))
+        if values is None:
+            continue
         common = {"severity": "medium", "context": context, "path": path,
                   "section": section, "line": line, "item_id": item_id}
         if section == "active" and values["status"] not in BACKLOG_ACTIVE_STATUSES:
