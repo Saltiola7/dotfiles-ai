@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.25 Backlog Integrity Discovery
+
+- Approved one elevated combined cycle to normalize all four current lifecycle
+  backlogs and add deterministic fixed-commit backlog findings to the existing
+  report-only audit. Canonical checks cover table shape, Active status, ID
+  uniqueness, completion date, and reachable commit evidence without reading the
+  worktree overlay or scanning arbitrary prose.
+- Scoped correction of the stale draft-PR roadmap statement, evidence-based
+  DAI-001 closure, and V3.17 normal-session verification. A failed live
+  verification stops for renewed Discovery rather than expanding runtime scope.
+- Assigned the first real complete 30-day effect to one distribution-owned
+  follow-up that cannot run before 2026-08-18. Correlation reason codes,
+  automatic repair, gate blocking, and waiting for that observation are excluded.
+- Discovery readiness: complete. Validation and deployment remain pending in
+  V3.25-1. Intended Final Push: `origin/main`.
+
 ## 2026-07-19 - V3.24 Critical-Path Profiling And Safe Concurrency
 
 - Added helper-timestamped private Phase Spans, path-free complete/partial/

@@ -6,9 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.17-1 | Make live history self-safe | critical | done | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed caller self-mutation is excluded without weakening unrelated mutation detection | M | 124 tests, live deployment, independent privacy review, active-tool continuation/save fixtures |
-| V3.18-1 | Correct correlation and attach resumed runtimes | critical | done | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | 128 tests, typed context fixtures, live quality scan, deployment, independent review |
-| V3.19-1 | Add private SQLite improvement ledger | high | done | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | 136 tests, live migration, semantic integrity, permission, crash recovery, backup, and restore verification |
+| V3.25-1 | Normalize lifecycle backlogs and audit their structure | high | pending | - | Lifecycle backlog contract, four current context backlogs, roadmap correction, fixed-commit audit findings, V3.17 restart verification | Committed lifecycle artifacts, Git history, current audit JSON contract, DAI-004 follow-up | no | Executable backlogs currently contain completed Active rows, duplicate IDs, stale decisions, and contradictory completion evidence that the audit does not detect | M | Red/green fixed-commit fixtures for every canonical rule, legacy artifact normalization, additive JSON compatibility, V3.17 live verification, affected pytest, diff check, deployment identity, and live report-only audit |
 
 ## Completed
 
@@ -24,6 +22,7 @@ Discovery readiness: complete.
 | V3.23-1 | Add capability-first autonomous improvement coordination and draft-PR delivery | 2026-07-18 | `9b77969`, `5f12796`, `7b863d8`, `04627bf`, `6f9a112` |
 | V3.19-1 | Add transactional private SQLite review ledger | 2026-07-16 | `5cd1fd5`, `8468feb` |
 | V3.18-1 | Add exact runtime correlation and resumed-runtime attachment | 2026-07-16 | `4729796`, `d506ab7` |
+| V3.17-1 | Make live history self-safe while preserving external mutation detection | 2026-07-16 | `caa1fd7`, `5b66415`, `c669a24`, `eb3c9fc`, `03a1958` |
 | V3-1–V3-15 | Implement and deploy DBSCTR V3 lifecycle | 2026-07-11 | `3151772` |
 | V3-16 | Automate Gate Commits and Final Push | 2026-07-11 | `f7b11ca` |
 | V3.1-1–V3.1-5 | Add deterministic V3.1 cycles and OpenCode integration | 2026-07-12 | `c9827e0` |

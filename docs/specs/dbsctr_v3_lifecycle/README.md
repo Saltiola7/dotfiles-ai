@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.24 critical-path profiler and safe concurrency implemented
+**Status:** V3.24 implemented; V3.25 backlog integrity approved for implementation
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -120,6 +120,8 @@ Adjacent contexts:
 | DVC-Relevant Change | A cycle commit changing DVC metadata or output identity. |
 | Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
 | Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
+| Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
+| Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
 
 ## Domain Model
 
@@ -542,6 +544,32 @@ records, and retirement decisions. External writes remain approval-gated.
 - Then qualifying routine and elevated operations may activate concurrent mode
 - Otherwise the profiler ships while real-cycle phase concurrency remains disabled
 
+### Feature: V3.25 Backlog Integrity
+
+**Scenario: Audit canonical lifecycle backlogs**
+- Given a fixed Git commit contains one or more lifecycle artifact triplets
+- When `dbsctr_audit` inventories their `BACKLOG.md` files
+- Then every current context is checked against the canonical Active and Completed table contracts
+- And malformed schemas, invalid Active statuses, duplicate IDs, and invalid completion evidence produce deterministic report-only findings
+
+**Scenario: Keep historical completion out of executable work**
+- Given an item has completed with dated commit evidence
+- When its backlog is normalized
+- Then it appears once in Completed and never remains in Active
+- And an empty Active table remains valid
+
+**Scenario: Retain time-bound work honestly**
+- Given the first real DAI-004 effect cannot be observed before its 30-day window closes
+- When current documentation debt is closed
+- Then one distribution-owned Operational Follow-up remains Active until eligible evidence exists
+- And DBSCTR cross-references rather than duplicates that work
+
+**Scenario: Preserve report-only audit authority**
+- Given backlog integrity findings exist
+- When the fixed-commit audit reports them
+- Then it does not rewrite artifacts, alter gates, or block lifecycle completion automatically
+- And remediation still requires an explicit context-scoped DBSCTR cycle
+
 ## Engineering Profile
 
 ### Defaults
@@ -761,6 +789,92 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | Merge and deploy the managed helper, skills, and OpenCode adapters locally after validation |
 | Scope | Interactive critical-path spans, compact reports, repeatable serial/concurrent benchmarks, validated phase DAGs, and safe activation |
 | Overrides | Preserve every gate and primary reconciliation; critical cycles remain serial; no tracing backend, Prefect, hosted service, raw payload retention, or DBSCTR-specific concurrency cap |
+
+### V3.25 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes fixed-commit audit output consumed by lifecycle agents and normalizes executable work across four bounded contexts |
+| Delivery intent | One combined merge/deploy cycle for artifacts, helper behavior, tests, local deployment, and live verification |
+| Scope | Canonical Active/Completed backlog structure, current backlog normalization, bounded draft-PR roadmap correction, additive audit findings, V3.17 restart verification, and the distribution-owned 30-day follow-up |
+| Overrides | Audit remains report-only; inspect committed blobs only; no prose promise scanning, automatic remediation, gate blocking, correlation reason codes, or completion claim before the real observation matures |
+
+### V3.25 Backlog Integrity Contract
+
+- Every current `docs/specs/*/BACKLOG.md` uses the canonical Active table columns
+  `id`, `title`, `priority`, `status`, `depends_on`, `owns`, `reads`,
+  `parallel_safe`, `reason`, `effort`, and `validation`. Active status is
+  `pending`, `in_progress`, `blocked`, or `cancelled`; `done` is invalid.
+- Every Completed table uses `id`, `outcome`, `completed`, and `commit`. The date
+  is ISO `YYYY-MM-DD`, and commit evidence names at least one Git commit that is
+  reachable from the audited commit. `completed` records the original outcome
+  date; later artifact correction does not rewrite historical completion. Empty
+  Active tables are valid.
+- IDs are unique within each backlog and cannot appear in both Active and
+  Completed.
+- Backlog finding codes are `invalid_backlog_schema`, `invalid_active_status`,
+  `duplicate_backlog_id`, `invalid_completed_date`, and
+  `invalid_completed_commit`. Each has severity `medium` and fields `code`,
+  `severity`, `context`, `path`, `section`, and one-based committed `line`;
+  `item_id` is included only when the row supplies a non-empty ID. `section` is
+  `active`, `completed`, or `document` for a schema-level finding.
+- Findings remain deterministic: contexts and missing artifacts are emitted in
+  lexical order, backlog rows in committed line order and then code order, and
+  graph findings last. Malformed rows retain their committed line as identity
+  rather than requiring a parseable ID.
+- A duplicate ID produces one `duplicate_backlog_id` finding for every row that
+  carries that ID, including its first occurrence. A missing Active or Completed
+  heading produces one `invalid_backlog_schema` finding at document line one; a
+  missing or incorrect table beneath an existing heading uses the heading or
+  header line, and a malformed body row uses its own line. Each distinct schema
+  violation emits once at that assigned line.
+- `dbsctrctl audit --commit REF --json` reads each backlog from the once-resolved
+  Git commit. Backlog findings are additive to its JSON response and do not alter
+  existing inventory, graph, or dirty-overlay fields.
+- The audit checks structured tables only. It does not infer obligations from
+  arbitrary README or CHANGELOG prose. Material deferred work must therefore own
+  an explicit Active row.
+- Existing lifecycle audit authority is unchanged: findings are report-only and
+  never mutate files, change gate state, or authorize delivery.
+- The old roadmap statement that all pull-request delivery is deferred is marked
+  superseded only for V3.23's bounded draft-only feature-branch flow. General PR
+  comments, ready transitions, merge, release, and deployment remain deferred.
+- V3.17 normal-session verification runs before V3.25 completion. A failure stops
+  implementation for renewed Discovery rather than silently expanding privacy or
+  correlation behavior.
+- DAI-004-F1 owns the first real complete 30-day observation. It runs after the
+  verified activation plus 30 days, not before 2026-08-18, and remains the only
+  expected Active item after V3.25 closes.
+
+### V3.25 Decision State
+
+- **Facts:** Current backlogs contain completed Active rows, duplicate IDs,
+  noncanonical historical tables, and contradictory completion wording; the
+  fixed-commit audit currently checks triplet presence and graph freshness only.
+- **Decision:** Normalize all four current context backlogs rather than retain
+  multiple legacy parsers.
+- **Decision:** Close DAI-001 from its retained v0.1.0 and later operational
+  evidence without changing its original completion date; retain the real 30-day
+  observation as one distribution-owned row.
+- **Non-goals:** Correlation reason codes, prose heuristics, automatic repair,
+  lifecycle gate enforcement, and waiting until August to close V3.25.
+- **Unresolved decisions:** None that materially change V3.25 implementation.
+
+## Gate Ledger — V3.25 Planned
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Canonical backlog and Operational Follow-up language | required | pending | V3.25 specification | - | Primary |
+| Behavior | Fixed-commit structural findings and honest follow-up behavior | required | pending | Focused behavior fixtures | - | Primary |
+| Spec | Backlog schemas, audit JSON additions, and normalized artifacts | required | pending | README and BACKLOG | - | Primary |
+| Contract | Commit reachability, uniqueness, read-only operation, and compatibility | required | pending | Helper and contract tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest suites | - | Primary |
+| Refactor | Minimal parser integrated with existing fixed-commit inventory | required | pending | Diff review and compilation | - | Primary |
+| Review/Integrate | Independent correctness and compatibility review | required | pending | reviewer-openai | - | Primary |
+| Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply the managed helper locally | required | pending | Targeted chezmoi apply and identity check | - | Primary |
+| Operate | Run fixed-commit audit and V3.17 normal-session verification | required | pending | Live typed/CLI probes | - | Primary |
+| Maintain/Retire | Remove legacy backlog layouts and retain the dated DAI follow-up | required | pending | Repository audit and artifact review | - | Primary |
 
 ### V3.20 Atomic Capture Contract
 
@@ -1360,6 +1474,10 @@ inventories bounded-context README/BACKLOG/CHANGELOG triplets, checks
 recorded Graphify freshness, and reports the current dirty overlay as excluded.
 It reads committed blobs, never the overlay, and performs no mutation.
 
+V3.25 extends that same report-only fixed-commit inventory with canonical backlog
+structure findings for every discovered lifecycle context. It does not add a new
+command, write path, semantic prose classifier, or completion gate.
+
 After deterministic inventory, DBSCTR may trace artifact claims to authoritative
 source and classify confirmed drift, stale evidence, missing artifacts, authority
 conflicts, historical-but-unlabelled content, and unverified claims. This audit
@@ -1831,6 +1949,8 @@ module routing without changing Cycle Record schema or public commands.
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
 | Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |
+| Backlog integrity | Fixed-commit canonical, malformed, duplicate, invalid-status, invalid-date, unreachable-commit, empty-Active, and dirty-overlay fixtures | Additive report-only audit findings across every lifecycle context | Planned for V3.25 | No overlay reads, mutation, prose inference, or automatic gate effect |
+| V3.17 restart verification | Normal Build session continuation/save with caller self-mutation and included-candidate mutation | Caller exclusion remains safe after restart | Required by V3.25 Operate gate | Self-mutation succeeds; included-candidate mutation fails closed; failure returns to Discovery |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full
