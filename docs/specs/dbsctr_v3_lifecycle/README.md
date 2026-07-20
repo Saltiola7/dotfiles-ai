@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.24 implemented; V3.25 backlog integrity approved for implementation
+**Status:** V3.25 backlog integrity implemented and deployed
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -850,9 +850,9 @@ records, and retirement decisions. External writes remain approval-gated.
 
 ### V3.25 Decision State
 
-- **Facts:** Current backlogs contain completed Active rows, duplicate IDs,
-  noncanonical historical tables, and contradictory completion wording; the
-  fixed-commit audit currently checks triplet presence and graph freshness only.
+- **Facts:** All four current backlogs use the canonical structure; the
+  fixed-commit audit checks triplet presence, backlog integrity, and graph
+  freshness without reading replacement objects or the worktree overlay.
 - **Decision:** Normalize all four current context backlogs rather than retain
   multiple legacy parsers.
 - **Decision:** Close DAI-001 from its retained v0.1.0 and later operational
@@ -862,21 +862,21 @@ records, and retirement decisions. External writes remain approval-gated.
   lifecycle gate enforcement, and waiting until August to close V3.25.
 - **Unresolved decisions:** None that materially change V3.25 implementation.
 
-## Gate Ledger — V3.25 Planned
+## Gate Ledger — V3.25 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Canonical backlog and Operational Follow-up language | required | pending | V3.25 specification | - | Primary |
-| Behavior | Fixed-commit structural findings and honest follow-up behavior | required | pending | Focused behavior fixtures | - | Primary |
-| Spec | Backlog schemas, audit JSON additions, and normalized artifacts | required | pending | README and BACKLOG | - | Primary |
-| Contract | Commit reachability, uniqueness, read-only operation, and compatibility | required | pending | Helper and contract tests | - | Primary |
-| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest suites | - | Primary |
-| Refactor | Minimal parser integrated with existing fixed-commit inventory | required | pending | Diff review and compilation | - | Primary |
-| Review/Integrate | Independent correctness and compatibility review | required | pending | reviewer-openai | - | Primary |
+| Domain | Canonical backlog and Operational Follow-up language | required | passed | V3.25 specification | - | Primary |
+| Behavior | Fixed-commit structural findings and honest follow-up behavior | required | passed | Red/green canonical, malformed, duplicate, replacement, and missing-section fixtures | - | Primary |
+| Spec | Backlog schemas, audit JSON additions, and normalized artifacts | required | passed | README, four BACKLOGs, and ROADMAP | - | Primary |
+| Contract | Commit reachability, uniqueness, read-only operation, and compatibility | required | passed | Helper contract tests and zero-finding fixed-commit audit | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | passed | 164 affected tests passed, 1 skipped | - | Primary |
+| Refactor | Minimal parser integrated with existing fixed-commit inventory | required | passed | Python compilation, diff check, and replacement-safe Git reads | - | Primary |
+| Review/Integrate | Independent correctness and compatibility review | required | passed | reviewer-openai final no findings | - | Primary |
 | Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply the managed helper locally | required | pending | Targeted chezmoi apply and identity check | - | Primary |
-| Operate | Run fixed-commit audit and V3.17 normal-session verification | required | pending | Live typed/CLI probes | - | Primary |
-| Maintain/Retire | Remove legacy backlog layouts and retain the dated DAI follow-up | required | pending | Repository audit and artifact review | - | Primary |
+| Deploy | Apply the managed helper locally | required | passed | Targeted chezmoi apply, identity, and idempotence | - | Primary |
+| Operate | Run fixed-commit audit and V3.17 normal-session verification | required | passed | Deployed zero-finding audit and snapshot-stable typed continuation | - | Primary |
+| Maintain/Retire | Remove legacy backlog layouts and retain the dated DAI follow-up | required | passed | Canonical four-context audit; DAI-004-F1 remains owned and dated | - | Primary |
 
 ### V3.20 Atomic Capture Contract
 
@@ -1951,7 +1951,7 @@ module routing without changing Cycle Record schema or public commands.
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
 | Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |
-| Backlog integrity | Fixed-commit canonical, malformed, duplicate, invalid-status, invalid-date, unreachable-commit, empty-Active, and dirty-overlay fixtures | Additive report-only audit findings across every lifecycle context | Planned for V3.25 | No overlay reads, mutation, prose inference, or automatic gate effect |
+| Backlog integrity | Fixed-commit canonical, malformed, duplicate, invalid-status, invalid-date, unreachable-commit, replacement-object, empty-Active, and dirty-overlay fixtures | Additive report-only audit findings across every lifecycle context | Implemented in V3.25; live audit returned zero findings | No overlay/replacement reads, mutation, prose inference, or automatic gate effect |
 | V3.17 restart verification | Normal Build session continuation/save with caller self-mutation and included-candidate mutation | Caller exclusion remains safe after restart | Required by V3.25 Operate gate | Self-mutation succeeds; included-candidate mutation fails closed; failure returns to Discovery |
 
 Required smoke scenarios: routine Python library, elevated deployed service,

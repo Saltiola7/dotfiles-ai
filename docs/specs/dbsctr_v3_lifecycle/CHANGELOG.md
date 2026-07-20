@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.25 Backlog Integrity
+
+- Normalized all four lifecycle backlogs, preserved historical outcome dates
+  with reachable import evidence, corrected bounded draft-PR roadmap language,
+  and retained one distribution-owned 30-day observation not due before
+  2026-08-18.
+- Added deterministic report-only fixed-commit findings for schema, Active
+  status, duplicate IDs, completion dates, and reachable commit evidence. Audit
+  reads disable Git replacements and exclude the worktree overlay.
+- Validation: 164 affected tests passed and 1 skipped; Python compilation, diff
+  checks, deployed source identity/idempotence, zero-finding four-context audit,
+  V3.17 snapshot-stable typed continuation, and independent review passed.
+  Gate Commits: `72a85b5`, `048e52b`. Gate Exceptions: none. Deployment:
+  managed helper and DBSCTR skill applied locally. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-19 - V3.25 Backlog Integrity Discovery
 
 - Approved one elevated combined cycle to normalize all four current lifecycle

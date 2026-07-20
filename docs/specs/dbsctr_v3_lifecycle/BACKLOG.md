@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.25-1 | Normalize lifecycle backlogs and audit their structure | high | in_progress | - | Lifecycle backlog contract, four current context backlogs, roadmap correction, fixed-commit audit findings, V3.17 restart verification | Committed lifecycle artifacts, Git history, current audit JSON contract, DAI-004 follow-up | no | Executable backlogs currently contain completed Active rows, duplicate IDs, stale decisions, and contradictory completion evidence that the audit does not detect | M | Red/green fixed-commit fixtures for every canonical rule, legacy artifact normalization, additive JSON compatibility, V3.17 live verification, affected pytest, diff check, deployment identity, and live report-only audit |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.25-1 | Normalize all lifecycle backlogs and add replacement-safe fixed-commit integrity findings | 2026-07-19 | `72a85b5`, `048e52b` |
 | V3.24-1 | Add private critical-path spans and helper-validated, benchmark-gated read concurrency | 2026-07-19 | `526515b`, `06312c4`, `876b171`, `ef78f0d`, `609ca49` |
 | V3.22-1 | Add immutable activation-bound 30-day benchmark effects and deterministic replay | 2026-07-19 | `b4c5993` |
 | V3.21-1 | Add privacy-safe structured telemetry with explicit capability availability and attribution | 2026-07-19 | `ae537d2`, `26589ce` |
