@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.20 atomic history captures implemented
+**Status:** V3.22 longitudinal effects implemented; V3.24 profiler planned
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -118,6 +118,8 @@ Adjacent contexts:
 | Review Marker | Atomic local evidence that a Sanitized Review Report was persisted successfully. |
 | Original Checkout Sync | Best-effort post-push synchronization result for the checkout that began an isolated cycle. |
 | DVC-Relevant Change | A cycle commit changing DVC metadata or output identity. |
+| Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
+| Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
 
 ## Domain Model
 
@@ -508,6 +510,38 @@ records, and retirement decisions. External writes remain approval-gated.
   rollback copy
 - But a corrupt, incompatible, symlinked, or out-of-scope source fails closed
 
+### Feature: V3.24 Critical-Path Profiling And Safe Concurrency
+
+**Scenario: Explain interactive cycle wall time**
+- Given an interactive DBSCTR cycle starts, completes, blocks, or is abandoned
+- When lifecycle phases and supported operations execute
+- Then private Phase Spans expose elapsed work, waits, overlap, and the critical
+  path with explicit attribution availability
+- And prompts, file contents, command arguments, URLs, credentials, and absolute
+  machine paths are never retained
+
+**Scenario: Execute proven-independent work concurrently**
+- Given a routine or elevated cycle has ready operations with independent
+  dependencies and non-overlapping ownership
+- When the primary derives an Execution DAG and deterministic validation accepts it
+- Then independent reads and profile-declared read-only QA may execute concurrently
+- And dependent work waits for primary reconciliation and renewed validation
+
+**Scenario: Fail safely when concurrency is uncertain**
+- Given a cycle is critical or its dependencies, ownership, or graph validity are
+  uncertain
+- When execution is planned
+- Then the affected work remains serial
+- And a failed concurrent node records partial evidence and follows existing gate
+  failure handling rather than being hidden by an automatic retry
+
+**Scenario: Activate concurrency only after measured benefit**
+- Given serial and concurrent modes run against the same repeatable fixture
+- When concurrent execution is at least 10 percent faster by median wall time
+  without more failed gates or remediation rounds
+- Then qualifying routine and elevated operations may activate concurrent mode
+- Otherwise the profiler ships while real-cycle phase concurrency remains disabled
+
 ## Engineering Profile
 
 ### Defaults
@@ -719,6 +753,15 @@ records, and retirement decisions. External writes remain approval-gated.
 | Scope | Atomic multi-page captures, compact transport, structured telemetry, and longitudinal implementation effects |
 | Overrides | Structured sanitized evidence only; explicit unavailable values; association rather than causality; cost remains report-only |
 
+### V3.24 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes lifecycle execution order, private telemetry retention, and automatic task fanout |
+| Delivery intent | Merge and deploy the managed helper, skills, and OpenCode adapters locally after validation |
+| Scope | Interactive critical-path spans, compact reports, repeatable serial/concurrent benchmarks, validated phase DAGs, and safe activation |
+| Overrides | Preserve every gate and primary reconciliation; critical cycles remain serial; no tracing backend, Prefect, hosted service, raw payload retention, or DBSCTR-specific concurrency cap |
+
 ### V3.20 Atomic Capture Contract
 
 - A capture is one immutable logical manifest over every page selected from one
@@ -805,6 +848,80 @@ records, and retirement decisions. External writes remain approval-gated.
 - Program delivery completes when the capability is merged, deployed, and
   smoke-tested; the first real 30-day observation is a scheduled follow-up, not
   a blocked implementation gate.
+
+### V3.24 Critical-Path And Execution Contract
+
+- The profiler observes interactive DBSCTR runtime only. `/dbsctr-review` and
+  autonomous-improvement worker performance are excluded from optimization scope.
+- Explicit lifecycle markers and supported automatic tool/subagent observations
+  produce Phase Spans with opaque identity, parent and dependency identity,
+  phase or operation class, start/end timing, wait/active duration when available,
+  result, attribution status, and repository-relative ownership paths.
+- Detailed spans remain in the restrictive local private store for 90 days.
+  They never retain prompts, responses, file contents, command arguments, URLs,
+  credentials, environment values, or absolute machine paths. Structured review
+  input receives path-free aggregates rather than detailed span records.
+- Missing markers, process interruption, unsupported adapters, and abandoned or
+  blocked cycles produce explicit partial or unavailable fields. The profiler
+  never invents timing boundaries or reports incomplete evidence as a full
+  critical path.
+- End-of-cycle CLI output is compact and includes total wall time, critical-path
+  time, principal waits, concurrent overlap, repeated work, and attribution
+  caveats. No OTLP exporter, tracing backend, viewer, or hosted service is part of
+  the first cycle.
+- Baseline evidence combines retained historical aggregates, a synthetic same-task
+  no-DBSCTR control, and a repeatable current-DBSCTR fixture. Activation uses at
+  least five paired successful serial/concurrent fixture runs after warmup and
+  requires a median wall-time reduction of at least 10 percent, unchanged required
+  gates, and no increase in failed gates or remediation rounds.
+- The primary derives each Execution DAG from current artifacts and declares exact
+  repository-relative ownership. The helper validates acyclicity, dependencies,
+  ownership overlap, allowed operation classes, risk, and reconciliation before
+  dispatch. Uncertain or overlapping nodes serialize.
+- Initial automatic concurrency is limited to independent reads and
+  profile-declared read-only QA in routine and elevated cycles. Critical cycles
+  remain serial. DBSCTR adds no fixed worker cap: all validated ready nodes may run,
+  subject to existing OpenCode and operating-system limits.
+- The primary alone reconciles concurrent outputs and reruns affected validation
+  before dependent gates pass. A node failure retains partial evidence and uses
+  normal gate remediation; it is not silently retried serially. Serial execution
+  remains the deterministic fallback before dispatch when validation cannot prove
+  safety.
+
+### V3.24 Decision State
+
+- **Fact:** V3.21 telemetry provides aggregate availability and attribution but
+  has no phase boundaries, overlap, wait, or critical-path evidence.
+- **Fact:** The existing OpenCode task runtime already supports concurrent
+  independent operations; no separate workflow engine is required for the first
+  slice.
+- **Assumption:** Supported adapters expose enough structured timing and identity
+  for automatic operation spans. Unsupported observations remain explicitly
+  unavailable and do not block explicit lifecycle markers.
+- **Accepted risk:** Detailed local spans retain repository-relative ownership
+  paths for 90 days to validate collision safety; path-free aggregates are the
+  only span-derived input to review history.
+- **Accepted risk:** There is no DBSCTR-specific concurrency cap. Deterministic
+  DAG validation limits dispatch to proven-independent ready nodes, while runtime
+  and operating-system limits remain authoritative.
+- **Unresolved decisions:** None that materially change V3.24 scope, safety,
+  interfaces, delivery, or validation.
+
+## Gate Ledger — V3.24 Planned
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Phase-span, critical-path, and Execution DAG language | required | pending | V3.24 specification | - | Primary |
+| Behavior | Complete, partial, serial, concurrent, fallback, and activation scenarios | required | pending | V3.24 scenarios | - | Primary |
+| Spec | Private span, CLI report, DAG, benchmark, and retention interfaces | required | pending | README and BACKLOG | - | Primary |
+| Contract | Privacy, attribution, ordering, ownership, failure, and activation invariants | required | pending | V3.24 contract | - | Primary |
+| Test-driven implementation | Intended failures then focused passing fixtures | required | pending | Affected helper and lifecycle tests | - | Primary |
+| Refactor | Minimal dependency-free integration with existing runtime and ledger | required | pending | Diff and artifact review | - | Primary |
+| Review/Integrate | Independent safety, privacy, and concurrency review | required | pending | Reviewer plus primary integration review | - | Primary |
+| Release | Publish a versioned external artifact | not_applicable | not_run | No external release requested | - | User |
+| Deploy | Apply managed helper, skills, and adapters locally | required | pending | Targeted chezmoi apply and identity checks | - | Primary |
+| Operate | Verify profiler and qualifying/fallback execution in a fresh runtime | required | pending | Local smoke and paired benchmark | - | Primary |
+| Maintain/Retire | Preserve old records and prune detailed spans after 90 days | required | pending | Compatibility, retention, backup/restore, and cleanup tests | - | Primary |
 
 ## Gate Ledger — V3.1 Completion
 
@@ -1032,8 +1149,10 @@ tool and provider examples and load only when useful.
 
 ### Development Kernel Contract
 
-- Domain, Behavior, Spec, Contract, Test-driven implementation, and Refactor run
-  in order for non-trivial behavior changes.
+- Domain, Behavior, Spec, Contract, Test-driven implementation, and Refactor retain
+  their dependency order for non-trivial behavior changes; validated independent
+  operations within ready concerns may overlap without allowing a dependent gate
+  to pass early.
 - Tests or equivalent failing evidence precede implementation where a harness can
   express the behavior; exceptions are recorded rather than fabricated.
 - Refactor begins only after affected behavior passes.
@@ -1695,6 +1814,8 @@ module routing without changing Cycle Record schema or public commands.
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
+| Critical-path profiler | Deterministic complete, partial, unavailable, retention, and privacy fixtures | Span capture, attribution, reports, and 90-day pruning | Planned for V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
+| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Planned for V3.24 | At least 10% lower median wall time with unchanged gates and no additional failures or remediation rounds |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

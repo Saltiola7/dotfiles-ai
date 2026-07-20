@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.24 Profiler And Concurrency Discovery
+
+- Approved a local critical-path profiler for interactive DBSCTR cycles using
+  explicit lifecycle markers and supported automatic operation spans. Detailed
+  metadata, including repository-relative ownership paths, is retained privately
+  for 90 days; review input is path-free and no payloads or absolute paths persist.
+- Approved benchmark-first concurrency for independent reads and profile-declared
+  read-only QA in routine and elevated cycles. Critical cycles and uncertain or
+  overlapping work remain serial; the primary reconciles outputs and revalidates
+  before dependent gates pass.
+- Activation requires at least five paired fixture runs, 10 percent lower median
+  wall time, unchanged required gates, and no increase in failures or remediation.
+  The profiler still ships if concurrency does not qualify. Prefect, OTLP, tracing
+  backends, hosted services, and optimization of review/improvement workers remain
+  out of scope.
+
 ## 2026-07-19 - V3.22 Longitudinal Effects
 
 - Added immutable versioned benchmark definitions and capture-bound effect
