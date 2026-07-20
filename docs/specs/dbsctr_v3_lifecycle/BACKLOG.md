@@ -9,12 +9,12 @@ Discovery readiness: complete.
 | V3.17-1 | Make live history self-safe | critical | done | — | Caller exclusion, snapshot identity, validated archive reuse | V3.16 history contract, OpenCode tool context | yes, only with OCP-16 | Typed caller self-mutation is excluded without weakening unrelated mutation detection | M | 124 tests, live deployment, independent privacy review, active-tool continuation/save fixtures |
 | V3.18-1 | Correct correlation and attach resumed runtimes | critical | done | V3.17-1 | Correlation precedence, quality, runtime attachment, Cycle Record compatibility | Runtime IDs, worktrees, session families | no | Source fallback duplicates cycles and telemetry | M | 128 tests, typed context fixtures, live quality scan, deployment, independent review |
 | V3.19-1 | Add private SQLite improvement ledger | high | done | V3.17-1,V3.18-1 | Ledger schema, migrations, JSON compatibility, backup, restore | Private review history | no | Durable trends and experiments need transactional relational state | L | 136 tests, live migration, semantic integrity, permission, crash recovery, backup, and restore verification |
-| V3.24-1 | Profile critical paths and enable proven-safe phase concurrency | critical | ready | V3.21-1,V3.22-1 | Phase spans, private retention, compact reports, benchmark fixture, DAG validation, activation and serial fallback | Cycle Records, OpenCode task runtime, evidence envelopes, structured telemetry | no | Shorter interactive cycles require measured waits and safe overlap without weakening gates | L | Privacy/partial-span fixtures; at least five paired serial/concurrent fixture runs; >=10% lower median wall time; unchanged gates and no added failures/remediation |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.24-1 | Add private critical-path spans and helper-validated, benchmark-gated read concurrency | 2026-07-19 | `526515b`, `06312c4`, `876b171`, `ef78f0d`, `609ca49` |
 | V3.22-1 | Add immutable activation-bound 30-day benchmark effects and deterministic replay | 2026-07-19 | `b4c5993` |
 | V3.21-1 | Add privacy-safe structured telemetry with explicit capability availability and attribution | 2026-07-19 | `ae537d2`, `26589ce` |
 | V3.20-1 | Add atomic multi-page captures and bounded summary/drill-down replay | 2026-07-19 | `f3f84b2`, `8ce2317`, `cdc91fc`, `2a4d27c` |

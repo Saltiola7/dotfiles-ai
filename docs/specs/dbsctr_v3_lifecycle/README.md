@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.22 longitudinal effects implemented; V3.24 profiler planned
+**Status:** V3.24 critical-path profiler and safe concurrency implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -919,21 +919,21 @@ records, and retirement decisions. External writes remain approval-gated.
 - **Unresolved decisions:** None that materially change V3.24 scope, safety,
   interfaces, delivery, or validation.
 
-## Gate Ledger — V3.24 Planned
+## Gate Ledger — V3.24 Completion
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Phase-span, critical-path, and Execution DAG language | required | pending | V3.24 specification | - | Primary |
-| Behavior | Complete, partial, serial, concurrent, fallback, and activation scenarios | required | pending | V3.24 scenarios | - | Primary |
-| Spec | Private span, CLI report, DAG, benchmark, and retention interfaces | required | pending | README and BACKLOG | - | Primary |
-| Contract | Privacy, attribution, ordering, ownership, failure, and activation invariants | required | pending | V3.24 contract | - | Primary |
-| Test-driven implementation | Intended failures then focused passing fixtures | required | pending | Affected helper and lifecycle tests | - | Primary |
-| Refactor | Minimal dependency-free integration with existing runtime and ledger | required | pending | Diff and artifact review | - | Primary |
-| Review/Integrate | Independent safety, privacy, and concurrency review | required | pending | Reviewer plus primary integration review | - | Primary |
+| Domain | Phase-span, critical-path, and Execution DAG language | required | passed | V3.24 specification | - | Primary |
+| Behavior | Complete, partial, serial, concurrent, fallback, and activation scenarios | required | passed | V3.24 scenarios and regressions | - | Primary |
+| Spec | Private span, CLI report, DAG, benchmark, and retention interfaces | required | passed | README, BACKLOG, helper, and typed adapters | - | Primary |
+| Contract | Privacy, attribution, ordering, ownership, failure, and activation invariants | required | passed | V3.24 contract and focused tests | - | Primary |
+| Test-driven implementation | Intended failures then focused passing fixtures | required | passed | 157 affected tests passed, 1 skipped | - | Primary |
+| Refactor | Minimal dependency-free integration with existing runtime and ledger | required | passed | Compilation, diff checks, reviewer remediation | - | Primary |
+| Review/Integrate | Independent safety, privacy, and concurrency review | required | passed | reviewer-openai final no findings | - | Primary |
 | Release | Publish a versioned external artifact | not_applicable | not_run | No external release requested | - | User |
-| Deploy | Apply managed helper, skills, and adapters locally | required | pending | Targeted chezmoi apply and identity checks | - | Primary |
-| Operate | Verify profiler and qualifying/fallback execution in a fresh runtime | required | pending | Local smoke and paired benchmark | - | Primary |
-| Maintain/Retire | Preserve old records and prune detailed spans after 90 days | required | pending | Compatibility, retention, backup/restore, and cleanup tests | - | Primary |
+| Deploy | Apply managed helper, skills, and adapters locally | required | passed | Targeted chezmoi apply, identity, config, and idempotence checks | - | Primary |
+| Operate | Verify profiler and qualifying/fallback execution in a fresh runtime | required | passed | Deployed profile smoke and helper-owned paired benchmark | - | Primary |
+| Maintain/Retire | Preserve old records and prune detailed spans after 90 days | required | passed | Compatibility, retention, backup/restore, and cleanup tests | - | Primary |
 
 ## Gate Ledger — V3.1 Completion
 
@@ -1830,7 +1830,7 @@ module routing without changing Cycle Record schema or public commands.
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
-| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; committed-fixture activation replay pending | At least 10% lower median wall time with equivalent required gates and no additional remediation rounds |
+| Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

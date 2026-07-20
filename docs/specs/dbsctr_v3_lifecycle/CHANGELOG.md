@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-19 - V3.24 Critical-Path Profiling And Safe Concurrency
+
+- Added helper-timestamped private Phase Spans, path-free complete/partial/
+  unavailable profiles, causal critical paths, wait/overlap/repeated-work
+  summaries, correlated review aggregates, 90-day live/backup pruning, and
+  backup/restore integrity without retaining prompts, payloads, or absolute paths.
+- Added Build-primary-only Execution DAG validation for read and read-only-QA
+  workers, dependency-closed completion, exact ownership conflict checks, one
+  required reconciliation node, critical/uncertain serial fallback, and no helper
+  dispatch or silent retry.
+- Added helper-owned execution of a commit/blob-bound fixture with one warmup and
+  five paired runs. Current activation measured 737 ms serial and 214 ms concurrent
+  medians, 70.96 percent faster, with equivalent required-gate digests and no
+  remediation rounds.
+- Validation: 157 affected tests passed and 1 skipped; Python compilation, diff
+  checks, typed argv/config contracts, targeted chezmoi dry-run/apply/idempotence,
+  deployed identity/config/profile/DAG smokes, and iterative independent review
+  passed with no final findings. Gate Commits: `526515b`, `06312c4`, `876b171`,
+  `ef78f0d`, `609ca49`. Gate Exceptions: none. Deployment: managed helper, skill,
+  agents, runtime, tools, and config applied locally. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-19 - V3.24 Profiler And Concurrency Discovery
 
 - Approved a local critical-path profiler for interactive DBSCTR cycles using
