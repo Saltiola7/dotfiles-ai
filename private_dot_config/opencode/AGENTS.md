@@ -30,7 +30,8 @@ A validated Build-primary agent has standing authorization to use typed
 `dbsctr_begin` with its committed applicability plan, typed `dbsctr_attach` when
 resuming an active cycle in its recorded worktree, typed `dbsctr_phase_span` for
 private explicit lifecycle markers, typed `dbsctr_execution_benchmark` for bounded
-local activation evidence, and DBSCTR worktree access.
+local activation evidence, typed `dbsctr_execution_dag` for primary-only execution
+authorization, and DBSCTR worktree access.
 Plan and subagents remain denied; this authorization does not cover destructive
 or external writes.
 

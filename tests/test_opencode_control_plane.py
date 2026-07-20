@@ -204,6 +204,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
     assert config["permission"]["external_directory"] == "deny"
+    assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
