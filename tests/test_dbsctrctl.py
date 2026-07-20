@@ -2837,7 +2837,9 @@ class DbsctrctlTest(unittest.TestCase):
              "ownership_paths": ["tracked.txt"]},
             {"id": "fixture-b", "depends_on": [], "operation": "read",
              "ownership_paths": ["docs/specs/test/README.md"]},
-            {"id": "fixture-reconcile", "depends_on": ["fixture-a", "fixture-b"],
+            {"id": "fixture-c", "depends_on": ["fixture-a"], "operation": "read",
+             "ownership_paths": ["docs/specs/test/BACKLOG.md"]},
+            {"id": "fixture-reconcile", "depends_on": ["fixture-b", "fixture-c"],
              "operation": "reconcile", "ownership_paths": []},
         ], "completed": []}
         fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,

@@ -4239,6 +4239,7 @@ def command_execution_benchmark(args):
     if not 2 <= len(workers) <= 16 or any(len(node["ownership_paths"]) != 1 for node in workers):
         fail("execution benchmark fixture worker count is invalid")
     delay = fixture_value["synthetic_delay_ms"] / 1000
+    worker_by_id = {node["id"]: node for node in workers}
     def task(node):
         path = node["ownership_paths"][0]
         result = subprocess.run(
@@ -4249,11 +4250,20 @@ def command_execution_benchmark(args):
             fail("execution benchmark fixture read failed")
         time.sleep(delay)
     def serial_run():
-        for node in workers:
-            task(node)
+        for node_id in authorization["order"]:
+            if node_id in worker_by_id:
+                task(worker_by_id[node_id])
     def concurrent_run():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(workers)) as pool:
-            list(pool.map(task, workers))
+        completed, pending = set(), set(worker_by_id)
+        while pending:
+            ready = sorted(node_id for node_id in pending
+                           if set(worker_by_id[node_id]["depends_on"]) <= completed)
+            if not ready:
+                fail("execution benchmark fixture has no ready worker")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
+                list(pool.map(task, (worker_by_id[node_id] for node_id in ready)))
+            completed.update(ready)
+            pending.difference_update(ready)
     serial_run()
     concurrent_run()
     gate_digest = hashlib.sha256(ledger_payload(fixture_value["required_gates"]).encode()).hexdigest()
