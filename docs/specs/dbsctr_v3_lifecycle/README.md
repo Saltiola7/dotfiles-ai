@@ -122,6 +122,8 @@ Adjacent contexts:
 | Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
 | Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
+| Worktree Inventory | Read-only local report of DBSCTR-owned cycle worktrees, allocated bytes, lifecycle state, and cleanup blockers. |
+| Cleanup Candidate | Completed DBSCTR-owned worktree that passes local retention, cleanliness, branch, and HEAD checks; cleanup still revalidates delivery containment. |
 
 ## Domain Model
 
@@ -580,7 +582,7 @@ records, and retirement decisions. External writes remain approval-gated.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.25`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.26`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -798,6 +800,71 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | One combined merge/deploy cycle for artifacts, helper behavior, tests, local deployment, and live verification |
 | Scope | Canonical Active/Completed backlog structure, current backlog normalization, bounded draft-PR roadmap correction, additive audit findings, V3.17 restart verification, and the distribution-owned 30-day follow-up |
 | Overrides | Audit remains report-only; inspect committed blobs only; no prose promise scanning, automatic remediation, gate blocking, correlation reason codes, or completion claim before the real observation matures |
+
+### V3.26 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: batch maintenance removes retained worktrees and their generated DVC data and environments |
+| Delivery intent | Merge and deploy the managed helper and DBSCTR skill locally after validation |
+| Scope | Read-only worktree inventory, confirmation-gated completed-worktree cleanup, shared DVC cache, and APFS-efficient output links |
+| Overrides | Preserve all existing cleanup safety checks and 24-hour retention; no background deletion, active/dirty cleanup, virtualenv sharing, direct OpenCode database pruning, or DVC output mutation |
+
+### V3.26 Worktree Maintenance Contract
+
+- `dbsctrctl worktree-list --json` reads Cycle Records in the current Git common
+  directory and reports DBSCTR-owned worktree lifecycle state, allocated bytes,
+  and local cleanup blockers without fetching, deleting, or changing records.
+- A Cleanup Candidate is completed, DBSCTR-created, outside the current worktree,
+  past the 24-hour retention window unless `--now` is selected, clean, on its
+  recorded branch, and at its recorded final commit. Candidate status is advisory:
+  cleanup still fetches and proves every recorded commit reached the unchanged
+  delivery target before removal.
+- `dbsctrctl cleanup --completed` processes completed DBSCTR-owned records in
+  lexical cycle order and applies the existing cleanup contract independently to
+  each. It never selects active, failed, low-level, or foreign worktrees. A failed
+  candidate is reported while later candidates continue; any failure makes the
+  batch command fail overall, so a partial cleanup is explicit and retryable.
+- Cleanup remains an explicit destructive operation under the existing OpenCode
+  confirmation rule. Final Push does not delete its current worktree, and no
+  timer, daemon, login hook, or implicit expiry performs cleanup.
+- `dbsctrctl begin` configures DVC worktrees with the source cache directory and
+  local `cache.type = reflink,copy`. On supported same-volume APFS storage,
+  checked-out outputs use copy-on-write reflinks; copy remains the safe fallback.
+  Existing worktrees are not rewritten or relinked implicitly.
+- DVC does not own `.venv` or arbitrary ignored outputs. Those remain per-worktree
+  generated state and are reclaimed only when the worktree is explicitly cleaned.
+
+### V3.26 Decision State
+
+- **Facts:** DBSCTR worktrees currently account for about 71 GiB by `du`; one DVC
+  repository accounts for about 66 GiB. Three early worktrees each retain roughly
+  5.7 GiB of local DVC cache, 5.7 GiB of checked-out data, and 2.7 GiB of virtualenv.
+- **Facts:** Current DVC 3.67.1 reports APFS workspace/cache support and reflink,
+  hardlink, and symlink capability; newer DBSCTR worktrees use the source cache.
+- **Decision:** Batch only completed DBSCTR-owned worktrees and retain the existing
+  per-cycle safety checks rather than introducing a second deletion policy.
+- **Decision:** Pin `reflink,copy`; do not use mutable shared hardlinks or shared
+  virtualenvs.
+- **Non-goals:** Automatic cleanup, direct OpenCode event deletion, database
+  compaction, DVC garbage collection, and cleanup of active or dirty worktrees.
+- **Unresolved decisions:** None that materially change V3.26 implementation.
+
+## Gate Ledger — V3.26 Worktree Maintenance
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Worktree Inventory and Cleanup Candidate language | required | pending | V3.26 specification | - | Primary |
+| Behavior | Read-only inventory, batch cleanup, and DVC link behavior | required | pending | Focused red/green fixtures | - | Primary |
+| Spec | CLI, output, ordering, and compatibility | required | pending | README and BACKLOG | - | Primary |
+| Contract | Existing deletion checks, explicit confirmation, and partial-failure semantics | required | pending | Helper contract tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest suites | - | Primary |
+| Refactor | One shared cleanup implementation and minimal DVC configuration | required | pending | Compilation and diff check | - | Primary |
+| Review/Integrate | Correctness, safety, and compatibility review | required | pending | Primary and independent review | - | Primary |
+| Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed helper and skill locally | required | pending | Targeted chezmoi apply and identity check | - | Primary |
+| Operate | Inventory live retained worktrees without mutation | required | pending | Deployed read-only smoke | - | Primary |
+| Maintain/Retire | Batch old completed worktrees while retaining explicit approval | required | pending | Approved live cleanup and post-cleanup inventory | - | Primary |
 
 ### V3.25 Backlog Integrity Contract
 
@@ -1429,8 +1496,8 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.25` retain schema version `3`; new records use
-the helper's single `CURRENT_METHOD_REVISION = "3.25"` constant.
+Method Revisions `3.9` through `3.26` retain schema version `3`; new records use
+the helper's single `CURRENT_METHOD_REVISION = "3.26"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
@@ -1953,6 +2020,7 @@ module routing without changing Cycle Record schema or public commands.
 | Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |
 | Backlog integrity | Fixed-commit canonical, malformed, duplicate, invalid-status, invalid-date, unreachable-commit, replacement-object, empty-Active, and dirty-overlay fixtures | Additive report-only audit findings across every lifecycle context | Implemented in V3.25; live audit returned zero findings | No overlay/replacement reads, mutation, prose inference, or automatic gate effect |
 | V3.17 restart verification | Normal Build session continuation/save with caller self-mutation and included-candidate mutation | Caller exclusion remains safe after restart | Required by V3.25 Operate gate | Self-mutation succeeds; included-candidate mutation fails closed; failure returns to Discovery |
+| Worktree maintenance | Synthetic linked-worktree inventory, retention, dirty/drift rejection, batch partial failure, and DVC command capture | Read-only reporting, destructive safeguards, compatibility, and APFS-efficient defaults | Required by V3.26 | No active/dirty/foreign removal; every deletion revalidates target containment |
 
 Required smoke scenarios: routine Python library, elevated deployed service,
 non-Python change, missing QA capability, read-only Plan handoff, explicit full

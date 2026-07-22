@@ -34,7 +34,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.25"
+CURRENT_METHOD_REVISION = "3.26"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -1863,6 +1863,10 @@ def command_begin(args):
                                     cwd=worktree, text=True, capture_output=True)
             if result.returncode:
                 fail(result.stderr.strip() or "cannot configure linked DVC cache")
+            result = subprocess.run(["dvc", "config", "--local", "cache.type", "reflink,copy"],
+                                    cwd=worktree, text=True, capture_output=True)
+            if result.returncode:
+                fail(result.stderr.strip() or "cannot configure linked DVC cache type")
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True)
         record["source"] = source_record
         save(cycle_dir(worktree) / "cycles" / f"{args.cycle_id}.json", record)
@@ -1877,11 +1881,10 @@ def command_begin(args):
     }, sort_keys=True))
 
 
-def command_cleanup(args):
-    root = root_dir()
-    path = cycle_dir(root) / "cycles" / f"{args.cycle_id}.json"
+def cleanup_cycle(root, cycle_id, immediate):
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
     if not path.is_file():
-        fail(f"cycle record is missing: {args.cycle_id}")
+        fail(f"cycle record is missing: {cycle_id}")
     record = json.loads(path.read_text(encoding="utf-8"))
     if record.get("state") != "completed":
         fail("only a completed cycle can be cleaned up")
@@ -1892,10 +1895,9 @@ def command_cleanup(args):
         fail("run cleanup from another worktree")
     schema3 = record.get("schema_version") == 3
     if not worktree.is_dir() and not schema3:
-        print("already removed " + str(worktree))
-        return
+        return "already removed " + str(worktree)
     completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
-    if not args.now and datetime.now(timezone.utc) - completed < timedelta(hours=24):
+    if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
         fail("successful worktrees are retained for 24 hours; use --now to remove earlier")
     if worktree.is_dir() and status_paths(worktree):
         fail("refusing to remove a dirty cycle worktree")
@@ -1928,7 +1930,7 @@ def command_cleanup(args):
     if branch_name:
         git(root, "branch", "-d", branch_name, check=False)
     if schema3:
-        evidence = cycle_dir(root) / "evidence" / args.cycle_id
+        evidence = cycle_dir(root) / "evidence" / cycle_id
         parked = evidence.with_name(evidence.name + ".cleanup")
         cleanup = record.get("cleanup")
         if cleanup:
@@ -1946,7 +1948,91 @@ def command_cleanup(args):
         if parked.exists():
             shutil.rmtree(parked)
         path.unlink()
-    print("removed " + str(worktree))
+    return "removed " + str(worktree)
+
+
+def worktree_bytes(path):
+    if not path.is_dir():
+        return 0
+    result = subprocess.run(["du", "-sk", str(path)], text=True, capture_output=True)
+    if result.returncode:
+        return None
+    try:
+        return int(result.stdout.split(maxsplit=1)[0]) * 1024
+    except (IndexError, ValueError):
+        return None
+
+
+def worktree_inventory(root, immediate=False):
+    records = cycle_dir(root) / "cycles"
+    result = []
+    for path in sorted(records.glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("worktree", {}).get("created_by_dbsctr") is not True:
+            continue
+        worktree = Path(record["worktree"]["path"])
+        blockers = []
+        if record.get("state") != "completed":
+            blockers.append("not_completed")
+        else:
+            try:
+                completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+                if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
+                    blockers.append("retained_24_hours")
+            except (KeyError, ValueError):
+                blockers.append("invalid_completed_at")
+        if worktree.is_dir():
+            if worktree.resolve() == root.resolve():
+                blockers.append("current_worktree")
+            if status_paths(worktree):
+                blockers.append("dirty")
+            if branch(worktree) != record["worktree"].get("branch"):
+                blockers.append("branch_changed")
+            commits = record.get("commits", [])
+            if commits and git(worktree, "rev-parse", "HEAD").stdout.strip() != commits[-1]["id"]:
+                blockers.append("head_changed")
+        result.append({
+            "bytes": worktree_bytes(worktree),
+            "cleanup_candidate": not blockers,
+            "cleanup_blockers": blockers,
+            "cycle_id": record["cycle_id"],
+            "present": worktree.is_dir(),
+            "state": record.get("state"),
+        })
+    return result
+
+
+def command_worktree_list(args):
+    inventory = worktree_inventory(root_dir(), args.now)
+    if args.json:
+        print(json.dumps({"worktrees": inventory}, sort_keys=True, separators=(",", ":")))
+        return
+    for item in inventory:
+        blockers = ",".join(item["cleanup_blockers"]) or "none"
+        print(f"{item['cycle_id']} state={item['state']} bytes={item['bytes']} blockers={blockers}")
+
+
+def command_cleanup(args):
+    root = root_dir()
+    if args.cycle_id:
+        print(cleanup_cycle(root, args.cycle_id, args.now))
+        return
+    records = cycle_dir(root) / "cycles"
+    cycle_ids = []
+    for path in sorted(records.glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("state") == "completed" and record.get("worktree", {}).get("created_by_dbsctr") is True:
+            cycle_ids.append(record["cycle_id"])
+    removed, failed = [], []
+    for cycle_id in cycle_ids:
+        try:
+            cleanup_cycle(root, cycle_id, args.now)
+            removed.append(cycle_id)
+        except (RuntimeError, OSError) as error:
+            failed.append({"cycle_id": cycle_id, "error": str(error)})
+    print(json.dumps({"failed": failed, "removed": removed}, sort_keys=True, separators=(",", ":")))
+    if failed:
+        fail(f"cleanup incomplete: {len(failed)} of {len(cycle_ids)} completed worktrees failed")
 
 
 def command_audit(args):
@@ -6032,8 +6118,14 @@ def parser():
     commit.set_defaults(func=command_gate_commit)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
+    worktree_list = commands.add_parser("worktree-list")
+    worktree_list.add_argument("--json", action="store_true")
+    worktree_list.add_argument("--now", action="store_true", help="ignore the 24-hour retention window")
+    worktree_list.set_defaults(func=command_worktree_list)
     cleanup = commands.add_parser("cleanup")
-    cleanup.add_argument("--cycle-id", required=True)
+    cleanup_target = cleanup.add_mutually_exclusive_group(required=True)
+    cleanup_target.add_argument("--cycle-id")
+    cleanup_target.add_argument("--completed", action="store_true")
     cleanup.add_argument("--now", action="store_true")
     cleanup.set_defaults(func=command_cleanup)
     audit = commands.add_parser("audit")

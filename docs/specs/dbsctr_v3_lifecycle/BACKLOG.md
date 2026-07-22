@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.26-1 | Inventory and safely reclaim retained DBSCTR worktrees | high | in_progress | - | `dot_local/bin/executable_dbsctrctl`, `dot_agents/skills/dbsctr/SKILL.md`, `docs/specs/dbsctr_v3_lifecycle/*`, `tests/test_dbsctrctl.py`, `tests/test_dbsctr_lifecycle.py` | V3.4 and V3.11 cleanup/DVC contracts | false | Retained generated DVC data and virtualenvs consume about 71 GiB | medium | Focused helper/lifecycle tests, deployed inventory, and approved cleanup |
 
 ## Completed
 

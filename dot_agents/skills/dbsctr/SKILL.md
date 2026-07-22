@@ -29,7 +29,7 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.25` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
+5. Report Method Revision `3.26` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
     otherwise `dbsctrctl status`, to resume the active Cycle
     Record. A validated Build primary resuming an active cycle calls typed
     `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
@@ -163,6 +163,11 @@ Delivery to the same upstream is serialized by the helper's target lock.
 After completion, `cleanup` removes only a clean DBSCTR-owned worktree whose
 commits reached target; retain successful worktrees for 24 hours by default and
 never auto-remove failed or dirty work.
+Use read-only `worktree-list --json` to inspect retained size and local blockers.
+`cleanup --completed` applies the same checks to every completed DBSCTR-owned
+record and remains confirmation-gated; it never turns retention into background
+deletion. New DVC worktrees share the source cache and prefer copy-on-write
+`reflink,copy`; generated virtualenvs remain per-worktree.
 Typed OpenCode tools are argument-safe adapters over `dbsctrctl`, not another
 state machine. Standing authorization for validated Build-primary begin and resume permits
 `dbsctr_begin`, `dbsctr_attach`, and DBSCTR worktree access after its committed applicability plan;

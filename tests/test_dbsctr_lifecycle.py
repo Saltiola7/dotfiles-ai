@@ -216,7 +216,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.25`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.26`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -269,12 +269,21 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.25\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.26\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert "context.ask" not in tools.partition("export const begin = tool({")[2]
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
     assert "standing authorization for validated Build-primary" in dbsctr
+
+
+def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():
+    spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
+    helper = text("dot_local/bin/executable_dbsctrctl")
+    for term in ("Worktree Inventory", "Cleanup Candidate", "cleanup --completed", "reflink,copy"):
+        assert term in spec
+    assert 'commands.add_parser("worktree-list")' in helper
+    assert 'cleanup_target.add_argument("--completed"' in helper
 
 
 def test_v324_profiles_explicit_spans_and_keeps_dispatch_primary_mediated():

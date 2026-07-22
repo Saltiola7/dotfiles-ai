@@ -125,7 +125,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.25")
+        self.assertEqual(record["method_revision"], "3.26")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -625,7 +625,8 @@ class DbsctrctlTest(unittest.TestCase):
         custom_cache.mkdir()
         fake_dvc.write_text(
             f"#!/bin/sh\nif [ \"$#\" -eq 2 ]; then printf '%s\\n' '{custom_cache}'; "
-            "else printf '%s\\n' \"$4\" > .dvc/config.local; fi\n"
+            "elif [ \"$1 $2\" = \"cache dir\" ]; then printf '[cache]\\n    dir = %s\\n' \"$4\" > .dvc/config.local; "
+            "else printf '    type = %s\\n' \"$4\" >> .dvc/config.local; fi\n"
         )
         fake_dvc.chmod(0o755)
         env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
@@ -634,8 +635,9 @@ class DbsctrctlTest(unittest.TestCase):
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(Path(self.temp.name) / "isolated"), env=env,
         ).stdout)
-        configured = (Path(handoff["worktree"]) / ".dvc/config.local").read_text().strip()
-        self.assertEqual(configured, str(custom_cache.resolve()))
+        configured = (Path(handoff["worktree"]) / ".dvc/config.local").read_text()
+        self.assertIn(f"dir = {custom_cache.resolve()}", configured)
+        self.assertIn("type = reflink,copy", configured)
 
     def test_source_sync_updates_clean_and_skips_dirty_checkout(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -690,6 +692,10 @@ class DbsctrctlTest(unittest.TestCase):
         (evidence / "retained-sidecar").write_bytes(b"safe")
         pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
         pointer.unlink()
+        inventory = json.loads(run(self.repo, "worktree-list", "--json", "--now").stdout)["worktrees"]
+        item = next(item for item in inventory if item["cycle_id"] == "isolated-1")
+        self.assertTrue(item["cleanup_candidate"])
+        self.assertGreater(item["bytes"], 0)
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_cleanup_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
@@ -705,6 +711,35 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertFalse(Path(handoff["worktree"]).exists())
         self.assertFalse(record_path.exists())
         self.assertFalse(evidence.exists())
+
+    def test_batch_cleanup_continues_after_dirty_completed_worktree(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        paths = {}
+        for cycle_id in ("batch-clean", "batch-dirty"):
+            handoff = json.loads(run(
+                self.repo, "begin", "--cycle-id", cycle_id, "--context", "test",
+                "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                "--worktree-root", str(worktrees),
+            ).stdout)
+            paths[cycle_id] = Path(handoff["worktree"])
+            record_path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+            record = json.loads(record_path.read_text())
+            record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
+            record_path.write_text(json.dumps(record))
+            (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+        (paths["batch-dirty"] / "dirty.txt").write_text("dirty\n")
+
+        result = run(self.repo, "cleanup", "--completed", "--now", ok=False)
+        summary = json.loads(result.stdout)
+        self.assertEqual(summary["removed"], ["batch-clean"])
+        self.assertEqual([item["cycle_id"] for item in summary["failed"]], ["batch-dirty"])
+        self.assertFalse(paths["batch-clean"].exists())
+        self.assertTrue(paths["batch-dirty"].exists())
 
     def test_cleanup_rejects_low_level_or_drifted_worktree(self):
         self.start()
@@ -3376,7 +3411,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.25")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.26")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
