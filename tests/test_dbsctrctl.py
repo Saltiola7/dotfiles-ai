@@ -618,26 +618,33 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "dvc"], cwd=self.repo, check=True, capture_output=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
+        linked_source = Path(self.temp.name) / "linked-source"
+        subprocess.run(["git", "worktree", "add", "-b", "linked-source", str(linked_source), "HEAD"],
+                       cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "branch", "--set-upstream-to", "origin/master", "linked-source"],
+                       cwd=self.repo, check=True, capture_output=True)
         fake_bin = Path(self.temp.name) / "bin"
         fake_bin.mkdir()
         fake_dvc = fake_bin / "dvc"
         custom_cache = Path(self.temp.name) / "custom-dvc-cache"
+        query_log = Path(self.temp.name) / "dvc-query.log"
         custom_cache.mkdir()
         fake_dvc.write_text(
-            f"#!/bin/sh\nif [ \"$#\" -eq 2 ]; then printf '%s\\n' '{custom_cache}'; "
+            f"#!/bin/sh\nif [ \"$#\" -eq 2 ]; then pwd > \"$DVC_QUERY_LOG\"; printf '%s\\n' '{custom_cache}'; "
             "elif [ \"$1 $2\" = \"cache dir\" ]; then printf '[cache]\\n    dir = %s\\n' \"$4\" > .dvc/config.local; "
             "else printf '    type = %s\\n' \"$4\" >> .dvc/config.local; fi\n"
         )
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_QUERY_LOG": str(query_log)}
         handoff = json.loads(run(
-            self.repo, "begin", "--cycle-id", "isolated-1", "--context", "test",
+            linked_source, "begin", "--cycle-id", "isolated-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(Path(self.temp.name) / "isolated"), env=env,
         ).stdout)
         configured = (Path(handoff["worktree"]) / ".dvc/config.local").read_text()
         self.assertIn(f"dir = {custom_cache.resolve()}", configured)
         self.assertIn("type = reflink,copy", configured)
+        self.assertEqual(Path(query_log.read_text().strip()).resolve(), self.repo.resolve())
 
     def test_source_sync_updates_clean_and_skips_dirty_checkout(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -733,13 +740,81 @@ class DbsctrctlTest(unittest.TestCase):
             record_path.write_text(json.dumps(record))
             (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
         (paths["batch-dirty"] / "dirty.txt").write_text("dirty\n")
+        (self.repo / ".git/dbsctr/cycles/malformed.json").write_text("{")
 
         result = run(self.repo, "cleanup", "--completed", "--now", ok=False)
         summary = json.loads(result.stdout)
         self.assertEqual(summary["removed"], ["batch-clean"])
-        self.assertEqual([item["cycle_id"] for item in summary["failed"]], ["batch-dirty"])
+        self.assertEqual([item["cycle_id"] for item in summary["failed"]], ["malformed", "batch-dirty"])
         self.assertFalse(paths["batch-clean"].exists())
         self.assertTrue(paths["batch-dirty"].exists())
+
+    def test_cleanup_rejects_missing_or_changed_worktree_identity(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        for cycle_id in ("changed-identity", "missing-worktree"):
+            handoff = json.loads(run(
+                self.repo, "begin", "--cycle-id", cycle_id, "--context", "test",
+                "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                "--worktree-root", str(worktrees),
+            ).stdout)
+            record_path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+            record = json.loads(record_path.read_text())
+            record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
+            (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+            if cycle_id == "changed-identity":
+                record["worktree"]["git_dir"] = str(Path(self.temp.name) / "foreign-git-dir")
+                record_path.write_text(json.dumps(record))
+                result = run(self.repo, "cleanup", "--cycle-id", cycle_id, "--now", ok=False)
+                self.assertIn("identity changed", result.stderr)
+                self.assertTrue(Path(handoff["worktree"]).exists())
+            else:
+                record_path.write_text(json.dumps(record))
+                subprocess.run(["git", "worktree", "remove", "--force", handoff["worktree"]],
+                               cwd=self.repo, check=True, capture_output=True)
+                result = run(self.repo, "cleanup", "--cycle-id", cycle_id, "--now", ok=False)
+                self.assertIn("worktree is missing", result.stderr)
+
+    def test_cleanup_retries_after_branch_deletion_failure(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "branch-retry", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(worktrees),
+        ).stdout)
+        record_path = self.repo / ".git/dbsctr/cycles/branch-retry.json"
+        record = json.loads(record_path.read_text())
+        record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
+        record_path.write_text(json.dumps(record))
+        (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_branch_cleanup_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        original_git = module.git
+
+        def fail_branch(root, *args, **kwargs):
+            if args[:2] == ("branch", "-d"):
+                return subprocess.CompletedProcess(args, 1, "", "branch locked")
+            return original_git(root, *args, **kwargs)
+
+        with mock.patch.object(module, "root_dir", return_value=self.repo), \
+             mock.patch.object(module, "git", side_effect=fail_branch):
+            with self.assertRaisesRegex(RuntimeError, "branch locked"):
+                module.command_cleanup(SimpleNamespace(cycle_id="branch-retry", completed=False, now=True))
+        self.assertFalse(Path(handoff["worktree"]).exists())
+        self.assertEqual(json.loads(record_path.read_text())["cleanup"]["state"], "worktree_removed")
+        run(self.repo, "cleanup", "--cycle-id", "branch-retry", "--now")
+        self.assertFalse(record_path.exists())
 
     def test_cleanup_rejects_low_level_or_drifted_worktree(self):
         self.start()

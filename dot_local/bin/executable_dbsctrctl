@@ -129,6 +129,13 @@ def worktree_id(root):
     return hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
 
 
+def primary_worktree(root):
+    for line in git(root, "worktree", "list", "--porcelain").stdout.splitlines():
+        if line.startswith("worktree "):
+            return Path(line.removeprefix("worktree ")).resolve()
+    fail("cannot resolve primary Git worktree")
+
+
 def cycle_dir(root):
     return common_git_dir(root) / "dbsctr"
 
@@ -1852,7 +1859,9 @@ def command_begin(args):
     try:
         git(worktree, "branch", "--set-upstream-to", target, branch_name)
         if (source / ".dvc").exists() or (source / "dvc.yaml").exists():
-            cache_result = subprocess.run(["dvc", "cache", "dir"], cwd=source, text=True, capture_output=True)
+            cache_owner = primary_worktree(source)
+            cache_result = subprocess.run(["dvc", "cache", "dir"], cwd=cache_owner,
+                                          text=True, capture_output=True)
             if cache_result.returncode or not cache_result.stdout.strip():
                 fail(cache_result.stderr.strip() or "cannot resolve source DVC cache")
             shared_cache = Path(cache_result.stdout.strip().splitlines()[-1]).expanduser()
@@ -1896,6 +1905,9 @@ def cleanup_cycle(root, cycle_id, immediate):
     schema3 = record.get("schema_version") == 3
     if not worktree.is_dir() and not schema3:
         return "already removed " + str(worktree)
+    cleanup = record.get("cleanup")
+    if not worktree.is_dir() and (not cleanup or cleanup.get("state") not in ("worktree_removed", "evidence_parked")):
+        fail("cycle worktree is missing")
     completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
     if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
         fail("successful worktrees are retained for 24 hours; use --now to remove earlier")
@@ -1903,6 +1915,10 @@ def cleanup_cycle(root, cycle_id, immediate):
         fail("refusing to remove a dirty cycle worktree")
     if worktree.is_dir() and branch(worktree) != record["worktree"]["branch"]:
         fail("cycle worktree branch changed")
+    if worktree.is_dir() and (worktree_id(worktree) != record["worktree"].get("id")
+                              or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
+                              or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+        fail("cycle worktree identity changed")
     recorded_commits = [entry["id"] for entry in record["commits"]]
     if worktree.is_dir() and recorded_commits and git(worktree, "rev-parse", "HEAD").stdout.strip() != recorded_commits[-1]:
         fail("cycle worktree HEAD changed")
@@ -1927,22 +1943,31 @@ def cleanup_cycle(root, cycle_id, immediate):
     branch_name = record["worktree"].get("branch")
     if worktree.is_dir():
         git(root, "worktree", "remove", str(worktree))
-    if branch_name:
-        git(root, "branch", "-d", branch_name, check=False)
+        if schema3:
+            record["cleanup"] = {"state": "worktree_removed", "removed_at": now()}
+            save(path, record)
+    if branch_name and git(root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
+        deleted = git(root, "branch", "-d", branch_name, check=False)
+        if deleted.returncode:
+            fail(deleted.stderr.strip() or "cannot delete cycle branch")
     if schema3:
         evidence = cycle_dir(root) / "evidence" / cycle_id
         parked = evidence.with_name(evidence.name + ".cleanup")
         cleanup = record.get("cleanup")
         if cleanup:
-            if cleanup.get("state") != "evidence_parked" or evidence.exists():
+            if cleanup.get("state") not in ("worktree_removed", "evidence_parked"):
                 fail("invalid evidence cleanup state")
-        elif parked.exists():
+            if cleanup.get("state") == "evidence_parked" and evidence.exists():
+                fail("invalid evidence cleanup state")
+        if cleanup and cleanup.get("state") == "worktree_removed" and parked.exists():
             fail("untracked parked evidence directory")
-        elif evidence.exists():
+        if not cleanup and parked.exists():
+            fail("untracked parked evidence directory")
+        if evidence.exists():
             os.replace(evidence, parked)
             record["cleanup"] = {"state": "evidence_parked", "parked_at": now()}
             save(path, record)
-        else:
+        elif not cleanup or cleanup.get("state") != "evidence_parked":
             record["cleanup"] = {"state": "evidence_parked", "parked_at": now()}
             save(path, record)
         if parked.exists():
@@ -1991,6 +2016,12 @@ def worktree_inventory(root, immediate=False):
             commits = record.get("commits", [])
             if commits and git(worktree, "rev-parse", "HEAD").stdout.strip() != commits[-1]["id"]:
                 blockers.append("head_changed")
+            if (worktree_id(worktree) != record["worktree"].get("id")
+                    or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
+                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+                blockers.append("identity_changed")
+        elif record.get("cleanup", {}).get("state") not in ("worktree_removed", "evidence_parked"):
+            blockers.append("missing")
         result.append({
             "bytes": worktree_bytes(worktree),
             "cleanup_candidate": not blockers,
@@ -2018,12 +2049,15 @@ def command_cleanup(args):
         print(cleanup_cycle(root, args.cycle_id, args.now))
         return
     records = cycle_dir(root) / "cycles"
-    cycle_ids = []
+    cycle_ids, failed = [], []
     for path in sorted(records.glob("*.json")):
-        record = json.loads(path.read_text(encoding="utf-8"))
-        if record.get("state") == "completed" and record.get("worktree", {}).get("created_by_dbsctr") is True:
-            cycle_ids.append(record["cycle_id"])
-    removed, failed = [], []
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if record.get("state") == "completed" and record.get("worktree", {}).get("created_by_dbsctr") is True:
+                cycle_ids.append(record["cycle_id"])
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            failed.append({"cycle_id": path.stem, "error": str(error)})
+    removed = []
     for cycle_id in cycle_ids:
         try:
             cleanup_cycle(root, cycle_id, args.now)
