@@ -1866,7 +1866,7 @@ def command_begin(args):
                 fail(cache_result.stderr.strip() or "cannot resolve source DVC cache")
             shared_cache = Path(cache_result.stdout.strip().splitlines()[-1]).expanduser()
             if not shared_cache.is_absolute():
-                shared_cache = source / shared_cache
+                shared_cache = cache_owner / shared_cache
             shared_cache = shared_cache.resolve()
             result = subprocess.run(["dvc", "cache", "dir", "--local", str(shared_cache)],
                                     cwd=worktree, text=True, capture_output=True)
@@ -1908,6 +1908,12 @@ def cleanup_cycle(root, cycle_id, immediate):
     cleanup = record.get("cleanup")
     if not worktree.is_dir() and (not cleanup or cleanup.get("state") not in ("worktree_removed", "evidence_parked")):
         fail("cycle worktree is missing")
+    branch_name = record["worktree"].get("branch")
+    expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
+    if branch_name != expected_branch:
+        fail("invalid cycle worktree branch")
+    if cleanup and cleanup.get("state") == "worktree_removed" and cleanup.get("branch") != branch_name:
+        fail("cleanup branch identity changed")
     completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
     if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
         fail("successful worktrees are retained for 24 hours; use --now to remove earlier")
@@ -1940,11 +1946,10 @@ def cleanup_cycle(root, cycle_id, immediate):
     for entry in record["commits"]:
         if worktree.is_dir() and git(worktree, "merge-base", "--is-ancestor", entry["id"], target, check=False).returncode:
             fail("cycle commits are not all contained in the delivery target")
-    branch_name = record["worktree"].get("branch")
     if worktree.is_dir():
         git(root, "worktree", "remove", str(worktree))
         if schema3:
-            record["cleanup"] = {"state": "worktree_removed", "removed_at": now()}
+            record["cleanup"] = {"state": "worktree_removed", "branch": branch_name, "removed_at": now()}
             save(path, record)
     if branch_name and git(root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
         deleted = git(root, "branch", "-d", branch_name, check=False)
@@ -1960,7 +1965,11 @@ def cleanup_cycle(root, cycle_id, immediate):
             if cleanup.get("state") == "evidence_parked" and evidence.exists():
                 fail("invalid evidence cleanup state")
         if cleanup and cleanup.get("state") == "worktree_removed" and parked.exists():
-            fail("untracked parked evidence directory")
+            if evidence.exists():
+                fail("invalid evidence cleanup state")
+            record["cleanup"] = {"state": "evidence_parked", "parked_at": now()}
+            save(path, record)
+            cleanup = record["cleanup"]
         if not cleanup and parked.exists():
             fail("untracked parked evidence directory")
         if evidence.exists():
@@ -2054,6 +2063,9 @@ def command_cleanup(args):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             if record.get("state") == "completed" and record.get("worktree", {}).get("created_by_dbsctr") is True:
+                if record.get("cycle_id") != path.stem or not re.fullmatch(
+                        r"[A-Za-z0-9][A-Za-z0-9._-]*", record.get("cycle_id", "")):
+                    raise ValueError("cycle record identity mismatch")
                 cycle_ids.append(record["cycle_id"])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             failed.append({"cycle_id": path.stem, "error": str(error)})

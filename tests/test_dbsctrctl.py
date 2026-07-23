@@ -626,11 +626,10 @@ class DbsctrctlTest(unittest.TestCase):
         fake_bin = Path(self.temp.name) / "bin"
         fake_bin.mkdir()
         fake_dvc = fake_bin / "dvc"
-        custom_cache = Path(self.temp.name) / "custom-dvc-cache"
+        custom_cache = self.repo / ".dvc/cache"
         query_log = Path(self.temp.name) / "dvc-query.log"
-        custom_cache.mkdir()
         fake_dvc.write_text(
-            f"#!/bin/sh\nif [ \"$#\" -eq 2 ]; then pwd > \"$DVC_QUERY_LOG\"; printf '%s\\n' '{custom_cache}'; "
+            "#!/bin/sh\nif [ \"$#\" -eq 2 ]; then pwd > \"$DVC_QUERY_LOG\"; printf '%s\\n' '.dvc/cache'; "
             "elif [ \"$1 $2\" = \"cache dir\" ]; then printf '[cache]\\n    dir = %s\\n' \"$4\" > .dvc/config.local; "
             "else printf '    type = %s\\n' \"$4\" >> .dvc/config.local; fi\n"
         )
@@ -707,12 +706,19 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
+        original_save = module.save
+
+        def fail_parked_marker(path, value):
+            if value.get("cleanup", {}).get("state") == "evidence_parked":
+                raise OSError("interrupted cleanup")
+            return original_save(path, value)
+
         with mock.patch.object(module, "root_dir", return_value=self.repo), \
-             mock.patch.object(module.shutil, "rmtree", side_effect=OSError("interrupted cleanup")):
+              mock.patch.object(module, "save", side_effect=fail_parked_marker):
             with self.assertRaises(OSError):
                 module.command_cleanup(SimpleNamespace(cycle_id="isolated-1", now=True))
         parked_record = json.loads(record_path.read_text())
-        self.assertEqual(parked_record["cleanup"]["state"], "evidence_parked")
+        self.assertEqual(parked_record["cleanup"]["state"], "worktree_removed")
         self.assertTrue((evidence.parent / "isolated-1.cleanup").exists())
         run(self.repo, "cleanup", "--cycle-id", "isolated-1", "--now")
         self.assertFalse(Path(handoff["worktree"]).exists())
@@ -741,11 +747,15 @@ class DbsctrctlTest(unittest.TestCase):
             (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
         (paths["batch-dirty"] / "dirty.txt").write_text("dirty\n")
         (self.repo / ".git/dbsctr/cycles/malformed.json").write_text("{")
+        mismatch = json.loads((self.repo / ".git/dbsctr/cycles/batch-dirty.json").read_text())
+        mismatch["cycle_id"] = "redirected"
+        (self.repo / ".git/dbsctr/cycles/mismatch.json").write_text(json.dumps(mismatch))
 
         result = run(self.repo, "cleanup", "--completed", "--now", ok=False)
         summary = json.loads(result.stdout)
         self.assertEqual(summary["removed"], ["batch-clean"])
-        self.assertEqual([item["cycle_id"] for item in summary["failed"]], ["malformed", "batch-dirty"])
+        self.assertEqual([item["cycle_id"] for item in summary["failed"]],
+                         ["malformed", "mismatch", "batch-dirty"])
         self.assertFalse(paths["batch-clean"].exists())
         self.assertTrue(paths["batch-dirty"].exists())
 
@@ -813,6 +823,13 @@ class DbsctrctlTest(unittest.TestCase):
                 module.command_cleanup(SimpleNamespace(cycle_id="branch-retry", completed=False, now=True))
         self.assertFalse(Path(handoff["worktree"]).exists())
         self.assertEqual(json.loads(record_path.read_text())["cleanup"]["state"], "worktree_removed")
+        drifted = json.loads(record_path.read_text())
+        drifted["worktree"]["branch"] = "master"
+        record_path.write_text(json.dumps(drifted))
+        result = run(self.repo, "cleanup", "--cycle-id", "branch-retry", "--now", ok=False)
+        self.assertIn("invalid cycle worktree branch", result.stderr)
+        drifted["worktree"]["branch"] = record["worktree"]["branch"]
+        record_path.write_text(json.dumps(drifted))
         run(self.repo, "cleanup", "--cycle-id", "branch-retry", "--now")
         self.assertFalse(record_path.exists())
 
@@ -833,7 +850,7 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "switch", "-c", "drift"], cwd=self.repo, check=True,
                        capture_output=True)
         result = run(other, "cleanup", "--cycle-id", "cycle-1", "--now", ok=False)
-        self.assertIn("cycle worktree branch changed", result.stderr)
+        self.assertIn("worktree branch", result.stderr)
 
     def test_audit_reads_fixed_commit_and_excludes_dirty_overlay(self):
         built_from = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
