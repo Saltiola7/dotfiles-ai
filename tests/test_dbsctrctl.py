@@ -3943,6 +3943,10 @@ class DbsctrctlTest(unittest.TestCase):
             "--cycle-id", "cycle-1", "--path", "tracked.txt")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "abandoned")
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        connection.execute("insert into improvement_scope values ('worker-1', 'retained.txt')")
+        connection.commit()
+        connection.close()
         mismatch = run(
             self.repo, "improvement-forget", "--state-root", str(state),
             "--worker-id", "worker-1", "--confirm", "worker-2", ok=False,
@@ -3956,11 +3960,48 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(json.loads(run(
             self.repo, "improvement-status", "--state-root", str(state),
         ).stdout), {"workers": []})
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        self.assertEqual(connection.execute("select count(*) from improvement_scope").fetchone()[0], 0)
+        connection.close()
         replacement = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-2", "--session-id", "session-2", "--summary", summary,
         ).stdout)
         self.assertEqual(replacement["opportunity_id"], claimed["opportunity_id"])
+
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-3", "--session-id", "session-3",
+            "--summary", "Preserve closed improvement history")
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        connection.execute("update improvement_workers set state='merged' where worker_id='worker-2'")
+        connection.execute("update improvement_workers set state='closed' where worker_id='worker-3'")
+        connection.commit()
+        connection.close()
+        for worker_id in ("worker-2", "worker-3"):
+            protected = run(
+                self.repo, "improvement-forget", "--state-root", str(state),
+                "--worker-id", worker_id, "--confirm", worker_id, ok=False,
+            )
+            self.assertIn("only an abandoned improvement worker", protected.stderr)
+
+    def test_improvement_write_rolls_back_failed_integrity(self):
+        state = Path(self.temp.name) / "improvement-integrity-rollback"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Retain failed improvement writes")
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_rollback", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with mock.patch.object(module, "ledger_integrity", side_effect=RuntimeError("forced integrity failure")):
+            with self.assertRaisesRegex(RuntimeError, "forced integrity failure"):
+                module.improvement_write(state, lambda connection: connection.execute(
+                    "delete from improvement_workers where worker_id='worker-1'"))
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertEqual(status["workers"][0]["worker_id"], "worker-1")
 
     def test_improvement_schema_install_rolls_back_as_one_transaction(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_schema", str(SCRIPT))

@@ -4868,8 +4868,8 @@ def improvement_write(root, callback):
             ensure_improvement_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             result = callback(connection)
-            connection.commit()
             ledger_integrity(connection)
+            connection.commit()
             return result
         except Exception:
             connection.rollback()

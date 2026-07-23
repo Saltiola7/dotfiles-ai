@@ -270,6 +270,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
                     "improvement-forget"):
         for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
             assert bash[form.format(command)] == "ask"
+    assert bash["*dbsctrctl improvement-forget*"] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
