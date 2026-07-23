@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-004 adaptive native OpenCode R&D scheduling deployed
+**Status:** DAI-006 native OpenCode R&D recovery health deployed
 
 ## Engineering Profile
 
@@ -32,6 +32,15 @@
 | Delivery intent | Merge and deploy analytics, scheduler state, runner behavior, and operator commands locally |
 | Scope | CLI/JSON effect summaries, monthly cadence ladder, concurrency cap, safety halt, and manual reset |
 | Overrides | User TOML remains unchanged; cost is report-only; ordinary workers retain draft-only delivery and human Discovery |
+
+### DAI-006 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes recovery and health behavior for live autonomous workers |
+| Delivery intent | Deploy the corrected runner locally after affected gates pass |
+| Scope | Large-session recovery readiness, watchdog exit health, operator guidance, and one blocked-worker recovery |
+| Overrides | Session identity remains exact; recovery may not weaken ambiguity rejection or inject a prompt |
 
 ## Bounded Context
 
@@ -96,13 +105,19 @@ OpenCode control-plane behavior, and shell authentication.
 ### Recovery And Completion
 
 - Given a nonterminal worker's pane disappears, when the watchdog finds no exact
-  native session, then it recreates `opencode -s SESSION --agent build` in a new
-  single-pane tab and records recovery; three failures leave it blocked.
+  native session, then it recreates `opencode --mini WORKDIR -s SESSION --agent
+  build --no-replay` in a new single-pane tab, allows up to 120 seconds for
+  large-session readiness, and records only exact identity; three failures leave
+  it blocked.
 - Given Herdr omits resumed native session metadata, then only the exact recorded
   pane, workspace, tab, managed cwd, single-pane topology, and foreground argv
   may be adopted. Every ambiguous shape blocks.
 - Given a worker is alive and idle, blocked, or awaiting Discovery, then the
   watchdog sends no prompt, answers no question, and selects no permission.
+- Given watchdog reconciliation reports a recovery failure, ambiguity, unknown
+  state, pull-request check failure, or exhausted blocked worker, then it emits
+  bounded JSON diagnostics and exits nonzero so launchd health reflects the
+  degraded loop. Empty and successful-recovery runs exit zero.
 - Given a draft pull request is merged or closed by a human, then the watchdog
   records the terminal outcome and leaves its Herdr tab under manual ownership.
 
@@ -165,6 +180,9 @@ OpenCode control-plane behavior, and shell authentication.
   human output is the default. `--finalize-json` binds one retained benchmark to
   its merged attempt, while `--failure-json` accepts only an outcome matching the
   authoritative worker state (including a reverted merged attempt).
+- `dbsctr-rnd watchdog` always emits its bounded JSON result. It exits nonzero
+  when any event is degraded and zero when reconciliation is healthy or another
+  watchdog already owns the lock.
 - LaunchAgent labels are `dev.dotfiles-ai.dbsctr-spawner` and
   `dev.dotfiles-ai.dbsctr-watchdog`; disabled apply removes only matching labels
   and plists.
@@ -194,7 +212,7 @@ OpenCode control-plane behavior, and shell authentication.
 | `chezmoi data/cat/apply --dry-run` | Enabled/disabled local data and rendered targets |
 | `opencode debug config/agent` | Exact primary IDs, models, permissions, and provider-local routes |
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
-| Runtime probes | LaunchAgent state, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
+| Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
 
 ## Risks And Maintenance
 

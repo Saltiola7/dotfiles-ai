@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-22 - DAI-006 Recovery Health
+
+- Recovered large sessions with the proven prompt-free OpenCode mini interface,
+  explicit project identity, no visible-history replay, a 120-second readiness
+  window, and unchanged exact-pane/argv ambiguity rejection.
+- Watchdog reconciliation now emits bounded JSON and exits nonzero for degraded
+  events, including durable blocked workers that still have a visible Herdr
+  agent. Healthy, recovered, and lock-contended runs remain zero.
+- Validation: 14 R&D tests passed on Python 3.12, 3.13, and 3.14; rendered Python
+  parsed, exact chezmoi verification passed, and independent review found no
+  remaining issue. Gate Commits: `7606dac`, `c5a82e7`, `d567eb4`, `e3ab763`,
+  `838a8ea`, `8fd16f0`. Gate Exceptions: none.
+- Deployment: exact runner apply recovered worker `dbsctr-97efefcc` into stable
+  single-pane `w7:t2M`; exact mini argv remained idle and a repeated watchdog
+  returned no events. Launchd run 1122 exited zero. Weekly cadence remains
+  unhalted with its next eligible tick on 2026-07-27. Release is not applicable.
+  Intended Final Push: `origin/main`.
+- Delivery correction: DAI-006B recomposed the reviewed final tree from the
+  advanced `origin/main` after Final Push safely rejected an unrecorded upstream
+  merge commit; no history was rewritten and no evidence guard was bypassed.
+
 ## 2026-07-19 - DAI-004 Adaptive Cadence
 
 - Added bounded human/JSON analytics, authoritative failed outcomes, immutable

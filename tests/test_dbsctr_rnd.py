@@ -131,6 +131,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     opencode.chmod(0o755)
     runner = tmp_path / "dbsctr-rnd"
     runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
+    assert 'DBSCTR_RND_SESSION_POLLS", "240"' in runner.read_text()
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
            "OPENCODE_BIN": str(opencode), "COMMAND_LOG": str(log),
            "SESSION_SEEN": str(tmp_path / "session-seen"),
@@ -207,7 +208,8 @@ def test_watchdog_leaves_live_discovery_worker_untouched(tmp_path):
         "#!/bin/sh\nprintf 'herdr %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "printf '%s\\n' '{\"result\":{\"agents\":[{\"agent_session\":{\"value\":\"ses_1\"},\"agent_status\":\"unknown\"}]}}'\n"
     )
-    unknown = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
+    unknown = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert unknown.returncode != 0
     assert json.loads(unknown.stdout)["events"][0]["status"] == "unknown"
     assert "improvement-update --worker-id worker-1 --state blocked" in log.read_text()
     with lock.open("a+") as held:
@@ -253,9 +255,40 @@ def test_watchdog_recovers_only_missing_exact_session(tmp_path):
     completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
     assert json.loads(completed.stdout)["events"][0]["status"] == "recovered"
     commands = log.read_text()
-    assert "opencode -s ses_1 --agent build" in commands
+    assert f"opencode --mini {workdir} -s ses_1 --agent build --no-replay" in commands
     assert "improvement-update --worker-id worker-1 --state reviewing --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
     assert "improvement-recover --worker-id worker-1 --action success" in commands
+
+
+def test_watchdog_exits_nonzero_for_degraded_worker(tmp_path):
+    workdir = tmp_path / "source"
+    workdir.mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    dbsctrctl = bin_dir / "dbsctrctl"
+    herdr = bin_dir / "herdr"
+    dbsctrctl.write_text(
+        "#!/bin/sh\nprintf '%s\\n' "
+        "'{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"ses_1\","
+        "\"state\":\"blocked\",\"recovery_attempts\":3}]}'\n"
+    )
+    herdr.write_text(
+        "#!/bin/sh\nprintf '%s\\n' "
+        "'{\"result\":{\"agents\":[{\"agent_session\":{\"value\":\"ses_1\"},"
+        "\"agent_status\":\"blocked\"}]}}'\n"
+    )
+    herdr.chmod(0o755)
+    dbsctrctl.chmod(0o755)
+    runner = tmp_path / "dbsctr-rnd"
+    runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
+    completed = subprocess.run(
+        ["python3", str(runner), "watchdog"],
+        env={**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
+             "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock")},
+        text=True, capture_output=True,
+    )
+    assert completed.returncode != 0
+    assert json.loads(completed.stdout) == {"events": [{"worker_id": "worker-1", "status": "blocked"}]}
 
 
 def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
@@ -270,14 +303,14 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
         "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "printf '%s\\n' '{\"workers\":[{\"worker_id\":\"worker-1\",\"session_id\":\"ses_1\",\"state\":\"reviewing\",\"recovery_attempts\":0,\"workspace_id\":\"w7\",\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}]}'\n"
     )
-    herdr.write_text(
+    herdr.write_text((
         "#!/bin/sh\nprintf 'herdr %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "case \"$1 $2\" in\n"
         f"  'agent list') printf '%s\\n' '{{\"result\":{{\"agents\":[{{\"agent_status\":\"working\",\"cwd\":\"{workdir}\",\"workspace_id\":\"w7\",\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}}]}}}}';;\n"
         "  'pane list') printf '%s\\n' '{\"result\":{\"panes\":[{\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}]}}';;\n"
-        "  'pane process-info') printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"-s\",\"ses_1\",\"--agent\",\"build\"]}]}}}';;\n"
+        "  'pane process-info') printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"--mini\",\"__WORKDIR__\",\"-s\",\"ses_1\",\"--agent\",\"build\",\"--no-replay\"]}]}}}';;\n"
         "esac\n"
-    )
+    ).replace("__WORKDIR__", str(workdir)))
     herdr.chmod(0o755)
     dbsctrctl.chmod(0o755)
     runner = tmp_path / "dbsctr-rnd"
@@ -289,15 +322,15 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
     assert "improvement-recover" not in log.read_text()
     exact = herdr.read_text()
     variants = (
-        exact.replace('["opencode","-s","ses_1","--agent","build"]', '["opencode","-s","ses_1","--agent","plan"]'),
+        exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
         exact.replace(str(workdir), "/tmp/unmanaged"),
         exact.replace(
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"}]',
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"},{"tab_id":"w7:t9","pane_id":"w7:p10"}]',
         ),
         exact.replace(
-            '[{"argv":["opencode","-s","ses_1","--agent","build"]}]',
-            '[{"argv":["opencode","-s","ses_1","--agent","build"]},{"argv":["opencode","-s","ses_1","--agent","build"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]},{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
         ),
     )
     for index, variant in enumerate(variants):
@@ -305,8 +338,9 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
         ambiguous = subprocess.run(
             ["python3", str(runner), "watchdog"],
             env={**env, "DBSCTR_RND_LOCK": str(tmp_path / f"bad-{index}.lock")},
-            text=True, capture_output=True, check=True,
+            text=True, capture_output=True,
         )
+        assert ambiguous.returncode != 0
         assert json.loads(ambiguous.stdout)["events"][0]["status"] == "ambiguous"
 
 

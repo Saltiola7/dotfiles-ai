@@ -9,7 +9,8 @@ Launchd runs two opt-in jobs in the macOS Aqua session:
 | `dev.dotfiles-ai.dbsctr-spawner` | Daily at 09:00 | Start one fresh native-Build OpenCode `/dbsctr-improve` worker |
 | `dev.dotfiles-ai.dbsctr-watchdog` | Every five minutes | Reconcile durable workers, exact sessions, and pull-request outcomes |
 
-Every scheduled run creates a worker even when older workers await Discovery.
+The daily launchd tick creates a worker only when the private adaptive cadence is
+due. Older workers awaiting Discovery do not block an otherwise eligible run.
 Herdr keeps each worker in a visible single-pane tab. OpenCode performs review,
 Discovery, implementation, validation, and draft-PR delivery; launchd and the
 runner provide only scheduling and deterministic recovery.
@@ -79,7 +80,7 @@ dbsctrctl improvement-recover --worker-id WORKER_ID --action abandon
 ## Recovery And Security
 
 The watchdog matches exact native session IDs. A missing process is restarted
-as `opencode -s SESSION_ID --agent build` in a fresh single-pane tab. Exactly one
+as `opencode --mini REVIEW_WORKDIR -s SESSION_ID --agent build --no-replay` in a fresh single-pane tab. Exactly one
 recorded pane with that foreground argv may be adopted when Herdr omits native
 metadata. Ambiguity blocks; three failed recoveries require explicit retry or
 abandonment. Live idle, blocked, and Discovery sessions are never prompted or

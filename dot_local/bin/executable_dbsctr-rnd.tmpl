@@ -24,7 +24,7 @@ MANAGED_PATH = {{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bi
 TERMINAL = {"merged", "closed", "abandoned"}
 LOCK = Path(os.environ.get("DBSCTR_RND_LOCK", {{ printf "%s/.local/state/dotfiles-ai/dbsctr-rnd-watchdog.lock" .chezmoi.homeDir | quote }}))
 STATE = Path(os.environ.get("DBSCTR_RND_STATE", str(LOCK.with_name("dbsctr-rnd.sqlite3"))))
-SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "60"))
+SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "240"))
 CADENCES = ("weekly", "twice_weekly", "daily")
 CADENCE_SECONDS = {"weekly": 7 * 86400, "twice_weekly": 7 * 86400 // 2, "daily": 86400}
 MONTH_SECONDS = 30 * 86400
@@ -552,7 +552,8 @@ def launch(workspace_id, worker_id, session_id=None):
     shell_pane = required_path(staging, "root_pane", "pane_id")
     agent_pane = worker_tab = None
     try:
-        argv = (["opencode", "-s", session_id, "--agent", "build"] if session_id else
+        argv = (["opencode", "--mini", str(REVIEW_WORKDIR), "-s", session_id,
+                 "--agent", "build", "--no-replay"] if session_id else
                 ["opencode", "run", "--agent", "build", "--command", "dbsctr-improve", "--interactive"])
         started = command([
             HERDR, "agent", "start", worker_id, "--cwd", str(REVIEW_WORKDIR),
@@ -634,7 +635,8 @@ def exact_resumed_agent(worker, agents):
                  if pane.get("tab_id") == worker["tab_id"]]
     info = result(command([HERDR, "pane", "process-info", "--pane", worker["pane_id"]]))
     processes = info.get("process_info", {}).get("foreground_processes", [])
-    expected = ["opencode", "-s", worker["session_id"], "--agent", "build"]
+    expected = ["opencode", "--mini", str(REVIEW_WORKDIR), "-s", worker["session_id"],
+                "--agent", "build", "--no-replay"]
     if ([pane.get("pane_id") for pane in tab_panes] == [worker["pane_id"]]
             and len(processes) == 1 and processes[0].get("argv") == expected):
         return recorded
@@ -679,7 +681,7 @@ def watchdog():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         print('{"events":[],"status":"already_running"}')
-        return
+        return 0
     workers = validated_workers(command([DBSCTRCTL, "improvement-status"]))
     current_workers = {worker["worker_id"]: worker for worker in workers}
     merge_identities = {}
@@ -695,6 +697,9 @@ def watchdog():
         except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as error:
             events.append({"worker_id": worker["worker_id"], "status": "pr_check_failed", "error": str(error)})
         if worker["state"] in TERMINAL:
+            continue
+        if worker["state"] == "blocked":
+            events.append({"worker_id": worker["worker_id"], "status": "blocked"})
             continue
         matches = [agent for agent in agents
                    if agent.get("agent_session", {}).get("value") == worker["session_id"]]
@@ -726,7 +731,7 @@ def watchdog():
                 current_workers[worker["worker_id"]] = {**worker, "state": "blocked"}
                 events.append({"worker_id": worker["worker_id"], "status": "unknown"})
                 continue
-        if worker["state"] == "blocked" or worker["recovery_attempts"] >= 3:
+        if worker["recovery_attempts"] >= 3:
             events.append({"worker_id": worker["worker_id"], "status": "blocked"})
             continue
         launched = None
@@ -757,6 +762,7 @@ def watchdog():
     finally:
         scheduler.close()
     print(json.dumps({"events": events}, separators=(",", ":")))
+    return int(any(event["status"] != "recovered" for event in events))
 
 
 def persist_malformed_halt():
@@ -787,7 +793,9 @@ try:
     else:
         if args.json or args.finalize_json or args.failure_json:
             raise RuntimeError(f"{args.action} does not accept analytics inputs")
-        {"spawn": spawn, "watchdog": watchdog}[args.action]()
+        status = {"spawn": spawn, "watchdog": watchdog}[args.action]()
+        if status:
+            raise SystemExit(status)
 except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, sqlite3.Error,
         KeyError, ValueError, RuntimeError) as error:
     raise SystemExit(str(error))
