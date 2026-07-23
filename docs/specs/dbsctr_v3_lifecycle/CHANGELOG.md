@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-22 - V3.26 Worktree Maintenance
+
+- Added read-only allocated-byte and cleanup-blocker inventory plus explicit
+  batch cleanup that preserves every per-cycle retention, identity, cleanliness,
+  commit, remote, and target-containment check while isolating candidate failures.
+- Hardened removal with deterministic branch identity and retryable markers for
+  interrupted worktree, branch, evidence-rename, and evidence-purge operations.
+  Malformed, active, dirty, drifted, foreign, and missing worktrees fail closed.
+- Anchored nested-cycle DVC caches to Git's primary worktree and configured local
+  `reflink,copy` output links. Existing worktrees and generated virtualenvs are not
+  rewritten or shared implicitly.
+- Validation: 164 affected tests passed and 1 skipped; compilation, diff checks,
+  targeted chezmoi deployment/identity/idempotence, live inventories, guarded
+  partial-failure cleanup, and iterative independent review passed. Fifty
+  completed worktrees were removed; the DBSCTR root fell from about 71.1 GiB to
+  18.2 GiB despite concurrent active-worktree growth. About 4.0 GiB of old MLC and
+  enterprise worktrees remains because their recorded remotes return repository
+  not found, and one small drifted dotfiles worktree remains guarded. Gate
+  Commits: `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54`. Gate Exceptions: none.
+  Deployment: managed helper and DBSCTR skill applied locally. Intended Final
+  Push: `origin/main` under the active `Saltiola7` account.
+
 ## 2026-07-19 - V3.25 Backlog Integrity
 
 - Normalized all four lifecycle backlogs, preserved historical outcome dates

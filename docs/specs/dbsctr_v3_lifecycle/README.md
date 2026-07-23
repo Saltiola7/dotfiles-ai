@@ -854,17 +854,17 @@ records, and retirement decisions. External writes remain approval-gated.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Worktree Inventory and Cleanup Candidate language | required | pending | V3.26 specification | - | Primary |
-| Behavior | Read-only inventory, batch cleanup, and DVC link behavior | required | pending | Focused red/green fixtures | - | Primary |
-| Spec | CLI, output, ordering, and compatibility | required | pending | README and BACKLOG | - | Primary |
-| Contract | Existing deletion checks, explicit confirmation, and partial-failure semantics | required | pending | Helper contract tests | - | Primary |
-| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest suites | - | Primary |
-| Refactor | One shared cleanup implementation and minimal DVC configuration | required | pending | Compilation and diff check | - | Primary |
-| Review/Integrate | Correctness, safety, and compatibility review | required | pending | Primary and independent review | - | Primary |
+| Domain | Worktree Inventory and Cleanup Candidate language | required | passed | V3.26 specification | - | Primary |
+| Behavior | Read-only inventory, batch cleanup, and DVC link behavior | required | passed | Focused red/green fixtures | - | Primary |
+| Spec | CLI, output, ordering, and compatibility | required | passed | README and BACKLOG | - | Primary |
+| Contract | Existing deletion checks, explicit confirmation, and partial-failure semantics | required | passed | Helper contract tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | passed | 164 passed, 1 skipped | - | Primary |
+| Refactor | One shared cleanup implementation and minimal DVC configuration | required | passed | Compilation and diff check | - | Primary |
+| Review/Integrate | Correctness, safety, and compatibility review | required | passed | Iterative reviewer-openai review; final no findings | - | Primary |
 | Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply managed helper and skill locally | required | pending | Targeted chezmoi apply and identity check | - | Primary |
-| Operate | Inventory live retained worktrees without mutation | required | pending | Deployed read-only smoke | - | Primary |
-| Maintain/Retire | Batch old completed worktrees while retaining explicit approval | required | pending | Approved live cleanup and post-cleanup inventory | - | Primary |
+| Deploy | Apply managed helper and skill locally | required | passed | Targeted chezmoi apply, identity, and idempotence | - | Primary |
+| Operate | Inventory live retained worktrees without mutation | required | passed | Deployed read-only inventory across repositories | - | Primary |
+| Maintain/Retire | Batch old completed worktrees while retaining explicit approval | required | passed | 50 completed worktrees removed; guarded failures retained | - | Primary |
 
 ### V3.25 Backlog Integrity Contract
 

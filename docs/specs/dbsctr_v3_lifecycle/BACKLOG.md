@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.26-1 | Inventory and safely reclaim retained DBSCTR worktrees | high | in_progress | - | `dot_local/bin/executable_dbsctrctl`, `dot_agents/skills/dbsctr/SKILL.md`, `docs/specs/dbsctr_v3_lifecycle/*`, `tests/test_dbsctrctl.py`, `tests/test_dbsctr_lifecycle.py` | V3.4 and V3.11 cleanup/DVC contracts | false | Retained generated DVC data and virtualenvs consume about 71 GiB | medium | Focused helper/lifecycle tests, deployed inventory, and approved cleanup |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.26-1 | Add worktree inventory, guarded batch cleanup, crash recovery, and primary-cache DVC reflinks | 2026-07-22 | `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54` |
 | V3.25-1 | Normalize all lifecycle backlogs and add replacement-safe fixed-commit integrity findings | 2026-07-19 | `72a85b5`, `048e52b` |
 | V3.24-1 | Add private critical-path spans and helper-validated, benchmark-gated read concurrency | 2026-07-19 | `526515b`, `06312c4`, `876b171`, `ef78f0d`, `609ca49` |
 | V3.22-1 | Add immutable activation-bound 30-day benchmark effects and deterministic replay | 2026-07-19 | `b4c5993` |
