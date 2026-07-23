@@ -1906,14 +1906,29 @@ def cleanup_cycle(root, cycle_id, immediate):
     if not worktree.is_dir() and not schema3:
         return "already removed " + str(worktree)
     cleanup = record.get("cleanup")
-    if not worktree.is_dir() and (not cleanup or cleanup.get("state") not in ("worktree_removed", "evidence_parked")):
+    if not worktree.is_dir() and (not cleanup or cleanup.get("state") not in (
+            "removing_worktree", "worktree_removed", "evidence_parked")):
         fail("cycle worktree is missing")
     branch_name = record["worktree"].get("branch")
     expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
     if branch_name != expected_branch:
         fail("invalid cycle worktree branch")
-    if cleanup and cleanup.get("state") == "worktree_removed" and cleanup.get("branch") != branch_name:
-        fail("cleanup branch identity changed")
+    if cleanup and cleanup.get("state") in ("removing_worktree", "worktree_removed"):
+        marker_branch = cleanup.get("branch")
+        if marker_branch is not None and marker_branch != branch_name:
+            fail("cleanup branch identity changed")
+        if marker_branch is None:
+            cleanup["branch"] = branch_name
+            save(path, record)
+    if not worktree.is_dir() and cleanup and cleanup.get("state") == "removing_worktree":
+        registered = {line.removeprefix("worktree ") for line in
+                      git(root, "worktree", "list", "--porcelain").stdout.splitlines()
+                      if line.startswith("worktree ")}
+        if str(worktree.resolve()) in registered:
+            fail("incomplete Git worktree removal")
+        record["cleanup"] = {"state": "worktree_removed", "branch": branch_name, "removed_at": now()}
+        save(path, record)
+        cleanup = record["cleanup"]
     completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
     if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
         fail("successful worktrees are retained for 24 hours; use --now to remove earlier")
@@ -1947,6 +1962,9 @@ def cleanup_cycle(root, cycle_id, immediate):
         if worktree.is_dir() and git(worktree, "merge-base", "--is-ancestor", entry["id"], target, check=False).returncode:
             fail("cycle commits are not all contained in the delivery target")
     if worktree.is_dir():
+        if schema3:
+            record["cleanup"] = {"state": "removing_worktree", "branch": branch_name, "started_at": now()}
+            save(path, record)
         git(root, "worktree", "remove", str(worktree))
         if schema3:
             record["cleanup"] = {"state": "worktree_removed", "branch": branch_name, "removed_at": now()}
@@ -2074,7 +2092,7 @@ def command_cleanup(args):
         try:
             cleanup_cycle(root, cycle_id, args.now)
             removed.append(cycle_id)
-        except (RuntimeError, OSError) as error:
+        except (RuntimeError, OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             failed.append({"cycle_id": cycle_id, "error": str(error)})
     print(json.dumps({"failed": failed, "removed": removed}, sort_keys=True, separators=(",", ":")))
     if failed:

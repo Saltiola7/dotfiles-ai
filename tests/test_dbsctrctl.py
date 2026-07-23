@@ -708,6 +708,19 @@ class DbsctrctlTest(unittest.TestCase):
         loader.exec_module(module)
         original_save = module.save
 
+        def fail_removed_marker(path, value):
+            if value.get("cleanup", {}).get("state") == "worktree_removed":
+                raise OSError("interrupted cleanup")
+            return original_save(path, value)
+
+        with mock.patch.object(module, "root_dir", return_value=self.repo), \
+              mock.patch.object(module, "save", side_effect=fail_removed_marker):
+            with self.assertRaises(OSError):
+                module.command_cleanup(SimpleNamespace(cycle_id="isolated-1", now=True))
+        removing_record = json.loads(record_path.read_text())
+        self.assertEqual(removing_record["cleanup"]["state"], "removing_worktree")
+        self.assertFalse(Path(handoff["worktree"]).exists())
+
         def fail_parked_marker(path, value):
             if value.get("cleanup", {}).get("state") == "evidence_parked":
                 raise OSError("interrupted cleanup")
@@ -750,12 +763,16 @@ class DbsctrctlTest(unittest.TestCase):
         mismatch = json.loads((self.repo / ".git/dbsctr/cycles/batch-dirty.json").read_text())
         mismatch["cycle_id"] = "redirected"
         (self.repo / ".git/dbsctr/cycles/mismatch.json").write_text(json.dumps(mismatch))
+        structural = json.loads((self.repo / ".git/dbsctr/cycles/batch-dirty.json").read_text())
+        structural["cycle_id"] = "structural"
+        structural.pop("context")
+        (self.repo / ".git/dbsctr/cycles/structural.json").write_text(json.dumps(structural))
 
         result = run(self.repo, "cleanup", "--completed", "--now", ok=False)
         summary = json.loads(result.stdout)
         self.assertEqual(summary["removed"], ["batch-clean"])
         self.assertEqual([item["cycle_id"] for item in summary["failed"]],
-                         ["malformed", "mismatch", "batch-dirty"])
+                         ["malformed", "mismatch", "batch-dirty", "structural"])
         self.assertFalse(paths["batch-clean"].exists())
         self.assertTrue(paths["batch-dirty"].exists())
 
@@ -823,6 +840,14 @@ class DbsctrctlTest(unittest.TestCase):
                 module.command_cleanup(SimpleNamespace(cycle_id="branch-retry", completed=False, now=True))
         self.assertFalse(Path(handoff["worktree"]).exists())
         self.assertEqual(json.loads(record_path.read_text())["cleanup"]["state"], "worktree_removed")
+        legacy = json.loads(record_path.read_text())
+        legacy["cleanup"].pop("branch")
+        record_path.write_text(json.dumps(legacy))
+        with mock.patch.object(module, "root_dir", return_value=self.repo), \
+             mock.patch.object(module, "git", side_effect=fail_branch):
+            with self.assertRaisesRegex(RuntimeError, "branch locked"):
+                module.command_cleanup(SimpleNamespace(cycle_id="branch-retry", completed=False, now=True))
+        self.assertEqual(json.loads(record_path.read_text())["cleanup"]["branch"], record["worktree"]["branch"])
         drifted = json.loads(record_path.read_text())
         drifted["worktree"]["branch"] = "master"
         record_path.write_text(json.dumps(drifted))
