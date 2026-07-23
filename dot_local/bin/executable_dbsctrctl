@@ -34,7 +34,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.26"
+CURRENT_METHOD_REVISION = "3.27"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -5052,6 +5052,21 @@ def command_improvement_recover(args):
     print(json.dumps(improvement_write(root, recover), sort_keys=True))
 
 
+def command_improvement_forget(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    if improvement_id(args.confirm, "confirmation") != worker_id:
+        fail("improvement worker confirmation does not match")
+    root = review_root(args.state_root)
+
+    def forget(connection):
+        if improvement_worker(connection, worker_id)["state"] != "abandoned":
+            fail("only an abandoned improvement worker can be forgotten")
+        connection.execute("DELETE FROM improvement_workers WHERE worker_id=?", (worker_id,))
+        return {"forgotten_worker_id": worker_id}
+
+    print(json.dumps(improvement_write(root, forget), sort_keys=True))
+
+
 def command_improvement_status(args):
     root = review_root(args.state_root)
     require_review_lock_safe(root)
@@ -6126,6 +6141,11 @@ def parser():
     improvement_recover.add_argument("--worker-id", required=True)
     improvement_recover.add_argument("--action", required=True, choices=("failed", "success", "retry", "abandon"))
     improvement_recover.set_defaults(func=command_improvement_recover)
+    improvement_forget = commands.add_parser("improvement-forget")
+    improvement_forget.add_argument("--state-root")
+    improvement_forget.add_argument("--worker-id", required=True)
+    improvement_forget.add_argument("--confirm", required=True)
+    improvement_forget.set_defaults(func=command_improvement_forget)
     improvement_status = commands.add_parser("improvement-status")
     improvement_status.add_argument("--state-root")
     improvement_status.add_argument("--worker-id")

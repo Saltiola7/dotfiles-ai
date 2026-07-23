@@ -266,7 +266,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     for command in ("dbsctrctl review-history-save*", "*/dbsctrctl review-history-save*",
                      "env *dbsctrctl review-history-save*", "command *dbsctrctl review-history-save*"):
         assert bash[command] == "ask"
-    for command in ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget"):
+    for command in ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget",
+                    "improvement-forget"):
         for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
             assert bash[form.format(command)] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"

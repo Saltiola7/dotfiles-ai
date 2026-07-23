@@ -125,7 +125,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.26")
+        self.assertEqual(record["method_revision"], "3.27")
         self.assertEqual(record["schema_version"], 3)
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
@@ -3528,7 +3528,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.26")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.27")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
@@ -3923,6 +3923,44 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-1",
         ).stdout)
         self.assertEqual(status["workers"], [abandoned])
+
+    def test_improvement_forget_requires_exact_abandoned_worker(self):
+        state = Path(self.temp.name) / "improvement-forget"
+        summary = "Retire stale improvement history"
+        claimed = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+        ).stdout)
+        active = run(
+            self.repo, "improvement-forget", "--state-root", str(state),
+            "--worker-id", "worker-1", "--confirm", "worker-1", ok=False,
+        )
+        self.assertIn("only an abandoned improvement worker", active.stderr)
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "discovery")
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "implementing",
+            "--cycle-id", "cycle-1", "--path", "tracked.txt")
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-1", "--state", "abandoned")
+        mismatch = run(
+            self.repo, "improvement-forget", "--state-root", str(state),
+            "--worker-id", "worker-1", "--confirm", "worker-2", ok=False,
+        )
+        self.assertIn("confirmation does not match", mismatch.stderr)
+        forgotten = json.loads(run(
+            self.repo, "improvement-forget", "--state-root", str(state),
+            "--worker-id", "worker-1", "--confirm", "worker-1",
+        ).stdout)
+        self.assertEqual(forgotten, {"forgotten_worker_id": "worker-1"})
+        self.assertEqual(json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+        ).stdout), {"workers": []})
+        replacement = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-2", "--session-id", "session-2", "--summary", summary,
+        ).stdout)
+        self.assertEqual(replacement["opportunity_id"], claimed["opportunity_id"])
 
     def test_improvement_schema_install_rolls_back_as_one_transaction(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_schema", str(SCRIPT))
