@@ -10,7 +10,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| DAI-006 | Restore exact large-session recovery and watchdog health signaling | 2026-07-22 | pending |
+| DAI-006 | Restore exact large-session recovery and watchdog health signaling | 2026-07-22 | `63a9c34` |
 | DAI-004 | Add longitudinal analytics and adaptive cadence | 2026-07-19 | `b0568dc` |
 | DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | `8870229` |
 | DAI-003G | Apply every autonomous lens across full review history | 2026-07-18 | `bc2bb08` |

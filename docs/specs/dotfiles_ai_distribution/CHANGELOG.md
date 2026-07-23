@@ -20,6 +20,7 @@
 - Delivery correction: DAI-006B recomposed the reviewed final tree from the
   advanced `origin/main` after Final Push safely rejected an unrecorded upstream
   merge commit; no history was rewritten and no evidence guard was bypassed.
+  Recomposed Gate Commit: `63a9c34`.
 
 ## 2026-07-19 - DAI-004 Adaptive Cadence
 
