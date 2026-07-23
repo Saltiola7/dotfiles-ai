@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.27-1 | Add explicit abandoned-worker retirement and reconcile stale lifecycle state | high | in_progress | V3.23-1, V3.26-1 | Improvement forget contract, helper command, permission, tests, lifecycle artifacts, live cleanup | Private improvement ledger, current worker status, Herdr terminal ownership | no | Permanent deletion requires exact confirmation, transactional integrity, and serialized live cleanup | S | Red/green helper and permission tests, affected QA, backup, live retirement, exact tab closure, fixed-commit audit, deployment identity and idempotence |
 
 ## Completed
 
@@ -48,4 +49,5 @@ Discovery readiness: complete.
 
 ## Notes
 
-Graphify and Herdr runtime hygiene remain separate bounded-context work.
+Graphify duplicate registration and Herdr runtime ownership were completed in
+their owning OpenCode control-plane and dotfiles distribution contexts.

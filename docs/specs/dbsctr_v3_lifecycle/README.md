@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.25 backlog integrity implemented and deployed
+**Status:** V3.27 abandoned-worker retirement in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -582,7 +582,7 @@ records, and retirement decisions. External writes remain approval-gated.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.26`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.27`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -800,6 +800,60 @@ records, and retirement decisions. External writes remain approval-gated.
 | Delivery intent | One combined merge/deploy cycle for artifacts, helper behavior, tests, local deployment, and live verification |
 | Scope | Canonical Active/Completed backlog structure, current backlog normalization, bounded draft-PR roadmap correction, additive audit findings, V3.17 restart verification, and the distribution-owned 30-day follow-up |
 | Overrides | Audit remains report-only; inspect committed blobs only; no prose promise scanning, automatic remediation, gate blocking, correlation reason codes, or completion claim before the real observation matures |
+
+### V3.27 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: permanently deletes selected private improvement history |
+| Delivery intent | Merge and deploy the managed helper and OpenCode permission locally after validation |
+| Scope | Exact-confirmation retirement of abandoned workers, stale lifecycle reconciliation, and authorized live cleanup |
+| Overrides | Preserve all improvement functionality and merged history; blocked workers must use the existing abandon transition; retain DAI-004-F1 |
+
+### V3.27 Abandoned-Worker Retirement Contract
+
+- `dbsctrctl improvement-forget --worker-id ID --confirm ID` permanently removes
+  exactly one `abandoned` worker and its cascading scope in the existing private
+  ledger transaction and integrity boundary.
+- The command rejects a missing worker, mismatched confirmation, and every state
+  other than `abandoned`. Blocked workers must first use
+  `improvement-recover --action abandon`; merged and closed outcome history is
+  never eligible.
+- Deleting an abandoned worker releases its deterministic opportunity identity
+  for a future worker. Claim, review, recovery, draft-PR, scheduler, and benchmark
+  behavior is otherwise unchanged.
+- OpenCode asks before every shell form of the command. No typed agent tool or
+  automatic pruning path is added.
+- Live retirement requires an integrity-checked backup, exact selected-worker
+  inventory, post-delete ledger integrity, and bounded verification. Terminal
+  Herdr tabs remain separate presentation state and close only after exact manual
+  identity verification.
+
+### V3.27 Decision State
+
+- **Decision:** Add the minimum one-worker explicit forget operation instead of
+  direct SQLite deletion or broad retention policy.
+- **Decision:** Retain merged worker history and DAI-004-F1; remove only records
+  explicitly abandoned by the operator.
+- **Non-goals:** Disabling improvement functionality, automatic expiry, deleting
+  merged or closed outcomes, changing cadence, or pruning review history.
+- **Unresolved decisions:** None that materially change V3.27 implementation.
+
+## Gate Ledger — V3.27 Abandoned-Worker Retirement
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Abandoned Worker and explicit retirement language | required | pending | V3.27 specification | - | Primary |
+| Behavior | Exact confirmed deletion and protected non-abandoned states | required | pending | Focused red/green fixtures | - | Primary |
+| Spec | CLI, permission, live cleanup, and compatibility | required | pending | README and BACKLOG | - | Primary |
+| Contract | Transaction, integrity, confirmation, and retention boundaries | required | pending | Helper contract tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest | - | Primary |
+| Refactor | One minimal command using the existing ledger write boundary | required | pending | Compilation and diff check | - | Primary |
+| Review/Integrate | Data-loss safety and compatibility review | required | pending | Independent review | - | Primary |
+| Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed helper, skill, and permission locally | required | pending | Targeted chezmoi apply and identity | - | Primary |
+| Operate | Verify retained merged history and pending DAI follow-up | required | pending | Live status and fixed-commit audit | - | Primary |
+| Maintain/Retire | Back up, abandon blocked worker, forget selected abandoned workers, and close exact terminal tab | required | pending | Live cleanup evidence | - | Primary |
 
 ### V3.26 Cycle Overrides
 
@@ -1496,8 +1550,8 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.26` retain schema version `3`; new records use
-the helper's single `CURRENT_METHOD_REVISION = "3.26"` constant.
+Method Revisions `3.9` through `3.27` retain schema version `3`; new records use
+the helper's single `CURRENT_METHOD_REVISION = "3.27"` constant.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.

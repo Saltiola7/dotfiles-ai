@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-25 | Ask before explicit improvement retirement | high | in_progress | V3.27-1 | OpenCode Bash permission for improvement-forget | DBSCTR improvement retirement command | yes | Permanent local-history deletion must remain confirmation-gated | XS | Rendered config contract and deployed permission resolution |
 
 ## Completed
 
