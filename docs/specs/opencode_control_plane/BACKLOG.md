@@ -4,12 +4,12 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-25 | Ask before explicit improvement retirement | high | in_progress | V3.27-1 | OpenCode Bash permission for improvement-forget | DBSCTR improvement retirement command | yes | Permanent local-history deletion must remain confirmation-gated | XS | Rendered config contract and deployed permission resolution |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-25 | Ask before every shell form of explicit improvement retirement | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | OCP-24 | Preserve exact reference root and subtree rules | 2026-07-19 | `4b52a21` |
 | OCP-23 | Preserve reference access after global deny | 2026-07-19 | `d0c3942` |
 | OCP-22 | Render a portable local repository reference | 2026-07-19 | `ef70477` |

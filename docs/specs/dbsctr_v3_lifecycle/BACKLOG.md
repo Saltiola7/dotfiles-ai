@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.27-1 | Add explicit abandoned-worker retirement and reconcile stale lifecycle state | high | in_progress | V3.23-1, V3.26-1 | Improvement forget contract, helper command, permission, tests, lifecycle artifacts, live cleanup | Private improvement ledger, current worker status, Herdr terminal ownership | no | Permanent deletion requires exact confirmation, transactional integrity, and serialized live cleanup | S | Red/green helper and permission tests, affected QA, backup, live retirement, exact tab closure, fixed-commit audit, deployment identity and idempotence |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.27-1 | Add atomic explicit abandoned-worker retirement and reconcile stale lifecycle state | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | V3.26-1 | Add worktree inventory, guarded batch cleanup, crash recovery, and primary-cache DVC reflinks | 2026-07-22 | `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54` |
 | V3.25-1 | Normalize all lifecycle backlogs and add replacement-safe fixed-commit integrity findings | 2026-07-19 | `72a85b5`, `048e52b` |
 | V3.24-1 | Add private critical-path spans and helper-validated, benchmark-gated read concurrency | 2026-07-19 | `526515b`, `06312c4`, `876b171`, `ef78f0d`, `609ca49` |

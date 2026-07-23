@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** OCP-17 through OCP-24 implemented and deployed
+**Status:** OCP-17 through OCP-25 implemented and deployed
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile

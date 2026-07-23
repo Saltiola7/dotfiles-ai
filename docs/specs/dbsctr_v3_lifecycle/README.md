@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.27 abandoned-worker retirement in progress
+**Status:** V3.27 abandoned-worker retirement implemented and deployed
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -843,17 +843,17 @@ records, and retirement decisions. External writes remain approval-gated.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Abandoned Worker and explicit retirement language | required | pending | V3.27 specification | - | Primary |
-| Behavior | Exact confirmed deletion and protected non-abandoned states | required | pending | Focused red/green fixtures | - | Primary |
-| Spec | CLI, permission, live cleanup, and compatibility | required | pending | README and BACKLOG | - | Primary |
-| Contract | Transaction, integrity, confirmation, and retention boundaries | required | pending | Helper contract tests | - | Primary |
-| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected pytest | - | Primary |
-| Refactor | One minimal command using the existing ledger write boundary | required | pending | Compilation and diff check | - | Primary |
-| Review/Integrate | Data-loss safety and compatibility review | required | pending | Independent review | - | Primary |
+| Domain | Abandoned Worker and explicit retirement language | required | passed | V3.27 specification | - | Primary |
+| Behavior | Exact confirmed deletion and protected non-abandoned states | required | passed | Focused red/green fixtures | - | Primary |
+| Spec | CLI, permission, live cleanup, and compatibility | required | passed | README and BACKLOG | - | Primary |
+| Contract | Transaction, integrity, confirmation, and retention boundaries | required | passed | Helper contract tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | passed | 166 passed, 1 skipped | - | Primary |
+| Refactor | One minimal command using the existing ledger write boundary | required | passed | Compilation and diff check | - | Primary |
+| Review/Integrate | Data-loss safety and compatibility review | required | passed | Iterative reviewer-openai review; final no findings | - | Primary |
 | Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply managed helper, skill, and permission locally | required | pending | Targeted chezmoi apply and identity | - | Primary |
-| Operate | Verify retained merged history and pending DAI follow-up | required | pending | Live status and fixed-commit audit | - | Primary |
-| Maintain/Retire | Back up, abandon blocked worker, forget selected abandoned workers, and close exact terminal tab | required | pending | Live cleanup evidence | - | Primary |
+| Deploy | Apply managed helper, skill, and permission locally | required | passed | Targeted chezmoi apply, identity, and idempotence | - | Primary |
+| Operate | Verify retained merged history and pending DAI follow-up | required | passed | Live status and fixed-commit audit | - | Primary |
+| Maintain/Retire | Back up, abandon blocked worker, forget selected abandoned workers, and close exact terminal tab | required | passed | Four records retired; terminal workspace closed; temporary backup verified and removed | - | Primary |
 
 ### V3.26 Cycle Overrides
 

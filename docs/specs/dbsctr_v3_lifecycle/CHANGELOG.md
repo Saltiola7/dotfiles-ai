@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-23 - V3.27 Abandoned-Worker Retirement
+
+- Added exact-confirmation `improvement-forget` for abandoned workers only,
+  preserving active, blocked, merged, and closed records and all existing
+  improvement coordination, recovery, scheduling, and draft-PR behavior.
+- Moved shared improvement-ledger integrity validation before commit so every
+  failed post-mutation check rolls back, and asked before every wrapped shell
+  form of permanent retirement.
+- Validation: 166 affected tests passed and 1 skipped; compilation, diff checks,
+  targeted deployment/identity/idempotence, fixed-commit audit, and iterative
+  independent review passed with no final findings. Four abandoned records were
+  retired after a verified backup; merged history and DAI-004-F1 remain. The
+  dedicated terminal workspace was closed and the temporary backup removed after
+  integrity verification. Gate Commits: `dd16008`, `ec9cbc4`, `732ae79`. Gate
+  Exceptions: none. Deployment: managed helper, DBSCTR skill, and OpenCode
+  permission applied locally. Intended Final Push: `origin/main`.
+
 ## 2026-07-22 - V3.26 Worktree Maintenance
 
 - Added read-only allocated-byte and cleanup-blocker inventory plus explicit

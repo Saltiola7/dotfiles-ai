@@ -1,5 +1,12 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-23 - OCP-25 Improvement Retirement Permission
+
+- Added a trailing broad `ask` rule for every shell-wrapped
+  `dbsctrctl improvement-forget` invocation while retaining existing improvement
+  tool permissions. Rendered configuration contracts and targeted deployment
+  passed. Implementation evidence: `ec9cbc4`, `732ae79`.
+
 ## 2026-07-19 - Exact Local Reference Boundary
 
 - Replaced the duplicate generated `path/*` allow with distinct exact-root and
