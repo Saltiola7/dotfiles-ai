@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | high | in_progress | DAI-007A, V3.28-1 | VM OpenCode render, permissions, history adapter, handoff adapter, focused contracts | Host control plane, VM profile, helper envelopes | no | Preserve full interactive parity and restored auto behavior without weakening host policy | L | Resolved config, role isolation, malformed/oversized transport, restart resume, and real VM probes |
 
 ## Completed
 

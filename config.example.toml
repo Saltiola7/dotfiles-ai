@@ -36,3 +36,15 @@ enabled = false
 account = ""
 user_uuid = ""
 keychain_service = "op-service-account-token"
+
+[data.dotfiles_ai.sandbox]
+# Lima disks are sparse maximums; host allocation grows with actual guest use.
+enabled = false
+personal_instance = "opencode-personal"
+personal_root = "/Users/you/github"
+mgm_instance = "opencode-mgm"
+mgm_root = "/Users/you/MGM/git"
+mgm_protected_repo = "/Users/you/MGM/reference/seo-code-analysis"
+cpus = 4
+memory_gib = 8
+disk_gib = 60

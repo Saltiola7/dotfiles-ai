@@ -5,15 +5,20 @@ description: Run one autonomous global-history R&D worker for chezmoi-dotfiles-a
 Operate as one bounded native-Build R&D worker:
 
 1. Load `dbsctr-review`. Name and version the current review lens from this
-   command's current rubric, then call `dbsctr_review_history`
+   command's current rubric, then call `dbsctr_review_federated`
    without a `reviewedStatus` filter and follow every continuation. This full
-   history pass must include both previously reviewed and unreviewed sessions.
-   Save each nonempty sanitized cohort under that same rubric with
-   `dbsctr_review_history_save`; do not call `dbsctr_review_complete` or change
-   review markers. Reviewed status remains filterable metadata, not a default
-   exclusion. After each saved page, reduce it to at most 10 concise issue signals
-   and merge only the strongest 20 into a running shortlist before continuing;
-   never use context pressure as a reason to skip a page.
+   history pass must include host, personal VM, and MGM VM sources and both
+   previously reviewed and unreviewed sessions. Stop if any configured source is
+   unavailable; never describe a partial manifest as global history.
+   Pass the returned `sourceState` unchanged with each continuation so every
+   source retains its original snapshot, ceilings, and database identity.
+   Save each nonempty host cohort under that same rubric with
+   `dbsctr_review_history_save`; VM source identities are namespaced and must not
+   be submitted to the host database's save command. Do not call
+   `dbsctr_review_complete` or change review markers. After each source page,
+   reduce it to at most 10 concise issue signals and merge only the strongest 20
+   into a running shortlist before continuing; never use context pressure as a
+   reason to skip a page.
 2. Synthesize one ranked shortlist across the complete lens pass. Compare each
    concrete issue with durable improvement claims, this source's
    specs, backlogs, source, tests, and dotfiles-ai GitHub state. Use Scout for
@@ -36,10 +41,10 @@ Operate as one bounded native-Build R&D worker:
    at least 95% confident. Wait for the operator to answer and explicitly instruct you to proceed;
    answers alone are not approval.
 7. After explicit proceed, persist the exact repository-relative ownership paths
-   and cycle ID with `dbsctr_improvement_update`, then begin an elevated
-   `draft_pr` DBSCTR cycle for the matching context. Read the non-secret GitHub
-   account and repository from `~/.config/dotfiles-ai/chezmoi.toml` and pass them
-   to typed begin. Work only in the isolated worktree and complete every gate.
+   with `dbsctr_improvement_update`, then call `dbsctr_vm_handoff` with
+   `proceed=true`, the worker ID, risk, concise approved context, paths, and
+   validation. The visible personal-VM Build session begins and owns the elevated
+   `draft_pr` DBSCTR cycle; the host cycle and VM cycle never share mutable state.
 8. Final Push may publish only the feature branch and create a draft pull request
    against the recorded base. Never merge, mark ready, release, or deploy.
 9. Final Push records the verified draft PR in the worker ledger. Persist the

@@ -257,6 +257,49 @@ export async function reviewHistory(args: {
   return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
 }
 
+export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
+  source_id: "host" | "personal" | "mgm"
+  snapshot: number
+  session_ceiling: number
+  part_ceiling: number
+  database_digest: string
+  exclusion_digest?: string
+  continuation: number | null
+}[], cwd = process.cwd()) {
+  const argv = ["opencode-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
+  if (sourceState !== undefined) argv.push("--source-state-json", JSON.stringify(sourceState))
+  const value = await analyticsJSON(argv, cwd)
+  if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
+      || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
+      || !Array.isArray(value.sources) || value.sources.length !== 3
+      || !Array.isArray(value.source_state) || value.source_state.length > 3
+      || value.sources.some((source: any) => source === null || typeof source !== "object"
+        || !["host", "personal", "mgm"].includes(source.source_id)
+        || !["available", "complete", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
+        || source.availability === "available" && (source.page?.schema_version !== 1
+          || !Array.isArray(source.page?.candidates) || source.page.candidates.length > limit))) {
+    throw new Error("sandbox helper returned an invalid federation manifest")
+  }
+  return JSON.stringify(value)
+}
+
+export async function vmHandoff(report: {
+  schema_version: 1
+  worker_id: string
+  proceed: true
+  target: "personal"
+  risk: "routine" | "elevated" | "critical"
+  summary: string
+  paths: string[]
+  validation: string[]
+}, cwd = process.cwd()) {
+  const value = await analyticsJSON(["opencode-vm", "handoff", "--report-json", JSON.stringify(report)], cwd)
+  if (value.schema_version !== 1 || value.target !== "personal" || value.status !== "launched") {
+    throw new Error("sandbox helper returned an invalid handoff")
+  }
+  return JSON.stringify(value)
+}
+
 function reviewHistoryArgv(args: {
   after?: number
   before?: number

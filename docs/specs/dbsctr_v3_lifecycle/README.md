@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.27 abandoned-worker retirement implemented and deployed
+**Status:** V3.27 deployed; V3.28 federated review handoff active
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -124,6 +124,9 @@ Adjacent contexts:
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
 | Worktree Inventory | Read-only local report of DBSCTR-owned cycle worktrees, allocated bytes, lifecycle state, and cleanup blockers. |
 | Cleanup Candidate | Completed DBSCTR-owned worktree that passes local retention, cleanliness, branch, and HEAD checks; cleanup still revalidates delivery containment. |
+| Review Source | One authoritative local OpenCode database identified by a stable non-secret source ID and independent immutable scan envelope. |
+| Federated Review Manifest | Ordered identity over every requested Review Source envelope and explicit availability result. |
+| Implementation Handoff | Sanitized host-approved context that starts a separate target-runtime Lifecycle Cycle without sharing mutable cycle authority. |
 
 ## Domain Model
 
@@ -186,6 +189,44 @@ configured quality authorities.
 Sinks include updated specifications, backlogs, changelogs, code, tests,
 packages, release evidence, deployment plans, operational evidence, maintenance
 records, and retirement decisions. External writes remain approval-gated.
+
+### Federated Runtime Evidence
+
+**Scenario: Preserve source-local database authority**
+- Given host R&D requests host, personal, and MGM history
+- When each available runtime scans its local OpenCode database
+- Then each source emits an independent bounded sanitized envelope
+- And no database file, transcript, path, secret, or mutable review ledger crosses
+  the runtime boundary
+
+**Scenario: Make incomplete federation explicit**
+- Given a configured source cannot start, times out, changes identity, or emits
+  malformed output
+- When the host constructs the Federated Review Manifest
+- Then that source is recorded unavailable with bounded diagnostics
+- And the worker cannot claim that every configured lens covered full history
+
+**Scenario: Hand off approved implementation**
+- Given host Discovery is complete and the operator explicitly says proceed
+- When the host creates an Implementation Handoff for personal VM
+- Then the handoff contains sanitized intent, constraints, affected artifacts,
+  validation, risk, and host claim identity
+- And personal VM starts a separate Lifecycle Cycle whose Cycle Record, worktree,
+  gates, branch, and draft PR are authoritative only in that VM
+- And answering Discovery without explicit proceed never creates the handoff
+
+The Review Source envelope is schema version `1` and binds `source_id`, helper
+method revision, exporter protocol revision, availability, snapshot, row
+ceilings, database digest, exclusion digest, cursor, limit, continuation, and
+sanitized candidates. The Federated Review Manifest hashes the ordered complete
+source envelopes and requested filters. A continuation with a changed source
+set or source identity fails rather than restarting that source silently.
+
+The Implementation Handoff is schema version `1`, requires `proceed=true`, one
+host worker/claim identity, target `personal`, bounded sanitized context,
+declared repository-relative paths, risk, validation, and draft-PR delivery. The
+target creates a fresh cycle ID and records the host claim only as correlation;
+neither runtime may mutate the other's Cycle Record or private ledger.
 
 ## Behavior Scenarios
 

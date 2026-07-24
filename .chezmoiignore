@@ -30,3 +30,15 @@ Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ end }}
+
+{{ if eq .chezmoi.os "linux" }}
+Library/
+run_onchange_load-herdr-launchagent.sh
+run_onchange_after_load-dbsctr-rnd-launchagents.sh
+.local/bin/op-session
+.local/bin/dbsctr-rnd
+.local/bin/opencode-vm
+.local/bin/herdr-personal
+.local/bin/herdr-mgm
+.config/dotfiles-ai/
+{{ end }}

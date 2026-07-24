@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+import argparse
+import configparser
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import sys
+
+
+CONFIG = Path(os.environ.get("OPENCODE_VM_CONFIG", "~/.config/dotfiles-ai/sandbox.json")).expanduser()
+CLIENTS = ("personal", "mgm")
+ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+UNSAFE = re.compile(r"(?:https?://|file://|/(?:Users|home|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----)", re.I)
+MAX_OUTPUT = 256 * 1024
+
+
+def command(argv, timeout=30):
+    result = subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
+    output = result.stdout.strip()
+    if len(result.stdout.encode()) + len(result.stderr.encode()) > MAX_OUTPUT:
+        raise RuntimeError("command output exceeded bound")
+    if result.returncode:
+        raise RuntimeError(f"{argv[0]} failed")
+    return output
+
+
+def load_config(path=CONFIG):
+    value = json.loads(path.read_text())
+    validate_config(value)
+    return value
+
+
+def _inside(left, right):
+    try:
+        left.relative_to(right)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_config(value):
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise ValueError("invalid sandbox config")
+    clients = value.get("clients")
+    if not isinstance(clients, dict) or set(clients) != set(CLIENTS):
+        raise ValueError("sandbox config requires personal and mgm clients")
+    roots = []
+    for name in CLIENTS:
+        client = clients[name]
+        if not isinstance(client, dict) or not ID.fullmatch(client.get("instance", "")):
+            raise ValueError(f"invalid {name} instance")
+        root_value = client.get("root", "")
+        if not isinstance(root_value, str) or not root_value.startswith("/"):
+            raise ValueError(f"invalid {name} root")
+        root = Path(root_value).resolve()
+        roots.append(root)
+        protected_value = client.get("protected_repo", "")
+        if not isinstance(protected_value, str):
+            raise ValueError(f"invalid {name} protected repo")
+        if protected_value:
+            protected = Path(protected_value).resolve()
+            if _inside(protected, root) or _inside(root, protected):
+                raise ValueError("client mount paths overlap")
+    if _inside(roots[0], roots[1]) or _inside(roots[1], roots[0]):
+        raise ValueError("client mount paths overlap")
+    return value
+
+
+def submodule_paths(repo):
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(repo / ".gitmodules")
+    paths = []
+    for section in parser.sections():
+        if not section.startswith("submodule ") or not parser.has_option(section, "path"):
+            continue
+        value = parser.get(section, "path")
+        path = PurePosixPath(value)
+        if path.is_absolute() or not value or ".." in path.parts or "." in path.parts:
+            raise ValueError("invalid submodule path")
+        paths.append(value)
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate submodule path")
+    return sorted(paths)
+
+
+def _history_argv(limit, cursor, state=None):
+    if state is not None:
+        cursor = state.get("continuation")
+        if not isinstance(cursor, int) or cursor < 0:
+            raise ValueError("source continuation changed")
+    argv = ["dbsctrctl", "review-history", "--limit", str(limit), "--cursor", str(cursor)]
+    if state is not None:
+        names = {
+            "snapshot": "snapshot", "session_ceiling": "session-ceiling",
+            "part_ceiling": "part-ceiling", "database_digest": "database-digest",
+            "exclusion_digest": "exclusion-digest",
+        }
+        for key, name in names.items():
+            if state.get(key) is not None:
+                argv.extend([f"--{name}", str(state[key])])
+    return argv
+
+
+def _parse_states(output):
+    if not output:
+        return {}
+    try:
+        value = json.loads(output)
+        rows = value if isinstance(value, list) else [value]
+    except json.JSONDecodeError:
+        rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+    return {
+        row["name"]: str(row.get("status", "")).lower() == "running"
+        for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)
+    }
+
+
+def _namespace(value, source):
+    if isinstance(value, list):
+        return [_namespace(item, source) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key in {"session_id", "cycle_id", "parent_session_id"} and isinstance(item, str):
+            result[key] = f"{source}:{item}"
+        elif key in {"session_ids", "cycle_ids"} and isinstance(item, list):
+            result[key] = [f"{source}:{entry}" for entry in item]
+        else:
+            result[key] = _namespace(item, source)
+    return result
+
+
+def _source_page(source, output, limit, cursor):
+    if len(output.encode()) > MAX_OUTPUT or UNSAFE.search(output):
+        raise ValueError("unsafe output")
+    value = json.loads(output)
+    required = {"schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "limit", "cursor", "continuation", "candidates"}
+    if not isinstance(value, dict) or not required <= set(value) or value.get("schema_version") != 1:
+        raise ValueError("invalid history page")
+    if value.get("limit") != limit or value.get("cursor") != cursor or not isinstance(value.get("candidates"), list):
+        raise ValueError("invalid history page")
+    if (not all(isinstance(value.get(name), int) and value[name] >= 0
+                for name in ("snapshot", "session_ceiling", "part_ceiling"))
+            or not isinstance(value.get("database_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", value["database_digest"])
+            or value.get("exclusion_digest") is not None
+            and not re.fullmatch(r"[0-9a-f]{64}", value["exclusion_digest"])
+            or value.get("continuation") is not None
+            and (not isinstance(value["continuation"], int) or value["continuation"] <= cursor)):
+        raise ValueError("invalid history identity")
+    if len(value["candidates"]) > limit:
+        raise ValueError("invalid history page")
+    state = {
+        "source_id": source,
+        "snapshot": value["snapshot"],
+        "session_ceiling": value["session_ceiling"],
+        "part_ceiling": value["part_ceiling"],
+        "database_digest": value["database_digest"],
+        "exclusion_digest": value.get("exclusion_digest"),
+        "continuation": value["continuation"],
+    }
+    return {"source_id": source, "availability": "available", "page": _namespace(value, source)}, state
+
+
+def federated_review(config, limit=25, cursor=0, source_state=None, execute=command):
+    validate_config(config)
+    if not 1 <= limit <= 100 or cursor < 0:
+        raise ValueError("invalid pagination")
+    continuation_states = {}
+    if source_state is not None:
+        if (not isinstance(source_state, list) or len(source_state) != 3
+                or {item.get("source_id") for item in source_state if isinstance(item, dict)} != {"host", "personal", "mgm"}):
+            raise ValueError("invalid source state")
+        continuation_states = {item["source_id"]: item for item in source_state}
+    sources = []
+    next_state = []
+    host_state = continuation_states.get("host")
+    host_cursor = host_state.get("continuation") if host_state else cursor
+    if host_state and host_cursor is None:
+        sources.append({"source_id": "host", "availability": "complete"})
+        next_state.append(host_state)
+    else:
+        try:
+            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state)), limit, host_cursor)
+            sources.append(source)
+            next_state.append(state)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            sources.append({"source_id": "host", "availability": "invalid_output"})
+    try:
+        running = _parse_states(execute(["limactl", "list", "--json"]))
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+        running = {}
+    for source in CLIENTS:
+        instance = config["clients"][source]["instance"]
+        state_before = continuation_states.get(source)
+        source_cursor = state_before.get("continuation") if state_before else cursor
+        if state_before and source_cursor is None:
+            sources.append({"source_id": source, "availability": "complete"})
+            next_state.append(state_before)
+            continue
+        if instance not in running:
+            sources.append({"source_id": source, "availability": "missing_instance"})
+            continue
+        started = not running[instance]
+        try:
+            if started:
+                execute(["limactl", "start", instance], timeout=120)
+            output = execute(["limactl", "shell", instance, "--", *_history_argv(limit, cursor, state_before)], timeout=120)
+            envelope, state = _source_page(source, output, limit, source_cursor)
+            sources.append(envelope)
+            next_state.append(state)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            sources.append({"source_id": source, "availability": "invalid_output"})
+        finally:
+            if started:
+                try:
+                    execute(["limactl", "stop", instance], timeout=120)
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    sources[-1] = {"source_id": source, "availability": "state_restore_failed"}
+    digest = hashlib.sha256(json.dumps(sources, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {"schema_version": 1, "sources": sources, "source_state": next_state, "manifest_digest": digest}
+
+
+def validate_handoff(value):
+    keys = {"schema_version", "worker_id", "proceed", "target", "risk", "summary", "paths", "validation"}
+    if not isinstance(value, dict) or set(value) != keys or value.get("schema_version") != 1:
+        raise ValueError("invalid handoff")
+    if value.get("proceed") is not True:
+        raise ValueError("handoff requires explicit proceed")
+    if value.get("target") != "personal" or value.get("risk") not in {"routine", "elevated", "critical"}:
+        raise ValueError("invalid handoff target or risk")
+    if not ID.fullmatch(value.get("worker_id", "")):
+        raise ValueError("invalid worker identity")
+    texts = [value.get("summary")] + list(value.get("validation", []))
+    if not all(isinstance(text, str) and 1 <= len(text) <= 512 and not UNSAFE.search(text) for text in texts):
+        raise ValueError("unsafe handoff text")
+    paths = value.get("paths")
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 100:
+        raise ValueError("invalid handoff paths")
+    for raw in paths:
+        path = PurePosixPath(raw) if isinstance(raw, str) else PurePosixPath("/")
+        if path.is_absolute() or not raw or ".." in path.parts or "." in path.parts:
+            raise ValueError("handoff paths must be repository-relative")
+    return value
+
+
+def _guest_home(instance, execute=command):
+    home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
+    if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
+        raise RuntimeError("invalid guest home")
+    return home
+
+
+def launch_handoff(config, report, execute=command):
+    validate_handoff(report)
+    instance = config["clients"]["personal"]["instance"]
+    home = _guest_home(instance, execute)
+    source = f"{home}/.local/share/chezmoi-dotfiles-ai"
+    prompt = "Approved host R&D handoff. Execute Discovery decisions without re-answering them; start a separate DBSCTR draft-PR cycle. " + json.dumps(report, sort_keys=True, separators=(",", ":"))
+    output = execute([
+        "limactl", "shell", instance, "--", "herdr", "agent", "start", "opencode",
+        "--cwd", source, "--no-focus", "--", "opencode", "run", "--agent", "build", "--interactive", prompt,
+    ], timeout=120)
+    value = json.loads(output)
+    agent = value.get("result", {}).get("agent", value.get("result", value)) if isinstance(value, dict) else {}
+    result = {"schema_version": 1, "target": "personal", "status": "launched"}
+    for source_key, target_key in (("pane_id", "pane_id"), ("tab_id", "tab_id"), ("workspace_id", "workspace_id")):
+        item = agent.get(source_key)
+        if isinstance(item, str) and ID.fullmatch(item):
+            result[target_key] = item
+    session = agent.get("agent_session", {}).get("value") if isinstance(agent.get("agent_session"), dict) else None
+    if isinstance(session, str) and ID.fullmatch(session):
+        result["session_id"] = session
+    return result
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("create", "herdr", "update"):
+        sub = commands.add_parser(name)
+        sub.add_argument("client", choices=CLIENTS)
+    review = commands.add_parser("review")
+    review.add_argument("--limit", type=int, default=25)
+    review.add_argument("--cursor", type=int, default=0)
+    review.add_argument("--source-state-json")
+    handoff = commands.add_parser("handoff")
+    handoff.add_argument("--report-json", required=True)
+    commands.add_parser("status")
+    args = parser.parse_args(argv)
+    config = load_config()
+    if not config.get("enabled", True):
+        raise SystemExit("OpenCode VM management is disabled")
+    if args.command == "review":
+        state = json.loads(args.source_state_json) if args.source_state_json else None
+        print(json.dumps(federated_review(config, args.limit, args.cursor, state), sort_keys=True, separators=(",", ":")))
+        return
+    if args.command == "handoff":
+        print(json.dumps(launch_handoff(config, json.loads(args.report_json)), sort_keys=True, separators=(",", ":")))
+        return
+    if args.command == "status":
+        states = _parse_states(command(["limactl", "list", "--json"]))
+        print(json.dumps({name: {"instance": config["clients"][name]["instance"], "running": states.get(config["clients"][name]["instance"], False)} for name in CLIENTS}, sort_keys=True))
+        return
+    client = config["clients"][args.client]
+    if args.command == "create":
+        command(["limactl", "create", "--name", client["instance"], client["template"]], timeout=900)
+        command(["limactl", "start", client["instance"]], timeout=900)
+        return
+    if args.command == "herdr":
+        os.execvp("limactl", ["limactl", "shell", "--start", client["instance"], "--", "herdr"])
+    if args.command == "update":
+        home = _guest_home(client["instance"])
+        source = f"{home}/.local/share/chezmoi-dotfiles-ai"
+        command(["limactl", "shell", client["instance"], "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
+        command(["limactl", "shell", client["instance"], "--", "chezmoi", "-c", f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+
+
+if __name__ == "__main__":
+    main()

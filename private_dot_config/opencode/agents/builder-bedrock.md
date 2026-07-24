@@ -4,6 +4,7 @@ mode: subagent
 model: amazon-bedrock/global.anthropic.claude-sonnet-5
 variant: medium
 permission:
+  dbsctr_vm_handoff: deny
   dbsctr_begin: deny
   dbsctr_attach: deny
   dbsctr_review_complete: deny

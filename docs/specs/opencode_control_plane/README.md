@@ -1,6 +1,6 @@
 # OpenCode Control Plane
 
-**Status:** OCP-17 through OCP-25 implemented and deployed
+**Status:** OCP-17 through OCP-25 deployed; OCP-26 active
 **Discovery2 confidence:** 99%
 
 ## Engineering Profile
@@ -12,7 +12,7 @@
 | Deliverable | Managed OpenCode providers, agents, commands, permissions, skills, and routing |
 | Languages/frameworks | JSON/JSONC configuration, Markdown agent prompts, Python contract tests |
 | Modules | ML/AI |
-| Runtime/platform support | OpenCode in the managed macOS dotfiles environment; Python `>=3.12` tests |
+| Runtime/platform support | OpenCode on the managed macOS host and managed Fedora 44 Lima guests; Python `>=3.12` tests |
 | Public compatibility | Preserve native Plan-to-Build and provider-affine Build workflows; retire provider entries that current authentication cannot use |
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
@@ -34,6 +34,15 @@
 | Delivery intent | Deploy the managed worker command, typed coordination adapters, and narrow permissions locally |
 | Scope | Global review, holistic research, atomic claim, Discovery pause, explicit proceed, isolated DBSCTR cycle, and draft PR |
 | Overrides | Only `chezmoi-dotfiles-ai` is writable; private provenance is withheld; no automatic merge, release, deployment, or Discovery answer |
+
+### OCP-26 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: makes auto-approval durable inside client VMs and exposes bounded remote-history adapters |
+| Delivery intent | Deploy Linux-compatible OpenCode configuration and VM-only policies with host behavior unchanged |
+| Scope | VM config rendering, always-auto restored sessions, VM Herdr integration, local history export, and personal-VM handoff |
+| Overrides | OS controls and repository-scoped credentials remain authoritative; no per-subagent remote executor is claimed |
 
 ## Overview
 
@@ -270,6 +279,39 @@ the named `seo-data-science` reference to every agent under OpenCode's reference
 boundary. Given the value is empty, the reference is omitted. The absolute path
 never enters shared defaults or generated documentation.
 
+### Sandboxed Client Runtime
+
+Given OpenCode runs inside a managed client VM, its VM profile auto-approves
+every permission not explicitly denied, uses only VM-local configuration,
+credentials, plugins, MCP state, and session database, and cannot access the
+host OpenCode database or unmounted host paths.
+
+Given Herdr restores a VM pane after restart, OpenCode resumes the exact session
+under the same always-auto VM policy even though Herdr's native resume argv omits
+the original `--auto` flag. Host OpenCode permissions remain unchanged.
+
+Native Task subagents remain child sessions in their owning OpenCode server and
+filesystem. The control plane does not claim per-subagent VM isolation; host and
+VM OpenCode servers are separate runtimes.
+
+Given host R&D requests VM history, a VM-local adapter scans only its local
+database and returns one size- and time-bounded sanitized source envelope. The
+host adapter accepts only configured instance IDs and fixed commands, namespaces
+opaque identities by source, and rejects raw paths, URLs, transcript content,
+unknown schema fields, changed continuation identity, and oversized output.
+
+Given an approved host handoff, personal VM OpenCode receives only the sanitized
+context and approval identity, starts a distinct VM-owned DBSCTR cycle, and
+returns bounded cycle and draft-PR status. It never attaches a VM runtime to the
+host cycle or shares a Cycle Record across machines.
+
+The typed read interface is `dbsctr_review_federated`; it accepts the existing
+history filters plus cursor and limit and returns the validated federated source
+manifest. The typed write interface is `dbsctr_vm_handoff`; it accepts one
+schema-versioned sanitized approved report and asks before launching the VM
+session. Plan, read-only agents, and Builder subagents deny handoff. Native Build
+and provider-affine Build primaries may invoke it only after explicit proceed.
+
 ## Contracts
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
@@ -336,6 +378,11 @@ never enters shared defaults or generated documentation.
   skill, graph, or hooks.
 - OpenCode provider behavior may change across upgrades; focused contract tests
   prevent unsupported aliases from silently returning.
+- VM auto approval magnifies every mounted path and credential. OS mount policy,
+  denied sudo, and credential scope are required controls rather than Bash
+  permission patterns.
+- Multi-source review availability depends on Lima and compatible helper/schema
+  revisions. Missing sources are explicit and never silently omitted.
 - OpenCode cannot retarget native `plan_exit` to a custom primary; `build-gpt`
   and `build-claude` therefore require exact manual agent selection and a new
   message. Changing only the model leaves native Plan active.

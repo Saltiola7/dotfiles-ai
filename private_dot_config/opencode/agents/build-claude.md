@@ -4,6 +4,7 @@ mode: primary
 model: amazon-bedrock/global.anthropic.claude-opus-4-8
 variant: medium
 permission:
+  dbsctr_vm_handoff: deny
   dbsctr_begin: allow
   dbsctr_attach: allow
   dbsctr_phase_span: allow

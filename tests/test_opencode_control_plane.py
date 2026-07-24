@@ -290,12 +290,15 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_review_complete"] == "ask"
     assert config["permission"]["dbsctr_review_history"] == "allow"
     assert config["permission"]["dbsctr_review_history_save"] == "allow"
+    assert config["permission"]["dbsctr_review_federated"] == "allow"
+    assert config["permission"]["dbsctr_vm_handoff"] == "ask"
     assert config["permission"]["dbsctr_improvement_status"] == "allow"
     assert config["permission"]["dbsctr_improvement_claim"] == "deny"
     assert config["permission"]["dbsctr_improvement_update"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_phase_span"] == "deny"
+    assert config["agent"]["plan"]["permission"]["dbsctr_vm_handoff"] == "deny"
     for command in (
         "git push --force*", "git push -f*", "git *push*--force*", "git push *+*",
         "git commit --no-verify*", "git commit -n*", "git *commit*--no-verify*",
@@ -343,6 +346,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const review_complete = tool({' in tools
     assert 'export const review_history = tool({' in tools
     assert 'export const review_history_save = tool({' in tools
+    assert 'export const review_federated = tool({' in tools
+    assert 'export const vm_handoff = tool({' in tools
     assert 'export const history_capture = tool({' in tools
     assert 'export const history_telemetry = tool({' in tools
     assert 'export const benchmark = tool({' in tools
@@ -372,6 +377,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-complete"' in runtime
     assert '"dbsctrctl", "review-history"' in runtime
     assert '"dbsctrctl", "review-history-save"' in runtime
+    assert '["opencode-vm", "review"' in runtime
+    assert 'sourceState?: {' in runtime
+    assert '["opencode-vm", "handoff"' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
     assert "30_000, 256 * 1024" in runtime
@@ -389,6 +397,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     config = rendered_config()
     for permission in ("dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
+    for agent in (OC / "agents").glob("*.md"):
+        assert "dbsctr_vm_handoff: deny" in agent.read_text()
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = false" in herdr
     assert ".dotfiles_ai.herdr.theme" in herdr

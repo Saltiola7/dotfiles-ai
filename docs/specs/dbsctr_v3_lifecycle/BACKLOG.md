@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | high | in_progress | DAI-007A | Source envelope and manifest schemas, remote exporter, host aggregation, handoff authority | Existing review snapshots, history saves, improvement worker, cycle begin | no | Host-only R&D must cover isolated VM histories without sharing databases or mutable cycle state | L | Source isolation, pagination identity, unavailable source, privacy rejection, exact proceed, separate-cycle, and draft-PR tests |
 
 ## Completed
 

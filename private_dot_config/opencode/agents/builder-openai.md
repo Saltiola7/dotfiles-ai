@@ -4,6 +4,7 @@ mode: subagent
 model: openai/gpt-5.6-terra
 variant: medium
 permission:
+  dbsctr_vm_handoff: deny
   dbsctr_begin: deny
   dbsctr_attach: deny
   dbsctr_review_complete: deny

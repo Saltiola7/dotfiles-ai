@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-006 native OpenCode R&D recovery health deployed
+**Status:** DAI-007 Lima sandbox delivery active
 
 ## Engineering Profile
 
@@ -9,7 +9,7 @@
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in native R&D scheduling |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
 | Modules | Python, Security |
-| Runtime/platform support | Apple Silicon macOS; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
 | Operational owner | Saltiola7 maintains releases, compatibility, and migration guidance |
@@ -42,6 +42,15 @@
 | Scope | Large-session recovery readiness, watchdog exit health, operator guidance, and one blocked-worker recovery |
 | Overrides | Session identity remains exact; recovery may not weaken ambiguity rejection or inject a prompt |
 
+### DAI-007 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: creates filesystem and credential boundaries around unrestricted AI execution and migrates live repository paths |
+| Delivery intent | Merge and deploy two local Fedora Lima client environments, host controls, and federated R&D transport |
+| Scope | Personal and MGM VM profiles, VM Herdr, always-auto OpenCode, explicit mounts, protected submodules, host review federation, and personal-VM implementation handoff |
+| Overrides | Host OpenCode, Herdr, database, scheduling, and private ledger remain authoritative; VM credentials and databases remain isolated; egress is unrestricted by accepted design |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -65,7 +74,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
 - Automatically answering Discovery, merging, marking ready, releasing, or deploying.
-- Supporting Linux or Windows.
+- Supporting Windows.
+- Supporting Linux as a general-purpose host; Fedora is supported only as the
+  managed Lima guest runtime.
 
 ## Behavior
 
@@ -169,9 +180,73 @@ OpenCode control-plane behavior, and shell authentication.
 - Given the runtime remains native Plan, then OpenAI Plan permissions and
   subagents remain expected regardless of the model displayed.
 
+### Client VM Sandboxes
+
+- Given the operator enters `opencode-personal` or `opencode-mgm`, when Lima
+  starts the client VM, then Fedora 44 runs natively through VZ with a sparse
+  disk and exposes only that client's declared paths.
+- Given the personal VM, then only its machine-configured personal root is
+  writable. Given the MGM VM, then its machine-configured client root and
+  `seo-code-analysis` parent checkout are writable, while every declared
+  submodule worktree and Git metadata directory is root-mounted read-only before
+  OpenCode may start.
+- Given a protected submodule manifest is stale, a read-only overlay is absent,
+  or unrestricted passwordless sudo is available, then sandbox startup fails
+  closed before an auto-approved agent runs.
+- Given the operator detaches, then VM Herdr keeps panes running. Given a clean
+  VM stop and restart, then VM Herdr restores layout and resumes the exact
+  OpenCode session with auto-approval still effective.
+- Given a VM is dedicated to sandboxed agents, then every VM OpenCode session
+  auto-approves permissions not explicitly denied. Host OpenCode behavior is
+  unchanged.
+
+### Federated Host R&D
+
+- Given host R&D reviews history, then it scans the host database locally and
+  invokes bounded read-only exporters inside personal and MGM VMs sequentially.
+  Database files, transcripts, paths, secrets, and credentials never cross the
+  VM boundary.
+- Given a VM was stopped before collection, then the host may start it for the
+  export and restores its prior stopped state afterward. A running VM remains
+  running.
+- Given evidence from multiple runtimes, then source IDs namespace opaque
+  identities and each source retains independent snapshot, ceiling, database,
+  and exclusion digests. Missing or malformed sources make the review explicitly
+  incomplete rather than silently local-only.
+- Given Discovery is approved explicitly, then host R&D records one sanitized
+  handoff and launches a visible Build session in personal VM Herdr. That VM's
+  guest-owned `dotfiles-ai` clone owns the DBSCTR cycle, validation, branch, and
+  draft pull request; observed projects remain read-only evidence sources.
+
 ## Interfaces And Contracts
 
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
+- `[dotfiles_ai.sandbox]` contains `enabled`, `personal_instance`,
+  `personal_root`, `mgm_instance`, `mgm_root`, `mgm_protected_repo`, `cpus`,
+  `memory_gib`, and `disk_gib`. Shared roots are empty and sandbox management is
+  disabled; machine-local configuration supplies absolute existing directories.
+- Shared defaults disable Lima management. Machine-local sandbox data declares
+  instance names, host mount roots, protected repository and submodule manifest,
+  resource ceilings, and repository-scoped identities without credentials.
+- Host commands `herdr-personal` and `herdr-mgm` start the selected VM and attach
+  to its Herdr session. `opencode-vm status|update|export|handoff` owns bounded
+  host-to-VM operations; unknown instances and undeclared paths fail closed.
+- VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, verify
+  source and deployed commits, apply Linux-compatible targets idempotently, and
+  report that existing OpenCode processes retain their loaded config.
+- `opencode-vm review --limit N --cursor N` returns schema version `1`, an
+  ordered `sources` array, and one `manifest_digest`. Each source contains only
+  `source_id`, `availability`, and either the existing sanitized history page or
+  one bounded error class. Continuations submit each source's original snapshot,
+  ceilings, database digest, and exclusion digest.
+- `opencode-vm handoff --report-json JSON` accepts schema version `1`, host claim
+  identity, approved context, risk, affected repository-relative paths,
+  validation, and explicit `proceed=true`. Text fields use the existing private
+  review sanitizer and fixed size bounds. It returns only the target source,
+  Herdr presentation IDs, OpenCode session ID when available, and launch status.
+- `herdr-personal` and `herdr-mgm` are thin argument-safe wrappers around
+  `opencode-vm herdr CLIENT`; they never create a new Herdr session when the
+  existing VM session can be attached.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
   supplies source path, workspace label, daily hour/minute, watchdog interval,
   and non-secret GitHub account/repository.
@@ -218,6 +293,15 @@ OpenCode control-plane behavior, and shell authentication.
 
 - Current-user OpenCode workers are not sandboxed; explicit policy and OS
   permissions remain the security boundary.
+- Writable mounts intentionally expose their declared client source trees to
+  deletion or corruption by VM agents. Unmounted host paths remain inaccessible.
+- VM agents may use unrestricted network egress and every credential supplied to
+  that VM; repository-scoped credentials are the remote-write boundary.
+- Sparse VM disks consume host storage on demand and never shrink automatically;
+  status and update operations must report host and instance allocation.
+- Read-only submodule overlays on virtiofs are trusted only after runtime tests
+  prove mount ordering, alternate-path resistance, denied writes, and persistence
+  across reboot. Failure blocks auto mode.
 - Herdr JSON and OpenCode session metadata may drift; reconciliation fails closed.
 - Local identifiers can leak if templates are copied without conversion.
 - Disabling scheduling must preserve OpenCode sessions, ledger records, worktrees,

@@ -22,6 +22,17 @@ def data(onepassword: bool = False) -> dict:
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
             },
+            "sandbox": {
+                "enabled": True,
+                "personal_instance": "opencode-personal",
+                "personal_root": "/workspace/personal",
+                "mgm_instance": "opencode-mgm",
+                "mgm_root": "/workspace/mgm",
+                "mgm_protected_repo": "/workspace/reference/seo-code-analysis",
+                "cpus": 4,
+                "memory_gib": 8,
+                "disk_gib": 60,
+            },
             "onepassword": {
                 "enabled": onepassword,
                 "account": "local-account",
@@ -75,6 +86,30 @@ def test_onepassword_helper_is_opt_in_and_localized() -> None:
     assert '__OP_USER_UUID="LOCALUUID"' in helper
     assert '__OP_ACCOUNT="local-account"' in helper
     assert '__OP_KEYCHAIN_SERVICE="local-service"' in helper
+
+
+def test_lima_client_templates_and_registry_render(tmp_path: Path) -> None:
+    registry = json.loads(chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
+    ).stdout)
+    assert registry["enabled"] is True
+    assert registry["clients"]["personal"]["root"] == "/workspace/personal"
+    assert registry["clients"]["mgm"]["protected_repo"] == "/workspace/reference/seo-code-analysis"
+
+    personal = chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/lima/personal.yaml")
+    ).stdout
+    mgm = chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/lima/mgm.yaml")
+    ).stdout
+    assert 'disk: "60GiB"' in personal
+    assert 'location: "/workspace/personal"' in personal
+    assert 'location: "/workspace/mgm"' in mgm
+    assert 'protected="/workspace/reference/seo-code-analysis"' in mgm
+    for name, template in (("personal", personal), ("mgm", mgm)):
+        path = tmp_path / f"{name}.yaml"
+        path.write_text(template)
+        subprocess.run(["limactl", "validate", str(path)], check=True, capture_output=True, text=True)
 
 
 def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:

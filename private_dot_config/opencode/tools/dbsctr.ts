@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, recordExecutionBenchmark, reviewComplete, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -202,6 +202,45 @@ export const review_history = tool({
   },
   async execute(args, context) {
     return await reviewHistory(args, context.worktree, context.sessionID, context.messageID)
+  },
+})
+
+export const review_federated = tool({
+  description: "Read bounded sanitized review history from host, personal VM, and MGM VM with explicit source availability.",
+  args: {
+    limit: tool.schema.number().int().min(1).max(100).optional().default(25),
+    cursor: tool.schema.number().int().min(0).optional().default(0),
+    sourceState: tool.schema.array(tool.schema.object({
+      source_id: tool.schema.enum(["host", "personal", "mgm"]),
+      snapshot: tool.schema.number().int().min(0),
+      session_ceiling: tool.schema.number().int().min(0),
+      part_ceiling: tool.schema.number().int().min(0),
+      database_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+      exclusion_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/).optional(),
+      continuation: tool.schema.number().int().min(0).nullable(),
+    })).length(3).optional(),
+  },
+  async execute(args, context) {
+    return await reviewFederated(args.limit, args.cursor, args.sourceState, context.worktree)
+  },
+})
+
+export const vm_handoff = tool({
+  description: "Launch one explicitly approved sanitized implementation handoff in personal VM Herdr.",
+  args: {
+    workerId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+    proceed: tool.schema.literal(true),
+    risk: tool.schema.enum(["routine", "elevated", "critical"]),
+    summary: tool.schema.string().min(1).max(512),
+    paths: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(100),
+    validation: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(50),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_vm_handoff", patterns: ["personal"], always: [] })
+    return await vmHandoff({
+      schema_version: 1, worker_id: args.workerId, proceed: true, target: "personal",
+      risk: args.risk, summary: args.summary, paths: args.paths, validation: args.validation,
+    }, context.worktree)
   },
 })
 

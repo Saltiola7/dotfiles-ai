@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
+  "source": "https://github.com/Saltiola7/dotfiles-ai.git",
+  "clients": {
+    "personal": {
+      "instance": {{ .dotfiles_ai.sandbox.personal_instance | toJson }},
+      "root": {{ .dotfiles_ai.sandbox.personal_root | toJson }},
+      "protected_repo": "",
+      "template": {{ printf "%s/.config/dotfiles-ai/lima/personal.yaml" .chezmoi.homeDir | toJson }}
+    },
+    "mgm": {
+      "instance": {{ .dotfiles_ai.sandbox.mgm_instance | toJson }},
+      "root": {{ .dotfiles_ai.sandbox.mgm_root | toJson }},
+      "protected_repo": {{ .dotfiles_ai.sandbox.mgm_protected_repo | toJson }},
+      "template": {{ printf "%s/.config/dotfiles-ai/lima/mgm.yaml" .chezmoi.homeDir | toJson }}
+    }
+  }
+}

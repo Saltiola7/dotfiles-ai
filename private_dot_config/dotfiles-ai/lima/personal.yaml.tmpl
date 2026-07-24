@@ -1,0 +1,96 @@
+minimumLimaVersion: "2.1.4"
+base:
+  - template:fedora-44
+vmType: "vz"
+mountType: "virtiofs"
+arch: "aarch64"
+cpus: {{ .dotfiles_ai.sandbox.cpus }}
+memory: "{{ .dotfiles_ai.sandbox.memory_gib }}GiB"
+disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"
+mounts:
+  - location: {{ .dotfiles_ai.sandbox.personal_root | quote }}
+    writable: true
+provision:
+  - mode: system
+    script: |
+      set -eu
+      dnf install -y ca-certificates curl git gh jq python3 ripgrep tar gzip
+      install -d -m 0755 /usr/local/libexec /etc/opencode-sandbox
+      tmp="$(mktemp)"
+      curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.4/opencode-linux-arm64.tar.gz -o "$tmp"
+      printf '%s  %s\n' eba87efba3976d533a24cca0316f8ef375b5f8e797c0a95c25ee919700b7ba35 "$tmp" | sha256sum -c -
+      tar -xzf "$tmp" -C /usr/local/libexec
+      mv /usr/local/libexec/opencode /usr/local/libexec/opencode-real
+      curl -fsSL https://github.com/ogulcancelik/herdr/releases/download/v0.7.5/herdr-linux-aarch64 -o "$tmp"
+      printf '%s  %s\n' 32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9 "$tmp" | sha256sum -c -
+      install -m 0755 "$tmp" /usr/local/bin/herdr
+      curl -fsSL https://github.com/twpayne/chezmoi/releases/download/v2.69.4/chezmoi-2.69.4-aarch64.rpm -o "$tmp"
+      printf '%s  %s\n' f9879c21933225a5adb86fafaf904ac06e4395cae915d4f838c9ccffd9cd4847 "$tmp" | sha256sum -c -
+      rpm -Uvh --replacepkgs "$tmp"
+      rm -f "$tmp"
+      cat >/usr/local/bin/opencode <<'EOF'
+      #!/bin/sh
+      test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
+      case "${1:-}" in
+        acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
+          exec /usr/local/libexec/opencode-real "$@" ;;
+        *) exec /usr/local/libexec/opencode-real --auto "$@" ;;
+      esac
+      EOF
+      chmod 0755 /usr/local/bin/opencode
+      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1; exit}')"
+      printf '%s ALL=(ALL) !ALL\n' "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
+      chmod 0440 /etc/sudoers.d/99-opencode-sandbox
+      visudo -cf /etc/sudoers.d/99-opencode-sandbox
+      touch /run/opencode-sandbox-ready
+  - mode: user
+    script: |
+      set -eu
+      source="$HOME/.local/share/chezmoi-dotfiles-ai"
+      if test -d "$source/.git"; then
+        git -C "$source" pull --ff-only
+      else
+        git clone https://github.com/Saltiola7/dotfiles-ai.git "$source"
+      fi
+      mkdir -p "$HOME/.config/dotfiles-ai"
+      cat >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<EOF
+      sourceDir = "$HOME/.local/share/chezmoi-dotfiles-ai"
+      persistentState = "$HOME/.config/dotfiles-ai/chezmoi.boltdb"
+      [data.dotfiles_ai.opencode]
+      bedrock_region = {{ .dotfiles_ai.opencode.bedrock_region | quote }}
+      bedrock_profile = {{ .dotfiles_ai.opencode.bedrock_profile | quote }}
+      default_model = {{ .dotfiles_ai.opencode.default_model | quote }}
+      small_model = {{ .dotfiles_ai.opencode.small_model | quote }}
+      lmstudio_base_url = "http://host.lima.internal:1234/v1"
+      seo_data_science_path = ""
+      [data.dotfiles_ai.herdr]
+      theme = {{ .dotfiles_ai.herdr.theme | quote }}
+      launchagent = false
+      executable = "/usr/local/bin/herdr"
+      [data.dotfiles_ai.rnd]
+      enabled = false
+      review_workdir = ""
+      review_hour = 9
+      review_minute = 0
+      watchdog_interval_seconds = 300
+      workspace_label = "DBSCTR R&D"
+      github_account = ""
+      github_repository = ""
+      [data.dotfiles_ai.onepassword]
+      enabled = false
+      account = ""
+      user_uuid = ""
+      keychain_service = "op-service-account-token"
+      [data.dotfiles_ai.sandbox]
+      enabled = false
+      personal_instance = "opencode-personal"
+      personal_root = ""
+      mgm_instance = "opencode-mgm"
+      mgm_root = ""
+      mgm_protected_repo = ""
+      cpus = 4
+      memory_gib = 8
+      disk_gib = 60
+      EOF
+      chezmoi -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply
+      herdr integration install opencode

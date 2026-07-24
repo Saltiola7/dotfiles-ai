@@ -68,6 +68,10 @@ Workers and claims are durable across terminal or pane failures.
 See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for status, manual runs,
 Discovery handoff, pause, recovery, logs, and rollback.
 
+See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for client VM creation,
+credentials, persistent VM Herdr use, federated R&D, updates, recovery, and
+retirement.
+
 ## Existing Personal-Chezmoi Migration
 
 Do not apply two sources indefinitely. First compare the intended rendering

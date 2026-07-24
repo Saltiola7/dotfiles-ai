@@ -31,12 +31,19 @@ target files.
    improvement effects while private runtime state conservatively adjusts worker
    cadence without changing source configuration or granting workers delivery
    authority.
+8. An operator enters a client-specific Fedora VM, reattaches to persistent VM
+   Herdr panes, and runs auto-approved OpenCode against only declared host paths.
+9. Host R&D reviews sanitized evidence from host and VM histories, pauses for
+   explicit approval, and hands implementation to a visible personal-VM Build
+   session without moving databases or credentials across trust boundaries.
 
 ## Constraints And Trust
 
 - Public Git history contains no credentials or machine-local identifiers.
 - The real local TOML remains outside the Git checkout.
 - macOS is the initial supported platform.
+- Fedora Linux is supported only inside managed Lima client VMs; it is not a
+  general standalone-host commitment.
 - Existing personal configuration remains authoritative until live cutover
   validation passes.
 - The writable source path is machine-local and never a public default or
@@ -63,3 +70,6 @@ target files.
 - Monthly cadence decisions are reproducible from sanitized evidence, preserve
   the human Discovery and delivery boundaries, and fail closed on malformed
   authoritative state.
+- Client mounts, protected submodules, VM identity, restored auto-approved
+  sessions, bounded federated evidence, and guest configuration revisions are
+  verified on the real Lima runtime before sandbox deployment passes.

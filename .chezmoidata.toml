@@ -26,3 +26,14 @@ enabled = false
 account = ""
 user_uuid = ""
 keychain_service = "op-service-account-token"
+
+[dotfiles_ai.sandbox]
+enabled = false
+personal_instance = "opencode-personal"
+personal_root = ""
+mgm_instance = "opencode-mgm"
+mgm_root = ""
+mgm_protected_repo = ""
+cpus = 4
+memory_gib = 8
+disk_gib = 60
