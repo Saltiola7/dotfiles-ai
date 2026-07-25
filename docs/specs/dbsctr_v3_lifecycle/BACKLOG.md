@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | high | in_progress | DAI-007A | Source envelope and manifest schemas, remote exporter, host aggregation, handoff authority | Existing review snapshots, history saves, improvement worker, cycle begin | no | Host-only R&D must cover isolated VM histories without sharing databases or mutable cycle state | L | Source isolation, pagination identity, unavailable source, privacy rejection, exact proceed, separate-cycle, and draft-PR tests |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | 2026-07-25 | `ae72606` |
 | V3.27-1 | Add atomic explicit abandoned-worker retirement and reconcile stale lifecycle state | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | V3.26-1 | Add worktree inventory, guarded batch cleanup, crash recovery, and primary-cache DVC reflinks | 2026-07-22 | `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54` |
 | V3.25-1 | Normalize all lifecycle backlogs and add replacement-safe fixed-commit integrity findings | 2026-07-19 | `72a85b5`, `048e52b` |

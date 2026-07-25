@@ -34,6 +34,11 @@
 - `lmsh` and `mgmsh` now default guest shells to portable `xterm-256color`
   instead of inheriting unavailable host-specific terminfo such as
   `xterm-kitty`; `LIMA_TERM` remains an explicit override.
+- Final authenticated restart restored exact OpenCode session identity in its
+  original workspace, tab, and pane with the canonical `opencode --auto`
+  process. All three federated sources remained
+  available. The operator explicitly accepted broader work-account credential
+  scope as an operational exception; repository authorization remains external.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 

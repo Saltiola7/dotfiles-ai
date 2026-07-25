@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.27 deployed; V3.28 federated review handoff active
+**Status:** V3.28 federated review handoff deployed
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 

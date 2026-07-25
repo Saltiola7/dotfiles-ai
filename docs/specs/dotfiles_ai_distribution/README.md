@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-007 Lima sandbox delivery active
+**Status:** DAI-007 Lima sandbox deployed
 
 ## Engineering Profile
 

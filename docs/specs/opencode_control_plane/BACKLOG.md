@@ -4,12 +4,12 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | high | in_progress | DAI-007A, V3.28-1 | VM OpenCode render, permissions, history adapter, handoff adapter, focused contracts | Host control plane, VM profile, helper envelopes | no | Preserve full interactive parity and restored auto behavior without weakening host policy | L | Resolved config, role isolation, malformed/oversized transport, restart resume, and real VM probes |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | 2026-07-25 | `ae72606` |
 | OCP-25 | Ask before every shell form of explicit improvement retirement | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | OCP-24 | Preserve exact reference root and subtree rules | 2026-07-19 | `4b52a21` |
 | OCP-23 | Preserve reference access after global deny | 2026-07-19 | `d0c3942` |
