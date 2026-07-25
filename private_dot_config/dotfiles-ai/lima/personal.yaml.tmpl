@@ -38,7 +38,7 @@ provision:
       esac
       EOF
       chmod 0755 /usr/local/bin/opencode
-      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 && $6 ~ /\.guest$/ {print $1}')"
+      agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
       test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
       printf '%s ALL=(ALL) !ALL\n' "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
@@ -56,7 +56,7 @@ provision:
       done
       test "$(findmnt -T "$root" -n -o FSTYPE 2>/dev/null)" = virtiofs
       findmnt -n -o OPTIONS --target "$root" | tr ',' '\n' | grep -qx rw
-      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 && $6 ~ /\.guest$/ {print $1}')"
+      agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
       test "$(stat -c '%U:%G:%a' /usr/bin/sudo)" = root:root:750
       if su -s /bin/sh - "$agent_user" -c 'test -x /usr/bin/sudo'; then

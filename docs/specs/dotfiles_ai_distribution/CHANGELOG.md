@@ -13,6 +13,9 @@
   native names. Removed the inherited host-home mount and added a boot-time
   systemd verifier that reapplies protection before publishing readiness after
   live VZ validation exposed both defects.
+- Live Fedora provisioning also proved Lima preserves the macOS account UID;
+  guest identity now binds to the unique `.guest` home instead of assuming UID
+  `>=1000`.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 
