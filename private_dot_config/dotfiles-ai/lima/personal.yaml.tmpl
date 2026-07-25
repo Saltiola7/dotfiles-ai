@@ -30,7 +30,7 @@ provision:
       rm -f "$tmp"
       cat >/usr/local/bin/opencode <<'EOF'
       #!/bin/sh
-      test -e /etc/opencode-sandbox/ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
+      test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
       case "${1:-}" in
         acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
           exec /usr/local/libexec/opencode-real "$@" ;;
@@ -44,11 +44,43 @@ provision:
       printf '%s ALL=(ALL) !ALL\n' "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
       chmod 0440 /etc/sudoers.d/99-opencode-sandbox
       visudo -cf /etc/sudoers.d/99-opencode-sandbox
+      cat >/usr/local/libexec/opencode-sandbox-ready <<'EOF'
+      #!/bin/sh
+      set -eu
+      rm -f /run/opencode-sandbox-ready
+      root={{ .dotfiles_ai.sandbox.personal_root | quote }}
+      for _ in $(seq 1 60); do
+        test "$(findmnt -T "$root" -n -o FSTYPE 2>/dev/null)" = virtiofs && break
+        sleep 1
+      done
+      test "$(findmnt -T "$root" -n -o FSTYPE 2>/dev/null)" = virtiofs
+      findmnt -n -o OPTIONS --target "$root" | tr ',' '\n' | grep -qx rw
+      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 && $6 ~ /\.guest$/ {print $1}')"
+      test -n "$agent_user"
       if su -s /bin/sh - "$agent_user" -c 'sudo -n true' >/dev/null 2>&1; then
         echo "sandbox user retains noninteractive sudo" >&2
         exit 1
       fi
-      touch /etc/opencode-sandbox/ready
+      touch /run/opencode-sandbox-ready
+      EOF
+      chmod 0755 /usr/local/libexec/opencode-sandbox-ready
+      cat >/etc/systemd/system/opencode-sandbox-ready.service <<'EOF'
+      [Unit]
+      Description=Verify OpenCode sandbox boundaries
+      Wants=lima-guestagent.service
+      After=lima-guestagent.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/libexec/opencode-sandbox-ready
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      systemctl daemon-reload
+      systemctl enable --now opencode-sandbox-ready.service
+      test -e /run/opencode-sandbox-ready
   - mode: user
     script: |
       set -eu

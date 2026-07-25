@@ -10,8 +10,9 @@
   availability. Host deployment and runtime probes remain active.
 - Renamed VM lifecycle surfaces around generic sandboxes: `mgmsh` and `lmsh`
   enter `mgm-sandbox` and `personal-sandbox`, while guest Herdr and OpenCode keep
-  native names. Removed the inherited host-home mount and made readiness durable
-  across guest restarts after live VZ validation exposed both defects.
+  native names. Removed the inherited host-home mount and added a boot-time
+  systemd verifier that reapplies protection before publishing readiness after
+  live VZ validation exposed both defects.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 

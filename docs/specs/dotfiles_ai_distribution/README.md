@@ -199,6 +199,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a VM is dedicated to sandboxed agents, then every VM OpenCode session
   auto-approves permissions not explicitly denied. Host OpenCode behavior is
   unchanged.
+- On every guest boot, a root oneshot waits for the declared virtiofs mounts,
+  reapplies MGM read-only overlays, verifies effective sudo denial, and only then
+  publishes the boot-scoped readiness marker required by OpenCode.
 
 ### Federated Host R&D
 

@@ -109,8 +109,11 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert "32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9" in template
         assert "sudo -n true" in template
         assert "sandbox user retains noninteractive sudo" in template
-        assert "/etc/opencode-sandbox/ready" in template
-        assert "/run/opencode-sandbox-ready" not in template
+        assert "opencode-sandbox-ready.service" in template
+        assert "After=lima-guestagent.service" in template
+        assert "rm -f /run/opencode-sandbox-ready" in template
+        assert "touch /run/opencode-sandbox-ready" in template
+        assert "systemctl enable --now opencode-sandbox-ready.service" in template
     assert "configparser.ConfigParser" in (ROOT / "private_dot_config/dotfiles-ai/lima/mgm.yaml.tmpl").read_text()
 
 
