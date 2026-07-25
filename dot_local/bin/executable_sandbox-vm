@@ -395,7 +395,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
         next_state.append(host_state)
     else:
         try:
-            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state, filters)),
+            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state, filters), timeout=120),
                                          limit, host_cursor, host_state, filters)
             sources.append(source)
             next_state.append(state)

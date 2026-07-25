@@ -153,7 +153,7 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     calls = []
     running = {"personal-sandbox": False, "mgm-sandbox": True}
 
-    def execute(argv, **_kwargs):
+    def execute(argv, **kwargs):
         calls.append(argv)
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
@@ -169,6 +169,7 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
         if argv[:2] == ["limactl", "shell"]:
             return json.dumps(history_page())
         if argv[:2] == ["dbsctrctl", "review-history"]:
+            assert kwargs["timeout"] == 120
             return json.dumps(history_page())
         raise AssertionError(argv)
 
