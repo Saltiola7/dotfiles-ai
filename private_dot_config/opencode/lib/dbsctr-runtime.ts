@@ -461,7 +461,10 @@ export async function vmHandoff(report: {
   }
   const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
   const paneID = workspace?.result?.root_pane?.pane_id
-  if (typeof paneID !== "string" || !id.test(paneID)) throw new Error("VM Herdr returned no workspace pane")
+  const workspaceID = workspace?.result?.root_pane?.workspace_id
+  if (typeof paneID !== "string" || !id.test(paneID)
+      || typeof workspaceID !== "string" || !id.test(workspaceID)
+      || !paneID.startsWith(`${workspaceID}:`)) throw new Error("VM Herdr returned no workspace pane")
   const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "DBSCTR Handoff",
     "--kind", "opencode", "--pane", paneID, "--timeout", "120000", "--",
     "run", "--agent", "build", "--interactive", prompt], cwd, 180_000)
@@ -472,7 +475,9 @@ export async function vmHandoff(report: {
     throw new Error("VM Herdr returned malformed output")
   }
   const agent = value?.result?.agent ?? value?.result ?? value
-  if (typeof agent?.pane_id !== "string" || !id.test(agent.pane_id)) throw new Error("VM Herdr returned no launch identity")
+  if (agent?.pane_id !== paneID || typeof agent.pane_id !== "string" || !id.test(agent.pane_id)
+      || agent?.workspace_id !== undefined && agent.workspace_id !== workspaceID)
+    throw new Error("VM Herdr returned no launch identity")
   const result: Record<string, string | number> = { schema_version: 1, target: "personal", status: "launched" }
   for (const key of ["pane_id", "tab_id", "workspace_id"])
     if (typeof agent?.[key] === "string" && id.test(agent[key])) result[key] = agent[key]

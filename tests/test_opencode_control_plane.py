@@ -867,7 +867,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
         'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
-        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1"}}}\\n\';; '
+        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1","workspace_id":"w1"}}}\\n\';; '
         '*) printf \'{"result":{"agent":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent_session":{"value":"session-vm"}}}}\\n\';; esac\n'
     )
     opencode_vm.chmod(0o755)
@@ -900,7 +900,7 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
         'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
-        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1"}}}\\n\';; '
+        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1","workspace_id":"w1"}}}\\n\';; '
         '*) printf \'{"error":"launch failed"}\\n\';; esac\n'
     )
     missing_identity = subprocess.run(
@@ -910,6 +910,19 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     )
     assert missing_identity.returncode != 0
     assert "no launch identity" in missing_identity.stderr
+    limactl.write_text(
+        '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
+        'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
+        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1","workspace_id":"w1"}}}\\n\';; '
+        '*) printf \'{"result":{"agent":{"pane_id":"w2:p2","workspace_id":"w2"}}}\\n\';; esac\n'
+    )
+    mismatched_identity = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        text=True, capture_output=True,
+    )
+    assert mismatched_identity.returncode != 0
+    assert "no launch identity" in mismatched_identity.stderr
     before = calls.read_text()
     for path in ("/etc/passwd", "a//b", "a/", "a\\b", "a\nb"):
         unsafe = {**payload, "paths": [path]}
