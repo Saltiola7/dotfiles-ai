@@ -2,6 +2,7 @@ import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -111,12 +112,24 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert "sandbox user can execute sudo" in template
         assert "$6 ~ /\\.guest$/" in template
         assert "$3 >= 1000" not in template
+        assert template.count("grep -c .)\" -eq 1") == 2
         assert "opencode-sandbox-ready.service" in template
         assert "After=lima-guestagent.service" in template
         assert "rm -f /run/opencode-sandbox-ready" in template
         assert "touch /run/opencode-sandbox-ready" in template
         assert "systemctl enable --now opencode-sandbox-ready.service" in template
     assert "configparser.ConfigParser" in (ROOT / "private_dot_config/dotfiles-ai/lima/mgm.yaml.tmpl").read_text()
+
+
+def test_guest_identity_requires_exactly_one_generated_home() -> None:
+    script = r'''agent_user="$(awk -F: '$6 ~ /\.guest$/ {print $1}')"
+test -n "$agent_user"
+test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1'''
+    one = "agent:x:503:1000::/home/agent.guest:/bin/bash\n"
+    multiple = one + "other:x:504:1001::/home/other.guest:/bin/bash\n"
+    assert subprocess.run(["sh", "-c", script], input=one, text=True).returncode == 0
+    assert subprocess.run(["sh", "-c", script], input="", text=True).returncode != 0
+    assert subprocess.run(["sh", "-c", script], input=multiple, text=True).returncode != 0
 
 
 def test_client_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> None:

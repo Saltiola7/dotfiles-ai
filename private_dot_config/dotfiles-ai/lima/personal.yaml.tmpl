@@ -58,6 +58,7 @@ provision:
       findmnt -n -o OPTIONS --target "$root" | tr ',' '\n' | grep -qx rw
       agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
+      test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
       test "$(stat -c '%U:%G:%a' /usr/bin/sudo)" = root:root:750
       if su -s /bin/sh - "$agent_user" -c 'test -x /usr/bin/sudo'; then
         echo "sandbox user can execute sudo" >&2
