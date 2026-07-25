@@ -11,6 +11,8 @@
 - Updated typed VM handoff to Herdr 0.7.5's workspace/root-pane contract before
   starting `--kind opencode`; the unsupported direct `--cwd` agent launch was
   removed after live guest validation.
+- Clarified that handoff success proves bounded Herdr launch acceptance, while
+  guest cycle and draft-PR progress remain asynchronous and guest-authoritative.
 
 ## 2026-07-23 - OCP-25 Improvement Retirement Permission
 

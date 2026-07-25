@@ -236,9 +236,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Host commands `lmsh` and `mgmsh` enter the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
-- VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, verify
-  source and deployed commits, apply Linux-compatible targets idempotently, and
-  report that existing OpenCode processes retain their loaded config.
+- VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, apply
+  Linux-compatible targets idempotently, and report that existing OpenCode
+  processes retain their loaded config.
 - `sandbox-vm review` accepts the bounded history filters plus limit, cursor,
   and typed continuation state. It returns schema version `1`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only
@@ -305,7 +305,14 @@ OpenCode control-plane behavior, and shell authentication.
 - Writable mounts intentionally expose their declared client source trees to
   deletion or corruption by VM agents. Unmounted host paths remain inaccessible.
 - VM agents may use unrestricted network egress and every credential supplied to
-  that VM; repository-scoped credentials are the remote-write boundary.
+  that VM. Repository-scoped credentials are the normal remote-write boundary.
+- Accepted risk `DAI-007-AR1`: the MGM VM work-account GitHub credential can
+  write every repository authorized by that provider account rather than only
+  the mounted MGM repository. The operator owns and approved this exception;
+  VM isolation, denied sudo, protected read-only mounts, and provider-side
+  repository authorization are compensating controls. Review by 2026-08-18 or
+  before credential rotation, whichever comes first; replace it with a
+  repository-scoped credential when available.
 - Sparse VM disks consume host storage on demand and never shrink automatically;
   status and update operations must report host and instance allocation.
 - Read-only submodule overlays on virtiofs are trusted only after runtime tests

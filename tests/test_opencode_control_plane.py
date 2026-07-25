@@ -935,6 +935,21 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
             text=True, capture_output=True,
         )
         assert rejected.returncode != 0
+    for unsafe in (
+        {**payload, "summary": "Contact dev@example.com"},
+        {**payload, "summary": "password=hunter2"},
+        {**payload, "validation": ["Bearer not-a-real-token"]},
+        {**payload, "summary": "ghp_" + "a" * 36},
+    ):
+        unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),ask:async ()=>{{}}}};
+await vm_handoff.execute({json.dumps(unsafe)},context);'''
+        rejected = subprocess.run(
+            ["bun", "-e", unsafe_script], cwd=ROOT,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
+            text=True, capture_output=True,
+        )
+        assert rejected.returncode != 0
     assert calls.read_text() == before
 
 

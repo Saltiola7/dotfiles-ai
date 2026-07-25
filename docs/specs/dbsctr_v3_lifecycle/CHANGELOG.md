@@ -4,14 +4,16 @@
 
 - Added bounded source-local history export, source-namespaced host federation,
   filter-bound continuation identity, independently verified manifests, and an
-  approval-gated personal-VM handoff that starts a separate lifecycle cycle.
+  approval-gated personal-VM launch handoff that instructs the guest agent to
+  start a separate lifecycle cycle.
 - Source deployment, live three-source federation, and VM handoff evidence remain
   active under DAI-007.
 - The federated adapter now invokes the generic `sandbox-vm` lifecycle surface;
   client-specific guest tool wrappers were removed before delivery.
 - Live federation passed across host, personal, and MGM databases with immutable
   continuation state and restoration of stopped MGM state. Personal handoff now
-  creates a Herdr workspace and launches OpenCode in its validated root pane.
+  creates a Herdr workspace and launches OpenCode in its validated root pane;
+  cycle and draft-PR progress remain asynchronous and guest-authoritative.
 
 ## 2026-07-23 - V3.27 Abandoned-Worker Retirement
 

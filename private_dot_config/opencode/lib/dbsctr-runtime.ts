@@ -442,7 +442,7 @@ export async function vmHandoff(report: {
   validation: string[]
 }, cwd = process.cwd()) {
   const serialized = JSON.stringify(report)
-  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
   const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
   if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
   const instance = await runBounded(["sandbox-vm", "instance", "personal"], cwd, 2_000, 1024)

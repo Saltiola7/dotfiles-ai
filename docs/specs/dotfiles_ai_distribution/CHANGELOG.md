@@ -38,7 +38,9 @@
   original workspace, tab, and pane with the canonical `opencode --auto`
   process. All three federated sources remained
   available. The operator explicitly accepted broader work-account credential
-  scope as an operational exception; repository authorization remains external.
+  scope as `DAI-007-AR1`, owned by the operator and reviewed by 2026-08-18 or
+  before rotation; VM controls and provider repository authorization compensate
+  until a repository-scoped credential is available.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 

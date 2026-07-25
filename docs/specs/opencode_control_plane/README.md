@@ -301,9 +301,11 @@ opaque identities by source, and rejects raw paths, URLs, transcript content,
 unknown schema fields, changed continuation identity, and oversized output.
 
 Given an approved host handoff, personal VM OpenCode receives only the sanitized
-context and approval identity, starts a distinct VM-owned DBSCTR cycle, and
-returns bounded cycle and draft-PR status. It never attaches a VM runtime to the
-host cycle or shares a Cycle Record across machines.
+context and approval identity plus instructions to start a distinct VM-owned
+DBSCTR draft-PR cycle. The typed call returns only bounded Herdr launch
+acceptance and presentation identity; cycle and draft-PR progress remain
+guest-authoritative and are observed separately. It never attaches a VM runtime
+to the host cycle or shares a Cycle Record across machines.
 
 The typed read interface is `dbsctr_review_federated`; it accepts the existing
 history filters plus cursor and limit and returns the validated federated source

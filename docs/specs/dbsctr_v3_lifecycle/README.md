@@ -211,8 +211,11 @@ records, and retirement decisions. External writes remain approval-gated.
 - When the host creates an Implementation Handoff for personal VM
 - Then the handoff contains sanitized intent, constraints, affected artifacts,
   validation, risk, and host claim identity
-- And personal VM starts a separate Lifecycle Cycle whose Cycle Record, worktree,
-  gates, branch, and draft PR are authoritative only in that VM
+- And the host receives bounded Herdr launch acceptance rather than synchronous
+  proof of cycle or draft-PR creation
+- And the launched personal VM agent is instructed to start a separate Lifecycle
+  Cycle whose Cycle Record, worktree, gates, branch, and draft PR are
+  authoritative only in that VM
 - And answering Discovery without explicit proceed never creates the handoff
 
 The Review Source envelope is schema version `1` and binds `source_id`, helper
@@ -225,8 +228,10 @@ set or source identity fails rather than restarting that source silently.
 The Implementation Handoff is schema version `1`, requires `proceed=true`, one
 host worker/claim identity, target `personal`, bounded sanitized context,
 declared repository-relative paths, risk, validation, and draft-PR delivery. The
-target creates a fresh cycle ID and records the host claim only as correlation;
-neither runtime may mutate the other's Cycle Record or private ledger.
+typed boundary proves only accepted Herdr launch identity. The target agent is
+responsible for creating a fresh cycle ID and recording the host claim only as
+correlation; neither runtime may mutate the other's Cycle Record or private
+ledger.
 
 ## Behavior Scenarios
 
