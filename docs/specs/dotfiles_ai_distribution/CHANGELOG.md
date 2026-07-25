@@ -27,6 +27,10 @@
   2.01 GB; live three-source federation and stopped-MGM restoration passed.
 - Kept the wrapped real executable basename as `opencode` so Herdr can detect,
   track, and restore auto-approved guest sessions.
+- Final recreation verified Herdr detects wrapped OpenCode as canonical and
+  reports it idle with `--auto`; after a cold restart Herdr restored the exact
+  workspace, tab, and pane. Session-ID resume remains pending authenticated use
+  because the smoke session never acquired an eligible OpenCode session ID.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 
