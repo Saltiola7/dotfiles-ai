@@ -16,6 +16,11 @@
 - Live Fedora provisioning also proved Lima preserves the macOS account UID;
   guest identity now binds to the unique `.guest` home instead of assuming UID
   `>=1000`.
+- Deployment: recreated `mgm-sandbox` from the corrected template and verified
+  initial boot plus cold restart. Both declared roots remained writable, the
+  inherited home mount was absent, every protected submodule and Git metadata
+  overlay was read-only, sudo was non-executable, and OpenCode stayed gated on
+  the boot verifier. Sparse host allocation was about 2.01 GB.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 
