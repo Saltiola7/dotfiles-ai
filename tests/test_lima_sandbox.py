@@ -125,6 +125,7 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     assert [source["source_id"] for source in result["sources"]] == ["host", "personal", "mgm"]
     assert all(source["availability"] == "available" for source in result["sources"])
     assert len(result["manifest_digest"]) == 64
+    assert result["source_state"] is None
     assert running == {"opencode-personal": False, "opencode-mgm": True}
     assert ["limactl", "start", "opencode-personal"] in calls
     assert ["limactl", "stop", "opencode-personal"] in calls

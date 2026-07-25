@@ -265,7 +265,8 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
                     sources[-1] = {"source_id": source, "availability": "state_restore_failed"}
     digest = hashlib.sha256(json.dumps(sources, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {"schema_version": 1, "sources": sources, "source_state": next_state if len(next_state) == 3 else None, "manifest_digest": digest}
+    continuation = next_state if len(next_state) == 3 and any(state["continuation"] is not None for state in next_state) else None
+    return {"schema_version": 1, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
 def main(argv=None):
