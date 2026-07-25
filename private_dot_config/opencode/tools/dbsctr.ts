@@ -233,7 +233,7 @@ export const vm_handoff = tool({
     risk: tool.schema.enum(["routine", "elevated", "critical"]),
     summary: tool.schema.string().min(1).max(512),
     paths: tool.schema.array(tool.schema.string().min(1).max(512)
-      .regex(/^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))[^\0]+$/)).min(1).max(100),
+      .regex(/^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/)).min(1).max(100),
     validation: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(50),
   },
   async execute(args, context) {

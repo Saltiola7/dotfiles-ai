@@ -891,16 +891,17 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     assert "<herdr>" in log
     assert "<--interactive>" in log
     before = calls.read_text()
-    unsafe = {**payload, "paths": ["/etc/passwd"]}
-    unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+    for path in ("/etc/passwd", "a//b", "a/", "a\\b", "a\nb"):
+        unsafe = {**payload, "paths": [path]}
+        unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
 const context={{worktree:process.cwd(),ask:async ()=>{{}}}};
 await vm_handoff.execute({json.dumps(unsafe)},context);'''
-    rejected = subprocess.run(
-        ["bun", "-e", unsafe_script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
-        text=True, capture_output=True,
-    )
-    assert rejected.returncode != 0
+        rejected = subprocess.run(
+            ["bun", "-e", unsafe_script], cwd=ROOT,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
+            text=True, capture_output=True,
+        )
+        assert rejected.returncode != 0
     assert calls.read_text() == before
 
 
