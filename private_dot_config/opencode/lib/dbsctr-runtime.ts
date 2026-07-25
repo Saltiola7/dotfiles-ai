@@ -451,8 +451,20 @@ export async function vmHandoff(report: {
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
   const source = `${home}/.local/share/chezmoi-dotfiles-ai`
   const prompt = `Approved host R&D handoff. Execute the approved decisions and start a separate DBSCTR draft-PR cycle. ${serialized}`
-  const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "opencode",
-    "--cwd", source, "--no-focus", "--", "opencode", "run", "--agent", "build", "--interactive", prompt], cwd, 120_000)
+  const workspaceOutput = await runBounded(["limactl", "shell", instance, "--", "herdr", "workspace", "create",
+    "--cwd", source, "--label", "DBSCTR Handoff", "--no-focus"], cwd, 120_000)
+  let workspace: any
+  try {
+    workspace = JSON.parse(workspaceOutput)
+  } catch {
+    throw new Error("VM Herdr returned malformed workspace output")
+  }
+  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  const paneID = workspace?.result?.root_pane?.pane_id
+  if (typeof paneID !== "string" || !id.test(paneID)) throw new Error("VM Herdr returned no workspace pane")
+  const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "DBSCTR Handoff",
+    "--kind", "opencode", "--pane", paneID, "--timeout", "120000", "--",
+    "run", "--agent", "build", "--interactive", prompt], cwd, 180_000)
   let value: any
   try {
     value = JSON.parse(output)
@@ -460,7 +472,6 @@ export async function vmHandoff(report: {
     throw new Error("VM Herdr returned malformed output")
   }
   const agent = value?.result?.agent ?? value?.result ?? value
-  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
   if (typeof agent?.pane_id !== "string" || !id.test(agent.pane_id)) throw new Error("VM Herdr returned no launch identity")
   const result: Record<string, string | number> = { schema_version: 1, target: "personal", status: "launched" }
   for (const key of ["pane_id", "tab_id", "workspace_id"])

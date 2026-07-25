@@ -105,6 +105,8 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert 'arch: "aarch64"' in template
         assert 'disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"' in template
         assert "opencode-linux-arm64.tar.gz" in template
+        assert "/usr/local/libexec/opencode --auto" in template
+        assert "opencode-real" not in template
         assert "eba87efba3976d533a24cca0316f8ef375b5f8e797c0a95c25ee919700b7ba35" in template
         assert "herdr-linux-aarch64" in template
         assert "32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9" in template

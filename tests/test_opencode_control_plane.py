@@ -382,7 +382,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '["sandbox-vm", "review"' in runtime
     assert 'sourceState?: {' in runtime
     assert '["sandbox-vm", "instance", "personal"]' in runtime
-    assert '"limactl", "shell", instance, "--", "herdr", "agent", "start"' in runtime
+    assert '"herdr", "workspace", "create"' in runtime
+    assert '"herdr", "agent", "start", "DBSCTR Handoff"' in runtime
+    assert '"--kind", "opencode", "--pane", paneID' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
     assert "30_000, 256 * 1024" in runtime
@@ -865,6 +867,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
         'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
+        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1"}}}\\n\';; '
         '*) printf \'{"result":{"agent":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent_session":{"value":"session-vm"}}}}\\n\';; esac\n'
     )
     opencode_vm.chmod(0o755)
@@ -890,10 +893,15 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
     log = calls.read_text()
     assert "<herdr>" in log
+    assert "<workspace>" in log
+    assert "<--kind>" in log
+    assert "<--pane>" in log
     assert "<--interactive>" in log
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
-        'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; *) printf \'{"error":"launch failed"}\\n\';; esac\n'
+        'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
+        '*"workspace create"*) printf \'{"result":{"root_pane":{"pane_id":"w1:p1"}}}\\n\';; '
+        '*) printf \'{"error":"launch failed"}\\n\';; esac\n'
     )
     missing_identity = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,

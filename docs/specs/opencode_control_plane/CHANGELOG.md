@@ -8,6 +8,9 @@
   valid Herdr pane identity.
 - Renamed the fixed host helper to `sandbox-vm`; guest Herdr and OpenCode retain
   native names because client identity belongs to the Lima sandbox boundary.
+- Updated typed VM handoff to Herdr 0.7.5's workspace/root-pane contract before
+  starting `--kind opencode`; the unsupported direct `--cwd` agent launch was
+  removed after live guest validation.
 
 ## 2026-07-23 - OCP-25 Improvement Retirement Permission
 

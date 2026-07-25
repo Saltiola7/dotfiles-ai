@@ -89,6 +89,8 @@ processes; on restart, Herdr restores its layout and eligible OpenCode session
 IDs. The VM launcher reapplies auto approval to restored interactive sessions.
 
 Host and VM Herdr workspaces are separate.
+Start and detach from personal Herdr once before the first typed VM handoff; the
+handoff creates a dedicated workspace and starts OpenCode in its root shell pane.
 
 ## Federated R&D
 

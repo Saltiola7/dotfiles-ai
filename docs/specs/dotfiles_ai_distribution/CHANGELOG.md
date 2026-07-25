@@ -21,6 +21,12 @@
   inherited home mount was absent, every protected submodule and Git metadata
   overlay was read-only, sudo was non-executable, and OpenCode stayed gated on
   the boot verifier. Sparse host allocation was about 2.01 GB.
+- Created `personal-sandbox` and verified its single writable root, absent
+  inherited home mount, non-executable sudo, isolated empty database, tools, and
+  boot verifier before and after a cold restart. Sparse allocation was about
+  2.01 GB; live three-source federation and stopped-MGM restoration passed.
+- Kept the wrapped real executable basename as `opencode` so Herdr can detect,
+  track, and restore auto-approved guest sessions.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 
