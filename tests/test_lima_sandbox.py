@@ -49,6 +49,19 @@ def history_page() -> dict:
         "cursor": 0,
         "continuation": None,
         "candidates": [],
+        "digest": "c" * 64,
+        "query": {
+            "after": None,
+            "archive_only": False,
+            "before": None,
+            "context": None,
+            "cycle_id": None,
+            "method_revision": None,
+            "project_digest": None,
+            "reviewed_status": None,
+            "state": None,
+        },
+        "session_ids": [],
     }
 
 
@@ -63,6 +76,9 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert "eba87efba3976d533a24cca0316f8ef375b5f8e797c0a95c25ee919700b7ba35" in template
         assert "herdr-linux-aarch64" in template
         assert "32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9" in template
+        assert "sudo -n true" in template
+        assert "sandbox user retains noninteractive sudo" in template
+    assert "configparser.ConfigParser" in (ROOT / "private_dot_config/dotfiles-ai/lima/mgm.yaml.tmpl").read_text()
 
 
 def test_client_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> None:
@@ -155,24 +171,44 @@ def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> 
     assert continuation[continuation.index("--database-digest") + 1] == "a" * 64
 
 
-def test_handoff_requires_explicit_proceed_and_sanitized_paths(tmp_path: Path) -> None:
+def test_federation_rejects_changed_continuation_identity(tmp_path: Path) -> None:
     helper = load_helper()
-    report = {
-        "schema_version": 1,
-        "worker_id": "dbsctr-12345678",
-        "proceed": True,
-        "target": "personal",
-        "risk": "elevated",
-        "summary": "Implement the approved sandbox improvement",
-        "paths": ["dot_local/bin/executable_opencode-vm"],
-        "validation": ["pytest tests/test_lima_sandbox.py"],
-    }
-    assert helper.validate_handoff(report) == report
 
-    with pytest.raises(ValueError, match="proceed"):
-        helper.validate_handoff({**report, "proceed": False})
-    with pytest.raises(ValueError, match="repository-relative"):
-        helper.validate_handoff({**report, "paths": ["/absolute/secret"]})
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "opencode-personal", "status": "Running"},
+                {"name": "opencode-mgm", "status": "Running"},
+            ])
+        cursor = int(argv[argv.index("--cursor") + 1])
+        page = {**history_page(), "cursor": cursor, "continuation": 5 if cursor == 0 else None}
+        if cursor == 5:
+            page["snapshot"] = 11
+        return json.dumps(page)
+
+    first = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    second = helper.federated_review(config(tmp_path), 5, 5, first["source_state"], execute=execute)
+    assert all(source["availability"] == "invalid_output" for source in second["sources"])
+    assert second["source_state"] is None
+
+
+def test_unavailable_source_has_no_continuation_state(tmp_path: Path) -> None:
+    helper = load_helper()
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{"name": "opencode-mgm", "status": "Running"}])
+        return json.dumps(history_page())
+
+    result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    assert result["sources"][1]["availability"] == "missing_instance"
+    assert result["source_state"] is None
+
+
+def test_general_controller_exposes_no_handoff_command() -> None:
+    body = SCRIPT.read_text()
+    assert 'add_parser("handoff")' not in body
+    assert "launch_handoff" not in body
 
 
 def test_submodule_manifest_is_stable_and_relative(tmp_path: Path) -> None:

@@ -7,14 +7,20 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
-import sys
 
 
 CONFIG = Path(os.environ.get("OPENCODE_VM_CONFIG", "~/.config/dotfiles-ai/sandbox.json")).expanduser()
 CLIENTS = ("personal", "mgm")
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-UNSAFE = re.compile(r"(?:https?://|file://|/(?:Users|home|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----)", re.I)
+UNSAFE = re.compile(r"(?:https?://|file://|/(?:Users|home|root|tmp|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----)", re.I)
 MAX_OUTPUT = 256 * 1024
+PAGE_KEYS = {"schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
+CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
+QUERY_KEYS = {"after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest", "reviewed_status", "state"}
+AGGREGATE_KEYS = {"approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"}
+TELEMETRY_KEYS = {"approval_count", "attribution_status", "availability", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
+AVAILABILITY_KEYS = {"approval_count", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
+PHASE_KEYS = {"schema_version", "cycle_id", "status", "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"}
 
 
 def command(argv, timeout=30):
@@ -134,12 +140,45 @@ def _namespace(value, source):
     return result
 
 
-def _source_page(source, output, limit, cursor):
+def _exact(value, keys):
+    return isinstance(value, dict) and set(value) == keys
+
+
+def _safe_values(value):
+    if isinstance(value, str):
+        return not UNSAFE.search(value)
+    if isinstance(value, list):
+        return all(_safe_values(item) for item in value)
+    if isinstance(value, dict):
+        return all(_safe_values(item) for item in value.values())
+    return value is None or isinstance(value, (bool, int, float))
+
+
+def _valid_candidate(candidate):
+    if not _exact(candidate, CANDIDATE_KEYS) or not _exact(candidate.get("aggregates"), AGGREGATE_KEYS):
+        return False
+    telemetry = candidate.get("telemetry")
+    if not _exact(telemetry, TELEMETRY_KEYS) or not _exact(telemetry.get("availability"), AVAILABILITY_KEYS):
+        return False
+    cycles = candidate.get("cycles")
+    if not isinstance(cycles, list):
+        return False
+    for cycle in cycles:
+        if not (_exact(cycle, {"cycle_id", "state"}) or _exact(cycle, {"cycle_id", "state", "phase_profile"})):
+            return False
+        profile = cycle.get("phase_profile")
+        if profile is not None and (not _exact(profile, PHASE_KEYS)
+                or not isinstance(profile.get("principal_waits"), list)
+                or any(not _exact(wait, {"span_id", "wait_ms"}) for wait in profile["principal_waits"])):
+            return False
+    return _safe_values(candidate)
+
+
+def _source_page(source, output, limit, cursor, previous=None):
     if len(output.encode()) > MAX_OUTPUT or UNSAFE.search(output):
         raise ValueError("unsafe output")
     value = json.loads(output)
-    required = {"schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "limit", "cursor", "continuation", "candidates"}
-    if not isinstance(value, dict) or not required <= set(value) or value.get("schema_version") != 1:
+    if not _exact(value, PAGE_KEYS) or value.get("schema_version") != 1 or not _exact(value.get("query"), QUERY_KEYS):
         raise ValueError("invalid history page")
     if value.get("limit") != limit or value.get("cursor") != cursor or not isinstance(value.get("candidates"), list):
         raise ValueError("invalid history page")
@@ -152,7 +191,11 @@ def _source_page(source, output, limit, cursor):
             or value.get("continuation") is not None
             and (not isinstance(value["continuation"], int) or value["continuation"] <= cursor)):
         raise ValueError("invalid history identity")
-    if len(value["candidates"]) > limit:
+    if previous is not None:
+        for key in ("snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"):
+            if value.get(key) != previous.get(key):
+                raise ValueError("source identity changed")
+    if len(value["candidates"]) > limit or any(not _valid_candidate(candidate) for candidate in value["candidates"]):
         raise ValueError("invalid history page")
     state = {
         "source_id": source,
@@ -185,7 +228,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
         next_state.append(host_state)
     else:
         try:
-            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state)), limit, host_cursor)
+            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state)), limit, host_cursor, host_state)
             sources.append(source)
             next_state.append(state)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
@@ -210,7 +253,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
             if started:
                 execute(["limactl", "start", instance], timeout=120)
             output = execute(["limactl", "shell", instance, "--", *_history_argv(limit, cursor, state_before)], timeout=120)
-            envelope, state = _source_page(source, output, limit, source_cursor)
+            envelope, state = _source_page(source, output, limit, source_cursor, state_before)
             sources.append(envelope)
             next_state.append(state)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
@@ -222,74 +265,19 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
                     sources[-1] = {"source_id": source, "availability": "state_restore_failed"}
     digest = hashlib.sha256(json.dumps(sources, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {"schema_version": 1, "sources": sources, "source_state": next_state, "manifest_digest": digest}
-
-
-def validate_handoff(value):
-    keys = {"schema_version", "worker_id", "proceed", "target", "risk", "summary", "paths", "validation"}
-    if not isinstance(value, dict) or set(value) != keys or value.get("schema_version") != 1:
-        raise ValueError("invalid handoff")
-    if value.get("proceed") is not True:
-        raise ValueError("handoff requires explicit proceed")
-    if value.get("target") != "personal" or value.get("risk") not in {"routine", "elevated", "critical"}:
-        raise ValueError("invalid handoff target or risk")
-    if not ID.fullmatch(value.get("worker_id", "")):
-        raise ValueError("invalid worker identity")
-    texts = [value.get("summary")] + list(value.get("validation", []))
-    if not all(isinstance(text, str) and 1 <= len(text) <= 512 and not UNSAFE.search(text) for text in texts):
-        raise ValueError("unsafe handoff text")
-    paths = value.get("paths")
-    if not isinstance(paths, list) or not 1 <= len(paths) <= 100:
-        raise ValueError("invalid handoff paths")
-    for raw in paths:
-        path = PurePosixPath(raw) if isinstance(raw, str) else PurePosixPath("/")
-        if path.is_absolute() or not raw or ".." in path.parts or "." in path.parts:
-            raise ValueError("handoff paths must be repository-relative")
-    return value
-
-
-def _guest_home(instance, execute=command):
-    home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
-    if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
-        raise RuntimeError("invalid guest home")
-    return home
-
-
-def launch_handoff(config, report, execute=command):
-    validate_handoff(report)
-    instance = config["clients"]["personal"]["instance"]
-    home = _guest_home(instance, execute)
-    source = f"{home}/.local/share/chezmoi-dotfiles-ai"
-    prompt = "Approved host R&D handoff. Execute Discovery decisions without re-answering them; start a separate DBSCTR draft-PR cycle. " + json.dumps(report, sort_keys=True, separators=(",", ":"))
-    output = execute([
-        "limactl", "shell", instance, "--", "herdr", "agent", "start", "opencode",
-        "--cwd", source, "--no-focus", "--", "opencode", "run", "--agent", "build", "--interactive", prompt,
-    ], timeout=120)
-    value = json.loads(output)
-    agent = value.get("result", {}).get("agent", value.get("result", value)) if isinstance(value, dict) else {}
-    result = {"schema_version": 1, "target": "personal", "status": "launched"}
-    for source_key, target_key in (("pane_id", "pane_id"), ("tab_id", "tab_id"), ("workspace_id", "workspace_id")):
-        item = agent.get(source_key)
-        if isinstance(item, str) and ID.fullmatch(item):
-            result[target_key] = item
-    session = agent.get("agent_session", {}).get("value") if isinstance(agent.get("agent_session"), dict) else None
-    if isinstance(session, str) and ID.fullmatch(session):
-        result["session_id"] = session
-    return result
+    return {"schema_version": 1, "sources": sources, "source_state": next_state if len(next_state) == 3 else None, "manifest_digest": digest}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "herdr", "update"):
+    for name in ("create", "herdr", "update", "instance"):
         sub = commands.add_parser(name)
         sub.add_argument("client", choices=CLIENTS)
     review = commands.add_parser("review")
     review.add_argument("--limit", type=int, default=25)
     review.add_argument("--cursor", type=int, default=0)
     review.add_argument("--source-state-json")
-    handoff = commands.add_parser("handoff")
-    handoff.add_argument("--report-json", required=True)
     commands.add_parser("status")
     args = parser.parse_args(argv)
     config = load_config()
@@ -299,14 +287,14 @@ def main(argv=None):
         state = json.loads(args.source_state_json) if args.source_state_json else None
         print(json.dumps(federated_review(config, args.limit, args.cursor, state), sort_keys=True, separators=(",", ":")))
         return
-    if args.command == "handoff":
-        print(json.dumps(launch_handoff(config, json.loads(args.report_json)), sort_keys=True, separators=(",", ":")))
-        return
     if args.command == "status":
         states = _parse_states(command(["limactl", "list", "--json"]))
         print(json.dumps({name: {"instance": config["clients"][name]["instance"], "running": states.get(config["clients"][name]["instance"], False)} for name in CLIENTS}, sort_keys=True))
         return
     client = config["clients"][args.client]
+    if args.command == "instance":
+        print(client["instance"])
+        return
     if args.command == "create":
         command(["limactl", "create", "--name", client["instance"], client["template"]], timeout=900)
         command(["limactl", "start", client["instance"]], timeout=900)
@@ -314,7 +302,9 @@ def main(argv=None):
     if args.command == "herdr":
         os.execvp("limactl", ["limactl", "shell", "--start", client["instance"], "--", "herdr"])
     if args.command == "update":
-        home = _guest_home(client["instance"])
+        home = command(["limactl", "shell", "--start", client["instance"], "--", "printenv", "HOME"], timeout=120)
+        if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
+            raise RuntimeError("invalid guest home")
         source = f"{home}/.local/share/chezmoi-dotfiles-ai"
         command(["limactl", "shell", client["instance"], "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
         command(["limactl", "shell", client["instance"], "--", "chezmoi", "-c", f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)

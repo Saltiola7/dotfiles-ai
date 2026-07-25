@@ -239,11 +239,13 @@ OpenCode control-plane behavior, and shell authentication.
   `source_id`, `availability`, and either the existing sanitized history page or
   one bounded error class. Continuations submit each source's original snapshot,
   ceilings, database digest, and exclusion digest.
-- `opencode-vm handoff --report-json JSON` accepts schema version `1`, host claim
-  identity, approved context, risk, affected repository-relative paths,
-  validation, and explicit `proceed=true`. Text fields use the existing private
-  review sanitizer and fixed size bounds. It returns only the target source,
-  Herdr presentation IDs, OpenCode session ID when available, and launch status.
+- Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
+  approved context, risk, affected repository-relative paths, validation, and
+  explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr
+  argument vectors; the general `opencode-vm` CLI exposes no handoff command.
+  Text fields use fixed size and unsafe-content bounds. It returns only the target
+  source, Herdr presentation IDs, OpenCode session ID when available, and launch
+  status.
 - `herdr-personal` and `herdr-mgm` are thin argument-safe wrappers around
   `opencode-vm herdr CLIENT`; they never create a new Herdr session when the
   existing VM session can be attached.

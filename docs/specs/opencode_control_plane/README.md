@@ -383,6 +383,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   permission patterns.
 - Multi-source review availability depends on Lima and compatible helper/schema
   revisions. Missing sources are explicit and never silently omitted.
+- Typed handoff asks for approval and common raw Lima command forms are denied to
+  OpenCode Bash, but same-user command policies are guardrails rather than an OS
+  authorization boundary. The VM filesystem boundary remains the security
+  control against host access.
 - OpenCode cannot retarget native `plan_exit` to a custom primary; `build-gpt`
   and `build-claude` therefore require exact manual agent selection and a new
   message. Changing only the model leaves native Plan active.

@@ -257,6 +257,34 @@ export async function reviewHistory(args: {
   return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
 }
 
+function validFederatedPage(page: any, limit: number) {
+  const pageKeys = ["schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+    "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"]
+  const candidateKeys = ["schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling",
+    "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality",
+    "cycles", "aggregates", "telemetry", "method_revision"]
+  const aggregateKeys = ["approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count",
+    "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count",
+    "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"]
+  const telemetryKeys = ["approval_count", "attribution_status", "availability", "cost_total", "delegation_count",
+    "error_classes", "model_families", "retry_count", "token_total"]
+  const availabilityKeys = ["approval_count", "cost_total", "delegation_count", "error_classes", "model_families",
+    "retry_count", "token_total"]
+  const queryKeys = ["after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest",
+    "reviewed_status", "state"]
+  return exactKeys(page, pageKeys) && page.schema_version === 1 && page.limit === limit
+    && Array.isArray(page.candidates) && page.candidates.length <= limit && exactKeys(page.query, queryKeys)
+    && page.candidates.every((candidate: any) => exactKeys(candidate, candidateKeys)
+      && exactKeys(candidate.aggregates, aggregateKeys) && exactKeys(candidate.telemetry, telemetryKeys)
+      && exactKeys(candidate.telemetry.availability, availabilityKeys) && Array.isArray(candidate.cycles)
+      && candidate.cycles.every((cycle: any) => {
+        if (exactKeys(cycle, ["cycle_id", "state"])) return true
+        return exactKeys(cycle, ["cycle_id", "state", "phase_profile"])
+          && (cycle.phase_profile === null || exactKeys(cycle.phase_profile, ["schema_version", "cycle_id", "status",
+            "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"]))
+      }))
+}
+
 export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
   source_id: "host" | "personal" | "mgm"
   snapshot: number
@@ -272,12 +300,13 @@ export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
       || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
       || !Array.isArray(value.sources) || value.sources.length !== 3
-      || !Array.isArray(value.source_state) || value.source_state.length > 3
+      || new Set(value.sources.map((source: any) => source?.source_id)).size !== 3
+      || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== 3)
       || value.sources.some((source: any) => source === null || typeof source !== "object"
         || !["host", "personal", "mgm"].includes(source.source_id)
         || !["available", "complete", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
-        || source.availability === "available" && (source.page?.schema_version !== 1
-          || !Array.isArray(source.page?.candidates) || source.page.candidates.length > limit))) {
+        || !exactKeys(source, source.availability === "available" ? ["source_id", "availability", "page"] : ["source_id", "availability"])
+        || source.availability === "available" && !validFederatedPage(source.page, limit))) {
     throw new Error("sandbox helper returned an invalid federation manifest")
   }
   return JSON.stringify(value)
@@ -293,11 +322,31 @@ export async function vmHandoff(report: {
   paths: string[]
   validation: string[]
 }, cwd = process.cwd()) {
-  const value = await analyticsJSON(["opencode-vm", "handoff", "--report-json", JSON.stringify(report)], cwd)
-  if (value.schema_version !== 1 || value.target !== "personal" || value.status !== "launched") {
-    throw new Error("sandbox helper returned an invalid handoff")
+  const serialized = JSON.stringify(report)
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  if (unsafe.test(serialized)) throw new Error("unsafe VM handoff")
+  const instance = await runBounded(["opencode-vm", "instance", "personal"], cwd, 2_000, 1024)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid personal VM instance")
+  const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
+  if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
+  const source = `${home}/.local/share/chezmoi-dotfiles-ai`
+  const prompt = `Approved host R&D handoff. Execute the approved decisions and start a separate DBSCTR draft-PR cycle. ${serialized}`
+  const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "opencode",
+    "--cwd", source, "--no-focus", "--", "opencode", "run", "--agent", "build", "--interactive", prompt], cwd, 120_000)
+  let value: any
+  try {
+    value = JSON.parse(output)
+  } catch {
+    throw new Error("VM Herdr returned malformed output")
   }
-  return JSON.stringify(value)
+  const agent = value?.result?.agent ?? value?.result ?? value
+  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  const result: Record<string, string | number> = { schema_version: 1, target: "personal", status: "launched" }
+  for (const key of ["pane_id", "tab_id", "workspace_id"])
+    if (typeof agent?.[key] === "string" && id.test(agent[key])) result[key] = agent[key]
+  if (typeof agent?.agent_session?.value === "string" && id.test(agent.agent_session.value))
+    result.session_id = agent.agent_session.value
+  return JSON.stringify(result)
 }
 
 function reviewHistoryArgv(args: {
@@ -337,7 +386,7 @@ function reviewHistoryArgv(args: {
 
 async function analyticsJSON(argv: string[], cwd: string) {
   const output = await runBounded(argv, cwd, 30_000, 256 * 1024)
-  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
   if (unsafe.test(output)) {
     throw new Error("analytics helper returned unsafe content")
   }

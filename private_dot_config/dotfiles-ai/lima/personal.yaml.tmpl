@@ -38,10 +38,16 @@ provision:
       esac
       EOF
       chmod 0755 /usr/local/bin/opencode
-      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1; exit}')"
+      agent_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 && $6 ~ /\.guest$/ {print $1}')"
+      test -n "$agent_user"
+      test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
       printf '%s ALL=(ALL) !ALL\n' "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
       chmod 0440 /etc/sudoers.d/99-opencode-sandbox
       visudo -cf /etc/sudoers.d/99-opencode-sandbox
+      if su -s /bin/sh - "$agent_user" -c 'sudo -n true' >/dev/null 2>&1; then
+        echo "sandbox user retains noninteractive sudo" >&2
+        exit 1
+      fi
       touch /run/opencode-sandbox-ready
   - mode: user
     script: |

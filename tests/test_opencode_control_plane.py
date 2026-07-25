@@ -272,6 +272,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
             assert bash[form.format(command)] == "ask"
     assert bash["*dbsctrctl improvement-forget*"] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
+    assert bash["*limactl *"] == "deny"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
         "herdr workspace close*", "herdr pane close*", "herdr tab close*",
@@ -379,7 +380,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-history-save"' in runtime
     assert '["opencode-vm", "review"' in runtime
     assert 'sourceState?: {' in runtime
-    assert '["opencode-vm", "handoff"' in runtime
+    assert '["opencode-vm", "instance", "personal"]' in runtime
+    assert '"limactl", "shell", instance, "--", "herdr", "agent", "start"' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
     assert "30_000, 256 * 1024" in runtime
@@ -849,6 +851,72 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
     ]
+
+
+def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    asks = tmp_path / "asks"
+    opencode_vm = bin_dir / "opencode-vm"
+    opencode_vm.write_text('#!/bin/sh\nprintf "opencode-personal\\n"\n')
+    limactl = bin_dir / "limactl"
+    limactl.write_text(
+        '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
+        'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
+        '*) printf \'{"result":{"agent":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent_session":{"value":"session-vm"}}}}\\n\';; esac\n'
+    )
+    opencode_vm.chmod(0o755)
+    limactl.chmod(0o755)
+    tools = OC / "tools/dbsctr.ts"
+    payload = {
+        "workerId": "dbsctr-12345678",
+        "proceed": True,
+        "risk": "elevated",
+        "summary": "Implement the approved sandbox change",
+        "paths": ["dot_local/bin/executable_opencode-vm"],
+        "validation": ["pytest tests/test_lima_sandbox.py"],
+    }
+    script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),ask:async (value)=>{{await Bun.write(process.env.ASKS,JSON.stringify(value));}}}};
+console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(result.stdout)["session_id"] == "session-vm"
+    assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
+    log = calls.read_text()
+    assert "<herdr>" in log
+    assert "<--interactive>" in log
+
+
+def test_federated_runtime_rejects_duplicate_sources(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    manifest = json.dumps({
+        "schema_version": 1,
+        "sources": [
+            {"source_id": "host", "availability": "complete"},
+            {"source_id": "host", "availability": "complete"},
+            {"source_id": "mgm", "availability": "complete"},
+        ],
+        "source_state": None,
+        "manifest_digest": "a" * 64,
+    })
+    helper = bin_dir / "opencode-vm"
+    helper.write_text(f"#!/bin/sh\ncat <<'EOF'\n{manifest}\nEOF\n")
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = f'import {{ reviewFederated }} from {json.dumps(str(runtime))};await reviewFederated(5,0,undefined,process.cwd());'
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        text=True, capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "invalid federation manifest" in result.stderr
 
 
 def test_removed_managed_integrations_are_absent():
