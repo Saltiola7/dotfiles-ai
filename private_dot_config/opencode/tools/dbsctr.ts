@@ -208,6 +208,15 @@ export const review_history = tool({
 export const review_federated = tool({
   description: "Read bounded sanitized review history from host, personal VM, and MGM VM with explicit source availability.",
   args: {
+    after: tool.schema.number().int().min(0).optional(),
+    before: tool.schema.number().int().min(0).optional(),
+    methodRevision: tool.schema.string().regex(/^\d+(?:\.\d+)*$/).optional(),
+    cycleId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
+    state: tool.schema.enum(["active", "blocked", "abandoned", "completed", "unknown"]).optional(),
+    context: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
+    projectDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/).optional(),
+    reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
+    archiveOnly: tool.schema.boolean().optional().default(false),
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
     sourceState: tool.schema.array(tool.schema.object({
@@ -216,12 +225,13 @@ export const review_federated = tool({
       session_ceiling: tool.schema.number().int().min(0),
       part_ceiling: tool.schema.number().int().min(0),
       database_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
-      exclusion_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/).optional(),
+      exclusion_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/).nullable(),
+      query_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
       continuation: tool.schema.number().int().min(0).nullable(),
     })).length(3).optional(),
   },
   async execute(args, context) {
-    return await reviewFederated(args.limit, args.cursor, args.sourceState, context.worktree)
+    return await reviewFederated(args, context.worktree)
   },
 })
 

@@ -1,4 +1,16 @@
 import { realpath } from "node:fs/promises"
+import { createHash } from "node:crypto"
+
+function canonicalJSON(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`
+  if (value !== null && typeof value === "object")
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJSON(value[key])}`).join(",")}}`
+  return JSON.stringify(value)
+}
+
+function sha256(value: any) {
+  return createHash("sha256").update(canonicalJSON(value)).digest("hex")
+}
 
 export async function run(argv: string[], cwd: string) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
@@ -275,11 +287,12 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
   const digest = /^[0-9a-f]{64}$/
   const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
   const unsafe = /(?:https?:\/\/|file:\/\/|"\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
-  const nonnegative = (value: any) => typeof value === "number" && value >= 0
+  const nonnegative = (value: any) => typeof value === "number" && Number.isFinite(value) && value >= 0
+  const nonnegativeInteger = (value: any) => Number.isInteger(value) && value >= 0
   const unavailable = (value: any) => value === "unavailable" || nonnegative(value)
   return exactKeys(page, pageKeys) && page.schema_version === 1 && page.limit === limit
-    && !unsafe.test(JSON.stringify(page)) && nonnegative(page.snapshot) && nonnegative(page.session_ceiling)
-    && nonnegative(page.part_ceiling) && page.cursor === cursor
+    && !unsafe.test(JSON.stringify(page)) && nonnegativeInteger(page.snapshot) && nonnegativeInteger(page.session_ceiling)
+    && nonnegativeInteger(page.part_ceiling) && page.cursor === cursor
     && (page.continuation === null || Number.isInteger(page.continuation) && page.continuation > cursor)
     && digest.test(page.database_digest)
     && digest.test(page.digest) && (page.exclusion_digest === null || digest.test(page.exclusion_digest))
@@ -295,16 +308,19 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
     && page.candidates.every((candidate: any) => exactKeys(candidate, candidateKeys)
       && exactKeys(candidate.aggregates, aggregateKeys) && exactKeys(candidate.telemetry, telemetryKeys)
       && exactKeys(candidate.telemetry.availability, availabilityKeys) && Array.isArray(candidate.cycles)
-      && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegative(candidate.snapshot)
-      && nonnegative(candidate.session_ceiling) && nonnegative(candidate.part_ceiling)
+      && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegativeInteger(candidate.snapshot)
+      && nonnegativeInteger(candidate.session_ceiling) && nonnegativeInteger(candidate.part_ceiling)
       && digest.test(candidate.database_digest) && digest.test(candidate.project_digest) && id.test(candidate.context)
-      && (candidate.completed_at === null || typeof candidate.completed_at === "string" && /^\d{4}-\d{2}-\d{2}T\S{1,40}Z$/.test(candidate.completed_at))
+      && (candidate.completed_at === null || typeof candidate.completed_at === "string"
+        && /^(?:\d{10,16}|\d{4}-\d{2}-\d{2}T\S{1,40}Z)$/.test(candidate.completed_at))
       && ["reviewed", "unreviewed"].includes(candidate.reviewed_status)
       && ["exact", "family", "worktree", "source", "ambiguous", "unavailable"].includes(candidate.correlation_quality)
-      && typeof candidate.method_revision === "string" && /^\d+(?:\.\d+)*$/.test(candidate.method_revision)
-      && Object.values(candidate.aggregates).every(value => unavailable(value))
+      && typeof candidate.method_revision === "string" && /^(?:\d+(?:\.\d+)*|unavailable)$/.test(candidate.method_revision)
+      && Object.entries(candidate.aggregates).every(([key, value]) => value === "unavailable"
+        || (key === "cost_total" ? nonnegative(value) : nonnegativeInteger(value)))
       && [candidate.telemetry.approval_count, candidate.telemetry.retry_count, candidate.telemetry.delegation_count,
-        candidate.telemetry.token_total, candidate.telemetry.cost_total].every(value => unavailable(value))
+        candidate.telemetry.token_total].every(value => value === "unavailable" || nonnegativeInteger(value))
+      && unavailable(candidate.telemetry.cost_total)
       && (candidate.telemetry.model_families === "unavailable" || Array.isArray(candidate.telemetry.model_families)
         && candidate.telemetry.model_families.every((value: any) => typeof value === "string" && id.test(value)))
       && (candidate.telemetry.error_classes === "unavailable"
@@ -321,33 +337,67 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
             "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"])
             && cycle.phase_profile.schema_version === 1 && cycle.phase_profile.cycle_id === cycle.cycle_id
             && ["complete", "unavailable"].includes(cycle.phase_profile.status)
-            && [cycle.phase_profile.critical_path_ms, cycle.phase_profile.total_wall_ms, cycle.phase_profile.overlap_ms].every(unavailable)
-            && nonnegative(cycle.phase_profile.repeated_work) && Array.isArray(cycle.phase_profile.principal_waits)
+            && [cycle.phase_profile.critical_path_ms, cycle.phase_profile.total_wall_ms, cycle.phase_profile.overlap_ms]
+              .every(value => value === "unavailable" || nonnegativeInteger(value))
+            && nonnegativeInteger(cycle.phase_profile.repeated_work) && Array.isArray(cycle.phase_profile.principal_waits)
             && cycle.phase_profile.principal_waits.every((wait: any) => exactKeys(wait, ["span_id", "wait_ms"])
-              && id.test(wait.span_id) && nonnegative(wait.wait_ms))
+              && id.test(wait.span_id) && nonnegativeInteger(wait.wait_ms))
             && Array.isArray(cycle.phase_profile.attribution_caveats)
             && cycle.phase_profile.attribution_caveats.every((value: any) => typeof value === "string" && id.test(value)))
       }))
 }
 
-export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
+export async function reviewFederated(args: {
+  after?: number
+  before?: number
+  methodRevision?: string
+  cycleId?: string
+  state?: "active" | "blocked" | "abandoned" | "completed" | "unknown"
+  context?: string
+  projectDigest?: string
+  reviewedStatus?: "reviewed" | "unreviewed"
+  archiveOnly?: boolean
+  limit?: number
+  cursor?: number
+  sourceState?: {
   source_id: "host" | "personal" | "mgm"
   snapshot: number
   session_ceiling: number
   part_ceiling: number
   database_digest: string
-  exclusion_digest?: string
+  exclusion_digest: string | null
+  query_digest: string
   continuation: number | null
-}[], cwd = process.cwd()) {
+  }[]
+} = {}, cwd = process.cwd()) {
+  const { limit = 25, cursor = 0, sourceState, ...requested } = args
+  const query = {
+    after: requested.after ?? null,
+    archive_only: requested.archiveOnly ?? false,
+    before: requested.before ?? null,
+    context: requested.context ?? null,
+    cycle_id: requested.cycleId ?? null,
+    method_revision: requested.methodRevision ?? null,
+    project_digest: requested.projectDigest ?? null,
+    reviewed_status: requested.reviewedStatus ?? null,
+    state: requested.state ?? null,
+  }
   const argv = ["opencode-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
   if (sourceState !== undefined) argv.push("--source-state-json", JSON.stringify(sourceState))
+  const names: Record<string, string> = { methodRevision: "method-revision", cycleId: "cycle-id",
+    projectDigest: "project-digest", reviewedStatus: "reviewed-status", archiveOnly: "archive-only" }
+  for (const [name, value] of Object.entries(requested)) {
+    if (value === true) argv.push(`--${names[name] ?? name}`)
+    else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name}`, String(value))
+  }
   const value = await analyticsJSON(argv, cwd)
   const validState = (state: any) => exactKeys(state, ["source_id", "snapshot", "session_ceiling", "part_ceiling",
-    "database_digest", "exclusion_digest", "continuation"])
+    "database_digest", "exclusion_digest", "query_digest", "continuation"])
     && ["host", "personal", "mgm"].includes(state.source_id)
     && [state.snapshot, state.session_ceiling, state.part_ceiling].every((item: any) => Number.isInteger(item) && item >= 0)
     && /^[0-9a-f]{64}$/.test(state.database_digest)
     && (state.exclusion_digest === null || /^[0-9a-f]{64}$/.test(state.exclusion_digest))
+    && state.query_digest === sha256(query)
     && (state.continuation === null || Number.isInteger(state.continuation) && state.continuation >= 0)
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
       || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
@@ -361,7 +411,18 @@ export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
         || !["available", "complete", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
         || !exactKeys(source, source.availability === "available" ? ["source_id", "availability", "page"] : ["source_id", "availability"])
         || source.availability === "available" && !validFederatedPage(source.page, limit,
-          sourceState?.find(state => state.source_id === source.source_id)?.continuation ?? cursor))) {
+          sourceState?.find(state => state.source_id === source.source_id)?.continuation ?? cursor)
+        || source.availability === "available" && canonicalJSON(source.page.query) !== canonicalJSON(query))
+      || value.manifest_digest !== sha256({ filters: query, sources: value.sources })
+      || value.source_state !== null && value.source_state.some((state: any) => {
+        const source = value.sources.find((item: any) => item.source_id === state.source_id)
+        const expected = source?.availability === "available" ? {
+          source_id: source.source_id, snapshot: source.page.snapshot, session_ceiling: source.page.session_ceiling,
+          part_ceiling: source.page.part_ceiling, database_digest: source.page.database_digest,
+          exclusion_digest: source.page.exclusion_digest, query_digest: sha256(query), continuation: source.page.continuation,
+        } : sourceState?.find(item => item.source_id === state.source_id)
+        return canonicalJSON(state) !== canonicalJSON(expected)
+      })) {
     throw new Error("sandbox helper returned an invalid federation manifest")
   }
   return JSON.stringify(value)

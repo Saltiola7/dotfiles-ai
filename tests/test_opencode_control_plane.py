@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -933,12 +934,43 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
     helper.write_text(f"#!/bin/sh\ncat <<'EOF'\n{manifest}\nEOF\n")
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
-    script = f'import {{ reviewFederated }} from {json.dumps(str(runtime))};await reviewFederated(5,0,undefined,process.cwd());'
+    script = f'import {{ reviewFederated }} from {json.dumps(str(runtime))};await reviewFederated({{limit:5,cursor:0}},process.cwd());'
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
         text=True, capture_output=True,
     )
+    assert result.returncode != 0
+    assert "invalid federation manifest" in result.stderr
+
+
+def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    sources = [
+        {"source_id": source, "availability": "complete"}
+        for source in ("host", "personal", "mgm")
+    ]
+    query = {
+        "after": None, "archive_only": False, "before": None, "context": "dotfiles_ai_distribution", "cycle_id": None,
+        "method_revision": None, "project_digest": None, "reviewed_status": None, "state": None,
+    }
+    correct = hashlib.sha256(json.dumps({"filters": query, "sources": sources}, sort_keys=True,
+                                        separators=(",", ":")).encode()).hexdigest()
+    manifest = {"schema_version": 1, "sources": sources, "source_state": None, "manifest_digest": correct}
+    helper = bin_dir / "opencode-vm"
+    helper.write_text(f"#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$FEDERATED_LOG\"\nprintf '%s\\n' '{json.dumps(manifest)}'\n")
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
+              'await reviewFederated({limit:5,context:"dotfiles_ai_distribution"},process.cwd());')
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FEDERATED_LOG": str(tmp_path / "args")}
+    subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True, check=True)
+    assert "<--context>\n<dotfiles_ai_distribution>" in (tmp_path / "args").read_text()
+    helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps({**manifest, 'manifest_digest': 'a' * 64})}'\n")
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT,
+                            env=env,
+                            text=True, capture_output=True)
     assert result.returncode != 0
     assert "invalid federation manifest" in result.stderr
 

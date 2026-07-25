@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-24 - V3.28 Federated Review Handoff
+
+- Added bounded source-local history export, source-namespaced host federation,
+  filter-bound continuation identity, independently verified manifests, and an
+  approval-gated personal-VM handoff that starts a separate lifecycle cycle.
+- Source deployment, live three-source federation, and VM handoff evidence remain
+  active under DAI-007.
+
 ## 2026-07-23 - V3.27 Abandoned-Worker Retirement
 
 - Added exact-confirmation `improvement-forget` for abandoned workers only,

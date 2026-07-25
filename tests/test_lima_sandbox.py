@@ -186,12 +186,15 @@ def test_federation_rejects_malformed_scalar_values() -> None:
     helper = load_helper()
     candidate = history_candidate(helper)
     assert helper._valid_candidate(candidate)
+    assert helper._valid_candidate({**candidate, "method_revision": "unavailable"})
     for key, value in (
         ("context", "/etc/passwd"),
         ("context", "person@example.com"),
         ("context", "password=private"),
         ("database_digest", "not-a-digest"),
         ("session_id", "bad/session"),
+        ("snapshot", True),
+        ("snapshot", 1.5),
     ):
         malformed = json.loads(json.dumps(candidate))
         malformed[key] = value
@@ -203,6 +206,8 @@ def test_federation_rejects_malformed_scalar_values() -> None:
         (("query", "context"), "secret=value"),
         (("database_digest",), "bad"),
         (("session_ids",), ["bad/session"]),
+        (("snapshot",), True),
+        (("snapshot",), 1.5),
     ):
         page = history_page()
         target = page
@@ -240,6 +245,32 @@ def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> 
     continuation = [call for call in calls if "review-history" in call][-1]
     assert continuation[continuation.index("--snapshot") + 1] == "10"
     assert continuation[continuation.index("--database-digest") + 1] == "a" * 64
+
+
+def test_federation_binds_filters_to_continuation_and_manifest(tmp_path: Path) -> None:
+    helper = load_helper()
+    calls = []
+    filters = {key: (False if key == "archive_only" else None) for key in helper.QUERY_KEYS}
+    filters["context"] = "dotfiles_ai_distribution"
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "opencode-personal", "status": "Running"},
+                {"name": "opencode-mgm", "status": "Running"},
+            ])
+        page = history_page()
+        page["query"] = filters
+        page["continuation"] = 5
+        return json.dumps(page)
+
+    first = helper.federated_review(config(tmp_path), 5, 0, execute=execute, filters=filters)
+    assert all("--context" in call for call in calls if "review-history" in call)
+    assert len(first["manifest_digest"]) == 64
+    changed = {**filters, "context": "other_context"}
+    with pytest.raises(ValueError, match="source state"):
+        helper.federated_review(config(tmp_path), 5, 0, first["source_state"], execute=execute, filters=changed)
 
 
 def test_federation_rejects_changed_continuation_identity(tmp_path: Path) -> None:

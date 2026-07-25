@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-24 - DAI-007 Lima Sandbox
+
+- Added isolated personal and MGM Fedora Lima runtimes, explicit host mounts,
+  VM-local Herdr/OpenCode state, bounded updates, sparse allocation reporting,
+  and protected MGM submodule paths.
+- Added source-namespaced federated history with strict scalar schemas, filter-
+  bound continuation identity, canonical manifest integrity, and bounded source
+  availability. Host deployment and runtime probes remain active.
+
 ## 2026-07-22 - DAI-006 Recovery Health
 
 - Recovered large sessions with the proven prompt-free OpenCode mini interface,

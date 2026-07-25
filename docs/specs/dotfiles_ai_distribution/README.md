@@ -234,11 +234,13 @@ OpenCode control-plane behavior, and shell authentication.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, verify
   source and deployed commits, apply Linux-compatible targets idempotently, and
   report that existing OpenCode processes retain their loaded config.
-- `opencode-vm review --limit N --cursor N` returns schema version `1`, an
+- `opencode-vm review` accepts the bounded history filters plus limit, cursor,
+  and typed continuation state. It returns schema version `1`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only
   `source_id`, `availability`, and either the existing sanitized history page or
   one bounded error class. Continuations submit each source's original snapshot,
-  ceilings, database digest, and exclusion digest.
+  ceilings, database digest, exclusion digest, and query digest. The manifest
+  digest binds the ordered source envelopes and normalized requested filters.
 - Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
   approved context, risk, affected repository-relative paths, validation, and
   explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr

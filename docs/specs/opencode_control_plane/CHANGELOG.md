@@ -1,5 +1,12 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-24 - OCP-26 Federated VM Control
+
+- Added typed federated history filters and personal-VM implementation handoff.
+  Both boundaries enforce exact sanitized schemas; continuation state binds the
+  query, manifests are independently verified, and handoff success requires a
+  valid Herdr pane identity.
+
 ## 2026-07-23 - OCP-25 Improvement Retirement Permission
 
 - Added a trailing broad `ask` rule for every shell-wrapped

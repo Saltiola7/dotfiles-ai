@@ -307,7 +307,9 @@ host cycle or shares a Cycle Record across machines.
 
 The typed read interface is `dbsctr_review_federated`; it accepts the existing
 history filters plus cursor and limit and returns the validated federated source
-manifest. The typed write interface is `dbsctr_vm_handoff`; it accepts one
+manifest. Continuation state binds its normalized filter query, and the typed
+boundary recomputes the manifest digest and correlates each state with its source
+page. The typed write interface is `dbsctr_vm_handoff`; it accepts one
 schema-versioned sanitized approved report and asks before launching the VM
 session. Plan, read-only agents, and Builder subagents deny handoff. Native Build
 and provider-affine Build primaries may invoke it only after explicit proceed.
