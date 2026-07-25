@@ -291,7 +291,7 @@ def _valid_candidate(candidate):
             or not (telemetry["model_families"] == "unavailable"
                     or isinstance(telemetry["model_families"], list) and all(isinstance(item, str) and ID.fullmatch(item) for item in telemetry["model_families"]))
             or not (telemetry["error_classes"] == "unavailable" or isinstance(telemetry["error_classes"], dict)
-                    and all(ID.fullmatch(key) and isinstance(value, int) and value >= 0 for key, value in telemetry["error_classes"].items()))
+                    and all(ID.fullmatch(key) and _nonnegative_integer(value) for key, value in telemetry["error_classes"].items()))
             or telemetry["attribution_status"] not in {"exact", "family", "worktree", "source", "ambiguous", "unavailable"}
             or any(value not in {"available", "unavailable"} for value in telemetry["availability"].values())):
         return False

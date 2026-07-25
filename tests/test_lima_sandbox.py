@@ -200,6 +200,11 @@ def test_federation_rejects_malformed_scalar_values() -> None:
         malformed[key] = value
         assert not helper._valid_candidate(malformed)
 
+    for count in (True, 1.5):
+        malformed = json.loads(json.dumps(candidate))
+        malformed["telemetry"]["error_classes"] = {"tool_error": count}
+        assert not helper._valid_candidate(malformed)
+
     for path, value in (
         (("query", "context"), "/etc/passwd"),
         (("query", "context"), "person@example.com"),

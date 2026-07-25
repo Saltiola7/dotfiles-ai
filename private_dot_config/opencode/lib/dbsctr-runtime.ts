@@ -326,7 +326,7 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
       && (candidate.telemetry.error_classes === "unavailable"
         || candidate.telemetry.error_classes !== null && typeof candidate.telemetry.error_classes === "object"
         && !Array.isArray(candidate.telemetry.error_classes)
-        && Object.entries(candidate.telemetry.error_classes).every(([key, value]) => id.test(key) && nonnegative(value)))
+        && Object.entries(candidate.telemetry.error_classes).every(([key, value]) => id.test(key) && nonnegativeInteger(value)))
       && ["exact", "family", "worktree", "source", "ambiguous", "unavailable"].includes(candidate.telemetry.attribution_status)
       && Object.values(candidate.telemetry.availability).every(value => ["available", "unavailable"].includes(value as string))
       && candidate.cycles.every((cycle: any) => {
@@ -420,7 +420,10 @@ export async function reviewFederated(args: {
           source_id: source.source_id, snapshot: source.page.snapshot, session_ceiling: source.page.session_ceiling,
           part_ceiling: source.page.part_ceiling, database_digest: source.page.database_digest,
           exclusion_digest: source.page.exclusion_digest, query_digest: sha256(query), continuation: source.page.continuation,
-        } : sourceState?.find(item => item.source_id === state.source_id)
+        } : source?.availability === "complete"
+          ? sourceState?.find(item => item.source_id === state.source_id && item.continuation === null)
+          : undefined
+        if (expected === undefined) return true
         return canonicalJSON(state) !== canonicalJSON(expected)
       })) {
     throw new Error("sandbox helper returned an invalid federation manifest")

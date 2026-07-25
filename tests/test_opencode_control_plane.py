@@ -943,7 +943,6 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
     assert result.returncode != 0
     assert "invalid federation manifest" in result.stderr
 
-
 def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -971,6 +970,29 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     result = subprocess.run(["bun", "-e", script], cwd=ROOT,
                             env=env,
                             text=True, capture_output=True)
+    assert result.returncode != 0
+    assert "invalid federation manifest" in result.stderr
+
+    query_digest = hashlib.sha256(json.dumps(query, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    states = [{
+        "source_id": source, "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1,
+        "database_digest": "b" * 64, "exclusion_digest": None, "query_digest": query_digest,
+        "continuation": 5 if source == "host" else None,
+    } for source in ("host", "personal", "mgm")]
+    unavailable_sources = [
+        {"source_id": "host", "availability": "missing_instance"},
+        {"source_id": "personal", "availability": "complete"},
+        {"source_id": "mgm", "availability": "complete"},
+    ]
+    malicious = {
+        "schema_version": 1,
+        "sources": unavailable_sources,
+        "source_state": states,
+        "manifest_digest": hashlib.sha256(json.dumps({"filters": query, "sources": unavailable_sources},
+                                                       sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+    }
+    helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(malicious)}'\n")
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True)
     assert result.returncode != 0
     assert "invalid federation manifest" in result.stderr
 
