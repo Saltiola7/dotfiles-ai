@@ -152,6 +152,15 @@ def test_federation_rejects_unsafe_remote_output(tmp_path: Path) -> None:
     }
 
 
+def test_command_stops_oversized_output(tmp_path: Path) -> None:
+    helper = load_helper()
+    noisy = tmp_path / "noisy"
+    noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\n")
+    noisy.chmod(0o755)
+    with pytest.raises(RuntimeError, match="output exceeded"):
+        helper.command([str(noisy)])
+
+
 def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> None:
     helper = load_helper()
     calls = []
@@ -204,6 +213,47 @@ def test_unavailable_source_has_no_continuation_state(tmp_path: Path) -> None:
     result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
     assert result["sources"][1]["availability"] == "missing_instance"
     assert result["source_state"] is None
+
+
+def test_sources_page_independently_until_all_complete(tmp_path: Path) -> None:
+    helper = load_helper()
+    calls = []
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "opencode-personal", "status": "Running"},
+                {"name": "opencode-mgm", "status": "Running"},
+            ])
+        source = "host" if argv[0] == "dbsctrctl" else argv[2].removeprefix("opencode-")
+        cursor = int(argv[argv.index("--cursor") + 1])
+        continuations = {"host": {0: None}, "personal": {0: 5, 5: None}, "mgm": {0: 5, 5: 10, 10: None}}
+        return json.dumps({**history_page(), "cursor": cursor, "continuation": continuations[source][cursor]})
+
+    first = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    second = helper.federated_review(config(tmp_path), 5, 0, first["source_state"], execute=execute)
+    third = helper.federated_review(config(tmp_path), 5, 0, second["source_state"], execute=execute)
+    assert [source["availability"] for source in second["sources"]] == ["complete", "available", "available"]
+    assert [source["availability"] for source in third["sources"]] == ["complete", "complete", "available"]
+    assert third["source_state"] is None
+    assert sum(call[0] == "dbsctrctl" for call in calls) == 1
+
+
+def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
+    helper = load_helper()
+    instance = tmp_path / "opencode-personal"
+    instance.mkdir()
+    (instance / "disk").write_bytes(b"allocated")
+
+    def execute(_argv, **_kwargs):
+        return json.dumps([{"name": "opencode-personal", "status": "Running"}])
+
+    result = helper.status_report(config(tmp_path), execute=execute, lima_root=tmp_path)
+    assert result["host_free_bytes"] > 0
+    assert result["clients"]["personal"]["running"] is True
+    assert result["clients"]["personal"]["allocated_bytes"] > 0
+    assert result["clients"]["mgm"]["allocated_bytes"] is None
 
 
 def test_general_controller_exposes_no_handoff_command() -> None:

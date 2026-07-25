@@ -324,7 +324,8 @@ export async function vmHandoff(report: {
 }, cwd = process.cwd()) {
   const serialized = JSON.stringify(report)
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
-  if (unsafe.test(serialized)) throw new Error("unsafe VM handoff")
+  const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))[^\0]+$/
+  if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
   const instance = await runBounded(["opencode-vm", "instance", "personal"], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid personal VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)

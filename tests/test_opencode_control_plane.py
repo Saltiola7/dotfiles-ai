@@ -890,6 +890,18 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     log = calls.read_text()
     assert "<herdr>" in log
     assert "<--interactive>" in log
+    before = calls.read_text()
+    unsafe = {**payload, "paths": ["/etc/passwd"]}
+    unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),ask:async ()=>{{}}}};
+await vm_handoff.execute({json.dumps(unsafe)},context);'''
+    rejected = subprocess.run(
+        ["bun", "-e", unsafe_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
+        text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0
+    assert calls.read_text() == before
 
 
 def test_federated_runtime_rejects_duplicate_sources(tmp_path):
