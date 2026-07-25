@@ -29,9 +29,9 @@ keychain_service = "op-service-account-token"
 
 [dotfiles_ai.sandbox]
 enabled = false
-personal_instance = "opencode-personal"
+personal_instance = "personal-sandbox"
 personal_root = ""
-mgm_instance = "opencode-mgm"
+mgm_instance = "mgm-sandbox"
 mgm_root = ""
 mgm_protected_repo = ""
 cpus = 4

@@ -1,6 +1,6 @@
 minimumLimaVersion: "2.1.4"
 base:
-  - template:fedora-44
+  - template:_images/fedora-44
 vmType: "vz"
 mountType: "virtiofs"
 arch: "aarch64"
@@ -73,7 +73,7 @@ provision:
       rm -f "$tmp"
       cat >/usr/local/bin/opencode <<'EOF'
       #!/bin/sh
-      test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
+      test -e /etc/opencode-sandbox/ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
       case "${1:-}" in
         acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
           exec /usr/local/libexec/opencode-real "$@" ;;
@@ -91,7 +91,7 @@ provision:
         echo "sandbox user retains noninteractive sudo" >&2
         exit 1
       fi
-      touch /run/opencode-sandbox-ready
+      touch /etc/opencode-sandbox/ready
   - mode: user
     script: |
       set -eu
@@ -128,9 +128,9 @@ provision:
       keychain_service = "op-service-account-token"
       [data.dotfiles_ai.sandbox]
       enabled = false
-      personal_instance = "opencode-personal"
+      personal_instance = "personal-sandbox"
       personal_root = ""
-      mgm_instance = "opencode-mgm"
+      mgm_instance = "mgm-sandbox"
       mgm_root = ""
       mgm_protected_repo = ""
       cpus = 4

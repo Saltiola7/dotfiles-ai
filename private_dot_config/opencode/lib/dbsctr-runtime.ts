@@ -382,7 +382,7 @@ export async function reviewFederated(args: {
     reviewed_status: requested.reviewedStatus ?? null,
     state: requested.state ?? null,
   }
-  const argv = ["opencode-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
+  const argv = ["sandbox-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
   if (sourceState !== undefined) argv.push("--source-state-json", JSON.stringify(sourceState))
   const names: Record<string, string> = { methodRevision: "method-revision", cycleId: "cycle-id",
     projectDigest: "project-digest", reviewedStatus: "reviewed-status", archiveOnly: "archive-only" }
@@ -445,7 +445,7 @@ export async function vmHandoff(report: {
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
   const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
   if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
-  const instance = await runBounded(["opencode-vm", "instance", "personal"], cwd, 2_000, 1024)
+  const instance = await runBounded(["sandbox-vm", "instance", "personal"], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid personal VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")

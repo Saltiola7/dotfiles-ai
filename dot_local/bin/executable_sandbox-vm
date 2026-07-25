@@ -442,7 +442,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
 def main(argv=None):
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "herdr", "update", "instance"):
+    for name in ("create", "update", "instance"):
         sub = commands.add_parser(name)
         sub.add_argument("client", choices=CLIENTS)
     review = commands.add_parser("review")
@@ -479,8 +479,6 @@ def main(argv=None):
         command(["limactl", "create", "--name", client["instance"], client["template"]], timeout=900)
         command(["limactl", "start", client["instance"]], timeout=900)
         return
-    if args.command == "herdr":
-        os.execvp("limactl", ["limactl", "shell", "--start", client["instance"], "--", "herdr"])
     if args.command == "update":
         home = command(["limactl", "shell", "--start", client["instance"], "--", "printenv", "HOME"], timeout=120)
         if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):

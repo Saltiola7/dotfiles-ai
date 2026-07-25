@@ -24,9 +24,9 @@ def data(onepassword: bool = False) -> dict:
             },
             "sandbox": {
                 "enabled": True,
-                "personal_instance": "opencode-personal",
+                "personal_instance": "personal-sandbox",
                 "personal_root": "/workspace/personal",
-                "mgm_instance": "opencode-mgm",
+                "mgm_instance": "mgm-sandbox",
                 "mgm_root": "/workspace/mgm",
                 "mgm_protected_repo": "/workspace/reference/seo-code-analysis",
                 "cpus": 4,

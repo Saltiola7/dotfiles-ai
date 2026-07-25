@@ -7,6 +7,8 @@
   approval-gated personal-VM handoff that starts a separate lifecycle cycle.
 - Source deployment, live three-source federation, and VM handoff evidence remain
   active under DAI-007.
+- The federated adapter now invokes the generic `sandbox-vm` lifecycle surface;
+  client-specific guest tool wrappers were removed before delivery.
 
 ## 2026-07-23 - V3.27 Abandoned-Worker Retirement
 

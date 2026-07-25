@@ -6,6 +6,8 @@
   Both boundaries enforce exact sanitized schemas; continuation state binds the
   query, manifests are independently verified, and handoff success requires a
   valid Herdr pane identity.
+- Renamed the fixed host helper to `sandbox-vm`; guest Herdr and OpenCode retain
+  native names because client identity belongs to the Lima sandbox boundary.
 
 ## 2026-07-23 - OCP-25 Improvement Retirement Permission
 

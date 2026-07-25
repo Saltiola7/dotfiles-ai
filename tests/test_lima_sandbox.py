@@ -7,7 +7,7 @@ import pytest
 
 
 ROOT = Path(__file__).parents[1]
-SCRIPT = ROOT / "dot_local/bin/executable_opencode-vm"
+SCRIPT = ROOT / "dot_local/bin/executable_sandbox-vm"
 
 
 def load_helper():
@@ -24,12 +24,12 @@ def config(tmp_path: Path) -> dict:
         "source": "https://github.com/Saltiola7/dotfiles-ai.git",
         "clients": {
             "personal": {
-                "instance": "opencode-personal",
+                "instance": "personal-sandbox",
                 "root": str(tmp_path / "github"),
                 "protected_repo": "",
             },
             "mgm": {
-                "instance": "opencode-mgm",
+                "instance": "mgm-sandbox",
                 "root": str(tmp_path / "MGM/git"),
                 "protected_repo": str(tmp_path / "MGM/reference/seo-code-analysis"),
             },
@@ -98,7 +98,8 @@ def history_candidate(helper) -> dict:
 def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     for client in ("personal", "mgm"):
         template = (ROOT / f"private_dot_config/dotfiles-ai/lima/{client}.yaml.tmpl").read_text()
-        assert "template:fedora-44" in template
+        assert "template:_images/fedora-44" in template
+        assert "template:fedora-44" not in template
         assert 'vmType: "vz"' in template
         assert 'arch: "aarch64"' in template
         assert 'disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"' in template
@@ -108,6 +109,8 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert "32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9" in template
         assert "sudo -n true" in template
         assert "sandbox user retains noninteractive sudo" in template
+        assert "/etc/opencode-sandbox/ready" in template
+        assert "/run/opencode-sandbox-ready" not in template
     assert "configparser.ConfigParser" in (ROOT / "private_dot_config/dotfiles-ai/lima/mgm.yaml.tmpl").read_text()
 
 
@@ -130,7 +133,7 @@ def test_client_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> None:
 def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: Path) -> None:
     helper = load_helper()
     calls = []
-    running = {"opencode-personal": False, "opencode-mgm": True}
+    running = {"personal-sandbox": False, "mgm-sandbox": True}
 
     def execute(argv, **_kwargs):
         calls.append(argv)
@@ -156,10 +159,10 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     assert all(source["availability"] == "available" for source in result["sources"])
     assert len(result["manifest_digest"]) == 64
     assert result["source_state"] is None
-    assert running == {"opencode-personal": False, "opencode-mgm": True}
-    assert ["limactl", "start", "opencode-personal"] in calls
-    assert ["limactl", "stop", "opencode-personal"] in calls
-    assert ["limactl", "stop", "opencode-mgm"] not in calls
+    assert running == {"personal-sandbox": False, "mgm-sandbox": True}
+    assert ["limactl", "start", "personal-sandbox"] in calls
+    assert ["limactl", "stop", "personal-sandbox"] in calls
+    assert ["limactl", "stop", "mgm-sandbox"] not in calls
 
 
 def test_stop_failure_discards_source_continuation_state(tmp_path: Path) -> None:
@@ -168,10 +171,10 @@ def test_stop_failure_discards_source_continuation_state(tmp_path: Path) -> None
     def execute(argv, **_kwargs):
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Stopped"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Stopped"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
-        if argv[:3] == ["limactl", "stop", "opencode-personal"]:
+        if argv[:3] == ["limactl", "stop", "personal-sandbox"]:
             raise RuntimeError("stop failed")
         if argv[:2] == ["limactl", "start"]:
             return ""
@@ -188,8 +191,8 @@ def test_federation_rejects_unsafe_remote_output(tmp_path: Path) -> None:
     def execute(argv, **_kwargs):
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Running"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Running"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
         if argv[:2] == ["dbsctrctl", "review-history"]:
             return json.dumps(history_page())
@@ -260,8 +263,8 @@ def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> 
         calls.append(argv)
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Running"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Running"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
         return json.dumps({**history_page(), "continuation": 5})
 
@@ -282,8 +285,8 @@ def test_federation_binds_filters_to_continuation_and_manifest(tmp_path: Path) -
         calls.append(argv)
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Running"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Running"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
         page = history_page()
         page["query"] = filters
@@ -304,8 +307,8 @@ def test_federation_rejects_changed_continuation_identity(tmp_path: Path) -> Non
     def execute(argv, **_kwargs):
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Running"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Running"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
         cursor = int(argv[argv.index("--cursor") + 1])
         page = {**history_page(), "cursor": cursor, "continuation": 5 if cursor == 0 else None}
@@ -324,7 +327,7 @@ def test_unavailable_source_has_no_continuation_state(tmp_path: Path) -> None:
 
     def execute(argv, **_kwargs):
         if argv[:2] == ["limactl", "list"]:
-            return json.dumps([{"name": "opencode-mgm", "status": "Running"}])
+            return json.dumps([{"name": "mgm-sandbox", "status": "Running"}])
         return json.dumps(history_page())
 
     result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
@@ -340,10 +343,10 @@ def test_sources_page_independently_until_all_complete(tmp_path: Path) -> None:
         calls.append(argv)
         if argv[:2] == ["limactl", "list"]:
             return json.dumps([
-                {"name": "opencode-personal", "status": "Running"},
-                {"name": "opencode-mgm", "status": "Running"},
+                {"name": "personal-sandbox", "status": "Running"},
+                {"name": "mgm-sandbox", "status": "Running"},
             ])
-        source = "host" if argv[0] == "dbsctrctl" else argv[2].removeprefix("opencode-")
+        source = "host" if argv[0] == "dbsctrctl" else argv[2].removesuffix("-sandbox")
         cursor = int(argv[argv.index("--cursor") + 1])
         continuations = {"host": {0: None}, "personal": {0: 5, 5: None}, "mgm": {0: 5, 5: 10, 10: None}}
         return json.dumps({**history_page(), "cursor": cursor, "continuation": continuations[source][cursor]})
@@ -359,12 +362,12 @@ def test_sources_page_independently_until_all_complete(tmp_path: Path) -> None:
 
 def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
     helper = load_helper()
-    instance = tmp_path / "opencode-personal"
+    instance = tmp_path / "personal-sandbox"
     instance.mkdir()
     (instance / "disk").write_bytes(b"allocated")
 
     def execute(_argv, **_kwargs):
-        return json.dumps([{"name": "opencode-personal", "status": "Running"}])
+        return json.dumps([{"name": "personal-sandbox", "status": "Running"}])
 
     result = helper.status_report(config(tmp_path), execute=execute, lima_root=tmp_path)
     assert result["host_free_bytes"] > 0
@@ -394,6 +397,8 @@ def test_submodule_manifest_is_stable_and_relative(tmp_path: Path) -> None:
         helper.submodule_paths(repo)
 
 
-def test_shortcuts_attach_to_existing_vm_herdr() -> None:
-    assert "opencode-vm herdr personal" in (ROOT / "dot_local/bin/executable_herdr-personal").read_text()
-    assert "opencode-vm herdr mgm" in (ROOT / "dot_local/bin/executable_herdr-mgm").read_text()
+def test_shell_shortcuts_enter_client_sandboxes() -> None:
+    assert 'limactl shell personal-sandbox "$@"' in (ROOT / "dot_local/bin/executable_lmsh").read_text()
+    assert 'limactl shell mgm-sandbox "$@"' in (ROOT / "dot_local/bin/executable_mgmsh").read_text()
+    assert not (ROOT / "dot_local/bin/executable_herdr-personal").exists()
+    assert not (ROOT / "dot_local/bin/executable_herdr-mgm").exists()

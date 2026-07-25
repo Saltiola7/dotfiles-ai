@@ -1,0 +1,2 @@
+#!/bin/sh
+exec limactl shell personal-sandbox "$@"

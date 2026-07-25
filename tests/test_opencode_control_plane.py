@@ -379,9 +379,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-complete"' in runtime
     assert '"dbsctrctl", "review-history"' in runtime
     assert '"dbsctrctl", "review-history-save"' in runtime
-    assert '["opencode-vm", "review"' in runtime
+    assert '["sandbox-vm", "review"' in runtime
     assert 'sourceState?: {' in runtime
-    assert '["opencode-vm", "instance", "personal"]' in runtime
+    assert '["sandbox-vm", "instance", "personal"]' in runtime
     assert '"limactl", "shell", instance, "--", "herdr", "agent", "start"' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
@@ -859,8 +859,8 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     bin_dir.mkdir()
     calls = tmp_path / "calls"
     asks = tmp_path / "asks"
-    opencode_vm = bin_dir / "opencode-vm"
-    opencode_vm.write_text('#!/bin/sh\nprintf "opencode-personal\\n"\n')
+    opencode_vm = bin_dir / "sandbox-vm"
+    opencode_vm.write_text('#!/bin/sh\nprintf "personal-sandbox\\n"\n')
     limactl = bin_dir / "limactl"
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
@@ -875,7 +875,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
         "proceed": True,
         "risk": "elevated",
         "summary": "Implement the approved sandbox change",
-        "paths": ["dot_local/bin/executable_opencode-vm"],
+        "paths": ["dot_local/bin/executable_sandbox-vm"],
         "validation": ["pytest tests/test_lima_sandbox.py"],
     }
     script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
@@ -930,7 +930,7 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
         "source_state": None,
         "manifest_digest": "a" * 64,
     })
-    helper = bin_dir / "opencode-vm"
+    helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\ncat <<'EOF'\n{manifest}\nEOF\n")
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
@@ -957,7 +957,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     correct = hashlib.sha256(json.dumps({"filters": query, "sources": sources}, sort_keys=True,
                                         separators=(",", ":")).encode()).hexdigest()
     manifest = {"schema_version": 1, "sources": sources, "source_state": None, "manifest_digest": correct}
-    helper = bin_dir / "opencode-vm"
+    helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$FEDERATED_LOG\"\nprintf '%s\\n' '{json.dumps(manifest)}'\n")
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
@@ -1012,5 +1012,8 @@ def test_removed_managed_integrations_are_absent():
         ".hermes/skills/dbsctr-supervisor/SKILL.md",
         ".hermes/scripts/dbsctr-watchdog.py",
         ".local/bin/hermes-update",
+        ".local/bin/opencode-vm",
+        ".local/bin/herdr-personal",
+        ".local/bin/herdr-mgm",
         "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
     }

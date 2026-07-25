@@ -10,6 +10,16 @@ host source roots are mounted writable.
 The VM's `60GiB` disk is a sparse maximum. Host allocation grows with actual
 guest files and does not shrink automatically.
 
+## Names
+
+Following the [Lima workflow that inspired this setup](https://bogoyavlensky.com/blog/sandboxing-ai-coding-agents-with-lima/),
+VM names describe the sandbox rather than one installed agent. The article uses
+`sandbox`, `lmsh`, `lm`, and tool-specific launchers to make the VM invisible.
+Here, `mgm-sandbox` and `personal-sandbox`
+contain ordinary Linux tools, Herdr, and OpenCode. On the host, `mgmsh` and
+`lmsh` enter those sandboxes; inside either guest, use the ordinary `herdr` and
+`opencode` commands. `sandbox-vm` is the noninteractive lifecycle controller.
+
 ## Prepare Paths
 
 Keep repositories requiring different write policy outside the broad writable
@@ -30,15 +40,15 @@ chezmoi -S ~/.local/share/chezmoi-dotfiles-ai \
   -c ~/.config/dotfiles-ai/chezmoi.toml apply --dry-run --verbose
 chezmoi -S ~/.local/share/chezmoi-dotfiles-ai \
   -c ~/.config/dotfiles-ai/chezmoi.toml apply
-opencode-vm create mgm
-opencode-vm status
+sandbox-vm create mgm
+sandbox-vm status
 ```
 
 Create MGM first when host storage is constrained. Measure real allocation and
 retain adequate macOS free space before creating personal:
 
 ```sh
-opencode-vm create personal
+sandbox-vm create personal
 ```
 
 Creation fails closed unless every declared `seo-code-analysis` submodule path,
@@ -51,7 +61,7 @@ Enter each VM and authenticate separately. Do not mount or copy host credential
 stores.
 
 ```sh
-limactl shell opencode-mgm
+mgmsh
 opencode auth login
 gh auth login
 ```
@@ -66,15 +76,15 @@ auto-approved agent and usable over unrestricted network egress.
 Either enter explicitly or use the host shortcut:
 
 ```sh
-limactl shell opencode-mgm
+mgmsh
 herdr
 
-herdr-mgm
-herdr-personal
+lmsh
+herdr
 ```
 
-The shortcut starts the selected VM when necessary and attaches to its existing
-Herdr session. Detaching leaves processes running. A clean VM stop kills guest
+The shell command starts the selected VM when necessary. Herdr then attaches to
+its existing guest session. Detaching leaves processes running. A clean VM stop kills guest
 processes; on restart, Herdr restores its layout and eligible OpenCode session
 IDs. The VM launcher reapplies auto approval to restored interactive sessions.
 
@@ -98,9 +108,9 @@ Records and private ledgers are never shared.
 After an approved `dotfiles-ai` merge:
 
 ```sh
-opencode-vm update mgm
-opencode-vm update personal
-opencode-vm status
+sandbox-vm update mgm
+sandbox-vm update personal
+sandbox-vm status
 ```
 
 Update uses `git pull --ff-only` in each guest-owned source and reapplies managed
@@ -119,8 +129,8 @@ Git work before deletion. Deletion is explicit and irreversible for guest-local
 databases and credentials:
 
 ```sh
-limactl stop opencode-mgm
-limactl delete opencode-mgm
+limactl stop mgm-sandbox
+limactl delete mgm-sandbox
 ```
 
 Reapply the host source and recreate the VM from its rendered template. Remove

@@ -182,7 +182,7 @@ OpenCode control-plane behavior, and shell authentication.
 
 ### Client VM Sandboxes
 
-- Given the operator enters `opencode-personal` or `opencode-mgm`, when Lima
+- Given the operator enters `personal-sandbox` or `mgm-sandbox`, when Lima
   starts the client VM, then Fedora 44 runs natively through VZ with a sparse
   disk and exposes only that client's declared paths.
 - Given the personal VM, then only its machine-configured personal root is
@@ -228,13 +228,13 @@ OpenCode control-plane behavior, and shell authentication.
 - Shared defaults disable Lima management. Machine-local sandbox data declares
   instance names, host mount roots, protected repository and submodule manifest,
   resource ceilings, and repository-scoped identities without credentials.
-- Host commands `herdr-personal` and `herdr-mgm` start the selected VM and attach
-  to its Herdr session. `opencode-vm status|update|export|handoff` owns bounded
+- Host commands `lmsh` and `mgmsh` enter the selected VM; ordinary guest `herdr`
+  and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, verify
   source and deployed commits, apply Linux-compatible targets idempotently, and
   report that existing OpenCode processes retain their loaded config.
-- `opencode-vm review` accepts the bounded history filters plus limit, cursor,
+- `sandbox-vm review` accepts the bounded history filters plus limit, cursor,
   and typed continuation state. It returns schema version `1`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only
   `source_id`, `availability`, and either the existing sanitized history page or
@@ -244,13 +244,13 @@ OpenCode control-plane behavior, and shell authentication.
 - Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
   approved context, risk, affected repository-relative paths, validation, and
   explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr
-  argument vectors; the general `opencode-vm` CLI exposes no handoff command.
+  argument vectors; the general `sandbox-vm` CLI exposes no handoff command.
   Text fields use fixed size and unsafe-content bounds. It returns only the target
   source, Herdr presentation IDs, OpenCode session ID when available, and launch
   status.
-- `herdr-personal` and `herdr-mgm` are thin argument-safe wrappers around
-  `opencode-vm herdr CLIENT`; they never create a new Herdr session when the
-  existing VM session can be attached.
+- `lmsh` and `mgmsh` are thin argument-safe wrappers around `limactl shell`.
+  Client-specific Herdr and OpenCode wrappers do not exist; the VM boundary owns
+  client identity.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
   supplies source path, workspace label, daily hour/minute, watchdog interval,
   and non-secret GitHub account/repository.
