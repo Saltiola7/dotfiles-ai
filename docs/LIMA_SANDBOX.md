@@ -67,10 +67,12 @@ opencode auth login
 gh auth login
 ```
 
-Use repository-scoped credentials. MGM write credentials cover only approved
-writable repositories; the protected parent and submodule repositories receive
-read-only remote authority. Every credential supplied to a VM is readable by an
-auto-approved agent and usable over unrestricted network egress.
+Use repository-scoped credentials. The current MGM work credential is accepted
+risk `DAI-007-AR1`: it can write every repository authorized for that provider
+account and must be reviewed by 2026-08-18 or before rotation, then replaced with
+a repository-scoped credential when available. Protected local parent and
+submodule paths remain read-only. Every credential supplied to a VM is readable
+by an auto-approved agent and usable over unrestricted network egress.
 
 ## Daily Use
 
