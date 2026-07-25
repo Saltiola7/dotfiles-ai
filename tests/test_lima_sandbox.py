@@ -65,6 +65,36 @@ def history_page() -> dict:
     }
 
 
+def history_candidate(helper) -> dict:
+    return {
+        "schema_version": 1,
+        "session_id": "session-1",
+        "snapshot": 10,
+        "session_ceiling": 9,
+        "part_ceiling": 8,
+        "database_digest": "a" * 64,
+        "project_digest": "d" * 64,
+        "context": "dotfiles_ai_distribution",
+        "completed_at": "2026-07-24T10:00:00Z",
+        "reviewed_status": "unreviewed",
+        "correlation_quality": "exact",
+        "cycles": [{"cycle_id": "DAI-007", "state": "active"}],
+        "aggregates": {key: 0 for key in helper.AGGREGATE_KEYS},
+        "telemetry": {
+            "approval_count": 0,
+            "attribution_status": "exact",
+            "availability": {key: "available" for key in helper.AVAILABILITY_KEYS},
+            "cost_total": 0,
+            "delegation_count": 0,
+            "error_classes": {},
+            "model_families": ["gpt"],
+            "retry_count": 0,
+            "token_total": 0,
+        },
+        "method_revision": "3.27",
+    }
+
+
 def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     for client in ("personal", "mgm"):
         template = (ROOT / f"private_dot_config/dotfiles-ai/lima/{client}.yaml.tmpl").read_text()
@@ -150,6 +180,37 @@ def test_federation_rejects_unsafe_remote_output(tmp_path: Path) -> None:
         "source_id": "personal",
         "availability": "invalid_output",
     }
+
+
+def test_federation_rejects_malformed_scalar_values() -> None:
+    helper = load_helper()
+    candidate = history_candidate(helper)
+    assert helper._valid_candidate(candidate)
+    for key, value in (
+        ("context", "/etc/passwd"),
+        ("context", "person@example.com"),
+        ("context", "password=private"),
+        ("database_digest", "not-a-digest"),
+        ("session_id", "bad/session"),
+    ):
+        malformed = json.loads(json.dumps(candidate))
+        malformed[key] = value
+        assert not helper._valid_candidate(malformed)
+
+    for path, value in (
+        (("query", "context"), "/etc/passwd"),
+        (("query", "context"), "person@example.com"),
+        (("query", "context"), "secret=value"),
+        (("database_digest",), "bad"),
+        (("session_ids",), ["bad/session"]),
+    ):
+        page = history_page()
+        target = page
+        for part in path[:-1]:
+            target = target[part]
+        target[path[-1]] = value
+        with pytest.raises(ValueError):
+            helper._source_page("host", json.dumps(page), 5, 0)
 
 
 def test_command_stops_oversized_output(tmp_path: Path) -> None:

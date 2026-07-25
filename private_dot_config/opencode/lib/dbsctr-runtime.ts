@@ -257,7 +257,7 @@ export async function reviewHistory(args: {
   return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
 }
 
-function validFederatedPage(page: any, limit: number) {
+function validFederatedPage(page: any, limit: number, cursor: number) {
   const pageKeys = ["schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
     "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"]
   const candidateKeys = ["schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling",
@@ -272,16 +272,61 @@ function validFederatedPage(page: any, limit: number) {
     "retry_count", "token_total"]
   const queryKeys = ["after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest",
     "reviewed_status", "state"]
+  const digest = /^[0-9a-f]{64}$/
+  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  const unsafe = /(?:https?:\/\/|file:\/\/|"\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  const nonnegative = (value: any) => typeof value === "number" && value >= 0
+  const unavailable = (value: any) => value === "unavailable" || nonnegative(value)
   return exactKeys(page, pageKeys) && page.schema_version === 1 && page.limit === limit
+    && !unsafe.test(JSON.stringify(page)) && nonnegative(page.snapshot) && nonnegative(page.session_ceiling)
+    && nonnegative(page.part_ceiling) && page.cursor === cursor
+    && (page.continuation === null || Number.isInteger(page.continuation) && page.continuation > cursor)
+    && digest.test(page.database_digest)
+    && digest.test(page.digest) && (page.exclusion_digest === null || digest.test(page.exclusion_digest))
+    && Array.isArray(page.session_ids) && page.session_ids.every((value: any) => typeof value === "string" && id.test(value))
     && Array.isArray(page.candidates) && page.candidates.length <= limit && exactKeys(page.query, queryKeys)
+    && typeof page.query.archive_only === "boolean"
+    && [page.query.after, page.query.before].every((value: any) => value === null || Number.isInteger(value) && value >= 0)
+    && [page.query.context, page.query.cycle_id].every((value: any) => value === null || typeof value === "string" && id.test(value))
+    && (page.query.method_revision === null || typeof page.query.method_revision === "string" && /^\d+(?:\.\d+)*$/.test(page.query.method_revision))
+    && (page.query.project_digest === null || typeof page.query.project_digest === "string" && digest.test(page.query.project_digest))
+    && [null, "reviewed", "unreviewed"].includes(page.query.reviewed_status)
+    && [null, "active", "blocked", "abandoned", "completed", "unknown"].includes(page.query.state)
     && page.candidates.every((candidate: any) => exactKeys(candidate, candidateKeys)
       && exactKeys(candidate.aggregates, aggregateKeys) && exactKeys(candidate.telemetry, telemetryKeys)
       && exactKeys(candidate.telemetry.availability, availabilityKeys) && Array.isArray(candidate.cycles)
+      && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegative(candidate.snapshot)
+      && nonnegative(candidate.session_ceiling) && nonnegative(candidate.part_ceiling)
+      && digest.test(candidate.database_digest) && digest.test(candidate.project_digest) && id.test(candidate.context)
+      && (candidate.completed_at === null || typeof candidate.completed_at === "string" && /^\d{4}-\d{2}-\d{2}T\S{1,40}Z$/.test(candidate.completed_at))
+      && ["reviewed", "unreviewed"].includes(candidate.reviewed_status)
+      && ["exact", "family", "worktree", "source", "ambiguous", "unavailable"].includes(candidate.correlation_quality)
+      && typeof candidate.method_revision === "string" && /^\d+(?:\.\d+)*$/.test(candidate.method_revision)
+      && Object.values(candidate.aggregates).every(value => unavailable(value))
+      && [candidate.telemetry.approval_count, candidate.telemetry.retry_count, candidate.telemetry.delegation_count,
+        candidate.telemetry.token_total, candidate.telemetry.cost_total].every(value => unavailable(value))
+      && (candidate.telemetry.model_families === "unavailable" || Array.isArray(candidate.telemetry.model_families)
+        && candidate.telemetry.model_families.every((value: any) => typeof value === "string" && id.test(value)))
+      && (candidate.telemetry.error_classes === "unavailable"
+        || candidate.telemetry.error_classes !== null && typeof candidate.telemetry.error_classes === "object"
+        && !Array.isArray(candidate.telemetry.error_classes)
+        && Object.entries(candidate.telemetry.error_classes).every(([key, value]) => id.test(key) && nonnegative(value)))
+      && ["exact", "family", "worktree", "source", "ambiguous", "unavailable"].includes(candidate.telemetry.attribution_status)
+      && Object.values(candidate.telemetry.availability).every(value => ["available", "unavailable"].includes(value as string))
       && candidate.cycles.every((cycle: any) => {
+        if (!id.test(cycle?.cycle_id) || !["active", "blocked", "abandoned", "completed", "unknown"].includes(cycle?.state)) return false
         if (exactKeys(cycle, ["cycle_id", "state"])) return true
         return exactKeys(cycle, ["cycle_id", "state", "phase_profile"])
           && (cycle.phase_profile === null || exactKeys(cycle.phase_profile, ["schema_version", "cycle_id", "status",
-            "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"]))
+            "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"])
+            && cycle.phase_profile.schema_version === 1 && cycle.phase_profile.cycle_id === cycle.cycle_id
+            && ["complete", "unavailable"].includes(cycle.phase_profile.status)
+            && [cycle.phase_profile.critical_path_ms, cycle.phase_profile.total_wall_ms, cycle.phase_profile.overlap_ms].every(unavailable)
+            && nonnegative(cycle.phase_profile.repeated_work) && Array.isArray(cycle.phase_profile.principal_waits)
+            && cycle.phase_profile.principal_waits.every((wait: any) => exactKeys(wait, ["span_id", "wait_ms"])
+              && id.test(wait.span_id) && nonnegative(wait.wait_ms))
+            && Array.isArray(cycle.phase_profile.attribution_caveats)
+            && cycle.phase_profile.attribution_caveats.every((value: any) => typeof value === "string" && id.test(value)))
       }))
 }
 
@@ -297,16 +342,26 @@ export async function reviewFederated(limit = 25, cursor = 0, sourceState?: {
   const argv = ["opencode-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
   if (sourceState !== undefined) argv.push("--source-state-json", JSON.stringify(sourceState))
   const value = await analyticsJSON(argv, cwd)
+  const validState = (state: any) => exactKeys(state, ["source_id", "snapshot", "session_ceiling", "part_ceiling",
+    "database_digest", "exclusion_digest", "continuation"])
+    && ["host", "personal", "mgm"].includes(state.source_id)
+    && [state.snapshot, state.session_ceiling, state.part_ceiling].every((item: any) => Number.isInteger(item) && item >= 0)
+    && /^[0-9a-f]{64}$/.test(state.database_digest)
+    && (state.exclusion_digest === null || /^[0-9a-f]{64}$/.test(state.exclusion_digest))
+    && (state.continuation === null || Number.isInteger(state.continuation) && state.continuation >= 0)
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
       || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
       || !Array.isArray(value.sources) || value.sources.length !== 3
       || new Set(value.sources.map((source: any) => source?.source_id)).size !== 3
-      || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== 3)
+      || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== 3
+        || new Set(value.source_state.map((state: any) => state?.source_id)).size !== 3
+        || value.source_state.some((state: any) => !validState(state)))
       || value.sources.some((source: any) => source === null || typeof source !== "object"
         || !["host", "personal", "mgm"].includes(source.source_id)
         || !["available", "complete", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
         || !exactKeys(source, source.availability === "available" ? ["source_id", "availability", "page"] : ["source_id", "availability"])
-        || source.availability === "available" && !validFederatedPage(source.page, limit))) {
+        || source.availability === "available" && !validFederatedPage(source.page, limit,
+          sourceState?.find(state => state.source_id === source.source_id)?.continuation ?? cursor))) {
     throw new Error("sandbox helper returned an invalid federation manifest")
   }
   return JSON.stringify(value)
@@ -342,6 +397,7 @@ export async function vmHandoff(report: {
   }
   const agent = value?.result?.agent ?? value?.result ?? value
   const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  if (typeof agent?.pane_id !== "string" || !id.test(agent.pane_id)) throw new Error("VM Herdr returned no launch identity")
   const result: Record<string, string | number> = { schema_version: 1, target: "personal", status: "launched" }
   for (const key of ["pane_id", "tab_id", "workspace_id"])
     if (typeof agent?.[key] === "string" && id.test(agent[key])) result[key] = agent[key]

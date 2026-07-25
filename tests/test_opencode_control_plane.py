@@ -890,6 +890,17 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     log = calls.read_text()
     assert "<herdr>" in log
     assert "<--interactive>" in log
+    limactl.write_text(
+        '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
+        'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; *) printf \'{"error":"launch failed"}\\n\';; esac\n'
+    )
+    missing_identity = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        text=True, capture_output=True,
+    )
+    assert missing_identity.returncode != 0
+    assert "no launch identity" in missing_identity.stderr
     before = calls.read_text()
     for path in ("/etc/passwd", "a//b", "a/", "a\\b", "a\nb"):
         unsafe = {**payload, "paths": [path]}
