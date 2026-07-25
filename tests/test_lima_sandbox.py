@@ -162,6 +162,26 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     assert ["limactl", "stop", "opencode-mgm"] not in calls
 
 
+def test_stop_failure_discards_source_continuation_state(tmp_path: Path) -> None:
+    helper = load_helper()
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "opencode-personal", "status": "Stopped"},
+                {"name": "opencode-mgm", "status": "Running"},
+            ])
+        if argv[:3] == ["limactl", "stop", "opencode-personal"]:
+            raise RuntimeError("stop failed")
+        if argv[:2] == ["limactl", "start"]:
+            return ""
+        return json.dumps({**history_page(), "continuation": 5})
+
+    result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    assert result["sources"][1] == {"source_id": "personal", "availability": "state_restore_failed"}
+    assert result["source_state"] is None
+
+
 def test_federation_rejects_unsafe_remote_output(tmp_path: Path) -> None:
     helper = load_helper()
 
