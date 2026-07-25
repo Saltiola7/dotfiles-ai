@@ -107,8 +107,8 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
         assert "eba87efba3976d533a24cca0316f8ef375b5f8e797c0a95c25ee919700b7ba35" in template
         assert "herdr-linux-aarch64" in template
         assert "32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9" in template
-        assert "sudo -n true" in template
-        assert "sandbox user retains noninteractive sudo" in template
+        assert "chmod 0750 /usr/bin/sudo" in template
+        assert "sandbox user can execute sudo" in template
         assert "opencode-sandbox-ready.service" in template
         assert "After=lima-guestagent.service" in template
         assert "rm -f /run/opencode-sandbox-ready" in template

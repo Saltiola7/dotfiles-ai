@@ -193,6 +193,8 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a protected submodule manifest is stale, a read-only overlay is absent,
   or unrestricted passwordless sudo is available, then sandbox startup fails
   closed before an auto-approved agent runs.
+- The dedicated guest agent account cannot execute `/usr/bin/sudo`; root-owned
+  provisioning remains the only privileged mutation path.
 - Given the operator detaches, then VM Herdr keeps panes running. Given a clean
   VM stop and restart, then VM Herdr restores layout and resumes the exact
   OpenCode session with auto-approval still effective.
