@@ -1,2 +1,3 @@
 #!/bin/sh
+export TERM="${LIMA_TERM:-xterm-256color}"
 exec limactl shell mgm-sandbox "$@"

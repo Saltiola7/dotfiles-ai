@@ -18,7 +18,8 @@ VM names describe the sandbox rather than one installed agent. The article uses
 Here, `mgm-sandbox` and `personal-sandbox`
 contain ordinary Linux tools, Herdr, and OpenCode. On the host, `mgmsh` and
 `lmsh` enter those sandboxes; inside either guest, use the ordinary `herdr` and
-`opencode` commands. `sandbox-vm` is the noninteractive lifecycle controller.
+`opencode` commands. The shell entries default to portable `xterm-256color`;
+set `LIMA_TERM` to override it. `sandbox-vm` is the noninteractive lifecycle controller.
 
 ## Prepare Paths
 

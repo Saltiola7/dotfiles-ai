@@ -419,7 +419,9 @@ def test_submodule_manifest_is_stable_and_relative(tmp_path: Path) -> None:
 
 
 def test_shell_shortcuts_enter_client_sandboxes() -> None:
-    assert 'limactl shell personal-sandbox "$@"' in (ROOT / "dot_local/bin/executable_lmsh").read_text()
-    assert 'limactl shell mgm-sandbox "$@"' in (ROOT / "dot_local/bin/executable_mgmsh").read_text()
+    for name, instance in (("lmsh", "personal-sandbox"), ("mgmsh", "mgm-sandbox")):
+        body = (ROOT / f"dot_local/bin/executable_{name}").read_text()
+        assert 'export TERM="${LIMA_TERM:-xterm-256color}"' in body
+        assert f'limactl shell {instance} "$@"' in body
     assert not (ROOT / "dot_local/bin/executable_herdr-personal").exists()
     assert not (ROOT / "dot_local/bin/executable_herdr-mgm").exists()

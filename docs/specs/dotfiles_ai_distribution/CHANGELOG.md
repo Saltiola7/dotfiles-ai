@@ -31,6 +31,9 @@
   reports it idle with `--auto`; after a cold restart Herdr restored the exact
   workspace, tab, and pane. Session-ID resume remains pending authenticated use
   because the smoke session never acquired an eligible OpenCode session ID.
+- `lmsh` and `mgmsh` now default guest shells to portable `xterm-256color`
+  instead of inheriting unavailable host-specific terminfo such as
+  `xterm-kitty`; `LIMA_TERM` remains an explicit override.
 
 ## 2026-07-22 - DAI-006 Recovery Health
 
