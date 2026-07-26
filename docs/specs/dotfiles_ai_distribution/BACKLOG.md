@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-012D | Specify provider-native evaluation persistence and operation | 2026-07-26 | `d65d2ad` |
 | DAI-011 | Restore operational federated autonomous review | 2026-07-26 | `f933afa..6fd56a5` |
 | DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..5c5d9a5` |
 | DAI-009 | Add safe machine-local shell aliases for dynamic workspaces | 2026-07-25 | `e967b7a`, `a4798b8` |

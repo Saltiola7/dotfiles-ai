@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-26 - Provider-Native Harness Discovery
+
+- Defined exact provider entry, Opus 5 high, provider-local review behavior,
+  separately versioned exact telemetry, loaded-runtime activation identity, and
+  strict no-cross-provider routing contracts.
+- Reconciled against deployed DAI-011 commit `c24f7e5`; 215 affected tests passed,
+  one skipped, and iterative independent review found no material issues. No
+  implementation or deployment occurred. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - DAI-011 Operational Federation
 
 - Federated review schema version `2` binds source captures and configured source

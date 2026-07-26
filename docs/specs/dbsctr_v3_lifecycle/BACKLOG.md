@@ -13,6 +13,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |
 | V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | 2026-07-25 | `ae72606` |
 | V3.27-1 | Add atomic explicit abandoned-worker retirement and reconcile stale lifecycle state | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | V3.26-1 | Add worktree inventory, guarded batch cleanup, crash recovery, and primary-cache DVC reflinks | 2026-07-22 | `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54` |

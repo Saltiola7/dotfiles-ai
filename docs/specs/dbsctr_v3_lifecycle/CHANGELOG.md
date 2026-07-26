@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-26 - Provider-Native Lifecycle Discovery
+
+- Defined a thin provider-neutral core, conditional GPT-5.6 and Opus 5 overlays,
+  integration-evidence semantics, exact cycle qualification, and immutable
+  report-only groups of five completed cycles.
+- Assigned lifecycle, control-plane, and distribution ownership; preserved every
+  DAI-011 capture/continuation boundary. Validation: 215 passed, one skipped;
+  independent review found no material issues. Intended Final Push: `origin/main`.
+
 ## 2026-07-24 - V3.28 Federated Review Handoff
 
 - Added bounded source-local history export, source-namespaced host federation,

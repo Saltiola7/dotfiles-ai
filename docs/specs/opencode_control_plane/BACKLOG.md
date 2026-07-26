@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-27D | Specify provider-native harness contracts | 2026-07-26 | `d65d2ad` |
 | OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | 2026-07-25 | `ae72606` |
 | OCP-25 | Ask before every shell form of explicit improvement retirement | 2026-07-23 | `ec9cbc4`, `732ae79` |
 | OCP-24 | Preserve exact reference root and subtree rules | 2026-07-19 | `4b52a21` |

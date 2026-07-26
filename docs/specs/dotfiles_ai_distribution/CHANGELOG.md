@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - Provider-Native Evaluation Discovery
+
+- Defined weekly helper-derived five-cycle evaluation, terminal capture receipts,
+  dedicated atomic report persistence, loaded activation identity, deterministic
+  membership, and privacy-epoch quarantine/forget behavior.
+- Kept DAI-011 schema-v2 federation, one-scan continuations, concurrency, source
+  deadlines, transient retention, and weekly cadence unchanged. Implementation
+  and deployment remain pending. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - DAI-011 Federated R&D Reliability
 
 - Replaced repeated live history scans with one private immutable capture per
