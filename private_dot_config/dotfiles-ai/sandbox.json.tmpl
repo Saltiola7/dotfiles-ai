@@ -1,19 +1,20 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
-  "source": "https://github.com/Saltiola7/dotfiles-ai.git",
-  "clients": {
-    "personal": {
-      "instance": {{ .dotfiles_ai.sandbox.personal_instance | toJson }},
-      "root": {{ .dotfiles_ai.sandbox.personal_root | toJson }},
-      "protected_repo": "",
-      "template": {{ printf "%s/.config/dotfiles-ai/lima/personal.yaml" .chezmoi.homeDir | toJson }}
-    },
-    "mgm": {
-      "instance": {{ .dotfiles_ai.sandbox.mgm_instance | toJson }},
-      "root": {{ .dotfiles_ai.sandbox.mgm_root | toJson }},
-      "protected_repo": {{ .dotfiles_ai.sandbox.mgm_protected_repo | toJson }},
-      "template": {{ printf "%s/.config/dotfiles-ai/lima/mgm.yaml" .chezmoi.homeDir | toJson }}
-    }
-  }
+  "source": {{ .dotfiles_ai.distribution.repository | toJson }},
+  "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
+  "build_workspace": {{ .dotfiles_ai.sandbox.build_workspace | toJson }},
+  "resources": {
+    "cpus": {{ .dotfiles_ai.sandbox.cpus }},
+    "memory_gib": {{ .dotfiles_ai.sandbox.memory_gib }},
+    "disk_gib": {{ .dotfiles_ai.sandbox.disk_gib }}
+  },
+  "guest": {
+    "bedrock_region": {{ .dotfiles_ai.opencode.bedrock_region | toJson }},
+    "bedrock_profile": {{ .dotfiles_ai.opencode.bedrock_profile | toJson }},
+    "default_model": {{ .dotfiles_ai.opencode.default_model | toJson }},
+    "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
+    "theme": {{ .dotfiles_ai.herdr.theme | toJson }}
+  },
+  "workspaces": {{ .dotfiles_ai.sandbox.workspaces | toJson }}
 }

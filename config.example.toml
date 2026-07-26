@@ -9,11 +9,10 @@ bedrock_profile = ""
 default_model = "openai/gpt-5.6-sol"
 small_model = "openai/gpt-5.6-terra"
 lmstudio_base_url = "http://127.0.0.1:1234/v1"
-# Optional local repository exposed to OpenCode as the seo-data-science reference.
-seo_data_science_path = "/Users/you/path/to/seo-data-science"
 
 [data.dotfiles_ai.herdr]
 theme = "catppuccin"
+agent_panel_sort = "priority"
 launchagent = true
 executable = "/opt/homebrew/bin/herdr"
 
@@ -40,11 +39,35 @@ keychain_service = "op-service-account-token"
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 enabled = false
-personal_instance = "personal-sandbox"
-personal_root = "/Users/you/github"
-mgm_instance = "mgm-sandbox"
-mgm_root = "/Users/you/MGM/git"
-mgm_protected_repo = "/Users/you/MGM/reference/seo-code-analysis"
+build_workspace = "workspace1"
 cpus = 4
 memory_gib = 8
 disk_gib = 60
+
+[[data.dotfiles_ai.sandbox.workspaces]]
+name = "workspace1"
+instance = "workspace1-sandbox"
+federate = true
+
+[[data.dotfiles_ai.sandbox.workspaces.mounts]]
+host = "/Users/you/projects"
+guest = "/workspace/projects"
+writable = true
+protect_git_submodules = false
+reference_name = ""
+reference_description = ""
+reference_subpath = ""
+
+[[data.dotfiles_ai.sandbox.workspaces]]
+name = "workspace2"
+instance = "workspace2-sandbox"
+federate = true
+
+[[data.dotfiles_ai.sandbox.workspaces.mounts]]
+host = "/Users/you/reference"
+guest = "/workspace/reference"
+writable = true
+protect_git_submodules = true
+reference_name = "project-reference"
+reference_description = "Optional architecture and implementation reference."
+reference_subpath = ""
