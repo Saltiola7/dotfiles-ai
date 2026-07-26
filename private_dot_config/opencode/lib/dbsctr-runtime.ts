@@ -12,6 +12,13 @@ const harnessActivation = {
 const evaluationPages = new Map<string, { source_id: string, capture_id: string, pages: Map<number, any> }>()
 const evaluationReceipts = new Map<string, any>()
 
+function discardEvaluationReceipt(manifestDigest: string) {
+  const receipt = evaluationReceipts.get(manifestDigest)
+  if (receipt !== undefined) for (const source of receipt.sources)
+    evaluationPages.delete(`${source.source_id}\0${source.capture_id}`)
+  evaluationReceipts.delete(manifestDigest)
+}
+
 function localizeCandidate(value: any, source: string): any {
   if (Array.isArray(value)) return value.map(item => localizeCandidate(item, source))
   if (value === null || typeof value !== "object") return value
@@ -582,6 +589,8 @@ export async function reviewFederated(args: {
       schema_version: 1, manifest_digest: value.manifest_digest,
       manifest_identity: federatedManifestIdentity(query, value.sources), sources: receiptSources,
     })
+    while (evaluationReceipts.size > 8)
+      discardEvaluationReceipt(evaluationReceipts.keys().next().value as string)
   }
   return JSON.stringify(value)
 }
@@ -819,19 +828,35 @@ export async function providerEvaluationSave(args: {
   findings: string[]
   recommendations: string[]
 }, cwd = process.cwd()) {
-  const receipt = evaluationReceipts.get(args.manifestDigest)
-  if (receipt === undefined) throw new Error("terminal federated capture receipt is unavailable")
-  const report = JSON.stringify({ rubric: args.rubric, findings: args.findings,
-    recommendations: args.recommendations })
-  const output = await runBoundedInput([
-    "dbsctrctl", "provider-evaluation-save", "--receipt-json", "-", "--report-json", report,
-  ], JSON.stringify(receipt), cwd)
-  const value = JSON.parse(output)
-  if (value?.schema_version !== 1 || value?.status === "insufficient"
-      && (!Number.isInteger(value.eligible_count) || value.eligible_count < 0)
-      || value?.status !== "insufficient" && !/^[0-9a-f]{24}$/.test(value?.report_id ?? ""))
-    throw new Error("helper returned invalid provider evaluation")
-  return JSON.stringify(value)
+  const captured = evaluationReceipts.get(args.manifestDigest)
+  if (captured === undefined) throw new Error("terminal federated capture receipt is unavailable")
+  try {
+    const privacy = await analyticsJSON(["sandbox-vm", "privacy-epochs"], cwd, null)
+    const sourceIDs = captured.sources.map((source: any) => source.source_id)
+    if (!exactKeys(privacy, ["schema_version", "sources"]) || privacy.schema_version !== 1
+        || !Array.isArray(privacy.sources)
+        || canonicalJSON(privacy.sources.map((source: any) => source?.source_id)) !== canonicalJSON(sourceIDs)
+        || privacy.sources.some((source: any) => !exactKeys(source,
+          source?.availability === "available" ? ["source_id", "availability", "privacy_epoch_digest"] : ["source_id", "availability"])
+          || source.availability !== "available" || !/^[0-9a-f]{64}$/.test(source.privacy_epoch_digest)))
+      throw new Error("sandbox helper returned invalid privacy epochs")
+    if (captured.sources.some((source: any) => privacy.sources.find(
+      (item: any) => item.source_id === source.source_id).privacy_epoch_digest !== source.privacy_epoch_digest))
+      throw new Error("terminal federated capture privacy epoch changed")
+    const report = JSON.stringify({ rubric: args.rubric, findings: args.findings,
+      recommendations: args.recommendations })
+    const output = await runBoundedInput([
+      "dbsctrctl", "provider-evaluation-save", "--receipt-json", "-", "--report-json", report,
+    ], JSON.stringify(captured), cwd)
+    const value = JSON.parse(output)
+    if (value?.schema_version !== 1 || value?.status === "insufficient"
+        && (!Number.isInteger(value.eligible_count) || value.eligible_count < 0)
+        || value?.status !== "insufficient" && !/^[0-9a-f]{24}$/.test(value?.report_id ?? ""))
+      throw new Error("helper returned invalid provider evaluation")
+    return JSON.stringify(value)
+  } finally {
+    discardEvaluationReceipt(args.manifestDigest)
+  }
 }
 
 export async function providerEvaluation(reportID?: string, cwd = process.cwd()) {

@@ -817,7 +817,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   a concurrent duplicate returns the existing report and never advances to a
   second cohort in that invocation.
 - Each report stores every source `privacy_epoch_digest`, derived only from
-  durable forget/tombstone state. A later changed privacy digest
+  durable forget/tombstone state. The adapter requires capture-completion and
+  pre-save epochs to agree. A later changed privacy digest
   conservatively removes every host report containing that source, its no-reuse
   membership rows, and affected backups before new evaluation. Explicit report
   forget provides immediate host-side deletion; ordinary propagation occurs at
@@ -875,7 +876,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Domain | Core, overlay, identity, cohort, and report language | required | passed | Provider-native evolution specification | - | Primary |
 | Behavior | Conditional guidance, evidence, fallback, and report-only scenarios | required | passed | Given/When/Then scenarios and focused tests | - | Primary |
 | Spec | Interfaces, data flow, staged ownership, and backlog | required | passed | README and BACKLOG | - | Primary |
-| Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | passed | 218 affected tests, one skipped | - | Primary |
+| Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | passed | 219 affected tests, one skipped | - | Primary |
 | Test-driven implementation | Red/green prompt, identity, privacy, and cohort evidence | required | passed | Affected configured authorities | - | Primary |
 | Refactor | Thin core and remove duplicated or routine guidance | required | passed | Prompt diff, compilation, and Bun build | - | Primary |
 | Review/Integrate | Preserve DAI-011 and verify traceability/integration evidence | required | pending | Integrated `c24f7e5` diff and scoped QA | - | Primary |

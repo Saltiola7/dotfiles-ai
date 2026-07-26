@@ -540,7 +540,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Domain | Provider-affine harness and evaluation language | required | passed | This bounded-context specification | - | Primary |
 | Behavior | Exact routing, provider-native review, isolation, and unavailable-model behavior | required | passed | Given/When/Then scenarios and focused tests | - | Primary |
 | Spec | Commands, models, prompts, telemetry, cohorts, and staged ownership | required | passed | README and BACKLOG | - | Primary |
-| Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | passed | 218 affected tests, one skipped | - | Primary |
+| Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | passed | 219 affected tests, one skipped | - | Primary |
 | Test-driven implementation | Red/green provider, prompt, telemetry, and privacy evidence | required | passed | Helper, sandbox, lifecycle, runner, and control-plane tests | - | Primary |
 | Refactor | Thin shared core and conditional provider overlays | required | passed | Diff, compilation, and externalized Bun build | - | Primary |
 | Review/Integrate | Preserve DAI-011 and verify evidence without routine re-review prompts | required | pending | Integrated `c24f7e5` diff and affected QA | - | Primary |

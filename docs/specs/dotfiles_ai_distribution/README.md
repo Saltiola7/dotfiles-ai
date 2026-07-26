@@ -454,8 +454,9 @@ OpenCode control-plane behavior, and shell authentication.
   live OpenCode databases or source captures. Backup, restore, semantic integrity,
   and explicit forget include the new report tables transactionally.
 - `dbsctrctl review-privacy-epoch` returns one digest derived only from durable
-  local forget/tombstone state. The terminal receipt obtains it once per source
-  without rescanning the OpenCode database. Capture `exclusion_digest` remains
+  local forget/tombstone state. The terminal receipt records it at capture
+  completion and revalidates it before save without rescanning the OpenCode
+  database. Capture `exclusion_digest` remains
   worker-specific self-exclusion identity and never controls report deletion.
 - Reports store each source privacy epoch digest. Changed-digest maintenance removes
   every report containing that source and purges affected backups; no-reuse rows

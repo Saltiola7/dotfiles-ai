@@ -403,7 +403,7 @@ def history_digest(value, name="digest"):
 def model_family(value):
     name = value.rsplit("/", 1)[-1].lower()
     for family in ("gpt", "claude", "gemini", "llama", "mistral", "qwen"):
-        if name == family or name.startswith(family + "-"):
+        if re.search(rf"(?:^|[._-]){family}(?:[._-]|$)", name):
             return family
     return "unavailable"
 
@@ -1591,6 +1591,50 @@ def stage_pre_forget_state(root, name=None):
         raise
 
 
+def stage_provider_evaluation_backups(root, report_ids, name):
+    reviews = root / "reviews"
+    quarantine = reviews / name
+    quarantine.mkdir(mode=0o700)
+    backups = reviews / "backups"
+    moved = []
+    try:
+        if backups.is_symlink():
+            fail("private review backup directory is unsafe")
+        if backups.is_dir():
+            private_path(backups, stat.S_IFDIR, 0o700, "backup directory")
+            destination_root = quarantine / "provider-backups"
+            for source in sorted(backups.glob("*.sqlite3")):
+                private_path(source, stat.S_IFREG, 0o600, "review backup")
+                affected = True
+                try:
+                    with ledger_connection(root, path=source) as connection:
+                        if connection.execute(
+                                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                                "AND name='provider_evaluation_reports'").fetchone() is None:
+                            affected = False
+                        else:
+                            affected = any(connection.execute(
+                                "SELECT 1 FROM provider_evaluation_reports WHERE report_id=?", (report_id,)
+                            ).fetchone() is not None for report_id in report_ids)
+                except (RuntimeError, sqlite3.Error):
+                    pass
+                if affected:
+                    destination_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    os.chmod(destination_root, 0o700)
+                    destination = destination_root / source.name
+                    os.replace(source, destination)
+                    moved.append((source, destination))
+            if moved:
+                fsync_directory(backups)
+                fsync_directory(destination_root)
+        fsync_directory(quarantine)
+        fsync_directory(reviews)
+        return quarantine, moved
+    except Exception:
+        restore_staged_forget(quarantine, moved)
+        raise
+
+
 def restore_staged_forget(quarantine, moved):
     modified = {quarantine.parent}
     for source, destination in reversed(moved):
@@ -1627,6 +1671,13 @@ def restore_forget_quarantine(quarantine):
         if source.exists() or source.is_symlink():
             fail("cannot recover staged private review backups")
         moved.append((source, staged_backups))
+    staged_provider_backups = quarantine / "provider-backups"
+    if staged_provider_backups.is_dir():
+        for destination in sorted(staged_provider_backups.glob("*.sqlite3")):
+            source = reviews / "backups" / destination.name
+            if source.exists() or source.is_symlink():
+                fail("cannot recover staged private review backups")
+            moved.append((source, destination))
     restore_staged_forget(quarantine, moved)
 
 
@@ -4655,27 +4706,27 @@ def command_provider_evaluation_save(args):
             ensure_provider_evaluation_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             current_ms = int(time.time() * 1000)
-            privacy_changed = False
+            affected_report_ids = set()
             for source in receipt["sources"]:
                 previous = connection.execute(
                     "SELECT privacy_epoch_digest FROM provider_evaluation_sources WHERE source_id=?",
                     (source["source_id"],)).fetchone()
                 if previous is not None and previous[0] != source["privacy_epoch_digest"]:
-                    privacy_changed = True
                     report_ids = [row[0] for row in connection.execute(
                         "SELECT DISTINCT report_id FROM provider_evaluation_members WHERE source_id=?",
                         (source["source_id"],))]
+                    affected_report_ids.update(report_ids)
                     connection.executemany("DELETE FROM provider_evaluation_reports WHERE report_id=?",
                                            ((report_id,) for report_id in report_ids))
                 connection.execute("INSERT INTO provider_evaluation_sources VALUES (?, ?, 'available', ?) "
                                    "ON CONFLICT(source_id) DO UPDATE SET privacy_epoch_digest=excluded.privacy_epoch_digest, "
                                    "availability='available', verified_at=excluded.verified_at",
                                    (source["source_id"], source["privacy_epoch_digest"], current_ms))
-            if privacy_changed:
+            if affected_report_ids:
                 quarantine_name = f".forget-{uuid.uuid4().hex}"
                 connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                    (quarantine_name,))
-                staged = stage_pre_forget_state(root, quarantine_name)
+                staged = stage_provider_evaluation_backups(root, affected_report_ids, quarantine_name)
             rubric_key = hashlib.sha256(ledger_payload(prose["rubric"]).encode()).hexdigest()
             existing = connection.execute(
                 "SELECT reports.payload FROM provider_evaluation_reports AS reports "
@@ -4820,7 +4871,7 @@ def command_provider_evaluation_forget(args):
             quarantine_name = f".forget-{uuid.uuid4().hex}"
             connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                (quarantine_name,))
-            staged = stage_pre_forget_state(root, quarantine_name)
+            staged = stage_provider_evaluation_backups(root, {args.report_id}, quarantine_name)
             connection.commit()
             committed = True
             recover_forget_state(root, connection)
