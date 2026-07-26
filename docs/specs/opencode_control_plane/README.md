@@ -2,6 +2,7 @@
 
 **Status:** OCP-17 through OCP-26 deployed
 **Discovery2 confidence:** 99%
+**Provider-native harness discovery:** Ready at 97%; implementation blocked on DAI-011 reconciliation
 
 ## Engineering Profile
 
@@ -44,12 +45,25 @@
 | Scope | VM config rendering, always-auto restored sessions, VM Herdr integration, local history export, and configured-workspace handoff |
 | Overrides | OS controls and repository-scoped credentials remain authoritative; no per-subagent remote executor is claimed |
 
+### Provider-Native Harness Initiative Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes global model selection, agent prompts, provider routing, and private evaluation identity |
+| Delivery intent | Prepare contracts on integrated DAI-011 commit `c24f7e5`; later merge and deploy managed OpenCode configuration after review |
+| Scope | Exact provider entry commands, Opus 5 high, provider-native prompts, strict provider affinity, exact telemetry identity, and report-only five-cycle evaluation |
+| Overrides | OpenAI and Bedrock billing routes never mix automatically; no account, role, email, or client label enters telemetry; unavailable Opus inference becomes an operational follow-up rather than fallback |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
 skills, and Graphify routing. It keeps OpenAI and Amazon Bedrock workflows
 provider-affine while removing unused Claude Code, Meridian, Headroom, and OMO
 surfaces.
+
+For this initiative, `dbsctr_v3_lifecycle` owns shared lifecycle and evaluation
+semantics, while `dotfiles_ai_distribution` owns federated capture transport,
+weekly scheduling, private report persistence, and operational deployment.
 
 ## Goals
 
@@ -61,6 +75,10 @@ surfaces.
 - Install only OpenCode-compatible skills, once.
 - Preserve Graphify CLI, skill, graph, hooks, and health-gated query-first routing.
 - Remove Claude Code, Meridian, Headroom, OMO, and their runtime state completely.
+- Bind provider-specific DBSCTR entry commands to both the intended primary and
+  exact model instead of relying on model selection to change the active agent.
+- Optimize each primary for its provider's current prompting guidance without
+  weakening executable validation or provider isolation.
 
 ## Non-goals
 
@@ -68,6 +86,8 @@ surfaces.
 - No Graphify package changes.
 - No removal of Bedrock Claude or raw LM Studio.
 - No changes to V1 `dbsctr` or `discovery`.
+- No Bedrock reviewer, cross-provider fallback, human-review workflow, automatic
+  prompt tuning, or provider-account telemetry.
 
 ## Ubiquitous Language
 
@@ -78,6 +98,10 @@ surfaces.
 | Local Build Command | In-worktree command without external, destructive, deploy, publish, or Git-write effects. |
 | Runtime Residue | Unmanaged config, package, service, authentication, cache, or backup from a removed integration. |
 | Graph Health Gate | Freshness and relevance check before trusting a Graphify query. |
+| Provider Entry Command | Command that atomically selects a provider-affine primary and its exact model. |
+| Provider Overlay | Conditional prompt guidance loaded only for the selected provider family. |
+| Integration Evidence | Tests, contracts, diff coherence, and downstream checks; not a generic request for the model to review itself again. |
+| Evaluation Cohort | Five comparable completed cycles evaluated under one versioned rubric without automatic remediation authority. |
 
 ## Behavior
 
@@ -111,6 +135,84 @@ state, deploy, publish, or perform external writes.
 Given an OpenAI primary, it delegates only to OpenAI optimized agents. Given
 `build-claude`, it delegates only to Bedrock optimized agents. No fallback
 crosses providers silently.
+
+### Exact provider entry
+
+Given the user invokes `/dbsctr-gpt`, when OpenCode starts the workflow, then it
+selects `build-gpt` with `openai/gpt-5.6-sol`. Given the user invokes
+`/dbsctr-claude`, then it selects `build-claude` with
+`amazon-bedrock/global.anthropic.claude-opus-5` at high reasoning effort. The
+existing provider-neutral `/dbsctr` command continues to inherit the selected
+primary.
+
+### Provider-native review behavior
+
+Given GPT work is routine or elevated, when the primary validates it, then it
+uses executable evidence without a routine reviewer. Given GPT work is explicit
+review work or critical, `reviewer-openai` remains available with a bounded
+read-only brief. Given Claude Opus 5 work at any risk, the prompt relies on the
+model's native self-correction plus executable evidence and does not instruct a
+reviewer subagent or enforce human review.
+
+### No cross-client fallback
+
+Given a provider model, credential, or optimized subagent is unavailable, when a
+workflow cannot use its selected route, then it reports unavailability and never
+switches between OpenAI and Bedrock automatically. Opus 5 configuration may be
+delivered before live account access is available; the missing live inference is
+tracked as a bounded operational follow-up and does not restore Opus 4.8.
+
+### Exact private evaluation identity
+
+Given sanitized lifecycle telemetry is available, when provider-native effects
+are evaluated, then it records allowlisted provider, model, agent,
+`session_relation`, core revision, provider-overlay revision, gate outcomes,
+remediation, tools, elapsed time, tokens, and cost. It never records an AWS
+account, account/user role, email, client label, prompt, transcript content,
+credential, URL, or path.
+
+Exact telemetry is a separately versioned nested envelope, not federation schema
+version `2`. Telemetry schema `2` adds bounded provider/model/agent ID sets,
+`session_relation` (`primary` or `child`), core and overlay revisions, per-field
+availability, and existing aggregate metrics. Legacy telemetry remains readable
+with every unavailable field explicit. The helper, VM exporter, and typed adapter
+validate the same exact schema before federation transports it unchanged.
+
+For new cycles, the loaded OpenCode runtime supplies one immutable harness
+activation identity containing exact primary agent/model/provider and the
+core/overlay revisions it loaded. Validated begin or attach records that identity;
+an on-disk digest observed after process start is not runtime evidence. Every
+attached root session must agree. Missing, conflicting, unmanaged, or historical
+identity without authoritative retained evidence remains `unavailable`; timestamp
+or deployment-history guesses are forbidden.
+
+Given five comparable completed cycles are available, when the R&D worker runs,
+then it produces a report-only evaluation and labels simultaneous model and
+prompt changes as confounded. Any prompt, model, agent, or routing change starts
+a separately approved DBSCTR cycle.
+
+The evaluator extends DAI-011's deployed federation contract rather than creating
+another scan path: each source is captured once, pages replay by immutable
+`capture_id`, source capture remains concurrent and manifest-ordered, and
+an eligible evaluation atomically persists its own sanitized five-member cohort
+and report before unreferenced transient captures expire. Evaluation runs at the
+next eligible weekly worker execution without changing or halting its cadence.
+
+The typed adapter privately records a transient terminal capture receipt keyed by
+the existing manifest digest. It contains ordered source/capture/query/exclusion
+identity, a distinct source-local `privacy_epoch_digest`, and page/member digests,
+completes missing pages from immutable captures, and supports single-page passes
+where continuation `source_state` is `null`. Federation manifest schema `2` and
+its pagination response remain unchanged. Capture `exclusion_digest` continues to
+bind worker self-exclusion and is never interpreted as privacy-forget state.
+
+One report member is one completed DBSCTR cycle, represented as structured
+`source_id` plus `cycle_id`, never a colon-joined host identifier. Eligibility
+requires one exact root-session cycle correlation, one primary provider/model/
+agent/core/overlay identity, same-provider children, and complete required
+metrics. The first five unused eligible cycles for one exact harness identity are
+ordered by completion time then cycle ID. Risk, context, and delivery distributions
+are report confounders rather than nondeterministic selection rules.
 
 ### ChatGPT OAuth model exposure
 
@@ -335,7 +437,21 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   are absent while ChatGPT OAuth excludes Pro reasoning mode.
 - Native Plan and `build-gpt` resolve to `openai/gpt-5.6-sol` with `medium` as
   their default effort; OpenAI optimized subagents remain on Terra.
-- Commands contain no fixed `agent` field.
+- `build-claude` resolves to `amazon-bedrock/global.anthropic.claude-opus-5`
+  with high reasoning effort; Bedrock optimized subagents remain on Sonnet 5
+  medium. Opus 4.8 is retired rather than retained as fallback.
+- `/dbsctr-gpt` and `/dbsctr-claude` bind exact primary and model identities;
+  `/dbsctr` remains provider-neutral.
+- `reviewer-openai` is available only to `build-gpt` for explicit or critical
+  review. `build-claude` has no reviewer permission and no human-review mandate.
+- A failed optimized subagent may retry once on its active same-provider flagship;
+  no failure, quota, credential, or model-access condition changes provider family.
+- Provider telemetry uses exact allowlisted runtime identity without provider
+  account or billing-client metadata.
+- Provider-neutral commands contain no fixed `agent` field. `/dbsctr-gpt` fixes
+  `agent: build-gpt` and `model: openai/gpt-5.6-sol`; `/dbsctr-claude` fixes
+  `agent: build-claude` and
+  `model: amazon-bedrock/global.anthropic.claude-opus-5`.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.
 - `dbsctr_review` is read-only and allowed; `dbsctr_review_complete` asks before
   writing private operational state and remains denied to Builder subagents.
@@ -379,6 +495,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Package/service inventory | Removed runtime | npm, pipx, launchctl, path checks | Required |
 | MCP runtime | Context7 connection, anonymous fallback, optional authenticated request, and role isolation | `opencode mcp list` plus fresh Scout/non-Scout probes | Required |
 | Typed begin | Prompt-free Build dispatch, helper-worktree access, and denied Plan dispatch | Focused tool/config tests plus fresh Build probe | Required |
+| Provider entry | Exact command, primary, model, effort, same-provider retry, unsupported-model failure, and provider-local task permissions | Focused config tests plus fresh GPT probe | Required after implementation |
+| Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
+| Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
+| Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 
 ## Risks
 
@@ -403,3 +523,28 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Context7 is externally operated and may be unavailable, rate-limited, stale,
   or incomplete; Scout reports degradation and falls back to authoritative
   sources without blocking unrelated work.
+- DAI-011 is integrated at `c24f7e5`. Provider-native telemetry must extend its
+  schema-v2 manifest, immutable source captures, no-rescan continuations,
+  four-worker source bound, per-exporter deadlines, and 24-hour unreferenced
+  capture retention without introducing another federation path.
+- Opus 4.8-to-5 migration and prompt changes are confounded in early cohorts;
+  reports must not attribute causality to either change alone.
+- AWS authentication can succeed while model-list permission is denied. Live
+  invocation availability remains separate evidence and never authorizes
+  cross-provider fallback.
+
+## Gate Ledger - Provider-Native Harness Initiative
+
+| Gate | Capability | Applicability | Candidate result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Provider-affine harness and evaluation language | required | pending | This bounded-context specification | - | Primary |
+| Behavior | Exact routing, provider-native review, isolation, and unavailable-model behavior | required | pending | Given/When/Then scenarios | - | Primary |
+| Spec | Commands, models, prompts, telemetry, cohorts, and staged ownership | required | pending | README and BACKLOG | - | Primary |
+| Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | pending | Focused contract tests | - | Primary |
+| Test-driven implementation | Red/green provider, prompt, telemetry, and privacy evidence | required | pending | Affected test authorities | - | Primary |
+| Refactor | Thin shared core and conditional provider overlays | required | pending | Diff and duplication review | - | Primary |
+| Review/Integrate | Preserve DAI-011 and verify evidence without routine re-review prompts | required | pending | Integrated `c24f7e5` diff and affected QA | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed OpenCode configuration | required | pending | Chezmoi and resolved-config evidence | - | Primary |
+| Operate | Verify routing, telemetry, and available live providers | required | pending | Fresh probes and bounded follow-up | - | Primary |
+| Maintain/Retire | Retire Opus 4.8 and review five-cycle reports | required | pending | Config absence and R&D report | - | Primary |

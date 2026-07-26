@@ -618,6 +618,272 @@ ledger.
 - Then it does not rewrite artifacts, alter gates, or block lifecycle completion automatically
 - And remediation still requires an explicit context-scoped DBSCTR cycle
 
+## Provider-Native Harness Evolution
+
+### Bounded And Adjacent Contexts
+
+`dbsctr_v3_lifecycle` owns the provider-neutral lifecycle core, conditional
+provider overlays, evidence semantics, and five-cycle qualification policy.
+`opencode_control_plane` owns concrete models, agents, commands, permissions,
+provider-local task routes, and telemetry adapters. `dotfiles_ai_distribution`
+owns weekly scheduling, federated capture transport, private report persistence,
+and operational deployment. DAI-011 establishes its federation reliability
+baseline at `c24f7e5`; provider-native implementation must preserve it.
+
+### Goals
+
+- Keep one thin provider-neutral lifecycle core for domain contracts, risk,
+  applicable gates, durable artifacts, executable evidence, approval boundaries,
+  Git lifecycle, and completion conditions.
+- Load current GPT-5.6 or Opus 5 guidance only for the selected provider route.
+- Remove repeated verification, blanket reviewer delegation, duplicated routing
+  prose, and routine diagnostic instrumentation that native models or OpenCode
+  already provide.
+- Preserve tests, security boundaries, data-loss handling, downstream checks,
+  and artifact durability as observable evidence rather than review theatrics.
+- Evaluate five comparable completed cycles with exact sanitized runtime identity
+  and report recommendations without changing the harness automatically.
+
+### Non-Goals
+
+- No new orchestration framework, Bedrock reviewer, human-review workflow,
+  cross-provider fallback, account telemetry, automatic prompt tuning, Worktrunk
+  integration, or CLI-framework migration.
+- No claim that Opus self-correction is independent review; independent review is
+  simply not a universal lifecycle requirement for this coding harness.
+- No implementation, deployment, model invocation, or telemetry migration in the
+  documentation-only discovery cycle.
+
+### Ubiquitous Language
+
+| Term | Definition |
+|---|---|
+| Provider-Neutral Core | Lifecycle outcomes and safety contracts that apply regardless of model provider. |
+| Provider Overlay | Conditional provider-specific execution guidance excluded from the other provider's context. |
+| Native Self-Correction | A model's built-in correction behavior without repeated review or verifier instructions. |
+| Integration Evidence | Observable tests, contracts, diff coherence, migration impact, and downstream results. |
+| Exact Harness Identity | Allowlisted provider, model, agent, role, core revision, and provider-overlay revision. |
+| Comparable Cycle | Completed cycle matching the versioned cohort rubric and carrying explicit availability/confounder metadata. |
+| Report-Only Evaluation | Analysis that can recommend but cannot change prompts, models, agents, routing, or lifecycle policy. |
+
+### Domain Model
+
+- **Provider Overlay:** owns current guidance for exactly one provider family.
+- **Exact Harness Identity:** identifies the provider, model, primary or child
+  agent, role, core revision, and overlay revision used by one session.
+- **Evaluation Cohort:** owns exactly five comparable completed cycles and their
+  immutable rubric identity.
+- **Evaluation Report:** owns evidence, availability, confounders, associations,
+  and recommendations without implementation authority.
+- **Operational Follow-up:** retains unavailable Opus live evidence until the
+  configured account can execute the model.
+
+Values are provider family, model ID, agent ID, role, revision digest, evidence
+availability, cohort identity, and confounder classification. Events are
+`ProviderRouteSelected`, `ProviderOverlayLoaded`, `HarnessIdentityObserved`,
+`OpusVerificationDeferred`, `EvaluationCohortCompleted`, and
+`HarnessChangeRecommended`.
+
+Sources are OpenCode configuration/session metadata, Cycle Records, gate and
+telemetry evidence, current provider documentation, and completed-cycle history.
+Sinks are managed prompts/configuration, private sanitized telemetry, immutable
+evaluation reports, active backlog work, and bounded operational follow-ups.
+
+### Behavior Scenarios
+
+**Scenario: Load only applicable provider guidance**
+- Given a provider-affine Build primary starts DBSCTR
+- When it loads lifecycle instructions
+- Then it receives the provider-neutral core and only its selected provider overlay
+- And no instruction or fallback introduces the other provider family
+
+**Scenario: Avoid redundant Opus verification**
+- Given Opus 5 performs work at any risk level
+- When the harness requests implementation and validation
+- Then the prompt relies on native self-correction and executable evidence
+- And it does not request generic double-checking, re-verification, a verifier subagent, or human review
+
+**Scenario: Preserve bounded OpenAI review**
+- Given `build-gpt` receives an explicit review request or critical work
+- When independent review is useful
+- Then it may invoke `reviewer-openai` with a bounded read-only evidence brief
+- And routine OpenAI work does not invoke the reviewer
+
+**Scenario: Distinguish integration from repeated review**
+- Given a primary receives delegated Builder output
+- When it integrates that output
+- Then it checks ownership, contract traceability, executable evidence, and diff coherence
+- And that integration duty does not become a generic second self-review pass
+
+**Scenario: Continue safely when Opus is unavailable**
+- Given the configured Bedrock route cannot invoke Opus 5
+- When provider-neutral and GPT-applicable validation passes
+- Then the migration remains planned or delivered without restoring Opus 4.8 or crossing to OpenAI
+- And live Opus verification remains an explicit bounded operational follow-up
+
+**Scenario: Evaluate comparable cycles without automatic tuning**
+- Given five comparable completed cycles have exact harness identity
+- When the adaptive R&D worker evaluates them
+- Then it reports outcomes, availability, population differences, and confounders
+- And any recommended harness change requires a separately approved DBSCTR cycle
+
+### Architecture And Data Flow
+
+1. A provider-neutral or exact provider entry command selects one primary.
+2. OpenCode enforces that primary's model and provider-local task allowlist.
+3. DBSCTR loads the shared core and only the matching provider overlay.
+4. The primary implements through provider-local tools and subagents, then
+   produces integration evidence through project authorities.
+5. Existing private telemetry extracts allowlisted exact harness identity and
+   lifecycle outcomes without retaining content or account identity.
+6. DAI-011's immutable per-source captures provide ordered pages without rescans;
+   the adaptive R&D worker groups five comparable completed cycles and emits an
+   immutable report-only evaluation at its next eligible weekly run.
+7. A recommendation has no effect until the user approves a new DBSCTR cycle.
+
+### Interfaces And Contracts
+
+- `dot_agents/skills/dbsctr/SKILL.md` contains the smallest provider-neutral core;
+  provider recommendations live in conditional `references/` documents.
+- `/dbsctr` remains provider-neutral. `/dbsctr-gpt` and `/dbsctr-claude` bind the
+  exact provider-affine primary and model through the OpenCode control plane.
+- Generic Review/Integrate requires integration evidence. It does not require an
+  independent reviewer, a human reviewer, or repeated self-review. A selected
+  provider overlay or explicit project policy may add a reviewer without changing
+  the core meaning of the gate.
+- OpenAI review is available only through `reviewer-openai` under `build-gpt` for
+  explicit or critical use. Opus 5 receives no reviewer route.
+- Provider failure, missing access, or optimized-agent failure never changes
+  provider family automatically.
+- One retry on the active same-provider flagship remains valid after an optimized
+  subagent failure; this is recovery within a billing route, not provider fallback.
+- Telemetry records exact allowlisted harness identity, gate outcomes and
+  reopenings, remediation rounds, tools/errors, delegation, elapsed time, tokens,
+  and cost only where authoritative. Historical identities may be backfilled only
+  from authoritative retained fields.
+- Nested telemetry schema `2` adds bounded provider/model/agent ID sets,
+  `session_relation` (`primary` or `child`), core and overlay revision sets,
+  per-field availability, and existing aggregate metrics. It is independent of
+  federation manifest schema `2`; helper, VM exporter, and typed-adapter exact-key
+  validators change together. Legacy telemetry normalizes missing fields to
+  explicit `unavailable` without inference.
+- New cycles record a harness activation identity supplied by the loaded runtime,
+  containing exact primary provider/model/agent and loaded core/overlay revisions.
+  Begin or attach rejects disagreement among attached root sessions. On-disk
+  state, timestamps, model-family inference, and deployment-history guesses are
+  not activation evidence; unavailable historical identity remains unavailable.
+- Telemetry never retains provider account, account/user role, email, client
+  label, prompt, transcript content, command argument, credential, URL, or path.
+- Five-cycle reports are immutable, versioned, association-only, and report-only.
+  Opus 4.8-to-5 plus prompt changes are explicitly confounded.
+- Exact identity extends the existing history telemetry envelope and DAI-011
+  source captures. It does not alter schema-v2 source order, capture-bound
+  continuation, source-local deadlines, four-worker concurrency, or 24-hour
+  pruning of unreferenced transient captures.
+- When five comparable cycles qualify, the worker atomically persists a sanitized
+  five-member cohort and immutable report derived from captured pages. Replay
+  uses that report rather than a live database or expired source capture; the
+  worker does not rescan or resave namespaced VM cohorts into host history.
+- One member is one completed DBSCTR cycle represented by structured `source_id`
+  and `cycle_id`. Eligibility requires an exact root-session cycle correlation,
+  exactly one primary provider/model/agent/core/overlay identity, same-provider
+  children, and available required metrics. The first five unused eligible cycles
+  for one exact harness identity are ordered by completion time then cycle ID.
+- Report identity hashes rubric version, exact harness identity, and the ordered
+  structured member list. A cycle appears in at most one report for that rubric
+  and identity. Context, risk, delivery, and child-agent distributions are retained
+  as confounders; mixed or unavailable identity is ineligible and reported.
+- Rubric version `1` requires exact harness identity, exact root-cycle correlation,
+  completion time, elapsed time, gate failure count, gate reopening count, and
+  remediation-round count. Tool calls/errors, delegation, provider errors,
+  approvals, retries, tokens, and cost are optional with explicit availability;
+  missing optional metrics never silently become zero.
+- `dotfiles_ai_distribution` persists the dedicated report and member projections
+  atomically in its private ledger. It does not reuse host-only `history_reports`,
+  accept colon-joined federated IDs, or require source captures for replay.
+- The save boundary accepts only rubric identity plus bounded findings and
+  recommendations plus the final manifest digest from the worker. It resolves a
+  private terminal capture receipt and replays every referenced immutable source
+  capture to terminal coverage, verifies ordered page/member/manifest digests,
+  derives eligibility, members, confounders, and aggregates itself, then commits.
+  Caller-supplied members, metrics, ordering, or aggregates are rejected.
+- The adapter creates the transient receipt from the first schema-v2 manifest and
+  completes it from immutable captures as pages are served or at save time. The
+  receipt is distinct from continuation `source_state`, so terminal and
+  single-page passes remain saveable when `source_state` is `null`; schema-v2
+  federation responses do not change.
+- Report identity excludes findings and recommendations and derives only from the
+  rubric, harness identity, and canonical cohort. Under the private writer lock,
+  a concurrent duplicate returns the existing report and never advances to a
+  second cohort in that invocation.
+- Each report stores every source `privacy_epoch_digest`, derived only from
+  durable forget/tombstone state. A later changed privacy digest
+  conservatively removes every host report containing that source, its no-reuse
+  membership rows, and affected backups before new evaluation. Explicit report
+  forget provides immediate host-side deletion; ordinary propagation occurs at
+  the next available federated maintenance pass.
+- Report replay consults private source-verification state. A source that is
+  unavailable or has not revalidated its privacy epoch within eight days
+  quarantines every report containing that source. Replay fails closed until the
+  same digest is revalidated or a changed digest transactionally deletes the
+  report, membership/no-reuse rows, and affected backups.
+- Capture `exclusion_digest` remains worker-specific self-exclusion identity and
+  is never used as a privacy epoch or report-deletion signal.
+- Five-cycle evaluation uses the deployed weekly adaptive worker and never changes
+  cadence, halts the watchdog, or creates a second scheduler.
+- Explicit phase spans and execution DAGs are diagnostic optimization tools, not
+  mandatory evidence for ordinary cycles. Existing helper safety contracts remain
+  authoritative when either tool is used.
+- README, BACKLOG, and CHANGELOG remain universally reviewed; they change only
+  when durable truth, executable work, or completed evidence changes.
+
+### Decisions And Risks
+
+- **Authority:** Anthropic's Opus 5 prompting guide states that Opus verifies and
+  corrects its work without prompting and warns against routine final verification,
+  repeated double-checking, or subagents used only to verify the primary:
+  <https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5>.
+- **Authority:** OpenAI's latest-model guide recommends stating each instruction
+  once, measuring required evidence and outcomes, and reserving more expensive
+  reasoning or multi-agent workflows for work that benefits materially:
+  <https://developers.openai.com/api/docs/guides/latest-model>.
+- **Decision:** Keep custom `build-gpt` and `build-claude` primaries because
+  OpenCode model selection does not change agent permissions or billing route.
+- **Decision:** Use Opus 5 high and Sonnet 5 medium; retire Opus 4.8 without fallback.
+- **Decision:** Keep `reviewer-openai` for explicit/critical OpenAI work only and
+  add no Bedrock or human reviewer requirement.
+- **Decision:** Add telemetry before prompt/model activation where sequencing
+  permits, then evaluate fixed groups of five comparable cycles.
+- **Decision:** Keep telemetry schema, federation schema, and immutable evaluation
+  report schema separately versioned so one can evolve without invalidating the others.
+- **Fact:** DAI-011 is deployed and pushed through `c24f7e5`; federation reads
+  host and both VMs concurrently, captures each source once, and replays
+  continuation pages without rescanning.
+- **Risk:** Provider-native telemetry touches the same helper and adapters; an
+  implementation that bypasses existing captures could regress DAI-011 reliability.
+- **Risk:** AWS authentication does not prove model invocation access; unavailable
+  Opus evidence must remain explicit.
+- **Risk:** Simultaneous Opus version and prompt changes prevent causal attribution.
+- **Non-goal:** The separate guest-to-host pull-request outcome bridge remains
+  future scope.
+- **Unresolved decisions:** None that materially change implementation.
+
+### Gate Ledger - Provider-Native Harness Initiative
+
+| Gate | Capability | Applicability | Candidate result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Core, overlay, identity, cohort, and report language | required | pending | Provider-native evolution specification | - | Primary |
+| Behavior | Conditional guidance, evidence, fallback, and report-only scenarios | required | pending | Given/When/Then scenarios | - | Primary |
+| Spec | Interfaces, data flow, staged ownership, and backlog | required | pending | README and BACKLOG | - | Primary |
+| Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | pending | Focused lifecycle contracts | - | Primary |
+| Test-driven implementation | Red/green prompt, identity, privacy, and cohort evidence | required | pending | Affected configured authorities | - | Primary |
+| Refactor | Thin core and remove duplicated or routine guidance | required | pending | Prompt diff and affected tests | - | Primary |
+| Review/Integrate | Preserve DAI-011 and verify traceability/integration evidence | required | pending | Integrated `c24f7e5` diff and scoped QA | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed lifecycle and OpenCode configuration | required | pending | Targeted chezmoi evidence | - | Primary |
+| Operate | Verify available providers, telemetry, and evaluation scheduling | required | pending | Fresh probes and follow-up record | - | Primary |
+| Maintain/Retire | Retire Opus 4.8 and evaluate five-cycle reports | required | pending | Config absence and immutable report | - | Primary |
+
 ## Engineering Profile
 
 ### Defaults
@@ -631,6 +897,15 @@ ledger.
 | Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.27`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
+
+### Provider-Native Harness Initiative Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes global lifecycle prompts, provider routing, exact private telemetry, and evaluation inputs |
+| Delivery intent | Prepare contracts on integrated DAI-011 commit `c24f7e5`; later merge and deploy in serialized cycles after review |
+| Scope | Exact identity telemetry, conditional GPT-5.6 and Opus 5 guidance, thin core, provider entry commands, and report-only five-cycle evaluation |
+| Overrides | No cross-provider fallback, provider-account metadata, Bedrock/human reviewer, automatic tuning, or live Opus prerequisite for initial implementation |
 
 ### Approved V3.1 Evolution
 
@@ -1344,6 +1619,8 @@ tool and provider examples and load only when useful.
 | `docs/specs/<context>/PRODUCT.md` | Conditional durable Product Intent | Product-facing users, outcomes, journeys, constraints, and obligations |
 | `dot_agents/skills/qa/SKILL.md` | Scoped/full QA plus optional capability coverage | Capability-aware QA |
 | `private_dot_config/opencode/commands/{discovery,dbsctr,qa}.md` | Stable public command surfaces | Public commands |
+| `private_dot_config/opencode/commands/{dbsctr-gpt,dbsctr-claude}.md` | Exact provider-affine lifecycle entry | Atomically bind primary and model |
+| `dot_agents/skills/dbsctr/references/{openai,anthropic}.md` | Conditional current provider guidance | Provider-native execution without core duplication |
 | `dot_agents/skills/dbsctr-review/SKILL.md` | Private lifecycle observability review protocol | V3.11 review scenarios |
 | `private_dot_config/opencode/commands/dbsctr-review.md` | Stable review command surface | V3.11 review scenarios |
 | `private_dot_config/opencode/tools/dbsctr.ts` | Typed scan and completion adapters | Bounded read and permissioned private-state write |
@@ -1398,8 +1675,9 @@ tool and provider examples and load only when useful.
   authentication/authorization failure, material financial impact, or safety
   harm.
 - **Invariant:** Risk may be raised by new evidence but never lowered silently.
-- **Invariant:** Critical work requires explicit rollback/recovery evidence and
-  independent review where a reviewer is available.
+- **Invariant:** Critical work requires explicit rollback/recovery and executable
+  evidence. Independent review applies only when selected provider guidance or
+  explicit Project Policy requires it; the core does not invent a human reviewer.
 
 ### Gate Ledger Contract
 
@@ -1442,8 +1720,9 @@ tool and provider examples and load only when useful.
   context plus focused regression evidence covers them.
 - Elevated work records explicit behavior, contracts, compatibility/recovery,
   and structured gate evidence where applicable.
-- Critical work additionally requires independent review when available and
-  explicit threat, recovery, staged-delivery, and operational acceptance evidence.
+- Critical work additionally requires explicit threat, recovery, staged-delivery,
+  and operational acceptance evidence. Provider overlays or Project Policy may
+  add bounded independent review without making it universal.
 
 ### Development Kernel Contract
 
@@ -2113,6 +2392,9 @@ module routing without changing Cycle Record schema or public commands.
 | Chezmoi rendering | `chezmoi apply --dry-run --verbose` | Managed targets | Available | Must be idempotent after apply |
 | Runtime deployment | Targeted `chezmoi apply` and deployed-path inspection | V3 skills, commands, routing, removals | Available; external publication not involved | Targets match source |
 | OpenCode loading | `opencode debug config` and command/skill smoke scenarios | Resolved config and workflow behavior | Available; restart required | No V1/V2 runtime routes |
+| Exact harness identity | Allowlisted provider/model/agent/session-relation/revisions, safe backfill, explicit availability, and privacy fixtures | Comparable provider-native evaluation inputs | Required on DAI-011 baseline `c24f7e5` | No account/user role, email, client label, prompt, transcript, URL, credential, or path retention |
+| Provider-native prompts | Static prompt contracts and fresh provider-affine workflow probes | Lean provider overlays, review behavior, and no cross-provider fallback | Required after implementation | GPT live evidence required where applicable; unavailable Opus remains a bounded follow-up |
+| Five-cycle evaluation | Immutable cohort replay under a versioned rubric | Tokens, cost, elapsed time, gates, remediation, delegation, and confounders | Required after five comparable cycles | Report-only; no automatic harness mutation or causal claim |
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |

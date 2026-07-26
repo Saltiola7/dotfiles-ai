@@ -4,6 +4,8 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-27 | Add versioned exact provider identity for five-cycle reports | P1 | pending | DAI-011 | Nested telemetry schema; DBSCTR runtime/tool adapters; control-plane specs/tests | integrated DAI-011 telemetry and federation contracts at `c24f7e5` | no | Exact identity must update helper, VM exporter, and typed validators together without changing federation schema v2 | M | Cross-version identity, privacy, attribution, host/VM continuation, and provider-affinity fixtures |
+| OCP-28 | Optimize provider-native agents and exact DBSCTR entry commands | P1 | pending | OCP-27 | OpenCode model config, provider primaries, provider commands, routing contracts/tests | current OpenAI and Anthropic guidance; integrated telemetry identity | no | Model, prompt, command, and lifecycle-core changes need one integrated provider-isolation review | M | Rendered config, focused tests, GPT live probes, provider-affinity denial, and Opus follow-up when unavailable |
 
 ## Completed
 

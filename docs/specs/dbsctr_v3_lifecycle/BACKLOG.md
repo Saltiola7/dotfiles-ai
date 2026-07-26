@@ -6,6 +6,8 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.29-1 | Define versioned identity and deterministic five-cycle qualification | P1 | pending | DAI-011 | Lifecycle telemetry/cohort contracts and tests | integrated DAI-011 federation reliability contracts at `c24f7e5` | no | Cycle-level eligibility must remain deterministic across exact host/VM capture replay | M | Schema-version, exact-correlation, identity, ordering, no-reuse, privacy, and confounder fixtures |
+| V3.30-1 | Thin the lifecycle core and add conditional provider overlays | P1 | pending | V3.29-1 | DBSCTR skill, provider references, lifecycle routing contracts/tests | provider control-plane commands and exact telemetry identity | no | Core and provider behavior must be reconciled as one coherent prompt contract | M | Static prompt contracts, affected lifecycle tests, fresh GPT route, and explicit Opus follow-up when unavailable |
 
 ## Completed
 

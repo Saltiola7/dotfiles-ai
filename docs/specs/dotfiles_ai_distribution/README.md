@@ -87,6 +87,15 @@
 | Scope | Concurrent source capture, capture-backed continuation, typed-tool runtime normalization, regression coverage, live three-source validation, and explicit worker cleanup |
 | Overrides | Federation has no aggregate adapter timeout; each source command retains its 120-second deadline and output bound; launch, Discovery, and delivery authority remain unchanged |
 
+### Provider-Native Evaluation Initiative Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: persists new private cross-source cycle projections and evaluates provider harness outcomes |
+| Delivery intent | Define contracts on deployed DAI-011 commit `c24f7e5`; implement only after lifecycle and control-plane identity contracts pass |
+| Scope | Existing weekly worker, immutable source captures, dedicated five-cycle report persistence, replay, retention, and operational evidence |
+| Overrides | Keep weekly unhalted cadence; no second scheduler, source rescan, host-history cohort save, automatic tuning, or guest-to-host PR outcome bridge |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -222,6 +231,40 @@ OpenCode control-plane behavior, and shell authentication.
 - Given an ordinary R&D worker passes every DBSCTR gate, it still creates only a
   draft pull request. Adaptive scheduling never grants merge, release, deploy,
   Discovery-answering, or permission-selection authority.
+
+### Provider-Native Five-Cycle Evaluation
+
+- Given one weekly federated worker has captured each source once, when it finds
+  five unused completed cycles eligible under one exact harness identity and
+  rubric version, then it atomically saves one private report before transient
+  source captures expire.
+- One eligible member has structured source and cycle IDs, exact root-session
+  correlation, one primary provider/model/agent/core/overlay identity,
+  same-provider children, and available required metrics. Members are selected by
+  completion time then cycle ID; context, risk, delivery, and child-agent
+  distributions are recorded as confounders.
+- Given a report is saved, then replay reads only its immutable member projections,
+  source/capture/page/member digests, aggregates, availability, confounders, and
+  recommendations. It never rescans a live database or depends on retained
+  transient captures.
+- Given two workers attempt the same eligible cohort, then the private writer lock
+  derives one canonical report identity before considering prose. The winner
+  commits once; the loser returns the existing report and does not select another
+  cohort in that invocation.
+- Given a source's `privacy_epoch_digest` changes after privacy forget, then the next
+  available federated maintenance pass conservatively deletes every host report
+  containing that source, its no-reuse rows, and affected backups before saving
+  new evaluation. Explicit report forget provides immediate host-side deletion.
+- Given a source is unavailable or its privacy epoch has not been revalidated
+  within eight days, then every report containing that source is quarantined and
+  replay fails closed. Revalidating the same digest restores replay; a changed
+  digest deletes affected report and backup state transactionally.
+- Given fewer than five eligible unused cycles exist, then the worker reports the
+  count and waits for the next normal weekly run. It does not spawn another worker,
+  change cadence, halt scheduling, or loosen eligibility.
+- A report may recommend a prompt, model, agent, routing, or lifecycle change but
+  cannot claim, implement, deploy, or schedule that change. A separate approved
+  DBSCTR cycle remains required.
 
 ### Provider-affine Build Agents
 
@@ -359,6 +402,16 @@ OpenCode control-plane behavior, and shell authentication.
   human output is the default. `--finalize-json` binds one retained benchmark to
   its merged attempt, while `--failure-json` accepts only an outcome matching the
   authoritative worker state (including a reverted merged attempt).
+- Read-only typed `dbsctr_provider_evaluation` lists bounded report summaries or
+  replays one exact report ID. Write-capable
+  `dbsctr_provider_evaluation_save` accepts a rubric version, validated federated
+  manifest digest, and bounded findings/recommendations; it asks the helper to
+  resolve the private terminal receipt, derive, and atomically persist the cohort.
+  It accepts no caller member list, metrics, or aggregates and remains denied to
+  read-only and Builder subagents.
+- `dbsctrctl provider-evaluation-save` and `provider-evaluation` are the helper
+  authorities beneath those tools. Save executes under the existing private
+  writer lock; ordinary reads never initialize, repair, or migrate state.
 - `dbsctr-rnd watchdog` always emits its bounded JSON result. It exits nonzero
   when any event is degraded and zero when reconciliation is healthy or another
   watchdog already owns the lock.
@@ -369,6 +422,50 @@ OpenCode control-plane behavior, and shell authentication.
   declared scope, pull-request outcomes, captures, and benchmark references. A
   separate mode-`0600` private scheduler SQLite ledger owns only reservations,
   sanitized outcome references, and cadence state. Launchd and Herdr are advisory.
+- The DBSCTR private ledger adds separately versioned
+  `provider_evaluation_reports`, `provider_evaluation_members`,
+  `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather
+  than reusing host-only `history_reports`. One transaction writes exactly five
+  ordered member projections and their report, or none.
+- Provider evaluation report schema `1` contains rubric name/version/digest, exact
+  harness identity, ordered structured `source_id`/`cycle_id` members, completion
+  time, telemetry and gate digests, ordered source capture/page/member digests,
+  aggregates, per-field availability, confounders, findings, recommendations, and
+  creation time. It contains no account/user role, email, client label, prompt,
+  transcript, command argument, error message, URL, credential, or path.
+- Rubric version `1` requires exact harness activation identity, exact root-cycle
+  correlation, completion time, elapsed time, gate failure count, gate reopening
+  count, and remediation-round count. Tool/error/delegation/provider-error/
+  approval/retry/token/cost metrics are optional with explicit availability.
+- Report identity hashes rubric version, exact harness identity, and ordered
+  members. A uniqueness constraint prevents one cycle from appearing in another
+  report under the same rubric and harness identity. Repeated save is idempotent;
+  a changed payload under the same identity fails closed.
+- The distribution-owned save interface accepts rubric identity and bounded
+  findings/recommendations plus the final manifest digest, not members or
+  aggregates. The typed adapter records a transient terminal receipt keyed by
+  that digest from the first schema-v2 response, including single-page responses
+  whose continuation state is null. Save completes any unseen pages from the
+  immutable captures, validates source order and every
+  manifest/page/member digest, derives eligible members and aggregates, and then
+  writes under the private lock. Incomplete, expired, changed, or caller-shaped
+  evidence fails without persistence.
+- Report replay validates the stored payload and member projection without the
+  live OpenCode databases or source captures. Backup, restore, semantic integrity,
+  and explicit forget include the new report tables transactionally.
+- `dbsctrctl review-privacy-epoch` returns one digest derived only from durable
+  local forget/tombstone state. The terminal receipt obtains it once per source
+  without rescanning the OpenCode database. Capture `exclusion_digest` remains
+  worker-specific self-exclusion identity and never controls report deletion.
+- Reports store each source privacy epoch digest. Changed-digest maintenance removes
+  every report containing that source and purges affected backups; no-reuse rows
+  are removed because source-local suppression prevents the forgotten cycle from
+  reappearing. If the source is unavailable, propagation remains pending and is
+  reported rather than guessed complete.
+- Source-verification rows record only source ID, privacy epoch digest, availability,
+  and verification time. Unavailable or older-than-eight-day state quarantines
+  related reports at read time; replay never claims privacy currency from an
+  expired source check.
 - `dbsctr-rnd reset-schedule` is the only halt recovery command; it preserves
   outcome history and cadence while clearing the halt, stale reservations, and
   next-eligible cutoff.
