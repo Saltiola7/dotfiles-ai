@@ -82,26 +82,20 @@ def test_local_data_renders_complete_configs() -> None:
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
 
+    tui = json.loads(
+        chezmoi("cat", str(Path.home() / ".config/opencode/tui.json")).stdout
+    )
+    assert tui == {
+        "$schema": "https://opencode.ai/tui.json",
+        "theme": "catppuccin",
+    }
+
     herdr = chezmoi("cat", str(Path.home() / ".config/herdr/config.toml")).stdout
     plist = chezmoi(
         "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")
     ).stdout
     assert 'name = "nord"' in herdr
     assert "/usr/local/bin/herdr" in plist
-
-
-def test_opencode_theme_reconciler_preserves_other_state(tmp_path: Path) -> None:
-    script = chezmoi(
-        "execute-template", "--file", str(ROOT / "run_onchange_after_set-opencode-theme.sh.tmpl")
-    ).stdout
-    state = tmp_path / ".local/state/opencode/kv.json"
-    state.parent.mkdir(parents=True)
-    state.write_text('{"other": 1, "theme": "old"}\n')
-
-    subprocess.run(["sh"], input=script, text=True, check=True, env={**os.environ, "HOME": str(tmp_path)})
-
-    assert json.loads(state.read_text()) == {"other": 1, "theme": "catppuccin"}
-    assert state.stat().st_mode & 0o777 == 0o600
 
 
 def test_portable_terminal_config_is_guest_only() -> None:
