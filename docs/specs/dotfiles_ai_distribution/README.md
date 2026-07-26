@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-007 Lima sandbox deployed
+**Status:** DAI-008 dynamic workspace migration active
 
 ## Engineering Profile
 
@@ -12,7 +12,7 @@
 | Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
-| Operational owner | Saltiola7 maintains releases, compatibility, and migration guidance |
+| Operational owner | Project maintainers own releases, compatibility, and migration guidance |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
 
 ### DAI-005 Cycle Overrides
@@ -48,8 +48,17 @@
 |---|---|
 | Risk | Elevated: creates filesystem and credential boundaries around unrestricted AI execution and migrates live repository paths |
 | Delivery intent | Merge and deploy two local Fedora Lima client environments, host controls, and federated R&D transport |
-| Scope | Personal and MGM VM profiles, VM Herdr, always-auto OpenCode, explicit mounts, protected submodules, host review federation, and personal-VM implementation handoff |
+| Scope | Two locally named VM profiles, VM Herdr, always-auto OpenCode, explicit mounts, protected submodules, host review federation, and configured implementation handoff |
 | Overrides | Host OpenCode, Herdr, database, scheduling, and private ledger remain authoritative; VM credentials and databases remain isolated; egress is unrestricted by accepted design |
+
+### DAI-008 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: migrates public configuration and VM filesystem security contracts |
+| Delivery intent | Deploy dynamic local workspace configuration after all gates pass |
+| Scope | Arbitrary workspace names, mount mappings and access, optional Git protection and references, dynamic federation, and configured Build handoff |
+| Overrides | Existing instance names and paths remain machine-local; schema version 2 intentionally replaces fixed keys without compatibility aliases |
 
 ## Bounded Context
 
@@ -180,16 +189,15 @@ OpenCode control-plane behavior, and shell authentication.
 - Given the runtime remains native Plan, then OpenAI Plan permissions and
   subagents remain expected regardless of the model displayed.
 
-### Client VM Sandboxes
+### Dynamic VM Workspaces
 
-- Given the operator enters `personal-sandbox` or `mgm-sandbox`, when Lima
-  starts the client VM, then Fedora 44 runs natively through VZ with a sparse
-  disk and exposes only that client's declared paths.
-- Given the personal VM, then only its machine-configured personal root is
-  writable. Given the MGM VM, then its machine-configured client root and
-  `seo-code-analysis` parent checkout are writable, while every declared
-  submodule worktree and Git metadata directory is root-mounted read-only before
-  OpenCode may start.
+- Given any locally named workspace, when Lima starts its configured instance,
+  then Fedora 44 runs natively through VZ with a sparse disk and exposes only
+  that workspace's declared host-to-guest mappings.
+- Given a configured mount, its whole directory is read-only or writable as
+  declared. A writable Git mount with `protect_git_submodules=true` keeps every
+  declared submodule worktree and Git metadata directory root-mounted read-only
+  before OpenCode may start.
 - Given a protected submodule manifest is stale, a read-only overlay is absent,
   or unrestricted passwordless sudo is available, then sandbox startup fails
   closed before an auto-approved agent runs.
@@ -202,13 +210,13 @@ OpenCode control-plane behavior, and shell authentication.
   auto-approves permissions not explicitly denied. Host OpenCode behavior is
   unchanged.
 - On every guest boot, a root oneshot waits for the declared virtiofs mounts,
-  reapplies MGM read-only overlays, verifies effective sudo denial, and only then
+  reapplies configured read-only overlays, verifies effective sudo denial, and only then
   publishes the boot-scoped readiness marker required by OpenCode.
 
 ### Federated Host R&D
 
 - Given host R&D reviews history, then it scans the host database locally and
-  invokes bounded read-only exporters inside personal and MGM VMs sequentially.
+  invokes bounded read-only exporters inside every federated workspace sequentially.
   Database files, transcripts, paths, secrets, and credentials never cross the
   VM boundary.
 - Given a VM was stopped before collection, then the host may start it for the
@@ -219,21 +227,23 @@ OpenCode control-plane behavior, and shell authentication.
   and exclusion digests. Missing or malformed sources make the review explicitly
   incomplete rather than silently local-only.
 - Given Discovery is approved explicitly, then host R&D records one sanitized
-  handoff and launches a visible Build session in personal VM Herdr. That VM's
+  handoff and launches a visible Build session in the configured workspace Herdr. That VM's
   guest-owned `dotfiles-ai` clone owns the DBSCTR cycle, validation, branch, and
   draft pull request; observed projects remain read-only evidence sources.
 
 ## Interfaces And Contracts
 
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
-- `[dotfiles_ai.sandbox]` contains `enabled`, `personal_instance`,
-  `personal_root`, `mgm_instance`, `mgm_root`, `mgm_protected_repo`, `cpus`,
-  `memory_gib`, and `disk_gib`. Shared roots are empty and sandbox management is
-  disabled; machine-local configuration supplies absolute existing directories.
+- `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, resource
+  ceilings, and an ordered `workspaces` list. Each workspace contains a unique
+  `name`, unique `instance`, `federate`, and one or more mount mappings with
+  `host`, `guest`, `writable`, `protect_git_submodules`, and optional reference
+  metadata plus an optional relative reference subpath. Shared workspaces are
+  empty and management is disabled.
 - Shared defaults disable Lima management. Machine-local sandbox data declares
   instance names, host mount roots, protected repository and submodule manifest,
   resource ceilings, and repository-scoped identities without credentials.
-- Host commands `lmsh` and `mgmsh` enter the selected VM; ordinary guest `herdr`
+- `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, apply
@@ -253,9 +263,8 @@ OpenCode control-plane behavior, and shell authentication.
   Text fields use fixed size and unsafe-content bounds. It returns only the target
   source, Herdr presentation IDs, OpenCode session ID when available, and launch
   status.
-- `lmsh` and `mgmsh` are thin argument-safe wrappers around `limactl shell`.
-  Client-specific Herdr and OpenCode wrappers do not exist; the VM boundary owns
-  client identity.
+- `sandbox-vm shell` resolves only configured workspace instances and preserves
+  argument boundaries. Workspace-specific wrappers do not exist.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
   supplies source path, workspace label, daily hour/minute, watchdog interval,
   and non-secret GitHub account/repository.
@@ -306,9 +315,9 @@ OpenCode control-plane behavior, and shell authentication.
   deletion or corruption by VM agents. Unmounted host paths remain inaccessible.
 - VM agents may use unrestricted network egress and every credential supplied to
   that VM. Repository-scoped credentials are the normal remote-write boundary.
-- Accepted risk `DAI-007-AR1`: the MGM VM work-account GitHub credential can
+- Accepted risk `DAI-007-AR1`: a configured workspace provider credential can
   write every repository authorized by that provider account rather than only
-  the mounted MGM repository. The operator owns and approved this exception;
+  its intended mounted repository. The operator owns and approved this exception;
   VM isolation, denied sudo, protected read-only mounts, and provider-side
   repository authorization are compensating controls. Review by 2026-08-18 or
   before credential rotation, whichever comes first; replace it with a
