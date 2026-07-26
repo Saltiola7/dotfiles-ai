@@ -612,6 +612,7 @@ export async function reviewFederated(args: {
       throw new Error("terminal federated capture receipt exceeds bound")
     }
     evaluationReceipts.set(value.manifest_digest, receipt)
+    for (const source of receiptSources) evaluationPages.delete(`${source.source_id}\0${source.capture_id}`)
     while (evaluationReceipts.size > 8)
       discardEvaluationReceipt(evaluationReceipts.keys().next().value as string)
   }
