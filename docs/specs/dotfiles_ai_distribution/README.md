@@ -237,8 +237,8 @@ OpenCode control-plane behavior, and shell authentication.
   managed symlink still targeting `sandbox-vm` is removed. An existing unmanaged
   command blocks apply rather than being overwritten.
 - Given a guest applies the managed source, then its Bash login shell initializes
-  the same Starship prompt configuration as the personal dotfiles and OpenCode
-  selects the configured theme explicitly.
+  the same Starship prompt configuration as the personal dotfiles and OpenCode's
+  persisted theme selection matches the configured theme.
 - Given the same source applies on macOS, then guest shell targets remain ignored
   so the personal chezmoi source retains sole ownership of host terminal files.
 
@@ -281,8 +281,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Linux guests manage `.bashrc`, `.bash_profile`, `.common_profile`, and
   `.config/starship.toml`; macOS ignores those targets. Starship `1.26.0` is
   installed from its checksum-pinned aarch64 Linux release.
-- `[dotfiles_ai.opencode].theme` renders as OpenCode's explicit top-level theme
-  and is propagated to guest OpenCode and Herdr visual configuration.
+- `[dotfiles_ai.opencode].theme` atomically reconciles only the `theme` key in
+  OpenCode's persisted state and is propagated to guest Herdr visual
+  configuration. Existing OpenCode state keys remain unchanged.
 - `sandbox-vm review` accepts the bounded history filters plus limit, cursor,
   and typed continuation state. It returns schema version `1`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only

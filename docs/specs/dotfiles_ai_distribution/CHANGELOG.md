@@ -5,9 +5,10 @@
 - Added Linux-only managed Bash startup and the personal Starship prompt while
   keeping host terminal targets under the personal chezmoi source. Starship
   `1.26.0` installs from a checksum-pinned archive with atomic replacement.
-- Made Catppuccin explicit in OpenCode configuration and propagated the visual
-  theme to both guest OpenCode and Herdr without importing host credentials,
-  Homebrew paths, or workstation-only plugins.
+- Reconciled Catppuccin into OpenCode's persisted theme selection while
+  preserving unrelated runtime state, and propagated the visual theme to guest
+  Herdr without importing host credentials, Homebrew paths, or workstation-only
+  plugins.
 - Applied the exact committed tree to both configured guests. Chezmoi verify,
   Bash syntax, Starship config identity, version, and resolved OpenCode theme
   passed in each workspace; host verify and no-overlap checks passed.
