@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-26 - Provider-Native Lifecycle Delivery
+
+- Added a thinner provider-neutral core with conditional GPT-5.6 and Opus 5
+  references, exact activated cycle identity, deterministic five-member
+  qualification, family-level provider attribution, and report-only authority.
+- Privacy-safe receipts now bind terminal federation manifests, source epochs,
+  pages, and member digests. Atomic persistence covers no-reuse, idempotence,
+  stale-source quarantine, capture-independent replay, backup/restore, changed-
+  epoch purge, and explicit forget. Validation: 218 passed, one skipped; targeted
+  deployment and fresh GPT activation passed. Opus SSO remains a bounded
+  provider-local follow-up. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - Provider-Native Lifecycle Discovery
 
 - Defined a thin provider-neutral core, conditional GPT-5.6 and Opus 5 overlays,

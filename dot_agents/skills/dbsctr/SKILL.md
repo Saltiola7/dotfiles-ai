@@ -60,6 +60,9 @@ Modules use REQUIRED, CONDITIONAL, PROJECT POLICY, and EXAMPLE. Optional
 provider/tool patterns live in `references/` and never gate a cycle by
 themselves. A future language/framework module may extend phases and gates but
 cannot reorder or weaken core evidence and safety contracts.
+Load `references/openai.md` only under `build-gpt` and
+`references/anthropic.md` only under `build-claude`. Native or other primaries
+receive neither overlay. Provider failure never changes provider family.
 When Product Intent applies, read the Engineering Profile-selected artifact
 (conventionally `docs/specs/<context>/PRODUCT.md`) before Domain and trace affected
 journeys/outcomes through behavior, contracts, validation, and completion. Do not
@@ -205,7 +208,8 @@ product/domain truth merely to make documents agree.
 
 Always evaluate diff coherence, behavior/interface/contract/test traceability,
 migration impact, direct downstreams, configured CI, and final orchestrator
-review. Independent review is required for critical work when available.
+integration. Provider overlays or explicit Project Policy may add bounded review;
+the core does not require repeated self-review or a human reviewer.
 
 ### Release
 
@@ -260,14 +264,14 @@ specs and Git are durable authority.
 
 ## Critical-Path Profiling And Safe Concurrency
 
-For an active cycle, a validated Build primary brackets material lifecycle work
-with typed `dbsctr_phase_span` start and finish events. Declare only opaque span
+When diagnosing cycle wall time, a validated Build primary may bracket material
+lifecycle work with typed `dbsctr_phase_span` start and finish events. Declare only opaque span
 identity, phase/operation class, dependencies, repository-relative ownership,
 attribution, and final result. The helper owns timestamps and returns a path-free
 compact profile. Unsupported automatic tool or subagent timing remains
 `unavailable`; never infer a full critical path from message persistence times.
 
-Before parallel reads or profile-declared read-only QA, submit the complete
+When benchmarking or authorizing non-obvious concurrency, submit the complete
 candidate graph, completed-node set, and exactly one reconciliation node to typed
 `dbsctr_execution_dag`. The reconciliation node depends directly or transitively
 on every worker. The helper validates operation classes, dependencies, cycles,
@@ -286,9 +290,6 @@ remediation rounds. The helper executes and times the committed fixture; callers
 never submit benchmark durations or outcomes. Critical cycles,
 uncertain dependencies, and overlapping independent ownership always remain
 serial. DBSCTR adds no separate worker cap after independence is proven.
-
-For critical work, use an independent read-only reviewer when available. If no
-reviewer is available, record a capability gap; do not silently waive review.
 
 ## Evidence And Git
 

@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - Provider-Native Evaluation Delivery
+
+- Extended the existing weekly worker with a terminal schema-v2 receipt and one
+  typed report save. Dedicated private tables atomically persist exactly five
+  unused cycles, source/capture/page/member evidence, required and optional
+  metrics, confounders, and sanitized recommendations.
+- Added source-local privacy epochs, eight-day replay quarantine, changed-epoch
+  and explicit-forget backup purge, semantic backup/restore validation, and
+  capture-independent replay. The existing cadence and DAI-011 one-capture
+  continuation path remain unchanged. The first real report is tracked as
+  DAI-012-F1 until five eligible activated cycles exist.
+
 ## 2026-07-26 - Provider-Native Evaluation Discovery
 
 - Defined weekly helper-derived five-cycle evaluation, terminal capture receipts,

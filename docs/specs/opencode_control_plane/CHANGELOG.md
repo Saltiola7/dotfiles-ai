@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-26 - Provider-Native Harness Delivery
+
+- Added `/dbsctr-gpt` and `/dbsctr-claude`, provider-conditional guidance,
+  Opus 5 high, exact loaded-runtime activation, telemetry schema `2`, and typed
+  report-only evaluation read/save boundaries without cross-provider fallback.
+- Affected QA passed with 218 tests and one existing environment skip; Python
+  compilation, externalized Bun build, rendered config, targeted deployment,
+  source identity, and idempotence passed. A fresh GPT-5.6 process attached the
+  exact activated identity. Opus 5 remained unavailable because the Bedrock
+  adapter did not consume SSO credentials and is tracked as a provider-local
+  follow-up. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - Provider-Native Harness Discovery
 
 - Defined exact provider entry, Opus 5 high, provider-local review behavior,
