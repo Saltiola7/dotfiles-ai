@@ -360,7 +360,7 @@ export async function reviewFederated(args: {
   limit?: number
   cursor?: number
   sourceState?: {
-  source_id: "host" | "personal" | "mgm"
+  source_id: string
   snapshot: number
   session_ceiling: number
   part_ceiling: number
@@ -391,9 +391,10 @@ export async function reviewFederated(args: {
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name}`, String(value))
   }
   const value = await analyticsJSON(argv, cwd)
+  const sourceID = (value: any) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
   const validState = (state: any) => exactKeys(state, ["source_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "exclusion_digest", "query_digest", "continuation"])
-    && ["host", "personal", "mgm"].includes(state.source_id)
+    && sourceID(state.source_id)
     && [state.snapshot, state.session_ceiling, state.part_ceiling].every((item: any) => Number.isInteger(item) && item >= 0)
     && /^[0-9a-f]{64}$/.test(state.database_digest)
     && (state.exclusion_digest === null || /^[0-9a-f]{64}$/.test(state.exclusion_digest))
@@ -401,13 +402,14 @@ export async function reviewFederated(args: {
     && (state.continuation === null || Number.isInteger(state.continuation) && state.continuation >= 0)
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
       || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
-      || !Array.isArray(value.sources) || value.sources.length !== 3
-      || new Set(value.sources.map((source: any) => source?.source_id)).size !== 3
-      || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== 3
-        || new Set(value.source_state.map((state: any) => state?.source_id)).size !== 3
+      || !Array.isArray(value.sources) || value.sources.length < 1 || value.sources.length > 33
+      || value.sources[0]?.source_id !== "host"
+      || new Set(value.sources.map((source: any) => source?.source_id)).size !== value.sources.length
+      || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== value.sources.length
+        || new Set(value.source_state.map((state: any) => state?.source_id)).size !== value.sources.length
         || value.source_state.some((state: any) => !validState(state)))
       || value.sources.some((source: any) => source === null || typeof source !== "object"
-        || !["host", "personal", "mgm"].includes(source.source_id)
+        || !sourceID(source.source_id)
         || !["available", "complete", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
         || !exactKeys(source, source.availability === "available" ? ["source_id", "availability", "page"] : ["source_id", "availability"])
         || source.availability === "available" && !validFederatedPage(source.page, limit,
@@ -435,7 +437,7 @@ export async function vmHandoff(report: {
   schema_version: 1
   worker_id: string
   proceed: true
-  target: "personal"
+  target: string
   risk: "routine" | "elevated" | "critical"
   summary: string
   paths: string[]
@@ -445,8 +447,9 @@ export async function vmHandoff(report: {
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
   const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
   if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
-  const instance = await runBounded(["sandbox-vm", "instance", "personal"], cwd, 2_000, 1024)
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid personal VM instance")
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(report.target)) throw new Error("invalid handoff workspace")
+  const instance = await runBounded(["sandbox-vm", "instance", report.target], cwd, 2_000, 1024)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
   const source = `${home}/.local/share/chezmoi-dotfiles-ai`
@@ -478,12 +481,19 @@ export async function vmHandoff(report: {
   if (agent?.pane_id !== paneID || typeof agent.pane_id !== "string" || !id.test(agent.pane_id)
       || agent?.workspace_id !== undefined && agent.workspace_id !== workspaceID)
     throw new Error("VM Herdr returned no launch identity")
-  const result: Record<string, string | number> = { schema_version: 1, target: "personal", status: "launched" }
+  const result: Record<string, string | number> = { schema_version: 1, target: report.target, status: "launched" }
   for (const key of ["pane_id", "tab_id", "workspace_id"])
     if (typeof agent?.[key] === "string" && id.test(agent[key])) result[key] = agent[key]
   if (typeof agent?.agent_session?.value === "string" && id.test(agent.agent_session.value))
     result.session_id = agent.agent_session.value
   return JSON.stringify(result)
+}
+
+export async function vmHandoffTarget(cwd = process.cwd()) {
+  const target = await runBounded(["sandbox-vm", "build-workspace"], cwd, 2_000, 1024)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(target) || target === "host")
+    throw new Error("invalid build workspace")
+  return target
 }
 
 function reviewHistoryArgv(args: {

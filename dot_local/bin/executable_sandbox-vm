@@ -11,11 +11,11 @@ import selectors
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 
 
 CONFIG = Path(os.environ.get("OPENCODE_VM_CONFIG", "~/.config/dotfiles-ai/sandbox.json")).expanduser()
-CLIENTS = ("personal", "mgm")
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UNSAFE = re.compile(r"(?:https?://|file://|\"/|/(?:Users|home|root|tmp|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----)", re.I)
 EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
@@ -71,6 +71,10 @@ def load_config(path=CONFIG):
     return value
 
 
+def workspace_map(config):
+    return {workspace["name"]: workspace for workspace in config["workspaces"]}
+
+
 def _inside(left, right):
     try:
         left.relative_to(right)
@@ -80,30 +84,84 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") != 1:
+    if not isinstance(value, dict) or value.get("schema_version") != 2:
         raise ValueError("invalid sandbox config")
-    clients = value.get("clients")
-    if not isinstance(clients, dict) or set(clients) != set(CLIENTS):
-        raise ValueError("sandbox config requires personal and mgm clients")
-    roots = []
-    for name in CLIENTS:
-        client = clients[name]
-        if not isinstance(client, dict) or not ID.fullmatch(client.get("instance", "")):
-            raise ValueError(f"invalid {name} instance")
-        root_value = client.get("root", "")
-        if not isinstance(root_value, str) or not root_value.startswith("/"):
-            raise ValueError(f"invalid {name} root")
-        root = Path(root_value).resolve()
-        roots.append(root)
-        protected_value = client.get("protected_repo", "")
-        if not isinstance(protected_value, str):
-            raise ValueError(f"invalid {name} protected repo")
-        if protected_value:
-            protected = Path(protected_value).resolve()
-            if _inside(protected, root) or _inside(root, protected):
-                raise ValueError("client mount paths overlap")
-    if _inside(roots[0], roots[1]) or _inside(roots[1], roots[0]):
-        raise ValueError("client mount paths overlap")
+    if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
+            or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
+        raise ValueError("invalid sandbox settings")
+    if not isinstance(value.get("template"), str) or not value["template"].startswith("/"):
+        raise ValueError("invalid workspace template")
+    resources = value.get("resources")
+    if not isinstance(resources, dict) or set(resources) != {"cpus", "memory_gib", "disk_gib"} or any(
+            not isinstance(resources[name], int) or isinstance(resources[name], bool) or resources[name] <= 0
+            for name in resources):
+        raise ValueError("invalid workspace resources")
+    guest = value.get("guest")
+    if not isinstance(guest, dict) or set(guest) != {
+            "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme"} or any(
+            not isinstance(item, str) for item in guest.values()):
+        raise ValueError("invalid guest settings")
+    workspaces = value.get("workspaces")
+    if not isinstance(workspaces, list) or len(workspaces) > 32:
+        raise ValueError("invalid workspaces")
+    names = set()
+    instances = set()
+    all_references = set()
+    for workspace in workspaces:
+        if not isinstance(workspace, dict) or set(workspace) != {"name", "instance", "federate", "mounts"}:
+            raise ValueError("invalid workspace")
+        name = workspace.get("name", "")
+        instance = workspace.get("instance", "")
+        if not ID.fullmatch(name) or name == "host" or name in names:
+            raise ValueError("invalid workspace name")
+        if not ID.fullmatch(instance) or instance in instances or not isinstance(workspace["federate"], bool):
+            raise ValueError(f"invalid {name} workspace")
+        names.add(name)
+        instances.add(instance)
+        mounts = workspace["mounts"]
+        if not isinstance(mounts, list) or not mounts or len(mounts) > 64:
+            raise ValueError(f"invalid {name} mounts")
+        hosts = []
+        guests = []
+        for mount in mounts:
+            required = {"host", "guest", "writable", "protect_git_submodules", "reference_name", "reference_description", "reference_subpath"}
+            if not isinstance(mount, dict) or set(mount) != required:
+                raise ValueError(f"invalid {name} mount")
+            if any(not isinstance(mount[key], str) or not mount[key].startswith("/") or re.search(r"[\x00-\x1f\x7f]", mount[key])
+                   for key in ("host", "guest")):
+                raise ValueError(f"invalid {name} mount path")
+            if not isinstance(mount["writable"], bool) or not isinstance(mount["protect_git_submodules"], bool):
+                raise ValueError(f"invalid {name} mount access")
+            if mount["protect_git_submodules"] and not mount["writable"]:
+                raise ValueError("submodule protection requires a writable mount")
+            reference = mount["reference_name"]
+            description = mount["reference_description"]
+            subpath = mount["reference_subpath"]
+            if not isinstance(reference, str) or reference and (not ID.fullmatch(reference) or reference in all_references):
+                raise ValueError(f"invalid {name} reference")
+            relative = PurePosixPath(subpath) if isinstance(subpath, str) else PurePosixPath("/")
+            if (not isinstance(description, str) or len(description) > 512 or re.search(r"[\x00-\x1f\x7f]", description)
+                    or bool(reference) != bool(description)
+                    or not isinstance(subpath, str) or relative.is_absolute() or any(part in {".", ".."} for part in relative.parts)
+                    or subpath and (not reference or str(relative) != subpath)):
+                raise ValueError(f"invalid {name} reference description")
+            if reference:
+                all_references.add(reference)
+            host = Path(mount["host"]).resolve()
+            guest_path = PurePosixPath(mount["guest"])
+            if str(host) != mount["host"] or str(guest_path) != mount["guest"] or ".." in guest_path.parts:
+                raise ValueError(f"invalid {name} mount path")
+            if any(_inside(host, other) or _inside(other, host) for other in hosts):
+                raise ValueError("workspace host mounts overlap")
+            if any(guest_path == other or guest_path.is_relative_to(other) or other.is_relative_to(guest_path) for other in guests):
+                raise ValueError("workspace guest mounts overlap")
+            hosts.append(host)
+            guests.append(guest_path)
+    build_workspace = value.get("build_workspace")
+    if not isinstance(build_workspace, str) or build_workspace and build_workspace not in names:
+        raise ValueError("invalid build workspace")
+    if value["enabled"] and (not workspaces or not build_workspace):
+        raise ValueError("enabled sandbox requires workspaces and a build workspace")
     return value
 
 
@@ -176,16 +234,102 @@ def allocated_bytes(path):
     return total
 
 
+def guest_config(config, workspace):
+    quote = json.dumps
+    guest = config["guest"]
+    resources = config["resources"]
+    lines = [
+        'sourceDir = "~/.local/share/chezmoi-dotfiles-ai"',
+        'persistentState = "~/.config/dotfiles-ai/chezmoi.boltdb"',
+        "",
+        "[data.dotfiles_ai.opencode]",
+        f"bedrock_region = {quote(guest['bedrock_region'])}",
+        f"bedrock_profile = {quote(guest['bedrock_profile'])}",
+        f"default_model = {quote(guest['default_model'])}",
+        f"small_model = {quote(guest['small_model'])}",
+        'lmstudio_base_url = "http://host.lima.internal:1234/v1"',
+        "",
+        "[data.dotfiles_ai.herdr]",
+        f"theme = {quote(guest['theme'])}",
+        "launchagent = false",
+        'executable = "/usr/local/bin/herdr"',
+        "",
+        "[data.dotfiles_ai.rnd]",
+        "enabled = false",
+        'review_workdir = ""',
+        "review_hour = 9",
+        "review_minute = 0",
+        "watchdog_interval_seconds = 300",
+        'workspace_label = "DBSCTR R&D"',
+        'github_account = ""',
+        'github_repository = ""',
+        "",
+        "[data.dotfiles_ai.onepassword]",
+        "enabled = false",
+        'account = ""',
+        'user_uuid = ""',
+        'keychain_service = "op-service-account-token"',
+        "",
+        "[data.dotfiles_ai.sandbox]",
+        "enabled = false",
+        f"build_workspace = {quote(workspace['name'])}",
+        f"cpus = {resources['cpus']}",
+        f"memory_gib = {resources['memory_gib']}",
+        f"disk_gib = {resources['disk_gib']}",
+        "",
+        "[[data.dotfiles_ai.sandbox.workspaces]]",
+        f"name = {quote(workspace['name'])}",
+        f"instance = {quote(workspace['instance'])}",
+        f"federate = {'true' if workspace['federate'] else 'false'}",
+    ]
+    for mount in workspace["mounts"]:
+        lines.extend([
+            "",
+            "[[data.dotfiles_ai.sandbox.workspaces.mounts]]",
+            f"host = {quote(mount['host'])}",
+            f"guest = {quote(mount['guest'])}",
+            f"writable = {'true' if mount['writable'] else 'false'}",
+            f"protect_git_submodules = {'true' if mount['protect_git_submodules'] else 'false'}",
+            f"reference_name = {quote(mount['reference_name'])}",
+            f"reference_description = {quote(mount['reference_description'])}",
+            f"reference_subpath = {quote(mount['reference_subpath'])}",
+        ])
+    return "\n".join(lines) + "\n"
+
+
+def render_workspace(config, workspace, template=None):
+    template = Path(config["template"]).read_text() if template is None else template
+    mounts = []
+    for mount in workspace["mounts"]:
+        mounts.extend([
+            f"  - location: {json.dumps(mount['host'])}",
+            f"    mountPoint: {json.dumps(mount['guest'])}",
+            f"    writable: {'true' if mount['writable'] else 'false'}",
+        ])
+    values = {
+        "@@MOUNTS@@": "\n".join(mounts),
+        "@@WORKSPACE_JSON@@": json.dumps({"mounts": workspace["mounts"]}, sort_keys=True, separators=(",", ":")),
+        "@@SOURCE@@": config["source"],
+        "@@GUEST_CONFIG@@": guest_config(config, workspace).rstrip().replace("\n", "\n      "),
+    }
+    for marker, replacement in values.items():
+        template = template.replace(marker, replacement)
+    if "@@" in template:
+        raise ValueError("workspace template contains an unknown marker")
+    return template
+
+
 def status_report(config, execute=command, lima_root=None):
     try:
         running = _parse_states(execute(["limactl", "list", "--json"]))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         running = {}
     root = lima_root or Path.home() / ".lima"
-    clients = {}
-    for name in CLIENTS:
-        instance = config["clients"][name]["instance"]
-        clients[name] = {
+    workspaces = {}
+    for workspace in config["workspaces"]:
+        name = workspace["name"]
+        instance = workspace["instance"]
+        workspaces[name] = {
             "instance": instance,
             "running": running.get(instance, False),
             "allocated_bytes": allocated_bytes(root / instance),
@@ -193,7 +337,7 @@ def status_report(config, execute=command, lima_root=None):
     return {
         "schema_version": 1,
         "host_free_bytes": shutil.disk_usage(Path.home()).free,
-        "clients": clients,
+        "workspaces": workspaces,
     }
 
 
@@ -358,7 +502,7 @@ def _source_page(source, output, limit, cursor, previous=None, filters=None):
 def _valid_source_state(value):
     return (_exact(value, {"source_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
                            "exclusion_digest", "query_digest", "continuation"})
-            and value["source_id"] in {"host", "personal", "mgm"}
+            and isinstance(value["source_id"], str) and ID.fullmatch(value["source_id"])
             and all(isinstance(value[name], int) and not isinstance(value[name], bool) and value[name] >= 0
                     for name in ("snapshot", "session_ceiling", "part_ceiling"))
             and isinstance(value["database_digest"], str) and DIGEST.fullmatch(value["database_digest"])
@@ -378,11 +522,13 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
     if not _valid_query(filters):
         raise ValueError("invalid history filters")
     query_digest = hashlib.sha256(json.dumps(filters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    federated = [workspace for workspace in config["workspaces"] if workspace["federate"]]
+    expected_sources = {"host", *(workspace["name"] for workspace in federated)}
     continuation_states = {}
     if source_state is not None:
-        if (not isinstance(source_state, list) or len(source_state) != 3
+        if (not isinstance(source_state, list) or len(source_state) != len(expected_sources)
                 or not all(_valid_source_state(item) for item in source_state)
-                or {item["source_id"] for item in source_state} != {"host", "personal", "mgm"}
+                or {item["source_id"] for item in source_state} != expected_sources
                 or any(item["query_digest"] != query_digest for item in source_state)):
             raise ValueError("invalid source state")
         continuation_states = {item["source_id"]: item for item in source_state}
@@ -405,8 +551,9 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
         running = _parse_states(execute(["limactl", "list", "--json"]))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         running = {}
-    for source in CLIENTS:
-        instance = config["clients"][source]["instance"]
+    for workspace in federated:
+        source = workspace["name"]
+        instance = workspace["instance"]
         state_before = continuation_states.get(source)
         source_cursor = state_before.get("continuation") if state_before else cursor
         if state_before and source_cursor is None:
@@ -435,16 +582,18 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
                     if next_state and next_state[-1]["source_id"] == source:
                         next_state.pop()
     digest = hashlib.sha256(json.dumps({"filters": filters, "sources": sources}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    continuation = next_state if len(next_state) == 3 and any(state["continuation"] is not None for state in next_state) else None
+    continuation = next_state if len(next_state) == len(expected_sources) and any(state["continuation"] is not None for state in next_state) else None
     return {"schema_version": 1, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "update", "instance"):
+    for name in ("create", "update", "instance", "render", "shell"):
         sub = commands.add_parser(name)
-        sub.add_argument("client", choices=CLIENTS)
+        sub.add_argument("workspace")
+        if name == "shell":
+            sub.add_argument("args", nargs=argparse.REMAINDER)
     review = commands.add_parser("review")
     review.add_argument("--limit", type=int, default=25)
     review.add_argument("--cursor", type=int, default=0)
@@ -459,6 +608,7 @@ def main(argv=None):
     review.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
     review.add_argument("--archive-only", action="store_true")
     commands.add_parser("status")
+    commands.add_parser("build-workspace")
     args = parser.parse_args(argv)
     config = load_config()
     if not config.get("enabled", True):
@@ -471,22 +621,42 @@ def main(argv=None):
     if args.command == "status":
         print(json.dumps(status_report(config), sort_keys=True))
         return
-    client = config["clients"][args.client]
+    if args.command == "build-workspace":
+        print(config["build_workspace"])
+        return
+    try:
+        workspace = workspace_map(config)[args.workspace]
+    except KeyError:
+        raise SystemExit(f"unknown workspace: {args.workspace}")
     if args.command == "instance":
-        print(client["instance"])
+        print(workspace["instance"])
+        return
+    if args.command == "render":
+        print(render_workspace(config, workspace), end="")
+        return
+    if args.command == "shell":
+        shell_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        environment = {**os.environ, "TERM": os.environ.get("LIMA_TERM", "xterm-256color")}
+        os.execvpe("limactl", ["limactl", "shell", workspace["instance"], *shell_args], environment)
         return
     if args.command == "create":
-        command(["limactl", "create", "--name", client["instance"], client["template"]], timeout=900)
-        command(["limactl", "start", client["instance"]], timeout=900)
+        for mount in workspace["mounts"]:
+            if not Path(mount["host"]).exists():
+                raise RuntimeError(f"missing host mount: {mount['host']}")
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as rendered:
+            rendered.write(render_workspace(config, workspace))
+            rendered.flush()
+            command(["limactl", "create", "--name", workspace["instance"], rendered.name], timeout=900)
+        command(["limactl", "start", workspace["instance"]], timeout=900)
         return
     if args.command == "update":
-        home = command(["limactl", "shell", "--start", client["instance"], "--", "printenv", "HOME"], timeout=120)
+        home = command(["limactl", "shell", "--start", workspace["instance"], "--", "printenv", "HOME"], timeout=120)
         if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
             raise RuntimeError("invalid guest home")
         source = f"{home}/.local/share/chezmoi-dotfiles-ai"
-        command(["limactl", "shell", client["instance"], "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
-        command(["limactl", "shell", client["instance"], "--", "chezmoi", "-c", f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
-        print(json.dumps({"client": args.client, "status": "updated", "allocation": status_report(config)}, sort_keys=True))
+        command(["limactl", "shell", workspace["instance"], "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
+        command(["limactl", "shell", workspace["instance"], "--", "chezmoi", "-c", f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+        print(json.dumps({"workspace": args.workspace, "status": "updated", "allocation": status_report(config)}, sort_keys=True))
 
 
 if __name__ == "__main__":
