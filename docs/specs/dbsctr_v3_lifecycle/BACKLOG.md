@@ -6,13 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.29-1 | Define versioned identity and deterministic five-cycle qualification | P1 | pending | DAI-011 | Lifecycle telemetry/cohort contracts and tests | integrated DAI-011 federation reliability contracts at `c24f7e5` | no | Cycle-level eligibility must remain deterministic across exact host/VM capture replay | M | Schema-version, exact-correlation, identity, ordering, no-reuse, privacy, and confounder fixtures |
-| V3.30-1 | Thin the lifecycle core and add conditional provider overlays | P1 | pending | V3.29-1 | DBSCTR skill, provider references, lifecycle routing contracts/tests | provider control-plane commands and exact telemetry identity | no | Core and provider behavior must be reconciled as one coherent prompt contract | M | Static prompt contracts, affected lifecycle tests, fresh GPT route, and explicit Opus follow-up when unavailable |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | This cycle |
 | V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |
 | V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | 2026-07-25 | `ae72606` |
 | V3.27-1 | Add atomic explicit abandoned-worker retirement and reconcile stale lifecycle state | 2026-07-23 | `ec9cbc4`, `732ae79` |

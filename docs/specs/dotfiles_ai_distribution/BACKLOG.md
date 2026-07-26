@@ -5,12 +5,13 @@
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
-| DAI-012 | Persist report-only provider harness evaluations | high | pending | OCP-28, V3.30-1 | Weekly worker evaluation, dedicated private report tables, replay, backup/restore, and deployment evidence | Exact telemetry schema, deterministic lifecycle rubric, DAI-011 immutable captures | no | Evaluation must use activated provider prompts and preserve DAI-011 scheduling/federation contracts | M | Atomic five-member save, no-reuse/idempotence, privacy, capture-independent replay, retention, backup/restore, weekly cadence, and live controlled-worker evidence |
+| DAI-012-F1 | Record the first real provider-native five-cycle report | medium | pending | DAI-012 | One immutable report and operational evidence | Five unused completed cycles under one exact activated harness identity | no | The helper must wait for the normal weekly run and cannot manufacture or loosen eligibility | S | Exact five-member replay, availability/confounders, and no automatic harness mutation |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-012 | Persist atomic report-only provider harness evaluations with privacy propagation and weekly operation | 2026-07-26 | This cycle |
 | DAI-012D | Specify provider-native evaluation persistence and operation | 2026-07-26 | `d65d2ad` |
 | DAI-011 | Restore operational federated autonomous review | 2026-07-26 | `f933afa..6fd56a5` |
 | DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..5c5d9a5` |
