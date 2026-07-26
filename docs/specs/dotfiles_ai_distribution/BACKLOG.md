@@ -10,7 +10,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..69121f5` |
+| DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..5c5d9a5` |
 | DAI-009 | Add safe machine-local shell aliases for dynamic workspaces | 2026-07-25 | `e967b7a`, `a4798b8` |
 | DAI-008 | Replace fixed sandbox identities with dynamic local workspaces | 2026-07-25 | `3743919..ba427ac` |
 | DAI-007A | Deploy client-specific Lima sandbox runtimes and protected mounts | 2026-07-25 | `ae72606` |
