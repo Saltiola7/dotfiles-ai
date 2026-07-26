@@ -20,7 +20,8 @@ Operate as one bounded native-Build R&D worker:
    reason to skip a page.
 2. Synthesize one ranked shortlist across the complete lens pass. Compare each
    concrete issue with durable improvement claims, this source's
-   specs, backlogs, source, tests, and dotfiles-ai GitHub state. Use Scout for
+   specs, backlogs, source, tests, and dotfiles-ai GitHub state. Read GitHub state
+   only with the two exact configured `gh issue list` and `gh pr list` commands. Use Scout for
    authoritative external documentation when useful. Never expose or persist a
    private project, path, content excerpt, or traceable provenance.
 3. Treat session-to-cycle correlation as supporting evidence. Do not propose

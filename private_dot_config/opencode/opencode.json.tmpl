@@ -306,6 +306,8 @@
       "git reset --hard*": "ask",
       "git clean *": "ask",
       "gh *": "ask",
+      "gh issue list --state all --limit 100 --json number,title,state,labels": "allow",
+      "gh pr list --state all --limit 100 --json number,title,state,isDraft,headRefName,baseRefName": "allow",
       "aws *": "ask",
       "npm install*": "ask",
       "npm publish*": "ask",
