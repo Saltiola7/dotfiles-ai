@@ -35,7 +35,7 @@ Restart OpenCode after applying because it loads configuration only at startup.
 
 ## Configuration
 
-- `opencode`: Bedrock profile/region, default models, and LM Studio endpoint.
+- `opencode`: Bedrock profile/region, default models, LM Studio endpoint, and theme.
 - `sandbox`: locally named workspaces, host-to-guest mounts, access modes,
   optional Git protection and references, federation, and Build destination.
 - `herdr`: theme, LaunchAgent toggle, and executable path.

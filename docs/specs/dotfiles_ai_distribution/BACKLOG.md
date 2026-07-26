@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| DAI-010 | Reproduce personal terminal visuals in managed guests | high | in_progress | DAI-009 | Guest Bash/Starship targets, OpenCode theme, provisioning, tests, documentation | Personal dotfiles terminal config, guest runtime, distribution contracts | no | Shell ownership, provisioning, rendering, and live guest apply form one deployment boundary | M | Focused pytest, rendering, shell syntax, host no-overlap, guest apply, prompt/theme runtime probes |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 
 ## Completed

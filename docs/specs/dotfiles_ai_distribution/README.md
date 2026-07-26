@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-009 dynamic workspace shell aliases deployed
+**Status:** DAI-010 guest terminal parity in progress
 
 ## Engineering Profile
 
@@ -68,6 +68,15 @@
 | Delivery intent | Deploy dynamic workspace shell aliases locally after all gates pass |
 | Scope | Optional per-workspace shell aliases, safe command reconciliation, invocation routing, tests, and operator guidance |
 | Overrides | Alias names remain machine-local; existing files are never overwritten; schema version 3 replaces generated version 2 configuration on apply |
+
+### DAI-010 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes interactive guest startup and the OpenCode UI loaded by running sandbox environments |
+| Delivery intent | Deploy portable terminal and OpenCode visual parity to every configured workspace |
+| Scope | Explicit OpenCode theme, checksum-pinned Starship, guest-only Bash startup, personal Starship configuration, tests, and operator guidance |
+| Overrides | Visual and startup parity is portable; macOS paths, Homebrew integrations, credentials, and workstation-only shell plugins remain host-only |
 
 ## Bounded Context
 
@@ -227,6 +236,11 @@ OpenCode control-plane behavior, and shell authentication.
 - Given an alias is removed or renamed, when chezmoi reapplies, then only an old
   managed symlink still targeting `sandbox-vm` is removed. An existing unmanaged
   command blocks apply rather than being overwritten.
+- Given a guest applies the managed source, then its Bash login shell initializes
+  the same Starship prompt configuration as the personal dotfiles and OpenCode
+  selects the configured theme explicitly.
+- Given the same source applies on macOS, then guest shell targets remain ignored
+  so the personal chezmoi source retains sole ownership of host terminal files.
 
 ### Federated Host R&D
 
@@ -264,6 +278,11 @@ OpenCode control-plane behavior, and shell authentication.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, apply
   Linux-compatible targets idempotently, and report that existing OpenCode
   processes retain their loaded config.
+- Linux guests manage `.bashrc`, `.bash_profile`, `.common_profile`, and
+  `.config/starship.toml`; macOS ignores those targets. Starship `1.26.0` is
+  installed from its checksum-pinned aarch64 Linux release.
+- `[dotfiles_ai.opencode].theme` renders as OpenCode's explicit top-level theme
+  and is propagated to guest OpenCode and Herdr visual configuration.
 - `sandbox-vm review` accepts the bounded history filters plus limit, cursor,
   and typed continuation state. It returns schema version `1`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only
@@ -353,5 +372,7 @@ OpenCode control-plane behavior, and shell authentication.
 - Disabling scheduling must preserve OpenCode sessions, ledger records, worktrees,
   claims, and pull requests.
 - OpenCode config is loaded once; agent-ID changes require an OpenCode restart.
+- Exact host shell replication is unsupported because workstation-only package,
+  credential, and macOS path integrations do not belong inside isolated guests.
 - Retirement removes Hermes jobs, gateway, executable, credentials, and runtime
   data only under this cycle's explicit destructive authorization.

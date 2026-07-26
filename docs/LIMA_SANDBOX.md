@@ -37,6 +37,10 @@ and starts it.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.
+Guests use the personal Starship prompt and explicit OpenCode theme through a
+portable Bash profile. Host-only Homebrew, macOS path, plugin, and credential
+startup remains outside the sandbox. Restart OpenCode after an update because it
+does not reload its theme while running.
 
 Every guest keeps isolated OpenCode, Herdr, credentials, and session storage.
 The guest account cannot execute `sudo`. A boot-time verifier waits for every
