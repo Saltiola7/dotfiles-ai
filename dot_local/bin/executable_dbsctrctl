@@ -44,6 +44,7 @@ REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 1
 CAPTURE_SCHEMA = 1
+FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
 PHASE_SCHEMA = 1
 PHASES = GATES[:6] + ("operation",)
@@ -3575,7 +3576,9 @@ def validate_history_capture(value, members):
     allowed = {"schema_version", "capture_id", "query", "snapshot", "session_ceiling", "part_ceiling",
                "database_digest", "exclusion_digest", "page_size", "pages", "member_count",
                "members_digest", "aggregates"}
-    if (not isinstance(value, dict) or set(value) != allowed or value.get("schema_version") != 1
+    transient = {"kind", "created_at"}
+    if (not isinstance(value, dict) or set(value) not in (allowed, allowed | transient)
+            or value.get("schema_version") != 1
             or not isinstance(value.get("query"), dict)
             or set(value["query"]) != {"after", "before", "method_revision", "cycle_id", "state", "context",
                                        "project_digest", "reviewed_status", "archive_only"}
@@ -3586,6 +3589,9 @@ def validate_history_capture(value, members):
             or bool(value["pages"]) != bool(value["member_count"])
             or not isinstance(value.get("aggregates"), dict)):
         fail("private history capture has an invalid schema")
+    if transient.issubset(value) and (value["kind"] != "federated" or type(value["created_at"]) is not int
+                                      or value["created_at"] < REVIEW_START_MS):
+        fail("private history capture has an invalid retention identity")
     for name in ("snapshot", "session_ceiling", "part_ceiling"):
         if type(value.get(name)) is not int or value[name] < 0:
             fail("private history capture has an invalid snapshot")
@@ -3955,7 +3961,23 @@ def command_history_capture_save(args):
     print(json.dumps(history_capture_summary(manifest), sort_keys=True, separators=(",", ":")))
 
 
-def persist_history_capture(root, source, page_size, allow_empty=False):
+def prune_federated_captures(connection, now):
+    benchmark_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='benchmark_effects'").fetchone() is not None
+    referenced = set()
+    if benchmark_exists:
+        for baseline, observation in connection.execute(
+                "SELECT baseline_capture_id,observation_capture_id FROM benchmark_effects"):
+            referenced.update((baseline, observation))
+    for capture_id, payload in connection.execute("SELECT capture_id,payload FROM history_captures").fetchall():
+        manifest = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+        if (manifest.get("kind") == "federated"
+                and manifest.get("created_at", now) < now - FEDERATED_CAPTURE_RETENTION_MS
+                and capture_id not in referenced):
+            connection.execute("DELETE FROM history_captures WHERE capture_id=?", (capture_id,))
+
+
+def persist_history_capture(root, source, page_size, allow_empty=False, transient=False):
     members = [validate_history_evidence(item) for item in source.pop("_capture_records")]
     source_identities = source.pop("_capture_source_identities")
     if not members and not allow_empty:
@@ -3975,12 +3997,16 @@ def persist_history_capture(root, source, page_size, allow_empty=False):
                 "pages": pages, "member_count": len(members),
                 "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
                 "aggregates": history_capture_aggregates(members)}
+    if transient:
+        manifest.update({"kind": "federated", "created_at": max(REVIEW_START_MS, int(time.time() * 1000))})
     manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
     validate_history_capture(manifest, members)
     connection = ensure_ledger_for_write(root)
     ensure_capture_schema(connection)
     try:
         connection.execute("BEGIN IMMEDIATE")
+        if transient:
+            prune_federated_captures(connection, manifest["created_at"])
         existing = connection.execute(
             "SELECT payload FROM history_captures WHERE capture_id=?", (manifest["capture_id"],)).fetchone()
         if existing is not None and existing[0] != ledger_payload(manifest):
@@ -4010,7 +4036,7 @@ def command_review_history(args):
             fcntl.flock(lock, fcntl.LOCK_EX)
             capture_args = argparse.Namespace(**{**vars(args), "capture": False, "capture_all": True})
             source = review_history_page(capture_args, lock_held=True)
-            manifest, members = persist_history_capture(root, source, args.limit, allow_empty=True)
+            manifest, members = persist_history_capture(root, source, args.limit, allow_empty=True, transient=True)
         result = history_capture_review_page(manifest, members, args.limit, args.cursor)
     elif args.capture_id:
         changed = (args.database is not None or args.archive_only or args.replay

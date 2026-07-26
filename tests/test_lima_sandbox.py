@@ -473,6 +473,43 @@ def test_federation_rejects_changed_continuation_identity(tmp_path: Path) -> Non
     assert second["source_state"] is None
 
 
+def test_federation_rejects_changed_capture_identity(tmp_path: Path) -> None:
+    helper = load_helper()
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Running"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        cursor = int(argv[argv.index("--cursor") + 1])
+        return json.dumps({**history_page(), "cursor": cursor, "continuation": 5 if cursor == 0 else None,
+                           "capture_id": ("e" if cursor else "d") * 24})
+
+    first = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    second = helper.federated_review(config(tmp_path), 5, 0, first["source_state"], execute=execute)
+    assert all(source["availability"] == "invalid_output" for source in second["sources"])
+    assert second["source_state"] is None
+
+
+def test_federation_does_not_start_or_stop_transitional_instance(tmp_path: Path) -> None:
+    helper = load_helper()
+    calls = []
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Starting"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        return json.dumps(history_page())
+
+    result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    assert result["sources"][1]["availability"] == "invalid_output"
+    assert not any(call[:2] in (["limactl", "start"], ["limactl", "stop"]) for call in calls)
+
+
 def test_unavailable_source_has_no_continuation_state(tmp_path: Path) -> None:
     helper = load_helper()
 

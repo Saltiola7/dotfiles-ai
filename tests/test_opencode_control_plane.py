@@ -1001,11 +1001,16 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
     helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\ncat <<'EOF'\n{manifest}\nEOF\n")
     helper.chmod(0o755)
+    sandbox_config = tmp_path / "sandbox.json"
+    sandbox_config.write_text(json.dumps({"workspaces": [
+        {"name": "workspace1", "federate": True}, {"name": "workspace2", "federate": True},
+    ]}))
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = f'import {{ reviewFederated }} from {json.dumps(str(runtime))};await reviewFederated({{limit:5,cursor:0}},process.cwd());'
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(sandbox_config)},
         text=True, capture_output=True,
     )
     assert result.returncode != 0
@@ -1028,16 +1033,30 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$FEDERATED_LOG\"\nprintf '%s\\n' '{json.dumps(manifest)}'\n")
     helper.chmod(0o755)
+    sandbox_config = tmp_path / "sandbox.json"
+    sandbox_config.write_text(json.dumps({"workspaces": [
+        {"name": "workspace1", "federate": True}, {"name": "workspace2", "federate": True},
+    ]}))
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
               'await reviewFederated({limit:5,context:"dotfiles_ai_distribution"},process.cwd());')
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FEDERATED_LOG": str(tmp_path / "args")}
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FEDERATED_LOG": str(tmp_path / "args"),
+           "OPENCODE_VM_CONFIG": str(sandbox_config)}
     subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True, check=True)
     assert "<--context>\n<dotfiles_ai_distribution>" in (tmp_path / "args").read_text()
     helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps({**manifest, 'manifest_digest': 'a' * 64})}'\n")
     result = subprocess.run(["bun", "-e", script], cwd=ROOT,
                             env=env,
                             text=True, capture_output=True)
+    assert result.returncode != 0
+    assert "invalid federation manifest" in result.stderr
+
+    swapped = [sources[0], sources[2], sources[1]]
+    reordered = {"schema_version": 2, "sources": swapped, "source_state": None,
+                 "manifest_digest": hashlib.sha256(json.dumps({"filters": query, "sources": swapped}, sort_keys=True,
+                                                                 separators=(",", ":")).encode()).hexdigest()}
+    helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(reordered)}'\n")
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True)
     assert result.returncode != 0
     assert "invalid federation manifest" in result.stderr
 

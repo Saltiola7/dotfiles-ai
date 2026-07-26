@@ -206,7 +206,7 @@ export const review_history = tool({
 })
 
 export const review_federated = tool({
-  description: "Read bounded sanitized review history from the host and configured workspaces with explicit source availability.",
+  description: "Capture and read bounded sanitized review history from the host and configured workspaces; transient private captures expire after 24 hours.",
   args: {
     after: tool.schema.number().int().min(0).optional(),
     before: tool.schema.number().int().min(0).optional(),

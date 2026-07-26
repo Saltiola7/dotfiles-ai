@@ -303,6 +303,9 @@ ordered in the manifest. The typed aggregate call has no wall-clock timeout;
 each source exporter retains its own 120-second deadline and the aggregate output
 remains bounded. Every continuation is served from the source's immutable private
 capture instead of rescanning its live OpenCode database.
+The typed adapter independently reads the managed sandbox configuration and
+rejects changed source membership or order. Federated reads explicitly create
+private transient captures; unreferenced captures expire after 24 hours.
 
 Given an approved host handoff, the configured Build workspace OpenCode receives only the sanitized
 context and approval identity plus instructions to start a distinct VM-owned

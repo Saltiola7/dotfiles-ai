@@ -3414,6 +3414,12 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(first["capture_id"], r"^[0-9a-f]{24}$")
         self.assertEqual(first["candidates"], [])
         self.assertIsNone(first["continuation"])
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        manifest = json.loads(ledger.execute(
+            "select payload from history_captures where capture_id=?", (first["capture_id"],)).fetchone()[0])
+        ledger.close()
+        self.assertEqual(manifest["kind"], "federated")
+        self.assertGreaterEqual(manifest["created_at"], 1783814400000)
         replay = json.loads(run(
             self.repo, "review-history", "--state-root", str(state), "--limit", "5", "--cursor", "0",
             "--capture-id", first["capture_id"],

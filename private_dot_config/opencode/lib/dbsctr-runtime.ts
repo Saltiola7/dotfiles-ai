@@ -1,5 +1,7 @@
-import { realpath } from "node:fs/promises"
+import { readFile, realpath } from "node:fs/promises"
 import { createHash } from "node:crypto"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
 function canonicalJSON(value: any): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`
@@ -10,6 +12,26 @@ function canonicalJSON(value: any): string {
 
 function sha256(value: any) {
   return createHash("sha256").update(canonicalJSON(value)).digest("hex")
+}
+
+async function federatedSourceOrder(env: NodeJS.ProcessEnv) {
+  const path = env.OPENCODE_VM_CONFIG ?? join(homedir(), ".config", "dotfiles-ai", "sandbox.json")
+  let config: any
+  try {
+    config = JSON.parse(await readFile(path, "utf8"))
+  } catch {
+    throw new Error("sandbox configuration is unavailable")
+  }
+  const workspaces = config?.workspaces
+  const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  if (!Array.isArray(workspaces) || workspaces.length > 32
+      || workspaces.some((workspace: any) => workspace === null || typeof workspace !== "object"
+        || !id.test(workspace.name) || workspace.name === "host" || typeof workspace.federate !== "boolean"))
+    throw new Error("sandbox configuration is invalid")
+  const sources = ["host", ...workspaces.filter((workspace: any) => workspace.federate)
+    .map((workspace: any) => workspace.name)]
+  if (new Set(sources).size !== sources.length) throw new Error("sandbox configuration is invalid")
+  return sources
 }
 
 export async function run(argv: string[], cwd: string) {
@@ -372,7 +394,7 @@ export async function reviewFederated(args: {
   query_digest: string
   continuation: number | null
   }[]
-} = {}, cwd = process.cwd()) {
+} = {}, cwd = process.cwd(), env = process.env) {
   const { limit = 25, cursor = 0, sourceState, ...requested } = args
   const query = {
     after: requested.after ?? null,
@@ -393,7 +415,9 @@ export async function reviewFederated(args: {
     if (value === true) argv.push(`--${names[name] ?? name}`)
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name}`, String(value))
   }
-  const value = await analyticsJSON(argv, cwd, null)
+  const [value, expectedSources] = await Promise.all([
+    analyticsJSON(argv, cwd, null), federatedSourceOrder(env),
+  ])
   const sourceID = (value: any) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
   const validState = (state: any) => exactKeys(state, ["source_id", "capture_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "exclusion_digest", "query_digest", "continuation"])
@@ -407,7 +431,7 @@ export async function reviewFederated(args: {
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
       || value.schema_version !== 2 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
       || !Array.isArray(value.sources) || value.sources.length < 1 || value.sources.length > 33
-      || value.sources[0]?.source_id !== "host"
+      || canonicalJSON(value.sources.map((source: any) => source?.source_id)) !== canonicalJSON(expectedSources)
       || new Set(value.sources.map((source: any) => source?.source_id)).size !== value.sources.length
       || value.source_state !== null && (!Array.isArray(value.source_state) || value.source_state.length !== value.sources.length
         || new Set(value.source_state.map((state: any) => state?.source_id)).size !== value.sources.length
@@ -418,6 +442,8 @@ export async function reviewFederated(args: {
         || !exactKeys(source, source.availability === "available" ? ["source_id", "availability", "page"] : ["source_id", "availability"])
         || source.availability === "available" && !validFederatedPage(source.page, limit,
           sourceState?.find(state => state.source_id === source.source_id)?.continuation ?? cursor)
+        || source.availability === "available" && sourceState !== undefined
+          && source.page.capture_id !== sourceState.find(state => state.source_id === source.source_id)?.capture_id
         || source.availability === "available" && canonicalJSON(source.page.query) !== canonicalJSON(query))
       || value.manifest_digest !== sha256({ filters: query, sources: value.sources })
       || value.source_state !== null && value.source_state.some((state: any) => {

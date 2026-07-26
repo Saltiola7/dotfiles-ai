@@ -149,6 +149,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Given host and multiple federated workspaces are available, then their bounded
   capture commands run concurrently while the returned manifest remains in configured
   source order. One slow or invalid source cannot erase another source's result.
+- Given a workspace may be stopped, then collection holds one owner-validated
+  per-instance lifecycle lock, rechecks its current state, and restores only an
+  instance that this collection started. Transitional states fail closed.
 - Given a valid source takes longer than the generic analytics deadline, then the
   typed federation call waits for its source-bounded command instead of killing the
   aggregate operation. Per-command time and output bounds remain enforced.
@@ -315,9 +318,13 @@ OpenCode control-plane behavior, and shell authentication.
 - Initial source collection invokes `dbsctrctl review-history --capture` once.
   Later pages invoke the same interface with only `--capture-id`, limit, and
   cursor. Empty databases remain available sources with an immutable empty capture.
+  These explicitly mutating private captures are tagged `federated`; unreferenced
+  captures older than 24 hours are pruned when the next capture is created.
 - The typed federation adapter retains the 256 KiB aggregate output bound but has
   no aggregate wall-clock timeout. `sandbox-vm` retains a 120-second deadline for
   each host or guest exporter and bounds concurrent source work to four tasks.
+  The typed adapter reads the managed sandbox config independently and rejects a
+  helper manifest whose source membership or order differs from configured federation.
 - Deployment cannot claim federated R&D operational from unit tests or a direct
   helper call alone. The live gate must invoke the installed typed adapter, read
   host and every configured federated workspace through all continuations, verify
