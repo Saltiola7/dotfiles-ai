@@ -179,6 +179,9 @@ OpenCode control-plane behavior, and shell authentication.
   state, pull-request check failure, or exhausted blocked worker, then it emits
   bounded JSON diagnostics and exits nonzero so launchd health reflects the
   degraded loop. Empty and successful-recovery runs exit zero.
+- Every external watchdog and spawner dependency command has a 180-second
+  deadline; expiry becomes a bounded runtime failure instead of retaining the
+  reconciliation lock indefinitely.
 - Given a draft pull request is merged or closed by a human, then the watchdog
   records the terminal outcome and leaves its Herdr tab under manual ownership.
 

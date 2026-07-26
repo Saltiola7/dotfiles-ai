@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 
+
 ROOT = Path(__file__).parents[1]
 
 
@@ -90,6 +91,23 @@ def test_enabled_loader_is_valid_bash():
         ["bash", "-n"], input=render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl"),
         text=True, check=True,
     )
+
+
+def test_runner_bounds_dependency_commands(tmp_path):
+    script = tmp_path / "dbsctr-rnd"
+    script.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl"))
+    script.chmod(0o755)
+    sleeper = tmp_path / "dbsctrctl"
+    sleeper.write_text("#!/bin/sh\nsleep 1\n")
+    sleeper.chmod(0o755)
+    result = subprocess.run(
+        [str(script), "watchdog"], text=True, capture_output=True, timeout=2,
+        env={**os.environ, "DBSCTRCTL": str(sleeper), "DBSCTR_RND_COMMAND_TIMEOUT": "0.05",
+             "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock"),
+             "DBSCTR_RND_STATE": str(tmp_path / "state.sqlite3")},
+    )
+    assert result.returncode != 0
+    assert "timed out" in result.stderr
 
 
 def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):

@@ -25,6 +25,7 @@ TERMINAL = {"merged", "closed", "abandoned"}
 LOCK = Path(os.environ.get("DBSCTR_RND_LOCK", {{ printf "%s/.local/state/dotfiles-ai/dbsctr-rnd-watchdog.lock" .chezmoi.homeDir | quote }}))
 STATE = Path(os.environ.get("DBSCTR_RND_STATE", str(LOCK.with_name("dbsctr-rnd.sqlite3"))))
 SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "240"))
+COMMAND_TIMEOUT = float(os.environ.get("DBSCTR_RND_COMMAND_TIMEOUT", "180"))
 CADENCES = ("weekly", "twice_weekly", "daily")
 CADENCE_SECONDS = {"weekly": 7 * 86400, "twice_weekly": 7 * 86400 // 2, "daily": 86400}
 MONTH_SECONDS = 30 * 86400
@@ -32,7 +33,10 @@ NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", 
 
 
 def command(argv, *, parse=True, env=None):
-    result = subprocess.run(argv, check=True, text=True, capture_output=True, env=env)
+    try:
+        result = subprocess.run(argv, check=True, text=True, capture_output=True, env=env, timeout=COMMAND_TIMEOUT)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"{argv[0]} timed out") from error
     return json.loads(result.stdout) if parse else result.stdout
 
 
