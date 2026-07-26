@@ -39,6 +39,20 @@ def text(path: str) -> str:
     return (ROOT / path).read_text()
 
 
+def federated_digest(query, sources):
+    identity = []
+    for source in sources:
+        item = {"source_id": source["source_id"], "availability": source["availability"]}
+        if source["availability"] == "available":
+            item.update({name: source["page"][name] for name in (
+                "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                "exclusion_digest", "limit", "cursor", "continuation", "digest",
+            )})
+        identity.append(item)
+    return hashlib.sha256(json.dumps({"filters": query, "sources": identity}, sort_keys=True,
+                                     separators=(",", ":")).encode()).hexdigest()
+
+
 def rendered_config(env: dict[str, str] | None = None, data: dict | None = None) -> dict:
     result = subprocess.run(
         [
@@ -1027,8 +1041,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
         "after": None, "archive_only": False, "before": None, "context": "dotfiles_ai_distribution", "cycle_id": None,
         "method_revision": None, "project_digest": None, "reviewed_status": None, "state": None,
     }
-    correct = hashlib.sha256(json.dumps({"filters": query, "sources": sources}, sort_keys=True,
-                                        separators=(",", ":")).encode()).hexdigest()
+    correct = federated_digest(query, sources)
     manifest = {"schema_version": 2, "sources": sources, "source_state": None, "manifest_digest": correct}
     helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$FEDERATED_LOG\"\nprintf '%s\\n' '{json.dumps(manifest)}'\n")
@@ -1053,8 +1066,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
 
     swapped = [sources[0], sources[2], sources[1]]
     reordered = {"schema_version": 2, "sources": swapped, "source_state": None,
-                 "manifest_digest": hashlib.sha256(json.dumps({"filters": query, "sources": swapped}, sort_keys=True,
-                                                                 separators=(",", ":")).encode()).hexdigest()}
+                 "manifest_digest": federated_digest(query, swapped)}
     helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(reordered)}'\n")
     result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True)
     assert result.returncode != 0
@@ -1075,8 +1087,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
         "schema_version": 2,
         "sources": unavailable_sources,
         "source_state": states,
-        "manifest_digest": hashlib.sha256(json.dumps({"filters": query, "sources": unavailable_sources},
-                                                       sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        "manifest_digest": federated_digest(query, unavailable_sources),
     }
     helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(malicious)}'\n")
     result = subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True, capture_output=True)

@@ -34,6 +34,17 @@ async function federatedSourceOrder(env: NodeJS.ProcessEnv) {
   return sources
 }
 
+function federatedManifestIdentity(filters: any, sources: any[]) {
+  return { filters, sources: sources.map(source => {
+    const identity: Record<string, any> = { source_id: source.source_id, availability: source.availability }
+    if (source.availability === "available") for (const name of [
+      "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest",
+      "limit", "cursor", "continuation", "digest",
+    ]) identity[name] = source.page[name]
+    return identity
+  }) }
+}
+
 export async function run(argv: string[], cwd: string) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -445,7 +456,7 @@ export async function reviewFederated(args: {
         || source.availability === "available" && sourceState !== undefined
           && source.page.capture_id !== sourceState.find(state => state.source_id === source.source_id)?.capture_id
         || source.availability === "available" && canonicalJSON(source.page.query) !== canonicalJSON(query))
-      || value.manifest_digest !== sha256({ filters: query, sources: value.sources })
+      || value.manifest_digest !== sha256(federatedManifestIdentity(query, value.sources))
       || value.source_state !== null && value.source_state.some((state: any) => {
         const source = value.sources.find((item: any) => item.source_id === state.source_id)
         const expected = source?.availability === "available" ? {

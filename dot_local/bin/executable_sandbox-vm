@@ -554,7 +554,21 @@ def _valid_source_state(value):
             and isinstance(value["query_digest"], str) and DIGEST.fullmatch(value["query_digest"])
             and (value["continuation"] is None
                  or isinstance(value["continuation"], int) and not isinstance(value["continuation"], bool)
-                 and value["continuation"] >= 0))
+                  and value["continuation"] >= 0))
+
+
+def _manifest_identity(filters, sources):
+    identity = []
+    for source in sources:
+        item = {"source_id": source["source_id"], "availability": source["availability"]}
+        if source["availability"] == "available":
+            page = source["page"]
+            item.update({name: page[name] for name in (
+                "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                "exclusion_digest", "limit", "cursor", "continuation", "digest",
+            )})
+        identity.append(item)
+    return {"filters": filters, "sources": identity}
 
 
 def federated_review(config, limit=25, cursor=0, source_state=None, execute=command, filters=None):
@@ -641,7 +655,8 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
         for index, future in futures:
             sources[index], states[index] = future.result()
     next_state = [state for state in states if state is not None]
-    digest = hashlib.sha256(json.dumps({"filters": filters, "sources": sources}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps(_manifest_identity(filters, sources), sort_keys=True,
+                                      separators=(",", ":")).encode()).hexdigest()
     continuation = next_state if len(next_state) == len(expected_sources) and any(state["continuation"] is not None for state in next_state) else None
     return {"schema_version": 2, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
