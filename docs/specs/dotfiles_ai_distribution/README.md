@@ -266,7 +266,8 @@ OpenCode control-plane behavior, and shell authentication.
 ### Federated Host R&D
 
 - Given host R&D reviews history, then it scans the host database locally and
-  invokes bounded read-only exporters inside every federated workspace sequentially.
+  invokes exporters inside federated workspaces concurrently with at most four
+  bounded source tasks.
   Database files, transcripts, paths, secrets, and credentials never cross the
   VM boundary.
 - Given a VM was stopped before collection, then the host may start it for the

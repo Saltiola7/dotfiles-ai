@@ -3462,6 +3462,30 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(second["database_digest"], first["database_digest"])
         self.assertIsNone(second["continuation"])
 
+    def test_federated_capture_pruning_preserves_current_and_benchmark_evidence(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_capture_prune_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            create table history_captures (capture_id text primary key, payload text not null);
+            create table benchmark_effects (baseline_capture_id text not null, observation_capture_id text not null);
+        """)
+        now = module.REVIEW_START_MS + module.FEDERATED_CAPTURE_RETENTION_MS * 2
+        old = now - module.FEDERATED_CAPTURE_RETENTION_MS - 1
+        for capture_id, created_at in (("expired", old), ("referenced", old), ("current", now)):
+            connection.execute("insert into history_captures values (?, ?)", (
+                capture_id, json.dumps({"kind": "federated", "created_at": created_at}),
+            ))
+        connection.execute("insert into benchmark_effects values ('referenced', 'referenced')")
+        module.prune_federated_captures(connection, now)
+        self.assertEqual(
+            {row[0] for row in connection.execute("select capture_id from history_captures")},
+            {"referenced", "current"},
+        )
+        connection.close()
+
     def test_history_capture_uses_one_read_under_the_write_lock(self):
         database = Path(self.temp.name) / "history-capture-lock.db"
         connection = sqlite3.connect(database)
