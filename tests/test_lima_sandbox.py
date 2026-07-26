@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
 import tomllib
 
 import pytest
@@ -56,6 +57,7 @@ def config(tmp_path: Path) -> dict:
 def history_page() -> dict:
     return {
         "schema_version": 1,
+        "capture_id": "d" * 24,
         "snapshot": 10,
         "session_ceiling": 9,
         "part_ceiling": 8,
@@ -262,6 +264,37 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     assert ["limactl", "stop", "workspace2-sandbox"] not in calls
 
 
+def test_federation_collects_sources_concurrently_in_configured_order(tmp_path: Path) -> None:
+    helper = load_helper()
+    barrier = threading.Barrier(3, timeout=1)
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def execute(argv, **kwargs):
+        nonlocal active, peak
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Running"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        assert kwargs["timeout"] == 120
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            barrier.wait()
+            return json.dumps(history_page())
+        finally:
+            with lock:
+                active -= 1
+
+    result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    assert peak == 3
+    assert [source["source_id"] for source in result["sources"]] == ["host", "workspace1", "workspace2"]
+    assert all(source["availability"] == "available" for source in result["sources"])
+
+
 def test_stop_failure_discards_source_continuation_state(tmp_path: Path) -> None:
     helper = load_helper()
 
@@ -368,8 +401,29 @@ def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> 
     first = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
     helper.federated_review(config(tmp_path), 5, 5, first["source_state"], execute=execute)
     continuation = [call for call in calls if "review-history" in call][-1]
-    assert continuation[continuation.index("--snapshot") + 1] == "10"
-    assert continuation[continuation.index("--database-digest") + 1] == "a" * 64
+    assert continuation[continuation.index("--capture-id") + 1] == "d" * 24
+
+
+def test_federation_captures_once_then_pages_immutable_history(tmp_path: Path) -> None:
+    helper = load_helper()
+    calls = []
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Running"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        cursor = int(argv[argv.index("--cursor") + 1])
+        return json.dumps({**history_page(), "cursor": cursor, "continuation": 5 if cursor == 0 else None})
+
+    first = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    assert all(state["capture_id"] == "d" * 24 for state in first["source_state"])
+    helper.federated_review(config(tmp_path), 5, 0, first["source_state"], execute=execute)
+    history_calls = [call for call in calls if "review-history" in call]
+    assert sum("--capture" in call for call in history_calls) == 3
+    assert sum("--capture-id" in call for call in history_calls) == 3
 
 
 def test_federation_binds_filters_to_continuation_and_manifest(tmp_path: Path) -> None:

@@ -3581,8 +3581,9 @@ def validate_history_capture(value, members):
                                        "project_digest", "reviewed_status", "archive_only"}
             or type(value["query"]["archive_only"]) is not bool
             or type(value.get("page_size")) is not int or not 1 <= value["page_size"] <= REVIEW_MAX_LIMIT
-            or type(value.get("member_count")) is not int or value["member_count"] < 1
-            or not isinstance(value.get("pages"), list) or not value["pages"]
+            or type(value.get("member_count")) is not int or value["member_count"] < 0
+            or not isinstance(value.get("pages"), list)
+            or bool(value["pages"]) != bool(value["member_count"])
             or not isinstance(value.get("aggregates"), dict)):
         fail("private history capture has an invalid schema")
     for name in ("snapshot", "session_ceiling", "part_ceiling"):
@@ -3909,8 +3910,28 @@ def review_history_page(args, lock_held=False):
     return result
 
 
-def command_review_history(args):
-    print(json.dumps(review_history_page(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+def history_capture_review_page(manifest, members, limit, cursor):
+    if limit != manifest["page_size"] or cursor < 0 or cursor % limit:
+        fail("review history capture page identity changed")
+    page = members[cursor:cursor + limit]
+    continuation = cursor + limit if len(members) > cursor + limit else None
+    stored = next((item for item in manifest["pages"] if item["cursor"] == cursor), None)
+    if page and stored is None:
+        fail("review history capture page is missing")
+    result = {
+        "schema_version": 1, "capture_id": manifest["capture_id"], "candidates": page,
+        "session_ids": [item["session_id"] for item in page], "limit": limit, "cursor": cursor,
+        "continuation": continuation, "snapshot": manifest["snapshot"],
+        "session_ceiling": manifest["session_ceiling"], "part_ceiling": manifest["part_ceiling"],
+        "database_digest": manifest["database_digest"], "exclusion_digest": manifest["exclusion_digest"],
+        "query": manifest["query"],
+        "digest": stored["digest"] if stored else review_digest(
+            [], manifest["snapshot"], manifest["session_ceiling"], manifest["part_ceiling"],
+            history_page_digest([], {}, limit, cursor)),
+    }
+    if len(json.dumps(result, sort_keys=True, separators=(",", ":")).encode()) > HISTORY_SCAN_HARD:
+        fail("review history response exceeds bound")
+    return result
 
 
 def capture_history_args(args):
@@ -3930,48 +3951,83 @@ def command_history_capture_save(args):
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         source = review_history_page(capture_history_args(args), lock_held=True)
-        members = [validate_history_evidence(item) for item in source.pop("_capture_records")]
-        source_identities = source.pop("_capture_source_identities")
-        if not members:
-            fail("history capture query selected no evidence")
-        identity = {name: source[name] for name in (
-            "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")}
-        pages = []
-        for cursor in range(0, len(members), args.page_size):
-            records = members[cursor:cursor + args.page_size]
-            continuation = cursor + args.page_size if len(members) > cursor + args.page_size else None
-            pages.append({"cursor": cursor, "limit": args.page_size, "count": len(records),
-                          "continuation": continuation,
-                          "digest": review_digest(
-                              records, identity["snapshot"], identity["session_ceiling"], identity["part_ceiling"],
-                              history_page_digest(records, source_identities, args.page_size, cursor))})
-        manifest = {"schema_version": 1, "query": source["query"], **identity, "page_size": args.page_size,
-                    "pages": pages, "member_count": len(members),
-                    "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
-                    "aggregates": history_capture_aggregates(members)}
-        manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
-        validate_history_capture(manifest, members)
-        connection = ensure_ledger_for_write(root)
-        ensure_capture_schema(connection)
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = connection.execute(
-                "SELECT payload FROM history_captures WHERE capture_id=?", (manifest["capture_id"],)).fetchone()
-            if existing is not None and existing[0] != ledger_payload(manifest):
-                fail("history capture identity collision")
-            if existing is None:
-                connection.execute("INSERT INTO history_captures VALUES (?, ?)",
-                                   (manifest["capture_id"], ledger_payload(manifest)))
-                connection.executemany("INSERT INTO history_capture_members VALUES (?, ?, ?, ?)",
-                                       ((manifest["capture_id"], position, record["session_id"], ledger_payload(record))
-                                        for position, record in enumerate(members)))
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+        manifest, _ = persist_history_capture(root, source, args.page_size)
     print(json.dumps(history_capture_summary(manifest), sort_keys=True, separators=(",", ":")))
+
+
+def persist_history_capture(root, source, page_size, allow_empty=False):
+    members = [validate_history_evidence(item) for item in source.pop("_capture_records")]
+    source_identities = source.pop("_capture_source_identities")
+    if not members and not allow_empty:
+        fail("history capture query selected no evidence")
+    identity = {name: source[name] for name in (
+        "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")}
+    pages = []
+    for cursor in range(0, len(members), page_size):
+        records = members[cursor:cursor + page_size]
+        continuation = cursor + page_size if len(members) > cursor + page_size else None
+        pages.append({"cursor": cursor, "limit": page_size, "count": len(records),
+                      "continuation": continuation,
+                      "digest": review_digest(
+                          records, identity["snapshot"], identity["session_ceiling"], identity["part_ceiling"],
+                          history_page_digest(records, source_identities, page_size, cursor))})
+    manifest = {"schema_version": 1, "query": source["query"], **identity, "page_size": page_size,
+                "pages": pages, "member_count": len(members),
+                "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
+                "aggregates": history_capture_aggregates(members)}
+    manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
+    validate_history_capture(manifest, members)
+    connection = ensure_ledger_for_write(root)
+    ensure_capture_schema(connection)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT payload FROM history_captures WHERE capture_id=?", (manifest["capture_id"],)).fetchone()
+        if existing is not None and existing[0] != ledger_payload(manifest):
+            fail("history capture identity collision")
+        if existing is None:
+            connection.execute("INSERT INTO history_captures VALUES (?, ?)",
+                               (manifest["capture_id"], ledger_payload(manifest)))
+            connection.executemany("INSERT INTO history_capture_members VALUES (?, ?, ?, ?)",
+                                   ((manifest["capture_id"], position, record["session_id"], ledger_payload(record))
+                                    for position, record in enumerate(members)))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return manifest, members
+
+
+def command_review_history(args):
+    root = review_root(args.state_root)
+    if args.capture:
+        if (args.capture_id or args.replay or any(getattr(args, name) is not None for name in (
+                "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"))):
+            fail("review history accepts only one capture identity")
+        with review_lock(root) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            capture_args = argparse.Namespace(**{**vars(args), "capture": False, "capture_all": True})
+            source = review_history_page(capture_args, lock_held=True)
+            manifest, members = persist_history_capture(root, source, args.limit, allow_empty=True)
+        result = history_capture_review_page(manifest, members, args.limit, args.cursor)
+    elif args.capture_id:
+        changed = (args.database is not None or args.archive_only or args.replay
+                   or any(getattr(args, name) is not None for name in (
+                       "after", "before", "method_revision", "cycle_id", "state", "context", "project_digest",
+                       "reviewed_status", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                       "excluded_session_id", "excluded_message_id", "exclusion_digest")))
+        if changed:
+            fail("review history capture query cannot change")
+        require_review_lock_safe(root)
+        with existing_review_lock(root):
+            with ledger_connection(root) as connection:
+                manifest, members = load_history_capture(connection, args.capture_id)
+        result = history_capture_review_page(manifest, members, args.limit, args.cursor)
+    else:
+        result = review_history_page(args)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
 def load_history_capture(connection, capture_id):
@@ -6031,6 +6087,8 @@ def parser():
     review_history.add_argument("--excluded-session-id")
     review_history.add_argument("--excluded-message-id")
     review_history.add_argument("--exclusion-digest")
+    review_history.add_argument("--capture", action="store_true")
+    review_history.add_argument("--capture-id")
     review_history.set_defaults(func=command_review_history)
     capture_save = commands.add_parser("history-capture-save")
     capture_save.add_argument("--database")

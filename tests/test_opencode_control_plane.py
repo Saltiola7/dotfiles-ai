@@ -395,7 +395,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"--kind", "opencode", "--pane", paneID' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
-    assert "30_000, 256 * 1024" in runtime
+    assert "timeoutMs: number | null = 30_000" in runtime
+    assert "analyticsJSON(argv, cwd, null)" in runtime
     assert '"dbsctrctl", "improvement-status"' in runtime
     assert '"dbsctrctl", "improvement-claim"' in runtime
     assert '"dbsctrctl", "improvement-update"' in runtime
@@ -838,6 +839,24 @@ def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
     assert json.loads(unavailable.stdout) == {"status": "unavailable"}
 
 
+def test_dbsctr_runtime_health_tool_serializes_missing_cwd(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    herdr = bin_dir / "herdr"
+    herdr.write_text("#!/bin/sh\nprintf '{\"result\":{\"pane\":{\"agent\":\"opencode\"}}}\\n'\n")
+    herdr.chmod(0o755)
+    tools = OC / "tools/dbsctr.ts"
+    script = (f'import {{ runtime_health }} from {json.dumps(str(tools))};'
+              'const value=await runtime_health.execute({},'
+              '{worktree:process.cwd(),sessionID:"session-1"});console.log(value);')
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1"},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(result.stdout) == {"status": "ambiguous"}
+
+
 def test_dbsctr_begin_runs_without_a_prompt(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -970,7 +989,7 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     manifest = json.dumps({
-        "schema_version": 1,
+        "schema_version": 2,
         "sources": [
             {"source_id": "host", "availability": "complete"},
             {"source_id": "host", "availability": "complete"},
@@ -1005,7 +1024,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     }
     correct = hashlib.sha256(json.dumps({"filters": query, "sources": sources}, sort_keys=True,
                                         separators=(",", ":")).encode()).hexdigest()
-    manifest = {"schema_version": 1, "sources": sources, "source_state": None, "manifest_digest": correct}
+    manifest = {"schema_version": 2, "sources": sources, "source_state": None, "manifest_digest": correct}
     helper = bin_dir / "sandbox-vm"
     helper.write_text(f"#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$FEDERATED_LOG\"\nprintf '%s\\n' '{json.dumps(manifest)}'\n")
     helper.chmod(0o755)
@@ -1026,7 +1045,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     states = [{
         "source_id": source, "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1,
         "database_digest": "b" * 64, "exclusion_digest": None, "query_digest": query_digest,
-        "continuation": 5 if source == "host" else None,
+        "capture_id": "c" * 24, "continuation": 5 if source == "host" else None,
     } for source in ("host", "workspace1", "workspace2")]
     unavailable_sources = [
         {"source_id": "host", "availability": "missing_instance"},
@@ -1034,7 +1053,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
         {"source_id": "workspace2", "availability": "complete"},
     ]
     malicious = {
-        "schema_version": 1,
+        "schema_version": 2,
         "sources": unavailable_sources,
         "source_state": states,
         "manifest_digest": hashlib.sha256(json.dumps({"filters": query, "sources": unavailable_sources},

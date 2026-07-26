@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import configparser
 import hashlib
 import json
@@ -24,7 +25,7 @@ EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]", re.I)
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
-PAGE_KEYS = {"schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
+PAGE_KEYS = {"schema_version", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
 CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
 QUERY_KEYS = {"after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest", "reviewed_status", "state"}
 AGGREGATE_KEYS = {"approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"}
@@ -197,18 +198,10 @@ def _history_argv(limit, cursor, state=None, filters=None):
         if not isinstance(cursor, int) or cursor < 0:
             raise ValueError("source continuation changed")
     argv = ["dbsctrctl", "review-history", "--limit", str(limit), "--cursor", str(cursor)]
-    if state is not None:
-        names = {
-            "snapshot": "snapshot", "session_ceiling": "session-ceiling",
-            "part_ceiling": "part-ceiling", "database_digest": "database-digest",
-            "exclusion_digest": "exclusion-digest",
-        }
-        for key, name in names.items():
-            if state.get(key) is not None:
-                argv.extend([f"--{name}", str(state[key])])
+    argv.extend(["--capture-id", state["capture_id"]] if state is not None else ["--capture"])
     names = {"method_revision": "method-revision", "cycle_id": "cycle-id", "project_digest": "project-digest",
              "reviewed_status": "reviewed-status", "archive_only": "archive-only"}
-    for key, value in (filters or {}).items():
+    for key, value in (() if state is not None else (filters or {}).items()):
         if value is True:
             argv.append(f"--{names.get(key, key.replace('_', '-'))}")
         elif value is not None and value is not False:
@@ -497,6 +490,7 @@ def _source_page(source, output, limit, cursor, previous=None, filters=None):
         raise ValueError("invalid history page")
     state = {
         "source_id": source,
+        "capture_id": value["capture_id"],
         "snapshot": value["snapshot"],
         "session_ceiling": value["session_ceiling"],
         "part_ceiling": value["part_ceiling"],
@@ -511,9 +505,10 @@ def _source_page(source, output, limit, cursor, previous=None, filters=None):
 
 
 def _valid_source_state(value):
-    return (_exact(value, {"source_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+    return (_exact(value, {"source_id", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
                            "exclusion_digest", "query_digest", "continuation"})
             and isinstance(value["source_id"], str) and ID.fullmatch(value["source_id"])
+            and isinstance(value["capture_id"], str) and re.fullmatch(r"[0-9a-f]{24}", value["capture_id"])
             and all(isinstance(value[name], int) and not isinstance(value[name], bool) and value[name] >= 0
                     for name in ("snapshot", "session_ceiling", "part_ceiling"))
             and isinstance(value["database_digest"], str) and DIGEST.fullmatch(value["database_digest"])
@@ -543,58 +538,74 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
                 or any(item["query_digest"] != query_digest for item in source_state)):
             raise ValueError("invalid source state")
         continuation_states = {item["source_id"]: item for item in source_state}
-    sources = []
-    next_state = []
+    sources = [None] * (len(federated) + 1)
+    states = [None] * len(sources)
     host_state = continuation_states.get("host")
     host_cursor = host_state.get("continuation") if host_state else cursor
     if host_state and host_cursor is None:
-        sources.append({"source_id": "host", "availability": "complete"})
-        next_state.append(host_state)
-    else:
-        try:
-            source, state = _source_page("host", execute(_history_argv(limit, cursor, host_state, filters), timeout=120),
-                                         limit, host_cursor, host_state, filters)
-            sources.append(source)
-            next_state.append(state)
-        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
-            sources.append({"source_id": "host", "availability": "invalid_output"})
+        sources[0] = {"source_id": "host", "availability": "complete"}
+        states[0] = host_state
     try:
         running = _parse_states(execute(["limactl", "list", "--json"]))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         running = {}
-    for workspace in federated:
+    jobs = []
+
+    def collect_host():
+        try:
+            return _source_page("host", execute(_history_argv(limit, cursor, host_state, filters), timeout=120),
+                                limit, host_cursor, host_state, filters)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            return {"source_id": "host", "availability": "invalid_output"}, None
+
+    if sources[0] is None:
+        jobs.append((0, collect_host))
+
+    def collect_workspace(workspace, state_before, source_cursor, started):
         source = workspace["name"]
         instance = workspace["instance"]
-        state_before = continuation_states.get(source)
-        source_cursor = state_before.get("continuation") if state_before else cursor
-        if state_before and source_cursor is None:
-            sources.append({"source_id": source, "availability": "complete"})
-            next_state.append(state_before)
-            continue
-        if instance not in running:
-            sources.append({"source_id": source, "availability": "missing_instance"})
-            continue
-        started = not running[instance]
+        envelope = {"source_id": source, "availability": "invalid_output"}
+        state = None
         try:
             if started:
                 execute(["limactl", "start", instance], timeout=120)
             output = execute(["limactl", "shell", instance, "--", *_history_argv(limit, cursor, state_before, filters)], timeout=120)
             envelope, state = _source_page(source, output, limit, source_cursor, state_before, filters)
-            sources.append(envelope)
-            next_state.append(state)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
-            sources.append({"source_id": source, "availability": "invalid_output"})
+            pass
         finally:
             if started:
                 try:
                     execute(["limactl", "stop", instance], timeout=120)
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
-                    sources[-1] = {"source_id": source, "availability": "state_restore_failed"}
-                    if next_state and next_state[-1]["source_id"] == source:
-                        next_state.pop()
+                    envelope = {"source_id": source, "availability": "state_restore_failed"}
+                    state = None
+        return envelope, state
+
+    for index, workspace in enumerate(federated, 1):
+        source = workspace["name"]
+        instance = workspace["instance"]
+        state_before = continuation_states.get(source)
+        source_cursor = state_before.get("continuation") if state_before else cursor
+        if state_before and source_cursor is None:
+            sources[index] = {"source_id": source, "availability": "complete"}
+            states[index] = state_before
+            continue
+        if instance not in running:
+            sources[index] = {"source_id": source, "availability": "missing_instance"}
+            continue
+        started = not running[instance]
+        jobs.append((index, lambda workspace=workspace, state_before=state_before,
+                     source_cursor=source_cursor, started=started:
+                     collect_workspace(workspace, state_before, source_cursor, started)))
+    with ThreadPoolExecutor(max_workers=min(4, len(jobs) or 1)) as pool:
+        futures = [(index, pool.submit(job)) for index, job in jobs]
+        for index, future in futures:
+            sources[index], states[index] = future.result()
+    next_state = [state for state in states if state is not None]
     digest = hashlib.sha256(json.dumps({"filters": filters, "sources": sources}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     continuation = next_state if len(next_state) == len(expected_sources) and any(state["continuation"] is not None for state in next_state) else None
-    return {"schema_version": 1, "sources": sources, "source_state": continuation, "manifest_digest": digest}
+    return {"schema_version": 2, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
 def main(argv=None, invocation=None):

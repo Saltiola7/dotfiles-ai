@@ -27,10 +27,10 @@ export const runtime_health = tool({
   description: "Read normalized advisory Herdr health for the current OpenCode runtime.",
   args: {},
   async execute(_args, context) {
-    return await runtimeHealth(context.worktree, {
+    return JSON.stringify(await runtimeHealth(context.worktree, {
       sessionID: context.sessionID,
       worktree: context.worktree,
-    })
+    }))
   },
 })
 
@@ -221,6 +221,7 @@ export const review_federated = tool({
     cursor: tool.schema.number().int().min(0).optional().default(0),
     sourceState: tool.schema.array(tool.schema.object({
       source_id: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+      capture_id: tool.schema.string().regex(/^[0-9a-f]{24}$/),
       snapshot: tool.schema.number().int().min(0),
       session_ceiling: tool.schema.number().int().min(0),
       part_ceiling: tool.schema.number().int().min(0),

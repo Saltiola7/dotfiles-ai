@@ -3391,6 +3391,71 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("capture is missing", missing.stderr)
 
+    def test_review_history_capture_supports_empty_immutable_pages(self):
+        database = Path(self.temp.name) / "empty-history.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        connection.close()
+        state = Path(self.temp.name) / "empty-history-state"
+        rejected = run(
+            self.repo, "history-capture-save", "--database", str(database),
+            "--state-root", str(state), "--page-size", "5", ok=False,
+        )
+        self.assertIn("selected no evidence", rejected.stderr)
+        first = json.loads(run(
+            self.repo, "review-history", "--database", str(database),
+            "--state-root", str(state), "--limit", "5", "--cursor", "0", "--capture",
+        ).stdout)
+        self.assertRegex(first["capture_id"], r"^[0-9a-f]{24}$")
+        self.assertEqual(first["candidates"], [])
+        self.assertIsNone(first["continuation"])
+        replay = json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--limit", "5", "--cursor", "0",
+            "--capture-id", first["capture_id"],
+        ).stdout)
+        self.assertEqual(replay, first)
+
+    def test_review_history_continuation_does_not_rescan_live_database(self):
+        database = Path(self.temp.name) / "captured-history.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        for index in range(3):
+            timestamp = 1784073600000 + index
+            connection.execute("insert into session values (?, null, 'DBSCTR', ?)", (f"session-{index}", timestamp))
+            connection.execute("insert into message values (?, ?, ?, '{}')",
+                               (f"message-{index}", f"session-{index}", timestamp))
+            connection.execute("insert into part values (?, ?, ?, ?, ?, 'DBSCTR')",
+                               (f"part-{index}", f"message-{index}", f"session-{index}", timestamp, timestamp))
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "captured-history-state"
+        first = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--cursor", "0", "--capture",
+        ).stdout)
+        self.assertEqual(first["session_ids"], ["session-2", "session-1"])
+        connection = sqlite3.connect(database)
+        connection.executescript("delete from part; delete from message; delete from session;")
+        connection.commit()
+        connection.close()
+        second = json.loads(run(
+            self.repo, "review-history", "--state-root", str(state), "--limit", "2", "--cursor", "2",
+            "--capture-id", first["capture_id"],
+        ).stdout)
+        self.assertEqual(second["session_ids"], ["session-0"])
+        self.assertEqual(second["database_digest"], first["database_digest"])
+        self.assertIsNone(second["continuation"])
+
     def test_history_capture_uses_one_read_under_the_write_lock(self):
         database = Path(self.temp.name) / "history-capture-lock.db"
         connection = sqlite3.connect(database)

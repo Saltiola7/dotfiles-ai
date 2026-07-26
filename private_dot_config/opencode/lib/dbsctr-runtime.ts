@@ -44,7 +44,7 @@ async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaini
   return new TextDecoder().decode(bytes).trim()
 }
 
-async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputLimit = 64 * 1024) {
+async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000, outputLimit = 64 * 1024) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
   const budget = { remaining: outputLimit }
   const killTree = () => {
@@ -54,26 +54,27 @@ async function runBounded(argv: string[], cwd: string, timeoutMs = 2000, outputL
       child.kill()
     }
   }
-  let timer: ReturnType<typeof setTimeout>
-  const timeout = new Promise<never>((_resolve, reject) => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = timeoutMs === null ? null : new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       killTree()
       reject(new Error("command timed out"))
     }, timeoutMs)
   })
   try {
-    const [stdout, stderr, exitCode] = await Promise.race([Promise.all([
+    const operation = Promise.all([
       boundedText(child.stdout, budget),
       boundedText(child.stderr, budget),
       child.exited,
-    ]), timeout])
+    ])
+    const [stdout, stderr, exitCode] = await (timeout === null ? operation : Promise.race([operation, timeout]))
     if (exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
     return stdout
   } catch (error) {
     killTree()
     throw error
   } finally {
-    clearTimeout(timer!)
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -270,7 +271,7 @@ export async function reviewHistory(args: {
 }
 
 function validFederatedPage(page: any, limit: number, cursor: number) {
-  const pageKeys = ["schema_version", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+  const pageKeys = ["schema_version", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
     "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"]
   const candidateKeys = ["schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality",
@@ -290,7 +291,8 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
   const nonnegative = (value: any) => typeof value === "number" && Number.isFinite(value) && value >= 0
   const nonnegativeInteger = (value: any) => Number.isInteger(value) && value >= 0
   const unavailable = (value: any) => value === "unavailable" || nonnegative(value)
-  return exactKeys(page, pageKeys) && page.schema_version === 1 && page.limit === limit
+  return exactKeys(page, pageKeys) && page.schema_version === 1 && /^[0-9a-f]{24}$/.test(page.capture_id)
+    && page.limit === limit
     && !unsafe.test(JSON.stringify(page)) && nonnegativeInteger(page.snapshot) && nonnegativeInteger(page.session_ceiling)
     && nonnegativeInteger(page.part_ceiling) && page.cursor === cursor
     && (page.continuation === null || Number.isInteger(page.continuation) && page.continuation > cursor)
@@ -361,6 +363,7 @@ export async function reviewFederated(args: {
   cursor?: number
   sourceState?: {
   source_id: string
+  capture_id: string
   snapshot: number
   session_ceiling: number
   part_ceiling: number
@@ -390,18 +393,19 @@ export async function reviewFederated(args: {
     if (value === true) argv.push(`--${names[name] ?? name}`)
     else if (value !== undefined && value !== false) argv.push(`--${names[name] ?? name}`, String(value))
   }
-  const value = await analyticsJSON(argv, cwd)
+  const value = await analyticsJSON(argv, cwd, null)
   const sourceID = (value: any) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
-  const validState = (state: any) => exactKeys(state, ["source_id", "snapshot", "session_ceiling", "part_ceiling",
+  const validState = (state: any) => exactKeys(state, ["source_id", "capture_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "exclusion_digest", "query_digest", "continuation"])
     && sourceID(state.source_id)
+    && /^[0-9a-f]{24}$/.test(state.capture_id)
     && [state.snapshot, state.session_ceiling, state.part_ceiling].every((item: any) => Number.isInteger(item) && item >= 0)
     && /^[0-9a-f]{64}$/.test(state.database_digest)
     && (state.exclusion_digest === null || /^[0-9a-f]{64}$/.test(state.exclusion_digest))
     && state.query_digest === sha256(query)
     && (state.continuation === null || Number.isInteger(state.continuation) && state.continuation >= 0)
   if (!exactKeys(value, ["schema_version", "sources", "source_state", "manifest_digest"])
-      || value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
+      || value.schema_version !== 2 || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
       || !Array.isArray(value.sources) || value.sources.length < 1 || value.sources.length > 33
       || value.sources[0]?.source_id !== "host"
       || new Set(value.sources.map((source: any) => source?.source_id)).size !== value.sources.length
@@ -419,7 +423,8 @@ export async function reviewFederated(args: {
       || value.source_state !== null && value.source_state.some((state: any) => {
         const source = value.sources.find((item: any) => item.source_id === state.source_id)
         const expected = source?.availability === "available" ? {
-          source_id: source.source_id, snapshot: source.page.snapshot, session_ceiling: source.page.session_ceiling,
+          source_id: source.source_id, capture_id: source.page.capture_id,
+          snapshot: source.page.snapshot, session_ceiling: source.page.session_ceiling,
           part_ceiling: source.page.part_ceiling, database_digest: source.page.database_digest,
           exclusion_digest: source.page.exclusion_digest, query_digest: sha256(query), continuation: source.page.continuation,
         } : source?.availability === "complete"
@@ -531,8 +536,8 @@ function reviewHistoryArgv(args: {
   return argv
 }
 
-async function analyticsJSON(argv: string[], cwd: string) {
-  const output = await runBounded(argv, cwd, 30_000, 256 * 1024)
+async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
+  const output = await runBounded(argv, cwd, timeoutMs, 256 * 1024)
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
   if (unsafe.test(output)) {
     throw new Error("analytics helper returned unsafe content")
@@ -562,7 +567,7 @@ export async function historyCapture(args: { captureID: string; cursor?: number;
   const keys = ["schema_version", "capture_id", "query", "snapshot", "page_size", "page_count", "member_count", "aggregates"]
   if (args.cursor !== undefined) keys.push("cursor", "limit", "members", "continuation")
   if (!exactKeys(value, keys) || value.schema_version !== 1 || value.capture_id !== args.captureID
-      || !Number.isInteger(value.member_count) || value.member_count < 1
+      || !Number.isInteger(value.member_count) || value.member_count < 0
       || value.query === null || typeof value.query !== "object" || Array.isArray(value.query)
       || value.aggregates === null || typeof value.aggregates !== "object" || Array.isArray(value.aggregates)
       || args.cursor !== undefined && (value.cursor !== args.cursor || value.limit !== (args.limit ?? 100)
