@@ -10,7 +10,9 @@
   and explicit-forget backup purge, semantic backup/restore validation, and
   capture-independent replay. The existing cadence and DAI-011 one-capture
   continuation path remain unchanged. The first real report is tracked as
-  DAI-012-F1 until five eligible activated cycles exist.
+  DAI-012-F1 until five eligible activated cycles exist. Independent review
+  verified selective backup retention and bounded one-use receipts with no
+  remaining material findings.
 
 ## 2026-07-26 - Provider-Native Evaluation Discovery
 

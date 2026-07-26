@@ -879,7 +879,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | passed | 219 affected tests, one skipped | - | Primary |
 | Test-driven implementation | Red/green prompt, identity, privacy, and cohort evidence | required | passed | Affected configured authorities | - | Primary |
 | Refactor | Thin core and remove duplicated or routine guidance | required | passed | Prompt diff, compilation, and Bun build | - | Primary |
-| Review/Integrate | Preserve DAI-011 and verify traceability/integration evidence | required | pending | Integrated `c24f7e5` diff and scoped QA | - | Primary |
+| Review/Integrate | Preserve DAI-011 and verify traceability/integration evidence | required | passed | Integrated diff, scoped QA, and final independent review with no findings | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
 | Deploy | Apply managed lifecycle and OpenCode configuration | required | passed | Targeted chezmoi apply, source identity, idempotence, resolved config | - | Primary |
 | Operate | Verify available providers, telemetry, and evaluation scheduling | required | passed | Fresh GPT activation; explicit Opus SSO follow-up without fallback | - | Primary |

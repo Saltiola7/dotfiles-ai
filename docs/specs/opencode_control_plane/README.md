@@ -543,7 +543,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | passed | 219 affected tests, one skipped | - | Primary |
 | Test-driven implementation | Red/green provider, prompt, telemetry, and privacy evidence | required | passed | Helper, sandbox, lifecycle, runner, and control-plane tests | - | Primary |
 | Refactor | Thin shared core and conditional provider overlays | required | passed | Diff, compilation, and externalized Bun build | - | Primary |
-| Review/Integrate | Preserve DAI-011 and verify evidence without routine re-review prompts | required | pending | Integrated `c24f7e5` diff and affected QA | - | Primary |
+| Review/Integrate | Preserve DAI-011 and verify evidence without routine re-review prompts | required | passed | Integrated diff, affected QA, and final independent review with no findings | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
 | Deploy | Apply managed OpenCode configuration | required | passed | Targeted chezmoi apply, empty second dry-run, source identity, resolved config | - | Primary |
 | Operate | Verify routing, telemetry, and available live providers | required | passed | Fresh GPT activation passed; Opus SSO adapter follow-up recorded without fallback | - | Primary |
