@@ -10,6 +10,7 @@ ROOT = Path(__file__).parents[1]
 def data(onepassword: bool = False) -> dict:
     return {
         "dotfiles_ai": {
+            "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
             "opencode": {
                 "bedrock_region": "eu-west-1",
                 "bedrock_profile": "local-profile",
@@ -24,14 +25,27 @@ def data(onepassword: bool = False) -> dict:
             },
             "sandbox": {
                 "enabled": True,
-                "personal_instance": "personal-sandbox",
-                "personal_root": "/workspace/personal",
-                "mgm_instance": "mgm-sandbox",
-                "mgm_root": "/workspace/mgm",
-                "mgm_protected_repo": "/workspace/reference/seo-code-analysis",
+                "build_workspace": "workspace1",
                 "cpus": 4,
                 "memory_gib": 8,
                 "disk_gib": 60,
+                "workspaces": [
+                    {
+                        "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
+                        "mounts": [{
+                            "host": "/workspace/projects", "guest": "/workspace/projects", "writable": True,
+                            "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
+                        }],
+                    },
+                    {
+                        "name": "workspace2", "instance": "workspace2-sandbox", "federate": False,
+                        "mounts": [{
+                            "host": "/workspace/reference", "guest": "/workspace/reference", "writable": False,
+                            "protect_git_submodules": False, "reference_name": "project-reference",
+                            "reference_description": "Project reference.", "reference_subpath": "",
+                        }],
+                    },
+                ],
             },
             "onepassword": {
                 "enabled": onepassword,
@@ -88,28 +102,18 @@ def test_onepassword_helper_is_opt_in_and_localized() -> None:
     assert '__OP_KEYCHAIN_SERVICE="local-service"' in helper
 
 
-def test_lima_client_templates_and_registry_render(tmp_path: Path) -> None:
+def test_dynamic_workspace_registry_and_template_render() -> None:
     registry = json.loads(chezmoi(
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["clients"]["personal"]["root"] == "/workspace/personal"
-    assert registry["clients"]["mgm"]["protected_repo"] == "/workspace/reference/seo-code-analysis"
-
-    personal = chezmoi(
-        "cat", str(Path.home() / ".config/dotfiles-ai/lima/personal.yaml")
-    ).stdout
-    mgm = chezmoi(
-        "cat", str(Path.home() / ".config/dotfiles-ai/lima/mgm.yaml")
-    ).stdout
-    assert 'disk: "60GiB"' in personal
-    assert 'location: "/workspace/personal"' in personal
-    assert 'location: "/workspace/mgm"' in mgm
-    assert 'protected="/workspace/reference/seo-code-analysis"' in mgm
-    for name, template in (("personal", personal), ("mgm", mgm)):
-        path = tmp_path / f"{name}.yaml"
-        path.write_text(template)
-        subprocess.run(["limactl", "validate", str(path)], check=True, capture_output=True, text=True)
+    assert registry["build_workspace"] == "workspace1"
+    assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]
+    assert registry["workspaces"][1]["mounts"][0]["writable"] is False
+    template = chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/lima/workspace.yaml")).stdout
+    assert 'disk: "60GiB"' in template
+    assert "@@MOUNTS@@" in template
+    assert "@@WORKSPACE_JSON@@" in template
 
 
 def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:
@@ -163,3 +167,13 @@ def test_public_tree_has_no_maintainer_identifiers() -> None:
         body = path.read_text(errors="ignore")
         for value in banned:
             assert value not in body, f"{value} in {path.relative_to(ROOT)}"
+        for value in (
+            "m" + "gm",
+            "personal" + "-sandbox",
+            "personal" + "_instance",
+            "personal" + "_root",
+            "seo" + "_data_science_path",
+            "seo" + "-data-science",
+            "seo" + "-code-analysis",
+        ):
+            assert value not in body.lower(), f"legacy identifier in {path.relative_to(ROOT)}"
