@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-009 dynamic workspace shell aliases active
+**Status:** DAI-009 dynamic workspace shell aliases deployed
 
 ## Engineering Profile
 

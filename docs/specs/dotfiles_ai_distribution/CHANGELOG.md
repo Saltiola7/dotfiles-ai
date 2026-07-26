@@ -1,5 +1,20 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-25 - DAI-009 Dynamic Workspace Shell Aliases
+
+- Added optional unique `shell_alias` values to version 3 workspace
+  configuration. Invoking a configured alias follows the same validated path as
+  `sandbox-vm shell WORKSPACE` and preserves command arguments.
+- Added chezmoi reconciliation for machine-local alias symlinks. Apply refuses
+  unmanaged collisions and removes only stale links still targeting the managed
+  controller.
+- Configured and applied two machine-local aliases. Both commands reached their
+  configured guests, host chezmoi is drift-free, and workspace health passed.
+- Validation: 212 passed, 1 skipped; Python compilation, rendered shell syntax,
+  template rendering, sanitation, local apply, alias smoke tests, and direct
+  security review passed. Release is not applicable. Existing accepted risk
+  `DAI-007-AR1` is unchanged. Intended Final Push: `origin/main`.
+
 ## 2026-07-25 - DAI-008 Dynamic Workspaces
 
 - Replaced fixed public sandbox identities with a version 2 machine-local list
