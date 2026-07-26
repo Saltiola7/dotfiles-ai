@@ -95,6 +95,7 @@ def test_portable_terminal_config_is_guest_only() -> None:
     targets = {".bashrc", ".bash_profile", ".common_profile", ".config/starship.toml"}
 
     assert targets.isdisjoint(host)
+    assert "install-starship.sh" not in host
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(starship init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
     assert (ROOT / "dot_common_profile.tmpl").exists()
@@ -102,6 +103,7 @@ def test_portable_terminal_config_is_guest_only() -> None:
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert '{{ if eq .chezmoi.os "darwin" }}' in ignore
     assert all(target in ignore for target in targets)
+    assert "install-starship.sh" in ignore
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

@@ -25,7 +25,7 @@ graphify-out/
 .bash_profile
 .common_profile
 .config/starship.toml
-run_onchange_after_install-starship.sh
+install-starship.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.onepassword.enabled }}
