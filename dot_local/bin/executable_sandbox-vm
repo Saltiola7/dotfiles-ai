@@ -257,6 +257,7 @@ def guest_config(config, workspace):
         f"default_model = {quote(guest['default_model'])}",
         f"small_model = {quote(guest['small_model'])}",
         'lmstudio_base_url = "http://host.lima.internal:1234/v1"',
+        f"theme = {quote(guest['theme'])}",
         "",
         "[data.dotfiles_ai.herdr]",
         f"theme = {quote(guest['theme'])}",

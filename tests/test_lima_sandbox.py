@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tomllib
 
 import pytest
 
@@ -30,7 +31,7 @@ def config(tmp_path: Path) -> dict:
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
-            "small_model": "provider/small", "theme": "default",
+            "small_model": "provider/small", "theme": "catppuccin",
         },
         "workspaces": [
             {
@@ -129,6 +130,16 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     assert "After=lima-guestagent.service" in template
     assert "rm -f /run/opencode-sandbox-ready" in template
     assert "touch /run/opencode-sandbox-ready" in template
+
+
+def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    rendered = helper.guest_config(values, values["workspaces"][0])
+    parsed = tomllib.loads(rendered)
+
+    assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
+    assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
 
 
 def test_guest_identity_requires_exactly_one_generated_home() -> None:

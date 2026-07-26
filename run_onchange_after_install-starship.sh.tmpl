@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+version=1.26.0
+if command -v starship >/dev/null && [ "$(starship --version | sed -n 's/^starship \([^ ]*\).*/\1/p')" = "$version" ]; then
+    exit 0
+fi
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL "https://github.com/starship/starship/releases/download/v${version}/starship-aarch64-unknown-linux-musl.tar.gz" -o "$tmp"
+printf '%s  %s\n' dc30189378d2f2e287384e8a692d3f95ad1df64cf0e8c36aa9201516028aed6b "$tmp" | sha256sum -c -
+install -d -m 0755 "$HOME/.local/bin"
+tar -xzf "$tmp" -C "$HOME/.local/bin" starship
+chmod 0755 "$HOME/.local/bin/starship"

@@ -17,6 +17,7 @@ def data(onepassword: bool = False) -> dict:
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",
+                "theme": "catppuccin",
             },
             "herdr": {
                 "theme": "nord",
@@ -79,6 +80,7 @@ def test_local_data_renders_complete_configs() -> None:
         "profile": "local-profile",
     }
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
+    assert config["theme"] == "catppuccin"
 
     herdr = chezmoi("cat", str(Path.home() / ".config/herdr/config.toml")).stdout
     plist = chezmoi(
@@ -86,6 +88,20 @@ def test_local_data_renders_complete_configs() -> None:
     ).stdout
     assert 'name = "nord"' in herdr
     assert "/usr/local/bin/herdr" in plist
+
+
+def test_portable_terminal_config_is_guest_only() -> None:
+    host = set(chezmoi("managed").stdout.splitlines())
+    targets = {".bashrc", ".bash_profile", ".common_profile", ".config/starship.toml"}
+
+    assert targets.isdisjoint(host)
+    assert (ROOT / "dot_bashrc").read_text().count('eval "$(starship init bash)"') == 1
+    assert (ROOT / "dot_bash_profile").exists()
+    assert (ROOT / "dot_common_profile.tmpl").exists()
+    assert (ROOT / "private_dot_config/starship.toml").exists()
+    ignore = (ROOT / ".chezmoiignore").read_text()
+    assert '{{ if eq .chezmoi.os "darwin" }}' in ignore
+    assert all(target in ignore for target in targets)
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

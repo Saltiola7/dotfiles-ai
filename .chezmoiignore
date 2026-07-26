@@ -20,6 +20,14 @@ graphify-out/
 .config/opencode/plugins
 .config/opencode/skills
 
+{{ if eq .chezmoi.os "darwin" }}
+.bashrc
+.bash_profile
+.common_profile
+.config/starship.toml
+run_onchange_after_install-starship.sh
+{{ end }}
+
 {{ if not .dotfiles_ai.onepassword.enabled }}
 .local/bin/op-session
 {{ end }}

@@ -11,6 +11,7 @@
 {{- end -}}
 {
   "$schema": "https://opencode.ai/config.json",
+  "theme": {{ .dotfiles_ai.opencode.theme | toJson }},
   "provider": {
     "openai": {
       "options": {

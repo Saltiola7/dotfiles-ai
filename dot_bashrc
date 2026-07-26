@@ -1,0 +1,15 @@
+# Portable guest shell configuration derived from the personal dotfiles.
+if [ -f "$HOME/.common_profile" ]; then
+    . "$HOME/.common_profile"
+fi
+
+[[ $- != *i* ]] && return
+
+if [ -t 0 ] && command -v starship >/dev/null; then
+    export SHELL_LABEL="bash ${BASH_VERSION%%(*}"
+    eval "$(starship init bash)"
+fi
+
+# Lima's guest tools live outside Fedora's default user PATH.
+PATH="$PATH:/usr/sbin:/sbin"
+export PATH
