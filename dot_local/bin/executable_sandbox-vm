@@ -230,22 +230,30 @@ def _parse_statuses(output):
 
 
 def _instance_lock(root, instance):
-    if root.is_symlink():
-        raise RuntimeError("sandbox lifecycle lock directory is unsafe")
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(root, 0o700)
-    details = root.lstat()
-    if stat.S_IFMT(details.st_mode) != stat.S_IFDIR or details.st_uid != os.getuid():
-        raise RuntimeError("sandbox lifecycle lock directory is unsafe")
-    path = root / f"{instance}.lock"
-    if path.is_symlink():
-        raise RuntimeError("sandbox lifecycle lock is unsafe")
-    lock = path.open("a+")
-    os.chmod(path, 0o600)
-    details = os.fstat(lock.fileno())
+    root.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory = os.open(root, flags)
+    try:
+        details = os.fstat(directory)
+        if stat.S_IFMT(details.st_mode) != stat.S_IFDIR or details.st_uid != os.getuid():
+            raise RuntimeError("sandbox lifecycle lock directory is unsafe")
+        os.fchmod(directory, 0o700)
+        descriptor = os.open(f"{instance}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+    except Exception:
+        os.close(directory)
+        raise
+    os.close(directory)
+    lock = os.fdopen(descriptor, "a+")
+    details = os.fstat(descriptor)
     if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
         lock.close()
         raise RuntimeError("sandbox lifecycle lock is unsafe")
+    os.fchmod(descriptor, 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX)
     return lock
 

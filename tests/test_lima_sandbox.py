@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import time
 import tomllib
 
 import pytest
@@ -508,6 +509,32 @@ def test_federation_does_not_start_or_stop_transitional_instance(tmp_path: Path)
     result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
     assert result["sources"][1]["availability"] == "invalid_output"
     assert not any(call[:2] in (["limactl", "start"], ["limactl", "stop"]) for call in calls)
+
+
+def test_instance_lifecycle_lock_serializes_and_rejects_symlinks(tmp_path: Path) -> None:
+    helper = load_helper()
+    root = tmp_path / "locks"
+    first = helper._instance_lock(root, "workspace1-sandbox")
+    attempting = threading.Event()
+    acquired = threading.Event()
+
+    def wait_for_lock():
+        attempting.set()
+        with helper._instance_lock(root, "workspace1-sandbox"):
+            acquired.set()
+
+    thread = threading.Thread(target=wait_for_lock)
+    thread.start()
+    assert attempting.wait(timeout=1)
+    time.sleep(0.05)
+    assert not acquired.is_set()
+    first.close()
+    thread.join(timeout=1)
+    assert acquired.is_set()
+    unsafe = tmp_path / "unsafe-locks"
+    unsafe.symlink_to(root, target_is_directory=True)
+    with pytest.raises(OSError):
+        helper._instance_lock(unsafe, "workspace1-sandbox")
 
 
 def test_unavailable_source_has_no_continuation_state(tmp_path: Path) -> None:
