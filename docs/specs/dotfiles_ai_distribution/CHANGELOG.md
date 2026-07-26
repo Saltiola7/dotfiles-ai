@@ -15,8 +15,8 @@
   evidence instead of resaving namespaced cohorts against a changing database,
   and may run only read-only `gh issue list` and `gh pr list` forms without an
   operator. All other GitHub operations remain confirmation-gated.
-- Live deployment read `host`, `personal`, and `mgm` through the installed typed
-  adapter over 19 pages in 51.92 seconds. The final controlled worker
+- Live deployment read the host and both configured workspaces through the
+  installed typed adapter over 19 pages in 51.92 seconds. The final controlled worker
   completed five full capture pages, performed repository duplicate checks,
   claimed one sanitized proposal, and reached the required Discovery pause. Its
   worker record, isolated scheduler files, and presentation tab were explicitly
