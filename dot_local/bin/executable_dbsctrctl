@@ -47,6 +47,9 @@ CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
 PHASE_SCHEMA = 1
+TELEMETRY_SCHEMA = 2
+HARNESS_ACTIVATION_SCHEMA = 1
+PROVIDER_EVALUATION_SCHEMA = 1
 PHASES = GATES[:6] + ("operation",)
 PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa")
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
@@ -304,6 +307,56 @@ def session_for_message(database_value, message_id, require_primary=False):
             connection.close()
 
 
+def harness_activation_for_message(database_value, message_id, raw):
+    try:
+        supplied = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    except (TypeError, json.JSONDecodeError) as error:
+        fail(f"invalid harness activation: {error}")
+    if (not isinstance(supplied, dict) or set(supplied) != {"schema_version", "core_revision", "overlays"}
+            or supplied.get("schema_version") != HARNESS_ACTIVATION_SCHEMA
+            or not OPAQUE_ID.fullmatch(supplied.get("core_revision", ""))
+            or not isinstance(supplied.get("overlays"), dict)
+            or set(supplied["overlays"]) != {"build", "build-gpt", "build-claude"}
+            or any(not OPAQUE_ID.fullmatch(value) for value in supplied["overlays"].values())):
+        fail("invalid harness activation")
+    database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        tables = {row[0].lower(): row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"session", "message"} <= set(tables):
+            fail("OpenCode database lacks required session/message tables")
+        session, message = tables["session"], tables["message"]
+        sid, agent = sqlite_name(connection, session, ("id",)), sqlite_name(connection, session, ("agent",))
+        mid, msession = sqlite_name(connection, message, ("id",)), sqlite_name(connection, message, ("sessionid",))
+        data = sqlite_name(connection, message, ("data", "text", "content"))
+        row = connection.execute(
+            f'SELECT s."{agent}", m."{data}" FROM "{message}" m JOIN "{session}" s '
+            f'ON s."{sid}"=m."{msession}" WHERE m."{mid}"=?', (message_id,)).fetchone()
+        if row is None or row[0] not in supplied["overlays"]:
+            fail("OpenCode message has no supported harness agent")
+        body = json.loads(row[1], object_pairs_hook=no_duplicate_keys)
+        if not isinstance(body, dict):
+            fail("OpenCode message has no exact provider/model identity")
+        model = body.get("model")
+        provider_id = model.get("providerID") if isinstance(model, dict) else body.get("providerID")
+        model_id = model.get("modelID") if isinstance(model, dict) else body.get("modelID")
+        if (not isinstance(provider_id, str) or not OPAQUE_ID.fullmatch(provider_id)
+                or not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model_id)):
+            fail("OpenCode message has no exact provider/model identity")
+        expected = {"build-gpt": "openai", "build-claude": "amazon-bedrock"}.get(row[0])
+        if expected is not None and provider_id != expected:
+            fail("OpenCode harness provider does not match its primary agent")
+        return {"schema_version": HARNESS_ACTIVATION_SCHEMA, "provider_id": provider_id,
+                "model_id": model_id, "agent_id": row[0], "core_revision": supplied["core_revision"],
+                "overlay_revision": supplied["overlays"][row[0]]}
+    except (sqlite3.Error, json.JSONDecodeError) as error:
+        fail(f"cannot read harness activation: {error}")
+    finally:
+        if 'connection' in locals():
+            connection.close()
+
+
 def historical_excluded_family(database_value, session_id, message_id=None):
     if session_id is None and message_id is None:
         return set()
@@ -482,7 +535,7 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
@@ -490,7 +543,9 @@ def ledger_semantic_integrity(connection):
             or "improvement_schema" in meta and meta["improvement_schema"] != str(IMPROVEMENT_SCHEMA)
             or "capture_schema" in meta and meta["capture_schema"] != str(CAPTURE_SCHEMA)
             or "benchmark_schema" in meta and meta["benchmark_schema"] != str(BENCHMARK_SCHEMA)
-            or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)):
+            or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)
+            or "provider_evaluation_schema" in meta
+            and meta["provider_evaluation_schema"] != str(PROVIDER_EVALUATION_SCHEMA)):
         fail("private review ledger metadata is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
@@ -545,6 +600,8 @@ def ledger_semantic_integrity(connection):
         benchmark_integrity(connection)
     if "phase_schema" in meta:
         phase_integrity(connection)
+    if "provider_evaluation_schema" in meta:
+        provider_evaluation_integrity(connection)
 
 
 def ensure_improvement_schema(connection):
@@ -686,6 +743,168 @@ def history_capture_members(connection, capture_id):
             fail("private history capture member columns mismatch")
         members.append(record)
     return members
+
+
+def ensure_provider_evaluation_schema(connection):
+    row = connection.execute(
+        "SELECT value FROM ledger_meta WHERE key='provider_evaluation_schema'").fetchone()
+    if row == (str(PROVIDER_EVALUATION_SCHEMA),):
+        return
+    if row is not None:
+        fail("private provider evaluation ledger has an unsupported schema")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE provider_evaluation_reports (
+            report_id TEXT PRIMARY KEY,
+            rubric_key TEXT NOT NULL,
+            harness_key TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE provider_evaluation_members (
+            report_id TEXT NOT NULL REFERENCES provider_evaluation_reports(report_id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            rubric_key TEXT NOT NULL,
+            harness_key TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            cycle_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            PRIMARY KEY (report_id, position),
+            UNIQUE (rubric_key, harness_key, source_id, cycle_id)
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE provider_evaluation_receipts (
+            report_id TEXT PRIMARY KEY REFERENCES provider_evaluation_reports(report_id) ON DELETE CASCADE,
+            payload TEXT NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE provider_evaluation_sources (
+            source_id TEXT PRIMARY KEY,
+            privacy_epoch_digest TEXT NOT NULL,
+            availability TEXT NOT NULL CHECK (availability IN ('available', 'unavailable')),
+            verified_at INTEGER NOT NULL
+        ) WITHOUT ROWID""")
+        connection.execute("INSERT INTO ledger_meta VALUES ('provider_evaluation_schema', ?)",
+                           (str(PROVIDER_EVALUATION_SCHEMA),))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def validate_provider_evaluation_report(value):
+    fields = {"schema_version", "report_id", "rubric", "harness_identity", "members", "evidence", "aggregates",
+              "availability", "confounders", "findings", "recommendations", "created_at", "association_only"}
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 1
+            or not re.fullmatch(r"[0-9a-f]{24}", value.get("report_id", ""))
+            or value.get("association_only") is not True or type(value.get("created_at")) is not int
+            or value["created_at"] < REVIEW_START_MS
+            or not isinstance(value.get("members"), list) or len(value["members"]) != 5
+            or not isinstance(value.get("evidence"), list) or not value["evidence"]
+            or not isinstance(value.get("aggregates"), dict) or not isinstance(value.get("availability"), dict)
+            or not isinstance(value.get("confounders"), list)
+            or not all(isinstance(item, str) and OPAQUE_ID.fullmatch(item) for item in value["confounders"])):
+        fail("provider evaluation report has an invalid schema")
+    if (not isinstance(value.get("rubric"), dict) or set(value["rubric"]) != {"name", "version", "digest"}
+            or not OPAQUE_ID.fullmatch(value["rubric"].get("name", ""))
+            or not OPAQUE_ID.fullmatch(value["rubric"].get("version", ""))
+            or not re.fullmatch(r"[0-9a-f]{64}", value["rubric"].get("digest", ""))):
+        fail("provider evaluation report has an invalid rubric")
+    validate_stored_harness_activation({"schema_version": 1, **value.get("harness_identity", {})})
+    optional = {"tool_call_count", "tool_error_count", "provider_error_count", "delegation_count",
+                "approval_count", "retry_count", "token_total", "cost_total"}
+    required = {"elapsed_ms_median", "gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+    if (set(value["availability"]) != optional
+            or any(status not in ("available", "unavailable") for status in value["availability"].values())
+            or set(value["aggregates"]) != required | {name for name in optional
+                                                        if value["availability"][name] == "available"}
+            or any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item) or item < 0
+                   for item in value["aggregates"].values())):
+        fail("provider evaluation report has invalid aggregates")
+    member_fields = {"source_id", "cycle_id", "completed_at", "context", "risk", "delivery_intent",
+                     "provider_ids", "model_ids", "agent_ids", "metrics", "optional_metrics",
+                     "telemetry_digest", "gate_digest"}
+    for member in value["members"]:
+        if (not isinstance(member, dict) or set(member) != member_fields
+                or not PRESENTATION_ID.fullmatch(member.get("source_id", ""))
+                or not OPAQUE_ID.fullmatch(member.get("cycle_id", ""))
+                or type(member.get("completed_at")) is not int or member["completed_at"] < REVIEW_START_MS
+                or not isinstance(member.get("context"), str)
+                or member["context"] != "unavailable" and not OPAQUE_ID.fullmatch(member["context"])
+                or member.get("risk") not in ("routine", "elevated", "critical")
+                or member.get("delivery_intent") not in DELIVERY_INTENTS
+                or any(not isinstance(member.get(name), list) or not member[name]
+                       or member[name] != sorted(set(member[name]))
+                       or any(not isinstance(item, str)
+                              or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", item)
+                              for item in member[name])
+                       for name in ("provider_ids", "model_ids", "agent_ids"))
+                or set(member.get("optional_metrics", {})) != optional
+                or any(item != "unavailable" and (not isinstance(item, (int, float))
+                    or isinstance(item, bool) or not math.isfinite(item) or item < 0)
+                       for item in member["optional_metrics"].values())
+                or not re.fullmatch(r"[0-9a-f]{64}", member.get("telemetry_digest", ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", member.get("gate_digest", ""))):
+            fail("provider evaluation report has invalid members")
+        validate_cycle_metrics(member["metrics"])
+    for source in value["evidence"]:
+        if (not isinstance(source, dict)
+                or set(source) != {"source_id", "capture_id", "privacy_epoch_digest", "query_digest",
+                                   "exclusion_digest", "pages"}
+                or not PRESENTATION_ID.fullmatch(source.get("source_id", ""))
+                or not re.fullmatch(r"[0-9a-f]{24}", source.get("capture_id", ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", source.get("privacy_epoch_digest", ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", source.get("query_digest", ""))
+                or source.get("exclusion_digest") is not None
+                and not re.fullmatch(r"[0-9a-f]{64}", source["exclusion_digest"])
+                or not isinstance(source.get("pages"), list) or not source["pages"]):
+            fail("provider evaluation report has invalid evidence")
+        for page in source["pages"]:
+            if (not isinstance(page, dict) or set(page) != {"cursor", "digest", "member_digests"}
+                    or type(page.get("cursor")) is not int or page["cursor"] < 0
+                    or not re.fullmatch(r"[0-9a-f]{64}", page.get("digest", ""))
+                    or not isinstance(page.get("member_digests"), list)
+                    or any(not re.fullmatch(r"[0-9a-f]{64}", item) for item in page["member_digests"])):
+                fail("provider evaluation report has invalid evidence")
+    for name in ("findings", "recommendations"):
+        items = value.get(name)
+        if (not isinstance(items, list) or len(items) > 50 or any(not isinstance(item, str)
+                or not 1 <= len(item.encode()) <= 512 or review_unsafe(item) for item in items)):
+            fail("provider evaluation report has unsafe prose")
+    return value
+
+
+def provider_evaluation_integrity(connection):
+    expected = {"provider_evaluation_reports", "provider_evaluation_members",
+                "provider_evaluation_receipts", "provider_evaluation_sources"}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'provider_evaluation_%'")}
+    if tables != expected:
+        fail("private provider evaluation tables are invalid")
+    for report_id, rubric_key, harness_key, created_at, payload in connection.execute(
+            "SELECT report_id,rubric_key,harness_key,created_at,payload FROM provider_evaluation_reports"):
+        report = validate_provider_evaluation_report(json.loads(payload, object_pairs_hook=no_duplicate_keys))
+        rows = list(connection.execute(
+            "SELECT position,source_id,cycle_id,payload FROM provider_evaluation_members "
+            "WHERE report_id=? ORDER BY position", (report_id,)))
+        if (report["report_id"] != report_id or report["created_at"] != created_at or len(rows) != 5
+                or any(position != expected_position for expected_position, (position, *_rest) in enumerate(rows))
+                or [json.loads(row[3], object_pairs_hook=no_duplicate_keys) for row in rows] != report["members"]
+                or hashlib.sha256(ledger_payload(report["rubric"]).encode()).hexdigest() != rubric_key
+                or hashlib.sha256(ledger_payload(report["harness_identity"]).encode()).hexdigest() != harness_key):
+            fail("private provider evaluation membership mismatch")
+        receipt = connection.execute(
+            "SELECT payload FROM provider_evaluation_receipts WHERE report_id=?", (report_id,)).fetchone()
+        if receipt is None:
+            fail("private provider evaluation receipt is missing")
+        stored_receipt = validate_provider_evaluation_receipt(
+            json.loads(receipt[0], object_pairs_hook=no_duplicate_keys))
+        if report["evidence"] != provider_evaluation_evidence(stored_receipt):
+            fail("private provider evaluation receipt mismatch")
+    for source_id, digest, availability, verified_at in connection.execute(
+            "SELECT source_id,privacy_epoch_digest,availability,verified_at FROM provider_evaluation_sources"):
+        if (not PRESENTATION_ID.fullmatch(source_id) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or availability not in ("available", "unavailable") or type(verified_at) is not int
+                or verified_at < REVIEW_START_MS):
+            fail("private provider evaluation source state is invalid")
 
 
 def ensure_benchmark_schema(connection):
@@ -1670,6 +1889,8 @@ def invalidate_later(record, gate_name):
             gate["result"] = "pending"
             gate.pop("evidence", None)
             gate.pop("exception", None)
+            record.setdefault("metrics", {}).setdefault("gate_reopen_count", 0)
+            record["metrics"]["gate_reopen_count"] += 1
 
 
 def require_current_profile(root, record):
@@ -1791,6 +2012,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
                      "created_by_dbsctr": created_by_dbsctr},
         "delivery": delivery,
         "state": "active", "commits": [], "gates": gates, "evidence": {"version": 1, "items": {}},
+        "metrics": {"gate_failure_count": 0, "gate_reopen_count": 0, "remediation_round_count": 0},
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
     }
@@ -1805,9 +2027,13 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         runtime_directory = Path(args.opencode_directory).resolve()
         if not runtime_worktree.is_dir() or not runtime_directory.is_dir() or runtime_worktree not in runtime_directory.parents and runtime_directory != runtime_worktree:
             fail("invalid OpenCode runtime paths")
+        activation_raw = getattr(args, "harness_activation_json", None)
+        activation = (harness_activation_for_message(None, message_id, activation_raw)
+                      if message_id is not None and activation_raw is not None else None)
         record["runtime"] = {"opencode": {"session_ids": [session_id],
-                                             "worktree": str(runtime_worktree),
-                                             "directory": str(runtime_directory)}}
+                                              "worktree": str(runtime_worktree),
+                                              "directory": str(runtime_directory),
+                                              **({"harness_activation": activation} if activation else {})}}
     elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
         fail("OpenCode runtime paths require a session ID")
     exclusive_json(record_path, record)
@@ -2582,6 +2808,8 @@ def command_attach_runtime(args):
     session_id = session_for_message(None, args.opencode_message_id, require_primary=True)
     if session_id != args.opencode_session_id:
         fail("OpenCode runtime session does not own the structured message")
+    activation = (harness_activation_for_message(None, args.opencode_message_id, args.harness_activation_json)
+                  if args.harness_activation_json is not None else None)
     if not OPAQUE_ID.fullmatch(session_id):
         fail("invalid OpenCode session ID")
     runtime_worktree = Path(args.opencode_worktree).resolve()
@@ -2609,6 +2837,11 @@ def command_attach_runtime(args):
             if len(session_ids) == REVIEW_MAX_LIMIT:
                 fail("Cycle Record OpenCode runtime limit reached")
             session_ids.append(session_id)
+        existing_activation = opencode.get("harness_activation")
+        if existing_activation is not None and activation is not None and existing_activation != activation:
+            fail("attached root sessions disagree on harness activation")
+        if existing_activation is None and activation is not None:
+            opencode["harness_activation"] = activation
         opencode["worktree"] = str(runtime_worktree)
         save(path, record)
     print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,
@@ -2948,7 +3181,30 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
             state = "abandoned"
         else:
             state = "active"
-        item = {"cycle_id": record["cycle_id"], "state": state}
+        risk = record.get("risk", "unavailable")
+        delivery = record.get("delivery_intent", "unavailable")
+        if risk not in ("routine", "elevated", "critical") or delivery not in DELIVERY_INTENTS:
+            risk, delivery = "unavailable", "unavailable"
+        item = {"cycle_id": record["cycle_id"], "state": state,
+                "risk": risk, "delivery_intent": delivery}
+        if state == "completed":
+            counters = record.get("metrics", {})
+            cycle_metrics = {name: counters.get(name, 0) for name in (
+                "gate_failure_count", "gate_reopen_count", "remediation_round_count")}
+            if any(type(value) is not int or value < 0 for value in cycle_metrics.values()):
+                fail("Cycle Record contains invalid metrics")
+            elapsed = "unavailable"
+            try:
+                started = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+                completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+                elapsed = max(0, int((completed - started).total_seconds() * 1000))
+            except (KeyError, TypeError, ValueError):
+                pass
+            cycle_metrics["elapsed_ms"] = elapsed
+            item["metrics"] = cycle_metrics
+        activation = record.get("runtime", {}).get("opencode", {}).get("harness_activation")
+        if activation is not None:
+            item["harness_activation"] = validate_stored_harness_activation(activation)
         if "phase_profile" in record:
             item["phase_profile"] = validate_phase_profile(record["phase_profile"], record["cycle_id"])
         output.append(item)
@@ -3170,7 +3426,7 @@ def review_scan(args):
                 UNION SELECT edges.target FROM edges JOIN expanded ON edges.source=expanded.session_id
             )
             SELECT content.session_id, content.parent_id, content.created_at, content.last_activity,
-                   {children}, content.body, content.directory
+                   {children}, content.body, content.directory, content.agent
             FROM content JOIN expanded ON expanded.session_id=content.session_id
             ORDER BY content.created_at, content.session_id
         """
@@ -3216,6 +3472,9 @@ def review_scan(args):
                     "provider_error_count": "unavailable", "delegation_count": "unavailable",
                     "cost_total": cost_total, "token_total": token_total,
                     "model_families": [family] if family != "unavailable" else "unavailable",
+                    "provider_ids": "unavailable", "model_ids": "unavailable",
+                    "agent_ids": "unavailable", "session_relation": "unavailable",
+                    "core_revisions": "unavailable", "overlay_revisions": "unavailable",
                 }
             tool_case = (f'CASE WHEN json_valid(p."{pbody}") THEN '
                          f'CASE WHEN json_extract(p."{pbody}", \'$.type\')=\'tool\' THEN 1 ELSE 0 END ELSE 0 END')
@@ -3248,18 +3507,29 @@ def review_scan(args):
                         })
                 if mtime and mbody:
                     model_sql = (f'SELECT m."{msession}", COALESCE('
+                                 f'json_extract(m."{mbody}", \'$.model.providerID\'), '
+                                 f'json_extract(m."{mbody}", \'$.providerID\')), COALESCE('
                                  f'json_extract(m."{mbody}", \'$.model.modelID\'), '
                                  f'json_extract(m."{mbody}", \'$.modelID\')) FROM "{message}" m '
                                  f'WHERE m."{msession}" IN ({placeholders}) AND m."{mtime}" BETWEEN ? AND ? '
                                  f'AND json_valid(m."{mbody}"){message_exclusion}')
                     model_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, *excluded)
-                    for session_value, model_value in connection.execute(model_sql, model_args):
+                    for session_value, provider_value, model_value in connection.execute(model_sql, model_args):
                         session_id = str(session_value)
                         family = model_family(model_value) if isinstance(model_value, str) else "unavailable"
                         if session_id in history_metrics and family != "unavailable":
                             families = history_metrics[session_id]["model_families"]
                             history_metrics[session_id]["model_families"] = sorted(
                                 set(families if isinstance(families, list) else ()) | {family})
+                        if session_id in history_metrics and isinstance(provider_value, str) and OPAQUE_ID.fullmatch(provider_value):
+                            values = history_metrics[session_id]["provider_ids"]
+                            history_metrics[session_id]["provider_ids"] = sorted(
+                                set(values if isinstance(values, list) else ()) | {provider_value})
+                        if (session_id in history_metrics and isinstance(model_value, str)
+                                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model_value)):
+                            values = history_metrics[session_id]["model_ids"]
+                            history_metrics[session_id]["model_ids"] = sorted(
+                                set(values if isinstance(values, list) else ()) | {model_value})
                     provider_sql = (f'SELECT m."{msession}", SUM(CASE WHEN json_valid(m."{mbody}") '
                                     f'AND json_type(m."{mbody}", \'$.error\') IS NOT NULL THEN 1 ELSE 0 END) '
                                     f'FROM "{message}" m WHERE m."{msession}" IN ({placeholders}) '
@@ -3278,7 +3548,11 @@ def review_scan(args):
                                          lock=not getattr(args, "lock_held", False))
     eligible, cycle_cache, identity_cache = [], {}, {}
     families = session_family_map(rows)
-    for session_id, parent_id, timestamp, last_activity, child_ids, text, directory in rows:
+    for row in rows:
+        session_id, agent_name = str(row[0]), row[7]
+        if session_id in history_metrics and isinstance(agent_name, str) and OPAQUE_ID.fullmatch(agent_name):
+            history_metrics[session_id]["agent_ids"] = [agent_name]
+    for session_id, parent_id, timestamp, last_activity, child_ids, text, directory, agent_name in rows:
         session_id = str(session_id)
         parent_id = str(parent_id) if parent_id else None
         children_values = sorted(str(child_ids).split(","))[:16] if child_ids else []
@@ -3292,6 +3566,20 @@ def review_scan(args):
         cycles, correlation_quality = correlated_cycles(
             directory, set(), related_ids, cycle_cache, exact_session_id=session_id, with_quality=True,
         )
+        if getattr(args, "history_metrics", False):
+            metrics = history_metrics.get(session_id, {})
+            metrics["session_relation"] = "child" if parent_id else "primary"
+            if parent_id is None:
+                for name in ("model_families", "provider_ids", "model_ids", "agent_ids"):
+                    related_values = [history_metrics.get(related_id, {}).get(name, "unavailable")
+                                      for related_id in related_ids]
+                    metrics[name] = (sorted({value for values in related_values for value in values})
+                                     if all(isinstance(values, list) and values for values in related_values)
+                                     else "unavailable")
+            activations = [cycle.get("harness_activation") for cycle in cycles if cycle.get("harness_activation")]
+            if activations:
+                metrics["core_revisions"] = sorted({item["core_revision"] for item in activations})
+                metrics["overlay_revisions"] = sorted({item["overlay_revision"] for item in activations})
         attention = review_attention(cycles, last_activity, snapshot)
         candidate = {"session_id": session_id, "parent_session_id": parent_id,
                          "child_session_ids": children_values,
@@ -3375,6 +3663,11 @@ def history_telemetry(candidate, metrics):
         value = metrics.get(source, "unavailable")
         if type(value) is int:
             errors[name] = value
+    identities = {}
+    for name in ("provider_ids", "model_ids", "agent_ids", "core_revisions", "overlay_revisions"):
+        value = metrics.get(name, "unavailable")
+        identities[name] = sorted(set(value)) if isinstance(value, list) and value else "unavailable"
+    cycle_metrics = candidate["cycles"][0].get("metrics", {}) if len(candidate.get("cycles", [])) == 1 else {}
     availability = {
         "approval_count": "unavailable", "retry_count": "unavailable",
         "delegation_count": "available" if type(metrics.get("delegation_count")) is int else "unavailable",
@@ -3383,24 +3676,63 @@ def history_telemetry(candidate, metrics):
         "token_total": "available" if type(metrics.get("token_total")) is int else "unavailable",
         "cost_total": "available" if isinstance(metrics.get("cost_total"), (int, float))
                       and not isinstance(metrics.get("cost_total"), bool) else "unavailable",
+        **{name: "available" if isinstance(value, list) else "unavailable"
+           for name, value in identities.items()},
+        "session_relation": "available" if metrics.get("session_relation") in ("primary", "child") else "unavailable",
+        **{name: "available" if type(cycle_metrics.get(name)) is int else "unavailable"
+           for name in ("gate_failure_count", "gate_reopen_count", "remediation_round_count")},
     }
     return {
+        "schema_version": TELEMETRY_SCHEMA,
         "approval_count": "unavailable", "retry_count": "unavailable",
         "delegation_count": metrics.get("delegation_count", "unavailable"),
         "model_families": families, "error_classes": errors or "unavailable",
         "token_total": metrics.get("token_total", "unavailable"),
         "cost_total": metrics.get("cost_total", "unavailable"),
+        **identities, "session_relation": metrics.get("session_relation", "unavailable"),
+        **{name: cycle_metrics.get(name, "unavailable")
+           for name in ("gate_failure_count", "gate_reopen_count", "remediation_round_count")},
         "availability": availability,
         "attribution_status": candidate.get("correlation_quality", "unavailable"),
     }
 
 
+def validate_stored_harness_activation(value):
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "provider_id", "model_id", "agent_id",
+                                                      "core_revision", "overlay_revision"}
+            or value.get("schema_version") != HARNESS_ACTIVATION_SCHEMA
+            or not all(isinstance(value.get(name), str) for name in (
+                "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"))
+            or not OPAQUE_ID.fullmatch(value["provider_id"])
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", value["model_id"])
+            or not all(OPAQUE_ID.fullmatch(value[name]) for name in (
+                "agent_id", "core_revision", "overlay_revision"))):
+        fail("invalid harness activation")
+    return value
+
+
+def validate_cycle_metrics(value):
+    fields = {"elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+    if (not isinstance(value, dict) or set(value) != fields
+            or value["elapsed_ms"] != "unavailable" and (type(value["elapsed_ms"]) is not int or value["elapsed_ms"] < 0)
+            or any(type(value[name]) is not int or value[name] < 0 for name in fields - {"elapsed_ms"})):
+        fail("invalid cycle metrics")
+    return value
+
+
 def validate_history_telemetry(value):
-    fields = {"approval_count", "retry_count", "delegation_count", "model_families", "error_classes",
-              "token_total", "cost_total", "availability", "attribution_status"}
-    availability_fields = fields - {"availability", "attribution_status"}
+    legacy_fields = {"approval_count", "retry_count", "delegation_count", "model_families", "error_classes",
+                     "token_total", "cost_total", "availability", "attribution_status"}
+    identity_fields = {"provider_ids", "model_ids", "agent_ids", "core_revisions", "overlay_revisions"}
+    counter_fields = {"gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+    fields = legacy_fields | identity_fields | counter_fields | {"schema_version", "session_relation"}
+    current = isinstance(value, dict) and set(value) == fields
+    if isinstance(value, dict) and set(value) == legacy_fields:
+        fields = legacy_fields
+    availability_fields = fields - {"availability", "attribution_status", "schema_version"}
     statuses = {"exact", "family", "worktree", "source", "ambiguous", "unavailable"}
     if (not isinstance(value, dict) or set(value) != fields
+            or current and value.get("schema_version") != TELEMETRY_SCHEMA
             or value["approval_count"] != "unavailable" or value["retry_count"] != "unavailable"
             or (value["delegation_count"] != "unavailable"
                 and (type(value["delegation_count"]) is not int or value["delegation_count"] < 0))
@@ -3408,6 +3740,15 @@ def validate_history_telemetry(value):
             or any(item not in ("available", "unavailable") for item in value["availability"].values())
             or value["attribution_status"] not in statuses):
         fail("review history telemetry has an invalid schema")
+    if current:
+        if (value["session_relation"] not in ("primary", "child", "unavailable")
+                or any(value[name] != "unavailable" and (not isinstance(value[name], list) or not value[name]
+                    or value[name] != sorted(set(value[name])) or any(not isinstance(item, str)
+                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", item) for item in value[name]))
+                       for name in identity_fields)
+                or any(value[name] != "unavailable" and (type(value[name]) is not int or value[name] < 0)
+                       for name in counter_fields)):
+            fail("review history telemetry has an invalid schema")
     families = value["model_families"]
     if families != "unavailable" and (not isinstance(families, list) or not families
             or families != sorted(set(families)) or any(item not in {"gpt", "claude", "gemini", "llama", "mistral", "qwen"} for item in families)):
@@ -3444,11 +3785,18 @@ def validate_history_evidence(value):
     if not isinstance(value.get("cycles"), list) or len(value["cycles"]) > REVIEW_MAX_LIMIT:
         fail("review history evidence has an invalid schema")
     for cycle in value["cycles"]:
-        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "phase_profile"}
+        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent",
+                                                         "phase_profile", "metrics", "harness_activation"}
                 or not {"cycle_id", "state"} <= set(cycle)
-                or cycle["state"] not in ("active", "blocked", "abandoned", "completed", "unknown")):
+                or cycle["state"] not in ("active", "blocked", "abandoned", "completed", "unknown")
+                or "risk" in cycle and cycle["risk"] not in ("routine", "elevated", "critical", "unavailable")
+                or "delivery_intent" in cycle and cycle["delivery_intent"] not in (*DELIVERY_INTENTS, "unavailable")):
             fail("review history evidence has an invalid schema")
         history_id(cycle.get("cycle_id"), "history cycle ID")
+        if "metrics" in cycle:
+            validate_cycle_metrics(cycle["metrics"])
+        if "harness_activation" in cycle:
+            validate_stored_harness_activation(cycle["harness_activation"])
         if "phase_profile" in cycle:
             validate_phase_profile(cycle["phase_profile"], cycle["cycle_id"])
     aggregate_names = {"candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count", "tool_call_count",
@@ -4110,6 +4458,381 @@ def command_history_capture_delete(args):
         finally:
             connection.close()
     print(json.dumps({"deleted": args.capture_id}, sort_keys=True))
+
+
+def command_review_privacy_epoch(args):
+    index = review_index(review_root(args.state_root))
+    identity = {"schema_version": 1, "forgotten_sessions": sorted(index["forgotten_sessions"].items())}
+    print(json.dumps({"schema_version": 1,
+                      "privacy_epoch_digest": hashlib.sha256(ledger_payload(identity).encode()).hexdigest()},
+                     sort_keys=True, separators=(",", ":")))
+
+
+def validate_provider_evaluation_receipt(value):
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "manifest_digest", "manifest_identity", "sources"}
+            or value.get("schema_version") != 1
+            or not re.fullmatch(r"[0-9a-f]{64}", value.get("manifest_digest", ""))
+            or hashlib.sha256(ledger_payload(value.get("manifest_identity")).encode()).hexdigest()
+            != value.get("manifest_digest")
+            or not isinstance(value.get("sources"), list) or not 1 <= len(value["sources"]) <= 33):
+        fail("provider evaluation receipt has an invalid schema")
+    manifest = value["manifest_identity"]
+    if (not isinstance(manifest, dict) or set(manifest) != {"filters", "sources"}
+            or not isinstance(manifest.get("filters"), dict) or not isinstance(manifest.get("sources"), list)
+            or [source.get("source_id") for source in manifest["sources"]]
+            != [source.get("source_id") for source in value["sources"]]):
+        fail("provider evaluation receipt has invalid manifest identity")
+    seen = set()
+    page_fields = {"schema_version", "capture_id", "candidates", "session_ids", "limit", "cursor",
+                   "continuation", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                   "exclusion_digest", "query", "digest", "member_digests"}
+    query_fields = {"after", "before", "method_revision", "cycle_id", "state", "context",
+                    "project_digest", "reviewed_status", "archive_only"}
+    for source in value["sources"]:
+        if (not isinstance(source, dict) or set(source) != {"source_id", "capture_id", "privacy_epoch_digest", "pages"}
+                or not PRESENTATION_ID.fullmatch(source.get("source_id", "")) or source["source_id"] in seen
+                or not re.fullmatch(r"[0-9a-f]{24}", source.get("capture_id", ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", source.get("privacy_epoch_digest", ""))
+                or not isinstance(source.get("pages"), list) or not source["pages"]):
+            fail("provider evaluation receipt has invalid source identity")
+        seen.add(source["source_id"])
+        expected_cursor = 0
+        source_identity = None
+        for position, page in enumerate(source["pages"]):
+            if (not isinstance(page, dict) or set(page) != page_fields or page.get("schema_version") != 1
+                    or page.get("capture_id") != source["capture_id"] or page.get("cursor") != expected_cursor
+                    or not re.fullmatch(r"[0-9a-f]{64}", page.get("digest", ""))
+                    or type(page.get("limit")) is not int or not 1 <= page["limit"] <= REVIEW_MAX_LIMIT
+                    or not isinstance(page.get("candidates"), list) or len(page["candidates"]) > page["limit"]
+                    or not isinstance(page.get("session_ids"), list)
+                    or page["session_ids"] != [candidate.get("session_id") for candidate in page["candidates"]]
+                    or not isinstance(page.get("member_digests"), list)
+                    or page["member_digests"] != [hashlib.sha256(ledger_payload(candidate).encode()).hexdigest()
+                                                   for candidate in page["candidates"]]
+                    or page.get("continuation") != (page["cursor"] + page["limit"]
+                                                    if position < len(source["pages"]) - 1 else None)
+                    or any(type(page.get(name)) is not int or page[name] < 0
+                           for name in ("snapshot", "session_ceiling", "part_ceiling"))
+                    or not re.fullmatch(r"[0-9a-f]{64}", page.get("database_digest", ""))
+                    or page.get("exclusion_digest") is not None
+                    and not re.fullmatch(r"[0-9a-f]{64}", page["exclusion_digest"])
+                    or not isinstance(page.get("query"), dict) or set(page["query"]) != query_fields
+                    or type(page["query"].get("archive_only")) is not bool
+                    or any(item is not None and (type(item) is not int or item < REVIEW_START_MS)
+                           for item in (page["query"]["after"], page["query"]["before"]))
+                    or any(item is not None and (not isinstance(item, str) or not OPAQUE_ID.fullmatch(item))
+                           for item in (page["query"]["cycle_id"], page["query"]["context"]))
+                    or page["query"]["method_revision"] is not None
+                    and (not isinstance(page["query"]["method_revision"], str)
+                         or not re.fullmatch(r"\d+(?:\.\d+)*", page["query"]["method_revision"]))
+                    or page["query"]["project_digest"] is not None
+                    and (not isinstance(page["query"]["project_digest"], str)
+                         or not re.fullmatch(r"[0-9a-f]{64}", page["query"]["project_digest"]))
+                    or page["query"]["state"] not in (None, "active", "blocked", "abandoned", "completed", "unknown")
+                    or page["query"]["reviewed_status"] not in (None, "reviewed", "unreviewed")):
+                fail("provider evaluation receipt has invalid page identity")
+            identity = {name: page[name] for name in ("capture_id", "snapshot", "session_ceiling",
+                                                       "part_ceiling", "database_digest", "exclusion_digest", "query", "limit")}
+            if source_identity is not None and identity != source_identity:
+                fail("provider evaluation receipt source identity changed")
+            source_identity = identity
+            for candidate in page["candidates"]:
+                validate_history_evidence(candidate)
+            expected_cursor += page["limit"]
+        if source["pages"][-1]["continuation"] is not None:
+            fail("provider evaluation receipt is not terminal")
+    if any(source["pages"][0]["query"] != manifest["filters"] for source in value["sources"]):
+        fail("provider evaluation receipt query changed")
+    for source, manifest_source in zip(value["sources"], manifest["sources"]):
+        if not isinstance(manifest_source, dict):
+            fail("provider evaluation receipt has invalid manifest identity")
+        expected = {"source_id", "availability"}
+        if manifest_source.get("availability") == "available":
+            expected |= {"capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                         "exclusion_digest", "limit", "cursor", "continuation", "digest"}
+            page = source["pages"][-1]
+            if any(manifest_source.get(name) != page[name] for name in expected - {"source_id", "availability"}):
+                fail("provider evaluation receipt manifest changed")
+        elif manifest_source.get("availability") != "complete":
+            fail("provider evaluation receipt manifest is not terminal")
+        if not isinstance(manifest_source, dict) or set(manifest_source) != expected:
+            fail("provider evaluation receipt has invalid manifest identity")
+    if len(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()) > 2 * 1024 * 1024:
+        fail("provider evaluation receipt exceeds bound")
+    return value
+
+
+def provider_evaluation_candidates(receipt):
+    eligible = []
+    for source in receipt["sources"]:
+        for page in source["pages"]:
+            for candidate in page["candidates"]:
+                if (not isinstance(candidate, dict) or candidate.get("correlation_quality") != "exact"
+                        or not isinstance(candidate.get("cycles"), list) or len(candidate["cycles"]) != 1
+                        or candidate["cycles"][0].get("state") != "completed"
+                        or not isinstance(candidate.get("completed_at"), str) or not candidate["completed_at"].isdigit()):
+                    continue
+                cycle = candidate["cycles"][0]
+                try:
+                    activation = validate_stored_harness_activation(cycle.get("harness_activation"))
+                    metrics = validate_cycle_metrics(cycle.get("metrics"))
+                    telemetry = validate_history_telemetry(candidate.get("telemetry"))
+                except RuntimeError:
+                    continue
+                if (metrics["elapsed_ms"] == "unavailable" or telemetry.get("schema_version") != TELEMETRY_SCHEMA
+                        or cycle.get("risk") not in ("routine", "elevated", "critical")
+                        or cycle.get("delivery_intent") not in DELIVERY_INTENTS
+                        or telemetry.get("session_relation") != "primary"
+                        or telemetry.get("provider_ids") != [activation["provider_id"]]
+                        or not isinstance(telemetry.get("model_ids"), list)
+                        or activation["model_id"] not in telemetry["model_ids"]
+                        or not isinstance(telemetry.get("agent_ids"), list)
+                        or activation["agent_id"] not in telemetry["agent_ids"]
+                        or telemetry.get("core_revisions") != [activation["core_revision"]]
+                        or telemetry.get("overlay_revisions") != [activation["overlay_revision"]]):
+                    continue
+                cycle_id = cycle.get("cycle_id")
+                if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+                    continue
+                harness = {name: activation[name] for name in (
+                    "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision")}
+                errors = telemetry["error_classes"] if isinstance(telemetry["error_classes"], dict) else {}
+                optional_metrics = {
+                    "tool_call_count": candidate.get("aggregates", {}).get("tool_call_count", "unavailable"),
+                    "tool_error_count": candidate.get("aggregates", {}).get("tool_error_count", "unavailable"),
+                    "provider_error_count": errors.get("provider_error", "unavailable"),
+                    **{name: telemetry[name] for name in (
+                        "delegation_count", "approval_count", "retry_count", "token_total", "cost_total")},
+                }
+                member = {"source_id": source["source_id"], "cycle_id": cycle_id,
+                          "completed_at": int(candidate["completed_at"]), "context": candidate.get("context", "unavailable"),
+                          "risk": cycle["risk"], "delivery_intent": cycle["delivery_intent"],
+                          **{name: telemetry[name] for name in ("provider_ids", "model_ids", "agent_ids")},
+                          "metrics": metrics, "optional_metrics": optional_metrics,
+                          "telemetry_digest": hashlib.sha256(ledger_payload(telemetry).encode()).hexdigest(),
+                          "gate_digest": hashlib.sha256(ledger_payload(metrics).encode()).hexdigest()}
+                eligible.append((harness, member))
+    return eligible
+
+
+def provider_evaluation_evidence(receipt):
+    return [{"source_id": source["source_id"], "capture_id": source["capture_id"],
+             "privacy_epoch_digest": source["privacy_epoch_digest"],
+             "query_digest": hashlib.sha256(ledger_payload(source["pages"][0]["query"]).encode()).hexdigest(),
+             "exclusion_digest": source["pages"][0]["exclusion_digest"],
+             "pages": [{"cursor": page["cursor"], "digest": page["digest"],
+                         "member_digests": page["member_digests"]}
+                        for page in source["pages"]]} for source in receipt["sources"]]
+
+
+def command_provider_evaluation_save(args):
+    try:
+        raw = sys.stdin.read() if args.receipt_json == "-" else args.receipt_json
+        receipt = validate_provider_evaluation_receipt(json.loads(raw, object_pairs_hook=no_duplicate_keys))
+        prose = json.loads(args.report_json, object_pairs_hook=no_duplicate_keys)
+    except json.JSONDecodeError as error:
+        fail(f"invalid provider evaluation input: {error}")
+    if (not isinstance(prose, dict) or set(prose) != {"rubric", "findings", "recommendations"}
+            or not isinstance(prose.get("rubric"), dict)
+            or set(prose["rubric"]) != {"name", "version", "digest"}
+            or not all(isinstance(prose["rubric"].get(name), str) for name in ("name", "version", "digest"))
+            or not OPAQUE_ID.fullmatch(prose["rubric"]["name"])
+            or not OPAQUE_ID.fullmatch(prose["rubric"]["version"])
+            or not re.fullmatch(r"[0-9a-f]{64}", prose["rubric"]["digest"])):
+        fail("invalid provider evaluation rubric")
+    for name in ("findings", "recommendations"):
+        if (not isinstance(prose.get(name), list) or len(prose[name]) > 50
+                or any(not isinstance(item, str) or not 1 <= len(item.encode()) <= 512
+                       or review_unsafe(item) for item in prose[name])):
+            fail("invalid provider evaluation prose")
+    root = review_root(args.state_root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        staged = None
+        committed = False
+        try:
+            ensure_provider_evaluation_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            current_ms = int(time.time() * 1000)
+            privacy_changed = False
+            for source in receipt["sources"]:
+                previous = connection.execute(
+                    "SELECT privacy_epoch_digest FROM provider_evaluation_sources WHERE source_id=?",
+                    (source["source_id"],)).fetchone()
+                if previous is not None and previous[0] != source["privacy_epoch_digest"]:
+                    privacy_changed = True
+                    report_ids = [row[0] for row in connection.execute(
+                        "SELECT DISTINCT report_id FROM provider_evaluation_members WHERE source_id=?",
+                        (source["source_id"],))]
+                    connection.executemany("DELETE FROM provider_evaluation_reports WHERE report_id=?",
+                                           ((report_id,) for report_id in report_ids))
+                connection.execute("INSERT INTO provider_evaluation_sources VALUES (?, ?, 'available', ?) "
+                                   "ON CONFLICT(source_id) DO UPDATE SET privacy_epoch_digest=excluded.privacy_epoch_digest, "
+                                   "availability='available', verified_at=excluded.verified_at",
+                                   (source["source_id"], source["privacy_epoch_digest"], current_ms))
+            if privacy_changed:
+                quarantine_name = f".forget-{uuid.uuid4().hex}"
+                connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
+                                   (quarantine_name,))
+                staged = stage_pre_forget_state(root, quarantine_name)
+            rubric_key = hashlib.sha256(ledger_payload(prose["rubric"]).encode()).hexdigest()
+            existing = connection.execute(
+                "SELECT reports.payload FROM provider_evaluation_reports AS reports "
+                "JOIN provider_evaluation_receipts AS receipts USING (report_id) "
+                "WHERE reports.rubric_key=? AND receipts.payload=? ORDER BY reports.created_at, reports.report_id LIMIT 1",
+                (rubric_key, ledger_payload(receipt)),
+            ).fetchone()
+            if existing is not None:
+                connection.rollback()
+                print(existing[0])
+                return
+            groups = {}
+            for harness, member in provider_evaluation_candidates(receipt):
+                harness_key = hashlib.sha256(ledger_payload(harness).encode()).hexdigest()
+                used = connection.execute(
+                    "SELECT 1 FROM provider_evaluation_members WHERE rubric_key=? AND harness_key=? "
+                    "AND source_id=? AND cycle_id=?", (rubric_key, harness_key, member["source_id"],
+                                                        member["cycle_id"])).fetchone()
+                if used is None:
+                    groups.setdefault((harness_key, ledger_payload(harness)), []).append(member)
+            qualified = []
+            for (harness_key, serialized), members in groups.items():
+                members.sort(key=lambda item: (item["completed_at"], item["cycle_id"], item["source_id"]))
+                if len(members) >= 5:
+                    qualified.append((members[0]["completed_at"], harness_key, serialized, members[:5]))
+            if not qualified:
+                if staged is None:
+                    connection.rollback()
+                else:
+                    connection.commit()
+                    committed = True
+                    recover_forget_state(root, connection)
+                print(json.dumps({"schema_version": 1, "status": "insufficient",
+                                  "eligible_count": max((len(items) for items in groups.values()), default=0)},
+                                 sort_keys=True, separators=(",", ":")))
+                return
+            _, harness_key, serialized_harness, members = min(qualified)
+            harness = json.loads(serialized_harness)
+            identity = {"rubric": prose["rubric"], "harness_identity": harness,
+                        "members": [{name: member[name] for name in ("source_id", "cycle_id")}
+                                    for member in members]}
+            report_id = hashlib.sha256(ledger_payload(identity).encode()).hexdigest()[:24]
+            existing = connection.execute(
+                "SELECT payload FROM provider_evaluation_reports WHERE report_id=?", (report_id,)).fetchone()
+            if existing is not None:
+                connection.rollback()
+                print(existing[0])
+                return
+            optional = ("tool_call_count", "tool_error_count", "provider_error_count", "delegation_count",
+                        "approval_count", "retry_count", "token_total", "cost_total")
+            aggregates = {"elapsed_ms_median": median(member["metrics"]["elapsed_ms"] for member in members),
+                          "gate_failure_count": sum(member["metrics"]["gate_failure_count"] for member in members),
+                          "gate_reopen_count": sum(member["metrics"]["gate_reopen_count"] for member in members),
+                          "remediation_round_count": sum(member["metrics"]["remediation_round_count"] for member in members)}
+            availability = {name: "unavailable" for name in optional}
+            for name in optional:
+                values = [member["optional_metrics"][name] for member in members]
+                if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+                    availability[name] = "available"
+                    aggregates[name] = sum(values)
+            contexts = sorted({member["context"] for member in members})
+            risks = sorted({member["risk"] for member in members})
+            deliveries = sorted({member["delivery_intent"] for member in members})
+            child_agents = {tuple(member["agent_ids"]) for member in members}
+            report = {"schema_version": 1, "report_id": report_id, **identity, "members": members,
+                      "evidence": provider_evaluation_evidence(receipt),
+                      "aggregates": aggregates, "availability": availability,
+                      "confounders": (["context_distribution"] if len(contexts) > 1 else [])
+                      + (["risk_distribution"] if len(risks) > 1 else [])
+                      + (["delivery_distribution"] if len(deliveries) > 1 else [])
+                      + (["child_agent_distribution"] if len(child_agents) > 1
+                         or any(member["agent_ids"] != [harness["agent_id"]] for member in members) else []),
+                      "findings": prose["findings"], "recommendations": prose["recommendations"],
+                      "created_at": current_ms, "association_only": True}
+            validate_provider_evaluation_report(report)
+            connection.execute("INSERT INTO provider_evaluation_reports VALUES (?, ?, ?, ?, ?)",
+                               (report_id, rubric_key, harness_key, current_ms, ledger_payload(report)))
+            connection.executemany("INSERT INTO provider_evaluation_members VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                   ((report_id, position, rubric_key, harness_key, member["source_id"],
+                                     member["cycle_id"], ledger_payload(member))
+                                    for position, member in enumerate(members)))
+            connection.execute("INSERT INTO provider_evaluation_receipts VALUES (?, ?)",
+                               (report_id, ledger_payload(receipt)))
+            connection.commit()
+            committed = True
+            if staged is not None:
+                recover_forget_state(root, connection)
+        except Exception:
+            if not committed:
+                connection.rollback()
+                if staged is not None:
+                    restore_staged_forget(*staged)
+            raise
+        finally:
+            connection.close()
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
+def command_provider_evaluation(args):
+    root = review_root(args.state_root)
+    if not ledger_exists(root):
+        print(json.dumps({"schema_version": 1, "reports": []}, sort_keys=True))
+        return
+    with ledger_connection(root) as connection:
+        if connection.execute(
+                "SELECT value FROM ledger_meta WHERE key='provider_evaluation_schema'").fetchone() is None:
+            print(json.dumps({"schema_version": 1, "reports": []}, sort_keys=True))
+            return
+        if args.report_id is None:
+            reports = [{"report_id": row[0], "created_at": row[1]} for row in connection.execute(
+                "SELECT report_id,created_at FROM provider_evaluation_reports ORDER BY created_at,report_id")]
+            print(json.dumps({"schema_version": 1, "reports": reports}, sort_keys=True, separators=(",", ":")))
+            return
+        row = connection.execute("SELECT payload FROM provider_evaluation_reports WHERE report_id=?",
+                                 (args.report_id,)).fetchone()
+        if row is None:
+            fail("provider evaluation report is missing")
+        sources = [item[0] for item in connection.execute(
+            "SELECT DISTINCT source_id FROM provider_evaluation_members WHERE report_id=?", (args.report_id,))]
+        stale = int(time.time() * 1000) - 8 * 24 * 60 * 60 * 1000
+        if any((state := connection.execute(
+                "SELECT availability,verified_at FROM provider_evaluation_sources WHERE source_id=?", (source,)).fetchone())
+                is None or state[0] != "available" or state[1] < stale for source in sources):
+            fail("provider evaluation report is quarantined pending source privacy verification")
+        print(row[0])
+
+
+def command_provider_evaluation_forget(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
+        staged = None
+        committed = False
+        try:
+            if connection.execute("SELECT payload FROM provider_evaluation_reports WHERE report_id=?",
+                                  (args.report_id,)).fetchone() is None:
+                fail("provider evaluation report is missing")
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM provider_evaluation_reports WHERE report_id=?", (args.report_id,))
+            quarantine_name = f".forget-{uuid.uuid4().hex}"
+            connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
+                               (quarantine_name,))
+            staged = stage_pre_forget_state(root, quarantine_name)
+            connection.commit()
+            committed = True
+            recover_forget_state(root, connection)
+        except Exception:
+            if not committed:
+                connection.rollback()
+                if staged is not None:
+                    restore_staged_forget(*staged)
+            raise
+        finally:
+            connection.close()
+    print(json.dumps({"forgotten": args.report_id}, sort_keys=True))
 
 
 def validate_benchmark(value):
@@ -5580,8 +6303,15 @@ def command_record_evidence(args):
         envelope["content"] = content
         evidence_id = envelope["id"]
         record["evidence"]["items"][evidence_id] = envelope
+        previous_result = gate["result"]
         gate.pop("exception", None)
         gate.update({"result": result, "evidence": evidence_id})
+        metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
+                                                  "remediation_round_count": 0})
+        if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
+            metrics["gate_failure_count"] += 1
+        if previous_result in ("failed", "unavailable") and result == "passed":
+            metrics["remediation_round_count"] += 1
         save(path, record)
         print(evidence_id)
 
@@ -5607,6 +6337,7 @@ def command_set_gate(args):
         fail("not_applicable gates can only use not_run")
     if gate["applicability"] == "required" and args.result in ("passed", "failed", "unavailable") and not args.evidence:
         fail(f"{args.result} required gate needs evidence")
+    previous_result = gate["result"]
     was_disposed = disposed(gate)
     gate.pop("exception", None)
     gate["result"] = args.result
@@ -5616,6 +6347,12 @@ def command_set_gate(args):
         gate.pop("evidence", None)
     if is_v32(record) and was_disposed and not disposed(gate):
         invalidate_later(record, args.gate)
+    metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
+                                              "remediation_round_count": 0})
+    if args.result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
+        metrics["gate_failure_count"] += 1
+    if previous_result in ("failed", "unavailable") and args.result == "passed":
+        metrics["remediation_round_count"] += 1
     save(path, record)
 
 
@@ -6041,6 +6778,7 @@ def parser():
     begin.add_argument("--opencode-message-id")
     begin.add_argument("--opencode-directory")
     begin.add_argument("--opencode-worktree")
+    begin.add_argument("--harness-activation-json")
     begin.set_defaults(func=command_begin)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
@@ -6050,6 +6788,7 @@ def parser():
     attach.add_argument("--opencode-message-id")
     attach.add_argument("--opencode-directory", required=True)
     attach.add_argument("--opencode-worktree", required=True)
+    attach.add_argument("--harness-activation-json")
     attach.set_defaults(func=command_attach_runtime)
     phase_span = commands.add_parser("phase-span")
     phase_span.add_argument("--state-root")
@@ -6141,6 +6880,22 @@ def parser():
     capture_delete.add_argument("--state-root")
     capture_delete.add_argument("--capture-id", required=True)
     capture_delete.set_defaults(func=command_history_capture_delete)
+    privacy_epoch = commands.add_parser("review-privacy-epoch")
+    privacy_epoch.add_argument("--state-root")
+    privacy_epoch.set_defaults(func=command_review_privacy_epoch)
+    evaluation_save = commands.add_parser("provider-evaluation-save")
+    evaluation_save.add_argument("--state-root")
+    evaluation_save.add_argument("--receipt-json", required=True)
+    evaluation_save.add_argument("--report-json", required=True)
+    evaluation_save.set_defaults(func=command_provider_evaluation_save)
+    evaluation = commands.add_parser("provider-evaluation")
+    evaluation.add_argument("--state-root")
+    evaluation.add_argument("--report-id")
+    evaluation.set_defaults(func=command_provider_evaluation)
+    evaluation_forget = commands.add_parser("provider-evaluation-forget")
+    evaluation_forget.add_argument("--state-root")
+    evaluation_forget.add_argument("--report-id", required=True)
+    evaluation_forget.set_defaults(func=command_provider_evaluation_forget)
     benchmark_save = commands.add_parser("benchmark-save")
     benchmark_save.add_argument("--state-root")
     benchmark_save.add_argument("--definition-version", required=True)

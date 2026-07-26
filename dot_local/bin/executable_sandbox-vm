@@ -31,8 +31,10 @@ PAGE_KEYS = {"schema_version", "capture_id", "snapshot", "session_ceiling", "par
 CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
 QUERY_KEYS = {"after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest", "reviewed_status", "state"}
 AGGREGATE_KEYS = {"approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"}
-TELEMETRY_KEYS = {"approval_count", "attribution_status", "availability", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
-AVAILABILITY_KEYS = {"approval_count", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
+LEGACY_TELEMETRY_KEYS = {"approval_count", "attribution_status", "availability", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
+TELEMETRY_KEYS = LEGACY_TELEMETRY_KEYS | {"schema_version", "provider_ids", "model_ids", "agent_ids", "session_relation", "core_revisions", "overlay_revisions", "gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+AVAILABILITY_KEYS = TELEMETRY_KEYS - {"schema_version", "availability", "attribution_status"}
+LEGACY_AVAILABILITY_KEYS = LEGACY_TELEMETRY_KEYS - {"availability", "attribution_status"}
 PHASE_KEYS = {"schema_version", "cycle_id", "status", "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"}
 
 
@@ -443,13 +445,19 @@ def _valid_candidate(candidate):
     if not _exact(candidate, CANDIDATE_KEYS) or not _exact(candidate.get("aggregates"), AGGREGATE_KEYS):
         return False
     telemetry = candidate.get("telemetry")
-    if not _exact(telemetry, TELEMETRY_KEYS) or not _exact(telemetry.get("availability"), AVAILABILITY_KEYS):
+    current_telemetry = _exact(telemetry, TELEMETRY_KEYS)
+    legacy_telemetry = _exact(telemetry, LEGACY_TELEMETRY_KEYS)
+    if (not current_telemetry and not legacy_telemetry
+            or not _exact(telemetry.get("availability"), AVAILABILITY_KEYS if current_telemetry else LEGACY_AVAILABILITY_KEYS)):
         return False
     cycles = candidate.get("cycles")
     if not isinstance(cycles, list):
         return False
     for cycle in cycles:
-        if not (_exact(cycle, {"cycle_id", "state"}) or _exact(cycle, {"cycle_id", "state", "phase_profile"})):
+        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation"}
+                or not {"cycle_id", "state"} <= set(cycle)
+                or cycle.get("risk", "unavailable") not in {"routine", "elevated", "critical", "unavailable"}
+                or cycle.get("delivery_intent", "unavailable") not in {"local", "merge", "release", "deploy", "draft_pr", "unavailable"}):
             return False
         if not _valid_phase_profile(cycle.get("phase_profile"), cycle.get("cycle_id")):
             return False
@@ -481,8 +489,28 @@ def _valid_candidate(candidate):
             or not (telemetry["error_classes"] == "unavailable" or isinstance(telemetry["error_classes"], dict)
                     and all(ID.fullmatch(key) and _nonnegative_integer(value) for key, value in telemetry["error_classes"].items()))
             or telemetry["attribution_status"] not in {"exact", "family", "worktree", "source", "ambiguous", "unavailable"}
-            or any(value not in {"available", "unavailable"} for value in telemetry["availability"].values())):
+            or any(value not in {"available", "unavailable"} for value in telemetry["availability"].values())
+            or current_telemetry and (telemetry.get("schema_version") != 2
+                or telemetry.get("session_relation") not in {"primary", "child", "unavailable"}
+                or any(telemetry[name] != "unavailable" and (not isinstance(telemetry[name], list)
+                    or not telemetry[name] or any(not isinstance(item, str) or not ID.fullmatch(item)
+                                                   for item in telemetry[name]))
+                       for name in ("provider_ids", "model_ids", "agent_ids", "core_revisions", "overlay_revisions"))
+                or any(telemetry[name] != "unavailable" and not _nonnegative_integer(telemetry[name])
+                       for name in ("gate_failure_count", "gate_reopen_count", "remediation_round_count")))):
         return False
+    for cycle in cycles:
+        metrics = cycle.get("metrics")
+        if metrics is not None and (not _exact(metrics, {"elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count"})
+                or metrics["elapsed_ms"] != "unavailable" and not _nonnegative_integer(metrics["elapsed_ms"])
+                or any(not _nonnegative_integer(metrics[name]) for name in ("gate_failure_count", "gate_reopen_count", "remediation_round_count"))):
+            return False
+        activation = cycle.get("harness_activation")
+        if activation is not None and (not _exact(activation, {"schema_version", "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"})
+                or activation.get("schema_version") != 1
+                or any(not isinstance(activation.get(name), str) or not ID.fullmatch(activation[name])
+                       for name in ("provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"))):
+            return False
     return _safe_values(candidate)
 
 
@@ -671,6 +699,56 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
     return {"schema_version": 2, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
+def privacy_epochs(config, execute=command):
+    validate_config(config)
+    federated = [workspace for workspace in config["workspaces"] if workspace["federate"]]
+    sources = [None] * (len(federated) + 1)
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+
+    def parse(source, output):
+        value = json.loads(output)
+        if (not _exact(value, {"schema_version", "privacy_epoch_digest"}) or value.get("schema_version") != 1
+                or not isinstance(value.get("privacy_epoch_digest"), str)
+                or not DIGEST.fullmatch(value["privacy_epoch_digest"])):
+            raise ValueError("invalid privacy epoch")
+        return {"source_id": source, "availability": "available",
+                "privacy_epoch_digest": value["privacy_epoch_digest"]}
+
+    def host():
+        try:
+            return parse("host", execute(["dbsctrctl", "review-privacy-epoch"], timeout=120))
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            return {"source_id": "host", "availability": "unavailable"}
+
+    def guest(workspace):
+        source, instance = workspace["name"], workspace["instance"]
+        with _instance_lock(lock_root, instance):
+            started = False
+            try:
+                statuses = _parse_statuses(execute(["limactl", "list", "--json"]))
+                if instance not in statuses or statuses[instance] not in {"running", "stopped"}:
+                    return {"source_id": source, "availability": "unavailable"}
+                started = statuses[instance] == "stopped"
+                if started:
+                    execute(["limactl", "start", instance], timeout=120)
+                return parse(source, execute(["limactl", "shell", instance, "--", "dbsctrctl",
+                                               "review-privacy-epoch"], timeout=120))
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+                return {"source_id": source, "availability": "unavailable"}
+            finally:
+                if started:
+                    try:
+                        execute(["limactl", "stop", instance], timeout=120)
+                    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                        pass
+
+    jobs = [host, *(lambda workspace=workspace: guest(workspace) for workspace in federated)]
+    with ThreadPoolExecutor(max_workers=min(4, len(jobs))) as pool:
+        for index, value in enumerate(pool.map(lambda job: job(), jobs)):
+            sources[index] = value
+    return {"schema_version": 1, "sources": sources}
+
+
 def main(argv=None, invocation=None):
     invocation = invocation or Path(sys.argv[0]).name
     config = None
@@ -703,6 +781,7 @@ def main(argv=None, invocation=None):
     review.add_argument("--archive-only", action="store_true")
     review.add_argument("--excluded-session-id")
     review.add_argument("--excluded-message-id")
+    commands.add_parser("privacy-epochs")
     commands.add_parser("status")
     commands.add_parser("build-workspace")
     args = parser.parse_args(argv)
@@ -716,6 +795,9 @@ def main(argv=None, invocation=None):
             config, args.limit, args.cursor, state, filters=filters,
             excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
         ), sort_keys=True, separators=(",", ":")))
+        return
+    if args.command == "privacy-epochs":
+        print(json.dumps(privacy_epochs(config), sort_keys=True, separators=(",", ":")))
         return
     if args.command == "status":
         print(json.dumps(status_report(config), sort_keys=True))

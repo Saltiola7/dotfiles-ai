@@ -3,6 +3,27 @@ import { createHash } from "node:crypto"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
+const harnessActivation = {
+  schema_version: 1,
+  core_revision: "3.29",
+  overlays: { build: "neutral-2026-07-26", "build-gpt": "openai-2026-07-26", "build-claude": "anthropic-2026-07-26" },
+}
+
+const evaluationPages = new Map<string, { source_id: string, capture_id: string, pages: Map<number, any> }>()
+const evaluationReceipts = new Map<string, any>()
+
+function localizeCandidate(value: any, source: string): any {
+  if (Array.isArray(value)) return value.map(item => localizeCandidate(item, source))
+  if (value === null || typeof value !== "object") return value
+  const result: Record<string, any> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (["session_id", "cycle_id", "parent_session_id"].includes(key) && typeof item === "string"
+        && item.startsWith(`${source}:`)) result[key] = item.slice(source.length + 1)
+    else result[key] = localizeCandidate(item, source)
+  }
+  return result
+}
+
 function canonicalJSON(value: any): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`
   if (value !== null && typeof value === "object")
@@ -111,6 +132,25 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number | null 
   }
 }
 
+async function runBoundedInput(argv: string[], input: string, cwd: string, timeoutMs = 30_000) {
+  const child = Bun.spawn(argv, { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true })
+  child.stdin.write(input)
+  child.stdin.end()
+  const budget = { remaining: 256 * 1024 }
+  const timer = setTimeout(() => {
+    try { process.kill(-child.pid, "SIGKILL") } catch { child.kill() }
+  }, timeoutMs)
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      boundedText(child.stdout, budget), boundedText(child.stderr, budget), child.exited,
+    ])
+    if (exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
+    return stdout
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function cycleStatus(cwd: string) {
   return await run(["dbsctrctl", "status", "--json"], cwd)
 }
@@ -127,6 +167,7 @@ export async function attachRuntime(cwd: string, runtime: {
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
     "--opencode-worktree", runtime.worktree,
+    "--harness-activation-json", JSON.stringify(harnessActivation),
   ], cwd)
 }
 
@@ -312,10 +353,13 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
   const aggregateKeys = ["approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count",
     "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count",
     "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"]
-  const telemetryKeys = ["approval_count", "attribution_status", "availability", "cost_total", "delegation_count",
+  const legacyTelemetryKeys = ["approval_count", "attribution_status", "availability", "cost_total", "delegation_count",
     "error_classes", "model_families", "retry_count", "token_total"]
-  const availabilityKeys = ["approval_count", "cost_total", "delegation_count", "error_classes", "model_families",
-    "retry_count", "token_total"]
+  const telemetryKeys = [...legacyTelemetryKeys, "schema_version", "provider_ids", "model_ids", "agent_ids",
+    "session_relation", "core_revisions", "overlay_revisions", "gate_failure_count", "gate_reopen_count",
+    "remediation_round_count"]
+  const availabilityKeys = telemetryKeys.filter(key => !["availability", "attribution_status", "schema_version"].includes(key))
+  const legacyAvailabilityKeys = legacyTelemetryKeys.filter(key => !["availability", "attribution_status"].includes(key))
   const queryKeys = ["after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest",
     "reviewed_status", "state"]
   const digest = /^[0-9a-f]{64}$/
@@ -340,9 +384,14 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
     && (page.query.project_digest === null || typeof page.query.project_digest === "string" && digest.test(page.query.project_digest))
     && [null, "reviewed", "unreviewed"].includes(page.query.reviewed_status)
     && [null, "active", "blocked", "abandoned", "completed", "unknown"].includes(page.query.state)
-    && page.candidates.every((candidate: any) => exactKeys(candidate, candidateKeys)
-      && exactKeys(candidate.aggregates, aggregateKeys) && exactKeys(candidate.telemetry, telemetryKeys)
-      && exactKeys(candidate.telemetry.availability, availabilityKeys) && Array.isArray(candidate.cycles)
+    && page.candidates.every((candidate: any) => {
+      const currentTelemetry = exactKeys(candidate?.telemetry, telemetryKeys)
+      const legacyTelemetry = exactKeys(candidate?.telemetry, legacyTelemetryKeys)
+      const expectedAvailability = currentTelemetry ? availabilityKeys : legacyAvailabilityKeys
+      return exactKeys(candidate, candidateKeys)
+      && exactKeys(candidate.aggregates, aggregateKeys) && (currentTelemetry || legacyTelemetry)
+      && (!currentTelemetry || candidate.telemetry.schema_version === 2)
+      && exactKeys(candidate.telemetry.availability, expectedAvailability) && Array.isArray(candidate.cycles)
       && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegativeInteger(candidate.snapshot)
       && nonnegativeInteger(candidate.session_ceiling) && nonnegativeInteger(candidate.part_ceiling)
       && digest.test(candidate.database_digest) && digest.test(candidate.project_digest) && id.test(candidate.context)
@@ -364,11 +413,20 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
         && Object.entries(candidate.telemetry.error_classes).every(([key, value]) => id.test(key) && nonnegativeInteger(value)))
       && ["exact", "family", "worktree", "source", "ambiguous", "unavailable"].includes(candidate.telemetry.attribution_status)
       && Object.values(candidate.telemetry.availability).every(value => ["available", "unavailable"].includes(value as string))
+      && (!currentTelemetry || ["primary", "child", "unavailable"].includes(candidate.telemetry.session_relation)
+        && ["provider_ids", "model_ids", "agent_ids", "core_revisions", "overlay_revisions"].every(name =>
+          candidate.telemetry[name] === "unavailable" || Array.isArray(candidate.telemetry[name])
+          && candidate.telemetry[name].length > 0 && candidate.telemetry[name].every((value: any) => typeof value === "string" && id.test(value)))
+        && ["gate_failure_count", "gate_reopen_count", "remediation_round_count"].every(name =>
+          candidate.telemetry[name] === "unavailable" || nonnegativeInteger(candidate.telemetry[name])))
       && candidate.cycles.every((cycle: any) => {
-        if (!id.test(cycle?.cycle_id) || !["active", "blocked", "abandoned", "completed", "unknown"].includes(cycle?.state)) return false
-        if (exactKeys(cycle, ["cycle_id", "state"])) return true
-        return exactKeys(cycle, ["cycle_id", "state", "phase_profile"])
-          && (cycle.phase_profile === null || exactKeys(cycle.phase_profile, ["schema_version", "cycle_id", "status",
+        if (cycle === null || typeof cycle !== "object" || Array.isArray(cycle)
+            || Object.keys(cycle).some(key => !["cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation"].includes(key))
+            || !id.test(cycle.cycle_id) || !["active", "blocked", "abandoned", "completed", "unknown"].includes(cycle.state)
+            || !["routine", "elevated", "critical", "unavailable"].includes(cycle.risk ?? "unavailable")
+            || !["local", "merge", "release", "deploy", "draft_pr", "unavailable"].includes(cycle.delivery_intent ?? "unavailable")) return false
+        const phaseValid = cycle.phase_profile === undefined || cycle.phase_profile === null
+          || exactKeys(cycle.phase_profile, ["schema_version", "cycle_id", "status",
             "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"])
             && cycle.phase_profile.schema_version === 1 && cycle.phase_profile.cycle_id === cycle.cycle_id
             && ["complete", "unavailable"].includes(cycle.phase_profile.status)
@@ -378,8 +436,19 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
             && cycle.phase_profile.principal_waits.every((wait: any) => exactKeys(wait, ["span_id", "wait_ms"])
               && id.test(wait.span_id) && nonnegativeInteger(wait.wait_ms))
             && Array.isArray(cycle.phase_profile.attribution_caveats)
-            && cycle.phase_profile.attribution_caveats.every((value: any) => typeof value === "string" && id.test(value)))
-      }))
+            && cycle.phase_profile.attribution_caveats.every((value: any) => typeof value === "string" && id.test(value))
+        const metricsValid = cycle.metrics === undefined || exactKeys(cycle.metrics,
+          ["elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count"])
+          && (cycle.metrics.elapsed_ms === "unavailable" || nonnegativeInteger(cycle.metrics.elapsed_ms))
+          && ["gate_failure_count", "gate_reopen_count", "remediation_round_count"].every(name => nonnegativeInteger(cycle.metrics[name]))
+        const activationValid = cycle.harness_activation === undefined || exactKeys(cycle.harness_activation,
+          ["schema_version", "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"])
+          && cycle.harness_activation.schema_version === 1
+          && ["provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"].every(name =>
+            typeof cycle.harness_activation[name] === "string" && id.test(cycle.harness_activation[name]))
+        return phaseValid && metricsValid && activationValid
+      })
+    })
 }
 
 export async function reviewFederated(args: {
@@ -476,6 +545,43 @@ export async function reviewFederated(args: {
         return canonicalJSON(state) !== canonicalJSON(expected)
       })) {
     throw new Error("sandbox helper returned an invalid federation manifest")
+  }
+  for (const source of value.sources) if (source.availability === "available") {
+    const key = `${source.source_id}\0${source.page.capture_id}`
+    const captured = evaluationPages.get(key) ?? {
+      source_id: source.source_id, capture_id: source.page.capture_id, pages: new Map<number, any>(),
+    }
+    const page = localizeCandidate(source.page, source.source_id)
+    page.session_ids = source.page.session_ids.map((sessionID: string) =>
+      sessionID.startsWith(`${source.source_id}:`) ? sessionID.slice(source.source_id.length + 1) : sessionID)
+    page.member_digests = page.candidates.map((candidate: any) => sha256(candidate))
+    captured.pages.set(source.page.cursor, page)
+    evaluationPages.set(key, captured)
+  }
+  if (value.source_state === null && value.sources.some((source: any) => source.availability === "available")
+      && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
+    const privacy = await analyticsJSON(["sandbox-vm", "privacy-epochs"], cwd, null)
+    if (!exactKeys(privacy, ["schema_version", "sources"]) || privacy.schema_version !== 1
+        || !Array.isArray(privacy.sources)
+        || canonicalJSON(privacy.sources.map((source: any) => source?.source_id)) !== canonicalJSON(expectedSources)
+        || privacy.sources.some((source: any) => !exactKeys(source,
+          source?.availability === "available" ? ["source_id", "availability", "privacy_epoch_digest"] : ["source_id", "availability"])
+          || source.availability !== "available" || !/^[0-9a-f]{64}$/.test(source.privacy_epoch_digest)))
+      throw new Error("sandbox helper returned invalid privacy epochs")
+    const receiptSources = expectedSources.map(sourceID => {
+      const page = value.sources.find((source: any) => source.source_id === sourceID)?.page
+      const state = sourceState?.find(source => source.source_id === sourceID)
+      const captureID = page?.capture_id ?? state?.capture_id
+      const captured = evaluationPages.get(`${sourceID}\0${captureID}`)
+      if (captured === undefined) throw new Error("federated capture receipt is incomplete")
+      return { source_id: sourceID, capture_id: captureID,
+        privacy_epoch_digest: privacy.sources.find((source: any) => source.source_id === sourceID).privacy_epoch_digest,
+        pages: [...captured.pages.values()].sort((left, right) => left.cursor - right.cursor) }
+    })
+    evaluationReceipts.set(value.manifest_digest, {
+      schema_version: 1, manifest_digest: value.manifest_digest,
+      manifest_identity: federatedManifestIdentity(query, value.sources), sources: receiptSources,
+    })
   }
   return JSON.stringify(value)
 }
@@ -623,15 +729,32 @@ export async function historyCapture(args: { captureID: string; cursor?: number;
 export async function historyTelemetry(args: Parameters<typeof reviewHistory>[0], cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   const value = await analyticsJSON(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
   const limit = args.limit ?? 25
-  const telemetryKeys = ["approval_count", "retry_count", "delegation_count", "model_families", "error_classes",
-    "token_total", "cost_total", "availability", "attribution_status"]
-  const availabilityKeys = telemetryKeys.filter(key => !["availability", "attribution_status"].includes(key))
+  const telemetryKeys = ["schema_version", "approval_count", "retry_count", "delegation_count", "model_families",
+    "error_classes", "token_total", "cost_total", "provider_ids", "model_ids", "agent_ids", "session_relation",
+    "core_revisions", "overlay_revisions", "gate_failure_count", "gate_reopen_count", "remediation_round_count",
+    "availability", "attribution_status"]
+  const availabilityKeys = telemetryKeys.filter(key => !["schema_version", "availability", "attribution_status"].includes(key))
   const attribution = ["exact", "family", "worktree", "source", "ambiguous", "unavailable"]
   for (const candidate of Array.isArray(value.candidates) ? value.candidates : []) {
+    if (candidate !== null && typeof candidate === "object" && candidate.telemetry !== undefined
+        && candidate.telemetry?.schema_version === undefined) candidate.telemetry = {
+      ...candidate.telemetry, schema_version: 2,
+      provider_ids: "unavailable", model_ids: "unavailable", agent_ids: "unavailable",
+      session_relation: "unavailable", core_revisions: "unavailable", overlay_revisions: "unavailable",
+      gate_failure_count: "unavailable", gate_reopen_count: "unavailable", remediation_round_count: "unavailable",
+      availability: { ...candidate.telemetry.availability,
+        provider_ids: "unavailable", model_ids: "unavailable", agent_ids: "unavailable",
+        session_relation: "unavailable", core_revisions: "unavailable", overlay_revisions: "unavailable",
+        gate_failure_count: "unavailable", gate_reopen_count: "unavailable", remediation_round_count: "unavailable" },
+    }
     if (candidate !== null && typeof candidate === "object" && candidate.telemetry === undefined) candidate.telemetry = {
+      schema_version: 2,
       approval_count: "unavailable", retry_count: "unavailable", delegation_count: "unavailable",
       model_families: "unavailable", error_classes: "unavailable", token_total: "unavailable",
-      cost_total: "unavailable",
+      cost_total: "unavailable", provider_ids: "unavailable", model_ids: "unavailable",
+      agent_ids: "unavailable", session_relation: "unavailable", core_revisions: "unavailable",
+      overlay_revisions: "unavailable", gate_failure_count: "unavailable", gate_reopen_count: "unavailable",
+      remediation_round_count: "unavailable",
       availability: Object.fromEntries(availabilityKeys.map(key => [key, "unavailable"])),
       attribution_status: attribution.includes(candidate?.correlation_quality)
         ? candidate.correlation_quality : "unavailable",
@@ -641,6 +764,7 @@ export async function historyTelemetry(args: Parameters<typeof reviewHistory>[0]
       || value.limit !== limit || value.cursor !== (args.cursor ?? 0)
       || value.candidates.some((candidate: any) => candidate === null || typeof candidate !== "object"
         || candidate.telemetry !== undefined && (!exactKeys(candidate.telemetry, telemetryKeys)
+          || candidate.telemetry.schema_version !== 2
           || !exactKeys(candidate.telemetry.availability, availabilityKeys)
           || !Object.values(candidate.telemetry.availability).every(status => ["available", "unavailable"].includes(status as string))
           || !attribution.includes(candidate.telemetry.attribution_status)))) {
@@ -687,6 +811,37 @@ export async function reviewHistorySave(report: {
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
   if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   return await run(argv, cwd)
+}
+
+export async function providerEvaluationSave(args: {
+  manifestDigest: string
+  rubric: { name: string; version: string; digest: string }
+  findings: string[]
+  recommendations: string[]
+}, cwd = process.cwd()) {
+  const receipt = evaluationReceipts.get(args.manifestDigest)
+  if (receipt === undefined) throw new Error("terminal federated capture receipt is unavailable")
+  const report = JSON.stringify({ rubric: args.rubric, findings: args.findings,
+    recommendations: args.recommendations })
+  const output = await runBoundedInput([
+    "dbsctrctl", "provider-evaluation-save", "--receipt-json", "-", "--report-json", report,
+  ], JSON.stringify(receipt), cwd)
+  const value = JSON.parse(output)
+  if (value?.schema_version !== 1 || value?.status === "insufficient"
+      && (!Number.isInteger(value.eligible_count) || value.eligible_count < 0)
+      || value?.status !== "insufficient" && !/^[0-9a-f]{24}$/.test(value?.report_id ?? ""))
+    throw new Error("helper returned invalid provider evaluation")
+  return JSON.stringify(value)
+}
+
+export async function providerEvaluation(reportID?: string, cwd = process.cwd()) {
+  const value = await analyticsJSON([
+    "dbsctrctl", "provider-evaluation", ...(reportID === undefined ? [] : ["--report-id", reportID]),
+  ], cwd)
+  if (value?.schema_version !== 1 || reportID !== undefined && value.report_id !== reportID
+      || reportID === undefined && !Array.isArray(value.reports))
+    throw new Error("helper returned invalid provider evaluation")
+  return JSON.stringify(value)
 }
 
 export async function improvementStatus(workerID?: string, cwd = process.cwd()) {
@@ -742,6 +897,7 @@ export async function beginCycle(args: {
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
     "--opencode-worktree", runtime.worktree,
+    "--harness-activation-json", JSON.stringify(harnessActivation),
   ] : []
   const output = await run([
     "dbsctrctl", "begin",

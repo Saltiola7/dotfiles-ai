@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -300,6 +300,32 @@ export const benchmark = tool({
   args: { benchmarkId: tool.schema.string().regex(/^[0-9a-f]{24}$/) },
   async execute(args, context) {
     return await benchmarkResult(args.benchmarkId, context.worktree)
+  },
+})
+
+export const provider_evaluation = tool({
+  description: "List report-only provider harness evaluations or replay one immutable report.",
+  args: { reportId: tool.schema.string().regex(/^[0-9a-f]{24}$/).optional() },
+  async execute(args, context) {
+    return await providerEvaluation(args.reportId, context.worktree)
+  },
+})
+
+export const provider_evaluation_save = tool({
+  description: "Derive and persist one report-only five-cycle provider harness evaluation from a terminal federated capture.",
+  args: {
+    manifestDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+    rubricName: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+    rubricVersion: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+    rubricDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+    findings: tool.schema.array(tool.schema.string().min(1).max(512)).max(50),
+    recommendations: tool.schema.array(tool.schema.string().min(1).max(512)).max(50),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_provider_evaluation_save", patterns: [args.manifestDigest], always: [] })
+    return await providerEvaluationSave({ manifestDigest: args.manifestDigest,
+      rubric: { name: args.rubricName, version: args.rubricVersion, digest: args.rubricDigest },
+      findings: args.findings, recommendations: args.recommendations }, context.worktree)
   },
 })
 

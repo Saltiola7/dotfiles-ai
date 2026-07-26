@@ -37,12 +37,12 @@
         "profile": {{ .dotfiles_ai.opencode.bedrock_profile | toJson }}
       },
       "models": {
-        "global.anthropic.claude-opus-4-8": {
+        "global.anthropic.claude-opus-5": {
           "variants": {
-            "medium": {
+            "high": {
               "reasoningConfig": {
                 "type": "adaptive",
-                "maxReasoningEffort": "medium",
+                "maxReasoningEffort": "high",
                 "display": "summarized"
               }
             }
@@ -127,6 +127,7 @@
         "dbsctr_execution_dag": "allow",
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
+        "dbsctr_provider_evaluation_save": "allow",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
           "~/.config/dotfiles-ai/**": "allow"
@@ -193,6 +194,8 @@
     "dbsctr_history_capture": "allow",
     "dbsctr_history_telemetry": "allow",
     "dbsctr_benchmark": "allow",
+    "dbsctr_provider_evaluation": "allow",
+    "dbsctr_provider_evaluation_save": "deny",
     "dbsctr_improvement_status": "allow",
     "dbsctr_improvement_claim": "deny",
     "dbsctr_improvement_update": "deny",
@@ -291,6 +294,10 @@
       "env *dbsctrctl improvement-forget*": "ask",
       "command *dbsctrctl improvement-forget*": "ask",
       "*dbsctrctl improvement-forget*": "ask",
+      "dbsctrctl provider-evaluation-save*": "ask",
+      "*/dbsctrctl provider-evaluation-save*": "ask",
+      "dbsctrctl provider-evaluation-forget*": "ask",
+      "*/dbsctrctl provider-evaluation-forget*": "ask",
       "dbsctrctl cleanup*": "ask",
       "herdr server stop*": "ask",
       "herdr config reset-keys*": "ask",
