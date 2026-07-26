@@ -163,6 +163,10 @@ def test_oauth_incompatible_pro_agents_are_absent():
     build = (OC / "agents/build-gpt.md").read_text()
     assert "model: openai/gpt-5.6-sol" in build
     assert "variant: medium" in build
+    claude = (OC / "agents/build-claude.md").read_text()
+    assert "model: amazon-bedrock/global.anthropic.claude-opus-5" in claude
+    assert "variant: high" in claude
+    assert "claude-opus-4-8" not in text("private_dot_config/opencode/opencode.json.tmpl")
 
     expected = {
         "explore-openai.md": ("openai/gpt-5.6-terra", "low"),
@@ -178,6 +182,14 @@ def test_oauth_incompatible_pro_agents_are_absent():
 def test_commands_inherit_current_agent():
     for name in ("dbsctr", "discovery", "qa", "dbsctr-review"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
+    exact = {
+        "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol"),
+        "dbsctr-claude": ("build-claude", "amazon-bedrock/global.anthropic.claude-opus-5"),
+    }
+    for name, (agent, model) in exact.items():
+        body = (OC / f"commands/{name}.md").read_text()
+        assert f"agent: {agent}" in body
+        assert f"model: {model}" in body
 
 
 def test_provider_affine_task_permissions():
@@ -235,6 +247,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_execution_dag": "allow",
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
+        "dbsctr_provider_evaluation_save": "allow",
         "external_directory": {worktrees: "allow", local_config: "allow"},
     }
 
@@ -588,7 +601,14 @@ def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):
                             capture_output=True, check=True)
     outputs = [json.loads(line) for line in result.stdout.splitlines()]
     assert outputs[0] == capture and outputs[2] == benchmark
-    assert outputs[1]["candidates"][0] == telemetry["candidates"][0]
+    normalized = outputs[1]["candidates"][0]["telemetry"]
+    assert normalized["schema_version"] == 2
+    for key, value in telemetry["candidates"][0]["telemetry"].items():
+        if key == "availability":
+            for metric, status in value.items():
+                assert normalized[key][metric] == status
+        else:
+            assert normalized[key] == value
     legacy = outputs[1]["candidates"][1]["telemetry"]
     assert legacy["attribution_status"] == "ambiguous"
     assert set(legacy["availability"].values()) == {"unavailable"}
@@ -799,6 +819,8 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<attach-runtime>", "<--opencode-session-id>", "<session-resumed>",
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
+        "<--harness-activation-json>",
+        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -899,6 +921,8 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--plan>", "</tmp/plan>", "<--opencode-session-id>", "<session-tool>",
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
+        "<--harness-activation-json>",
+        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 

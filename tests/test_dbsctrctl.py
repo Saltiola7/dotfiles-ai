@@ -548,23 +548,32 @@ class DbsctrctlTest(unittest.TestCase):
         database.parent.mkdir(parents=True)
         connection = sqlite3.connect(database)
         connection.executescript("""
-            create table session (id text primary key, parent_id text);
-            create table message (id text primary key, session_id text);
-            insert into session values ('session-resumed', null);
-            insert into session values ('session-child', 'session-resumed');
-            insert into message values ('message-resumed', 'session-resumed');
-            insert into message values ('message-child', 'session-child');
+            create table session (id text primary key, parent_id text, agent text);
+            create table message (id text primary key, session_id text, data text);
+            insert into session values ('session-resumed', null, 'build-gpt');
+            insert into session values ('session-child', 'session-resumed', 'builder-openai');
+            insert into message values ('message-resumed', 'session-resumed',
+                '{"model":{"providerID":"openai","modelID":"gpt-5.6-sol"}}');
+            insert into message values ('message-child', 'session-child', '{}');
         """)
         connection.commit()
         connection.close()
         env = {**os.environ, "HOME": str(home)}
-        common = ("--opencode-message-id", "message-resumed")
+        activation = json.dumps({"schema_version": 1, "core_revision": "3.29", "overlays": {
+            "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
+            "build-claude": "anthropic-2026-07-26",
+        }})
+        common = ("--opencode-message-id", "message-resumed", "--harness-activation-json", activation)
         run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
             "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo), env=env)
         run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
             "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo), env=env)
         record = json.loads(self.record_path().read_text())
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-resumed"])
+        self.assertEqual(record["runtime"]["opencode"]["harness_activation"], {
+            "schema_version": 1, "provider_id": "openai", "model_id": "gpt-5.6-sol",
+            "agent_id": "build-gpt", "core_revision": "3.29", "overlay_revision": "openai-2026-07-26",
+        })
         child = run(self.repo, "attach-runtime", "--opencode-session-id", "session-child",
                     "--opencode-message-id", "message-child",
                     "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo), env=env, ok=False)
@@ -2277,7 +2286,7 @@ class DbsctrctlTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
         self.assertEqual(module.correlated_cycles(str(self.repo / "docs"), set()), [
-            {"cycle_id": "cycle-1", "state": "active"},
+            {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
         ])
 
     def test_review_correlation_rejects_ambiguous_source_checkout(self):
@@ -2314,7 +2323,7 @@ class DbsctrctlTest(unittest.TestCase):
             os.chdir(self.repo)
             self.assertEqual(module.correlated_cycles(
                 str(Path(self.temp.name) / "missing"), set(), {"session-linked"}), [
-                {"cycle_id": "cycle-1", "state": "abandoned"},
+                {"cycle_id": "cycle-1", "state": "abandoned", "risk": "routine", "delivery_intent": "local"},
             ])
         finally:
             os.chdir(previous)
@@ -2340,18 +2349,21 @@ class DbsctrctlTest(unittest.TestCase):
             str(self.repo), set(), {"runtime-root", "other-root"}, exact_session_id="runtime-root",
             with_quality=True,
         )
-        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active",
+                                  "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "exact")
         exact, quality = module.correlated_cycles(
             str(self.repo), {"cycle-2"}, {"runtime-root"}, exact_session_id="runtime-root",
             with_quality=True,
         )
-        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active",
+                                  "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "exact")
         family, quality = module.correlated_cycles(
             str(self.repo), set(), {"runtime-root"}, exact_session_id="child", with_quality=True,
         )
-        self.assertEqual(family, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(family, [{"cycle_id": "cycle-1", "state": "active",
+                                   "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "family")
 
         first["runtime"] = {"opencode": {"session_ids": ["shared-parent"]}}
@@ -2367,7 +2379,8 @@ class DbsctrctlTest(unittest.TestCase):
         worktree, quality = module.correlated_cycles(
             str(self.repo), set(), {"shared-parent"}, exact_session_id="child", with_quality=True,
         )
-        self.assertEqual(worktree, [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(worktree, [{"cycle_id": "cycle-1", "state": "active",
+                                     "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "worktree")
 
         first["worktree"]["path"] = str(Path(self.temp.name) / "missing-one")
@@ -2407,7 +2420,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(candidates["runtime-root"]["correlation_quality"], "exact")
         self.assertEqual(candidates["grandchild"]["correlation_quality"], "family")
         self.assertEqual(candidates["grandchild"]["cycles"], [
-            {"cycle_id": "cycle-1", "state": "abandoned"},
+            {"cycle_id": "cycle-1", "state": "abandoned", "risk": "routine",
+             "delivery_intent": "local"},
         ])
 
     def test_review_treats_failed_gate_with_null_exception_as_blocked(self):
@@ -2420,23 +2434,33 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
+        ])
         record["gates"]["domain"]["exception"] = {"kind": "accepted_risk"}
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
+        ])
         record["gates"]["domain"]["exception"] = {
             "kind": "accepted_risk", "rationale": "bounded", "owner": "maintainer",
             "review_condition": "next revision", "approved_at": "not-a-time",
         }
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "blocked"}])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
+        ])
         record["gates"]["domain"]["exception"]["approved_at"] = "2026-07-15T00:00:00Z"
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
+        ])
         record["gates"]["domain"]["applicability"] = "not_applicable"
         record["gates"]["domain"].pop("exception")
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [{"cycle_id": "cycle-1", "state": "active"}])
+        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+            {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
+        ])
 
     def test_review_prune_keeps_tombstone_until_explicit_forget(self):
         database = Path(self.temp.name) / "retention.db"
@@ -2763,7 +2787,7 @@ class DbsctrctlTest(unittest.TestCase):
                                 "--state-root", str(Path(self.temp.name) / "telemetry-state")).stdout)
         parent = next(item for item in result["candidates"] if item["session_id"] == "session-parent")
         telemetry = parent["telemetry"]
-        self.assertEqual(telemetry["model_families"], ["gpt"])
+        self.assertEqual(telemetry["model_families"], ["claude", "gpt"])
         self.assertEqual(telemetry["delegation_count"], 1)
         self.assertEqual(telemetry["error_classes"], {"provider_error": 1, "tool_error": 1})
         self.assertEqual(telemetry["availability"]["approval_count"], "unavailable")
@@ -4121,6 +4145,150 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIsNone(connection.execute(
             "select value from ledger_meta where key='improvement_schema'").fetchone())
         connection.close()
+
+    def test_provider_evaluation_derives_exact_five_cycle_report(self):
+        state = Path(self.temp.name) / "provider-evaluation"
+        activation = {"schema_version": 1, "provider_id": "openai", "model_id": "gpt-5.6-sol",
+                      "agent_id": "build-gpt", "core_revision": "3.29",
+                      "overlay_revision": "openai-2026-07-26"}
+        availability = {name: "available" for name in (
+            "delegation_count", "model_families", "error_classes", "token_total", "cost_total",
+            "provider_ids", "model_ids", "agent_ids", "session_relation", "core_revisions",
+            "overlay_revisions", "gate_failure_count", "gate_reopen_count", "remediation_round_count")}
+        availability.update({"approval_count": "unavailable", "retry_count": "unavailable"})
+        candidates = []
+        for index in range(5):
+            metrics = {"elapsed_ms": 100 + index, "gate_failure_count": 0,
+                       "gate_reopen_count": 0, "remediation_round_count": 0}
+            telemetry = {"schema_version": 2, "approval_count": "unavailable", "retry_count": "unavailable",
+                         "delegation_count": 0, "model_families": ["gpt"], "error_classes": {"tool_error": 0},
+                         "token_total": 10, "cost_total": 1, "provider_ids": ["openai"],
+                         "model_ids": ["gpt-5.6-sol", "gpt-5.6-terra"],
+                         "agent_ids": ["build-gpt", "builder-openai"],
+                         "session_relation": "primary", "core_revisions": ["3.29"],
+                         "overlay_revisions": ["openai-2026-07-26"], "gate_failure_count": 0,
+                         "gate_reopen_count": 0, "remediation_round_count": 0,
+                         "availability": availability, "attribution_status": "exact"}
+            candidates.append({"schema_version": 1, "session_id": f"session-{index}",
+                               "completed_at": str(1784073600000 + index), "method_revision": "3.27",
+                               "context": "opencode_control_plane", "project_digest": "0" * 64,
+                               "correlation_quality": "exact", "reviewed_status": "unreviewed",
+                               "aggregates": {}, "snapshot": 1, "session_ceiling": 1,
+                               "part_ceiling": 1, "database_digest": "1" * 64,
+                               "cycles": [{"cycle_id": f"cycle-{index}", "state": "completed",
+                                           "risk": "elevated", "delivery_intent": "deploy",
+                                           "metrics": metrics, "harness_activation": activation}],
+                               "telemetry": telemetry})
+        receipt = {"schema_version": 1, "manifest_digest": "", "manifest_identity": {}, "sources": [{
+            "source_id": "host", "capture_id": "c" * 24, "privacy_epoch_digest": "d" * 64,
+            "pages": [{"schema_version": 1, "capture_id": "c" * 24, "cursor": 0, "limit": 5,
+                       "continuation": None, "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1,
+                       "database_digest": "1" * 64, "exclusion_digest": None,
+                       "query": {"after": None, "before": None, "method_revision": None,
+                                 "cycle_id": None, "state": None, "context": None,
+                                 "project_digest": None, "reviewed_status": None, "archive_only": False},
+                       "digest": "e" * 64, "session_ids": [f"session-{index}" for index in range(5)],
+                       "member_digests": [hashlib.sha256(json.dumps(
+                           candidate, sort_keys=True, separators=(",", ":")
+                       ).encode()).hexdigest() for candidate in candidates],
+                       "candidates": candidates}],
+        }]}
+        page = receipt["sources"][0]["pages"][0]
+        receipt["manifest_identity"] = {"filters": page["query"], "sources": [{
+            "source_id": "host", "availability": "available",
+            **{name: page[name] for name in ("capture_id", "snapshot", "session_ceiling", "part_ceiling",
+                                              "database_digest", "exclusion_digest", "limit", "cursor",
+                                              "continuation", "digest")},
+        }]}
+        receipt["manifest_digest"] = hashlib.sha256(json.dumps(
+            receipt["manifest_identity"], sort_keys=True, separators=(",", ":")
+        ).encode()).hexdigest()
+        report_input = {"rubric": {"name": "provider-harness", "version": "1", "digest": "a" * 64},
+                        "findings": ["No regression"], "recommendations": []}
+        report = json.loads(run(
+            self.repo, "provider-evaluation-save", "--state-root", str(state),
+            "--receipt-json", json.dumps(receipt), "--report-json", json.dumps(report_input),
+        ).stdout)
+        self.assertRegex(report["report_id"], r"^[0-9a-f]{24}$")
+        self.assertEqual([item["cycle_id"] for item in report["members"]],
+                         [f"cycle-{index}" for index in range(5)])
+        self.assertEqual(report["aggregates"]["elapsed_ms_median"], 102)
+        self.assertEqual(report["aggregates"]["token_total"], 50)
+        self.assertEqual(report["availability"]["token_total"], "available")
+        self.assertEqual(report["confounders"], ["child_agent_distribution"])
+        self.assertEqual(report["evidence"][0]["capture_id"], "c" * 24)
+        replay = json.loads(run(
+            self.repo, "provider-evaluation", "--state-root", str(state),
+            "--report-id", report["report_id"],
+        ).stdout)
+        self.assertEqual(replay, report)
+        duplicate = json.loads(run(
+            self.repo, "provider-evaluation-save", "--state-root", str(state),
+            "--receipt-json", json.dumps(receipt), "--report-json", json.dumps(report_input),
+        ).stdout)
+        self.assertEqual(duplicate, report)
+        ledger = state / "reviews/ledger.sqlite3"
+        with sqlite3.connect(ledger) as connection:
+            connection.execute("UPDATE provider_evaluation_sources SET verified_at=?",
+                               (int((time.time() - 9 * 24 * 60 * 60) * 1000),))
+        quarantined = run(
+            self.repo, "provider-evaluation", "--state-root", str(state),
+            "--report-id", report["report_id"], ok=False,
+        )
+        self.assertIn("quarantined", quarantined.stderr)
+        with sqlite3.connect(ledger) as connection:
+            connection.execute("UPDATE provider_evaluation_sources SET verified_at=?", (int(time.time() * 1000),))
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        restored = json.loads(run(
+            self.repo, "provider-evaluation", "--state-root", str(state),
+            "--report-id", report["report_id"],
+        ).stdout)
+        self.assertEqual(restored, report)
+        run(self.repo, "provider-evaluation-forget", "--state-root", str(state),
+            "--report-id", report["report_id"])
+        self.assertFalse((state / "reviews/backups").exists())
+        missing = run(
+            self.repo, "provider-evaluation", "--state-root", str(state),
+            "--report-id", report["report_id"], ok=False,
+        )
+        self.assertIn("missing", missing.stderr)
+        resaved = json.loads(run(
+            self.repo, "provider-evaluation-save", "--state-root", str(state),
+            "--receipt-json", json.dumps(receipt), "--report-json", json.dumps(report_input),
+        ).stdout)
+        self.assertEqual(resaved["report_id"], report["report_id"])
+        run(self.repo, "review-backup", "--state-root", str(state))
+        changed_receipt = json.loads(json.dumps(receipt))
+        changed_receipt["sources"][0]["privacy_epoch_digest"] = "f" * 64
+        changed_receipt["sources"][0]["pages"][0]["candidates"] = []
+        changed_receipt["sources"][0]["pages"][0]["session_ids"] = []
+        changed_receipt["sources"][0]["pages"][0]["member_digests"] = []
+        insufficient = json.loads(run(
+            self.repo, "provider-evaluation-save", "--state-root", str(state),
+            "--receipt-json", json.dumps(changed_receipt), "--report-json", json.dumps(report_input),
+        ).stdout)
+        self.assertEqual(insufficient["status"], "insufficient")
+        self.assertFalse((state / "reviews/backups").exists())
+        removed = run(
+            self.repo, "provider-evaluation", "--state-root", str(state),
+            "--report-id", report["report_id"], ok=False,
+        )
+        self.assertIn("missing", removed.stderr)
+
+    def test_review_privacy_epoch_ignores_worker_exclusion(self):
+        state = Path(self.temp.name) / "privacy-epoch"
+        first = json.loads(run(self.repo, "review-privacy-epoch", "--state-root", str(state)).stdout)
+        self.assertRegex(first["privacy_epoch_digest"], r"^[0-9a-f]{64}$")
+        root = state / "reviews"
+        root.mkdir(parents=True, exist_ok=True)
+        root.chmod(0o700)
+        path = root / "reviewed.json"
+        path.write_text(json.dumps({"schema_version": 1, "sessions": {}, "cycles": {},
+                                    "forgotten_sessions": {"session-1": 1784073600000}}))
+        path.chmod(0o600)
+        changed = json.loads(run(self.repo, "review-privacy-epoch", "--state-root", str(state)).stdout)
+        self.assertNotEqual(changed["privacy_epoch_digest"], first["privacy_epoch_digest"])
 
 
 if __name__ == "__main__":

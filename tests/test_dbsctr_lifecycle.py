@@ -88,9 +88,11 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "ml.md",
         "analytics.md",
         "python.md",
-        "semantic-audit.md",
-        "web.md",
-    }
+            "semantic-audit.md",
+            "web.md",
+            "openai.md",
+            "anthropic.md",
+        }
 
     for path in modules.glob("*.md"):
         body = path.read_text()

@@ -100,6 +100,7 @@ def history_candidate(helper) -> dict:
         "cycles": [{"cycle_id": "DAI-007", "state": "active"}],
         "aggregates": {key: 0 for key in helper.AGGREGATE_KEYS},
         "telemetry": {
+            "schema_version": 2,
             "approval_count": 0,
             "attribution_status": "exact",
             "availability": {key: "available" for key in helper.AVAILABILITY_KEYS},
@@ -109,6 +110,15 @@ def history_candidate(helper) -> dict:
             "model_families": ["gpt"],
             "retry_count": 0,
             "token_total": 0,
+            "provider_ids": ["openai"],
+            "model_ids": ["gpt-5.6-sol"],
+            "agent_ids": ["build-gpt"],
+            "session_relation": "primary",
+            "core_revisions": ["3.29"],
+            "overlay_revisions": ["openai-2026-07-26"],
+            "gate_failure_count": 0,
+            "gate_reopen_count": 0,
+            "remediation_round_count": 0,
         },
         "method_revision": "3.27",
     }
@@ -383,6 +393,22 @@ def test_federation_rejects_malformed_scalar_values() -> None:
         target[path[-1]] = value
         with pytest.raises(ValueError):
             helper._source_page("host", json.dumps(page), 5, 0)
+
+
+def test_privacy_epochs_preserve_source_order(tmp_path: Path) -> None:
+    helper = load_helper()
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Running"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        return json.dumps({"schema_version": 1, "privacy_epoch_digest": "a" * 64})
+
+    result = helper.privacy_epochs(config(tmp_path), execute)
+    assert [source["source_id"] for source in result["sources"]] == ["host", "workspace1", "workspace2"]
+    assert all(source["availability"] == "available" for source in result["sources"])
 
 
 def test_command_stops_oversized_output(tmp_path: Path) -> None:
