@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - DAI-010 Guest Terminal Parity
+
+- Added Linux-only managed Bash startup and the personal Starship prompt while
+  keeping host terminal targets under the personal chezmoi source. Starship
+  `1.26.0` installs from a checksum-pinned archive with atomic replacement.
+- Made Catppuccin explicit in OpenCode configuration and propagated the visual
+  theme to both guest OpenCode and Herdr without importing host credentials,
+  Homebrew paths, or workstation-only plugins.
+- Applied the exact committed tree to both configured guests. Chezmoi verify,
+  Bash syntax, Starship config identity, version, and resolved OpenCode theme
+  passed in each workspace; host verify and no-overlap checks passed.
+- Validation: 214 passed, 1 skipped; rendering, shell syntax, checksum install,
+  live host/guest apply, and independent review passed after hardening Linux
+  ignore rules and atomic installation. Release is not applicable. Existing
+  accepted risk `DAI-007-AR1` is unchanged. Intended Final Push: `origin/main`.
+
 ## 2026-07-25 - DAI-009 Dynamic Workspace Shell Aliases
 
 - Added optional unique `shell_alias` values to version 3 workspace

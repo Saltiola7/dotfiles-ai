@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-010 guest terminal parity in progress
+**Status:** DAI-010 guest terminal parity deployed
 
 ## Engineering Profile
 
