@@ -1,5 +1,25 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-25 - DAI-008 Dynamic Workspaces
+
+- Replaced fixed public sandbox identities with a version 2 machine-local list
+  of arbitrary workspace names, instances, host-to-guest mappings, read/write
+  modes, optional Git submodule protection, optional references, federation,
+  and a configured Build destination.
+- Replaced two duplicated Lima templates and shell wrappers with one generic
+  renderer and bounded `sandbox-vm render|validate|shell|create|update`
+  commands. Dynamic federation and typed handoff now validate configured source
+  IDs rather than a fixed source count.
+- Migrated this machine's untracked TOML without changing existing VM names or
+  mounts. Full host apply succeeded, obsolete generated targets were retired,
+  both configured templates passed bounded Lima validation, workspace health
+  passed, and host `chezmoi status` is empty.
+- Validation: 208 passed, 1 skipped; Python compilation, template rendering,
+  sanitation, dry-run/apply, no-drift, and direct security review passed.
+  Independent review was unavailable because its external-worktree policy
+  denied access. Existing accepted risk `DAI-007-AR1` is unchanged. Release is
+  not applicable. Intended Final Push: `origin/main`.
+
 ## 2026-07-24 - DAI-007 Lima Sandbox
 
 - Added two isolated, locally named Fedora Lima runtimes, explicit host mounts,
