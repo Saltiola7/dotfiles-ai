@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| DAI-009 | Add dynamic workspace shell aliases | high | implementing | DAI-008 | Workspace alias schema, dispatch, reconciliation, tests, and guidance | Dynamic workspace registry and controller | no | Schema, command routing, and managed filesystem state must change atomically | S | Focused pytest, template render, local apply, alias invocation, and no-drift checks |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 
 ## Completed

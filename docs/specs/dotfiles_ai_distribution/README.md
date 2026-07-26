@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-008 dynamic workspaces deployed
+**Status:** DAI-009 dynamic workspace shell aliases active
 
 ## Engineering Profile
 
@@ -59,6 +59,15 @@
 | Delivery intent | Deploy dynamic local workspace configuration after all gates pass |
 | Scope | Arbitrary workspace names, mount mappings and access, optional Git protection and references, dynamic federation, and configured Build handoff |
 | Overrides | Existing instance names and paths remain machine-local; schema version 2 intentionally replaces fixed keys without compatibility aliases |
+
+### DAI-009 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: extends the public machine-local workspace schema and manages executable command aliases |
+| Delivery intent | Deploy dynamic workspace shell aliases locally after all gates pass |
+| Scope | Optional per-workspace shell aliases, safe command reconciliation, invocation routing, tests, and operator guidance |
+| Overrides | Alias names remain machine-local; existing files are never overwritten; schema version 3 replaces generated version 2 configuration on apply |
 
 ## Bounded Context
 
@@ -212,6 +221,12 @@ OpenCode control-plane behavior, and shell authentication.
 - On every guest boot, a root oneshot waits for the declared virtiofs mounts,
   reapplies configured read-only overlays, verifies effective sudo denial, and only then
   publishes the boot-scoped readiness marker required by OpenCode.
+- Given a workspace declares a shell alias, when chezmoi applies the host
+  configuration, then that command enters the configured workspace exactly as
+  `sandbox-vm shell WORKSPACE` and preserves additional arguments.
+- Given an alias is removed or renamed, when chezmoi reapplies, then only an old
+  managed symlink still targeting `sandbox-vm` is removed. An existing unmanaged
+  command blocks apply rather than being overwritten.
 
 ### Federated Host R&D
 
@@ -236,7 +251,7 @@ OpenCode control-plane behavior, and shell authentication.
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
 - `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, resource
   ceilings, and an ordered `workspaces` list. Each workspace contains a unique
-  `name`, unique `instance`, `federate`, and one or more mount mappings with
+  `name`, unique `instance`, optional unique `shell_alias`, `federate`, and one or more mount mappings with
   `host`, `guest`, `writable`, `protect_git_submodules`, and optional reference
   metadata plus an optional relative reference subpath. Shared workspaces are
   empty and management is disabled.
@@ -264,7 +279,13 @@ OpenCode control-plane behavior, and shell authentication.
   source, Herdr presentation IDs, OpenCode session ID when available, and launch
   status.
 - `sandbox-vm shell` resolves only configured workspace instances and preserves
-  argument boundaries. Workspace-specific wrappers do not exist.
+  argument boundaries. Invoking `sandbox-vm` through a configured alias resolves
+  that alias to one workspace and follows the same shell path. Alias values must
+  be unique command-safe identifiers, cannot shadow `sandbox-vm`, and remain
+  machine-local.
+- Chezmoi reconciles alias symlinks under `~/.local/bin` from a private manifest.
+  It never replaces an unmanaged path and removes a stale path only when it is
+  still a symlink to the managed `sandbox-vm` executable.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
   supplies source path, workspace label, daily hour/minute, watchdog interval,
   and non-secret GitHub account/repository.
