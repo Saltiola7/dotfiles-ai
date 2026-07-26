@@ -106,6 +106,9 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "install-starship.sh" in ignore
     assert "reconcile-sandbox-shell-aliases.sh" in ignore
     assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
+    installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
+    assert "command -v starship" not in installer
+    assert 'mv -f "$HOME/.local/bin/.starship.new"' in installer
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

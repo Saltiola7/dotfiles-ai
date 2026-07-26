@@ -2,14 +2,12 @@
 set -eu
 
 version=1.26.0
-if command -v starship >/dev/null && [ "$(starship --version | sed -n 's/^starship \([^ ]*\).*/\1/p')" = "$version" ]; then
-    exit 0
-fi
-
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
-curl -fsSL "https://github.com/starship/starship/releases/download/v${version}/starship-aarch64-unknown-linux-musl.tar.gz" -o "$tmp"
-printf '%s  %s\n' dc30189378d2f2e287384e8a692d3f95ad1df64cf0e8c36aa9201516028aed6b "$tmp" | sha256sum -c -
+archive="$(mktemp)"
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$archive" "$tmpdir"' EXIT
+curl -fsSL "https://github.com/starship/starship/releases/download/v${version}/starship-aarch64-unknown-linux-musl.tar.gz" -o "$archive"
+printf '%s  %s\n' dc30189378d2f2e287384e8a692d3f95ad1df64cf0e8c36aa9201516028aed6b "$archive" | sha256sum -c -
 install -d -m 0755 "$HOME/.local/bin"
-tar -xzf "$tmp" -C "$HOME/.local/bin" starship
-chmod 0755 "$HOME/.local/bin/starship"
+tar -xzf "$archive" -C "$tmpdir" starship
+install -m 0755 "$tmpdir/starship" "$HOME/.local/bin/.starship.new"
+mv -f "$HOME/.local/bin/.starship.new" "$HOME/.local/bin/starship"
