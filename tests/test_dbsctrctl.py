@@ -2765,7 +2765,7 @@ class DbsctrctlTest(unittest.TestCase):
             insert into session values ('session-parent', null, 'DBSCTR', 1784073600000,
                                         'unknown/private-model', 1.5, 10, 20);
             insert into session values ('session-child', 'session-parent', 'DBSCTR', 1784073600001,
-                                        'amazon-bedrock/claude-sonnet-5', 0.5, 3, 4);
+                                        'global.anthropic.claude-sonnet-5', 0.5, 3, 4);
         """)
         private_error = "provider secret /Users/private https://unsafe.invalid"
         connection.execute("insert into message values ('message-parent', 'session-parent', 1784073600000, ?)",
@@ -4245,9 +4245,14 @@ class DbsctrctlTest(unittest.TestCase):
             "--report-id", report["report_id"],
         ).stdout)
         self.assertEqual(restored, report)
+        unaffected = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        unaffected_path = state / "reviews/backups" / unaffected["backup"]
+        with sqlite3.connect(unaffected_path) as connection:
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("DELETE FROM provider_evaluation_reports WHERE report_id=?", (report["report_id"],))
         run(self.repo, "provider-evaluation-forget", "--state-root", str(state),
             "--report-id", report["report_id"])
-        self.assertFalse((state / "reviews/backups").exists())
+        self.assertTrue(unaffected_path.is_file())
         missing = run(
             self.repo, "provider-evaluation", "--state-root", str(state),
             "--report-id", report["report_id"], ok=False,
@@ -4269,7 +4274,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--receipt-json", json.dumps(changed_receipt), "--report-json", json.dumps(report_input),
         ).stdout)
         self.assertEqual(insufficient["status"], "insufficient")
-        self.assertFalse((state / "reviews/backups").exists())
+        self.assertTrue(unaffected_path.is_file())
         removed = run(
             self.repo, "provider-evaluation", "--state-root", str(state),
             "--report-id", report["report_id"], ok=False,

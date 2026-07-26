@@ -824,6 +824,82 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
     ]
 
 
+def test_provider_evaluation_receipt_is_single_use(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 1,
+            "session_ceiling": 1, "part_ceiling": 1, "database_digest": "d" * 64,
+            "exclusion_digest": None, "limit": 25, "cursor": 0, "continuation": None,
+            "candidates": [], "digest": "e" * 64, "query": query, "session_ids": []}
+    identity = {"filters": query, "sources": [{"source_id": "host", "availability": "available",
+                **{name: page[name] for name in ("capture_id", "snapshot", "session_ceiling", "part_ceiling",
+                                                  "database_digest", "exclusion_digest", "limit", "cursor",
+                                                  "continuation", "digest")}}]}
+    manifest_digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    response = {"schema_version": 2, "sources": [{"source_id": "host", "availability": "available", "page": page}],
+                "source_state": None, "manifest_digest": manifest_digest}
+    privacy_log = tmp_path / "privacy.log"
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = privacy-epochs ]; then\n"
+        "  digest=" + "f" * 64 + "\n"
+        "  [ \"$PRIVACY_CHANGE\" = 1 ] && [ -s \"$PRIVACY_LOG\" ] && digest=" + "a" * 64 + "\n"
+        "  printf 'x\\n' >> \"$PRIVACY_LOG\"\n"
+        "  printf '{\"schema_version\":1,\"sources\":[{\"source_id\":\"host\",\"availability\":\"available\",\"privacy_epoch_digest\":\"%s\"}]}\\n' \"$digest\"\n"
+        "  exit\n"
+        "fi\n"
+        f"printf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n"
+    )
+    sandbox.chmod(0o755)
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' "
+        "'{\"schema_version\":1,\"status\":\"insufficient\",\"eligible_count\":0}'\n"
+    )
+    helper.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewFederated, providerEvaluationSave }} from {json.dumps(str(runtime))};'
+        f'const page=JSON.parse(await reviewFederated({{}},process.cwd(),undefined,undefined,'
+        f'{{...process.env,OPENCODE_VM_CONFIG:{json.dumps(str(config))}}}));'
+        'console.log(await providerEvaluationSave({manifestDigest:page.manifest_digest,'
+        'rubric:{name:"provider-harness",version:"1",digest:"a".repeat(64)},findings:[],recommendations:[]},process.cwd()));'
+        'try { await providerEvaluationSave({manifestDigest:page.manifest_digest,'
+        'rubric:{name:"provider-harness",version:"1",digest:"a".repeat(64)},findings:[],recommendations:[]},process.cwd()); }'
+        'catch (error) { console.log(error.message); }'
+    )
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT,
+                            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                                 "PRIVACY_LOG": str(privacy_log)},
+                            text=True, capture_output=True, check=True)
+    assert result.stdout.splitlines() == [
+        '{"schema_version":1,"status":"insufficient","eligible_count":0}',
+        "terminal federated capture receipt is unavailable",
+    ]
+    assert privacy_log.read_text().splitlines() == ["x", "x"]
+
+    privacy_log.unlink()
+    changed_script = (
+        f'import {{ reviewFederated, providerEvaluationSave }} from {json.dumps(str(runtime))};'
+        f'const page=JSON.parse(await reviewFederated({{}},process.cwd(),undefined,undefined,'
+        f'{{...process.env,OPENCODE_VM_CONFIG:{json.dumps(str(config))}}}));'
+        'try { await providerEvaluationSave({manifestDigest:page.manifest_digest,'
+        'rubric:{name:"provider-harness",version:"1",digest:"a".repeat(64)},findings:[],recommendations:[]},process.cwd()); }'
+        'catch (error) { console.log(error.message); }'
+    )
+    changed = subprocess.run(["bun", "-e", changed_script], cwd=ROOT,
+                             env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                                  "PRIVACY_LOG": str(privacy_log), "PRIVACY_CHANGE": "1"},
+                             text=True, capture_output=True, check=True)
+    assert changed.stdout.strip() == "terminal federated capture privacy epoch changed"
+
+
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
