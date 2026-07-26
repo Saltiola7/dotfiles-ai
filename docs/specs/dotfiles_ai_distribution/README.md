@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-010 guest terminal parity deployed
+**Status:** DAI-011 federated R&D reliability active
 
 ## Engineering Profile
 
@@ -78,6 +78,15 @@
 | Scope | Explicit OpenCode theme, checksum-pinned Starship, guest-only Bash startup, personal Starship configuration, tests, and operator guidance |
 | Overrides | Visual and startup parity is portable; macOS paths, Homebrew integrations, credentials, and workstation-only shell plugins remain host-only |
 
+### DAI-011 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the live autonomous review data path and private history evidence retained on three runtimes |
+| Delivery intent | Deploy reliable federated review and prove one controlled scheduled worker locally |
+| Scope | Concurrent source capture, capture-backed continuation, typed-tool runtime normalization, regression coverage, live three-source validation, and explicit worker cleanup |
+| Overrides | Federation has no aggregate adapter timeout; each source command retains its 120-second deadline and output bound; launch, Discovery, and delivery authority remain unchanged |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -134,6 +143,15 @@ OpenCode control-plane behavior, and shell authentication.
   including reviewed sessions, saves sanitized cohorts without changing markers,
   ranks concrete findings, claims one distinct proposal, and presents plain-
   language evidence before Discovery.
+- Given a worker starts one federated lens pass, then each available source scans
+  its database exactly once into a private immutable capture and every continuation
+  reads that capture without rescanning live history.
+- Given host and multiple federated workspaces are available, then their bounded
+  capture commands run concurrently while the returned manifest remains in configured
+  source order. One slow or invalid source cannot erase another source's result.
+- Given a valid source takes longer than the generic analytics deadline, then the
+  typed federation call waits for its source-bounded command instead of killing the
+  aggregate operation. Per-command time and output bounds remain enforced.
 - Given Discovery has unresolved material questions, then the worker waits in its
   own Herdr tab until the operator answers and explicitly instructs it to proceed.
 - Given explicit proceed and passing DBSCTR gates, then the worker pushes only its
@@ -255,6 +273,9 @@ OpenCode control-plane behavior, and shell authentication.
   identities and each source retains independent snapshot, ceiling, database,
   and exclusion digests. Missing or malformed sources make the review explicitly
   incomplete rather than silently local-only.
+- Given a federated continuation, then its source state binds the immutable capture
+  ID, normalized query, source database identity, and next cursor. Changed capture,
+  query, database, or page identity fails closed.
 - Given Discovery is approved explicitly, then host R&D records one sanitized
   handoff and launches a visible Build session in the configured workspace Herdr. That VM's
   guest-owned `dotfiles-ai` clone owns the DBSCTR cycle, validation, branch, and
@@ -285,12 +306,23 @@ OpenCode control-plane behavior, and shell authentication.
   `~/.config/opencode/tui.json` and is propagated to guest Herdr visual
   configuration. Runtime KV state remains OpenCode-owned.
 - `sandbox-vm review` accepts the bounded history filters plus limit, cursor,
-  and typed continuation state. It returns schema version `1`, an
+  and typed continuation state. It returns schema version `2`, an
   ordered `sources` array, and one `manifest_digest`. Each source contains only
   `source_id`, `availability`, and either the existing sanitized history page or
   one bounded error class. Continuations submit each source's original snapshot,
-  ceilings, database digest, exclusion digest, and query digest. The manifest
+  ceilings, database digest, exclusion digest, query digest, and capture ID. The manifest
   digest binds the ordered source envelopes and normalized requested filters.
+- Initial source collection invokes `dbsctrctl review-history --capture` once.
+  Later pages invoke the same interface with only `--capture-id`, limit, and
+  cursor. Empty databases remain available sources with an immutable empty capture.
+- The typed federation adapter retains the 256 KiB aggregate output bound but has
+  no aggregate wall-clock timeout. `sandbox-vm` retains a 120-second deadline for
+  each host or guest exporter and bounds concurrent source work to four tasks.
+- Deployment cannot claim federated R&D operational from unit tests or a direct
+  helper call alone. The live gate must invoke the installed typed adapter, read
+  host and every configured federated workspace through all continuations, verify
+  stable source identities, then launch one controlled R&D worker, observe its
+  complete-history phase, and explicitly abandon, forget, and close its test tab.
 - Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
   approved context, risk, affected repository-relative paths, validation, and
   explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr

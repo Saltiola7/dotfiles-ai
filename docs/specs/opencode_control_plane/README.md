@@ -298,6 +298,11 @@ database and returns one size- and time-bounded sanitized source envelope. The
 host adapter accepts only configured instance IDs and fixed commands, namespaces
 opaque identities by source, and rejects raw paths, URLs, transcript content,
 unknown schema fields, changed continuation identity, and oversized output.
+Independent source captures run concurrently with at most four workers and remain
+ordered in the manifest. The typed aggregate call has no wall-clock timeout;
+each source exporter retains its own 120-second deadline and the aggregate output
+remains bounded. Every continuation is served from the source's immutable private
+capture instead of rescanning its live OpenCode database.
 
 Given an approved host handoff, the configured Build workspace OpenCode receives only the sanitized
 context and approval identity plus instructions to start a distinct VM-owned
@@ -308,7 +313,7 @@ to the host cycle or shares a Cycle Record across machines.
 
 The typed read interface is `dbsctr_review_federated`; it accepts the existing
 history filters plus cursor and limit and returns the validated federated source
-manifest. Continuation state binds its normalized filter query, and the typed
+manifest schema version `2`. Continuation state binds its capture ID and normalized filter query, and the typed
 boundary recomputes the manifest digest and correlates each state with its source
 page. The typed write interface is `dbsctr_vm_handoff`; it accepts one
 schema-versioned sanitized approved report and asks before launching the VM
