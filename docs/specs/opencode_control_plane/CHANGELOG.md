@@ -5,7 +5,7 @@
 - Added `/dbsctr-gpt` and `/dbsctr-claude`, provider-conditional guidance,
   Opus 5 high, exact loaded-runtime activation, telemetry schema `2`, and typed
   report-only evaluation read/save boundaries without cross-provider fallback.
-- Affected QA passed with 218 tests and one existing environment skip; Python
+- Affected QA passed with 219 tests and one existing environment skip; Python
   compilation, externalized Bun build, rendered config, targeted deployment,
   source identity, and idempotence passed. A fresh GPT-5.6 process attached the
   exact activated identity. Opus 5 remained unavailable because the Bedrock

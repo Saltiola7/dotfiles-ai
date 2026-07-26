@@ -8,7 +8,7 @@
 - Privacy-safe receipts now bind terminal federation manifests, source epochs,
   pages, and member digests. Atomic persistence covers no-reuse, idempotence,
   stale-source quarantine, capture-independent replay, backup/restore, changed-
-  epoch purge, and explicit forget. Validation: 218 passed, one skipped; targeted
+  epoch purge, and explicit forget. Validation: 219 passed, one skipped; targeted
   deployment and fresh GPT activation passed. Opus SSO remains a bounded
   provider-local follow-up. Intended Final Push: `origin/main`.
 

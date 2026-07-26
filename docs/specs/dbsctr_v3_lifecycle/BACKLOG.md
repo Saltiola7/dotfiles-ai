@@ -11,7 +11,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | This cycle |
+| V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | `8b2bf0b`, `b9dd44c`, `b08540b` |
 | V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |
 | V3.28-1 | Add source-namespaced federated review and linked VM implementation handoff | 2026-07-25 | `ae72606` |
 | V3.27-1 | Add atomic explicit abandoned-worker retirement and reconcile stale lifecycle state | 2026-07-23 | `ec9cbc4`, `732ae79` |

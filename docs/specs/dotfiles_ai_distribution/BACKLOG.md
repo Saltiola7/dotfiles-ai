@@ -11,7 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| DAI-012 | Persist atomic report-only provider harness evaluations with privacy propagation and weekly operation | 2026-07-26 | This cycle |
+| DAI-012 | Persist atomic report-only provider harness evaluations with privacy propagation and weekly operation | 2026-07-26 | `b08540b` |
 | DAI-012D | Specify provider-native evaluation persistence and operation | 2026-07-26 | `d65d2ad` |
 | DAI-011 | Restore operational federated autonomous review | 2026-07-26 | `f933afa..6fd56a5` |
 | DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..5c5d9a5` |
