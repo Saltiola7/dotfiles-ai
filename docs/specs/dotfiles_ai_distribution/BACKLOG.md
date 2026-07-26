@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| DAI-008 | Replace fixed sandbox identities with dynamic local workspaces | high | active | DAI-007A, DAI-007B | Workspace schema, generic Lima rendering, controller, federation, handoff, migration | Distribution and control-plane contracts | no | Configuration and security contracts change together | L | Dynamic render tests, full QA, local migration, host/guest no-drift checks |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 
 ## Completed
@@ -11,7 +12,7 @@
 | id | outcome | completed | commit |
 |---|---|---|---|
 | DAI-007A | Deploy client-specific Lima sandbox runtimes and protected mounts | 2026-07-25 | `ae72606` |
-| DAI-007B | Federate host/VM history and add personal-VM implementation handoff | 2026-07-25 | `ae72606` |
+| DAI-007B | Federate host/VM history and add configured-workspace implementation handoff | 2026-07-25 | `ae72606` |
 | DAI-006 | Restore exact large-session recovery and watchdog health signaling | 2026-07-22 | `63a9c34` |
 | DAI-004 | Add longitudinal analytics and adaptive cadence | 2026-07-19 | `b0568dc` |
 | DAI-005 | Replace Hermes with native OpenCode scheduling | 2026-07-18 | `8870229` |

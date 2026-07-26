@@ -34,7 +34,7 @@ target files.
 8. An operator enters a client-specific Fedora VM, reattaches to persistent VM
    Herdr panes, and runs auto-approved OpenCode against only declared host paths.
 9. Host R&D reviews sanitized evidence from host and VM histories, pauses for
-   explicit approval, and hands implementation to a visible personal-VM Build
+   explicit approval, and hands implementation to a visible configured-workspace Build
    session without moving databases or credentials across trust boundaries.
 
 ## Constraints And Trust

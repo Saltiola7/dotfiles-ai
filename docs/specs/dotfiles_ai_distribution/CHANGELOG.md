@@ -2,36 +2,35 @@
 
 ## 2026-07-24 - DAI-007 Lima Sandbox
 
-- Added isolated personal and MGM Fedora Lima runtimes, explicit host mounts,
+- Added two isolated, locally named Fedora Lima runtimes, explicit host mounts,
   VM-local Herdr/OpenCode state, bounded updates, sparse allocation reporting,
-  and protected MGM submodule paths.
+  and protected submodule paths in one configured workspace.
 - Added source-namespaced federated history with strict scalar schemas, filter-
   bound continuation identity, canonical manifest integrity, and bounded source
   availability. Host deployment and runtime probes remain active.
-- Renamed VM lifecycle surfaces around generic sandboxes: `mgmsh` and `lmsh`
-  enter `mgm-sandbox` and `personal-sandbox`, while guest Herdr and OpenCode keep
-  native names. Removed the inherited host-home mount and added a boot-time
+- Added VM lifecycle surfaces for the two configured instances while guest Herdr
+  and OpenCode keep native names. Removed the inherited host-home mount and added a boot-time
   systemd verifier that reapplies protection before publishing readiness after
   live VZ validation exposed both defects.
 - Live Fedora provisioning also proved Lima preserves the macOS account UID;
   guest identity now binds to the unique `.guest` home instead of assuming UID
   `>=1000`.
-- Deployment: recreated `mgm-sandbox` from the corrected template and verified
+- Deployment: recreated the protected workspace from the corrected template and verified
   initial boot plus cold restart. Both declared roots remained writable, the
   inherited home mount was absent, every protected submodule and Git metadata
   overlay was read-only, sudo was non-executable, and OpenCode stayed gated on
   the boot verifier. Sparse host allocation was about 2.01 GB.
-- Created `personal-sandbox` and verified its single writable root, absent
+- Created the writable workspace and verified its single writable root, absent
   inherited home mount, non-executable sudo, isolated empty database, tools, and
   boot verifier before and after a cold restart. Sparse allocation was about
-  2.01 GB; live three-source federation and stopped-MGM restoration passed.
+  2.01 GB; live three-source federation and stopped-workspace restoration passed.
 - Kept the wrapped real executable basename as `opencode` so Herdr can detect,
   track, and restore auto-approved guest sessions.
 - Final recreation verified Herdr detects wrapped OpenCode as canonical and
   reports it idle with `--auto`; after a cold restart Herdr restored the exact
   workspace, tab, and pane. Session-ID resume remains pending authenticated use
   because the smoke session never acquired an eligible OpenCode session ID.
-- `lmsh` and `mgmsh` now default guest shells to portable `xterm-256color`
+- Workspace shell commands now default guest shells to portable `xterm-256color`
   instead of inheriting unavailable host-specific terminfo such as
   `xterm-kitty`; `LIMA_TERM` remains an explicit override.
 - Final authenticated restart restored exact OpenCode session identity in its

@@ -193,7 +193,7 @@ records, and retirement decisions. External writes remain approval-gated.
 ### Federated Runtime Evidence
 
 **Scenario: Preserve source-local database authority**
-- Given host R&D requests host, personal, and MGM history
+- Given host R&D requests host and configured federated workspace history
 - When each available runtime scans its local OpenCode database
 - Then each source emits an independent bounded sanitized envelope
 - And no database file, transcript, path, secret, or mutable review ledger crosses
@@ -208,12 +208,12 @@ records, and retirement decisions. External writes remain approval-gated.
 
 **Scenario: Hand off approved implementation**
 - Given host Discovery is complete and the operator explicitly says proceed
-- When the host creates an Implementation Handoff for personal VM
+- When the host creates an Implementation Handoff for its configured Build workspace
 - Then the handoff contains sanitized intent, constraints, affected artifacts,
   validation, risk, and host claim identity
 - And the host receives bounded Herdr launch acceptance rather than synchronous
   proof of cycle or draft-PR creation
-- And the launched personal VM agent is instructed to start a separate Lifecycle
+- And the launched workspace agent is instructed to start a separate Lifecycle
   Cycle whose Cycle Record, worktree, gates, branch, and draft PR are
   authoritative only in that VM
 - And answering Discovery without explicit proceed never creates the handoff

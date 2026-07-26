@@ -2,7 +2,7 @@
 
 ## 2026-07-24 - OCP-26 Federated VM Control
 
-- Added typed federated history filters and personal-VM implementation handoff.
+- Added typed federated history filters and configured-workspace implementation handoff.
   Both boundaries enforce exact sanitized schemas; continuation state binds the
   query, manifests are independently verified, and handoff success requires a
   valid Herdr pane identity.
@@ -34,14 +34,14 @@
 
 - Replaced configured-reference scalar denial with ordered external-directory
   rules: deny every external path first, then allow only the configured
-  `seo-data-science` subtree. Empty configurations retain scalar deny behavior.
+  configured reference subtree. Empty configurations retain scalar deny behavior.
 - Validation: red permission regression, 25 focused tests, targeted dry-run and
   deployment passed. Existing OpenCode processes require restart. Gate
   Exceptions: none. Intended Final Push: `origin/main`.
 
 ## 2026-07-19 - Portable Local Repository Reference
 
-- Added an optional machine-local `seo_data_science_path` that renders one named
+- Added an optional machine-local reference path that renders one named
   OpenCode reference without committing teammate-specific absolute paths. Empty
   shared defaults preserve the deny-by-default external-directory boundary.
 - Validation: 25 focused control-plane and portability tests passed; configured

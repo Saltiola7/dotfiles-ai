@@ -41,7 +41,7 @@
 |---|---|
 | Risk | Elevated: makes auto-approval durable inside client VMs and exposes bounded remote-history adapters |
 | Delivery intent | Deploy Linux-compatible OpenCode configuration and VM-only policies with host behavior unchanged |
-| Scope | VM config rendering, always-auto restored sessions, VM Herdr integration, local history export, and personal-VM handoff |
+| Scope | VM config rendering, always-auto restored sessions, VM Herdr integration, local history export, and configured-workspace handoff |
 | Overrides | OS controls and repository-scoped credentials remain authoritative; no per-subagent remote executor is claimed |
 
 ## Overview
@@ -273,11 +273,10 @@ edit only the machine-local `~/.config/dotfiles-ai/**` config and persistent
 state directory outside the worktree. Plan and subagents remain denied, and no
 personal chezmoi, credential, or arbitrary external path is exposed.
 
-Given a teammate configures a non-empty machine-local SEO data science repository
-path, when chezmoi renders OpenCode configuration, then it exposes that path as
-the named `seo-data-science` reference to every agent under OpenCode's reference
-boundary. Given the value is empty, the reference is omitted. The absolute path
-never enters shared defaults or generated documentation.
+Given a workspace mount declares non-empty reference metadata, when chezmoi
+renders OpenCode configuration, then it exposes the host or guest path under the
+configured reference name. A mount without reference metadata is omitted. The
+absolute path never enters shared defaults or generated documentation.
 
 ### Sandboxed Client Runtime
 
@@ -300,7 +299,7 @@ host adapter accepts only configured instance IDs and fixed commands, namespaces
 opaque identities by source, and rejects raw paths, URLs, transcript content,
 unknown schema fields, changed continuation identity, and oversized output.
 
-Given an approved host handoff, personal VM OpenCode receives only the sanitized
+Given an approved host handoff, the configured Build workspace OpenCode receives only the sanitized
 context and approval identity plus instructions to start a distinct VM-owned
 DBSCTR draft-PR cycle. The typed call returns only bounded Herdr launch
 acceptance and presentation identity; cycle and draft-PR progress remain
@@ -344,11 +343,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   primaries only so managed machine-local deployment values and source-specific
   persistent state can be maintained; the personal chezmoi config and all other
   external paths remain denied.
-- `data.dotfiles_ai.opencode.seo_data_science_path` defaults to empty and is
-  supplied independently by each machine. A non-empty value renders exactly one
-  `seo-data-science` local reference with a stable description; an empty value
-  renders no reference or external-directory access.
-- When that reference is configured, global external-directory permissions keep
+- Workspace mounts may declare optional reference names and descriptions. A
+  declared reference renders its host path on macOS and guest path in the owning
+  VM; mounts without reference metadata are not advertised to OpenCode.
+- When references are configured, global external-directory permissions keep
   the broad deny first and append distinct exact-root and recursive-subtree
   allows. These patterns cannot be deduplicated against OpenCode's generated
   `path/*` reference rule, so last-match resolution grants the named repository
