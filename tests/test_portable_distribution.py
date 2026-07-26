@@ -104,6 +104,8 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert '{{ if eq .chezmoi.os "darwin" }}' in ignore
     assert all(target in ignore for target in targets)
     assert "install-starship.sh" in ignore
+    assert "reconcile-sandbox-shell-aliases.sh" in ignore
+    assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:
