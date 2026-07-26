@@ -19,6 +19,23 @@ function discardEvaluationReceipt(manifestDigest: string) {
   evaluationReceipts.delete(manifestDigest)
 }
 
+function trimEvaluationPages() {
+  const retained = new Set<string>()
+  for (const receipt of evaluationReceipts.values()) for (const source of receipt.sources)
+    retained.add(`${source.source_id}\0${source.capture_id}`)
+  let pageCount = [...evaluationPages.values()].reduce((total, capture) => total + capture.pages.size, 0)
+  while (evaluationPages.size > 64 || pageCount > 256) {
+    let key: string | undefined
+    for (const candidate of evaluationPages.keys()) if (!retained.has(candidate)) {
+      key = candidate
+      break
+    }
+    if (key === undefined) break
+    pageCount -= evaluationPages.get(key)?.pages.size ?? 0
+    evaluationPages.delete(key)
+  }
+}
+
 function localizeCandidate(value: any, source: string): any {
   if (Array.isArray(value)) return value.map(item => localizeCandidate(item, source))
   if (value === null || typeof value !== "object") return value
@@ -564,6 +581,7 @@ export async function reviewFederated(args: {
     page.member_digests = page.candidates.map((candidate: any) => sha256(candidate))
     captured.pages.set(source.page.cursor, page)
     evaluationPages.set(key, captured)
+    trimEvaluationPages()
   }
   if (value.source_state === null && value.sources.some((source: any) => source.availability === "available")
       && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
@@ -585,10 +603,15 @@ export async function reviewFederated(args: {
         privacy_epoch_digest: privacy.sources.find((source: any) => source.source_id === sourceID).privacy_epoch_digest,
         pages: [...captured.pages.values()].sort((left, right) => left.cursor - right.cursor) }
     })
-    evaluationReceipts.set(value.manifest_digest, {
+    const receipt = {
       schema_version: 1, manifest_digest: value.manifest_digest,
       manifest_identity: federatedManifestIdentity(query, value.sources), sources: receiptSources,
-    })
+    }
+    if (new TextEncoder().encode(JSON.stringify(receipt)).byteLength > 2 * 1024 * 1024) {
+      for (const source of receiptSources) evaluationPages.delete(`${source.source_id}\0${source.capture_id}`)
+      throw new Error("terminal federated capture receipt exceeds bound")
+    }
+    evaluationReceipts.set(value.manifest_digest, receipt)
     while (evaluationReceipts.size > 8)
       discardEvaluationReceipt(evaluationReceipts.keys().next().value as string)
   }
