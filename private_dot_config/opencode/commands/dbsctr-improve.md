@@ -5,7 +5,7 @@ description: Run one autonomous global-history R&D worker for chezmoi-dotfiles-a
 Operate as one bounded native-Build R&D worker:
 
 1. Load `dbsctr-review`. Name and version the current review lens from this
-   command's current rubric, then call `dbsctr_review_federated`
+   command's current rubric, then call `dbsctr_review_federated` with `limit=100`
    without a `reviewedStatus` filter and follow every continuation. This full
    history pass must include the host and every federated workspace source and both
    previously reviewed and unreviewed sessions. Stop if any configured source is

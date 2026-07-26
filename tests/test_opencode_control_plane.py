@@ -1097,6 +1097,12 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     assert "invalid federation manifest" in result.stderr
 
 
+def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
+    command = text("private_dot_config/opencode/commands/dbsctr-improve.md")
+    assert "`dbsctr_review_federated` with `limit=100`" in command
+    assert "Do not call\n   `dbsctr_review_history_save`" in command
+
+
 def test_removed_managed_integrations_are_absent():
     removed = (
         "private_Library/LaunchAgents/ai.headroom.proxy.bedrock.plist",
