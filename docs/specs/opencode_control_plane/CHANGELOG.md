@@ -1,5 +1,16 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-26 - DAI-011 Operational Federation
+
+- Federated review schema version `2` binds source captures and configured source
+  order, removes only the aggregate wall-clock timeout, and returns serialized
+  runtime-health results at the typed boundary. Autonomous review excludes its
+  own host session, uses private transient captures as evidence, and allows only
+  read-only GitHub issue and pull-request listing without operator interaction.
+- Live installed-tool traversal and a controlled native-Build worker reached the
+  human Discovery boundary; direct helper success alone is no longer accepted as
+  operational evidence.
+
 ## 2026-07-24 - OCP-26 Federated VM Control
 
 - Added typed federated history filters and configured-workspace implementation handoff.

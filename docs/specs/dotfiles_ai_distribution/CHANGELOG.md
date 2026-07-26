@@ -1,5 +1,33 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - DAI-011 Federated R&D Reliability
+
+- Replaced repeated live history scans with one private immutable capture per
+  source and capture-backed continuation. Host and configured VM sources now run
+  concurrently with configured ordering, per-source 120-second deadlines,
+  aggregate output bounds, exact capture/query/database identity, active-worker
+  exclusion, descriptor-safe VM lifecycle locks, and 24-hour transient retention.
+- Removed the invalid 30-second aggregate typed timeout, normalized runtime-health
+  tool output, independently verified configured source order, and canonicalized
+  manifest identity through scalar page digests to avoid Python/JavaScript number
+  serialization drift.
+- The autonomous command now uses 100-item pages, treats its captures as pass
+  evidence instead of resaving namespaced cohorts against a changing database,
+  and may run only read-only `gh issue list` and `gh pr list` forms without an
+  operator. All other GitHub operations remain confirmation-gated.
+- Live deployment read `host`, `personal`, and `mgm` through the installed typed
+  adapter over 19 pages in 51.92 seconds. The final controlled worker
+  completed five full capture pages, performed repository duplicate checks,
+  claimed one sanitized proposal, and reached the required Discovery pause. Its
+  worker record, isolated scheduler files, and presentation tab were explicitly
+  cleaned afterward.
+- The live gate also exposed an already hung launchd watchdog. Runner dependency
+  commands now expire after 180 seconds; the operator approved restarting only
+  that managed service, whose replacement exited zero, and manual reconciliation
+  returned no events. Production cadence remains weekly and unhalted with its
+  prior next-eligible timestamp. Release is not applicable. Gate Exceptions: none.
+  Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - DAI-010 Guest Terminal Parity
 
 - Added Linux-only managed Bash startup and the personal Starship prompt while

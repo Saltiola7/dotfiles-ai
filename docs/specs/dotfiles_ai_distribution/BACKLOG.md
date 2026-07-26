@@ -4,13 +4,13 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-011 | Restore operational federated autonomous review | high | in_progress | DAI-007B, DAI-010 | Federated capture and continuation, typed runtime health, controlled worker validation | OpenCode history databases, scheduler ledger, Lima source exporters | no | The typed 30-second aggregate timeout kills a valid 83-second three-source read and continuation repeats the full 76-second host scan | M | Affected tests, installed typed three-source full pass, controlled worker through history completion, explicit cleanup, watchdog and analytics health |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-011 | Restore operational federated autonomous review | 2026-07-26 | `f933afa..6fd56a5` |
 | DAI-010 | Reproduce personal terminal visuals in managed guests | 2026-07-26 | `030b201..5c5d9a5` |
 | DAI-009 | Add safe machine-local shell aliases for dynamic workspaces | 2026-07-25 | `e967b7a`, `a4798b8` |
 | DAI-008 | Replace fixed sandbox identities with dynamic local workspaces | 2026-07-25 | `3743919..ba427ac` |
