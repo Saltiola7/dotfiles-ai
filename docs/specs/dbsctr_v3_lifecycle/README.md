@@ -872,17 +872,17 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 
 | Gate | Capability | Applicability | Candidate result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Core, overlay, identity, cohort, and report language | required | pending | Provider-native evolution specification | - | Primary |
-| Behavior | Conditional guidance, evidence, fallback, and report-only scenarios | required | pending | Given/When/Then scenarios | - | Primary |
-| Spec | Interfaces, data flow, staged ownership, and backlog | required | pending | README and BACKLOG | - | Primary |
-| Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | pending | Focused lifecycle contracts | - | Primary |
-| Test-driven implementation | Red/green prompt, identity, privacy, and cohort evidence | required | pending | Affected configured authorities | - | Primary |
-| Refactor | Thin core and remove duplicated or routine guidance | required | pending | Prompt diff and affected tests | - | Primary |
+| Domain | Core, overlay, identity, cohort, and report language | required | passed | Provider-native evolution specification | - | Primary |
+| Behavior | Conditional guidance, evidence, fallback, and report-only scenarios | required | passed | Given/When/Then scenarios and focused tests | - | Primary |
+| Spec | Interfaces, data flow, staged ownership, and backlog | required | passed | README and BACKLOG | - | Primary |
+| Contract | Provider isolation, versioned identity, deterministic cohorts, privacy, and authority invariants | required | passed | 218 affected tests, one skipped | - | Primary |
+| Test-driven implementation | Red/green prompt, identity, privacy, and cohort evidence | required | passed | Affected configured authorities | - | Primary |
+| Refactor | Thin core and remove duplicated or routine guidance | required | passed | Prompt diff, compilation, and Bun build | - | Primary |
 | Review/Integrate | Preserve DAI-011 and verify traceability/integration evidence | required | pending | Integrated `c24f7e5` diff and scoped QA | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply managed lifecycle and OpenCode configuration | required | pending | Targeted chezmoi evidence | - | Primary |
-| Operate | Verify available providers, telemetry, and evaluation scheduling | required | pending | Fresh probes and follow-up record | - | Primary |
-| Maintain/Retire | Retire Opus 4.8 and evaluate five-cycle reports | required | pending | Config absence and immutable report | - | Primary |
+| Deploy | Apply managed lifecycle and OpenCode configuration | required | passed | Targeted chezmoi apply, source identity, idempotence, resolved config | - | Primary |
+| Operate | Verify available providers, telemetry, and evaluation scheduling | required | passed | Fresh GPT activation; explicit Opus SSO follow-up without fallback | - | Primary |
+| Maintain/Retire | Retire Opus 4.8 and evaluate five-cycle reports | required | passed | Opus 4.8 absent; first real report tracked after five eligible cycles | - | Primary |
 
 ## Engineering Profile
 

@@ -537,14 +537,14 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 | Gate | Capability | Applicability | Candidate result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Provider-affine harness and evaluation language | required | pending | This bounded-context specification | - | Primary |
-| Behavior | Exact routing, provider-native review, isolation, and unavailable-model behavior | required | pending | Given/When/Then scenarios | - | Primary |
-| Spec | Commands, models, prompts, telemetry, cohorts, and staged ownership | required | pending | README and BACKLOG | - | Primary |
-| Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | pending | Focused contract tests | - | Primary |
-| Test-driven implementation | Red/green provider, prompt, telemetry, and privacy evidence | required | pending | Affected test authorities | - | Primary |
-| Refactor | Thin shared core and conditional provider overlays | required | pending | Diff and duplication review | - | Primary |
+| Domain | Provider-affine harness and evaluation language | required | passed | This bounded-context specification | - | Primary |
+| Behavior | Exact routing, provider-native review, isolation, and unavailable-model behavior | required | passed | Given/When/Then scenarios and focused tests | - | Primary |
+| Spec | Commands, models, prompts, telemetry, cohorts, and staged ownership | required | passed | README and BACKLOG | - | Primary |
+| Contract | Identity, privacy, fallback, compatibility, and authority invariants | required | passed | 218 affected tests, one skipped | - | Primary |
+| Test-driven implementation | Red/green provider, prompt, telemetry, and privacy evidence | required | passed | Helper, sandbox, lifecycle, runner, and control-plane tests | - | Primary |
+| Refactor | Thin shared core and conditional provider overlays | required | passed | Diff, compilation, and externalized Bun build | - | Primary |
 | Review/Integrate | Preserve DAI-011 and verify evidence without routine re-review prompts | required | pending | Integrated `c24f7e5` diff and affected QA | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply managed OpenCode configuration | required | pending | Chezmoi and resolved-config evidence | - | Primary |
-| Operate | Verify routing, telemetry, and available live providers | required | pending | Fresh probes and bounded follow-up | - | Primary |
-| Maintain/Retire | Retire Opus 4.8 and review five-cycle reports | required | pending | Config absence and R&D report | - | Primary |
+| Deploy | Apply managed OpenCode configuration | required | passed | Targeted chezmoi apply, empty second dry-run, source identity, resolved config | - | Primary |
+| Operate | Verify routing, telemetry, and available live providers | required | passed | Fresh GPT activation passed; Opus SSO adapter follow-up recorded without fallback | - | Primary |
+| Maintain/Retire | Retire Opus 4.8 and review five-cycle reports | required | passed | Opus 4.8 absent; first real report tracked after five eligible cycles | - | Primary |
