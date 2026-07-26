@@ -21,15 +21,16 @@ all configured host paths exist.
 ## Operate
 
 ```sh
-sandbox-vm render workspace1 | limactl validate /dev/stdin
+sandbox-vm validate workspace1
 sandbox-vm create workspace1
 sandbox-vm shell workspace1
 sandbox-vm status
 sandbox-vm update workspace1
 ```
 
-`create` renders the single generic Lima template from local configuration,
-validates declared paths, creates the configured instance, and starts it.
+`validate` checks the rendered generic Lima template through the bounded
+controller. `create` validates declared paths, creates the configured instance,
+and starts it.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.

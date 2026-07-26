@@ -438,6 +438,8 @@ def test_general_controller_exposes_no_handoff_command() -> None:
     body = SCRIPT.read_text()
     assert 'add_parser("handoff")' not in body
     assert "launch_handoff" not in body
+    assert '"render", "validate", "shell"' in body
+    assert '["limactl", "validate", rendered.name]' in body
 
 
 def test_submodule_manifest_is_stable_and_relative(tmp_path: Path) -> None:

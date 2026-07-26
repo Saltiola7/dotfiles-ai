@@ -589,7 +589,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
 def main(argv=None):
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "update", "instance", "render", "shell"):
+    for name in ("create", "update", "instance", "render", "validate", "shell"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
         if name == "shell":
@@ -633,6 +633,14 @@ def main(argv=None):
         return
     if args.command == "render":
         print(render_workspace(config, workspace), end="")
+        return
+    if args.command == "validate":
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as rendered:
+            rendered.write(render_workspace(config, workspace))
+            rendered.flush()
+            output = command(["limactl", "validate", rendered.name], timeout=120)
+        if output:
+            print(output)
         return
     if args.command == "shell":
         shell_args = args.args[1:] if args.args[:1] == ["--"] else args.args
