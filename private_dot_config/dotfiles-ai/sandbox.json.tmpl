@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
@@ -16,5 +16,15 @@
     "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
     "theme": {{ .dotfiles_ai.herdr.theme | toJson }}
   },
-  "workspaces": {{ .dotfiles_ai.sandbox.workspaces | toJson }}
+  "workspaces": [
+{{- range $index, $workspace := .dotfiles_ai.sandbox.workspaces }}{{ if $index }},{{ end }}
+    {
+      "name": {{ $workspace.name | toJson }},
+      "instance": {{ $workspace.instance | toJson }},
+      "shell_alias": {{ $workspace.shell_alias | default "" | toJson }},
+      "federate": {{ $workspace.federate | toJson }},
+      "mounts": {{ $workspace.mounts | toJson }}
+    }
+{{- end }}
+  ]
 }

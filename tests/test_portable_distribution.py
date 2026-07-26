@@ -31,14 +31,14 @@ def data(onepassword: bool = False) -> dict:
                 "disk_gib": 60,
                 "workspaces": [
                     {
-                        "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
+                        "name": "workspace1", "instance": "workspace1-sandbox", "shell_alias": "workspace1sh", "federate": True,
                         "mounts": [{
                             "host": "/workspace/projects", "guest": "/workspace/projects", "writable": True,
                             "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
                         }],
                     },
                     {
-                        "name": "workspace2", "instance": "workspace2-sandbox", "federate": False,
+                        "name": "workspace2", "instance": "workspace2-sandbox", "shell_alias": "workspace2sh", "federate": False,
                         "mounts": [{
                             "host": "/workspace/reference", "guest": "/workspace/reference", "writable": False,
                             "protect_git_submodules": False, "reference_name": "project-reference",
@@ -107,13 +107,63 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
+    assert registry["schema_version"] == 3
     assert registry["build_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]
+    assert [workspace["shell_alias"] for workspace in registry["workspaces"]] == ["workspace1sh", "workspace2sh"]
     assert registry["workspaces"][1]["mounts"][0]["writable"] is False
     template = chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/lima/workspace.yaml")).stdout
     assert 'disk: "60GiB"' in template
     assert "@@MOUNTS@@" in template
     assert "@@WORKSPACE_JSON@@" in template
+
+
+def test_shell_alias_reconciler_refuses_unmanaged_command(tmp_path: Path) -> None:
+    script = chezmoi(
+        "execute-template", "--file",
+        str(ROOT / "run_onchange_after_reconcile-sandbox-shell-aliases.sh.tmpl"),
+    ).stdout
+    command = tmp_path / ".local/bin/workspace1sh"
+    command.parent.mkdir(parents=True)
+    command.write_text("unmanaged\n")
+    controller = command.parent / "sandbox-vm"
+    controller.write_text("#!/bin/sh\n")
+    controller.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh"], input=script, text=True, capture_output=True,
+        env={**os.environ, "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode != 0
+    assert "refusing to replace unmanaged command" in result.stderr
+    assert command.read_text() == "unmanaged\n"
+
+
+def test_shell_alias_reconciler_replaces_managed_alias_set(tmp_path: Path) -> None:
+    script = chezmoi(
+        "execute-template", "--file",
+        str(ROOT / "run_onchange_after_reconcile-sandbox-shell-aliases.sh.tmpl"),
+    ).stdout
+    bin_dir = tmp_path / ".local/bin"
+    state = tmp_path / ".config/dotfiles-ai/sandbox-shell-aliases"
+    bin_dir.mkdir(parents=True)
+    state.parent.mkdir(parents=True)
+    controller = bin_dir / "sandbox-vm"
+    controller.write_text("#!/bin/sh\n")
+    controller.chmod(0o755)
+    (bin_dir / "oldsh").symlink_to(controller)
+    state.write_text("oldsh\n")
+
+    subprocess.run(
+        ["sh"], input=script, text=True, check=True,
+        env={**os.environ, "HOME": str(tmp_path)},
+    )
+
+    assert not (bin_dir / "oldsh").exists()
+    assert (bin_dir / "workspace1sh").resolve() == controller
+    assert (bin_dir / "workspace2sh").resolve() == controller
+    assert state.read_text().splitlines() == ["workspace1sh", "workspace2sh"]
 
 
 def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:

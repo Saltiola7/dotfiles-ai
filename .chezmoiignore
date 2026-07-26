@@ -38,5 +38,7 @@ run_onchange_after_load-dbsctr-rnd-launchagents.sh
 .local/bin/op-session
 .local/bin/dbsctr-rnd
 .local/bin/sandbox-vm
+.config/dotfiles-ai/sandbox-shell-aliases
+run_onchange_after_reconcile-sandbox-shell-aliases.sh
 .config/dotfiles-ai/
 {{ end }}

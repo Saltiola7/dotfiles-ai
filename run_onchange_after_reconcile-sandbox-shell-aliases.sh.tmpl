@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+bin="$HOME/.local/bin"
+target="$bin/sandbox-vm"
+state="$HOME/.config/dotfiles-ai/sandbox-shell-aliases"
+desired="$(mktemp)"
+trap 'rm -f "$desired"' EXIT
+
+valid_alias() {
+    case "$1" in
+        ""|sandbox-vm|*[!A-Za-z0-9._-]*) return 1 ;;
+        [A-Za-z0-9]*) [ "${#1}" -le 64 ] ;;
+        *) return 1 ;;
+    esac
+}
+
+{{- range .dotfiles_ai.sandbox.workspaces }}
+{{- if (.shell_alias | default "") }}
+printf '%s\n' {{ .shell_alias | quote }} >>"$desired"
+{{- end }}
+{{- end }}
+
+mkdir -p "$bin" "$(dirname "$state")"
+[ -x "$target" ] || { printf 'sandbox-vm is not executable\n' >&2; exit 1; }
+seen=""
+while IFS= read -r alias; do
+    valid_alias "$alias" || { printf 'invalid sandbox shell alias: %s\n' "$alias" >&2; exit 1; }
+    case " $seen " in
+        *" $alias "*) printf 'duplicate sandbox shell alias: %s\n' "$alias" >&2; exit 1 ;;
+    esac
+    seen="${seen:+$seen }$alias"
+    path="$bin/$alias"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        [ -L "$path" ] && [ "$(readlink "$path")" = "$target" ] || {
+            printf 'refusing to replace unmanaged command: %s\n' "$path" >&2
+            exit 1
+        }
+    fi
+done <"$desired"
+
+if [ -f "$state" ]; then
+    while IFS= read -r alias; do
+        valid_alias "$alias" || { printf 'invalid managed sandbox shell alias\n' >&2; exit 1; }
+        path="$bin/$alias"
+        if [ -L "$path" ] && [ "$(readlink "$path")" = "$target" ]; then
+            rm "$path"
+        fi
+    done <"$state"
+fi
+
+while IFS= read -r alias; do
+    [ -n "$alias" ] && ln -s "$target" "$bin/$alias"
+done <"$desired"
+mv "$desired" "$state"
+trap - EXIT

@@ -12,6 +12,8 @@ Add one `[[data.dotfiles_ai.sandbox.workspaces]]` table per VM and one nested
 whose submodule worktrees and Git metadata must be remounted read-only before
 OpenCode starts. Optional `reference_name` and `reference_description` expose a
 mount, or its safe `reference_subpath`, as OpenCode reference context.
+Set an optional unique `shell_alias` such as `workspace1sh` to install a
+machine-local command equivalent to `sandbox-vm shell workspace1`.
 
 Set `federate=false` to exclude a workspace from sanitized history review. Set
 `data.dotfiles_ai.sandbox.build_workspace` to the local workspace name that
@@ -26,6 +28,7 @@ sandbox-vm create workspace1
 sandbox-vm shell workspace1
 sandbox-vm status
 sandbox-vm update workspace1
+workspace1sh
 ```
 
 `validate` checks the rendered generic Lima template through the bounded

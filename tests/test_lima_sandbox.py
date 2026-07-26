@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -21,7 +22,7 @@ def load_helper():
 
 def config(tmp_path: Path) -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
@@ -33,14 +34,14 @@ def config(tmp_path: Path) -> dict:
         },
         "workspaces": [
             {
-                "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
+                "name": "workspace1", "instance": "workspace1-sandbox", "shell_alias": "workspace1sh", "federate": True,
                 "mounts": [{
                     "host": str(tmp_path / "projects"), "guest": "/workspace/projects", "writable": True,
                     "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
                 }],
             },
             {
-                "name": "workspace2", "instance": "workspace2-sandbox", "federate": True,
+                "name": "workspace2", "instance": "workspace2-sandbox", "shell_alias": "workspace2sh", "federate": True,
                 "mounts": [{
                     "host": str(tmp_path / "reference"), "guest": "/workspace/reference", "writable": True,
                     "protect_git_submodules": True, "reference_name": "project-reference",
@@ -167,6 +168,33 @@ def test_workspace_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> Non
     })
     with pytest.raises(ValueError, match="reference"):
         helper.validate_config(values)
+
+
+def test_workspace_aliases_are_unique_and_cannot_shadow_controller(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["workspaces"][1]["shell_alias"] = "workspace1sh"
+    with pytest.raises(ValueError, match="alias"):
+        helper.validate_config(values)
+
+    values = config(tmp_path)
+    values["workspaces"][0]["shell_alias"] = "sandbox-vm"
+    with pytest.raises(ValueError, match="alias"):
+        helper.validate_config(values)
+
+
+def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    invoked = []
+    monkeypatch.setattr(helper, "load_config", lambda: values)
+    monkeypatch.setattr(helper.os, "execvpe", lambda file, argv, env: invoked.append((file, argv, env)))
+
+    helper.main(["--", "pwd"], invocation="workspace1sh")
+
+    assert invoked[0][0:2] == (
+        "limactl", ["limactl", "shell", "workspace1-sandbox", "pwd"])
+    assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
 
 
 def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:

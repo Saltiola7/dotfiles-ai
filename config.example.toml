@@ -47,6 +47,7 @@ disk_gib = 60
 [[data.dotfiles_ai.sandbox.workspaces]]
 name = "workspace1"
 instance = "workspace1-sandbox"
+shell_alias = "workspace1sh"
 federate = true
 
 [[data.dotfiles_ai.sandbox.workspaces.mounts]]
@@ -61,6 +62,7 @@ reference_subpath = ""
 [[data.dotfiles_ai.sandbox.workspaces]]
 name = "workspace2"
 instance = "workspace2-sandbox"
+shell_alias = "workspace2sh"
 federate = true
 
 [[data.dotfiles_ai.sandbox.workspaces.mounts]]

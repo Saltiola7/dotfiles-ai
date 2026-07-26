@@ -13,10 +13,12 @@ import signal
 import subprocess
 import tempfile
 import time
+import sys
 
 
 CONFIG = Path(os.environ.get("OPENCODE_VM_CONFIG", "~/.config/dotfiles-ai/sandbox.json")).expanduser()
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 UNSAFE = re.compile(r"(?:https?://|file://|\"/|/(?:Users|home|root|tmp|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----)", re.I)
 EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]", re.I)
@@ -84,7 +86,7 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") != 2:
+    if not isinstance(value, dict) or value.get("schema_version") != 3:
         raise ValueError("invalid sandbox config")
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
@@ -106,18 +108,25 @@ def validate_config(value):
         raise ValueError("invalid workspaces")
     names = set()
     instances = set()
+    aliases = set()
     all_references = set()
     for workspace in workspaces:
-        if not isinstance(workspace, dict) or set(workspace) != {"name", "instance", "federate", "mounts"}:
+        if not isinstance(workspace, dict) or set(workspace) != {"name", "instance", "shell_alias", "federate", "mounts"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
+        shell_alias = workspace.get("shell_alias", "")
         if not ID.fullmatch(name) or name == "host" or name in names:
             raise ValueError("invalid workspace name")
         if not ID.fullmatch(instance) or instance in instances or not isinstance(workspace["federate"], bool):
             raise ValueError(f"invalid {name} workspace")
+        if (not isinstance(shell_alias, str) or shell_alias and
+                (not ALIAS.fullmatch(shell_alias) or shell_alias == "sandbox-vm" or shell_alias in aliases)):
+            raise ValueError(f"invalid {name} shell alias")
         names.add(name)
         instances.add(instance)
+        if shell_alias:
+            aliases.add(shell_alias)
         mounts = workspace["mounts"]
         if not isinstance(mounts, list) or not mounts or len(mounts) > 64:
             raise ValueError(f"invalid {name} mounts")
@@ -280,6 +289,7 @@ def guest_config(config, workspace):
         "[[data.dotfiles_ai.sandbox.workspaces]]",
         f"name = {quote(workspace['name'])}",
         f"instance = {quote(workspace['instance'])}",
+        f"shell_alias = {quote(workspace['shell_alias'])}",
         f"federate = {'true' if workspace['federate'] else 'false'}",
     ]
     for mount in workspace["mounts"]:
@@ -586,7 +596,16 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
     return {"schema_version": 1, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
-def main(argv=None):
+def main(argv=None, invocation=None):
+    invocation = invocation or Path(sys.argv[0]).name
+    config = None
+    if invocation not in {"sandbox-vm", "executable_sandbox-vm"}:
+        config = load_config()
+        matches = [workspace["name"] for workspace in config["workspaces"]
+                   if workspace["shell_alias"] == invocation]
+        if len(matches) != 1:
+            raise SystemExit(f"unknown workspace shell alias: {invocation}")
+        argv = ["shell", matches[0], *(sys.argv[1:] if argv is None else argv)]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("create", "update", "instance", "render", "validate", "shell"):
@@ -610,7 +629,7 @@ def main(argv=None):
     commands.add_parser("status")
     commands.add_parser("build-workspace")
     args = parser.parse_args(argv)
-    config = load_config()
+    config = config or load_config()
     if not config.get("enabled", True):
         raise SystemExit("OpenCode VM management is disabled")
     if args.command == "review":
