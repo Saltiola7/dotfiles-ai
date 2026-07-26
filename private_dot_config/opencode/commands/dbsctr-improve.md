@@ -7,7 +7,7 @@ Operate as one bounded native-Build R&D worker:
 1. Load `dbsctr-review`. Name and version the current review lens from this
    command's current rubric, then call `dbsctr_review_federated`
    without a `reviewedStatus` filter and follow every continuation. This full
-   history pass must include host, personal VM, and MGM VM sources and both
+   history pass must include the host and every federated workspace source and both
    previously reviewed and unreviewed sessions. Stop if any configured source is
    unavailable; never describe a partial manifest as global history.
    Pass the returned `sourceState` unchanged with each continuation so every
@@ -43,7 +43,7 @@ Operate as one bounded native-Build R&D worker:
 7. After explicit proceed, persist the exact repository-relative ownership paths
    with `dbsctr_improvement_update`, then call `dbsctr_vm_handoff` with
    `proceed=true`, the worker ID, risk, concise approved context, paths, and
-   validation. The visible personal-VM Build session begins and owns the elevated
+   validation. The visible configured-workspace Build session begins and owns the elevated
    `draft_pr` DBSCTR cycle; the host cycle and VM cycle never share mutable state.
 8. Final Push may publish only the feature branch and create a draft pull request
    against the recorded base. Never merge, mark ready, release, or deploy.

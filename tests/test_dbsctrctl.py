@@ -94,7 +94,7 @@ class DbsctrctlTest(unittest.TestCase):
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
                    "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan)]
         if intent == "draft_pr":
-            command += ["--github-account", "Saltiola7", "--github-repository", "Saltiola7/dotfiles-ai"]
+            command += ["--github-account", "example-user", "--github-repository", "example-user/dotfiles-ai"]
         return run(self.repo, *command)
 
     def record_path(self, repo=None):
@@ -1616,8 +1616,8 @@ class DbsctrctlTest(unittest.TestCase):
             "case \"$1 $2\" in\n"
             "  'auth token') printf 'test-token\\n' ;;\n"
             "  'pr list') printf '[]\\n' ;;\n"
-            "  'pr create') printf 'https://github.com/Saltiola7/dotfiles-ai/pull/1\\n' ;;\n"
-            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/Saltiola7/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "  'pr create') printf 'https://github.com/example-user/dotfiles-ai/pull/1\\n' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-user/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
             "esac\n"
         )
         gh.chmod(0o755)
@@ -1632,7 +1632,7 @@ class DbsctrctlTest(unittest.TestCase):
                                                  text=True, capture_output=True).stdout.strip())
         self.assertEqual(main, base)
         log = gh_log.read_text()
-        self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<Saltiola7>", log)
+        self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
         self.assertIn("<pr>\n<create>", log)
         self.assertNotIn("<merge>", log)
         record = json.loads(self.record_path().read_text())

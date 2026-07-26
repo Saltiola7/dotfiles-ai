@@ -18,7 +18,6 @@ DATA = {
             "default_model": "openai/gpt-5.6-sol",
             "small_model": "openai/gpt-5.6-terra",
             "lmstudio_base_url": "http://127.0.0.1:1234/v1",
-            "seo_data_science_path": "",
         },
         "herdr": {
             "theme": "catppuccin",
@@ -31,6 +30,7 @@ DATA = {
             "user_uuid": "",
             "keychain_service": "op-service-account-token",
         },
+        "sandbox": {"workspaces": []},
     }
 }
 
@@ -58,18 +58,25 @@ def test_optional_local_repository_reference():
     assert "references" not in rendered_config()
     assert rendered_config()["permission"]["external_directory"] == "deny"
     configured = json.loads(json.dumps(DATA))
-    configured["dotfiles_ai"]["opencode"]["seo_data_science_path"] = "/workspace/seo-data-science"
+    configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
+        "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
+        "mounts": [{
+            "host": "/workspace/reference", "guest": "/guest/reference", "writable": False,
+            "protect_git_submodules": False, "reference_name": "project-reference",
+            "reference_description": "Project reference.", "reference_subpath": "docs",
+        }],
+    }]
     rendered = rendered_config(data=configured)
     assert rendered["references"] == {
-        "seo-data-science": {
-            "path": "/workspace/seo-data-science",
-            "description": "Existing data-platform and observability architecture; use for compatible design decisions.",
+        "project-reference": {
+            "path": "/workspace/reference/docs",
+            "description": "Project reference.",
         }
     }
     assert list(rendered["permission"]["external_directory"].items()) == [
         ("*", "deny"),
-        ("/workspace/seo-data-science", "allow"),
-        ("/workspace/seo-data-science/**", "allow"),
+        ("/workspace/reference/docs", "allow"),
+        ("/workspace/reference/docs/**", "allow"),
     ]
 
 
@@ -381,7 +388,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-history-save"' in runtime
     assert '["sandbox-vm", "review"' in runtime
     assert 'sourceState?: {' in runtime
-    assert '["sandbox-vm", "instance", "personal"]' in runtime
+    assert '["sandbox-vm", "instance", report.target]' in runtime
+    assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
     assert '"herdr", "agent", "start", "DBSCTR Handoff"' in runtime
     assert '"--kind", "opencode", "--pane", paneID' in runtime
@@ -862,7 +870,10 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     calls = tmp_path / "calls"
     asks = tmp_path / "asks"
     opencode_vm = bin_dir / "sandbox-vm"
-    opencode_vm.write_text('#!/bin/sh\nprintf "personal-sandbox\\n"\n')
+    opencode_vm.write_text(
+        '#!/bin/sh\ncase "$1" in build-workspace) printf "workspace1\\n";; '
+        'instance) printf "workspace1-sandbox\\n";; esac\n'
+    )
     limactl = bin_dir / "limactl"
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
@@ -890,7 +901,9 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["session_id"] == "session-vm"
+    assert json.loads(result.stdout)["target"] == "workspace1"
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
+    assert json.loads(asks.read_text())["patterns"] == ["workspace1"]
     log = calls.read_text()
     assert "<herdr>" in log
     assert "<workspace>" in log
@@ -961,7 +974,7 @@ def test_federated_runtime_rejects_duplicate_sources(tmp_path):
         "sources": [
             {"source_id": "host", "availability": "complete"},
             {"source_id": "host", "availability": "complete"},
-            {"source_id": "mgm", "availability": "complete"},
+            {"source_id": "workspace2", "availability": "complete"},
         ],
         "source_state": None,
         "manifest_digest": "a" * 64,
@@ -984,7 +997,7 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
     bin_dir.mkdir()
     sources = [
         {"source_id": source, "availability": "complete"}
-        for source in ("host", "personal", "mgm")
+        for source in ("host", "workspace1", "workspace2")
     ]
     query = {
         "after": None, "archive_only": False, "before": None, "context": "dotfiles_ai_distribution", "cycle_id": None,
@@ -1014,11 +1027,11 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
         "source_id": source, "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1,
         "database_digest": "b" * 64, "exclusion_digest": None, "query_digest": query_digest,
         "continuation": 5 if source == "host" else None,
-    } for source in ("host", "personal", "mgm")]
+    } for source in ("host", "workspace1", "workspace2")]
     unavailable_sources = [
         {"source_id": "host", "availability": "missing_instance"},
-        {"source_id": "personal", "availability": "complete"},
-        {"source_id": "mgm", "availability": "complete"},
+        {"source_id": "workspace1", "availability": "complete"},
+        {"source_id": "workspace2", "availability": "complete"},
     ]
     malicious = {
         "schema_version": 1,
@@ -1035,11 +1048,8 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
 
 def test_removed_managed_integrations_are_absent():
     removed = (
-        "dot_local/bin/executable_claude-personal",
-        "dot_local/bin/executable_opencode-personal",
         "private_Library/LaunchAgents/ai.headroom.proxy.bedrock.plist",
         "private_Library/LaunchAgents/ai.headroom.proxy.lmstudio.plist",
-        "docs/specs/opencode-personal.md",
         "docs/adr/ADR-001-omo-removal.md",
     )
     assert not [path for path in removed if (ROOT / path).exists()]
@@ -1049,7 +1059,5 @@ def test_removed_managed_integrations_are_absent():
         ".hermes/scripts/dbsctr-watchdog.py",
         ".local/bin/hermes-update",
         ".local/bin/opencode-vm",
-        ".local/bin/herdr-personal",
-        ".local/bin/herdr-mgm",
-        "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
+            "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
     }

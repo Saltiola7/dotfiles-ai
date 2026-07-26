@@ -4,5 +4,3 @@
 .local/bin/hermes-update
 Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
 .local/bin/opencode-vm
-.local/bin/herdr-personal
-.local/bin/herdr-mgm

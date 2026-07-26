@@ -571,7 +571,7 @@ def test_example_documents_only_neutral_rnd_settings():
                  "watchdog_interval_seconds", "workspace_label", "github_account", "github_repository"):
         assert term in example
     assert "hermes" not in example.lower()
-    assert "Saltiola7" not in example
+    assert 'github_account = "your-account"' in example
     retired = (ROOT / ".chezmoiremove").read_text()
     assert ".hermes/skills/dbsctr-supervisor/SKILL.md" in retired
     assert ".hermes/scripts/dbsctr-watchdog.py" in retired

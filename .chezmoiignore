@@ -38,7 +38,5 @@ run_onchange_after_load-dbsctr-rnd-launchagents.sh
 .local/bin/op-session
 .local/bin/dbsctr-rnd
 .local/bin/sandbox-vm
-.local/bin/lmsh
-.local/bin/mgmsh
 .config/dotfiles-ai/
 {{ end }}

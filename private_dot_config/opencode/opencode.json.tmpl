@@ -1,3 +1,14 @@
+{{- $references := dict -}}
+{{- range .dotfiles_ai.sandbox.workspaces -}}
+  {{- range .mounts -}}
+    {{- if ne .reference_name "" -}}
+      {{- $path := .host -}}
+      {{- if eq $.chezmoi.os "linux" }}{{ $path = .guest }}{{ end -}}
+      {{- if ne .reference_subpath "" }}{{ $path = joinPath $path .reference_subpath }}{{ end -}}
+      {{- $_ := set $references .reference_name (dict "path" $path "description" .reference_description) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
@@ -87,12 +98,15 @@
       }
     }
   },
-{{ if ne .dotfiles_ai.opencode.seo_data_science_path "" -}}
+{{ if gt (len $references) 0 -}}
   "references": {
-    "seo-data-science": {
-      "path": {{ .dotfiles_ai.opencode.seo_data_science_path | toJson }},
-      "description": "Existing data-platform and observability architecture; use for compatible design decisions."
-    }
+{{- $first := true -}}
+{{- range $name, $reference := $references }}
+    {{ if not $first }},{{ end }}{{ $name | toJson }}: {
+      "path": {{ $reference.path | toJson }},
+      "description": {{ $reference.description | toJson }}
+    }{{ $first = false -}}
+{{- end }}
   },
 {{ end -}}
   "mcp": {
@@ -183,11 +197,14 @@
     "dbsctr_improvement_claim": "deny",
     "dbsctr_improvement_update": "deny",
     "context7_*": "deny",
-{{ if ne .dotfiles_ai.opencode.seo_data_science_path "" -}}
+{{ if gt (len $references) 0 -}}
     "external_directory": {
       "*": "deny",
-      {{ .dotfiles_ai.opencode.seo_data_science_path | toJson }}: "allow",
-      {{ printf "%s/**" .dotfiles_ai.opencode.seo_data_science_path | toJson }}: "allow"
+{{- $first := true -}}
+{{- range $name, $reference := $references }}
+      {{ if not $first }},{{ end }}{{ $reference.path | toJson }}: "allow",
+      {{ printf "%s/**" $reference.path | toJson }}: "allow"{{ $first = false -}}
+{{- end }}
     },
 {{ else -}}
     "external_directory": "deny",
