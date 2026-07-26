@@ -194,13 +194,18 @@ def submodule_paths(repo):
     return sorted(paths)
 
 
-def _history_argv(limit, cursor, state=None, filters=None):
+def _history_argv(limit, cursor, state=None, filters=None, excluded_session_id=None, excluded_message_id=None):
     if state is not None:
         cursor = state.get("continuation")
         if not isinstance(cursor, int) or cursor < 0:
             raise ValueError("source continuation changed")
     argv = ["dbsctrctl", "review-history", "--limit", str(limit), "--cursor", str(cursor)]
     argv.extend(["--capture-id", state["capture_id"]] if state is not None else ["--capture"])
+    if state is None:
+        if excluded_session_id is not None:
+            argv.extend(["--excluded-session-id", excluded_session_id])
+        if excluded_message_id is not None:
+            argv.extend(["--excluded-message-id", excluded_message_id])
     names = {"method_revision": "method-revision", "cycle_id": "cycle-id", "project_digest": "project-digest",
              "reviewed_status": "reviewed-status", "archive_only": "archive-only"}
     for key, value in (() if state is not None else (filters or {}).items()):
@@ -571,10 +576,14 @@ def _manifest_identity(filters, sources):
     return {"filters": filters, "sources": identity}
 
 
-def federated_review(config, limit=25, cursor=0, source_state=None, execute=command, filters=None):
+def federated_review(config, limit=25, cursor=0, source_state=None, execute=command, filters=None,
+                     excluded_session_id=None, excluded_message_id=None):
     validate_config(config)
     if not 1 <= limit <= 100 or cursor < 0:
         raise ValueError("invalid pagination")
+    if any(value is not None and (not isinstance(value, str) or not ID.fullmatch(value))
+           for value in (excluded_session_id, excluded_message_id)):
+        raise ValueError("invalid excluded history identity")
     filters = {key: (False if key == "archive_only" else None) for key in QUERY_KEYS} | (filters or {})
     if not _valid_query(filters):
         raise ValueError("invalid history filters")
@@ -601,7 +610,8 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
 
     def collect_host():
         try:
-            return _source_page("host", execute(_history_argv(limit, cursor, host_state, filters), timeout=120),
+            argv = _history_argv(limit, cursor, host_state, filters, excluded_session_id, excluded_message_id)
+            return _source_page("host", execute(argv, timeout=120),
                                 limit, host_cursor, host_state, filters)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
             return {"source_id": "host", "availability": "invalid_output"}, None
@@ -691,6 +701,8 @@ def main(argv=None, invocation=None):
     review.add_argument("--project-digest")
     review.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
     review.add_argument("--archive-only", action="store_true")
+    review.add_argument("--excluded-session-id")
+    review.add_argument("--excluded-message-id")
     commands.add_parser("status")
     commands.add_parser("build-workspace")
     args = parser.parse_args(argv)
@@ -700,7 +712,10 @@ def main(argv=None, invocation=None):
     if args.command == "review":
         state = json.loads(args.source_state_json) if args.source_state_json else None
         filters = {key: getattr(args, key) for key in QUERY_KEYS}
-        print(json.dumps(federated_review(config, args.limit, args.cursor, state, filters=filters), sort_keys=True, separators=(",", ":")))
+        print(json.dumps(federated_review(
+            config, args.limit, args.cursor, state, filters=filters,
+            excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
+        ), sort_keys=True, separators=(",", ":")))
         return
     if args.command == "status":
         print(json.dumps(status_report(config), sort_keys=True))

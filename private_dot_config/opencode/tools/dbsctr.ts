@@ -232,7 +232,7 @@ export const review_federated = tool({
     })).min(1).max(33).optional(),
   },
   async execute(args, context) {
-    return await reviewFederated(args, context.worktree)
+    return await reviewFederated(args, context.worktree, context.sessionID, context.messageID)
   },
 })
 

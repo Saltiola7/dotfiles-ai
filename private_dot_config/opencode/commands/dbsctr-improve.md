@@ -12,10 +12,9 @@ Operate as one bounded native-Build R&D worker:
    unavailable; never describe a partial manifest as global history.
    Pass the returned `sourceState` unchanged with each continuation so every
    source retains its original snapshot, ceilings, and database identity.
-   Save each nonempty host cohort under that same rubric with
-   `dbsctr_review_history_save`; VM source identities are namespaced and must not
-   be submitted to the host database's save command. Do not call
-   `dbsctr_review_complete` or change review markers. After each source page,
+   The federated tool's immutable private captures are the pass evidence; do not
+   resubmit namespaced source cohorts to the live host database. Do not call
+   `dbsctr_review_history_save`, `dbsctr_review_complete`, or change review markers. After each source page,
    reduce it to at most 10 concise issue signals and merge only the strongest 20
    into a running shortlist before continuing; never use context pressure as a
    reason to skip a page.

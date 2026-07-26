@@ -405,8 +405,11 @@ export async function reviewFederated(args: {
   query_digest: string
   continuation: number | null
   }[]
-} = {}, cwd = process.cwd(), env = process.env) {
+} = {}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string, env = process.env) {
   const { limit = 25, cursor = 0, sourceState, ...requested } = args
+  const opaqueID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+  if ([excludedSessionID, excludedMessageID].some(value => value !== undefined && !opaqueID.test(value)))
+    throw new Error("invalid excluded history identity")
   const query = {
     after: requested.after ?? null,
     archive_only: requested.archiveOnly ?? false,
@@ -419,6 +422,8 @@ export async function reviewFederated(args: {
     state: requested.state ?? null,
   }
   const argv = ["sandbox-vm", "review", "--limit", String(limit), "--cursor", String(cursor)]
+  if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   if (sourceState !== undefined) argv.push("--source-state-json", JSON.stringify(sourceState))
   const names: Record<string, string> = { methodRevision: "method-revision", cycleId: "cycle-id",
     projectDigest: "project-digest", reviewedStatus: "reviewed-status", archiveOnly: "archive-only" }

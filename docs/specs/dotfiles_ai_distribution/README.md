@@ -146,6 +146,8 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.
+- The host capture excludes the active worker session and message family before
+  persistence, so an autonomous review never reviews or invalidates itself.
 - Given host and multiple federated workspaces are available, then their bounded
   capture commands run concurrently while the returned manifest remains in configured
   source order. One slow or invalid source cannot erase another source's result.

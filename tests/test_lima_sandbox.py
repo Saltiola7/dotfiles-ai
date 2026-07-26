@@ -254,7 +254,10 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
             return json.dumps(history_page())
         raise AssertionError(argv)
 
-    result = helper.federated_review(config(tmp_path), 5, 0, execute=execute)
+    result = helper.federated_review(
+        config(tmp_path), 5, 0, execute=execute,
+        excluded_session_id="session-current", excluded_message_id="message-current",
+    )
     assert [source["source_id"] for source in result["sources"]] == ["host", "workspace1", "workspace2"]
     assert all(source["availability"] == "available" for source in result["sources"])
     assert len(result["manifest_digest"]) == 64
@@ -263,6 +266,11 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
     assert ["limactl", "start", "workspace1-sandbox"] in calls
     assert ["limactl", "stop", "workspace1-sandbox"] in calls
     assert ["limactl", "stop", "workspace2-sandbox"] not in calls
+    host = next(call for call in calls if call[:2] == ["dbsctrctl", "review-history"])
+    guests = [call for call in calls if call[:2] == ["limactl", "shell"]]
+    assert host[host.index("--excluded-session-id") + 1] == "session-current"
+    assert host[host.index("--excluded-message-id") + 1] == "message-current"
+    assert all("--excluded-session-id" not in call and "--excluded-message-id" not in call for call in guests)
 
 
 def test_federation_collects_sources_concurrently_in_configured_order(tmp_path: Path) -> None:

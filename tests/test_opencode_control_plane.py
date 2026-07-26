@@ -402,6 +402,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "review-history-save"' in runtime
     assert '["sandbox-vm", "review"' in runtime
     assert 'sourceState?: {' in runtime
+    assert 'argv.push("--excluded-session-id", excludedSessionID)' in runtime
+    assert 'argv.push("--excluded-message-id", excludedMessageID)' in runtime
     assert '["sandbox-vm", "instance", report.target]' in runtime
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
@@ -417,7 +419,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "phase-span"' in runtime
     assert '"dbsctrctl", "execution-dag"' in runtime
     assert '"dbsctrctl", "execution-benchmark"' in runtime
-    assert runtime.count('"--excluded-session-id"') == 4
+    assert runtime.count('"--excluded-session-id"') == 5
     assert "context.sessionID" in tools
     assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
