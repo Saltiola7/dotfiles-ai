@@ -96,6 +96,15 @@
 | Scope | Checksum-pinned Atuin installation, guest-only non-secret configuration, Bash initialization, tests, and live validation in both configured workspaces |
 | Overrides | Login and encryption keys remain local to each VM; one login is required after creating or rebuilding a VM |
 
+### DAI-014 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes every configured workspace alias and repairs interactive prompt/history hooks |
+| Delivery intent | Deploy direct guest Herdr entry and compatible Atuin/Starship startup |
+| Scope | Alias default routing, checksum-pinned Bash preexec support, prompt/history regression tests, and live workspace validation |
+| Overrides | An alias with explicit arguments preserves them; direct `sandbox-vm shell` keeps the ordinary shell default |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -311,6 +320,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a workspace declares a shell alias, when chezmoi applies the host
   configuration, then that command enters the configured workspace exactly as
   `sandbox-vm shell WORKSPACE` and preserves additional arguments.
+- Given a workspace shell alias is invoked without arguments, then it launches
+  guest Herdr directly without showing an intermediate shell. Given arguments
+  are supplied, then it executes those arguments unchanged instead.
 - Given an alias is removed or renamed, when chezmoi reapplies, then only an old
   managed symlink still targeting `sandbox-vm` is removed. An existing unmanaged
   command blocks apply rather than being overwritten.
@@ -324,6 +336,9 @@ OpenCode control-plane behavior, and shell authentication.
   its VM-local login and encryption keys remain untouched and automatic sync
   continues every ten minutes. A new or rebuilt VM remains usable locally and
   requires an explicit per-VM login before remote sync succeeds.
+- Given Atuin and Starship initialize in a guest Bash login shell, then the
+  Atuin preexec/precmd hooks record history while Starship remains the active
+  prompt. Their shared Bash hook dispatcher is checksum-pinned and loaded last.
 - Given the same source applies on macOS, then guest shell targets remain ignored
   so the personal chezmoi source retains sole ownership of host terminal files
   and Atuin configuration.
@@ -365,6 +380,9 @@ OpenCode control-plane behavior, and shell authentication.
 - `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
+- A generated workspace alias with no arguments routes to
+  `sandbox-vm shell WORKSPACE herdr`; explicit alias arguments replace `herdr`.
+  The controller's direct shell command remains unchanged.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, apply
   Linux-compatible targets idempotently, and report that existing OpenCode
   processes retain their loaded config.
@@ -372,6 +390,8 @@ OpenCode control-plane behavior, and shell authentication.
   `.config/starship.toml`, and non-secret `.config/atuin/config.toml`; macOS
   ignores those targets. Starship `1.26.0` and Atuin `18.17.1` are installed
   from checksum-pinned aarch64 Linux releases.
+- Bash preexec `0.6.0` is installed from its pinned upstream commit and verified
+  checksum, then sourced after Atuin and Starship to dispatch both hook arrays.
 - `[dotfiles_ai.atuin].sync_address` is a machine-local HTTPS base URL propagated
   to every workspace. Authentication, session, and encryption material is never
   rendered, copied between trust boundaries, or committed.
