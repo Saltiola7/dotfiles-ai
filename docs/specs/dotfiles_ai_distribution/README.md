@@ -105,6 +105,15 @@
 | Scope | Alias default routing, checksum-pinned Bash preexec support, prompt/history regression tests, and live workspace validation |
 | Overrides | An alias with explicit arguments preserves them; direct `sandbox-vm shell` keeps the ordinary shell default |
 
+### DAI-015 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: enrolls isolated guests in an external identity network and exposes policy-controlled SSH |
+| Delivery intent | Deploy optional Tailscale access to every configured Lima workspace and validate native remote Herdr |
+| Scope | Default-off local TOML, pinned Fedora client installation, stdin-only one-off enrollment, Tailscale SSH, tests, and live two-workspace validation |
+| Overrides | Public defaults and teammate configurations remain off; peer names derive from machine-local Lima identity; keys, tags, account identities, and tailnet policy never enter Git or rendered configuration |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -155,6 +164,24 @@ OpenCode control-plane behavior, and shell authentication.
   and one interval watchdog in the Aqua session.
 - Given the Mac sleeps through daily occurrences, when it wakes, then launchd
   coalesces missed calendar events into at most one delayed invocation.
+
+### Optional Workspace Tailnet Access
+
+- Given shared defaults or an existing teammate configuration, when the source
+  renders or applies, then Tailscale remains disabled and no guest network state
+  changes.
+- Given Tailscale and SSH are enabled locally, when an operator enrolls one
+  configured workspace with a valid one-off auth key on stdin, then the
+  controller installs the pinned Fedora client, starts `tailscaled`, consumes
+  the key without an argument or rendered file, and enables policy-controlled
+  SSH for that guest.
+- Given an invalid, empty, oversized, or non-auth key, when enrollment is
+  requested, then it fails before installation or external registration.
+- Given a configured workspace is enrolled, when either authorized macOS host
+  resolves its machine-local SSH alias, then ordinary `herdr --remote` reaches
+  that guest without Lima ports, copied private keys, or a Mac mini jump host.
+- Given Tailscale is disabled after enrollment, then existing peer state is not
+  deleted; retirement is an explicit operator action.
 
 ### Autonomous R&D Worker
 
@@ -395,6 +422,18 @@ OpenCode control-plane behavior, and shell authentication.
 - `[dotfiles_ai.atuin].sync_address` is a machine-local HTTPS base URL propagated
   to every workspace. Authentication, session, and encryption material is never
   rendered, copied between trust boundaries, or committed.
+- `[dotfiles_ai.tailscale]` contains only `enabled` and `ssh`, both defaulting to
+  false. It contains no auth key, tag, peer name, account, tailnet, or secret
+  reference. Existing local TOML inherits the disabled shared defaults.
+- `sandbox-vm tailscale-enroll WORKSPACE` exists only when VM management and
+  Tailscale are enabled. It accepts one bounded `tskey-auth-*` value on stdin,
+  installs the pinned stable Fedora package as guest root, enables `tailscaled`,
+  and invokes `tailscale up --auth-key=file:/dev/stdin`. The key never appears in
+  argv, output, templates, local TOML, or persistent files. SSH activation follows
+  the local `ssh` boolean.
+- Enrollment uses the existing unique Lima hostname as the peer name and the
+  auth key's provider-owned tag. Public source does not model private tags or
+  tailnet policy. Failed enrollment reports only a generic command failure.
 - `[dotfiles_ai.opencode].theme` renders into OpenCode's supported
   `~/.config/opencode/tui.json` and is propagated to guest Herdr visual
   configuration. Runtime KV state remains OpenCode-owned.
@@ -531,6 +570,7 @@ OpenCode control-plane behavior, and shell authentication.
 | `opencode debug config/agent` | Exact primary IDs, models, permissions, and provider-local routes |
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
 | Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
+| Tailscale probes | Disabled rendering, bounded stdin, package/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
 ## Risks And Maintenance
 
@@ -554,6 +594,14 @@ OpenCode control-plane behavior, and shell authentication.
   across reboot. Failure blocks auto mode.
 - Herdr JSON and OpenCode session metadata may drift; reconciliation fails closed.
 - Local identifiers can leak if templates are copied without conversion.
+- Tailscale policy, tags, auth keys, and peer identity are external private
+  authorities. The operator must use one-off pre-authorized tagged keys, preserve
+  least-privilege SSH rules, revoke bootstrap credentials, and remove peers
+  explicitly when retiring a workspace.
+- The pinned Fedora package requires a maintained upstream repository. Upgrade
+  the pin through an affected-scope cycle before upstream support or security
+  posture requires it; disabling the feature prevents new enrollment but does
+  not uninstall or disconnect an existing peer.
 - Disabling scheduling must preserve OpenCode sessions, ledger records, worktrees,
   claims, and pull requests.
 - OpenCode config is loaded once; agent-ID changes require an OpenCode restart.

@@ -36,10 +36,15 @@ target files.
 9. Host R&D reviews sanitized evidence from host and VM histories, pauses for
    explicit approval, and hands implementation to a visible configured-workspace Build
    session without moving databases or credentials across trust boundaries.
+10. An opted-in developer reaches each managed VM from authorized tailnet hosts
+    with native Herdr remote attach while public configuration remains free of
+    peer identity, policy, and enrollment secrets.
 
 ## Constraints And Trust
 
 - Public Git history contains no credentials or machine-local identifiers.
+- Tailnet policy, tags, peer names, and enrollment credentials remain external
+  private state; shared Tailscale defaults are disabled.
 - The real local TOML remains outside the Git checkout.
 - macOS is the initial supported platform.
 - Fedora Linux is supported only inside managed Lima client VMs; it is not a
@@ -73,3 +78,5 @@ target files.
 - Client mounts, protected submodules, VM identity, restored auto-approved
   sessions, bounded federated evidence, and guest configuration revisions are
   verified on the real Lima runtime before sandbox deployment passes.
+- Disabled Tailscale rendering, secret-safe one-off enrollment, direct SSH, and
+  cross-host Herdr reattachment are verified before tailnet deployment passes.
