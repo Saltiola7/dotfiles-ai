@@ -20,6 +20,19 @@ Set `federate=false` to exclude a workspace from sanitized history review. Set
 receives approved implementation handoffs. Enable sandbox management only after
 all configured host paths exist.
 
+Optional direct tailnet access is global and defaults off:
+
+```toml
+[data.dotfiles_ai.tailscale]
+enabled = false
+ssh = false
+```
+
+Set both values to `true` only on a host whose configured workspaces should be
+enrolled. Peer names come from the existing machine-local Lima hostnames. Tags,
+tailnet policy, auth keys, and secret references remain outside this source and
+outside local TOML.
+
 ## Operate
 
 ```sh
@@ -30,6 +43,18 @@ sandbox-vm status
 sandbox-vm update workspace1
 workspace1sh
 ```
+
+Enroll one workspace with a one-off, pre-authorized, tagged key supplied only on
+stdin:
+
+```sh
+op read 'op://vault/item/credential' | sandbox-vm tailscale-enroll workspace1
+```
+
+Enrollment installs the pinned Fedora client, enables `tailscaled`, and enables
+Tailscale SSH only when the local `ssh` setting is true. Disabling the setting
+later prevents new enrollment; it intentionally does not disconnect, uninstall,
+or delete an existing peer.
 
 `validate` checks the rendered generic Lima template through the bounded
 controller. `create` validates declared paths, creates the configured instance,

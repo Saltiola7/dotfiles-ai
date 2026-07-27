@@ -4,6 +4,10 @@
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
   "build_workspace": {{ .dotfiles_ai.sandbox.build_workspace | toJson }},
+  "tailscale": {
+    "enabled": {{ .dotfiles_ai.tailscale.enabled | toJson }},
+    "ssh": {{ .dotfiles_ai.tailscale.ssh | toJson }}
+  },
   "resources": {
     "cpus": {{ .dotfiles_ai.sandbox.cpus }},
     "memory_gib": {{ .dotfiles_ai.sandbox.memory_gib }},

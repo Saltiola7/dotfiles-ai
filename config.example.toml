@@ -21,6 +21,11 @@ executable = "/opt/homebrew/bin/herdr"
 # Non-secret HTTPS service URL; login and encryption keys remain inside each VM.
 sync_address = "https://api.atuin.sh"
 
+[data.dotfiles_ai.tailscale]
+# Enrollment keys and private tailnet identity never belong in this file.
+enabled = false
+ssh = false
+
 [data.dotfiles_ai.rnd]
 # Keep false on machines that should not schedule autonomous review workers.
 enabled = false

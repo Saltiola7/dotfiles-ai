@@ -25,6 +25,7 @@ def data(onepassword: bool = False) -> dict:
                 "executable": "/usr/local/bin/herdr",
             },
             "atuin": {"sync_address": "https://atuin.example.com"},
+            "tailscale": {"enabled": False, "ssh": False},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -102,6 +103,20 @@ def test_local_data_renders_complete_configs() -> None:
         chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
     )
     assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
+    assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
+
+
+def test_tailscale_defaults_and_local_state_stay_out_of_git() -> None:
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    ignore = (ROOT / ".gitignore").read_text().splitlines()
+
+    assert "[dotfiles_ai.tailscale]" in defaults
+    assert "[data.dotfiles_ai.tailscale]" in example
+    assert defaults.count("enabled = false") >= 3
+    assert "auth_key" not in defaults + example
+    assert "/config.local.toml" in ignore
+    assert "/.tailscale/" in ignore
 
 
 def test_portable_terminal_config_is_guest_only() -> None:

@@ -27,6 +27,12 @@ EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]", re.I)
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
+TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
+TAILSCALE_INSTALL = """\
+dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+dnf install -y tailscale-1.98.9
+systemctl enable --now tailscaled
+"""
 PAGE_KEYS = {"schema_version", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
 CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
 QUERY_KEYS = {"after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest", "reviewed_status", "state"}
@@ -38,8 +44,9 @@ LEGACY_AVAILABILITY_KEYS = LEGACY_TELEMETRY_KEYS - {"availability", "attribution
 PHASE_KEYS = {"schema_version", "cycle_id", "status", "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"}
 
 
-def command(argv, timeout=30):
-    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+def command(argv, timeout=30, input_data=None):
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_data is not None else None,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
     selector.register(process.stderr, selectors.EVENT_READ)
@@ -47,6 +54,9 @@ def command(argv, timeout=30):
     size = 0
     deadline = time.monotonic() + timeout
     try:
+        if input_data is not None:
+            process.stdin.write(input_data)
+            process.stdin.close()
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -103,6 +113,10 @@ def validate_config(value):
             not isinstance(resources[name], int) or isinstance(resources[name], bool) or resources[name] <= 0
             for name in resources):
         raise ValueError("invalid workspace resources")
+    tailscale = value.get("tailscale")
+    if (not isinstance(tailscale, dict) or set(tailscale) != {"enabled", "ssh"}
+            or any(not isinstance(tailscale[name], bool) for name in tailscale)):
+        raise ValueError("invalid Tailscale settings")
     guest = value.get("guest")
     if not isinstance(guest, dict) or set(guest) != {
             "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme",
@@ -369,6 +383,21 @@ def render_workspace(config, workspace, template=None):
     if "@@" in template:
         raise ValueError("workspace template contains an unknown marker")
     return template
+
+
+def tailscale_enroll(config, workspace, stream, execute=command):
+    if not config["tailscale"]["enabled"]:
+        raise ValueError("Tailscale is disabled")
+    raw = stream.read(1025)
+    key = raw.rstrip(b"\r\n")
+    if len(raw) > 1024 or not TAILSCALE_AUTH_KEY.fullmatch(key):
+        raise ValueError("invalid Tailscale auth key")
+    base = ["limactl", "shell", "--user", "root", workspace["instance"], "--"]
+    execute([*base, "sh", "-ceu", TAILSCALE_INSTALL], timeout=300)
+    argv = [*base, "tailscale", "up", "--auth-key=file:/dev/stdin"]
+    if config["tailscale"]["ssh"]:
+        argv.append("--ssh")
+    execute(argv, timeout=120, input_data=key + b"\n")
 
 
 def status_report(config, execute=command, lima_root=None):
@@ -768,7 +797,7 @@ def main(argv=None, invocation=None):
         argv = ["shell", matches[0], *(alias_args or ["herdr"])]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "update", "instance", "render", "validate", "shell"):
+    for name in ("create", "update", "instance", "render", "validate", "shell", "tailscale-enroll"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
         if name == "shell":
@@ -834,6 +863,10 @@ def main(argv=None, invocation=None):
         shell_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         environment = {**os.environ, "TERM": os.environ.get("LIMA_TERM", "xterm-256color")}
         os.execvpe("limactl", ["limactl", "shell", workspace["instance"], *shell_args], environment)
+        return
+    if args.command == "tailscale-enroll":
+        tailscale_enroll(config, workspace, sys.stdin.buffer)
+        print(json.dumps({"workspace": args.workspace, "status": "enrolled"}, sort_keys=True))
         return
     if args.command == "create":
         for mount in workspace["mounts"]:

@@ -18,6 +18,10 @@ executable = "/opt/homebrew/bin/herdr"
 [dotfiles_ai.atuin]
 sync_address = "https://api.atuin.sh"
 
+[dotfiles_ai.tailscale]
+enabled = false
+ssh = false
+
 [dotfiles_ai.rnd]
 enabled = false
 review_workdir = ""

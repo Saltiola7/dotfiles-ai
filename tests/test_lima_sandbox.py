@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ def config(tmp_path: Path) -> dict:
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
+        "tailscale": {"enabled": False, "ssh": False},
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
@@ -164,6 +166,60 @@ def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="invalid guest Atuin sync address"):
         helper.validate_config(values)
+
+
+def test_tailscale_config_is_exact_and_default_off(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    helper.validate_config(values)
+
+    values["tailscale"]["auth_key"] = "must-not-render"
+    with pytest.raises(ValueError, match="invalid Tailscale settings"):
+        helper.validate_config(values)
+
+
+def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["tailscale"] = {"enabled": True, "ssh": True}
+    key = b"tskey-auth-" + b"x" * 32
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return ""
+
+    helper.tailscale_enroll(values, values["workspaces"][0], io.BytesIO(key + b"\n"), execute=execute)
+
+    install, enroll = calls
+    assert install[0][:6] == ["limactl", "shell", "--user", "root", "workspace1-sandbox", "--"]
+    assert "tailscale-1.98.9" in install[0][-1]
+    assert enroll[0] == [
+        "limactl", "shell", "--user", "root", "workspace1-sandbox", "--",
+        "tailscale", "up", "--auth-key=file:/dev/stdin", "--ssh",
+    ]
+    assert enroll[1]["input_data"] == key + b"\n"
+    assert all(key.decode() not in " ".join(argv) for argv, _ in calls)
+
+
+@pytest.mark.parametrize("key", [b"", b"not-an-auth-key", b"tskey-auth-" + b"x" * 1014])
+def test_tailscale_enrollment_rejects_bad_key_before_changes(tmp_path: Path, key: bytes) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["tailscale"] = {"enabled": True, "ssh": True}
+    calls = []
+
+    with pytest.raises(ValueError, match="invalid Tailscale auth key"):
+        helper.tailscale_enroll(values, values["workspaces"][0], io.BytesIO(key), execute=lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert calls == []
+
+
+def test_tailscale_enrollment_requires_explicit_opt_in(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+
+    with pytest.raises(ValueError, match="Tailscale is disabled"):
+        helper.tailscale_enroll(values, values["workspaces"][0], io.BytesIO(b"tskey-auth-" + b"x" * 32))
 
 
 def test_guest_identity_requires_exactly_one_generated_home() -> None:
@@ -641,6 +697,7 @@ def test_general_controller_exposes_no_handoff_command() -> None:
     assert 'add_parser("handoff")' not in body
     assert "launch_handoff" not in body
     assert '"render", "validate", "shell"' in body
+    assert '"tailscale-enroll"' in body
     assert '["limactl", "validate", rendered.name]' in body
 
 

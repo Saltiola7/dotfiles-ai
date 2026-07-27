@@ -4,3 +4,5 @@
 .venv/
 __pycache__/
 graphify-out/
+/config.local.toml
+/.tailscale/
