@@ -213,6 +213,21 @@ def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> N
     assert all(key.decode() not in " ".join(argv) for argv, _ in calls)
 
 
+def test_tailscale_enrollment_leaves_ssh_off_when_disabled(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["tailscale"] = {"enabled": True, "ssh": False}
+    calls = []
+
+    helper.tailscale_enroll(
+        values, values["workspaces"][0], io.BytesIO(b"tskey-auth-" + b"x" * 32),
+        execute=lambda argv, **kwargs: calls.append((argv, kwargs)) or "",
+    )
+
+    assert calls[-1][0][-3:] == ["tailscale", "up", "--auth-key=file:/dev/stdin"]
+    assert "--ssh" not in calls[-1][0]
+
+
 @pytest.mark.parametrize("key", [b"", b"not-an-auth-key", b"tskey-auth-" + b"x" * 1014])
 def test_tailscale_enrollment_rejects_bad_key_before_changes(tmp_path: Path, key: bytes) -> None:
     helper = load_helper()
