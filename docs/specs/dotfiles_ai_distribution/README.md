@@ -8,7 +8,7 @@
 |---|---|
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in native R&D scheduling |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
-| Modules | Python, Security |
+| Modules | Python, Security, Cloud |
 | Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
@@ -86,6 +86,15 @@
 | Delivery intent | Deploy reliable federated review and prove one controlled scheduled worker locally |
 | Scope | Concurrent source capture, capture-backed continuation, typed-tool runtime normalization, regression coverage, live three-source validation, and explicit worker cleanup |
 | Overrides | Federation has no aggregate adapter timeout; each source command retains its 120-second deadline and output bound; launch, Discovery, and delivery authority remain unchanged |
+
+### DAI-013 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes interactive shell history and deploys a network-synchronized client to every managed guest |
+| Delivery intent | Deploy durable Atuin history to every configured Lima workspace |
+| Scope | Checksum-pinned Atuin installation, guest-only non-secret configuration, Bash initialization, tests, and live personal/mgm validation |
+| Overrides | Login and encryption keys remain local to each VM; one login is required after creating or rebuilding a VM |
 
 ### Provider-Native Evaluation Initiative Overrides
 
@@ -308,8 +317,16 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a guest applies the managed source, then its Bash login shell initializes
   the same Starship prompt configuration as the personal dotfiles and OpenCode's
   supported TUI configuration selects the configured theme.
+- Given any configured Lima guest applies the managed source, then Atuin is
+  installed from a checksum-pinned release, Bash records history through Atuin,
+  and `Ctrl-R` opens Atuin search against the configured HTTPS sync service.
+- Given a guest has logged in once, when later updates reapply the source, then
+  its VM-local login and encryption keys remain untouched and automatic sync
+  continues every ten minutes. A new or rebuilt VM remains usable locally and
+  requires an explicit per-VM login before remote sync succeeds.
 - Given the same source applies on macOS, then guest shell targets remain ignored
-  so the personal chezmoi source retains sole ownership of host terminal files.
+  so the personal chezmoi source retains sole ownership of host terminal files
+  and Atuin configuration.
 
 ### Federated Host R&D
 
@@ -351,9 +368,13 @@ OpenCode control-plane behavior, and shell authentication.
 - VM updates pull the guest-owned `dotfiles-ai` source with `--ff-only`, apply
   Linux-compatible targets idempotently, and report that existing OpenCode
   processes retain their loaded config.
-- Linux guests manage `.bashrc`, `.bash_profile`, `.common_profile`, and
-  `.config/starship.toml`; macOS ignores those targets. Starship `1.26.0` is
-  installed from its checksum-pinned aarch64 Linux release.
+- Linux guests manage `.bashrc`, `.bash_profile`, `.common_profile`,
+  `.config/starship.toml`, and non-secret `.config/atuin/config.toml`; macOS
+  ignores those targets. Starship `1.26.0` and Atuin `18.17.1` are installed
+  from checksum-pinned aarch64 Linux releases.
+- `[dotfiles_ai.atuin].sync_address` is a machine-local HTTPS base URL propagated
+  to every workspace. Authentication, session, and encryption material is never
+  rendered, copied between trust boundaries, or committed.
 - `[dotfiles_ai.opencode].theme` renders into OpenCode's supported
   `~/.config/opencode/tui.json` and is propagated to guest Herdr visual
   configuration. Runtime KV state remains OpenCode-owned.
