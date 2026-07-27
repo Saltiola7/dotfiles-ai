@@ -205,7 +205,10 @@ def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> N
     assert "tailscale_1.98.9_arm64.tgz" in install[0][-1]
     assert "fa554ee808d7d07ee8e3ebbc0215ea087157e2a0abbf408e6e18ea7532554db6" in install[0][-1]
     assert "--tun=userspace-networking" in install[0][-1]
-    assert "systemctl --user enable --now" in install[0][-1]
+    assert "--retry 3 --retry-all-errors --connect-timeout 10 --max-time 120" in install[0][-1]
+    assert ".tailscale.new" in install[0][-1]
+    assert 'mv -f "$HOME/.local/bin/.tailscaled.new"' in install[0][-1]
+    assert "systemctl --user restart" in install[0][-1]
     assert "Linger" in install[0][-1]
     assert "sudo" not in install[0][-1]
     assert enroll[0][:6] == ["limactl", "shell", "workspace1-sandbox", "--", "sh", "-ceu"]
@@ -213,6 +216,9 @@ def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> N
     assert "--ssh" in enroll[0][-1]
     assert enroll[1]["input_data"] == key + b"\n"
     assert all(key.decode() not in " ".join(argv) for argv, _ in calls)
+
+    helper.tailscale_enroll(values, values["workspaces"][0], io.BytesIO(key), execute=execute)
+    assert calls[2][0][-1] == install[0][-1]
 
 
 def test_tailscale_enrollment_leaves_ssh_off_when_disabled(tmp_path: Path) -> None:

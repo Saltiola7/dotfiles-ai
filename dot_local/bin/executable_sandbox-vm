@@ -35,11 +35,13 @@ install -d -m 0700 "$HOME/.local/state/tailscale"
 install -d -m 0755 "$HOME/.local/bin" "$HOME/.config/systemd/user"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL https://pkgs.tailscale.com/stable/tailscale_1.98.9_arm64.tgz -o "$tmp/tailscale.tgz"
+curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 https://pkgs.tailscale.com/stable/tailscale_1.98.9_arm64.tgz -o "$tmp/tailscale.tgz"
 printf '%s  %s\\n' fa554ee808d7d07ee8e3ebbc0215ea087157e2a0abbf408e6e18ea7532554db6 "$tmp/tailscale.tgz" | sha256sum -c -
 tar -xzf "$tmp/tailscale.tgz" -C "$tmp"
-install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscale" "$HOME/.local/bin/tailscale"
-install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscaled" "$HOME/.local/bin/tailscaled"
+install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscale" "$HOME/.local/bin/.tailscale.new"
+install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscaled" "$HOME/.local/bin/.tailscaled.new"
+mv -f "$HOME/.local/bin/.tailscale.new" "$HOME/.local/bin/tailscale"
+mv -f "$HOME/.local/bin/.tailscaled.new" "$HOME/.local/bin/tailscaled"
 cat >"$HOME/.config/systemd/user/tailscaled-userspace.service" <<'EOF'
 [Unit]
 Description=Tailscale userspace daemon
@@ -54,9 +56,11 @@ RuntimeDirectoryMode=0700
 WantedBy=default.target
 EOF
 systemctl --user daemon-reload
-systemctl --user enable --now tailscaled-userspace.service
+systemctl --user enable tailscaled-userspace.service
+systemctl --user restart tailscaled-userspace.service
 for _ in $(seq 1 30); do
-  test -S "$XDG_RUNTIME_DIR/tailscale/tailscaled.sock" && exit 0
+  systemctl --user is-active --quiet tailscaled-userspace.service &&
+    test -S "$XDG_RUNTIME_DIR/tailscale/tailscaled.sock" && exit 0
   sleep 1
 done
 echo 'Tailscale userspace socket is unavailable' >&2

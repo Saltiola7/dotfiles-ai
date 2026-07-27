@@ -53,8 +53,9 @@ op read 'op://vault/item/credential' | sandbox-vm tailscale-enroll workspace1
 
 Enrollment verifies and installs the pinned static arm64 client, enables a
 rootless userspace systemd user service, and enables Tailscale SSH only when the
-local `ssh` setting is true. Lima's persistent user manager keeps the daemon
-available without a login session. Guest `sudo`, root SSH, kernel TUN, host
+local `ssh` setting is true. Lima 2.1.4 enables lingering for its configured
+guest user; enrollment verifies that contract before installation, so the user
+manager keeps the daemon available without a login session. Guest `sudo`, root SSH, kernel TUN, host
 routing, and DNS changes remain unavailable. Disabling the setting later prevents
 new enrollment; it intentionally does not disconnect, uninstall, or delete an
 existing peer.
@@ -111,5 +112,9 @@ until 2026-08-18 or its next rotation, whichever comes first.
 
 Inspect `sandbox-vm status`, then use the configured instance name with native
 Lima diagnostics when recovery requires it. Before retirement, rotate workspace
-credentials, stop and delete the configured instance, and remove its local TOML
-entry. Disabling management does not delete VMs or credentials.
+credentials, run socket-targeted `tailscale logout` inside the guest, disable
+`tailscaled-userspace.service`, remove the peer
+in the Tailscale admin console, verify it is absent, delete the private
+`~/.local/state/tailscale` identity, then stop and delete the configured instance
+and remove its local TOML entry. Disabling management does not delete VMs,
+credentials, or external tailnet identity.
