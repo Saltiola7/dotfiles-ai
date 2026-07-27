@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-014 direct guest Herdr entry deployed
+**Status:** DAI-015 native tailnet guest access deployed
 
 ## Engineering Profile
 

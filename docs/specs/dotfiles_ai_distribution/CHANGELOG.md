@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-27 - DAI-015 Native Tailnet Guest Access
+
+- Added default-off Tailscale settings and stdin-only one-off enrollment without
+  committed keys, tags, peer names, account identifiers, or secret references.
+  Managed Fedora guests use checksum-pinned `1.98.9` static clients, private
+  mode-`0700` state/runtime directories, and persistent rootless userspace
+  services; guest `sudo`, root SSH, kernel TUN, routing, and DNS stay unchanged.
+- Affected and full QA passed 239 tests with one unrelated skip. Both configured
+  guests enrolled under separate private tags, remained online with active user
+  services, accepted ordinary SSH and native Herdr `0.7.5` attach, and retained
+  compatible persistent Herdr servers. Tailnet policy validation passed an
+  owner-only grant plus a negative SSH assertion, with zero reusable auth keys.
+  Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - DAI-014 Direct Guest Herdr Entry
 
 - Workspace shell aliases now launch guest Herdr when called without arguments;

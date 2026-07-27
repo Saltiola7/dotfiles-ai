@@ -4,7 +4,6 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-015 | Add default-off native Tailscale access to managed Lima guests | high | in_progress | DAI-014 | Generic local config, secure enrollment, VM deployment, tests, and documentation | Existing Lima identity, external tailnet policy, one-off keys, Herdr remote protocol | no | Network policy and enrollment share one security boundary and require ordered live validation | M | Disabled compatibility, secret-safe stdin, two enrolled guests, direct SSH, and cross-host Herdr attach |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 | DAI-012-F1 | Record the first real provider-native five-cycle report | medium | pending | DAI-012 | One immutable report and operational evidence | Five unused completed cycles under one exact activated harness identity | no | The helper must wait for the normal weekly run and cannot manufacture or loosen eligibility | S | Exact five-member replay, availability/confounders, and no automatic harness mutation |
 
@@ -12,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-015 | Deploy default-off rootless Tailscale SSH and native remote Herdr to managed Lima guests | 2026-07-27 | `818f83c..6f06090` |
 | DAI-014 | Launch guest Herdr directly while preserving Starship and Atuin hooks | 2026-07-26 | `c3d32b9..4c85a4d` |
 | DAI-013 | Provision durable Atuin history in every managed Lima guest | 2026-07-26 | `19921b1..3709006` |
 | DAI-012 | Persist atomic report-only provider harness evaluations with privacy propagation and weekly operation | 2026-07-26 | `b08540b` |
