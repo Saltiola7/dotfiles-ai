@@ -29,7 +29,7 @@ DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 TAILSCALE_INSTALL = """\
-dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
 dnf install -y tailscale-1.98.9
 systemctl enable --now tailscaled
 """
@@ -113,7 +113,7 @@ def validate_config(value):
             not isinstance(resources[name], int) or isinstance(resources[name], bool) or resources[name] <= 0
             for name in resources):
         raise ValueError("invalid workspace resources")
-    tailscale = value.get("tailscale")
+    tailscale = value.setdefault("tailscale", {"enabled": False, "ssh": False})
     if (not isinstance(tailscale, dict) or set(tailscale) != {"enabled", "ssh"}
             or any(not isinstance(tailscale[name], bool) for name in tailscale)):
         raise ValueError("invalid Tailscale settings")

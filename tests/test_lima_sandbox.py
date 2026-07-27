@@ -178,6 +178,15 @@ def test_tailscale_config_is_exact_and_default_off(tmp_path: Path) -> None:
         helper.validate_config(values)
 
 
+def test_legacy_schema_three_config_inherits_disabled_tailscale(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    del values["tailscale"]
+
+    helper.validate_config(values)
+    assert values["tailscale"] == {"enabled": False, "ssh": False}
+
+
 def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
@@ -194,6 +203,8 @@ def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> N
     install, enroll = calls
     assert install[0][:6] == ["limactl", "shell", "--user", "root", "workspace1-sandbox", "--"]
     assert "tailscale-1.98.9" in install[0][-1]
+    assert "config-manager addrepo --from-repofile=" in install[0][-1]
+    assert "config-manager --add-repo" not in install[0][-1]
     assert enroll[0] == [
         "limactl", "shell", "--user", "root", "workspace1-sandbox", "--",
         "tailscale", "up", "--auth-key=file:/dev/stdin", "--ssh",

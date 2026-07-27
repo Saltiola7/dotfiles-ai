@@ -56,6 +56,27 @@ Tailscale SSH only when the local `ssh` setting is true. Disabling the setting
 later prevents new enrollment; it intentionally does not disconnect, uninstall,
 or delete an existing peer.
 
+After enrollment, obtain the private peer name from the Tailscale admin console
+or `tailscale status`. Keep it in machine-local SSH configuration owned outside
+this public source:
+
+```sshconfig
+Host workspace1-tailnet
+    HostName peer-name.example.ts.net
+    User guest-user
+```
+
+Both authorized macOS hosts can then use the same native interface:
+
+```sh
+ssh workspace1-tailnet herdr --version
+herdr --remote workspace1-tailnet
+herdr --remote workspace1-tailnet --session named-session
+```
+
+The alias, peer name, and Unix user are private workstation configuration. Do not
+copy Lima's private key or localhost port to another host.
+
 `validate` checks the rendered generic Lima template through the bounded
 controller. `create` validates declared paths, creates the configured instance,
 and starts it.
