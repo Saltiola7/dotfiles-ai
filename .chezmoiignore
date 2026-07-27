@@ -28,6 +28,7 @@ graphify-out/
 .config/atuin/config.toml
 install-starship.sh
 install-atuin.sh
+install-bash-preexec.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.onepassword.enabled }}

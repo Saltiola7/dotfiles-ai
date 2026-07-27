@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+commit=b73ed5f7f953207b958f15b1773721dded697ac3
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL "https://raw.githubusercontent.com/rcaloras/bash-preexec/${commit}/bash-preexec.sh" -o "$tmp"
+printf '%s  %s\n' 998f4d5e9dd82e254463228cc6caa4d40125ae79b31d5a16a2a2f49357f0c160 "$tmp" | sha256sum -c -
+install -d -m 0755 "$HOME/.local/share/bash-preexec"
+install -m 0644 "$tmp" "$HOME/.local/share/bash-preexec/.bash-preexec.sh.new"
+mv -f "$HOME/.local/share/bash-preexec/.bash-preexec.sh.new" "$HOME/.local/share/bash-preexec/bash-preexec.sh"

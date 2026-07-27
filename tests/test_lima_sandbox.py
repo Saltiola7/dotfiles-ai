@@ -663,4 +663,6 @@ def test_controller_shell_resolves_workspace_instances() -> None:
     body = SCRIPT.read_text()
     assert 'os.environ.get("LIMA_TERM", "xterm-256color")' in body
     assert '["limactl", "shell", workspace["instance"]' in body
+    assert 'alias_args = sys.argv[1:] if argv is None else argv' in body
+    assert 'argv = ["shell", matches[0], *(alias_args or ["herdr"])]' in body
     assert not (ROOT / "dot_local/bin/executable_lmsh").exists()

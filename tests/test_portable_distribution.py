@@ -114,6 +114,7 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert targets.isdisjoint(host)
     assert "install-starship.sh" not in host
     assert "install-atuin.sh" not in host
+    assert "install-bash-preexec.sh" not in host
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(starship init bash)"') == 1
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(atuin init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
@@ -128,6 +129,7 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert all(target in ignore for target in targets)
     assert "install-starship.sh" in ignore
     assert "install-atuin.sh" in ignore
+    assert "install-bash-preexec.sh" in ignore
     assert "reconcile-sandbox-shell-aliases.sh" in ignore
     assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
     installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
@@ -137,6 +139,12 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "atuin-aarch64-unknown-linux-musl.tar.gz" in atuin_installer
     assert "13fc31e9f40fcc97b28c626adf4015eed080b5d8d8df31bb23e8ddf504d19d59" in atuin_installer
     assert 'mv -f "$HOME/.local/bin/.atuin.new"' in atuin_installer
+    preexec_installer = (ROOT / "run_onchange_after_install-bash-preexec.sh.tmpl").read_text()
+    assert "b73ed5f7f953207b958f15b1773721dded697ac3" in preexec_installer
+    assert "998f4d5e9dd82e254463228cc6caa4d40125ae79b31d5a16a2a2f49357f0c160" in preexec_installer
+    bashrc = (ROOT / "dot_bashrc").read_text()
+    assert 'source "$HOME/.local/share/bash-preexec/bash-preexec.sh"' in bashrc
+    assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

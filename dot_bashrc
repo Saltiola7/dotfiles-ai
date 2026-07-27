@@ -17,3 +17,5 @@ fi
 # Lima's guest tools live outside Fedora's default user PATH.
 PATH="$PATH:/usr/sbin:/sbin"
 export PATH
+
+[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ] && source "$HOME/.local/share/bash-preexec/bash-preexec.sh"

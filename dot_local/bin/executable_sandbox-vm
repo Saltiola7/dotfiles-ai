@@ -764,7 +764,8 @@ def main(argv=None, invocation=None):
                    if workspace["shell_alias"] == invocation]
         if len(matches) != 1:
             raise SystemExit(f"unknown workspace shell alias: {invocation}")
-        argv = ["shell", matches[0], *(sys.argv[1:] if argv is None else argv)]
+        alias_args = sys.argv[1:] if argv is None else argv
+        argv = ["shell", matches[0], *(alias_args or ["herdr"])]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("create", "update", "instance", "render", "validate", "shell"):
