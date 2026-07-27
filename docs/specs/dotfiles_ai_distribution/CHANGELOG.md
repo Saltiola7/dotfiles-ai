@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - DAI-013 Durable Guest Atuin
+
+- Added checksum-pinned Atuin `18.17.1`, guest-only non-secret sync configuration,
+  and interactive Bash initialization for every configured Lima workspace.
+  Machine-local sync addresses flow through the existing workspace configuration;
+  login, session, and encryption keys remain isolated inside each VM.
+- Affected QA passed 64 tests plus Python, Bash, installer, JSON, and chezmoi
+  validation. Both configured guests retained their existing authentication,
+  completed a live sync, and loaded the Atuin search binding in a pseudo-terminal.
+  Recreated guests require one explicit login. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - Provider-Native Evaluation Delivery
 
 - Extended the existing weekly worker with a terminal schema-v2 receipt and one
