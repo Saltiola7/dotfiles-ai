@@ -111,7 +111,7 @@
 |---|---|
 | Risk | Elevated: enrolls isolated guests in an external identity network and exposes policy-controlled SSH |
 | Delivery intent | Deploy optional Tailscale access to every configured Lima workspace and validate native remote Herdr |
-| Scope | Default-off local TOML, pinned Fedora client installation, stdin-only one-off enrollment, Tailscale SSH, tests, and live two-workspace validation |
+| Scope | Default-off local TOML, checksum-pinned rootless Linux client, stdin-only one-off enrollment, Tailscale SSH, tests, and live two-workspace validation |
 | Overrides | Public defaults and teammate configurations remain off; peer names derive from machine-local Lima identity; keys, tags, account identities, and tailnet policy never enter Git or rendered configuration |
 
 ### Provider-Native Evaluation Initiative Overrides
@@ -172,9 +172,9 @@ OpenCode control-plane behavior, and shell authentication.
   changes.
 - Given Tailscale and SSH are enabled locally, when an operator enrolls one
   configured workspace with a valid one-off auth key on stdin, then the
-  controller installs the pinned Fedora client, starts `tailscaled`, consumes
-  the key without an argument or rendered file, and enables policy-controlled
-  SSH for that guest.
+  controller installs checksum-pinned static clients, starts a private rootless
+  userspace daemon, consumes the key without an argument or rendered file, and
+  enables policy-controlled SSH for that guest.
 - Given an invalid, empty, oversized, or non-auth key, when enrollment is
   requested, then it fails before installation or external registration.
 - Given a configured workspace is enrolled, when either authorized macOS host
@@ -427,10 +427,13 @@ OpenCode control-plane behavior, and shell authentication.
   reference. Existing local TOML inherits the disabled shared defaults.
 - `sandbox-vm tailscale-enroll WORKSPACE` exists only when VM management and
   Tailscale are enabled. It accepts one bounded `tskey-auth-*` value on stdin,
-  installs the pinned stable Fedora package as guest root, enables `tailscaled`,
-  and invokes `tailscale up --auth-key=file:/dev/stdin`. The key never appears in
-  argv, output, templates, local TOML, or persistent files. SSH activation follows
-  the local `ssh` boolean.
+  verifies the official `1.98.9` arm64 archive checksum, installs user-owned
+  binaries, and enables a lingering systemd user service using
+  `--tun=userspace-networking` with private state and socket directories. It then
+  invokes `tailscale up --auth-key=file:/dev/stdin` against that socket. The key
+  never appears in argv, output, templates, local TOML, service data, or
+  persistent files. SSH activation follows the local `ssh` boolean; guest
+  `sudo`, root SSH, kernel TUN, host routing, and DNS mutation remain absent.
 - Enrollment uses the existing unique Lima hostname as the peer name and the
   auth key's provider-owned tag. Public source does not model private tags or
   tailnet policy. Failed enrollment reports only a generic command failure.
@@ -570,7 +573,7 @@ OpenCode control-plane behavior, and shell authentication.
 | `opencode debug config/agent` | Exact primary IDs, models, permissions, and provider-local routes |
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
 | Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
-| Tailscale probes | Disabled rendering, bounded stdin, package/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
+| Tailscale probes | Disabled rendering, bounded stdin, client/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
 ## Risks And Maintenance
 
@@ -598,8 +601,8 @@ OpenCode control-plane behavior, and shell authentication.
   authorities. The operator must use one-off pre-authorized tagged keys, preserve
   least-privilege SSH rules, revoke bootstrap credentials, and remove peers
   explicitly when retiring a workspace.
-- The pinned Fedora package requires a maintained upstream repository. Upgrade
-  the pin through an affected-scope cycle before upstream support or security
+- The pinned static client requires a maintained upstream archive. Upgrade the
+  version and checksum through an affected-scope cycle before support or security
   posture requires it; disabling the feature prevents new enrollment but does
   not uninstall or disconnect an existing peer.
 - Disabling scheduling must preserve OpenCode sessions, ledger records, worktrees,

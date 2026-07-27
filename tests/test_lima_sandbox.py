@@ -201,14 +201,16 @@ def test_tailscale_enrollment_installs_then_streams_one_key(tmp_path: Path) -> N
     helper.tailscale_enroll(values, values["workspaces"][0], io.BytesIO(key + b"\n"), execute=execute)
 
     install, enroll = calls
-    assert install[0][:6] == ["limactl", "shell", "--user", "root", "workspace1-sandbox", "--"]
-    assert "tailscale-1.98.9" in install[0][-1]
-    assert "config-manager addrepo --from-repofile=" in install[0][-1]
-    assert "config-manager --add-repo" not in install[0][-1]
-    assert enroll[0] == [
-        "limactl", "shell", "--user", "root", "workspace1-sandbox", "--",
-        "tailscale", "up", "--auth-key=file:/dev/stdin", "--ssh",
-    ]
+    assert install[0][:6] == ["limactl", "shell", "workspace1-sandbox", "--", "sh", "-ceu"]
+    assert "tailscale_1.98.9_arm64.tgz" in install[0][-1]
+    assert "fa554ee808d7d07ee8e3ebbc0215ea087157e2a0abbf408e6e18ea7532554db6" in install[0][-1]
+    assert "--tun=userspace-networking" in install[0][-1]
+    assert "systemctl --user enable --now" in install[0][-1]
+    assert "Linger" in install[0][-1]
+    assert "sudo" not in install[0][-1]
+    assert enroll[0][:6] == ["limactl", "shell", "workspace1-sandbox", "--", "sh", "-ceu"]
+    assert "--auth-key=file:/dev/stdin" in enroll[0][-1]
+    assert "--ssh" in enroll[0][-1]
     assert enroll[1]["input_data"] == key + b"\n"
     assert all(key.decode() not in " ".join(argv) for argv, _ in calls)
 
@@ -219,13 +221,17 @@ def test_tailscale_enrollment_leaves_ssh_off_when_disabled(tmp_path: Path) -> No
     values["tailscale"] = {"enabled": True, "ssh": False}
     calls = []
 
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return ""
+
     helper.tailscale_enroll(
         values, values["workspaces"][0], io.BytesIO(b"tskey-auth-" + b"x" * 32),
-        execute=lambda argv, **kwargs: calls.append((argv, kwargs)) or "",
+        execute=execute,
     )
 
-    assert calls[-1][0][-3:] == ["tailscale", "up", "--auth-key=file:/dev/stdin"]
-    assert "--ssh" not in calls[-1][0]
+    assert "--auth-key=file:/dev/stdin" in calls[-1][0][-1]
+    assert "--ssh" not in calls[-1][0][-1]
 
 
 @pytest.mark.parametrize("key", [b"", b"not-an-auth-key", b"tskey-auth-" + b"x" * 1014])

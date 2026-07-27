@@ -51,10 +51,13 @@ stdin:
 op read 'op://vault/item/credential' | sandbox-vm tailscale-enroll workspace1
 ```
 
-Enrollment installs the pinned Fedora client, enables `tailscaled`, and enables
-Tailscale SSH only when the local `ssh` setting is true. Disabling the setting
-later prevents new enrollment; it intentionally does not disconnect, uninstall,
-or delete an existing peer.
+Enrollment verifies and installs the pinned static arm64 client, enables a
+rootless userspace systemd user service, and enables Tailscale SSH only when the
+local `ssh` setting is true. Lima's persistent user manager keeps the daemon
+available without a login session. Guest `sudo`, root SSH, kernel TUN, host
+routing, and DNS changes remain unavailable. Disabling the setting later prevents
+new enrollment; it intentionally does not disconnect, uninstall, or delete an
+existing peer.
 
 After enrollment, obtain the private peer name from the Tailscale admin console
 or `tailscale status`. Keep it in machine-local SSH configuration owned outside

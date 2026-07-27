@@ -29,9 +29,38 @@ DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 TAILSCALE_INSTALL = """\
-dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
-dnf install -y tailscale-1.98.9
-systemctl enable --now tailscaled
+set -eu
+test "$(loginctl show-user "$USER" -p Linger --value)" = yes
+install -d -m 0700 "$HOME/.local/state/tailscale"
+install -d -m 0755 "$HOME/.local/bin" "$HOME/.config/systemd/user"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL https://pkgs.tailscale.com/stable/tailscale_1.98.9_arm64.tgz -o "$tmp/tailscale.tgz"
+printf '%s  %s\\n' fa554ee808d7d07ee8e3ebbc0215ea087157e2a0abbf408e6e18ea7532554db6 "$tmp/tailscale.tgz" | sha256sum -c -
+tar -xzf "$tmp/tailscale.tgz" -C "$tmp"
+install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscale" "$HOME/.local/bin/tailscale"
+install -m 0755 "$tmp/tailscale_1.98.9_arm64/tailscaled" "$HOME/.local/bin/tailscaled"
+cat >"$HOME/.config/systemd/user/tailscaled-userspace.service" <<'EOF'
+[Unit]
+Description=Tailscale userspace daemon
+
+[Service]
+ExecStart=%h/.local/bin/tailscaled --tun=userspace-networking --statedir=%h/.local/state/tailscale --socket=%t/tailscale/tailscaled.sock
+Restart=on-failure
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now tailscaled-userspace.service
+for _ in $(seq 1 30); do
+  test -S "$XDG_RUNTIME_DIR/tailscale/tailscaled.sock" && exit 0
+  sleep 1
+done
+echo 'Tailscale userspace socket is unavailable' >&2
+exit 1
 """
 PAGE_KEYS = {"schema_version", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
 CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
@@ -392,12 +421,15 @@ def tailscale_enroll(config, workspace, stream, execute=command):
     key = raw.rstrip(b"\r\n")
     if len(raw) > 1024 or not TAILSCALE_AUTH_KEY.fullmatch(key):
         raise ValueError("invalid Tailscale auth key")
-    base = ["limactl", "shell", "--user", "root", workspace["instance"], "--"]
-    execute([*base, "sh", "-ceu", TAILSCALE_INSTALL], timeout=300)
-    argv = [*base, "tailscale", "up", "--auth-key=file:/dev/stdin"]
-    if config["tailscale"]["ssh"]:
-        argv.append("--ssh")
-    execute(argv, timeout=120, input_data=key + b"\n")
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        execute(["limactl", "shell", instance, "--", "sh", "-ceu", TAILSCALE_INSTALL], timeout=300)
+        up = "exec \"$HOME/.local/bin/tailscale\" --socket=\"$XDG_RUNTIME_DIR/tailscale/tailscaled.sock\" up --auth-key=file:/dev/stdin"
+        if config["tailscale"]["ssh"]:
+            up += " --ssh"
+        execute(["limactl", "shell", instance, "--", "sh", "-ceu", up],
+                timeout=120, input_data=key + b"\n")
 
 
 def status_report(config, execute=command, lima_root=None):
