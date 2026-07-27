@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+version=18.17.1
+archive="$(mktemp)"
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$archive" "$tmpdir"' EXIT
+curl -fsSL "https://github.com/atuinsh/atuin/releases/download/v${version}/atuin-aarch64-unknown-linux-musl.tar.gz" -o "$archive"
+printf '%s  %s\n' 13fc31e9f40fcc97b28c626adf4015eed080b5d8d8df31bb23e8ddf504d19d59 "$archive" | sha256sum -c -
+tar -xzf "$archive" -C "$tmpdir"
+install -d -m 0755 "$HOME/.local/bin"
+install -m 0755 "$tmpdir/atuin-aarch64-unknown-linux-musl/atuin" "$HOME/.local/bin/.atuin.new"
+mv -f "$HOME/.local/bin/.atuin.new" "$HOME/.local/bin/atuin"

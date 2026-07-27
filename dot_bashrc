@@ -5,6 +5,10 @@ fi
 
 [[ $- != *i* ]] && return
 
+if [ -t 0 ] && command -v atuin >/dev/null; then
+    eval "$(atuin init bash)"
+fi
+
 if [ -t 0 ] && command -v starship >/dev/null; then
     export SHELL_LABEL="bash ${BASH_VERSION%%(*}"
     eval "$(starship init bash)"

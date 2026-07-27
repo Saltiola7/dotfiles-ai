@@ -25,7 +25,9 @@ graphify-out/
 .bash_profile
 .common_profile
 .config/starship.toml
+.config/atuin/config.toml
 install-starship.sh
+install-atuin.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.onepassword.enabled }}

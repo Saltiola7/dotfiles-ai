@@ -24,6 +24,7 @@ def data(onepassword: bool = False) -> dict:
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
             },
+            "atuin": {"sync_address": "https://atuin.example.com"},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -97,26 +98,45 @@ def test_local_data_renders_complete_configs() -> None:
     assert 'name = "nord"' in herdr
     assert "/usr/local/bin/herdr" in plist
 
+    sandbox = json.loads(
+        chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
+    )
+    assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
+
 
 def test_portable_terminal_config_is_guest_only() -> None:
     host = set(chezmoi("managed").stdout.splitlines())
-    targets = {".bashrc", ".bash_profile", ".common_profile", ".config/starship.toml"}
+    targets = {
+        ".bashrc", ".bash_profile", ".common_profile", ".config/starship.toml",
+        ".config/atuin/config.toml",
+    }
 
     assert targets.isdisjoint(host)
     assert "install-starship.sh" not in host
+    assert "install-atuin.sh" not in host
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(starship init bash)"') == 1
+    assert (ROOT / "dot_bashrc").read_text().count('eval "$(atuin init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
     assert (ROOT / "dot_common_profile.tmpl").exists()
     assert (ROOT / "private_dot_config/starship.toml").exists()
+    atuin = (ROOT / "private_dot_config/atuin/private_config.toml.tmpl").read_text()
+    assert "{{ .dotfiles_ai.atuin.sync_address | quote }}" in atuin
+    assert "auto_sync = true" in atuin
+    assert "sync_frequency = \"10m\"" in atuin
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert '{{ if eq .chezmoi.os "darwin" }}' in ignore
     assert all(target in ignore for target in targets)
     assert "install-starship.sh" in ignore
+    assert "install-atuin.sh" in ignore
     assert "reconcile-sandbox-shell-aliases.sh" in ignore
     assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
     installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
     assert "command -v starship" not in installer
     assert 'mv -f "$HOME/.local/bin/.starship.new"' in installer
+    atuin_installer = (ROOT / "run_onchange_after_install-atuin.sh.tmpl").read_text()
+    assert "atuin-aarch64-unknown-linux-musl.tar.gz" in atuin_installer
+    assert "13fc31e9f40fcc97b28c626adf4015eed080b5d8d8df31bb23e8ddf504d19d59" in atuin_installer
+    assert 'mv -f "$HOME/.local/bin/.atuin.new"' in atuin_installer
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

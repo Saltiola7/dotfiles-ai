@@ -34,6 +34,7 @@ def config(tmp_path: Path) -> dict:
         "guest": {
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
             "small_model": "provider/small", "theme": "catppuccin",
+            "atuin_sync_address": "https://atuin.example.com",
         },
         "workspaces": [
             {
@@ -153,6 +154,16 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
 
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
+    assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
+
+
+def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["guest"]["atuin_sync_address"] = "http://atuin.example.com"
+
+    with pytest.raises(ValueError, match="invalid guest Atuin sync address"):
+        helper.validate_config(values)
 
 
 def test_guest_identity_requires_exactly_one_generated_home() -> None:

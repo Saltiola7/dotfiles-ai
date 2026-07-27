@@ -93,7 +93,7 @@
 |---|---|
 | Risk | Elevated: changes interactive shell history and deploys a network-synchronized client to every managed guest |
 | Delivery intent | Deploy durable Atuin history to every configured Lima workspace |
-| Scope | Checksum-pinned Atuin installation, guest-only non-secret configuration, Bash initialization, tests, and live personal/mgm validation |
+| Scope | Checksum-pinned Atuin installation, guest-only non-secret configuration, Bash initialization, tests, and live validation in both configured workspaces |
 | Overrides | Login and encryption keys remain local to each VM; one login is required after creating or rebuilding a VM |
 
 ### Provider-Native Evaluation Initiative Overrides

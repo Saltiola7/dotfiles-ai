@@ -105,9 +105,12 @@ def validate_config(value):
         raise ValueError("invalid workspace resources")
     guest = value.get("guest")
     if not isinstance(guest, dict) or set(guest) != {
-            "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme"} or any(
+            "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme",
+            "atuin_sync_address"} or any(
             not isinstance(item, str) for item in guest.values()):
         raise ValueError("invalid guest settings")
+    if not re.fullmatch(r"https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", guest["atuin_sync_address"]):
+        raise ValueError("invalid guest Atuin sync address")
     workspaces = value.get("workspaces")
     if not isinstance(workspaces, list) or len(workspaces) > 32:
         raise ValueError("invalid workspaces")
@@ -293,6 +296,9 @@ def guest_config(config, workspace):
         f"small_model = {quote(guest['small_model'])}",
         'lmstudio_base_url = "http://host.lima.internal:1234/v1"',
         f"theme = {quote(guest['theme'])}",
+        "",
+        "[data.dotfiles_ai.atuin]",
+        f"sync_address = {quote(guest['atuin_sync_address'])}",
         "",
         "[data.dotfiles_ai.herdr]",
         f"theme = {quote(guest['theme'])}",
