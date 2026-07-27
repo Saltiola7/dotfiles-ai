@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-013 durable guest Atuin deployed
+**Status:** DAI-014 direct guest Herdr entry deployed
 
 ## Engineering Profile
 

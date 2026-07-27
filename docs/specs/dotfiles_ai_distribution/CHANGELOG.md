@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-26 - DAI-014 Direct Guest Herdr Entry
+
+- Workspace shell aliases now launch guest Herdr when called without arguments;
+  explicit commands and direct `sandbox-vm shell` behavior remain unchanged.
+- Added checksum-pinned Bash preexec `0.6.0` so Atuin history hooks and Starship
+  share one dispatcher. Affected QA passed 64 tests, and both configured guests
+  loaded the Atuin widget, history hooks, and rendered Starship prompt in a PTY.
+  Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - DAI-013 Durable Guest Atuin
 
 - Added checksum-pinned Atuin `18.17.1`, guest-only non-secret sync configuration,
