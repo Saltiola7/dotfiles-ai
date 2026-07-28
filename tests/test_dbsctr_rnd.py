@@ -517,6 +517,7 @@ def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
     runner["release_reservation"](reclaimed)
     retried, reason = runner["reserve_spawn"]([], 101)
     assert reason == "reserved"
+    runner["claim_reservation"](retried, "worker-1", 101)
     runner["complete_reservation"](retried, "worker-1", 101)
     connection = sqlite3.connect(state)
     assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (
@@ -583,7 +584,8 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     runner, _ = load_runner(tmp_path, monkeypatch, "direct-launch")
     repository = tmp_path / "project"
     repository.mkdir()
-    reservation, reason = runner["reserve_spawn"]([], 100)
+    now = int(runner["time"].time())
+    reservation, reason = runner["reserve_spawn"]([], now)
     assert reason == "reserved"
     calls = []
     sessions = iter((set(), {"ses_exact"}))
@@ -613,6 +615,29 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     assert output == {"session_id": "ses_exact", "status": "started", "worker_id": "worker-1"}
     assert calls == [["opencode", "run", "--agent", "build", "--command", "dbsctr-improve",
                       "--format", "json"]]
+
+
+def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "expired-direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], 100)
+    assert reason == "reserved"
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    monkeypatch.setattr(runner["time"], "time", lambda: 100 + runner["RESERVATION_LEASE_SECONDS"] + 1)
+    monkeypatch.setattr(
+        runner["subprocess"], "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("process started")),
+    )
+
+    try:
+        runner["launch_action"](reservation, "worker-1", "repo-1")
+    except RuntimeError as error:
+        assert "expired" in str(error)
+    else:
+        raise AssertionError("expired reservation was accepted")
 
 
 def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):

@@ -343,16 +343,50 @@ def release_reservation(reservation):
         connection.close()
 
 
+def claim_reservation(reservation, worker_id, claimed_at=None):
+    if not safe_id(reservation) or not safe_id(worker_id):
+        raise RuntimeError("invalid spawn reservation")
+    claimed_at = int(time.time()) if claimed_at is None else claimed_at
+    connection = state_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT created_at,worker_id FROM spawn_reservations WHERE reservation_id=?",
+            (reservation,),
+        ).fetchone()
+        if row is None or row[1] is not None or row[0] <= claimed_at - RESERVATION_LEASE_SECONDS:
+            if row is not None and row[1] is None:
+                connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (reservation,))
+                connection.commit()
+            raise RuntimeError("spawn reservation is missing, claimed, or expired")
+        connection.execute(
+            "UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=? AND worker_id IS NULL",
+            (worker_id, reservation),
+        )
+        if connection.total_changes != 1:
+            raise RuntimeError("spawn reservation claim failed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def complete_reservation(reservation, worker_id, completed_at=None):
     connection = state_connection()
     try:
         completed_at = int(time.time()) if completed_at is None else completed_at
         cadence = connection.execute(
             "SELECT cadence FROM scheduler_state WHERE singleton=1").fetchone()[0]
-        connection.execute("UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=?",
-                           (worker_id, reservation))
-        if connection.total_changes != 1:
+        row = connection.execute(
+            "SELECT worker_id FROM spawn_reservations WHERE reservation_id=?", (reservation,)
+        ).fetchone()
+        if row is None or row[0] not in (None, worker_id):
             raise RuntimeError("spawn reservation is missing")
+        if row[0] is None:
+            connection.execute("UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=?",
+                               (worker_id, reservation))
         connection.execute("UPDATE scheduler_state SET next_eligible_at=? WHERE singleton=1",
                            (completed_at + CADENCE_SECONDS[cadence],))
         connection.commit()
@@ -644,6 +678,7 @@ def launch_action(reservation, worker_id, repository_id):
     if len(matches) != 1:
         raise RuntimeError("direct launch repository is missing or ambiguous")
     repository = Path(matches.pop()).resolve()
+    claim_reservation(reservation, worker_id)
     before = session_ids(repository)
     log_dir = STATE.parent / "launches"
     log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -683,10 +718,12 @@ def launch_action(reservation, worker_id, repository_id):
             print(json.dumps({"session_id": session_id, "status": "started",
                               "worker_id": worker_id}, separators=(",", ":")))
         except Exception:
-            if not registered:
-                release_reservation(reservation)
-                if process is not None and process.poll() is None:
-                    process.terminate()
+            release_reservation(reservation)
+            if process is not None and process.poll() is None:
+                process.terminate()
+            if registered:
+                subprocess.run([DBSCTRCTL, "improvement-update", "--worker-id", worker_id,
+                                "--state", "blocked"], check=False)
             raise
 
 
