@@ -136,6 +136,7 @@ def test_provider_and_primary_contracts():
         "acli *\n*": "deny",
         "acli jira workitem search *--paginate*": "deny",
         "acli jira workitem search *--web*": "deny",
+        "acli jira workitem search -w*": "deny",
         "acli jira workitem search * -w*": "deny",
         "acli jira workitem search *--filter*": "deny",
     }

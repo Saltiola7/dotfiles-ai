@@ -121,6 +121,7 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
             "acli *$(*", "acli *`*", "acli *\n*",
             "acli jira workitem search *--paginate*",
             "acli jira workitem search *--web*",
+            "acli jira workitem search -w*",
             "acli jira workitem search * -w*",
             "acli jira workitem search *--filter*",
         ):
