@@ -234,13 +234,12 @@ def validate_config(value):
             hosts.append(host)
             guests.append(guest_path)
         backlog_roots = workspace["hermes_backlog_roots"]
-        writable_roots = [PurePosixPath(mount["guest"]) for mount in mounts
-                          if mount["writable"] and not mount["protect_git_submodules"]]
+        mounted_roots = [PurePosixPath(mount["guest"]) for mount in mounts]
         if (not isinstance(backlog_roots, list) or len(backlog_roots) > 32
                 or len(backlog_roots) != len(set(backlog_roots))
                 or any(not isinstance(root, str) or not PurePosixPath(root).is_absolute()
                        or not any(PurePosixPath(root) == mount or PurePosixPath(root).is_relative_to(mount)
-                                  for mount in writable_roots)
+                                  for mount in mounted_roots)
                        for root in backlog_roots)):
             raise ValueError(f"invalid {name} Hermes backlog roots")
     build_workspace = value.get("build_workspace")
