@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def values(enabled=True, review_workdir="/tmp/dotfiles-ai"):
+def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", roots=None):
     return {
         "dotfiles_ai": {
             "opencode": {
@@ -21,8 +21,11 @@ def values(enabled=True, review_workdir="/tmp/dotfiles-ai"):
                 "lmstudio_base_url": "http://127.0.0.1:1234/v1",
             },
             "herdr": {"theme": "catppuccin", "launchagent": True, "executable": "/mock/herdr"},
+            "hermes": {"enabled": enabled, "executable": "~/.local/bin/hermes", "profile": "system",
+                       "provider": "openai-codex", "backlog_roots": roots or [],
+                       "project_profiles": False},
             "rnd": {
-                "enabled": enabled, "review_workdir": review_workdir,
+                "enabled": enabled, "backend": backend, "review_workdir": review_workdir,
                 "review_hour": 9, "review_minute": 15, "watchdog_interval_seconds": 300,
                 "workspace_label": "DBSCTR R&D", "github_account": "test-user",
                 "github_repository": "test-user/dotfiles-ai",
@@ -78,12 +81,8 @@ def test_disabled_loader_removes_only_replacement_jobs():
     assert "dev.dotfiles-ai.dbsctr-spawner" in loader
     assert "dev.dotfiles-ai.dbsctr-watchdog" in loader
     assert "bootout" in loader and "PlistBuddy" in loader
-    assert 'bootout "$DOMAIN/dev.dotfiles-ai.hermes-update"' in loader
-    assert "hermes-review-cron-id" in loader
-    assert "hermes-watchdog-cron-id" in loader
-    assert "hermes-watchdog.json" in loader
-    assert '"$HOME/.local/bin/hermes" cron remove "$job_id"' in loader
-    assert "^[0-9a-f]{12}$" in loader
+    assert "gateway stop" in loader
+    assert "hermes-review-cron-id" not in loader
 
 
 def test_enabled_loader_is_valid_bash():
@@ -91,6 +90,40 @@ def test_enabled_loader_is_valid_bash():
         ["bash", "-n"], input=render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl"),
         text=True, check=True,
     )
+
+
+def test_hermes_backend_retires_native_jobs_only_after_health_contract():
+    loader = render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl",
+                    values(backend="hermes"))
+    subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
+    assert "gateway status" in loader
+    assert "*-cron-id" in loader
+    assert "remove_job dev.dotfiles-ai.dbsctr-spawner" in loader
+    assert loader.index("gateway status") < loader.index("launchctl bootstrap")
+
+
+def test_hermes_templates_are_profile_local_and_valid_bash():
+    installer = render("run_once_before_install-hermes.sh.tmpl")
+    configure = render("run_onchange_after_configure-hermes.sh.tmpl")
+    subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
+    subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
+    assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
+    assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
+    assert '${HERMES#\\~/}' in installer
+    assert 'profiles/$PROFILE' in configure
+    assert "terminal.home_mode profile" in configure
+    assert "config set model openai-codex/gpt-5.6-sol" in configure
+    maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
+    assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
+    assert "cron pause" in configure and "cutover-ready" in configure
+    catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
+    compile(catalog, "dbsctr-catalog.py", "exec")
+    assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
+    linux_ignores = (ROOT / ".chezmoiignore").read_text().split(
+        '{{ if eq .chezmoi.os "linux" }}', 1
+    )[1]
+    assert ".local/bin/dbsctr-rnd" not in linux_ignores
+    assert ".hermes/managed" not in linux_ignores
 
 
 def test_runner_bounds_dependency_commands(tmp_path):
@@ -469,6 +502,145 @@ def test_scheduler_caps_workers_halts_and_requires_reset(tmp_path, monkeypatch, 
     connection.close()
 
 
+def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "reservation")
+    reservation, reason = runner["reserve_spawn"]([], 100)
+    assert reason == "reserved"
+    connection = sqlite3.connect(state)
+    assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (0,)
+    connection.close()
+    runner["release_reservation"](reservation)
+
+    crashed, reason = runner["reserve_spawn"]([], 200)
+    assert reason == "reserved"
+    reclaimed, reason = runner["reserve_spawn"]([], 200 + runner["RESERVATION_LEASE_SECONDS"] + 1)
+    assert reason == "reserved" and reclaimed != crashed
+    runner["release_reservation"](reclaimed)
+    retried, reason = runner["reserve_spawn"]([], 101)
+    assert reason == "reserved"
+    runner["claim_reservation"](retried, "worker-1", 101)
+    runner["complete_reservation"](retried, "worker-1", 101)
+    connection = sqlite3.connect(state)
+    assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (
+        101 + runner["CADENCE_SECONDS"]["weekly"],)
+    connection.close()
+
+
+def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
+    root = tmp_path / "projects"
+    repo = root / "project"
+    context = repo / "docs/specs/example"
+    context.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    (context / "BACKLOG.md").write_text(
+        "# Backlog\n\n## Active\n\n"
+        "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |\n\n"
+        "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
+    )
+    source = render("dot_local/bin/executable_dbsctr-rnd.tmpl",
+                    values(review_workdir=str(repo), roots=[str(root)]))
+    namespace = {"__name__": "dbsctr_rnd_backlogs"}
+    exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
+    discovered = namespace["canonical_backlogs"]()
+    assert len(discovered["backlogs"]) == 1
+    assert discovered["backlogs"][0]["id"] == "X-1"
+    assert discovered["backlogs"][0]["title"] == "Refine | work"
+    assert len(discovered["backlogs"][0]["idempotency_key"]) == 64
+    repository = namespace["backlog_repositories"]()["repositories"][0]
+    assert repository["profile"].startswith("project-")
+    assert len(repository["profile"]) <= 64
+
+    valid = (context / "BACKLOG.md").read_text()
+    (context / "BACKLOG.md").write_text(valid.replace("|---|---|", "|--|---|", 1))
+    try:
+        namespace["canonical_backlogs"]()
+    except RuntimeError as error:
+        assert "separator" in str(error)
+    else:
+        raise AssertionError("malformed backlog separator was accepted")
+    row = "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |"
+    (context / "BACKLOG.md").write_text(valid.replace(row, row + "\n" + row))
+    try:
+        namespace["canonical_backlogs"]()
+    except RuntimeError as error:
+        assert "duplicated" in str(error)
+    else:
+        raise AssertionError("duplicate backlog ID was accepted")
+    (context / "BACKLOG.md").write_text(valid)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / "docs/specs/escape").symlink_to(outside, target_is_directory=True)
+    try:
+        namespace["canonical_backlogs"]()
+    except RuntimeError as error:
+        assert "symlink" in str(error)
+    else:
+        raise AssertionError("backlog symlink escape was accepted")
+
+
+def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeypatch, capsys):
+    runner, _ = load_runner(tmp_path, monkeypatch, "direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    now = int(runner["time"].time())
+    reservation, reason = runner["reserve_spawn"]([], now)
+    assert reason == "reserved"
+    calls = []
+    sessions = iter((set(), {"ses_exact"}))
+
+    class Process:
+        def __init__(self, argv, **kwargs):
+            calls.append(argv)
+            kwargs["stdout"].write('{"sessionID":"ses_exact"}\n')
+            kwargs["stdout"].flush()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise AssertionError("registered process was terminated")
+
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    runner["session_ids"] = lambda _repository: next(sessions)
+    monkeypatch.setattr(runner["subprocess"], "Popen", Process)
+    runner["command"] = lambda argv, **_kwargs: {
+        "worker_id": argv[argv.index("--worker-id") + 1]
+    }
+    runner["launch_action"](reservation, "worker-1", "repo-1")
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"session_id": "ses_exact", "status": "started", "worker_id": "worker-1"}
+    assert calls == [["opencode", "run", "--agent", "build", "--command", "dbsctr-improve",
+                      "--format", "json"]]
+
+
+def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "expired-direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], 100)
+    assert reason == "reserved"
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    monkeypatch.setattr(runner["time"], "time", lambda: 100 + runner["RESERVATION_LEASE_SECONDS"] + 1)
+    monkeypatch.setattr(
+        runner["subprocess"], "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("process started")),
+    )
+
+    try:
+        runner["launch_action"](reservation, "worker-1", "repo-1")
+    except RuntimeError as error:
+        assert "expired" in str(error)
+    else:
+        raise AssertionError("expired reservation was accepted")
+
+
 def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):
     runner, state = load_runner(tmp_path, monkeypatch, "effects")
     activation = 1_000_000
@@ -588,8 +760,11 @@ def test_example_documents_only_neutral_rnd_settings():
     for term in ("[data.dotfiles_ai.rnd]", "enabled = false", "review_hour", "review_minute",
                  "watchdog_interval_seconds", "workspace_label", "github_account", "github_repository"):
         assert term in example
-    assert "hermes" not in example.lower()
+    for term in ("[data.dotfiles_ai.hermes]", 'provider = "openai-codex"',
+                 'backend = "native"', "backlog_roots"):
+        assert term in example
     assert 'github_account = "your-account"' in example
     retired = (ROOT / ".chezmoiremove").read_text()
     assert ".hermes/skills/dbsctr-supervisor/SKILL.md" in retired
     assert ".hermes/scripts/dbsctr-watchdog.py" in retired
+    assert (ROOT / "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl").exists()

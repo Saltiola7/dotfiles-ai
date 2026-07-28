@@ -10,6 +10,16 @@
   remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:
   `origin/main`.
 
+## 2026-07-28 - OCP-29 Hermes-Origin Discovery
+
+- Added exact leased-reservation claiming before process start, deterministic
+  native OpenCode session correlation, durable worker registration, and blocked
+  cleanup on post-registration failure. Hermes can initiate Discovery without a
+  Herdr pane but cannot answer Discovery or bypass DBSCTR authority.
+- Host and guest Codex inference plus gateway restart checks passed before
+  cutover. Affected QA passed 193 tests with one existing skip. Commits:
+  `269125b..dc6d284`. Intended Final Push: `origin/main`.
+
 ## 2026-07-26 - Provider-Native Harness Delivery
 
 - Added `/dbsctr-gpt` and `/dbsctr-claude`, provider-conditional guidance,

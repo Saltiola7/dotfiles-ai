@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-28 - DAI-016 Hermes-First Orchestration
+
+- Installed checksum-pinned Hermes `0.19.0` with isolated authenticated host,
+  personal, and client profiles; configured Codex `gpt-5.6-sol`, bounded canonical
+  backlog roots, profile-local cron/Kanban state, and reservation-bound direct
+  OpenCode Discovery launch without Herdr scheduling authority.
+- Host and both guest gateways passed inference, restart, receipt, and active-job
+  checks before native launchd retirement. Guarded global cleanup and shared DVC
+  cache relinking reclaimed about 75 GiB while preserving dirty active work.
+  Affected QA passed 193 tests with one existing skip. Commits:
+  `269125b..dc6d284`. Intended Final Push: `origin/main`.
+
 ## 2026-07-27 - DAI-015 Native Tailnet Guest Access
 
 - Added default-off Tailscale settings and stdin-only one-off enrollment without

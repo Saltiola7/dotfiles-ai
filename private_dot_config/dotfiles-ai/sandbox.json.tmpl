@@ -19,7 +19,9 @@
     "default_model": {{ .dotfiles_ai.opencode.default_model | toJson }},
     "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
     "theme": {{ .dotfiles_ai.opencode.theme | toJson }},
-    "atuin_sync_address": {{ .dotfiles_ai.atuin.sync_address | toJson }}
+    "atuin_sync_address": {{ .dotfiles_ai.atuin.sync_address | toJson }},
+    "hermes_enabled": {{ .dotfiles_ai.hermes.enabled | toJson }},
+    "rnd_backend": {{ .dotfiles_ai.rnd.backend | toJson }}
   },
   "workspaces": [
 {{- range $index, $workspace := .dotfiles_ai.sandbox.workspaces }}{{ if $index }},{{ end }}
@@ -28,6 +30,8 @@
       "instance": {{ $workspace.instance | toJson }},
       "shell_alias": {{ $workspace.shell_alias | default "" | toJson }},
       "federate": {{ $workspace.federate | toJson }},
+      "hermes_projects": {{ get $workspace "hermes_projects" | default false | toJson }},
+      "hermes_backlog_roots": {{ get $workspace "hermes_backlog_roots" | default list | toJson }},
       "mounts": {{ $workspace.mounts | toJson }}
     }
 {{- end }}

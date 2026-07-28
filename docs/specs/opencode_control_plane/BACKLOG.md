@@ -9,7 +9,8 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| OCP-29 | Add source ACLI read guardrails for writing skills without live deployment | 2026-07-28 | `761d01e` and final lifecycle commit |
+| OCP-30 | Add source ACLI read guardrails for writing skills without live deployment | 2026-07-28 | `761d01e` and final lifecycle commit |
+| OCP-29 | Add exact reservation-bound Hermes launch and resumable OpenCode Discovery without Herdr dependency | 2026-07-28 | `269125b..dc6d284` |
 | OCP-27/OCP-28 | Add exact loaded harness identity, provider-local prompts and entry commands, Opus 5 high, and five-cycle evaluation adapters | 2026-07-26 | `c0289f8`, `b08540b` |
 | OCP-27D | Specify provider-native harness contracts | 2026-07-26 | `d65d2ad` |
 | OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | 2026-07-25 | `ae72606` |

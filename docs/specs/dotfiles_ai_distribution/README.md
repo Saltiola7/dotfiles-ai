@@ -114,6 +114,15 @@
 | Scope | Default-off local TOML, checksum-pinned rootless Linux client, stdin-only one-off enrollment, Tailscale SSH, tests, and live two-workspace validation |
 | Overrides | Public defaults and teammate configurations remain off; peer names derive from machine-local Lima identity; keys, tags, account identities, and tailnet policy never enter Git or rendered configuration |
 
+### DAI-016 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: replaces live autonomous scheduling, introduces profile-local AI state in three trust environments, and automates guarded worktree deletion |
+| Delivery intent | Deploy Hermes-first orchestration to the host and configured Lima workspaces after controlled cutover evidence |
+| Scope | Hermes bootstrap and profiles, canonical backlog mirroring, Kanban refinement, direct resumable OpenCode Discovery, global completed-worktree maintenance, Herdr ownership repair, and native scheduler retirement |
+| Overrides | Hermes owns orchestration only; DBSCTR remains lifecycle authority; generated skills and raw context stay profile-local; updates are manual; no disk-space gate, messaging integration, automatic Discovery answer, merge, release, or deploy |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -135,14 +144,15 @@ OpenCode control-plane behavior, and shell authentication.
 - Reproduce the maintainer's working AI development configuration without
   committing machine-local identifiers or secrets.
 - Keep optional 1Password integration fail-open for Herdr startup.
-- Provide machine-local opt-in daily OpenCode R&D workers with deterministic
-  launchd scheduling and recovery.
+- Provide machine-local opt-in Hermes scheduling, context-isolated backlog
+  refinement, and resumable OpenCode R&D workers.
 - Review sanitized global history, pause for human Discovery, and create only
   human-merge draft pull requests for this source.
 
 ## Non-goals
 
-- Installing OpenCode, Herdr, provider credentials, or unrelated developer tools.
+- Installing OpenCode, Herdr, provider credentials, or unrelated developer tools;
+  DAI-016 installs Hermes only when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
 - Automatically answering Discovery, merging, marking ready, releasing, or deploying.
@@ -157,13 +167,35 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a valid local TOML, when the source renders and applies, then complete
   OpenCode, DBSCTR, and Herdr targets contain no personal identifiers.
 - Given `[data.dotfiles_ai.rnd].enabled=false`, when the source applies, then no
-  R&D LaunchAgent is managed or loaded; exact previously managed jobs are safely
-  booted out without affecting OpenCode tabs or durable worker state.
-- Given scheduling is enabled with valid source, GitHub, hour, minute, and
-  interval values, when the source applies, then launchd loads one daily spawner
-  and one interval watchdog in the Aqua session.
-- Given the Mac sleeps through daily occurrences, when it wakes, then launchd
-  coalesces missed calendar events into at most one delayed invocation.
+  Hermes profile, schedule, or worker is created and durable DBSCTR state remains.
+- Given scheduling is enabled, when the source applies, then the host system
+  profile and enabled workspace profiles use independent Hermes homes, credentials,
+  skills, sessions, logs, cron state, and Kanban roots.
+- Host OpenAI Codex authentication never crosses into a guest. Client and personal
+  authenticate separately inside their own VM trust boundary.
+- Hermes updates are manual. `hermes update --backup` and post-update health
+  verification are operator-owned maintenance, not a scheduled job.
+
+### Canonical Backlog Refinement
+
+- Given a configured discovery root, when reconciliation runs, then it considers
+  only canonical Git paths `REPOSITORY/docs/specs/CONTEXT/BACKLOG.md` whose real
+  paths stay beneath that root; symlink escapes, malformed tables, and bounded-scan
+  overflow fail closed.
+- The host system profile reads only its configured managed dotfiles repositories.
+  A client profile scans repositories directly beneath its configured client root;
+  the personal catalog scans its configured personal root and creates one
+  project-local profile and Kanban board only for canonical Active work.
+- Given a valid Active row, then repository identity, context, and backlog ID
+  derive one idempotent Kanban identity. Git backlog fields remain authoritative;
+  Hermes enrichment remains task metadata and never edits the source file.
+- Given OpenCode changes a backlog, then the next bounded reconciliation updates
+  or completes its mirrored task. Missing or incompatible active work blocks for
+  review rather than disappearing. A temporarily malformed file preserves the
+  last valid mirror.
+- Personal refinement runs one project at a time. Raw backlog content, memory,
+  generated skills, findings, and task details never cross host, client, or personal
+  profile boundaries.
 
 ### Optional Workspace Tailnet Access
 
@@ -185,10 +217,13 @@ OpenCode control-plane behavior, and shell authentication.
 
 ### Autonomous R&D Worker
 
-- Given the daily schedule fires, when `dbsctr-rnd spawn` runs, then it creates
-  or reuses exactly one configured Herdr workspace, starts native Build with
-  `/dbsctr-improve` in a disposable staging tab, moves only the returned agent
-  pane into a dedicated single-pane tab, and registers its exact native session.
+- Given the daily Hermes schedule fires, when private adaptive cadence is due,
+  then Hermes reserves one attempt, refines permitted history and backlog work,
+  claims one opportunity, starts OpenCode Discovery directly, and registers its
+  exact resumable session without requiring Herdr.
+- Failed dispatch releases its reservation without advancing cadence. Successful
+  registration advances cadence exactly once; concurrent ticks cannot duplicate
+  an attempt or admit a fourth nonterminal worker.
 - Given earlier workers are active or awaiting Discovery, when the schedule
   fires, then one additional fresh worker still starts.
 - Given launch or identity is ambiguous, then spawning fails closed, closes only
@@ -211,28 +246,27 @@ OpenCode control-plane behavior, and shell authentication.
 - Given a valid source takes longer than the generic analytics deadline, then the
   typed federation call waits for its source-bounded command instead of killing the
   aggregate operation. Per-command time and output bounds remain enforced.
-- Given Discovery has unresolved material questions, then the worker waits in its
-  own Herdr tab until the operator answers and explicitly instructs it to proceed.
+- Given Discovery has unresolved material questions, then the worker waits until
+  the operator resumes its exact OpenCode session in any host or VM Herdr pane and
+  explicitly instructs it to proceed. Hermes never supplies that answer.
 - Given explicit proceed and passing DBSCTR gates, then the worker pushes only its
   isolated feature branch and creates a draft pull request. It never merges,
   marks ready, releases, or deploys.
 
 ### Recovery And Completion
 
-- Given a nonterminal worker's pane disappears, when the watchdog finds no exact
-  native session, then it recreates `opencode --mini WORKDIR -s SESSION --agent
-  build --no-replay` in a new single-pane tab, allows up to 120 seconds for
-  large-session readiness, and records only exact identity; three failures leave
-  it blocked.
-- Given Herdr omits resumed native session metadata, then only the exact recorded
-  pane, workspace, tab, managed cwd, single-pane topology, and foreground argv
-  may be adopted. Every ambiguous shape blocks.
+- Given a gateway or delegated worker stops, then Hermes Kanban reclaims the
+  profile-local task and reconciles the authoritative DBSCTR worker/session before
+  resuming `opencode -s SESSION`; an existing or ambiguous exact session blocks
+  duplicate launch.
+- Herdr presentation identity is optional and advisory. Host and guest Herdr stay
+  available for interactive attachment but are absent from autonomous scheduling,
+  recovery, and lifecycle proof.
 - Given a worker is alive and idle, blocked, or awaiting Discovery, then the
   watchdog sends no prompt, answers no question, and selects no permission.
-- Given watchdog reconciliation reports a recovery failure, ambiguity, unknown
-  state, pull-request check failure, or exhausted blocked worker, then it emits
-  bounded JSON diagnostics and exits nonzero so launchd health reflects the
-  degraded loop. Empty and successful-recovery runs exit zero.
+- Given reconciliation reports recovery failure, ambiguity, unknown state,
+  pull-request failure, or exhausted blocked work, then it emits bounded profile-
+  local diagnostics and leaves the claim blocked for explicit operator action.
 - Every external watchdog and spawner dependency command has a 180-second
   deadline; expiry becomes a bounded runtime failure instead of retaining the
   reconciliation lock indefinitely.
@@ -268,9 +302,9 @@ OpenCode control-plane behavior, and shell authentication.
   workers, the current spawn is a bounded no-op without setting that persistent
   halt. Worker count validation and spawn reservation occur in one SQLite
   transaction so concurrent ticks cannot admit a fourth worker.
-- Given launchd invokes the fixed daily tick, the runner consults private
+- Given Hermes invokes the fixed daily tick, the runner consults private
   scheduler state and either starts one worker or returns a bounded no-op reason.
-  It never rewrites machine-local TOML or reloads launchd to tune cadence.
+  It never rewrites machine-local TOML or Hermes configuration to tune cadence.
 - Given authoritative cost exists, analytics reports it. Cost and missing cost
   never change cadence, halt spawning, or weaken another safety rule.
 - Given an ordinary R&D worker passes every DBSCTR gate, it still creates only a
@@ -478,9 +512,10 @@ OpenCode control-plane behavior, and shell authentication.
   It never replaces an unmanaged path and removes a stale path only when it is
   still a symlink to the managed `sandbox-vm` executable.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
-  supplies source path, workspace label, daily hour/minute, watchdog interval,
-  and non-secret GitHub account/repository.
-- `~/.local/bin/dbsctr-rnd` provides `spawn`, `watchdog`, `analytics`, and
+  supplies source path, daily hour/minute, profile-local discovery roots, and
+  non-secret GitHub account/repository. Shared defaults remain disabled.
+- `~/.local/bin/dbsctr-rnd` provides deterministic backlog discovery, dispatch
+  reservation/release/completion, reconciliation, `analytics`, and
   `reset-schedule`. `analytics --json` returns the bounded structured report;
   human output is the default. `--finalize-json` binds one retained benchmark to
   its merged attempt, while `--failure-json` accepts only an outcome matching the
@@ -495,12 +530,12 @@ OpenCode control-plane behavior, and shell authentication.
 - `dbsctrctl provider-evaluation-save` and `provider-evaluation` are the helper
   authorities beneath those tools. Save executes under the existing private
   writer lock; ordinary reads never initialize, repair, or migrate state.
-- `dbsctr-rnd watchdog` always emits its bounded JSON result. It exits nonzero
-  when any event is degraded and zero when reconciliation is healthy or another
-  watchdog already owns the lock.
-- LaunchAgent labels are `dev.dotfiles-ai.dbsctr-spawner` and
-  `dev.dotfiles-ai.dbsctr-watchdog`; disabled apply removes only matching labels
-  and plists.
+- Hermes cron agent jobs own refinement and OpenCode dispatch. Script-only jobs
+  under each profile's private scripts directory own deterministic reconciliation
+  and completed-worktree maintenance without model tokens.
+- Native LaunchAgent labels `dev.dotfiles-ai.dbsctr-spawner` and
+  `dev.dotfiles-ai.dbsctr-watchdog` are retired only after one controlled Hermes
+  refinement and gateway restart/recovery pass.
 - The DBSCTR private ledger owns opportunities, workers, recovery attempts,
   declared scope, pull-request outcomes, captures, and benchmark references. A
   separate mode-`0600` private scheduler SQLite ledger owns only reservations,
@@ -556,7 +591,8 @@ OpenCode control-plane behavior, and shell authentication.
 - Scheduler state records the current cadence, last
   monthly evaluation, immutable outcome-event cutoff and counters, attempt/event
   identities, halt reason, and next eligible spawn time without private
-  provenance.
+  provenance. Hermes profile state and Kanban databases are mode-private and
+  remain outside the public source.
 - Commands use argument vectors and structured JSON. The runner never reads the
   OpenCode database or calls private review helpers directly.
 - GitHub tokens stay in the `gh` credential store and enter only a child process

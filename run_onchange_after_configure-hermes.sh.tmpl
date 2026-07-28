@@ -1,0 +1,92 @@
+#!/bin/bash
+# supervisor: {{ include "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
+# maintenance: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py" | sha256sum }}
+# catalog: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl" | sha256sum }}
+# profile: {{ .dotfiles_ai.hermes.profile }}
+# backend: {{ .dotfiles_ai.rnd.backend }}
+
+set -euo pipefail
+HERMES={{ .dotfiles_ai.hermes.executable | quote }}
+case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
+PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
+state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
+
+pause_owned() {
+    [[ -x "$HERMES" ]] || return 0
+    for file in "$state"/*-cron-id; do
+        [[ -f "$file" ]] || continue
+        IFS= read -r id < "$file"
+        [[ "$id" =~ ^[0-9a-f]{12}$ ]] && "$HERMES" -p "$PROFILE" cron pause "$id" >/dev/null 2>&1 || true
+    done
+    "$HERMES" -p "$PROFILE" gateway stop >/dev/null 2>&1 || true
+}
+
+{{ if or (not .dotfiles_ai.hermes.enabled) (not .dotfiles_ai.rnd.enabled) -}}
+pause_owned
+exit 0
+{{ end -}}
+
+[[ "$PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || { echo "invalid Hermes profile" >&2; exit 1; }
+[[ -x "$HERMES" ]] || { echo "Hermes is enabled but missing" >&2; exit 1; }
+[[ {{ .dotfiles_ai.rnd.backend | quote }} == native || {{ .dotfiles_ai.rnd.backend | quote }} == hermes ]] \
+    || { echo "rnd.backend must be native or hermes" >&2; exit 1; }
+profile_home="$HOME/.hermes/profiles/$PROFILE"
+[[ -d "$profile_home" ]] || "$HERMES" profile create "$PROFILE" --description "DBSCTR context-isolated orchestration"
+mkdir -p "$profile_home/skills/dbsctr-supervisor" "$profile_home/scripts" "$state"
+chmod 700 "$profile_home" "$profile_home/scripts" "$state"
+install -m 600 "$HOME/.hermes/managed/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
+install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
+install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
+"$HERMES" -p "$PROFILE" config set terminal.home_mode profile
+"$HERMES" -p "$PROFILE" config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
+"$HERMES" -p "$PROFILE" config set model openai-codex/gpt-5.6-sol
+"$HERMES" -p "$PROFILE" gateway stop >/dev/null 2>&1 || true
+
+replace_job() {
+    local id_file=$1 schedule=$2 name=$3 prompt=$4 script=${5:-}
+    local old_id="" id output
+    [[ ! -f "$id_file" ]] || IFS= read -r old_id < "$id_file"
+    if [[ -n "$script" ]]; then
+        output=$("$HERMES" -p "$PROFILE" cron create "$schedule" --no-agent --script "$script" --deliver local --name "$name")
+    else
+        output=$("$HERMES" -p "$PROFILE" cron create "$schedule" "Load dbsctr-supervisor, then: $prompt" --deliver local --name "$name")
+    fi
+    id=${output%%$'\n'*}; id=${id#Created job: }
+    [[ "$id" =~ ^[0-9a-f]{12}$ ]] || { echo "Hermes cron returned an invalid ID" >&2; exit 1; }
+    "$HERMES" -p "$PROFILE" cron pause "$id"
+    if [[ "$old_id" =~ ^[0-9a-f]{12}$ && "$old_id" != "$id" ]]; then
+        "$HERMES" -p "$PROFILE" cron remove "$old_id" >/dev/null 2>&1 || true
+    fi
+    umask 077
+    printf '%s\n' "$id" > "$id_file.tmp"
+    mv "$id_file.tmp" "$id_file"
+}
+
+{{ if .dotfiles_ai.hermes.project_profiles -}}
+replace_job "$state/catalog-cron-id" "every 15m" "dotfiles-ai project catalog" "" "dbsctr-catalog.py"
+{{ else -}}
+replace_job "$state/refinement-cron-id" "{{ .dotfiles_ai.rnd.review_minute }} {{ .dotfiles_ai.rnd.review_hour }} * * *" \
+    "dotfiles-ai context refinement" \
+    "Reconcile canonical backlogs and sanitized history, claim at most one distinct opportunity, then call the deterministic direct OpenCode Discovery launcher."
+{{ end -}}
+replace_job "$state/maintenance-cron-id" "0 3 * * *" \
+    "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"
+
+"$HERMES" -p "$PROFILE" gateway install
+{{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
+for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron resume "$id"; done
+{{ else -}}
+for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron pause "$id"; done
+{{ end -}}
+"$HERMES" -p "$PROFILE" gateway start
+{{ if .dotfiles_ai.hermes.project_profiles -}}
+"$profile_home/scripts/dbsctr-catalog.py"
+{{ end -}}
+{{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
+jobs=$("$HERMES" -p "$PROFILE" cron list)
+for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; /usr/bin/grep -q "$id" <<<"$jobs"; done
+printf '%s\n' "$(date +%s)" > "$state/cutover-ready.tmp"
+mv "$state/cutover-ready.tmp" "$state/cutover-ready"
+{{ else -}}
+rm -f "$state/cutover-ready"
+{{ end -}}

@@ -785,6 +785,68 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertFalse(paths["batch-clean"].exists())
         self.assertTrue(paths["batch-dirty"].exists())
 
+    def test_global_inventory_and_cleanup_are_bounded_and_fail_closed(self):
+        registry = Path(self.temp.name) / "registry"
+        registry.mkdir()
+
+        def completed_worktree(repo, name, dirty=False, worktree_root=None):
+            remote = Path(self.temp.name) / f"{name}.git"
+            if subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo,
+                              capture_output=True).returncode:
+                subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+                subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=repo,
+                               check=True, capture_output=True)
+            subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=repo,
+                           check=True, capture_output=True)
+            handoff = json.loads(run(
+                repo, "begin", "--cycle-id", name, "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                "--worktree-root", str(worktree_root or registry / name),
+            ).stdout)
+            record_path = repo / f".git/dbsctr/cycles/{name}.json"
+            record = json.loads(record_path.read_text())
+            record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
+            record_path.write_text(json.dumps(record))
+            (repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+            worktree = Path(handoff["worktree"])
+            if dirty:
+                (worktree / "dirty.txt").write_text("dirty\n")
+            return worktree
+
+        clean = completed_worktree(self.repo, "global-clean")
+        escaped = completed_worktree(
+            self.repo, "global-outside", worktree_root=Path(self.temp.name) / "outside-worktrees")
+        second = Path(self.temp.name) / "second"
+        second.mkdir()
+        subprocess.run(["git", "init"], cwd=second, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=second, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=second, check=True)
+        (second / "tracked.txt").write_text("base\n")
+        artifacts = second / "docs/specs/test"
+        artifacts.mkdir(parents=True)
+        for name in ("README.md", "BACKLOG.md", "CHANGELOG.md"):
+            (artifacts / name).write_text("base\n")
+        subprocess.run(["git", "add", "."], cwd=second, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=second, check=True, capture_output=True)
+        dirty = completed_worktree(second, "global-dirty", dirty=True)
+
+        outside = Path(self.temp.name) / "outside"
+        outside.mkdir()
+        (registry / "escape").symlink_to(outside, target_is_directory=True)
+        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        inventory = json.loads(run(self.repo, "worktree-list", "--all", "--json", env=env).stdout)
+        self.assertEqual(len(inventory["repositories"]), 2)
+        self.assertNotIn(str(self.temp.name), json.dumps(inventory))
+
+        result = run(self.repo, "cleanup", "--completed", "--all", env=env, ok=False)
+        report = json.loads(result.stdout)
+        self.assertEqual([item["cycle_id"] for item in report["removed"]], ["global-clean"])
+        self.assertEqual({item["error"] for item in report["failed"]}, {"dirty", "outside_registry"})
+        self.assertFalse(clean.exists())
+        self.assertTrue(dirty.exists())
+        self.assertTrue(escaped.exists())
+        self.assertNotIn(str(self.temp.name), result.stdout + result.stderr)
+
     def test_cleanup_rejects_missing_or_changed_worktree_identity(self):
         remote = Path(self.temp.name) / "remote.git"
         worktrees = Path(self.temp.name) / "isolated"

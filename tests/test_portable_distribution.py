@@ -24,6 +24,11 @@ def data(onepassword: bool = False) -> dict:
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
             },
+            "hermes": {
+                "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
+                "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
+                "project_profiles": False,
+            },
             "atuin": {"sync_address": "https://atuin.example.com"},
             "tailscale": {"enabled": False, "ssh": False},
             "sandbox": {
@@ -97,12 +102,16 @@ def test_local_data_renders_complete_configs() -> None:
         "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")
     ).stdout
     assert 'name = "nord"' in herdr
-    assert "/usr/local/bin/herdr" in plist
+    assert "/.local/bin/herdr-server-owner" in plist
+    wrapper = chezmoi("cat", str(Path.home() / ".local/bin/herdr-server-owner")).stdout
+    assert '/usr/local/bin/herdr' in wrapper
 
     sandbox = json.loads(
         chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
     )
     assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
+    assert sandbox["guest"]["hermes_enabled"] is True
+    assert sandbox["guest"]["rnd_backend"] == "native"
     assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
 
 

@@ -2293,7 +2293,82 @@ def worktree_bytes(path):
         return None
 
 
-def worktree_inventory(root, immediate=False):
+def path_within(path, root):
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def global_worktree_roots(registry=None):
+    registry = Path(registry or os.environ.get(
+        "DBSCTR_WORKTREE_ROOT", Path.home() / ".local/state/dbsctr/worktrees")).expanduser()
+    if not registry.exists():
+        return [], []
+    if not registry.is_dir() or registry.is_symlink():
+        return [], [{"repository_id": "registry", "error": "invalid_registry"}]
+    registry = registry.resolve()
+    repositories, failures, seen = [], [], set()
+    parents = sorted(registry.iterdir())
+    if len(parents) > 256:
+        return [], [{"repository_id": "registry", "error": "registry_limit"}]
+    for parent in parents:
+        if parent.is_symlink() or not parent.is_dir() or parent.resolve().parent != registry:
+            continue
+        children = sorted(parent.iterdir())
+        if len(children) > 1024:
+            failures.append({"repository_id": hashlib.sha256(parent.name.encode()).hexdigest()[:16],
+                             "error": "worktree_limit"})
+            continue
+        for child in children:
+            if child.is_symlink() or not child.is_dir() or child.resolve().parent != parent.resolve():
+                continue
+            found = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=child,
+                                   text=True, capture_output=True)
+            if found.returncode or not found.stdout.strip():
+                continue
+            common = Path(found.stdout.strip())
+            common = (common if common.is_absolute() else child / common).resolve()
+            if common in seen:
+                continue
+            seen.add(common)
+            listing = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=child,
+                                     text=True, capture_output=True)
+            primary_line = next((line for line in listing.stdout.splitlines()
+                                 if line.startswith("worktree ")), None)
+            repository_id = f"{common.parent.name}-{hashlib.sha256(str(common).encode()).hexdigest()[:12]}"
+            if listing.returncode or primary_line is None:
+                failures.append({"repository_id": repository_id, "error": "primary_unavailable"})
+                continue
+            primary = Path(primary_line.removeprefix("worktree ")).resolve()
+            try:
+                if not primary.is_dir() or common_git_dir(primary).resolve() != common:
+                    raise RuntimeError
+            except RuntimeError:
+                failures.append({"repository_id": repository_id, "error": "identity_changed"})
+                continue
+            repositories.append((repository_id, primary, parent.resolve()))
+            break
+    return sorted(repositories), sorted(failures, key=lambda item: item["repository_id"])
+
+
+def maintenance_error(error):
+    message = str(error).casefold()
+    for needle, code in (
+        ("retained for 24 hours", "retained_24_hours"), ("dirty", "dirty"),
+        ("authentication failed", "delivery_unavailable"),
+        ("repository not found", "delivery_unavailable"),
+        ("fetch", "delivery_unavailable"), ("identity", "identity_changed"),
+        ("branch", "branch_changed"), ("head changed", "head_changed"),
+        ("missing", "missing"),
+    ):
+        if needle in message:
+            return code
+    return "cleanup_failed"
+
+
+def worktree_inventory(root, immediate=False, allowed_root=None):
     records = cycle_dir(root) / "cycles"
     result = []
     for path in sorted(records.glob("*.json")):
@@ -2312,6 +2387,8 @@ def worktree_inventory(root, immediate=False):
             except (KeyError, ValueError):
                 blockers.append("invalid_completed_at")
         if worktree.is_dir():
+            if allowed_root is not None and not path_within(worktree, allowed_root):
+                blockers.append("outside_registry")
             if worktree.resolve() == root.resolve():
                 blockers.append("current_worktree")
             if status_paths(worktree):
@@ -2339,6 +2416,16 @@ def worktree_inventory(root, immediate=False):
 
 
 def command_worktree_list(args):
+    if getattr(args, "all", False):
+        repositories, failed = global_worktree_roots()
+        output, total = [], 0
+        for repository_id, root, allowed_root in repositories:
+            worktrees = worktree_inventory(root, args.now, allowed_root)
+            total += sum(item["bytes"] or 0 for item in worktrees)
+            output.append({"repository_id": repository_id, "worktrees": worktrees})
+        print(json.dumps({"bytes": total, "failed": failed, "repositories": output},
+                         sort_keys=True, separators=(",", ":")))
+        return
     inventory = worktree_inventory(root_dir(), args.now)
     if args.json:
         print(json.dumps({"worktrees": inventory}, sort_keys=True, separators=(",", ":")))
@@ -2349,6 +2436,37 @@ def command_worktree_list(args):
 
 
 def command_cleanup(args):
+    if getattr(args, "all", False):
+        if args.cycle_id:
+            fail("--all requires --completed")
+        repositories, failed = global_worktree_roots()
+        removed, reclaimed = [], 0
+        for repository_id, root, allowed_root in repositories:
+            for path in sorted((cycle_dir(root) / "cycles").glob("*.json")):
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                    if (record.get("state") != "completed"
+                            or record.get("worktree", {}).get("created_by_dbsctr") is not True):
+                        continue
+                    cycle_id = record.get("cycle_id")
+                    if cycle_id != path.stem or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cycle_id or ""):
+                        raise ValueError("cycle record identity mismatch")
+                    if not path_within(Path(record["worktree"]["path"]), allowed_root):
+                        failed.append({"cycle_id": cycle_id, "repository_id": repository_id,
+                                       "error": "outside_registry"})
+                        continue
+                    before = worktree_bytes(Path(record["worktree"]["path"])) or 0
+                    cleanup_cycle(root, cycle_id, args.now)
+                    reclaimed += before
+                    removed.append({"cycle_id": cycle_id, "repository_id": repository_id})
+                except (RuntimeError, OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+                    failed.append({"cycle_id": path.stem, "repository_id": repository_id,
+                                   "error": maintenance_error(error)})
+        print(json.dumps({"failed": failed, "reclaimed_bytes": reclaimed, "removed": removed},
+                         sort_keys=True, separators=(",", ":")))
+        if failed:
+            fail(f"global cleanup incomplete: {len(failed)} failures")
+        return
     root = root_dir()
     if args.cycle_id:
         print(cleanup_cycle(root, args.cycle_id, args.now))
@@ -7095,12 +7213,14 @@ def parser():
     worktree_list = commands.add_parser("worktree-list")
     worktree_list.add_argument("--json", action="store_true")
     worktree_list.add_argument("--now", action="store_true", help="ignore the 24-hour retention window")
+    worktree_list.add_argument("--all", action="store_true")
     worktree_list.set_defaults(func=command_worktree_list)
     cleanup = commands.add_parser("cleanup")
     cleanup_target = cleanup.add_mutually_exclusive_group(required=True)
     cleanup_target.add_argument("--cycle-id")
     cleanup_target.add_argument("--completed", action="store_true")
     cleanup.add_argument("--now", action="store_true")
+    cleanup.add_argument("--all", action="store_true")
     cleanup.set_defaults(func=command_cleanup)
     audit = commands.add_parser("audit")
     audit.add_argument("--commit", default="HEAD")

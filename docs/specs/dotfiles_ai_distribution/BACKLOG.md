@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-016 | Deploy context-isolated Hermes orchestration, bounded backlog refinement, direct OpenCode Discovery launch, and guarded global maintenance | 2026-07-28 | `269125b..dc6d284` |
 | DAI-015 | Deploy default-off rootless Tailscale SSH and native remote Herdr to managed Lima guests | 2026-07-27 | `818f83c..6f06090` |
 | DAI-014 | Launch guest Herdr directly while preserving Starship and Atuin hooks | 2026-07-26 | `c3d32b9..4c85a4d` |
 | DAI-013 | Provision durable Atuin history in every managed Lima guest | 2026-07-26 | `19921b1..3709006` |

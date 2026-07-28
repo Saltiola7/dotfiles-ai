@@ -6,8 +6,7 @@
     <string>dev.dotfiles-ai.herdr-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{ .dotfiles_ai.herdr.executable | html }}</string>
-        <string>server</string>
+        <string>{{ printf "%s/.local/bin/herdr-server-owner" .chezmoi.homeDir | html }}</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -25,9 +24,12 @@
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>ThrottleInterval</key>
-    <integer>10</integer>
+    <integer>60</integer>
     <key>StandardOutPath</key>
     <string>{{ printf "%s/Library/Logs/herdr-server.log" .chezmoi.homeDir | html }}</string>
     <key>StandardErrorPath</key>

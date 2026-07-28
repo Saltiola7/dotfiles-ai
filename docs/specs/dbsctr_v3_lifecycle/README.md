@@ -1226,6 +1226,28 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   compaction, DVC garbage collection, and cleanup of active or dirty worktrees.
 - **Unresolved decisions:** None that materially change V3.26 implementation.
 
+### V3.31 Global Worktree Maintenance Override
+
+- `dbsctrctl worktree-list --all --json` may run outside a Git checkout and
+  inventories only canonical DBSCTR registry entries beneath
+  `~/.local/state/dbsctr/worktrees` (or an explicit test root). It deduplicates
+  Git common directories, derives each primary worktree from Git metadata, bounds
+  traversal and output, and never follows a symlink outside the registry.
+- `dbsctrctl cleanup --completed --all` applies `cleanup_cycle` independently to
+  each discovered repository and completed record in deterministic order. One
+  failure is reported without preventing later repositories, and any failure
+  makes the aggregate command nonzero.
+- Scheduled invocation is explicitly approved for DAI-016 only after 24-hour
+  retention. It does not imply `--now`, weaken remote delivery containment, or
+  permit active, dirty, drifted, failed, foreign, missing, current, or unverifiable
+  worktree deletion.
+- Host and each VM clean only their local registry. Cleanup emits bounded counts
+  and logical-byte evidence; APFS clone accounting is advisory and free space is
+  never a lifecycle admission gate.
+- V3.31 supersedes only V3.26's prohibition on background deletion. Every V3.26
+  identity, cleanliness, retention, branch, HEAD, remote, and delivery check
+  remains authoritative.
+
 ## Gate Ledger — V3.26 Worktree Maintenance
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |

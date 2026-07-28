@@ -36,7 +36,8 @@ def config(tmp_path: Path) -> dict:
         "guest": {
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
             "small_model": "provider/small", "theme": "catppuccin",
-            "atuin_sync_address": "https://atuin.example.com",
+            "atuin_sync_address": "https://atuin.example.com", "hermes_enabled": True,
+            "rnd_backend": "native",
         },
         "workspaces": [
             {
@@ -151,12 +152,45 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
 def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
+    values["workspaces"][0]["hermes_projects"] = True
+    values["workspaces"][0]["hermes_backlog_roots"] = ["/workspace/projects/project-a"]
     rendered = helper.guest_config(values, values["workspaces"][0])
     parsed = tomllib.loads(rendered)
 
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
+    assert parsed["data"]["dotfiles_ai"]["hermes"] == {
+        "enabled": True, "executable": "~/.local/bin/hermes", "profile": "workspace1",
+        "provider": "openai-codex", "backlog_roots": ["/workspace/projects/project-a"],
+        "project_profiles": True,
+    }
+    assert parsed["data"]["dotfiles_ai"]["rnd"]["backend"] == "native"
+
+    values["workspaces"][0]["hermes_backlog_roots"] = ["/outside"]
+    with pytest.raises(ValueError, match="Hermes backlog roots"):
+        helper.validate_config(values)
+
+
+def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["guest"]["hermes_enabled"] = True
+    values["workspaces"][0]["hermes_projects"] = True
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return "/home/agent.guest" if argv[-2:] == ["printenv", "HOME"] else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    assert [call[0][4] for call in calls[1:]] == ["sh", "git", "chezmoi"]
+    rendered = tomllib.loads(calls[1][1]["input_data"].decode())
+    assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
+    assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
+    assert calls[2][0][-2:] == ["pull", "--ff-only"]
+    assert calls[3][0][-1] == "apply"
 
 
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
