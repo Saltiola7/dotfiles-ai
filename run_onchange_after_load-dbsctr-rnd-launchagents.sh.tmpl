@@ -37,9 +37,16 @@ exit 0
 {{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
 [[ {{ .dotfiles_ai.hermes.enabled }} == true ]] || { echo "Hermes backend requires hermes.enabled" >&2; exit 1; }
 [[ -x "$HERMES" ]] || { echo "Hermes backend is missing" >&2; exit 1; }
-[[ -f "$HOME/.local/state/dotfiles-ai/hermes-$PROFILE/refinement-cron-id" ]] \
-    || { echo "Hermes refinement job is missing" >&2; exit 1; }
+state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
+[[ -f "$state/cutover-ready" ]] || { echo "Hermes cutover receipt is missing" >&2; exit 1; }
 "$HERMES" -p "$PROFILE" gateway status >/dev/null
+jobs=$("$HERMES" -p "$PROFILE" cron list)
+for file in "$state"/*-cron-id; do
+    [[ -f "$file" ]] || { echo "Hermes cron identity is missing" >&2; exit 1; }
+    IFS= read -r id < "$file"
+    [[ "$id" =~ ^[0-9a-f]{12}$ ]] && /usr/bin/grep -q "$id" <<<"$jobs" \
+        || { echo "Hermes cron identity is not active" >&2; exit 1; }
+done
 remove_job dev.dotfiles-ai.dbsctr-spawner "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist"
 remove_job dev.dotfiles-ai.dbsctr-watchdog "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist"
 exit 0

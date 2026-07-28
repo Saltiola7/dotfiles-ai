@@ -789,17 +789,19 @@ class DbsctrctlTest(unittest.TestCase):
         registry = Path(self.temp.name) / "registry"
         registry.mkdir()
 
-        def completed_worktree(repo, name, dirty=False):
+        def completed_worktree(repo, name, dirty=False, worktree_root=None):
             remote = Path(self.temp.name) / f"{name}.git"
-            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
-            subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=repo,
-                           check=True, capture_output=True)
+            if subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo,
+                              capture_output=True).returncode:
+                subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+                subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=repo,
+                               check=True, capture_output=True)
             subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=repo,
                            check=True, capture_output=True)
             handoff = json.loads(run(
                 repo, "begin", "--cycle-id", name, "--context", "test", "--risk", "routine",
                 "--delivery-intent", "local", "--plan", str(self.plan_path()),
-                "--worktree-root", str(registry / name),
+                "--worktree-root", str(worktree_root or registry / name),
             ).stdout)
             record_path = repo / f".git/dbsctr/cycles/{name}.json"
             record = json.loads(record_path.read_text())
@@ -812,6 +814,8 @@ class DbsctrctlTest(unittest.TestCase):
             return worktree
 
         clean = completed_worktree(self.repo, "global-clean")
+        escaped = completed_worktree(
+            self.repo, "global-outside", worktree_root=Path(self.temp.name) / "outside-worktrees")
         second = Path(self.temp.name) / "second"
         second.mkdir()
         subprocess.run(["git", "init"], cwd=second, check=True, capture_output=True)
@@ -837,9 +841,10 @@ class DbsctrctlTest(unittest.TestCase):
         result = run(self.repo, "cleanup", "--completed", "--all", env=env, ok=False)
         report = json.loads(result.stdout)
         self.assertEqual([item["cycle_id"] for item in report["removed"]], ["global-clean"])
-        self.assertEqual(report["failed"][0]["error"], "dirty")
+        self.assertEqual({item["error"] for item in report["failed"]}, {"dirty", "outside_registry"})
         self.assertFalse(clean.exists())
         self.assertTrue(dirty.exists())
+        self.assertTrue(escaped.exists())
         self.assertNotIn(str(self.temp.name), result.stdout + result.stderr)
 
     def test_cleanup_rejects_missing_or_changed_worktree_identity(self):

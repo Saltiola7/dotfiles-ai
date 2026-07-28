@@ -4,7 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-29 | Support Hermes-origin resumable OpenCode Discovery sessions | high | implementing | - | OpenCode dispatch/recovery contract, session identity adapter and focused tests | Existing improvement worker ledger, OpenCode CLI session identity, Hermes process results | yes | Autonomous execution must no longer depend on Herdr panes while preserving exact-session and human-Discovery boundaries | M | Direct launch, exact registration, restart/reclaim, ambiguity block, manual Herdr resume, no automated proceed |
+| OCP-29 | Support Hermes-origin resumable OpenCode Discovery sessions | high | in_progress | - | OpenCode dispatch/recovery contract, session identity adapter and focused tests | Existing improvement worker ledger, OpenCode CLI session identity, Hermes process results | yes | Autonomous execution must no longer depend on Herdr panes while preserving exact-session and human-Discovery boundaries | M | Direct launch, exact registration, restart/reclaim, ambiguity block, manual Herdr resume, no automated proceed |
 
 ## Completed
 

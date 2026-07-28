@@ -169,14 +169,19 @@ def validate_config(value):
     aliases = set()
     all_references = set()
     for workspace in workspaces:
-        if not isinstance(workspace, dict) or set(workspace) != {"name", "instance", "shell_alias", "federate", "mounts"}:
+        if isinstance(workspace, dict):
+            workspace.setdefault("hermes_projects", False)
+        if not isinstance(workspace, dict) or set(workspace) != {
+                "name", "instance", "shell_alias", "federate", "hermes_projects", "mounts"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
         shell_alias = workspace.get("shell_alias", "")
         if not ID.fullmatch(name) or name == "host" or name in names:
             raise ValueError("invalid workspace name")
-        if not ID.fullmatch(instance) or instance in instances or not isinstance(workspace["federate"], bool):
+        if (not ID.fullmatch(instance) or instance in instances
+                or not isinstance(workspace["federate"], bool)
+                or not isinstance(workspace["hermes_projects"], bool)):
             raise ValueError(f"invalid {name} workspace")
         if (not isinstance(shell_alias, str) or shell_alias and
                 (not ALIAS.fullmatch(shell_alias) or shell_alias == "sandbox-vm" or shell_alias in aliases)):
@@ -362,6 +367,7 @@ def guest_config(config, workspace):
         'provider = "openai-codex"',
         "backlog_roots = [" + ", ".join(quote(mount["guest"]) for mount in workspace["mounts"]
                                         if mount["writable"] and not mount["protect_git_submodules"]) + "]",
+        f"project_profiles = {'true' if workspace.get('hermes_projects', False) else 'false'}",
         "",
         "[data.dotfiles_ai.rnd]",
         f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",

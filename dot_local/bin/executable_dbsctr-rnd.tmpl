@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -18,6 +19,8 @@ GH = os.environ.get("GH", "gh")
 OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
 REVIEW_WORKDIR = Path({{ .dotfiles_ai.rnd.review_workdir | quote }}).resolve()
 BACKLOG_ROOTS = [Path(value).expanduser() for value in {{ .dotfiles_ai.hermes.backlog_roots | toJson }}]
+PROJECT_PROFILES = {{ if .dotfiles_ai.hermes.project_profiles }}True{{ else }}False{{ end }}
+HERMES_PROFILE = {{ .dotfiles_ai.hermes.profile | quote }}
 WORKSPACE_LABEL = {{ .dotfiles_ai.rnd.workspace_label | quote }}
 GITHUB_ACCOUNT = {{ .dotfiles_ai.rnd.github_account | quote }}
 GITHUB_REPOSITORY = {{ .dotfiles_ai.rnd.github_repository | quote }}
@@ -30,6 +33,7 @@ COMMAND_TIMEOUT = float(os.environ.get("DBSCTR_RND_COMMAND_TIMEOUT", "180"))
 CADENCES = ("weekly", "twice_weekly", "daily")
 CADENCE_SECONDS = {"weekly": 7 * 86400, "twice_weekly": 7 * 86400 // 2, "daily": 86400}
 MONTH_SECONDS = 30 * 86400
+RESERVATION_LEASE_SECONDS = 15 * 60
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
 BACKLOG_COLUMNS = ("id", "title", "priority", "status", "depends_on", "owns", "reads",
                    "parallel_safe", "reason", "effort", "validation")
@@ -290,6 +294,10 @@ def reserve_spawn(workers, now):
     connection = state_connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "DELETE FROM spawn_reservations WHERE worker_id IS NULL AND created_at<=?",
+            (now - RESERVATION_LEASE_SECONDS,),
+        )
         worker_ids = [worker.get("worker_id") for worker in workers
                       if isinstance(worker, dict) and isinstance(worker.get("worker_id"), str)]
         if len(worker_ids) != len(workers):
@@ -502,10 +510,11 @@ def backlog_cells(line):
     line = line.strip()
     if not line.startswith("|") or not line.endswith("|"):
         return None
-    return tuple(cell.strip().replace("\\|", "|") for cell in line[1:-1].split("|"))
+    return tuple(cell.strip().replace("\\|", "|")
+                 for cell in re.split(r"(?<!\\)\|", line[1:-1]))
 
 
-def canonical_backlogs():
+def canonical_backlogs(repository_filter=None):
     repositories = []
     for configured in BACKLOG_ROOTS:
         if configured.is_symlink() or not configured.is_dir():
@@ -525,7 +534,7 @@ def canonical_backlogs():
             repositories.append((hashlib.sha256(common.encode()).hexdigest()[:16], repository))
     if len(repositories) > 128:
         raise RuntimeError("backlog repository limit exceeded")
-    entries = []
+    entries, input_bytes = [], 0
     for repository_id, repository in sorted(set(repositories)):
         specs = repository / "docs/specs"
         if not specs.is_dir() or specs.is_symlink():
@@ -540,9 +549,21 @@ def canonical_backlogs():
             if (not backlog.is_file() or backlog.resolve().parent != context.resolve()
                     or context.resolve().parent != specs.resolve()):
                 continue
-            if len(backlog.read_bytes()) > 256 * 1024:
-                raise RuntimeError("backlog file is oversized")
-            lines = backlog.read_text(encoding="utf-8").splitlines()
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(backlog, flags)
+            try:
+                details = os.fstat(descriptor)
+                if not stat.S_ISREG(details.st_mode) or details.st_size > 256 * 1024:
+                    raise RuntimeError("backlog file is oversized or unsafe")
+                input_bytes += details.st_size
+                if input_bytes > 1024 * 1024:
+                    raise RuntimeError("backlog input limit exceeded")
+                with os.fdopen(descriptor, encoding="utf-8") as stream:
+                    descriptor = -1
+                    lines = stream.read().splitlines()
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
             try:
                 active = lines.index("## Active")
             except ValueError as error:
@@ -550,23 +571,46 @@ def canonical_backlogs():
             header = next((index for index in range(active + 1, len(lines)) if lines[index].strip()), None)
             if header is None or backlog_cells(lines[header]) != BACKLOG_COLUMNS:
                 raise RuntimeError("canonical backlog Active header is invalid")
+            separator = backlog_cells(lines[header + 1]) if header + 1 < len(lines) else None
+            if (separator is None or len(separator) != len(BACKLOG_COLUMNS)
+                    or any(not re.fullmatch(r":?-{3,}:?", cell) for cell in separator)):
+                raise RuntimeError("canonical backlog Active separator is invalid")
             index = header + 2
+            seen_ids = set()
             while index < len(lines) and lines[index].strip() and not lines[index].startswith("## "):
                 cells = backlog_cells(lines[index])
-                if cells is None or len(cells) != len(BACKLOG_COLUMNS):
+                if cells is None or len(cells) != len(BACKLOG_COLUMNS) or not cells[0]:
                     raise RuntimeError("canonical backlog row is invalid")
                 values = dict(zip(BACKLOG_COLUMNS, cells))
                 if values["status"] not in BACKLOG_STATUSES:
                     raise RuntimeError("canonical backlog status is invalid")
+                if values["id"] in seen_ids:
+                    raise RuntimeError("canonical backlog ID is duplicated")
+                seen_ids.add(values["id"])
                 identity = hashlib.sha256(
                     f"{repository_id}\0{context.name}\0{values['id']}".encode()).hexdigest()
                 entries.append({"context": context.name, "idempotency_key": identity,
+                                "repository_id": repository_id,
                                 "repository": str(repository), **values})
                 index += 1
+    if repository_filter is not None:
+        entries = [item for item in entries if item["repository_id"] == repository_filter]
     payload = {"backlogs": entries, "schema_version": 1}
     if len(json.dumps(payload).encode()) > 256 * 1024:
         raise RuntimeError("backlog output is oversized")
     return payload
+
+
+def backlog_repositories():
+    items = canonical_backlogs()["backlogs"]
+    repositories = {}
+    for item in items:
+        repositories[item["repository_id"]] = item["repository"]
+    return {"project_profiles": PROJECT_PROFILES, "repositories": [
+        {"profile": f"project-{hashlib.sha256(HERMES_PROFILE.encode()).hexdigest()[:8]}-{identifier}",
+         "repository": repositories[identifier], "repository_id": identifier}
+        for identifier in sorted(repositories)
+    ], "schema_version": 1}
 
 
 def reserve_action():
@@ -590,6 +634,60 @@ def complete_action(reservation, worker_id):
 def release_action(reservation):
     release_reservation(reservation)
     print('{"status":"released"}')
+
+
+def launch_action(reservation, worker_id, repository_id):
+    if not all(safe_id(value) for value in (reservation, worker_id, repository_id)):
+        raise RuntimeError("invalid direct launch identity")
+    matches = {item["repository"] for item in canonical_backlogs()["backlogs"]
+               if item["repository_id"] == repository_id}
+    if len(matches) != 1:
+        raise RuntimeError("direct launch repository is missing or ambiguous")
+    repository = Path(matches.pop()).resolve()
+    before = session_ids(repository)
+    log_dir = STATE.parent / "launches"
+    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(log_dir, 0o700)
+    log_path = log_dir / f"{worker_id}.log"
+    process = None
+    registered = False
+    with log_path.open("a", encoding="utf-8") as output:
+        os.chmod(log_path, 0o600)
+        try:
+            process = subprocess.Popen(
+                [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
+                 "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
+                env={**os.environ, "PATH": MANAGED_PATH}, start_new_session=True,
+            )
+            session_id = None
+            for _ in range(SESSION_POLLS):
+                created = session_ids(repository) - before
+                if len(created) > 1:
+                    raise RuntimeError("direct launch created ambiguous OpenCode sessions")
+                if len(created) == 1:
+                    candidate = next(iter(created))
+                    if candidate in log_path.read_text(encoding="utf-8"):
+                        session_id = candidate
+                        break
+                if process.poll() is not None:
+                    break
+                time.sleep(0.5)
+            if session_id is None:
+                raise RuntimeError("direct launch session identity did not become available")
+            worker = command([DBSCTRCTL, "improvement-register", "--worker-id", worker_id,
+                              "--session-id", session_id])
+            if not isinstance(worker, dict) or worker.get("worker_id") != worker_id:
+                raise RuntimeError("direct launch registration identity mismatch")
+            registered = True
+            complete_reservation(reservation, worker_id)
+            print(json.dumps({"session_id": session_id, "status": "started",
+                              "worker_id": worker_id}, separators=(",", ":")))
+        except Exception:
+            if not registered:
+                release_reservation(reservation)
+                if process is not None and process.poll() is None:
+                    process.terminate()
+            raise
 
 
 def panes(workspace_id):
@@ -616,12 +714,12 @@ def workspace():
     return required_id(created, "workspace_id")
 
 
-def session_ids():
+def session_ids(workdir=REVIEW_WORKDIR):
     value = command([OPENCODE, "session", "list", "--format", "json", "-n", "100"])
     if not isinstance(value, list):
         raise RuntimeError("invalid OpenCode session list")
     return {item["id"] for item in value
-            if isinstance(item, dict) and item.get("directory") == str(REVIEW_WORKDIR)
+            if isinstance(item, dict) and item.get("directory") == str(workdir)
             and isinstance(item.get("id"), str)}
 
 
@@ -885,12 +983,13 @@ def persist_malformed_halt():
 
 parser = argparse.ArgumentParser()
 parser.add_argument("action", choices=("spawn", "watchdog", "analytics", "reset-schedule",
-                                       "backlogs", "reserve", "complete", "release"))
+                                       "backlogs", "repositories", "reserve", "complete", "release", "launch"))
 parser.add_argument("--json", action="store_true")
 parser.add_argument("--finalize-json")
 parser.add_argument("--failure-json")
 parser.add_argument("--reservation")
 parser.add_argument("--worker-id")
+parser.add_argument("--repository-id")
 args = parser.parse_args()
 try:
     if args.action == "analytics":
@@ -902,7 +1001,9 @@ try:
             raise RuntimeError("reset-schedule does not accept analytics inputs")
         reset_schedule()
     elif args.action == "backlogs":
-        print(json.dumps(canonical_backlogs(), sort_keys=True, separators=(",", ":")))
+        print(json.dumps(canonical_backlogs(args.repository_id), sort_keys=True, separators=(",", ":")))
+    elif args.action == "repositories":
+        print(json.dumps(backlog_repositories(), sort_keys=True, separators=(",", ":")))
     elif args.action == "reserve":
         reserve_action()
     elif args.action == "complete":
@@ -913,6 +1014,10 @@ try:
         if not args.reservation:
             raise RuntimeError("release requires reservation")
         release_action(args.reservation)
+    elif args.action == "launch":
+        if not args.reservation or not args.worker_id or not args.repository_id:
+            raise RuntimeError("launch requires reservation, worker ID, and repository ID")
+        launch_action(args.reservation, args.worker_id, args.repository_id)
     else:
         if args.json or args.finalize_json or args.failure_json:
             raise RuntimeError(f"{args.action} does not accept analytics inputs")

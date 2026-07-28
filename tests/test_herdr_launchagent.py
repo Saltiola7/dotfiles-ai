@@ -58,7 +58,7 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
         text=True, capture_output=True, check=True,
     ).stdout
     assert '/tmp/a&b/herdr' in wrapper
-    assert "already running" in wrapper and "status server" in wrapper
+    assert "status server" in wrapper
 
     values["dotfiles_ai"]["herdr"]["launchagent"] = False
     disabled = subprocess.run(

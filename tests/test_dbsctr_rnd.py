@@ -22,7 +22,8 @@ def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", ro
             },
             "herdr": {"theme": "catppuccin", "launchagent": True, "executable": "/mock/herdr"},
             "hermes": {"enabled": enabled, "executable": "~/.local/bin/hermes", "profile": "system",
-                       "provider": "openai-codex", "backlog_roots": roots or []},
+                       "provider": "openai-codex", "backlog_roots": roots or [],
+                       "project_profiles": False},
             "rnd": {
                 "enabled": enabled, "backend": backend, "review_workdir": review_workdir,
                 "review_hour": 9, "review_minute": 15, "watchdog_interval_seconds": 300,
@@ -96,7 +97,7 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
                     values(backend="hermes"))
     subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
     assert "gateway status" in loader
-    assert "refinement-cron-id" in loader
+    assert "*-cron-id" in loader
     assert "remove_job dev.dotfiles-ai.dbsctr-spawner" in loader
     assert loader.index("gateway status") < loader.index("launchctl bootstrap")
 
@@ -106,10 +107,15 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     configure = render("run_onchange_after_configure-hermes.sh.tmpl")
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
+    assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
     assert 'profiles/$PROFILE' in configure
     assert "terminal.home_mode profile" in configure
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
+    assert "cron pause" in configure and "cutover-ready" in configure
+    catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
+    compile(catalog, "dbsctr-catalog.py", "exec")
+    assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
 
 
 def test_runner_bounds_dependency_commands(tmp_path):
@@ -496,6 +502,12 @@ def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
     assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (0,)
     connection.close()
     runner["release_reservation"](reservation)
+
+    crashed, reason = runner["reserve_spawn"]([], 200)
+    assert reason == "reserved"
+    reclaimed, reason = runner["reserve_spawn"]([], 200 + runner["RESERVATION_LEASE_SECONDS"] + 1)
+    assert reason == "reserved" and reclaimed != crashed
+    runner["release_reservation"](reclaimed)
     retried, reason = runner["reserve_spawn"]([], 101)
     assert reason == "reserved"
     runner["complete_reservation"](retried, "worker-1", 101)
@@ -515,7 +527,7 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
         "# Backlog\n\n## Active\n\n"
         "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
         "|---|---|---|---|---|---|---|---|---|---|---|\n"
-        "| X-1 | Refine work | high | pending | - | code | docs | no | needed | S | test |\n\n"
+        "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |\n\n"
         "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
     )
     source = render("dot_local/bin/executable_dbsctr-rnd.tmpl",
@@ -525,7 +537,29 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
     discovered = namespace["canonical_backlogs"]()
     assert len(discovered["backlogs"]) == 1
     assert discovered["backlogs"][0]["id"] == "X-1"
+    assert discovered["backlogs"][0]["title"] == "Refine | work"
     assert len(discovered["backlogs"][0]["idempotency_key"]) == 64
+    repository = namespace["backlog_repositories"]()["repositories"][0]
+    assert repository["profile"].startswith("project-")
+    assert len(repository["profile"]) <= 64
+
+    valid = (context / "BACKLOG.md").read_text()
+    (context / "BACKLOG.md").write_text(valid.replace("|---|---|", "|--|---|", 1))
+    try:
+        namespace["canonical_backlogs"]()
+    except RuntimeError as error:
+        assert "separator" in str(error)
+    else:
+        raise AssertionError("malformed backlog separator was accepted")
+    row = "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |"
+    (context / "BACKLOG.md").write_text(valid.replace(row, row + "\n" + row))
+    try:
+        namespace["canonical_backlogs"]()
+    except RuntimeError as error:
+        assert "duplicated" in str(error)
+    else:
+        raise AssertionError("duplicate backlog ID was accepted")
+    (context / "BACKLOG.md").write_text(valid)
 
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -536,6 +570,42 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
         assert "symlink" in str(error)
     else:
         raise AssertionError("backlog symlink escape was accepted")
+
+
+def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeypatch, capsys):
+    runner, _ = load_runner(tmp_path, monkeypatch, "direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], 100)
+    assert reason == "reserved"
+    calls = []
+    sessions = iter((set(), {"ses_exact"}))
+
+    class Process:
+        def __init__(self, argv, **kwargs):
+            calls.append(argv)
+            kwargs["stdout"].write('{"sessionID":"ses_exact"}\n')
+            kwargs["stdout"].flush()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise AssertionError("registered process was terminated")
+
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    runner["session_ids"] = lambda _repository: next(sessions)
+    monkeypatch.setattr(runner["subprocess"], "Popen", Process)
+    runner["command"] = lambda argv, **_kwargs: {
+        "worker_id": argv[argv.index("--worker-id") + 1]
+    }
+    runner["launch_action"](reservation, "worker-1", "repo-1")
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"session_id": "ses_exact", "status": "started", "worker_id": "worker-1"}
+    assert calls == [["opencode", "run", "--agent", "build", "--command", "dbsctr-improve",
+                      "--format", "json"]]
 
 
 def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):

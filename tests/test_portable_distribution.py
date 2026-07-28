@@ -27,6 +27,7 @@ def data(onepassword: bool = False) -> dict:
             "hermes": {
                 "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
                 "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
+                "project_profiles": False,
             },
             "atuin": {"sync_address": "https://atuin.example.com"},
             "tailscale": {"enabled": False, "ssh": False},

@@ -13,7 +13,7 @@ provision:
   - mode: system
     script: |
       set -eu
-      dnf install -y ca-certificates curl git gh jq python3 ripgrep tar gzip util-linux
+      dnf install -y ca-certificates curl git gh jq python3 ripgrep tar gzip util-linux uv
       install -d -m 0755 /usr/local/libexec /etc/opencode-sandbox
       cat >/etc/opencode-sandbox/workspace.json <<'JSON'
       @@WORKSPACE_JSON@@

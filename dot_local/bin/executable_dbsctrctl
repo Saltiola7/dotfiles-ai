@@ -2293,6 +2293,14 @@ def worktree_bytes(path):
         return None
 
 
+def path_within(path, root):
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def global_worktree_roots(registry=None):
     registry = Path(registry or os.environ.get(
         "DBSCTR_WORKTREE_ROOT", Path.home() / ".local/state/dbsctr/worktrees")).expanduser()
@@ -2340,7 +2348,7 @@ def global_worktree_roots(registry=None):
             except RuntimeError:
                 failures.append({"repository_id": repository_id, "error": "identity_changed"})
                 continue
-            repositories.append((repository_id, primary))
+            repositories.append((repository_id, primary, parent.resolve()))
             break
     return sorted(repositories), sorted(failures, key=lambda item: item["repository_id"])
 
@@ -2360,7 +2368,7 @@ def maintenance_error(error):
     return "cleanup_failed"
 
 
-def worktree_inventory(root, immediate=False):
+def worktree_inventory(root, immediate=False, allowed_root=None):
     records = cycle_dir(root) / "cycles"
     result = []
     for path in sorted(records.glob("*.json")):
@@ -2379,6 +2387,8 @@ def worktree_inventory(root, immediate=False):
             except (KeyError, ValueError):
                 blockers.append("invalid_completed_at")
         if worktree.is_dir():
+            if allowed_root is not None and not path_within(worktree, allowed_root):
+                blockers.append("outside_registry")
             if worktree.resolve() == root.resolve():
                 blockers.append("current_worktree")
             if status_paths(worktree):
@@ -2409,8 +2419,8 @@ def command_worktree_list(args):
     if getattr(args, "all", False):
         repositories, failed = global_worktree_roots()
         output, total = [], 0
-        for repository_id, root in repositories:
-            worktrees = worktree_inventory(root, args.now)
+        for repository_id, root, allowed_root in repositories:
+            worktrees = worktree_inventory(root, args.now, allowed_root)
             total += sum(item["bytes"] or 0 for item in worktrees)
             output.append({"repository_id": repository_id, "worktrees": worktrees})
         print(json.dumps({"bytes": total, "failed": failed, "repositories": output},
@@ -2431,7 +2441,7 @@ def command_cleanup(args):
             fail("--all requires --completed")
         repositories, failed = global_worktree_roots()
         removed, reclaimed = [], 0
-        for repository_id, root in repositories:
+        for repository_id, root, allowed_root in repositories:
             for path in sorted((cycle_dir(root) / "cycles").glob("*.json")):
                 try:
                     record = json.loads(path.read_text(encoding="utf-8"))
@@ -2441,6 +2451,10 @@ def command_cleanup(args):
                     cycle_id = record.get("cycle_id")
                     if cycle_id != path.stem or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cycle_id or ""):
                         raise ValueError("cycle record identity mismatch")
+                    if not path_within(Path(record["worktree"]["path"]), allowed_root):
+                        failed.append({"cycle_id": cycle_id, "repository_id": repository_id,
+                                       "error": "outside_registry"})
+                        continue
                     before = worktree_bytes(Path(record["worktree"]["path"])) or 0
                     cleanup_cycle(root, cycle_id, args.now)
                     reclaimed += before

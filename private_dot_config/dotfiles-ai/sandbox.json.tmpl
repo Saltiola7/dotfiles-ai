@@ -29,6 +29,7 @@
       "instance": {{ $workspace.instance | toJson }},
       "shell_alias": {{ $workspace.shell_alias | default "" | toJson }},
       "federate": {{ $workspace.federate | toJson }},
+      "hermes_projects": {{ get $workspace "hermes_projects" | default false | toJson }},
       "mounts": {{ $workspace.mounts | toJson }}
     }
 {{- end }}

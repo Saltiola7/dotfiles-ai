@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+import json
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+
+HERMES = str(Path({{ .dotfiles_ai.hermes.executable | quote }}).expanduser())
+BASE_PROFILE = {{ .dotfiles_ai.hermes.profile | quote }}
+PROVIDER = {{ .dotfiles_ai.hermes.provider | quote }}
+BACKEND = {{ .dotfiles_ai.rnd.backend | quote }}
+SCHEDULE = {{ printf "%d %d * * *" .dotfiles_ai.rnd.review_minute .dotfiles_ai.rnd.review_hour | quote }}
+HOME = Path.home()
+os.umask(0o077)
+
+
+def run(*argv, output=False, check=True):
+    return subprocess.run(argv, check=check, text=True, capture_output=output)
+
+
+catalog = json.loads(run("dbsctr-rnd", "repositories", output=True).stdout)
+if catalog != {**catalog, "project_profiles": True} or len(catalog["repositories"]) > 128:
+    raise SystemExit("invalid project catalog")
+managed_skill = HOME / ".hermes/managed/skills/dbsctr-supervisor/SKILL.md"
+base_env = HOME / f".hermes/profiles/{BASE_PROFILE}/.env"
+state_root = HOME / f".local/state/dotfiles-ai/hermes-{BASE_PROFILE}/projects"
+state_root.mkdir(parents=True, exist_ok=True)
+os.chmod(state_root, 0o700)
+
+active = set()
+for item in catalog["repositories"]:
+    profile, repository_id = item.get("profile"), item.get("repository_id")
+    repository = Path(item.get("repository", "")).resolve()
+    if (not isinstance(profile, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile)
+            or not isinstance(repository_id, str) or not re.fullmatch(r"[0-9a-f]{16}", repository_id)
+            or not repository.is_dir()):
+        raise SystemExit("invalid project catalog entry")
+    profile_home = HOME / f".hermes/profiles/{profile}"
+    active.add(repository_id)
+    if not profile_home.is_dir():
+        run(HERMES, "profile", "create", profile, "--description", "DBSCTR project-local refinement")
+    (profile_home / "skills/dbsctr-supervisor").mkdir(parents=True, exist_ok=True)
+    (profile_home / "scripts").mkdir(exist_ok=True)
+    shutil.copyfile(managed_skill, profile_home / "skills/dbsctr-supervisor/SKILL.md")
+    with (profile_home / "skills/dbsctr-supervisor/SKILL.md").open("a") as skill:
+        skill.write(f"\nProject boundary: use only repository ID `{repository_id}` and never call an unfiltered backlog scan.\n")
+    os.chmod(profile_home / "skills/dbsctr-supervisor/SKILL.md", 0o600)
+    if base_env.is_file():
+        shutil.copyfile(base_env, profile_home / ".env")
+    env_path = profile_home / ".env"
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+    lines = [line for line in lines if not line.startswith("HERMES_KANBAN_HOME=")]
+    lines.append(f"HERMES_KANBAN_HOME={profile_home / 'kanban'}")
+    env_path.write_text("\n".join(lines) + "\n")
+    os.chmod(env_path, 0o600)
+    run(HERMES, "-p", profile, "config", "set", "terminal.home_mode", "profile")
+    run(HERMES, "-p", profile, "config", "set", "model.provider", PROVIDER)
+    run(HERMES, "-p", profile, "gateway", "stop", check=False)
+    project_state = state_root / repository_id
+    project_state.mkdir(exist_ok=True)
+    id_file = project_state / "refinement-cron-id"
+    spec_file = project_state / "spec-digest"
+    profile_file = project_state / "profile"
+    old_id = id_file.read_text().strip() if id_file.exists() else ""
+    prompt = ("Load dbsctr-supervisor. Run dbsctr-rnd backlogs --repository-id " + repository_id
+              + ", refine only that repository, reserve at most one attempt, and call only the "
+                "deterministic dbsctr-rnd launch helper. Never answer Discovery.")
+    digest = hashlib.sha256(f"{profile}\0{repository}\0{SCHEDULE}\0{prompt}\0{BACKEND}".encode()).hexdigest()
+    if re.fullmatch(r"[0-9a-f]{12}", old_id) and spec_file.exists() and spec_file.read_text().strip() == digest:
+        run(HERMES, "-p", profile, "cron", "resume" if BACKEND == "hermes" else "pause", old_id)
+        run(HERMES, "-p", profile, "gateway", "start")
+        continue
+    created = run(HERMES, "-p", profile, "cron", "create", SCHEDULE, prompt,
+                  "--deliver", "local", "--name", "dotfiles-ai project refinement", output=True).stdout
+    new_id = created.splitlines()[0].removeprefix("Created job: ")
+    if not re.fullmatch(r"[0-9a-f]{12}", new_id):
+        raise SystemExit("invalid project cron ID")
+    run(HERMES, "-p", profile, "cron", "pause", new_id)
+    if re.fullmatch(r"[0-9a-f]{12}", old_id) and old_id != new_id:
+        subprocess.run([HERMES, "-p", profile, "cron", "remove", old_id], check=False)
+    id_file.write_text(new_id + "\n")
+    spec_file.write_text(digest + "\n")
+    profile_file.write_text(profile + "\n")
+    os.chmod(id_file, 0o600)
+    os.chmod(spec_file, 0o600)
+    os.chmod(profile_file, 0o600)
+    run(HERMES, "-p", profile, "gateway", "install")
+    if BACKEND == "hermes":
+        run(HERMES, "-p", profile, "cron", "resume", new_id)
+    run(HERMES, "-p", profile, "gateway", "start")
+
+for project_state in state_root.iterdir():
+    if not project_state.is_dir() or project_state.name in active:
+        continue
+    id_file, profile_file = project_state / "refinement-cron-id", project_state / "profile"
+    if not id_file.is_file() or not profile_file.is_file():
+        continue
+    old_id, profile = id_file.read_text().strip(), profile_file.read_text().strip()
+    if re.fullmatch(r"[0-9a-f]{12}", old_id) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile):
+        run(HERMES, "-p", profile, "cron", "pause", old_id, check=False)
+        run(HERMES, "-p", profile, "gateway", "stop", check=False)

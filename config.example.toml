@@ -27,6 +27,7 @@ backlog_roots = [
   "/Users/you/.local/share/chezmoi-dotfiles-ai",
   "/Users/you/.local/share/chezmoi",
 ]
+project_profiles = false # true only for a personal multi-project catalog
 
 [data.dotfiles_ai.atuin]
 # Non-secret HTTPS service URL; login and encryption keys remain inside each VM.

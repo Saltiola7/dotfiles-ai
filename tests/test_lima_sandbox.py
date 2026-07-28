@@ -151,12 +151,18 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
 def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
+    values["workspaces"][0]["hermes_projects"] = True
     rendered = helper.guest_config(values, values["workspaces"][0])
     parsed = tomllib.loads(rendered)
 
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
+    assert parsed["data"]["dotfiles_ai"]["hermes"] == {
+        "enabled": True, "executable": "~/.local/bin/hermes", "profile": "workspace1",
+        "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
+        "project_profiles": True,
+    }
 
 
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:

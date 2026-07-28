@@ -21,6 +21,7 @@ executable = "~/.local/bin/hermes"
 profile = "system"
 provider = "openai-codex"
 backlog_roots = []
+project_profiles = false
 
 [dotfiles_ai.atuin]
 sync_address = "https://api.atuin.sh"
