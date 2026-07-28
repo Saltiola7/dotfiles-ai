@@ -1,0 +1,106 @@
+import re
+from pathlib import Path
+
+from test_opencode_control_plane import OC, ROOT, rendered_config
+
+
+SKILLS = ROOT / "dot_agents/skills"
+
+
+def frontmatter(path: Path) -> dict[str, str]:
+    header = path.read_text().split("---", 2)[1]
+    return dict(line.split(":", 1) for line in header.strip().splitlines())
+
+
+def test_writing_skills_have_portable_native_metadata_and_contracts():
+    jira = SKILLS / "jira-ticket/SKILL.md"
+    pyramid = SKILLS / "pyramid/SKILL.md"
+
+    assert frontmatter(jira) == {
+        "name": " jira-ticket",
+        "description": " Refine evidence into Jira tickets and truthful completion updates.",
+    }
+    assert frontmatter(pyramid) == {
+        "name": " pyramid",
+        "description": " Structure explicit writing requests around reader questions and supported answers.",
+    }
+
+    jira_body = jira.read_text()
+    assert "at most five" in jira_body
+    assert "no unresolved answer can materially change" in jira_body
+    assert "explicit Jira key or URL" in jira_body
+    assert "Broader JQL" in jira_body
+    assert "one approval per invocation" in jira_body
+    assert "untrusted data" in jira_body
+    assert "references/issue-types.md" in jira_body
+    assert "references/completion.md" in jira_body
+
+    issue_types = (jira.parent / "references/issue-types.md").read_text()
+    assert re.findall(r"^## (Story|Bug|Task|Spike|Epic)$", issue_types, re.MULTILINE) == [
+        "Story", "Bug", "Task", "Spike", "Epic",
+    ]
+    assert "Unsupported types" in issue_types
+    assert "map to Task" in issue_types
+
+    completion = (jira.parent / "references/completion.md").read_text()
+    assert "Not ready for closure" in completion
+    for evidence in ("validation", "review", "deployment", "rollback", "acceptance"):
+        assert evidence in completion.lower()
+
+    pyramid_body = pyramid.read_text()
+    assert "explicit request" in pyramid_body
+    assert "requested artifact first" in pyramid_body
+    assert "Mermaid" in pyramid_body
+    assert "evidence and uncertainty" in pyramid_body
+    assert "references/method.md" in pyramid_body
+
+    method = (pyramid.parent / "references/method.md").read_text()
+    for concept in (
+        "SCQA", "Vertical question-answer logic", "Inductive groups",
+        "Deductive chains", "Top-down construction", "Bottom-up construction",
+        "time", "structure", "importance", "summary",
+    ):
+        assert concept in method
+
+    public_text = "\n".join(path.read_text() for path in (jira, pyramid, *jira.parent.glob("references/*"),
+                                                           *pyramid.parent.glob("references/*")))
+    for private_expression in ("data/pyramid", "Socrates", "Polish border", "Ritz-Ryan"):
+        assert private_expression not in public_text
+
+
+def test_writing_commands_are_thin_and_provider_neutral():
+    expected = {
+        "jira-ticket": ("jira-ticket", "refinement"),
+        "jira-completion": ("jira-ticket", "completion"),
+        "pyramid": ("pyramid", "explicit"),
+    }
+    for command, (skill, mode) in expected.items():
+        body = (OC / f"commands/{command}.md").read_text()
+        assert f"load `{skill}`" in body
+        assert mode in body
+        assert "$ARGUMENTS" in body
+        assert "\nagent:" not in body
+        assert "\nmodel:" not in body
+
+
+def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
+    config = rendered_config()
+    for bash in (config["permission"]["bash"], config["agent"]["plan"]["permission"]["bash"]):
+        for command in (
+            "acli jira auth status*",
+            "acli jira workitem view *",
+            "acli jira workitem search *",
+            "acli jira workitem comment list *",
+        ):
+            assert bash[command] == "allow"
+
+        for command in (
+            "acli *", "*/acli *", "env *acli *", "command *acli *",
+            "acli *&&*", "acli *;*", "acli *|*", "acli *>*", "acli *<*",
+            "acli *$(*", "acli *`*",
+        ):
+            assert bash[command] == "deny"
+
+        order = list(bash)
+        assert order.index("acli *") < order.index("acli jira workitem view *")
+        assert order.index("acli jira workitem comment list *") < order.index("acli *&&*")
