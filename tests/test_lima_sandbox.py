@@ -165,6 +165,27 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     }
 
 
+def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["guest"]["hermes_enabled"] = True
+    values["workspaces"][0]["hermes_projects"] = True
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return "/home/agent.guest" if argv[-2:] == ["printenv", "HOME"] else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    assert [call[0][4] for call in calls[1:]] == ["sh", "git", "chezmoi"]
+    rendered = tomllib.loads(calls[1][1]["input_data"].decode())
+    assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
+    assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
+    assert calls[2][0][-2:] == ["pull", "--ff-only"]
+    assert calls[3][0][-1] == "apply"
+
+
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)

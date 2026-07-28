@@ -414,6 +414,30 @@ def guest_config(config, workspace):
     return "\n".join(lines) + "\n"
 
 
+def update_workspace(config, workspace, execute=command):
+    instance = workspace["instance"]
+    home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
+    if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
+        raise RuntimeError("invalid guest home")
+    execute(
+        ["limactl", "shell", instance, "--", "sh", "-ceu", """
+install -d -m 0700 "$HOME/.config/dotfiles-ai"
+tmp=$(mktemp "$HOME/.config/dotfiles-ai/.chezmoi.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+cat >"$tmp"
+chmod 0600 "$tmp"
+mv -f "$tmp" "$HOME/.config/dotfiles-ai/chezmoi.toml"
+trap - EXIT
+"""],
+        timeout=120,
+        input_data=guest_config(config, workspace).encode(),
+    )
+    source = f"{home}/.local/share/chezmoi-dotfiles-ai"
+    execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
+    execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
+             f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+
+
 def render_workspace(config, workspace, template=None):
     template = Path(config["template"]).read_text() if template is None else template
     mounts = []
@@ -933,12 +957,7 @@ def main(argv=None, invocation=None):
         command(["limactl", "start", workspace["instance"]], timeout=900)
         return
     if args.command == "update":
-        home = command(["limactl", "shell", "--start", workspace["instance"], "--", "printenv", "HOME"], timeout=120)
-        if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
-            raise RuntimeError("invalid guest home")
-        source = f"{home}/.local/share/chezmoi-dotfiles-ai"
-        command(["limactl", "shell", workspace["instance"], "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
-        command(["limactl", "shell", workspace["instance"], "--", "chezmoi", "-c", f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+        update_workspace(config, workspace)
         print(json.dumps({"workspace": args.workspace, "status": "updated", "allocation": status_report(config)}, sort_keys=True))
 
 

@@ -118,6 +118,11 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
+    linux_ignores = (ROOT / ".chezmoiignore").read_text().split(
+        '{{ if eq .chezmoi.os "linux" }}', 1
+    )[1]
+    assert ".local/bin/dbsctr-rnd" not in linux_ignores
+    assert ".hermes/managed" not in linux_ignores
 
 
 def test_runner_bounds_dependency_commands(tmp_path):
