@@ -116,6 +116,16 @@ Given a Plan primary, edits are denied and Bash requires approval. Given a Build
 primary, local commands run by default while known external, destructive,
 deployment, publishing, and Git-write commands require approval.
 
+### Bounded Jira reads
+
+Given a user explicitly supplies a Jira key or URL, the global and native Plan
+Bash maps allow direct ACLI account-status, work-item view, and comment-list
+reads. Broader JQL research remains ask-gated and denies pagination, browser, and
+filter forms. Other direct ACLI commands, absolute paths, common wrappers,
+and shell chaining or redirection remain denied. Writing behavior and consent are
+owned by `writing_skills`; this control plane owns only the coarse permission
+boundary.
+
 ### Native Plan-to-Build handoff
 
 Given native Plan completes planning, its built-in exit path targets the native
@@ -489,6 +499,9 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.
+- ACLI permissions allow direct auth-status, work-item view, and comment-list
+  reads; bounded JQL search asks, and unbounded/browser/filter forms are denied.
+  Prompt contracts further restrict fields, limits, consent, and privacy.
 - Skill names visible to OpenCode are unique.
 - Unversioned lifecycle commands load DBSCTR V3; V1 is removed and V2 source is
   archived outside deployed skill paths.
@@ -506,6 +519,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Package/service inventory | Removed runtime | npm, pipx, launchctl, path checks | Required |
 | MCP runtime | Context7 connection, anonymous fallback, optional authenticated request, and role isolation | `opencode mcp list` plus fresh Scout/non-Scout probes | Required |
 | Typed begin | Prompt-free Build dispatch, helper-worktree access, and denied Plan dispatch | Focused tool/config tests plus fresh Build probe | Required |
+| ACLI boundary | Key-scoped read allowlist, ask-gated JQL, Plan parity, wrapper/mutation denial, and bounded prompt contract | Writing and control-plane tests plus rendered config | Required when changed |
 | Provider entry | Exact command, primary, model, effort, same-provider retry, unsupported-model failure, and provider-local task permissions | Focused config tests plus fresh GPT probe | Required after implementation |
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
@@ -514,6 +528,9 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 ## Risks
 
 - Bash patterns are guardrails, not an OS sandbox.
+- ACLI allow patterns cannot validate every flag or same-user shell indirection;
+  direct read-only skill commands and least-privileged Jira credentials remain
+  necessary controls.
 - Runtime deletion cannot be rolled back without reinstalling removed tools.
 - Removing the duplicate Graphify project integration must not remove its global
   skill, graph, or hooks.

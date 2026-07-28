@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-28 - Writing Skill ACLI Boundary
+
+- Added direct ACLI account-status, work-item view, and comment-list reads plus
+  ask-gated bounded JQL search to global and native Plan contexts. Unbounded,
+  browser, filter, wrapper, separator, redirection, and mutation forms are denied.
+- Rendered permission contracts and isolated OpenCode configuration discovery
+  passed. No live managed configuration was applied; existing OpenCode processes
+  remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-28 - OCP-29 Hermes-Origin Discovery
 
 - Added exact leased-reservation claiming before process start, deterministic

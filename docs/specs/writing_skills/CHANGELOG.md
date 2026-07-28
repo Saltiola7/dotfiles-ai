@@ -1,5 +1,22 @@
 # Writing Skills Changelog
 
+## 2026-07-28 - Implementation
+
+- Added public `jira-ticket` and `pyramid` skills with five Jira policy
+  contracts, truthful completion status, material-question interviews, explicit
+  Pyramid activation, original structural guidance, and generated logic maps.
+- Added provider-neutral `/jira-ticket`, `/jira-completion`, and `/pyramid`
+  commands plus direct key-scoped ACLI reads and ask-gated JQL search for default
+  and Plan contexts.
+- Changed the public-safety scan to inspect Git-tracked files, excluding ignored
+  private source material while covering committed public skills.
+- Focused red/green and static synthetic prompt contracts, affected control-plane
+  and portability tests, isolated chezmoi rendering, and resolved OpenCode
+  command discovery passed.
+  No Jira mutation, release, deployment, or live `chezmoi apply` occurred. Gate
+  Exceptions: none. Implementation Gate Commit: `761d01e`. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-28 - Discovery
 
 - Defined evidence-driven Jira refinement and completion, explicit Pyramid

@@ -290,12 +290,10 @@ def test_public_tree_has_no_maintainer_identifiers() -> None:
         "Bedrock" + "DeveloperAccess",
         "com" + ".tis",
     )
-    files = [
-        path for path in ROOT.rglob("*")
-        if path.is_file()
-        and not {".git", ".venv", "__pycache__"}.intersection(path.parts)
-        and path.suffix != ".pyc"
-    ]
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
+    ).stdout.split(b"\0")
+    files = [ROOT / name.decode() for name in tracked if name and (ROOT / name.decode()).is_file()]
     for path in files:
         body = path.read_text(errors="ignore")
         for value in banned:
