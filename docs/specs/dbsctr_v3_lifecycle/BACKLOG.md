@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.32-1 | Add explicit helper-owned concurrent target reconciliation | high | in_progress | - | helper, typed adapter, lifecycle/control-plane tests and docs | V3.15 final-push and V3.4 worktree contracts | no | Let concurrent isolated cycles safely integrate an advanced shared target without rewriting Gate Commits | L | Helper conflict/lineage fixtures, typed argv tests, affected QA |
 
 ## Completed
 
