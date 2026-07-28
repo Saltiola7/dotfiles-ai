@@ -153,11 +153,13 @@ def validate_config(value):
     guest = value.get("guest")
     if isinstance(guest, dict):
         guest.setdefault("hermes_enabled", False)
+        guest.setdefault("rnd_backend", "native")
     if not isinstance(guest, dict) or set(guest) != {
             "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme",
-            "atuin_sync_address", "hermes_enabled"} or any(
+            "atuin_sync_address", "hermes_enabled", "rnd_backend"} or any(
             not isinstance(guest[name], str) for name in guest if name != "hermes_enabled") \
-            or not isinstance(guest["hermes_enabled"], bool):
+            or not isinstance(guest["hermes_enabled"], bool) \
+            or guest["rnd_backend"] not in {"native", "hermes"}:
         raise ValueError("invalid guest settings")
     if not re.fullmatch(r"https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", guest["atuin_sync_address"]):
         raise ValueError("invalid guest Atuin sync address")
@@ -171,8 +173,10 @@ def validate_config(value):
     for workspace in workspaces:
         if isinstance(workspace, dict):
             workspace.setdefault("hermes_projects", False)
+            workspace.setdefault("hermes_backlog_roots", [])
         if not isinstance(workspace, dict) or set(workspace) != {
-                "name", "instance", "shell_alias", "federate", "hermes_projects", "mounts"}:
+                "name", "instance", "shell_alias", "federate", "hermes_projects",
+                "hermes_backlog_roots", "mounts"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
@@ -229,6 +233,16 @@ def validate_config(value):
                 raise ValueError("workspace guest mounts overlap")
             hosts.append(host)
             guests.append(guest_path)
+        backlog_roots = workspace["hermes_backlog_roots"]
+        writable_roots = [PurePosixPath(mount["guest"]) for mount in mounts
+                          if mount["writable"] and not mount["protect_git_submodules"]]
+        if (not isinstance(backlog_roots, list) or len(backlog_roots) > 32
+                or len(backlog_roots) != len(set(backlog_roots))
+                or any(not isinstance(root, str) or not PurePosixPath(root).is_absolute()
+                       or not any(PurePosixPath(root) == mount or PurePosixPath(root).is_relative_to(mount)
+                                  for mount in writable_roots)
+                       for root in backlog_roots)):
+            raise ValueError(f"invalid {name} Hermes backlog roots")
     build_workspace = value.get("build_workspace")
     if not isinstance(build_workspace, str) or build_workspace and build_workspace not in names:
         raise ValueError("invalid build workspace")
@@ -340,6 +354,10 @@ def guest_config(config, workspace):
     quote = json.dumps
     guest = config["guest"]
     resources = config["resources"]
+    backlog_roots = workspace.get("hermes_backlog_roots") or [
+        mount["guest"] for mount in workspace["mounts"]
+        if mount["writable"] and not mount["protect_git_submodules"]
+    ]
     lines = [
         'sourceDir = "~/.local/share/chezmoi-dotfiles-ai"',
         'persistentState = "~/.config/dotfiles-ai/chezmoi.boltdb"',
@@ -365,13 +383,12 @@ def guest_config(config, workspace):
         'executable = "~/.local/bin/hermes"',
         f"profile = {quote(workspace['name'])}",
         'provider = "openai-codex"',
-        "backlog_roots = [" + ", ".join(quote(mount["guest"]) for mount in workspace["mounts"]
-                                        if mount["writable"] and not mount["protect_git_submodules"]) + "]",
+        "backlog_roots = [" + ", ".join(quote(root) for root in backlog_roots) + "]",
         f"project_profiles = {'true' if workspace.get('hermes_projects', False) else 'false'}",
         "",
         "[data.dotfiles_ai.rnd]",
         f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
-        'backend = "hermes"',
+        f"backend = {quote(guest['rnd_backend'])}",
         f"review_workdir = {quote(next(mount['guest'] for mount in workspace['mounts'] if mount['writable']))}",
         "review_hour = 9",
         "review_minute = 0",

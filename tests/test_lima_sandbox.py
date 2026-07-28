@@ -37,6 +37,7 @@ def config(tmp_path: Path) -> dict:
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
             "small_model": "provider/small", "theme": "catppuccin",
             "atuin_sync_address": "https://atuin.example.com", "hermes_enabled": True,
+            "rnd_backend": "native",
         },
         "workspaces": [
             {
@@ -152,6 +153,7 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
     values["workspaces"][0]["hermes_projects"] = True
+    values["workspaces"][0]["hermes_backlog_roots"] = ["/workspace/projects/project-a"]
     rendered = helper.guest_config(values, values["workspaces"][0])
     parsed = tomllib.loads(rendered)
 
@@ -160,9 +162,14 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
     assert parsed["data"]["dotfiles_ai"]["hermes"] == {
         "enabled": True, "executable": "~/.local/bin/hermes", "profile": "workspace1",
-        "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
+        "provider": "openai-codex", "backlog_roots": ["/workspace/projects/project-a"],
         "project_profiles": True,
     }
+    assert parsed["data"]["dotfiles_ai"]["rnd"]["backend"] == "native"
+
+    values["workspaces"][0]["hermes_backlog_roots"] = ["/outside"]
+    with pytest.raises(ValueError, match="Hermes backlog roots"):
+        helper.validate_config(values)
 
 
 def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:

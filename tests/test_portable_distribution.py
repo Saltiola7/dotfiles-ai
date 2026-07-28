@@ -111,6 +111,7 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
     assert sandbox["guest"]["hermes_enabled"] is True
+    assert sandbox["guest"]["rnd_backend"] == "native"
     assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
 
 
