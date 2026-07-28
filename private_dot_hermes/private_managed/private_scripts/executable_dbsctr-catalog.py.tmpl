@@ -57,6 +57,7 @@ for item in catalog["repositories"]:
     os.chmod(env_path, 0o600)
     run(HERMES, "-p", profile, "config", "set", "terminal.home_mode", "profile")
     run(HERMES, "-p", profile, "config", "set", "model.provider", PROVIDER)
+    run(HERMES, "-p", profile, "config", "set", "model", "openai-codex/gpt-5.6-sol")
     run(HERMES, "-p", profile, "gateway", "stop", check=False)
     project_state = state_root / repository_id
     project_state.mkdir(exist_ok=True)

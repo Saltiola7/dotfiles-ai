@@ -112,6 +112,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert "terminal.home_mode profile" in configure
+    assert "config set model openai-codex/gpt-5.6-sol" in configure
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
     assert "cron pause" in configure and "cutover-ready" in configure
