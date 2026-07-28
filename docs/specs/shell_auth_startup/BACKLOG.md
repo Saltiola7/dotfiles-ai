@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| AUTH-011 | Keep blocked Herdr LaunchAgent handoff retryable | P1 | active | AUTH-008 | loader, shell auth spec, regression test | Herdr runtime contract | no | One deployment path and one runtime owner | S | focused pytest, rendered shell syntax, managed runtime smoke test |
 
 ## Completed
 

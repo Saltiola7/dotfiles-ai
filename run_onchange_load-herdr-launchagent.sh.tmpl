@@ -26,8 +26,8 @@ mkdir -p "$HOME/Library/Logs"
 
 if ! /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 \
     && "$HERDR" status server >/dev/null 2>&1; then
-    echo "[herdr-launchagent] unmanaged server owns the socket; stop it, then rerun chezmoi apply"
-    exit 0
+    echo "[herdr-launchagent] unmanaged server owns the socket; run 'herdr server stop', then rerun chezmoi apply" >&2
+    exit 1
 fi
 
 /bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true

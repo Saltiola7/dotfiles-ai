@@ -54,6 +54,13 @@ Glossary:
 - And no credential is stored in its plist or environment configuration
 - And restored `HerdrPane` processes can request the login-Keychain service token
 
+**Scenario: Unmanaged Herdr server blocks managed handoff**
+- Given an unmanaged `HerdrServer` owns the Herdr socket
+- And the managed Aqua LaunchAgent is not loaded
+- When chezmoi applies the managed `HerdrServer`
+- Then deployment fails without stopping the unmanaged server
+- And the handoff remains pending for a retry after the operator stops the server
+
 ### Feature: Fail-fast secret loading
 
 **Scenario: OnePassword command hangs**
@@ -178,6 +185,7 @@ Glossary:
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
 - **Invariant:** chezmoi deployment never stops an unmanaged `HerdrServer`; initial handoff is explicit or occurs at the next GUI login.
+- **Post:** a handoff blocked by an unmanaged `HerdrServer` fails so chezmoi does not record the `run_onchange` script as completed.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
 - **Post:** invalid service account tokens fail fast with a service-account-specific error.
 - **Post:** SSH shells without a service account token must not attempt biometric or password-based `op signin`.
