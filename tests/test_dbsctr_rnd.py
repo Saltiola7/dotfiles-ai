@@ -108,6 +108,8 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
+    assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
+    assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert "terminal.home_mode profile" in configure
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()

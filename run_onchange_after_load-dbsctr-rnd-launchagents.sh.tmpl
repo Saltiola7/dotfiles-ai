@@ -12,7 +12,7 @@ HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 REVIEW_WORKDIR={{ .dotfiles_ai.rnd.review_workdir | quote }}
 RUNNER="$HOME/.local/bin/dbsctr-rnd"
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
-[[ "$HERMES" == "~/"* ]] && HERMES="$HOME/${HERMES#~/}"
+case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
 mkdir -p "$HOME/Library/Logs"
 

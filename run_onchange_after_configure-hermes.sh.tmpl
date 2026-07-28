@@ -7,7 +7,7 @@
 
 set -euo pipefail
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
-[[ "$HERMES" == "~/"* ]] && HERMES="$HOME/${HERMES#~/}"
+case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
 
