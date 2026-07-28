@@ -60,6 +60,13 @@ Glossary:
 - When chezmoi applies the managed `HerdrServer`
 - Then deployment fails without stopping the unmanaged server
 - And the handoff remains pending for a retry after the operator stops the server
+- And server ownership is determined from structured Herdr status rather than command exit status
+
+**Scenario: Managed Herdr server is reloaded**
+- Given the managed Aqua LaunchAgent owns the `HerdrServer`
+- When chezmoi reapplies changed LaunchAgent configuration
+- Then deployment waits up to five seconds for the old server to stop before bootstrapping its replacement
+- And deployment fails if the old server remains running
 
 ### Feature: Fail-fast secret loading
 
@@ -185,7 +192,9 @@ Glossary:
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
 - **Invariant:** chezmoi deployment never stops an unmanaged `HerdrServer`; initial handoff is explicit or occurs at the next GUI login.
+- **Invariant:** `HerdrServer` ownership checks use the structured `running` status because the Herdr status command exits successfully when no server is running.
 - **Post:** a handoff blocked by an unmanaged `HerdrServer` fails so chezmoi does not record the `run_onchange` script as completed.
+- **Post:** managed LaunchAgent replacement waits a bounded five seconds for the old `HerdrServer` to stop before bootstrap.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
 - **Post:** invalid service account tokens fail fast with a service-account-specific error.
 - **Post:** SSH shells without a service account token must not attempt biometric or password-based `op signin`.

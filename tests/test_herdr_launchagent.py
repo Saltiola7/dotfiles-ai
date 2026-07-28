@@ -20,6 +20,8 @@ def test_herdr_server_runs_in_aqua_without_secrets() -> None:
     assert '"$HERDR" server stop' not in loader
     assert "unmanaged server owns the socket" in loader
     assert "status server" in loader
+    assert "for _ in {1..50}" in loader
+    assert "managed server did not stop within 5 seconds" in loader
     assert "kickstart" not in loader
     assert "com" + ".tis" not in plist + loader
 
@@ -59,6 +61,7 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     ).stdout
     assert '/tmp/a&b/herdr' in wrapper
     assert "status server" in wrapper
+    assert '"running":true' in wrapper
 
     values["dotfiles_ai"]["herdr"]["launchagent"] = False
     disabled = subprocess.run(
@@ -79,7 +82,8 @@ def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
         '#!/bin/bash\nprintf "launchctl %s\\n" "$1" >> "$CALLS"\n[[ "$1" == print ]] && exit 1\nexit 99\n'
     )
     herdr.write_text(
-        '#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$CALLS"\n[[ "$*" == "status server" ]]\n'
+        '#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$CALLS"\n'
+        '[[ "$*" == "status server --json" ]] && printf \'{"running":true}\\n\'\n'
     )
     launchctl.chmod(0o755)
     herdr.chmod(0o755)
@@ -118,4 +122,4 @@ def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
     )
     assert result.returncode == 1
     assert "run 'herdr server stop', then rerun chezmoi apply" in result.stderr
-    assert calls.read_text().splitlines() == ["launchctl print", "herdr status server"]
+    assert calls.read_text().splitlines() == ["launchctl print", "herdr status server --json"]
