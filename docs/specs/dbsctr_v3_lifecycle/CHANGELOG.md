@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-28 - V3.31 Global Worktree Maintenance
+
+- Added read-only multi-repository inventory and guarded completed-cycle cleanup
+  under the fixed DBSCTR registry. Cleanup preserves retention, dirty work,
+  identity, branch, delivery, and outside-registry boundaries while isolating
+  repository failures.
+- Hermes schedules maintenance without adding a disk admission gate. Controlled
+  cleanup and DVC relinking reclaimed about 75 GiB; affected QA passed 193 tests
+  with one existing skip. Commits: `269125b..dc6d284`. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-26 - Provider-Native Lifecycle Delivery
 
 - Added a thinner provider-neutral core with conditional GPT-5.6 and Opus 5

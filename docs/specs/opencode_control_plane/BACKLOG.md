@@ -4,12 +4,12 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-29 | Support Hermes-origin resumable OpenCode Discovery sessions | high | in_progress | - | OpenCode dispatch/recovery contract, session identity adapter and focused tests | Existing improvement worker ledger, OpenCode CLI session identity, Hermes process results | yes | Autonomous execution must no longer depend on Herdr panes while preserving exact-session and human-Discovery boundaries | M | Direct launch, exact registration, restart/reclaim, ambiguity block, manual Herdr resume, no automated proceed |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-29 | Add exact reservation-bound Hermes launch and resumable OpenCode Discovery without Herdr dependency | 2026-07-28 | `269125b..dc6d284` |
 | OCP-27/OCP-28 | Add exact loaded harness identity, provider-local prompts and entry commands, Opus 5 high, and five-cycle evaluation adapters | 2026-07-26 | `c0289f8`, `b08540b` |
 | OCP-27D | Specify provider-native harness contracts | 2026-07-26 | `d65d2ad` |
 | OCP-26 | Add VM-only always-auto control plane and bounded federation adapters | 2026-07-25 | `ae72606` |
