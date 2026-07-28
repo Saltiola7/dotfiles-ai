@@ -1,5 +1,13 @@
 # Shell Auth Startup Changelog
 
+## 2026-07-28
+
+- Made unmanaged Herdr handoff fail without stopping the active server so chezmoi keeps the deployment retryable.
+- Replaced unreliable `herdr status server` exit-code checks with structured `running` status in the loader and owner wrapper.
+- Added a bounded managed-server shutdown wait before LaunchAgent bootstrap.
+- Validated three focused tests, rendered shell syntax, targeted chezmoi deployment, a running Aqua LaunchAgent, Keychain access, and Herdr-mode `op-session`.
+- Gate commits: `e858602`, `4a05198`. Deployment: local macOS Aqua session.
+
 ## 2026-07-15
 
 - Made Keychain diagnostic capture compatible with inherited Bash `noclobber`.
