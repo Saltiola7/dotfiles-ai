@@ -126,13 +126,14 @@ def test_provider_and_primary_contracts():
         "acli jira workitem view *": "allow",
         "acli jira workitem search *": "allow",
         "acli jira workitem comment list *": "allow",
-        "acli *&&*": "deny",
+        "acli *&*": "deny",
         "acli *;*": "deny",
         "acli *|*": "deny",
         "acli *>*": "deny",
         "acli *<*": "deny",
         "acli *$(*": "deny",
         "acli *`*": "deny",
+        "acli *\n*": "deny",
     }
     assert "amazon-bedrock" in config["provider"]
     assert "lmstudio" in config["provider"]

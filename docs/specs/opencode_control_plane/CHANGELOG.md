@@ -4,7 +4,7 @@
 
 - Added direct read-only ACLI permission shapes for account status, work-item
   view, bounded search, and comment listing to global and native Plan contexts.
-  Other direct commands, common wrappers, chaining, and redirection are denied.
+  Other direct commands, common wrappers, separators, and redirection are denied.
 - Rendered permission contracts and isolated OpenCode configuration discovery
   passed. No live managed configuration was applied; existing OpenCode processes
   remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:

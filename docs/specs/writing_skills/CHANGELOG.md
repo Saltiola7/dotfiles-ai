@@ -9,8 +9,9 @@
   commands plus direct read-only ACLI guardrails for default and Plan contexts.
 - Changed the public-safety scan to inspect Git-tracked files, excluding ignored
   private source material while covering committed public skills.
-- Focused red/green contracts, 41 affected control-plane and portability tests,
-  isolated chezmoi rendering, and resolved OpenCode command discovery passed.
+- Focused red/green and static synthetic prompt contracts, affected control-plane
+  and portability tests, isolated chezmoi rendering, and resolved OpenCode
+  command discovery passed.
   No Jira mutation, release, deployment, or live `chezmoi apply` occurred. Gate
   Exceptions: none. Implementation Gate Commit: `761d01e`. Intended Final Push:
   `origin/main`.

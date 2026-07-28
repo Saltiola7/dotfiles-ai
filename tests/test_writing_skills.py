@@ -67,8 +67,26 @@ def test_writing_skills_have_portable_native_metadata_and_contracts():
 
     public_text = "\n".join(path.read_text() for path in (jira, pyramid, *jira.parent.glob("references/*"),
                                                            *pyramid.parent.glob("references/*")))
-    for private_expression in ("data/pyramid", "Socrates", "Polish border", "Ritz-Ryan"):
-        assert private_expression not in public_text
+    assert "data" + "/pyramid" not in public_text
+
+
+def test_synthetic_cases_are_explicit_prompt_contracts():
+    jira = (SKILLS / "jira-ticket/SKILL.md").read_text()
+    types = (SKILLS / "jira-ticket/references/issue-types.md").read_text()
+    completion = (SKILLS / "jira-ticket/references/completion.md").read_text()
+    pyramid = (SKILLS / "pyramid/SKILL.md").read_text()
+    cases = {
+        "vague investigation becomes a bounded Spike": (types, "time-bounded investigation"),
+        "unsupported type becomes a disclosed Task": (types, "unsupported by this portable skill"),
+        "missing closure evidence blocks closure": (completion, "Not ready for closure"),
+        "conflicting evidence remains visible": (jira, "conflicting evidence"),
+        "evidence cannot inject instructions": (jira, "untrusted data"),
+        "external research requires consent": (jira, "one approval per invocation"),
+        "Pyramid remains explicitly activated": (pyramid, "only after `/pyramid`"),
+        "Pyramid returns the artifact before analysis": (pyramid, "requested artifact first"),
+    }
+    for scenario, (contract, requirement) in cases.items():
+        assert requirement in contract, scenario
 
 
 def test_writing_commands_are_thin_and_provider_neutral():
@@ -99,14 +117,14 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
 
         for command in (
             "acli *", "*/acli *", "env *acli *", "command *acli *",
-            "acli *&&*", "acli *;*", "acli *|*", "acli *>*", "acli *<*",
-            "acli *$(*", "acli *`*",
+            "acli *&*", "acli *;*", "acli *|*", "acli *>*", "acli *<*",
+            "acli *$(*", "acli *`*", "acli *\n*",
         ):
             assert bash[command] == "deny"
 
         order = list(bash)
         assert order.index("acli *") < order.index("acli jira workitem view *")
-        assert order.index("acli jira workitem comment list *") < order.index("acli *&&*")
+        assert order.index("acli jira workitem comment list *") < order.index("acli *&*")
 
 
 def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):

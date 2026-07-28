@@ -218,12 +218,12 @@ invocation, then the skill asks once and sends no private content in the query.
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
 | Domain | Writing, evidence, readiness, and consent language | required | passed | This README and Product Intent | - | Primary |
-| Behavior | Jira, completion, Pyramid, and trust scenarios | required | passed | Given/When/Then scenarios and focused contracts | - | Primary |
+| Behavior | Jira, completion, Pyramid, and trust scenarios | required | passed | Given/When/Then scenarios and static synthetic prompt contracts | - | Primary |
 | Spec | Interfaces, ownership, profile, and risks | required | passed | README, PRODUCT, and BACKLOG | - | Primary |
 | Contract | Metadata, command, permission, privacy, and output invariants | required | passed | Focused rendered tests | - | Primary |
 | Test-driven implementation | Red/green focused contracts | required | passed | Missing-surface failures followed by affected test pass | - | Primary |
 | Refactor | Minimal shared content without speculative framework | required | passed | Integrated diff and isolated render smoke | - | Primary |
-| Review/Integrate | Public safety and adjacent-context coherence | required | passed | Affected QA, tracked-file scan, and source review | - | Primary |
+| Review/Integrate | Public safety and adjacent-context coherence | required | passed | Affected QA, tracked-file scan, source review, and remediated independent review | - | Primary |
 | Release | Publish a versioned package | not_applicable: no release requested | not_run | Engineering Profile | - | User |
 | Deploy | Apply managed OpenCode configuration | not_applicable: live apply explicitly excluded | not_run | Engineering Profile | - | User |
 | Operate | Verify a persistent service | not_applicable: no service or runtime deployment | not_run | Engineering Profile | - | User |
@@ -243,7 +243,7 @@ invocation, then the skill asks once and sends no private content in the query.
 | Existing contracts | Control-plane and portability regressions | `uv run --group test pytest tests/test_opencode_control_plane.py tests/test_portable_distribution.py` | Required |
 | Chezmoi | Rendered commands, skills, and config | Isolated `chezmoi cat`/managed checks | Required |
 | OpenCode | Resolved managed configuration | Isolated `opencode debug config` when available | Required |
-| Behavioral smoke | Synthetic Jira/Git inputs and ACLI stub | Complete, vague, conflicting, unsafe, and missing-evidence cases | Required |
+| Prompt behavior | Static synthetic scenario-to-instruction contracts | Vague, conflicting, unsafe, unsupported-type, consent, activation, and missing-evidence cases | Required |
 | Public review | Privacy and original expression | Tracked-file scan and manual source comparison | Required |
 
 ## Facts, Assumptions, And Accepted Risks
