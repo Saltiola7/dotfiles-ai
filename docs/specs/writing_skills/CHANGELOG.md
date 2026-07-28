@@ -6,7 +6,8 @@
   contracts, truthful completion status, material-question interviews, explicit
   Pyramid activation, original structural guidance, and generated logic maps.
 - Added provider-neutral `/jira-ticket`, `/jira-completion`, and `/pyramid`
-  commands plus direct read-only ACLI guardrails for default and Plan contexts.
+  commands plus direct key-scoped ACLI reads and ask-gated JQL search for default
+  and Plan contexts.
 - Changed the public-safety scan to inspect Git-tracked files, excluding ignored
   private source material while covering committed public skills.
 - Focused red/green and static synthetic prompt contracts, affected control-plane

@@ -2,9 +2,9 @@
 
 ## 2026-07-28 - Writing Skill ACLI Boundary
 
-- Added direct read-only ACLI permission shapes for account status, work-item
-  view, bounded search, and comment listing to global and native Plan contexts.
-  Other direct commands, common wrappers, separators, and redirection are denied.
+- Added direct ACLI account-status, work-item view, and comment-list reads plus
+  ask-gated bounded JQL search to global and native Plan contexts. Unbounded,
+  browser, filter, wrapper, separator, redirection, and mutation forms are denied.
 - Rendered permission contracts and isolated OpenCode configuration discovery
   passed. No live managed configuration was applied; existing OpenCode processes
   remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:

@@ -110,21 +110,27 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
         for command in (
             "acli jira auth status*",
             "acli jira workitem view *",
-            "acli jira workitem search *",
             "acli jira workitem comment list *",
         ):
             assert bash[command] == "allow"
+        assert bash["acli jira workitem search *"] == "ask"
 
         for command in (
             "acli *", "*/acli *", "env *acli *", "command *acli *",
             "acli *&*", "acli *;*", "acli *|*", "acli *>*", "acli *<*",
             "acli *$(*", "acli *`*", "acli *\n*",
+            "acli jira workitem search *--paginate*",
+            "acli jira workitem search *--web*",
+            "acli jira workitem search * -w*",
+            "acli jira workitem search *--filter*",
         ):
             assert bash[command] == "deny"
 
         order = list(bash)
         assert order.index("acli *") < order.index("acli jira workitem view *")
-        assert order.index("acli jira workitem comment list *") < order.index("acli *&*")
+        assert order.index("acli jira workitem search *") < order.index(
+            "acli jira workitem search *--paginate*"
+        )
 
 
 def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):

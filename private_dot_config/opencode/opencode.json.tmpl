@@ -163,7 +163,7 @@
           "command *acli *": "deny",
           "acli jira auth status*": "allow",
           "acli jira workitem view *": "allow",
-          "acli jira workitem search *": "allow",
+          "acli jira workitem search *": "ask",
           "acli jira workitem comment list *": "allow",
           "acli *&*": "deny",
           "acli *;*": "deny",
@@ -172,7 +172,11 @@
           "acli *<*": "deny",
           "acli *$(*": "deny",
           "acli *`*": "deny",
-          "acli *\n*": "deny"
+          "acli *\n*": "deny",
+          "acli jira workitem search *--paginate*": "deny",
+          "acli jira workitem search *--web*": "deny",
+          "acli jira workitem search * -w*": "deny",
+          "acli jira workitem search *--filter*": "deny"
         },
         "dbsctr_begin": "deny",
         "dbsctr_attach": "deny",
@@ -344,7 +348,7 @@
       "command *acli *": "deny",
       "acli jira auth status*": "allow",
       "acli jira workitem view *": "allow",
-      "acli jira workitem search *": "allow",
+      "acli jira workitem search *": "ask",
       "acli jira workitem comment list *": "allow",
       "acli *&*": "deny",
       "acli *;*": "deny",
@@ -353,7 +357,11 @@
       "acli *<*": "deny",
       "acli *$(*": "deny",
       "acli *`*": "deny",
-      "acli *\n*": "deny"
+      "acli *\n*": "deny",
+      "acli jira workitem search *--paginate*": "deny",
+      "acli jira workitem search *--web*": "deny",
+      "acli jira workitem search * -w*": "deny",
+      "acli jira workitem search *--filter*": "deny"
     }
   },
   "experimental": {

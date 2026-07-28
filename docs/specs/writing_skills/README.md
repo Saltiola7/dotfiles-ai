@@ -183,7 +183,7 @@ invocation, then the skill asks once and sends no private content in the query.
 | `/pyramid $ARGUMENTS` | Explicit writing request | Loads `pyramid` |
 | `acli jira workitem view` | Explicit work-item identifier | Bounded read-only details |
 | `acli jira workitem comment list` | Explicit work-item identifier | Bounded read-only comments |
-| `acli jira workitem search` | User-approved JQL | Bounded read-only search |
+| `acli jira workitem search` | User-approved JQL plus OpenCode confirmation | Bounded read-only search |
 
 ## Contracts And Invariants
 
