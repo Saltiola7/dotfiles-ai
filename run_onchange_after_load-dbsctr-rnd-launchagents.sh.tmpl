@@ -2,6 +2,7 @@
 # spawner plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl" | sha256sum }}
 # watchdog plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist.tmpl" | sha256sum }}
 # enabled: {{ .dotfiles_ai.rnd.enabled }}
+# backend: {{ .dotfiles_ai.rnd.backend }}
 
 set -euo pipefail
 [[ "$(uname)" == "Darwin" ]] || exit 0
@@ -10,6 +11,9 @@ DOMAIN="gui/$(id -u)"
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 REVIEW_WORKDIR={{ .dotfiles_ai.rnd.review_workdir | quote }}
 RUNNER="$HOME/.local/bin/dbsctr-rnd"
+HERMES={{ .dotfiles_ai.hermes.executable | quote }}
+[[ "$HERMES" == "~/"* ]] && HERMES="$HOME/${HERMES#~/}"
+PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
 mkdir -p "$HOME/Library/Logs"
 
 remove_job() {
@@ -21,22 +25,21 @@ remove_job() {
     fi
 }
 
-# Retire the exact updater previously installed by this source.
-/bin/launchctl bootout "$DOMAIN/dev.dotfiles-ai.hermes-update" >/dev/null 2>&1 || true
-for id_file in \
-    "$HOME/.local/state/dotfiles-ai/hermes-review-cron-id" \
-    "$HOME/.local/state/dotfiles-ai/hermes-watchdog-cron-id"
-do
-    [[ -f "$id_file" ]] || continue
-    [[ -x "$HOME/.local/bin/hermes" ]] || { echo "Hermes is missing; cannot remove saved job" >&2; exit 1; }
-    IFS= read -r job_id < "$id_file"
-    [[ "$job_id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes job ID" >&2; exit 1; }
-    "$HOME/.local/bin/hermes" cron remove "$job_id"
-    /bin/rm -f "$id_file"
-done
-/bin/rm -f "$HOME/.local/state/dotfiles-ai/hermes-watchdog.json"
-
 {{ if not .dotfiles_ai.rnd.enabled -}}
+remove_job dev.dotfiles-ai.dbsctr-spawner "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist"
+remove_job dev.dotfiles-ai.dbsctr-watchdog "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist"
+if [[ -x "$HERMES" ]]; then "$HERMES" -p "$PROFILE" gateway stop >/dev/null 2>&1 || true; fi
+exit 0
+{{ end -}}
+
+[[ {{ .dotfiles_ai.rnd.backend | quote }} == native || {{ .dotfiles_ai.rnd.backend | quote }} == hermes ]] \
+    || { echo "rnd.backend must be native or hermes" >&2; exit 1; }
+{{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
+[[ {{ .dotfiles_ai.hermes.enabled }} == true ]] || { echo "Hermes backend requires hermes.enabled" >&2; exit 1; }
+[[ -x "$HERMES" ]] || { echo "Hermes backend is missing" >&2; exit 1; }
+[[ -f "$HOME/.local/state/dotfiles-ai/hermes-$PROFILE/refinement-cron-id" ]] \
+    || { echo "Hermes refinement job is missing" >&2; exit 1; }
+"$HERMES" -p "$PROFILE" gateway status >/dev/null
 remove_job dev.dotfiles-ai.dbsctr-spawner "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist"
 remove_job dev.dotfiles-ai.dbsctr-watchdog "$HOME/Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist"
 exit 0

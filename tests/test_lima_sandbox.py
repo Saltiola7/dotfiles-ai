@@ -36,7 +36,7 @@ def config(tmp_path: Path) -> dict:
         "guest": {
             "bedrock_region": "us-west-2", "bedrock_profile": "", "default_model": "provider/model",
             "small_model": "provider/small", "theme": "catppuccin",
-            "atuin_sync_address": "https://atuin.example.com",
+            "atuin_sync_address": "https://atuin.example.com", "hermes_enabled": True,
         },
         "workspaces": [
             {

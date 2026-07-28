@@ -12,6 +12,7 @@ def test_herdr_server_runs_in_aqua_without_secrets() -> None:
 
     assert "<key>LimitLoadToSessionType</key>\n    <string>Aqua</string>" in plist
     assert "<key>KeepAlive</key>" in plist
+    assert "<key>SuccessfulExit</key>" in plist
     assert "<key>LANG</key>\n        <string>en_US.UTF-8</string>" in plist
     assert '{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin' in plist
     assert "OP_SERVICE_ACCOUNT_TOKEN" not in plist + loader
@@ -51,7 +52,13 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     plist = tmp_path / "herdr.plist"
     plist.write_text(rendered.stdout)
     subprocess.run(["plutil", "-lint", str(plist)], check=True, capture_output=True)
-    assert "/tmp/a&amp;b/herdr" in rendered.stdout
+    assert "/.local/bin/herdr-server-owner" in rendered.stdout
+    wrapper = subprocess.run(
+        [*base, "cat", str(Path.home() / ".local/bin/herdr-server-owner")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert '/tmp/a&b/herdr' in wrapper
+    assert "already running" in wrapper and "status server" in wrapper
 
     values["dotfiles_ai"]["herdr"]["launchagent"] = False
     disabled = subprocess.run(

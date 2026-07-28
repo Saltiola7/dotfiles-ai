@@ -1,6 +1,7 @@
 #!/bin/bash
 # Keep Herdr in Aqua so persistent panes can access the login Keychain.
 # plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl" | sha256sum }}
+# owner wrapper: {{ include "dot_local/bin/executable_herdr-server-owner.tmpl" | sha256sum }}
 # enabled: {{ .dotfiles_ai.herdr.launchagent }}
 
 set -u

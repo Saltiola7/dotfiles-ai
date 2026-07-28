@@ -1,0 +1,29 @@
+---
+name: dbsctr-supervisor
+description: Refine profile-local canonical backlogs and start exact OpenCode Discovery under DBSCTR authority.
+---
+
+# DBSCTR Supervisor
+
+Profile: `{{ .dotfiles_ai.hermes.profile }}`. Allowed backlog roots:
+{{ range .dotfiles_ai.hermes.backlog_roots }}- `{{ . }}`
+{{ end }}
+
+1. Run `dbsctr-rnd backlogs`. Stop on malformed, escaped, ambiguous, or truncated input.
+2. Mirror canonical Active rows into the current profile-local Kanban board using
+   the returned idempotency key. Git fields remain authoritative; enrichment is
+   Kanban metadata and never edits a repository.
+3. Use only this profile's history, skills, memory, credentials, and backlog roots.
+   The host system profile may use sanitized federated history only for generalized
+   dotfiles/DBSCTR/OpenCode improvements.
+4. Run `dbsctr-rnd reserve`. A no-op ends this invocation. For a reservation,
+   select one defensible distinct opportunity and start OpenCode in the returned
+   repository with `/dbsctr-improve` through the bundled OpenCode skill.
+5. Obtain exactly one native OpenCode `ses_` identity, register it with the
+   returned worker ID, then run `dbsctr-rnd complete`. On any failure run
+   `dbsctr-rnd release`; never start a substitute worker in that invocation.
+6. Before resuming a worker, re-read `dbsctrctl improvement-status` and prove the
+   exact session is not already running. Resume only with `opencode -s SESSION`.
+7. Discovery questions stay for the operator. Never send `proceed`, select a
+   permission, edit a backlog, merge, mark ready, release, deploy, or treat Hermes,
+   Kanban, Herdr, labels, screen content, or recency as lifecycle authority.

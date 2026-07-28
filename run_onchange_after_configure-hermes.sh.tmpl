@@ -1,0 +1,57 @@
+#!/bin/bash
+# supervisor: {{ include "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
+# maintenance: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py" | sha256sum }}
+# profile: {{ .dotfiles_ai.hermes.profile }}
+
+set -euo pipefail
+{{ if not .dotfiles_ai.hermes.enabled -}}
+exit 0
+{{ end -}}
+
+HERMES={{ .dotfiles_ai.hermes.executable | quote }}
+[[ "$HERMES" == "~/"* ]] && HERMES="$HOME/${HERMES#~/}"
+PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
+[[ "$PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || { echo "invalid Hermes profile" >&2; exit 1; }
+[[ -x "$HERMES" ]] || { echo "Hermes is enabled but missing" >&2; exit 1; }
+profile_home="$HOME/.hermes/profiles/$PROFILE"
+if [[ ! -d "$profile_home" ]]; then
+    "$HERMES" profile create "$PROFILE" --description "DBSCTR context-isolated orchestration"
+fi
+mkdir -p "$profile_home/skills/dbsctr-supervisor" "$profile_home/scripts"
+install -m 600 "$HOME/.hermes/managed/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
+install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
+"$HERMES" -p "$PROFILE" config set terminal.home_mode profile
+"$HERMES" -p "$PROFILE" config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
+
+state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
+mkdir -p "$state"
+chmod 700 "$state"
+
+reconcile_job() {
+    local id_file=$1 schedule=$2 name=$3 prompt=$4 script=${5:-}
+    local id output
+    if [[ -f "$id_file" ]]; then
+        IFS= read -r id < "$id_file"
+        [[ "$id" =~ ^[0-9a-f]{12}$ ]] || { echo "invalid Hermes cron ID" >&2; exit 1; }
+        "$HERMES" -p "$PROFILE" cron edit "$id" --schedule "$schedule" --name "$name"
+        return
+    fi
+    if [[ -n "$script" ]]; then
+        output=$("$HERMES" -p "$PROFILE" cron create "$schedule" --no-agent --script "$script" --deliver local --name "$name")
+    else
+        output=$("$HERMES" -p "$PROFILE" cron create "$schedule" "Load dbsctr-supervisor, then: $prompt" --deliver local --name "$name")
+    fi
+    id=${output%%$'\n'*}; id=${id#Created job: }
+    [[ "$id" =~ ^[0-9a-f]{12}$ ]] || { echo "Hermes cron returned an invalid ID" >&2; exit 1; }
+    umask 077
+    printf '%s\n' "$id" > "$id_file"
+}
+
+reconcile_job "$state/refinement-cron-id" "{{ .dotfiles_ai.rnd.review_minute }} {{ .dotfiles_ai.rnd.review_hour }} * * *" \
+    "dotfiles-ai context refinement" \
+    "Reconcile canonical backlogs and sanitized history, claim at most one distinct opportunity, then start or resume exact OpenCode Discovery. Never answer Discovery or grant delivery authority."
+reconcile_job "$state/maintenance-cron-id" "0 3 * * *" \
+    "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"
+
+"$HERMES" -p "$PROFILE" gateway install
+"$HERMES" -p "$PROFILE" gateway start

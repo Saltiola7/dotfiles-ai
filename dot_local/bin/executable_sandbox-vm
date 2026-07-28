@@ -151,10 +151,13 @@ def validate_config(value):
             or any(not isinstance(tailscale[name], bool) for name in tailscale)):
         raise ValueError("invalid Tailscale settings")
     guest = value.get("guest")
+    if isinstance(guest, dict):
+        guest.setdefault("hermes_enabled", False)
     if not isinstance(guest, dict) or set(guest) != {
             "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme",
-            "atuin_sync_address"} or any(
-            not isinstance(item, str) for item in guest.values()):
+            "atuin_sync_address", "hermes_enabled"} or any(
+            not isinstance(guest[name], str) for name in guest if name != "hermes_enabled") \
+            or not isinstance(guest["hermes_enabled"], bool):
         raise ValueError("invalid guest settings")
     if not re.fullmatch(r"https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", guest["atuin_sync_address"]):
         raise ValueError("invalid guest Atuin sync address")
@@ -352,9 +355,18 @@ def guest_config(config, workspace):
         "launchagent = false",
         'executable = "/usr/local/bin/herdr"',
         "",
+        "[data.dotfiles_ai.hermes]",
+        f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
+        'executable = "~/.local/bin/hermes"',
+        f"profile = {quote(workspace['name'])}",
+        'provider = "openai-codex"',
+        "backlog_roots = [" + ", ".join(quote(mount["guest"]) for mount in workspace["mounts"]
+                                        if mount["writable"] and not mount["protect_git_submodules"]) + "]",
+        "",
         "[data.dotfiles_ai.rnd]",
-        "enabled = false",
-        'review_workdir = ""',
+        f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
+        'backend = "hermes"',
+        f"review_workdir = {quote(next(mount['guest'] for mount in workspace['mounts'] if mount['writable']))}",
         "review_hour = 9",
         "review_minute = 0",
         "watchdog_interval_seconds = 300",

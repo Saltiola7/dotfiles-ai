@@ -171,7 +171,7 @@ OpenCode control-plane behavior, and shell authentication.
 - Given scheduling is enabled, when the source applies, then the host system
   profile and enabled workspace profiles use independent Hermes homes, credentials,
   skills, sessions, logs, cron state, and Kanban roots.
-- Host OpenAI Codex authentication never crosses into a guest. MGM and personal
+- Host OpenAI Codex authentication never crosses into a guest. Client and personal
   authenticate separately inside their own VM trust boundary.
 - Hermes updates are manual. `hermes update --backup` and post-update health
   verification are operator-owned maintenance, not a scheduled job.
@@ -182,9 +182,9 @@ OpenCode control-plane behavior, and shell authentication.
   only canonical Git paths `REPOSITORY/docs/specs/CONTEXT/BACKLOG.md` whose real
   paths stay beneath that root; symlink escapes, malformed tables, and bounded-scan
   overflow fail closed.
-- The host system profile reads only the managed dotfiles repositories. The MGM
-  profile scans repositories directly beneath `/Users/tis/MGM/git`; the personal
-  catalog scans repositories directly beneath `/Users/tis/github` and creates one
+- The host system profile reads only its configured managed dotfiles repositories.
+  A client profile scans repositories directly beneath its configured client root;
+  the personal catalog scans its configured personal root and creates one
   project-local profile and Kanban board only for canonical Active work.
 - Given a valid Active row, then repository identity, context, and backlog ID
   derive one idempotent Kanban identity. Git backlog fields remain authoritative;
@@ -194,7 +194,7 @@ OpenCode control-plane behavior, and shell authentication.
   review rather than disappearing. A temporarily malformed file preserves the
   last valid mirror.
 - Personal refinement runs one project at a time. Raw backlog content, memory,
-  generated skills, findings, and task details never cross host, MGM, or personal
+  generated skills, findings, and task details never cross host, client, or personal
   profile boundaries.
 
 ### Optional Workspace Tailnet Access

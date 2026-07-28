@@ -17,6 +17,7 @@ HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
 GH = os.environ.get("GH", "gh")
 OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
 REVIEW_WORKDIR = Path({{ .dotfiles_ai.rnd.review_workdir | quote }}).resolve()
+BACKLOG_ROOTS = [Path(value).expanduser() for value in {{ .dotfiles_ai.hermes.backlog_roots | toJson }}]
 WORKSPACE_LABEL = {{ .dotfiles_ai.rnd.workspace_label | quote }}
 GITHUB_ACCOUNT = {{ .dotfiles_ai.rnd.github_account | quote }}
 GITHUB_REPOSITORY = {{ .dotfiles_ai.rnd.github_repository | quote }}
@@ -30,6 +31,9 @@ CADENCES = ("weekly", "twice_weekly", "daily")
 CADENCE_SECONDS = {"weekly": 7 * 86400, "twice_weekly": 7 * 86400 // 2, "daily": 86400}
 MONTH_SECONDS = 30 * 86400
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
+BACKLOG_COLUMNS = ("id", "title", "priority", "status", "depends_on", "owns", "reads",
+                   "parallel_safe", "reason", "effort", "validation")
+BACKLOG_STATUSES = {"pending", "in_progress", "blocked", "cancelled"}
 
 
 def command(argv, *, parse=True, env=None):
@@ -306,13 +310,14 @@ def reserve_spawn(workers, now):
         if active_workers + reservations >= 3:
             connection.commit()
             return None, "worker_cap"
+        if reservations:
+            connection.commit()
+            return None, "spawn_in_progress"
         if now < next_eligible:
             connection.commit()
             return None, "cadence_not_due"
         reservation = f"reservation-{uuid.uuid4().hex}"
         connection.execute("INSERT INTO spawn_reservations VALUES (?,?,NULL)", (reservation, now))
-        connection.execute("UPDATE scheduler_state SET next_eligible_at=? WHERE singleton=1",
-                           (now + CADENCE_SECONDS[cadence],))
         connection.commit()
         return reservation, "reserved"
     finally:
@@ -330,13 +335,18 @@ def release_reservation(reservation):
         connection.close()
 
 
-def complete_reservation(reservation, worker_id):
+def complete_reservation(reservation, worker_id, completed_at=None):
     connection = state_connection()
     try:
+        completed_at = int(time.time()) if completed_at is None else completed_at
+        cadence = connection.execute(
+            "SELECT cadence FROM scheduler_state WHERE singleton=1").fetchone()[0]
         connection.execute("UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=?",
                            (worker_id, reservation))
         if connection.total_changes != 1:
             raise RuntimeError("spawn reservation is missing")
+        connection.execute("UPDATE scheduler_state SET next_eligible_at=? WHERE singleton=1",
+                           (completed_at + CADENCE_SECONDS[cadence],))
         connection.commit()
     finally:
         connection.close()
@@ -486,6 +496,100 @@ def reset_schedule():
     finally:
         connection.close()
     print('{"status":"reset"}')
+
+
+def backlog_cells(line):
+    line = line.strip()
+    if not line.startswith("|") or not line.endswith("|"):
+        return None
+    return tuple(cell.strip().replace("\\|", "|") for cell in line[1:-1].split("|"))
+
+
+def canonical_backlogs():
+    repositories = []
+    for configured in BACKLOG_ROOTS:
+        if configured.is_symlink() or not configured.is_dir():
+            raise RuntimeError("configured backlog root is unavailable or unsafe")
+        root = configured.resolve()
+        candidates = [root] if (root / ".git").exists() else sorted(root.iterdir())
+        if len(candidates) > 128:
+            raise RuntimeError("backlog repository limit exceeded")
+        for candidate in candidates:
+            if candidate.is_symlink() or not candidate.is_dir() or not (candidate / ".git").exists():
+                continue
+            repository = candidate.resolve()
+            if repository != root and repository.parent != root:
+                raise RuntimeError("backlog repository escapes configured root")
+            common = command(["git", "-C", str(repository), "rev-parse", "--path-format=absolute",
+                              "--git-common-dir"], parse=False).strip()
+            repositories.append((hashlib.sha256(common.encode()).hexdigest()[:16], repository))
+    if len(repositories) > 128:
+        raise RuntimeError("backlog repository limit exceeded")
+    entries = []
+    for repository_id, repository in sorted(set(repositories)):
+        specs = repository / "docs/specs"
+        if not specs.is_dir() or specs.is_symlink():
+            continue
+        contexts = sorted(specs.iterdir())
+        if len(contexts) > 128:
+            raise RuntimeError("backlog context limit exceeded")
+        for context in contexts:
+            backlog = context / "BACKLOG.md"
+            if context.is_symlink() or backlog.is_symlink():
+                raise RuntimeError("backlog symlink is unsafe")
+            if (not backlog.is_file() or backlog.resolve().parent != context.resolve()
+                    or context.resolve().parent != specs.resolve()):
+                continue
+            if len(backlog.read_bytes()) > 256 * 1024:
+                raise RuntimeError("backlog file is oversized")
+            lines = backlog.read_text(encoding="utf-8").splitlines()
+            try:
+                active = lines.index("## Active")
+            except ValueError as error:
+                raise RuntimeError("canonical backlog Active section is missing") from error
+            header = next((index for index in range(active + 1, len(lines)) if lines[index].strip()), None)
+            if header is None or backlog_cells(lines[header]) != BACKLOG_COLUMNS:
+                raise RuntimeError("canonical backlog Active header is invalid")
+            index = header + 2
+            while index < len(lines) and lines[index].strip() and not lines[index].startswith("## "):
+                cells = backlog_cells(lines[index])
+                if cells is None or len(cells) != len(BACKLOG_COLUMNS):
+                    raise RuntimeError("canonical backlog row is invalid")
+                values = dict(zip(BACKLOG_COLUMNS, cells))
+                if values["status"] not in BACKLOG_STATUSES:
+                    raise RuntimeError("canonical backlog status is invalid")
+                identity = hashlib.sha256(
+                    f"{repository_id}\0{context.name}\0{values['id']}".encode()).hexdigest()
+                entries.append({"context": context.name, "idempotency_key": identity,
+                                "repository": str(repository), **values})
+                index += 1
+    payload = {"backlogs": entries, "schema_version": 1}
+    if len(json.dumps(payload).encode()) > 256 * 1024:
+        raise RuntimeError("backlog output is oversized")
+    return payload
+
+
+def reserve_action():
+    workers = validated_workers(command([DBSCTRCTL, "improvement-status"]))
+    reservation, reason = reserve_spawn(workers, int(time.time()))
+    if reservation is None:
+        print(json.dumps({"status": "no_op", "reason": reason}, separators=(",", ":")))
+        return
+    print(json.dumps({"status": "reserved", "reservation": reservation,
+                      "worker_id": f"dbsctr-{uuid.uuid4().hex[:8]}"}, separators=(",", ":")))
+
+
+def complete_action(reservation, worker_id):
+    workers = validated_workers(command([DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
+    if len(workers) != 1 or workers[0].get("worker_id") != worker_id:
+        raise RuntimeError("registered worker identity is missing")
+    complete_reservation(reservation, worker_id)
+    print(json.dumps({"status": "completed", "worker_id": worker_id}, separators=(",", ":")))
+
+
+def release_action(reservation):
+    release_reservation(reservation)
+    print('{"status":"released"}')
 
 
 def panes(workspace_id):
@@ -780,10 +884,13 @@ def persist_malformed_halt():
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("action", choices=("spawn", "watchdog", "analytics", "reset-schedule"))
+parser.add_argument("action", choices=("spawn", "watchdog", "analytics", "reset-schedule",
+                                       "backlogs", "reserve", "complete", "release"))
 parser.add_argument("--json", action="store_true")
 parser.add_argument("--finalize-json")
 parser.add_argument("--failure-json")
+parser.add_argument("--reservation")
+parser.add_argument("--worker-id")
 args = parser.parse_args()
 try:
     if args.action == "analytics":
@@ -794,6 +901,18 @@ try:
         if args.finalize_json or args.failure_json:
             raise RuntimeError("reset-schedule does not accept analytics inputs")
         reset_schedule()
+    elif args.action == "backlogs":
+        print(json.dumps(canonical_backlogs(), sort_keys=True, separators=(",", ":")))
+    elif args.action == "reserve":
+        reserve_action()
+    elif args.action == "complete":
+        if not args.reservation or not args.worker_id:
+            raise RuntimeError("complete requires reservation and worker ID")
+        complete_action(args.reservation, args.worker_id)
+    elif args.action == "release":
+        if not args.reservation:
+            raise RuntimeError("release requires reservation")
+        release_action(args.reservation)
     else:
         if args.json or args.finalize_json or args.failure_json:
             raise RuntimeError(f"{args.action} does not accept analytics inputs")

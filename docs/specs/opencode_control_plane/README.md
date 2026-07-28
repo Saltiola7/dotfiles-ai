@@ -424,7 +424,7 @@ exact OpenCode session before any `opencode -s SESSION` recovery; an existing,
 duplicate, missing, or ambiguous session blocks rather than starting substitute
 work. Hermes may deliver the session ID for manual attachment but may not send a
 Discovery answer, `proceed`, permission selection, merge, release, or deployment
-instruction. Host, MGM, and personal OpenCode runtimes retain separate databases,
+instruction. Host, client, and personal OpenCode runtimes retain separate databases,
 credentials, permissions, and Cycle Records.
 
 The typed read interface is `dbsctr_review_federated`; it accepts the existing

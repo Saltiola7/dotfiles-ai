@@ -37,6 +37,9 @@ install-bash-preexec.sh
 {{ if not .dotfiles_ai.herdr.launchagent }}
 Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
 {{ end }}
+{{ if not .dotfiles_ai.hermes.enabled }}
+.hermes/managed
+{{ end }}
 {{ if not .dotfiles_ai.rnd.enabled }}
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
@@ -49,6 +52,7 @@ load-dbsctr-rnd-launchagents.sh
 .local/bin/op-session
 .local/bin/dbsctr-rnd
 .local/bin/sandbox-vm
+.hermes/managed
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
 .config/dotfiles-ai/

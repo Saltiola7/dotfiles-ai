@@ -17,6 +17,17 @@ agent_panel_sort = "priority"
 launchagent = true
 executable = "/opt/homebrew/bin/herdr"
 
+[data.dotfiles_ai.hermes]
+# Hermes is the optional orchestration plane; authenticate this environment separately.
+enabled = false
+executable = "~/.local/bin/hermes"
+profile = "system"
+provider = "openai-codex"
+backlog_roots = [
+  "/Users/you/.local/share/chezmoi-dotfiles-ai",
+  "/Users/you/.local/share/chezmoi",
+]
+
 [data.dotfiles_ai.atuin]
 # Non-secret HTTPS service URL; login and encryption keys remain inside each VM.
 sync_address = "https://api.atuin.sh"
@@ -29,6 +40,7 @@ ssh = false
 [data.dotfiles_ai.rnd]
 # Keep false on machines that should not schedule autonomous review workers.
 enabled = false
+backend = "native" # switch to "hermes" only after the controlled cutover smoke
 review_workdir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 review_hour = 9
 review_minute = 0
