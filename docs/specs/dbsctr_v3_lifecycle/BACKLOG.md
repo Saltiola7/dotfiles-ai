@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.31-1 | Add bounded global completed-worktree maintenance | high | implementing | - | `dbsctrctl` global inventory/cleanup, lifecycle contract and focused tests | Existing Cycle Records, Git common directories, fixed DBSCTR worktree registry | no | Repository-local manual cleanup repeatedly allows completed DVC worktrees and virtualenvs to exhaust the host disk | M | Multi-repository fixtures, escape rejection, 24-hour retention, independent failures, exact delivery containment, scheduled script smoke |
 
 ## Completed
 

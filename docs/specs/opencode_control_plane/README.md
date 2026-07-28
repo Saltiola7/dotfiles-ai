@@ -416,6 +416,17 @@ acceptance and presentation identity; cycle and draft-PR progress remain
 guest-authoritative and are observed separately. It never attaches a VM runtime
 to the host cycle or shares a Cycle Record across machines.
 
+Given Hermes starts an R&D worker, OpenCode launches directly in the profile's
+declared repository and returns one native session ID before improvement
+registration. Herdr workspace, tab, and pane IDs are optional presentation fields,
+not registration preconditions. A gateway restart re-reads the DBSCTR worker and
+exact OpenCode session before any `opencode -s SESSION` recovery; an existing,
+duplicate, missing, or ambiguous session blocks rather than starting substitute
+work. Hermes may deliver the session ID for manual attachment but may not send a
+Discovery answer, `proceed`, permission selection, merge, release, or deployment
+instruction. Host, MGM, and personal OpenCode runtimes retain separate databases,
+credentials, permissions, and Cycle Records.
+
 The typed read interface is `dbsctr_review_federated`; it accepts the existing
 history filters plus cursor and limit and returns the validated federated source
 manifest schema version `2`. Continuation state binds its capture ID and normalized filter query, and the typed

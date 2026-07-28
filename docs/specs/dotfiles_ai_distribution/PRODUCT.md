@@ -21,12 +21,11 @@ target files.
    1Password never blocks Herdr or shell startup.
 4. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
-5. A developer opts into R&D scheduling, supplies machine-local source and GitHub
-   identity, and receives visible daily OpenCode R&D workers that review global
-   history but publish only sanitized draft pull requests for this source.
-6. The operator opens `herdr`, answers Discovery questions in blocked worker
-   tabs, explicitly authorizes implementation, and manually manages resulting
-   draft pull requests.
+5. A developer opts into Hermes orchestration and receives context-isolated
+   backlog refinement plus resumable OpenCode Discovery workers.
+6. The operator uses host or VM Herdr to inspect Hermes and resume blocked
+   OpenCode sessions, explicitly authorizes implementation, and manually manages
+   resulting draft pull requests.
 7. An opted-in operator receives bounded CLI/JSON evidence about merged
    improvement effects while private runtime state conservatively adjusts worker
    cadence without changing source configuration or granting workers delivery
@@ -53,8 +52,9 @@ target files.
   validation passes.
 - The writable source path is machine-local and never a public default or
   general navigation allowlist.
-- Launchd owns process scheduling, Herdr owns terminal presentation, OpenCode
-  owns agent execution, and the DBSCTR ledger owns durable coordination.
+- Hermes owns scheduling, Kanban, and delegation; Herdr owns optional terminal
+  presentation; OpenCode owns implementation; the DBSCTR ledger owns lifecycle
+  coordination and approval state.
 - Adaptive cadence remains between weekly and daily, allows at most three
   nonterminal workers, halts on repeated failures, and requires manual reset.
 - Private session, project, and repository provenance never appears in public
@@ -68,8 +68,8 @@ target files.
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
   cutover.
-- Enabled and disabled launchd rendering, Herdr integration, and review jobs are
-  repeatable, while Discovery questions still pause for human input.
+- Enabled and disabled Hermes profiles, backlog mirrors, Herdr attachment, and
+  review jobs are repeatable, while Discovery still pauses for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
 - Monthly cadence decisions are reproducible from sanitized evidence, preserve
