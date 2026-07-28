@@ -1,7 +1,10 @@
+import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
-from test_opencode_control_plane import OC, ROOT, rendered_config
+from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 
 
 SKILLS = ROOT / "dot_agents/skills"
@@ -104,3 +107,35 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
         order = list(bash)
         assert order.index("acli *") < order.index("acli jira workitem view *")
         assert order.index("acli jira workitem comment list *") < order.index("acli *&&*")
+
+
+def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
+    targets = [
+        tmp_path / ".agents/skills/jira-ticket",
+        tmp_path / ".agents/skills/pyramid",
+        *(tmp_path / f".config/opencode/commands/{name}.md"
+          for name in ("jira-ticket", "jira-completion", "pyramid")),
+        tmp_path / ".config/opencode/opencode.json",
+    ]
+    render = subprocess.run(
+        [
+            "chezmoi", "-S", str(ROOT), "-D", str(tmp_path), "--config", "/dev/null",
+            "--config-format", "toml", "--override-data", json.dumps(DATA),
+            "--cache", str(tmp_path / "cache"), "--persistent-state", str(tmp_path / "state"),
+            "apply", "--parent-dirs", *map(str, targets),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert render.returncode == 0, render.stderr
+
+    assert (tmp_path / ".agents/skills/jira-ticket/SKILL.md").is_file()
+    assert (tmp_path / ".agents/skills/pyramid/SKILL.md").is_file()
+    env = {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
+    result = subprocess.run(
+        ["opencode", "debug", "config", "--pure"], cwd=tmp_path, env=env,
+        text=True, capture_output=True, check=True,
+    )
+    resolved = json.loads(result.stdout)
+    assert {"jira-ticket", "jira-completion", "pyramid"} <= resolved["command"].keys()

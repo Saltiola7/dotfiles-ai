@@ -217,23 +217,23 @@ invocation, then the skill asks once and sends no private content in the query.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Writing, evidence, readiness, and consent language | required | pending | This README and Product Intent | - | Primary |
-| Behavior | Jira, completion, Pyramid, and trust scenarios | required | pending | Given/When/Then scenarios and smoke cases | - | Primary |
-| Spec | Interfaces, ownership, profile, and risks | required | pending | README, PRODUCT, and BACKLOG | - | Primary |
-| Contract | Metadata, command, permission, privacy, and output invariants | required | pending | Focused tests | - | Primary |
-| Test-driven implementation | Red/green focused contracts | required | pending | `tests/test_writing_skills.py` | - | Primary |
-| Refactor | Minimal shared content without speculative framework | required | pending | Diff review | - | Primary |
-| Review/Integrate | Public safety and adjacent-context coherence | required | pending | Affected QA and integrated diff | - | Primary |
+| Domain | Writing, evidence, readiness, and consent language | required | passed | This README and Product Intent | - | Primary |
+| Behavior | Jira, completion, Pyramid, and trust scenarios | required | passed | Given/When/Then scenarios and focused contracts | - | Primary |
+| Spec | Interfaces, ownership, profile, and risks | required | passed | README, PRODUCT, and BACKLOG | - | Primary |
+| Contract | Metadata, command, permission, privacy, and output invariants | required | passed | Focused rendered tests | - | Primary |
+| Test-driven implementation | Red/green focused contracts | required | passed | Missing-surface failures followed by affected test pass | - | Primary |
+| Refactor | Minimal shared content without speculative framework | required | passed | Integrated diff and isolated render smoke | - | Primary |
+| Review/Integrate | Public safety and adjacent-context coherence | required | passed | Affected QA, tracked-file scan, and source review | - | Primary |
 | Release | Publish a versioned package | not_applicable: no release requested | not_run | Engineering Profile | - | User |
 | Deploy | Apply managed OpenCode configuration | not_applicable: live apply explicitly excluded | not_run | Engineering Profile | - | User |
 | Operate | Verify a persistent service | not_applicable: no service or runtime deployment | not_run | Engineering Profile | - | User |
-| Maintain/Retire | Record compatibility and retirement obligations | required | pending | README and changelogs | - | Primary |
+| Maintain/Retire | Record compatibility and retirement obligations | required | passed | README and changelogs | - | Primary |
 
 ## Artifact Review
 
-- README: created for the approved bounded context and implementation cycle.
-- BACKLOG: created with one sequential affected-scope delivery chain.
-- CHANGELOG: created with the Discovery outcome; completion entry remains due.
+- README: reviewed and updated with completed gate evidence.
+- BACKLOG: reviewed and moved the delivered cycle to Completed.
+- CHANGELOG: reviewed and updated with the implementation outcome.
 
 ## Validation Strategy
 

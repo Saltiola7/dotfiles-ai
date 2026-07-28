@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-07-28 - Writing Skill ACLI Boundary
+
+- Added direct read-only ACLI permission shapes for account status, work-item
+  view, bounded search, and comment listing to global and native Plan contexts.
+  Other direct commands, common wrappers, chaining, and redirection are denied.
+- Rendered permission contracts and isolated OpenCode configuration discovery
+  passed. No live managed configuration was applied; existing OpenCode processes
+  remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:
+  `origin/main`.
+
 ## 2026-07-26 - Provider-Native Harness Delivery
 
 - Added `/dbsctr-gpt` and `/dbsctr-claude`, provider-conditional guidance,
