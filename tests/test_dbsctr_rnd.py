@@ -666,7 +666,7 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
         if argv[0] == runner["DBSCTRCTL"]:
             return {"workers": [worker]}
         if argv[:3] == [runner["HERDR"], "agent", "list"]:
-            return {"result": {"agents": []}}
+            raise AssertionError("Herdr queried for waiting-only workers")
         raise AssertionError(argv)
 
     runner["command"] = execute

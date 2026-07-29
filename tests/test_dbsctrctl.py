@@ -4264,12 +4264,13 @@ class DbsctrctlTest(unittest.TestCase):
         replacement = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-2", "--session-id", "session-2", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         self.assertEqual(replacement["opportunity_id"], claimed["opportunity_id"])
 
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-3", "--session-id", "session-3",
-            "--summary", "Preserve closed improvement history")
+            "--summary", "Preserve closed improvement history", "--priority", "P1")
         connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
         connection.execute("update improvement_workers set state='merged' where worker_id='worker-2'")
         connection.execute("update improvement_workers set state='closed' where worker_id='worker-3'")
@@ -4349,12 +4350,24 @@ class DbsctrctlTest(unittest.TestCase):
             "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             ("worker-1", "session-1", "a" * 64, "Existing claim", "claimed", "claimed", 0,
              None, None, None, None, None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        for index, state, resume_state in (
+            (2, "discovery", "discovery"), (3, "implementing", "implementing"),
+            (4, "draft_pr", "draft_pr"), (5, "blocked", "discovery"),
+        ):
+            connection.execute(
+                "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"worker-{index}", f"session-{index}", f"{index:x}" * 64,
+                 f"Existing {state}", state, resume_state, 0, None, None, None, None,
+                 None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
         connection.commit()
         module.ensure_improvement_schema(connection)
         self.assertEqual(connection.execute(
             "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
         self.assertEqual(connection.execute(
             "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
+        self.assertEqual(connection.execute(
+            "select distinct priority from improvement_workers where worker_id!='worker-1'"
+        ).fetchall(), [("P1",)])
         module.improvement_integrity(connection)
         connection.close()
 

@@ -621,7 +621,8 @@ def ensure_improvement_schema(connection):
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("ALTER TABLE improvement_workers ADD COLUMN priority TEXT "
                                "CHECK (priority IN ('P0','P1','P2','P3'))")
-            connection.execute("UPDATE improvement_workers SET priority='P2' "
+            connection.execute("UPDATE improvement_workers SET priority="
+                               "CASE WHEN state='claimed' THEN 'P2' ELSE 'P1' END "
                                "WHERE opportunity_id IS NOT NULL")
             connection.execute("UPDATE ledger_meta SET value=? WHERE key='improvement_schema'",
                                (str(IMPROVEMENT_SCHEMA),))
@@ -695,6 +696,7 @@ def improvement_integrity(connection):
                 or (opportunity_id is None) != (priority is None)
                 or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
                 or state == "reviewing" and opportunity_id is not None
+                or priority in {"P2", "P3"} and state not in {"claimed", "abandoned"}
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
                 or not isinstance(attempts, int) or not 0 <= attempts <= 3
@@ -6000,8 +6002,7 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
-        if (current["state"] == "claimed" and current["priority"] in {"P2", "P3"}
-                and state not in {"claimed", "abandoned"}):
+        if current["priority"] in {"P2", "P3"} and state not in {"claimed", "abandoned"}:
             fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
@@ -6049,8 +6050,7 @@ def command_improvement_recover(args):
         current = improvement_worker(connection, worker_id)
         if current["state"] in {"merged", "closed", "abandoned"}:
             fail("terminal improvement worker cannot be recovered")
-        if (current["state"] == "claimed" and current["priority"] in {"P2", "P3"}
-                and args.action != "abandon"):
+        if current["priority"] in {"P2", "P3"} and args.action != "abandon":
             fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         if args.action == "failed":

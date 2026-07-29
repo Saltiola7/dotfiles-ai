@@ -1147,7 +1147,9 @@ def watchdog():
     workers = validated_workers(command([DBSCTRCTL, "improvement-status"]))
     current_workers = {worker["worker_id"]: worker for worker in workers}
     merge_identities = {}
-    agents = records(command([HERDR, "agent", "list"]), "agents")
+    actionable = [worker for worker in workers
+                  if not (worker["state"] == "claimed" and worker.get("priority") in {"P2", "P3"})]
+    agents = (records(command([HERDR, "agent", "list"]), "agents") if actionable else [])
     token = None
     events = []
     for worker in workers:
