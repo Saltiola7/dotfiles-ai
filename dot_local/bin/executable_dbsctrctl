@@ -2025,24 +2025,30 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
     current_branch = branch(root)
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
+    protected_base_branch = args.base_branch
+    if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
+        fail("invalid protected base branch")
     if args.delivery_intent == "draft_pr":
         account = getattr(args, "github_account", None)
         repository = getattr(args, "github_repository", None)
         if (not account or not OPAQUE_ID.fullmatch(account) or not repository
                 or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)):
             fail("draft_pr delivery requires a valid GitHub account and repository")
-        if not current_branch or current_branch == delivery_branch:
+        if not current_branch or current_branch == protected_base_branch:
             fail("draft_pr delivery requires a feature branch distinct from its base")
         delivery = {
             "upstream": current_upstream, "remote": delivery_remote,
-            "branch": current_branch, "base_branch": delivery_branch,
+            "branch": current_branch, "base_branch": protected_base_branch,
             "github": {"host": "github.com", "account": account, "repository": repository},
             "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
                                         remote_branch=current_branch),
         }
     else:
+        if delivery_branch == protected_base_branch:
+            fail("direct delivery to the protected base branch requires draft_pr")
         delivery = {"upstream": current_upstream, "remote": delivery_remote,
-                    "branch": delivery_branch, "lock_id": delivery_lock_id(
+                    "branch": delivery_branch, "protected_base_branch": protected_base_branch,
+                    "lock_id": delivery_lock_id(
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
     record = {
@@ -6833,11 +6839,15 @@ def finish_push(root, path, record):
     delivery = record.get("delivery", {})
     remote = delivery.get("remote")
     remote_branch = delivery.get("branch")
-    base_branch = delivery.get("base_branch", remote_branch)
     if not remote or not remote_branch:
         remote, remote_branch = remote_for_upstream(root, current_upstream)
     if not remote or not remote_branch:
         fail("upstream is not a remote branch")
+    protected_base_branch = delivery.get("protected_base_branch", "main")
+    if record["delivery_intent"] != "draft_pr" and remote_branch == protected_base_branch:
+        fail("direct delivery to the protected base branch requires draft_pr")
+    base_branch = (delivery.get("base_branch", protected_base_branch)
+                   if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
     git(root, "fetch", remote, base_branch)
@@ -6933,6 +6943,7 @@ def parser():
     start.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     start.add_argument("--github-account")
     start.add_argument("--github-repository")
+    start.add_argument("--base-branch", default="main")
     start.set_defaults(func=command_start)
     begin = commands.add_parser("begin")
     begin.add_argument("--cycle-id", required=True)
@@ -6942,6 +6953,7 @@ def parser():
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
+    begin.add_argument("--base-branch", default="main")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
     begin.add_argument("--opencode-message-id")

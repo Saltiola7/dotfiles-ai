@@ -89,10 +89,11 @@ class DbsctrctlTest(unittest.TestCase):
         }))
         return plan
 
-    def start(self, intent="local"):
+    def start(self, intent="local", base_branch="main"):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
-                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan)]
+                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
+                   "--base-branch", base_branch]
         if intent == "draft_pr":
             command += ["--github-account", "example-user", "--github-repository", "example-user/dotfiles-ai"]
         return run(self.repo, *command)
@@ -1608,7 +1609,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "final-push")
         self.assertFalse(pointer.exists())
 
-    def test_final_push_targets_recorded_upstream_branch(self):
+    def test_start_rejects_direct_protected_branch_delivery(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
@@ -1616,27 +1617,30 @@ class DbsctrctlTest(unittest.TestCase):
             ["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
             capture_output=True,
         )
-        self.start()
-        (self.repo / "tracked.txt").write_text("cycle\n")
-        (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
-        self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
-        run(
-            self.repo, "gate-commit", "--message", "cycle change", "--gates", "domain", "--paths",
-            "tracked.txt", "docs/specs/test/CHANGELOG.md",
+        result = run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+            "--delivery-intent", "local", "--plan", str(self.plan_path()), "--base-branch", "main",
+            ok=False,
         )
-        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
-        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
-        run(
-            self.repo, "review-artifact", "CHANGELOG", "--result", "changed",
-            "--reason", "recorded", "--path", "docs/specs/test/CHANGELOG.md",
-        )
-        self.pass_gates()
-        run(self.repo, "final-push")
-        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
-                               capture_output=True).stdout.strip()
-        pushed = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
-                                text=True, capture_output=True).stdout.strip()
-        self.assertEqual(local, pushed)
+        self.assertIn("protected base branch", result.stderr)
+        self.assertFalse(self.record_path().exists())
+
+    def test_draft_pr_records_configured_base_for_existing_feature_branch(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD:develop"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "checkout", "-b", "teammate/change"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+
+        self.start("draft_pr", base_branch="develop")
+
+        delivery = json.loads(self.record_path().read_text())["delivery"]
+        self.assertEqual(delivery["branch"], "teammate/change")
+        self.assertEqual(delivery["base_branch"], "develop")
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1646,7 +1650,11 @@ class DbsctrctlTest(unittest.TestCase):
                        capture_output=True)
         subprocess.run(["git", "checkout", "-b", "dbsctr/test/cycle-1"], cwd=self.repo, check=True,
                        capture_output=True)
-        subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
+        (self.repo / "tracked.txt").write_text("teammate baseline\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "teammate baseline"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
@@ -1701,7 +1709,12 @@ class DbsctrctlTest(unittest.TestCase):
                               text=True, capture_output=True).stdout.strip()
         self.assertEqual(feature, subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
                                                  text=True, capture_output=True).stdout.strip())
-        self.assertEqual(main, base)
+        self.assertNotEqual(main, base)
+        self.assertEqual(
+            subprocess.run(["git", "show", "refs/heads/dbsctr/test/cycle-1^:tracked.txt"], cwd=remote,
+                           check=True, text=True, capture_output=True).stdout,
+            "teammate baseline\n",
+        )
         log = gh_log.read_text()
         self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
         self.assertIn("<pr>\n<create>", log)

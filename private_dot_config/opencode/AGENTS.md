@@ -22,9 +22,11 @@ runs as context-scoped isolated DBSCTR cycles.
 
 DBSCTR cycles create coherent Gate Commits after passing gate increments.
 They perform one Final Push after every required gate passes. This standing
-policy authorizes only a normal push to the cycle-start upstream. Stop and ask when the push lacks an
-upstream, includes pre-cycle commits, changes destination, requires force, or
-fails required Git/DVC evidence.
+policy authorizes only a normal feature-branch push and verified draft pull
+request into the configured protected base branch. Direct cycle delivery to
+`main` is prohibited. Stop and ask when the push lacks an upstream, includes
+pre-cycle commits, changes destination, requires force, or fails required
+Git/DVC evidence.
 
 A validated Build-primary agent has standing authorization to use typed
 `dbsctr_begin` with its committed applicability plan, typed `dbsctr_attach` when
