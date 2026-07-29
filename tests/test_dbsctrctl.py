@@ -1723,7 +1723,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         run(self.repo, "improvement-claim", "--session-id", "session-1",
-            "--summary", "Improve draft delivery", env=worker_env)
+            "--summary", "Improve draft delivery", "--priority", "P1", env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "discovery",
             env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
@@ -4139,6 +4139,17 @@ class DbsctrctlTest(unittest.TestCase):
             "--summary", "Observed in /Users/private/repo", ok=False,
         )
         self.assertIn("unsafe improvement summary", unsafe.stderr)
+        p2 = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-4", "--session-id", "session-4",
+            "--summary", "Queue a bounded operator improvement",
+        ).stdout)
+        self.assertEqual(p2["priority"], "P2")
+        rejected = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-4", "--state", "discovery", ok=False,
+        )
+        self.assertIn("require operator promotion", rejected.stderr)
         ledger = state / "reviews/ledger.sqlite3"
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
 
@@ -4149,7 +4160,8 @@ class DbsctrctlTest(unittest.TestCase):
             ("worker-2", "session-2", "Improve supervisor policy"),
         ):
             run(self.repo, "improvement-claim", "--state-root", str(state),
-                "--worker-id", worker, "--session-id", session, "--summary", summary)
+                "--worker-id", worker, "--session-id", session, "--summary", summary,
+                "--priority", "P1")
             run(self.repo, "improvement-update", "--state-root", str(state),
                 "--worker-id", worker, "--state", "discovery")
         updated = json.loads(run(
@@ -4176,7 +4188,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "improvement-recovery"
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1",
-            "--summary", "Recover exact worker sessions")
+            "--summary", "Recover exact worker sessions", "--priority", "P1")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "discovery",
             "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1")
@@ -4210,6 +4222,7 @@ class DbsctrctlTest(unittest.TestCase):
         claimed = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         active = run(
             self.repo, "improvement-forget", "--state-root", str(state),
@@ -4338,6 +4351,27 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(connection.execute(
             "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
         module.improvement_integrity(connection)
+        connection.close()
+
+    def test_improvement_status_migrates_v1_ledger_under_lock(self):
+        state = Path(self.temp.name) / "improvement-status-migration"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Migrate an existing queued claim")
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("update ledger_meta set value='1' where key='improvement_schema'")
+        connection.execute("alter table improvement_workers drop column priority")
+        connection.commit()
+        connection.close()
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertEqual(status["workers"][0]["priority"], "P2")
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

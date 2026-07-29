@@ -457,6 +457,14 @@ def ledger_connection(root, write=False, path=None):
         row = connection.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()
         if row != (str(REVIEW_LEDGER_SCHEMA),):
             fail("private review ledger has an unsupported schema")
+        improvement_schema = connection.execute(
+            "SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
+        if write and improvement_schema == ("1",):
+            if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                fail("private review ledger integrity check failed")
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                fail("private review ledger foreign-key check failed")
+            ensure_improvement_schema(connection)
         ledger_integrity(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
@@ -5992,6 +6000,9 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
+        if (current["state"] == "claimed" and state == "discovery"
+                and current["priority"] not in {"P0", "P1"}):
+            fail("P2/P3 improvement claims require operator promotion before Discovery")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
@@ -6082,8 +6093,9 @@ def command_improvement_status(args):
     if not ledger_exists(root):
         print(json.dumps({"workers": []}, sort_keys=True))
         return
-    with existing_review_lock(root):
-        connection = ledger_connection(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
         try:
             if connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone() is None:
                 workers = []
