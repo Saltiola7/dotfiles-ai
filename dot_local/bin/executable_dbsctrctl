@@ -2025,6 +2025,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
     current_branch = branch(root)
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
+    pre_cycle_ahead = ahead(root, current_upstream)
     protected_base_branch = args.base_branch
     if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
         fail("invalid protected base branch")
@@ -2036,9 +2037,19 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
             fail("draft_pr delivery requires a valid GitHub account and repository")
         if not current_branch or current_branch == protected_base_branch:
             fail("draft_pr delivery requires a feature branch distinct from its base")
+        if not delivery_remote:
+            fail("draft_pr delivery requires a configured remote")
+        git(root, "fetch", delivery_remote, protected_base_branch)
+        base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
+        published_head = git(
+            root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
+        ).stdout.split()
+        if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
+            fail("pre-cycle commits are not published on the feature branch")
         delivery = {
             "upstream": current_upstream, "remote": delivery_remote,
-            "branch": current_branch, "base_branch": protected_base_branch,
+            "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
+            **({"published_feature_head": published_head[0]} if published_head else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
             "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
                                         remote_branch=current_branch),
@@ -2061,7 +2072,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         }},
         "git": {"head": git(root, "rev-parse", "HEAD").stdout.strip(), "branch": current_branch,
                 "upstream": current_upstream, "dirty_paths": dirty_paths,
-                "pre_cycle_ahead_commits": ahead(root, current_upstream),
+                "pre_cycle_ahead_commits": pre_cycle_ahead,
                  "remote": remote_destination(root, current_upstream)},
         "worktree": {"id": worktree_id(root), "path": str(root.resolve()),
                      "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
@@ -6741,7 +6752,7 @@ def deliver_draft_pr(root, record):
     github = delivery["github"]
     env = github_environment(github["account"])
     fields = "number,url,isDraft,state,baseRefName,headRefName"
-    head = f"{github['account']}:{delivery['branch']}"
+    head = f"{github['repository'].partition('/')[0]}:{delivery['branch']}"
     existing = github_json(
         root, env, "pr", "list", "--repo", github["repository"], "--head", head,
         "--state", "all", "--limit", "2", "--json", fields,
@@ -6834,33 +6845,41 @@ def finish_push(root, path, record):
     current_upstream = upstream(root)
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
-    if baseline["pre_cycle_ahead_commits"]:
-        fail("pre-cycle ahead commits would be pushed")
     delivery = record.get("delivery", {})
+    if (baseline["pre_cycle_ahead_commits"] and not (
+            record["delivery_intent"] == "draft_pr"
+            and delivery.get("published_feature_head") == baseline["head"])):
+        fail("pre-cycle ahead commits would be pushed")
     remote = delivery.get("remote")
     remote_branch = delivery.get("branch")
     if not remote or not remote_branch:
         remote, remote_branch = remote_for_upstream(root, current_upstream)
     if not remote or not remote_branch:
         fail("upstream is not a remote branch")
-    protected_base_branch = delivery.get("protected_base_branch", "main")
-    if record["delivery_intent"] != "draft_pr" and remote_branch == protected_base_branch:
+    protected_base_branch = delivery.get("protected_base_branch")
+    if (record["delivery_intent"] != "draft_pr" and protected_base_branch
+            and remote_branch == protected_base_branch):
         fail("direct delivery to the protected base branch requires draft_pr")
-    base_branch = (delivery.get("base_branch", protected_base_branch)
+    base_branch = (delivery.get("base_branch", "main")
                    if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
     git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
-    target_head = git(root, "rev-parse", current_upstream).stdout.strip()
+    target_ref = (f"refs/remotes/{remote}/{base_branch}"
+                  if record["delivery_intent"] == "draft_pr" else current_upstream)
+    target_head = git(root, "rev-parse", target_ref).stdout.strip()
     recorded_commits = [entry["id"] for entry in record["commits"]]
     reconciled = False
-    if target_head != cycle_base:
-        if (git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
+    base_head = delivery.get("base_head", cycle_base)
+    if target_head != base_head:
+        if (record["delivery_intent"] != "draft_pr"
+                and git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
                 or git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode):
             fail("delivery target advanced outside the cycle lineage")
         reconciled = True
-    current_ahead = git(root, "rev-list", "--reverse", f"{current_upstream}..HEAD").stdout.splitlines()
+    comparison_base = cycle_base if record["delivery_intent"] == "draft_pr" else current_upstream
+    current_ahead = git(root, "rev-list", "--reverse", f"{comparison_base}..HEAD").stdout.splitlines()
     if current_ahead != recorded_commits:
         if not (record["state"] == "finalizing" and not current_ahead and reconciled
                 and git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()[-len(recorded_commits):]
@@ -6907,7 +6926,7 @@ def finish_push(root, path, record):
         link_improvement_pull_request(record, record["delivery"]["pull_request"])
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
-    if reconciled:
+    if reconciled and record["delivery_intent"] != "draft_pr":
         baseline["head"] = target_head
         baseline["reconciled_at"] = now()
     record["state"] = "completed"

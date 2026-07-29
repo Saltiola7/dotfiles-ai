@@ -89,13 +89,14 @@ class DbsctrctlTest(unittest.TestCase):
         }))
         return plan
 
-    def start(self, intent="local", base_branch="main"):
+    def start(self, intent="local", base_branch="main", account="example-user",
+              repository="example-user/dotfiles-ai"):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
                    "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
                    "--base-branch", base_branch]
         if intent == "draft_pr":
-            command += ["--github-account", "example-user", "--github-repository", "example-user/dotfiles-ai"]
+            command += ["--github-account", account, "--github-repository", repository]
         return run(self.repo, *command)
 
     def record_path(self, repo=None):
@@ -1648,17 +1649,21 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
                        capture_output=True)
+        main_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                     capture_output=True).stdout.strip()
         subprocess.run(["git", "checkout", "-b", "dbsctr/test/cycle-1"], cwd=self.repo, check=True,
                        capture_output=True)
         (self.repo / "tracked.txt").write_text("teammate baseline\n")
         subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "teammate baseline"], cwd=self.repo, check=True,
                        capture_output=True)
-        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
                        capture_output=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
-        self.start("draft_pr")
+        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
         home = Path(self.temp.name) / "home"
         home.mkdir()
         worker_env = {**os.environ, "HOME": str(home)}
@@ -1695,8 +1700,8 @@ class DbsctrctlTest(unittest.TestCase):
             "case \"$1 $2\" in\n"
             "  'auth token') printf 'test-token\\n' ;;\n"
             "  'pr list') printf '[]\\n' ;;\n"
-            "  'pr create') printf 'https://github.com/example-user/dotfiles-ai/pull/1\\n' ;;\n"
-            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-user/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "  'pr create') printf 'https://github.com/example-org/dotfiles-ai/pull/1\\n' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-org/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
             "esac\n"
         )
         gh.chmod(0o755)
@@ -1709,7 +1714,7 @@ class DbsctrctlTest(unittest.TestCase):
                               text=True, capture_output=True).stdout.strip()
         self.assertEqual(feature, subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
                                                  text=True, capture_output=True).stdout.strip())
-        self.assertNotEqual(main, base)
+        self.assertEqual(main, main_before)
         self.assertEqual(
             subprocess.run(["git", "show", "refs/heads/dbsctr/test/cycle-1^:tracked.txt"], cwd=remote,
                            check=True, text=True, capture_output=True).stdout,
@@ -1717,6 +1722,7 @@ class DbsctrctlTest(unittest.TestCase):
         )
         log = gh_log.read_text()
         self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
+        self.assertIn("<--head>\n<example-org:dbsctr/test/cycle-1>", log)
         self.assertIn("<pr>\n<create>", log)
         self.assertNotIn("<merge>", log)
         record = json.loads(self.record_path().read_text())

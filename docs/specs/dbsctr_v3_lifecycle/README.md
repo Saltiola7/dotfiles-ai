@@ -1117,11 +1117,17 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   Protected Base Branch. Existing historical records remain readable.
 - `draft_pr` records the Protected Base Branch independently from the feature
   branch upstream, so an existing teammate feature branch may target `main`.
+- Same-repository pull requests derive their head owner from the configured
+  repository, while the separately configured GitHub account selects credentials.
+- A feature branch tracking the protected base is accepted only when its complete
+  pre-cycle HEAD is already published under the same remote feature ref.
 - `begin` continues to create an isolated `dbsctr/<context>/<cycle-id>` branch.
   `start` supports an already prepared dedicated clean feature worktree and
   treats its current HEAD, including existing commits, as the cycle baseline.
 - Dirty worktrees fail closed with bounded path diagnostics; DBSCTR does not
   automatically stash, commit, discard, or adopt pre-cycle changes.
+- Schema-less and older schema records without protected-base metadata retain
+  their recorded legacy Final Push rules; the new guard is not inferred into them.
 
 ### V3.20-V3.22 Analytics Program Overrides
 
