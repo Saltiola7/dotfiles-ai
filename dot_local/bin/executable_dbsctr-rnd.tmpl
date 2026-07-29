@@ -179,15 +179,15 @@ def state_connection():
     """)
     version = connection.execute("SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:
-        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','2')")
+        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','3')")
         connection.execute("INSERT INTO scheduler_state VALUES (1,'weekly',0,0,'',NULL,0,0)")
         connection.execute("INSERT INTO lens_state VALUES (1,'daily',0,'',0)")
         connection.commit()
     elif version == ("1",):
         connection.execute("INSERT OR IGNORE INTO lens_state VALUES (1,'daily',0,'',0)")
-        connection.execute("UPDATE scheduler_meta SET value='2' WHERE key='schema_version'")
+        connection.execute("UPDATE scheduler_meta SET value='3' WHERE key='schema_version'")
         connection.commit()
-    elif version != ("2",):
+    elif version != ("3",):
         connection.close()
         persist_malformed_halt()
         raise RuntimeError("scheduler state has an unsupported schema")
@@ -458,13 +458,8 @@ def complete_reservation(reservation, worker_id, completed_at=None):
         row = connection.execute(
             "SELECT worker_id FROM spawn_reservations WHERE reservation_id=?", (reservation,)
         ).fetchone()
-        if row is None or row[0] not in (None, worker_id):
-            raise RuntimeError("spawn reservation is missing")
-        if row[0] is None:
-            connection.execute("UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=?",
-                               (worker_id, reservation))
-            connection.execute("UPDATE lens_attempts SET worker_id=? WHERE reservation_id=?",
-                               (worker_id, reservation))
+        if row is None or row[0] != worker_id:
+            raise RuntimeError("spawn reservation is missing or unclaimed")
         connection.commit()
     finally:
         connection.close()
@@ -521,55 +516,68 @@ def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
     lenses_digest = hashlib.sha256(json.dumps(
         [{"name": name, "version": LENS_VERSION} for name in LENSES],
         sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def replay(existing):
+        if existing is None:
+            return None
+        if existing[:4] != (capture_day, manifest_digest, outcome, lenses_digest):
+            raise RuntimeError("lens result conflicts with immutable pass")
+        return {"schema_version": 1, "worker_id": worker_id, "capture_day": capture_day,
+                "manifest_digest": manifest_digest, "outcome": outcome, "cadence": existing[4],
+                "no_yield_count": existing[5], "quarter": existing[6],
+                "next_eligible_at": existing[7]}
+
+    connection = state_connection()
+    try:
+        existing = connection.execute(
+            "SELECT capture_day,manifest_digest,outcome,lenses_digest,cadence,no_yield_count,quarter,"
+            "next_eligible_at FROM lens_passes WHERE worker_id=?",
+            (worker_id,)).fetchone()
+        restored = replay(existing)
+        if restored is not None:
+            return restored
+    finally:
+        connection.close()
+    workers = validated_workers(command([DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
+    required_state = "claimed" if outcome == "yield" else "reviewing"
+    if (len(workers) != 1 or workers[0].get("worker_id") != worker_id
+            or workers[0].get("state") != required_state):
+        raise RuntimeError("lens result worker is not in the required state")
     connection = state_connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
             "SELECT capture_day,manifest_digest,outcome,lenses_digest,cadence,no_yield_count,quarter,"
-            "next_eligible_at FROM lens_passes WHERE worker_id=?",
-            (worker_id,)).fetchone()
-        identity = (capture_day, manifest_digest, outcome, lenses_digest)
-        if existing is not None:
-            if existing[:4] != identity:
-                raise RuntimeError("lens result conflicts with immutable pass")
+            "next_eligible_at FROM lens_passes WHERE worker_id=?", (worker_id,)).fetchone()
+        restored = replay(existing)
+        if restored is not None:
             connection.commit()
-            return {"schema_version": 1, "worker_id": worker_id, "capture_day": capture_day,
-                    "manifest_digest": manifest_digest, "outcome": outcome, "cadence": existing[4],
-                    "no_yield_count": existing[5], "quarter": existing[6],
-                    "next_eligible_at": existing[7]}
+            return restored
+        attempt = connection.execute(
+            "SELECT reservation_id FROM lens_attempts WHERE capture_day=? AND worker_id=?",
+            (capture_day, worker_id)).fetchone()
+        if attempt is None:
+            raise RuntimeError("lens result has no due pass")
+        cadence, count, recorded_quarter = connection.execute(
+            "SELECT cadence,no_yield_count,quarter FROM lens_state WHERE singleton=1").fetchone()
+        quarter = quarter_at(now)
+        quarter_reset = recorded_quarter != quarter
+        if outcome == "yield" or quarter_reset:
+            cadence, count = "daily", 0
         else:
-            if capture_day != capture_day_at(now):
-                raise RuntimeError("invalid lens result")
-            workers = validated_workers(command(
-                [DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
-            required_state = "claimed" if outcome == "yield" else "reviewing"
-            if (len(workers) != 1 or workers[0].get("worker_id") != worker_id
-                    or workers[0].get("state") != required_state):
-                raise RuntimeError("lens result worker is not in the required state")
-            attempt = connection.execute(
-                "SELECT reservation_id FROM lens_attempts WHERE capture_day=? AND worker_id=?",
-                (capture_day, worker_id)).fetchone()
-            if attempt is None:
-                raise RuntimeError("lens result has no due pass")
-            cadence, count = connection.execute(
-                "SELECT cadence,no_yield_count FROM lens_state WHERE singleton=1").fetchone()
-            if outcome == "yield":
-                cadence, count = "daily", 0
-            else:
-                count += 1
-                threshold = {"daily": 3, "weekly": 4}.get(cadence)
-                if threshold and count >= threshold:
-                    cadence = "weekly" if cadence == "daily" else "monthly"
-                    count = 0
-            next_at = now + LENS_CADENCE_SECONDS[cadence]
-            quarter = quarter_at(now)
-            connection.execute("INSERT INTO lens_passes VALUES (?,?,?,?,?,?,?,?,?,?)",
-                               (worker_id, capture_day, manifest_digest, outcome, lenses_digest,
-                                now, cadence, count, quarter, next_at))
-            connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (attempt[0],))
-            connection.execute(
-                "UPDATE lens_state SET cadence=?,no_yield_count=?,quarter=?,next_eligible_at=? "
-                "WHERE singleton=1", (cadence, count, quarter, next_at))
+            count += 1
+            threshold = {"daily": 3, "weekly": 4}.get(cadence)
+            if threshold and count >= threshold:
+                cadence = "weekly" if cadence == "daily" else "monthly"
+                count = 0
+        next_at = now + LENS_CADENCE_SECONDS[cadence]
+        connection.execute("INSERT INTO lens_passes VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (worker_id, capture_day, manifest_digest, outcome, lenses_digest,
+                            now, cadence, count, quarter, next_at))
+        connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (attempt[0],))
+        connection.execute(
+            "UPDATE lens_state SET cadence=?,no_yield_count=?,quarter=?,next_eligible_at=? "
+            "WHERE singleton=1", (cadence, count, quarter, next_at))
         state = connection.execute(
             "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
         ).fetchone()

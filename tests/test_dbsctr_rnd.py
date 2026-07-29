@@ -511,6 +511,12 @@ def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
     runner, state = load_runner(tmp_path, monkeypatch, "reservation")
     reservation, reason = runner["reserve_spawn"]([], 100)
     assert reason == "reserved"
+    try:
+        runner["complete_reservation"](reservation, "worker-unclaimed", 100)
+    except RuntimeError as error:
+        assert "unclaimed" in str(error)
+    else:
+        raise AssertionError("unclaimed reservation was completed")
     connection = sqlite3.connect(state)
     assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (0,)
     connection.close()
@@ -547,7 +553,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     connection = runner["state_connection"]()
-    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("2",)
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("3",)
     assert connection.execute("select cadence,no_yield_count from lens_state").fetchone() == ("daily", 0)
     assert connection.execute("select cadence,next_eligible_at from scheduler_state").fetchone() == ("daily", 123)
     assert connection.execute(
@@ -639,6 +645,11 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
         assert "required state" in str(error)
     else:
         raise AssertionError("blocked worker was accepted")
+    runner["command"] = lambda _argv, **_kwargs: {
+        "workers": [{"worker_id": "worker-1", "state": "reviewing"}]}
+    late = runner["lens_result"](
+        "worker-1", "2024-01-01", "a" * 64, "no_yield", now + 86400)
+    assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
 
 
 def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
