@@ -629,7 +629,12 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     assert runner["reserve_spawn"]([], now) == (None, "cadence_not_due")
     connection = runner["state_connection"]()
     assert runner["lens_plan"](connection, now, "worker-1")["due"]
+    recovered = runner["lens_plan"](connection, now + 86400, "worker-1")
+    assert recovered["due"] and recovered["capture_day"] == "2024-01-01"
     connection.close()
+    assert runner["reserve_spawn"](
+        [{"worker_id": "worker-1", "state": "reviewing"}], now + 86400
+    ) == (None, "cadence_not_due")
     runner["command"] = lambda _argv, **_kwargs: {"workers": []}
     try:
         runner["lens_result"]("worker-1", "2024-01-01", "a" * 64, "yield", now)

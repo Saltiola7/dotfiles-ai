@@ -162,7 +162,10 @@ def state_connection():
         CREATE TABLE IF NOT EXISTS lens_attempts (
             capture_day TEXT PRIMARY KEY,
             reservation_id TEXT NOT NULL UNIQUE REFERENCES spawn_reservations(reservation_id) ON DELETE CASCADE,
-            worker_id TEXT UNIQUE
+            worker_id TEXT UNIQUE,
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0),
+            quarter TEXT NOT NULL
         ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS lens_passes (
             worker_id TEXT PRIMARY KEY,
@@ -228,10 +231,12 @@ def state_connection():
             connection.close()
             persist_malformed_halt()
             raise RuntimeError("scheduler state is malformed")
-    for day, reservation, worker_id in connection.execute(
-            "SELECT capture_day,reservation_id,worker_id FROM lens_attempts"):
+    for day, reservation, worker_id, cadence, count, quarter in connection.execute(
+            "SELECT capture_day,reservation_id,worker_id,cadence,no_yield_count,quarter FROM lens_attempts"):
         if (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or not safe_id(reservation)
-                or worker_id is not None and not safe_id(worker_id)):
+                or worker_id is not None and not safe_id(worker_id)
+                or cadence not in LENS_CADENCE_SECONDS or type(count) is not int or count < 0
+                or not isinstance(quarter, str)):
             connection.close()
             persist_malformed_halt()
             raise RuntimeError("scheduler lens attempt is malformed")
@@ -401,8 +406,9 @@ def reserve_spawn(workers, now):
             return None, "cadence_not_due"
         reservation = f"reservation-{uuid.uuid4().hex}"
         connection.execute("INSERT INTO spawn_reservations VALUES (?,?,NULL)", (reservation, now))
-        connection.execute("INSERT INTO lens_attempts VALUES (?,?,NULL)",
-                           (plan["capture_day"], reservation))
+        connection.execute("INSERT INTO lens_attempts VALUES (?,?,NULL,?,?,?)",
+                           (plan["capture_day"], reservation, plan["cadence"],
+                            plan["no_yield_count"], plan["quarter"]))
         connection.commit()
         return reservation, "reserved"
     finally:
@@ -475,21 +481,33 @@ def capture_day_at(now):
 
 
 def lens_plan(connection, now, worker_id=None):
+    if worker_id is not None:
+        owned = connection.execute(
+            "SELECT capture_day,cadence,no_yield_count,quarter FROM lens_attempts WHERE worker_id=?",
+            (worker_id,)).fetchone()
+        if owned is not None:
+            next_eligible = connection.execute(
+                "SELECT next_eligible_at FROM lens_state WHERE singleton=1").fetchone()[0]
+            return {"schema_version": 1, "capture_day": owned[0], "quarter": owned[3],
+                    "cadence": owned[1], "no_yield_count": owned[2], "due": True,
+                    "next_eligible_at": next_eligible,
+                    "lenses": [{"name": name, "version": LENS_VERSION} for name in LENSES]}
     quarter = quarter_at(now)
     cadence, count, recorded_quarter, next_eligible = connection.execute(
         "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
     ).fetchone()
+    day = capture_day_at(now)
+    if connection.execute("SELECT 1 FROM lens_attempts LIMIT 1").fetchone() is not None:
+        return {"schema_version": 1, "capture_day": day, "quarter": recorded_quarter,
+                "cadence": cadence, "no_yield_count": count, "due": False,
+                "next_eligible_at": next_eligible, "lenses": []}
     if recorded_quarter != quarter:
         cadence, count, next_eligible = "daily", 0, now
         connection.execute(
             "UPDATE lens_state SET cadence='daily',no_yield_count=0,quarter=?,next_eligible_at=? "
             "WHERE singleton=1", (quarter, now))
-    day = capture_day_at(now)
     passed = connection.execute("SELECT 1 FROM lens_passes WHERE capture_day=?", (day,)).fetchone()
-    attempt = connection.execute(
-        "SELECT worker_id FROM lens_attempts WHERE capture_day=?", (day,)).fetchone()
-    occupied = passed is not None or attempt is not None and attempt[0] != worker_id
-    due = now >= next_eligible and not occupied
+    due = now >= next_eligible and passed is None
     return {"schema_version": 1, "capture_day": day, "quarter": quarter,
             "cadence": cadence, "no_yield_count": count, "due": due,
             "next_eligible_at": next_eligible,
@@ -554,12 +572,12 @@ def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
             connection.commit()
             return restored
         attempt = connection.execute(
-            "SELECT reservation_id FROM lens_attempts WHERE capture_day=? AND worker_id=?",
+            "SELECT reservation_id,cadence,no_yield_count,quarter FROM lens_attempts "
+            "WHERE capture_day=? AND worker_id=?",
             (capture_day, worker_id)).fetchone()
         if attempt is None:
             raise RuntimeError("lens result has no due pass")
-        cadence, count, recorded_quarter = connection.execute(
-            "SELECT cadence,no_yield_count,quarter FROM lens_state WHERE singleton=1").fetchone()
+        cadence, count, recorded_quarter = attempt[1:]
         quarter = quarter_at(now)
         quarter_reset = recorded_quarter != quarter
         if outcome == "yield" or quarter_reset:
