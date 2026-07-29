@@ -11,7 +11,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| V3.32-1 | Protect configured main and support published teammate feature baselines, same-repository draft PRs, and explicit base reconciliation | 2026-07-28 | `706711d..33a0e09` |
+| V3.32-1 | Protect configured main and support published teammate feature baselines, same-repository draft PRs, and explicit base reconciliation | 2026-07-28 | `706711d..b7dedfe` |
 | V3.31-1 | Add bounded global completed-worktree inventory and cleanup with fixed-registry containment and scheduled maintenance | 2026-07-28 | `269125b..dc6d284` |
 | V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | `8b2bf0b`, `b9dd44c`, `b08540b` |
 | V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |
