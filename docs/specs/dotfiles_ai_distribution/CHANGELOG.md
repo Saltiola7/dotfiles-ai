@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-017 CI Determinism
+
+- Limited feature delivery to one pull-request matrix while retaining direct
+  `main` push coverage, and increased the generated concurrency benchmark test
+  signal to remain above its ten-percent activation threshold under runner
+  contention. Independent review found no issues. Commits:
+  `a4027d5..079276b`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-29 - DAI-017 CI Reliability Follow-up
 
 - Preserved bounded-command failures across late macOS process cleanup races and
