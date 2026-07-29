@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -375,6 +376,8 @@ def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
     assert "@@" not in rendered
     path = tmp_path / "rendered.yaml"
     path.write_text(rendered)
+    if shutil.which("limactl") is None:
+        pytest.skip("limactl is unavailable")
     subprocess.run(["limactl", "validate", str(path)], check=True, capture_output=True, text=True)
 
 

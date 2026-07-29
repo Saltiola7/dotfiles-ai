@@ -1,8 +1,11 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 
@@ -157,6 +160,8 @@ def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
 
     assert (tmp_path / ".agents/skills/jira-ticket/SKILL.md").is_file()
     assert (tmp_path / ".agents/skills/pyramid/SKILL.md").is_file()
+    if shutil.which("opencode") is None:
+        pytest.skip("opencode is unavailable")
     env = {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
     result = subprocess.run(
         ["opencode", "debug", "config", "--pure"], cwd=tmp_path, env=env,
