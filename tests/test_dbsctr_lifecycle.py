@@ -387,3 +387,11 @@ def test_v39_semantic_reconciliation_is_fixed_commit_report_only_and_authority_o
     assert "Keep `/qa full` separate" in protocol
     for boundary in ("never changes files", "lifecycle state", "without explicit approval"):
         assert boundary in protocol
+
+
+def test_dbsctr_backlog_is_report_only_priority_queue():
+    backlog = text(SKILLS / "dbsctr-backlog/SKILL.md")
+    assert "P2/P3" in backlog and "state is `claimed`" in backlog
+    assert "This skill is report-only" in backlog
+    for term in ("Do not reprioritize", "advance", "recover", "abandon", "launch", "merge"):
+        assert term in backlog

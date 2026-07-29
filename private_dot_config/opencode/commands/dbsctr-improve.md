@@ -43,15 +43,21 @@ Operate as one bounded native-Build R&D worker:
 6. If every configured lens is exhausted without a distinct defensible proposal,
    run `dbsctr-rnd lens-result` with the worker ID, planned capture day, terminal
    manifest digest, and `--outcome no_yield`, then stop. Never manufacture work.
-7. Before invoking Discovery, present a standalone plain-language context block:
+7. Assign exactly one priority before claiming: P0 for an immediate critical
+   safety, security, data-loss, or broad-outage risk; P1 for a concrete high-impact
+   correctness, reliability, cost, or operator-workflow failure; P2 for useful
+   bounded work without urgent impact; P3 for speculative or low-impact work.
+   Present a standalone plain-language context block:
    history scope and page/session counts, the ranked shortlist, the selected
    problem, sanitized evidence, impact, existing behavior, affected interfaces,
    and explicit non-goals. Define unavoidable technical terms; never make the
    operator infer the proposal from question labels.
-8. Atomically claim exactly one sanitized proposal with
+8. Atomically claim exactly one sanitized proposal and its P0-P3 priority with
    `dbsctr_improvement_claim`. After the claim succeeds, run `dbsctr-rnd
    lens-result` with the same worker, capture day, terminal manifest digest, and
-   `--outcome yield`; then mark the claim `discovery` and load `discovery`.
+   `--outcome yield`. P2 and P3 remain in `claimed` for `/dbsctr-backlog`; stop
+   without opening Discovery or implementing. For P0 and P1, mark the claim
+   `discovery` and load `discovery` autonomously.
    Carry the context block into Discovery before asking questions. Interview until
    at least 95% confident. Wait for the operator to answer and explicitly instruct you to proceed;
    answers alone are not approval.

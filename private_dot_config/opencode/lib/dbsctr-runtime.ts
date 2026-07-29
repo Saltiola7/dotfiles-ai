@@ -900,11 +900,12 @@ export async function improvementStatus(workerID?: string, cwd = process.cwd()) 
   ], cwd)
 }
 
-export async function improvementClaim(sessionID: string, summary: string, cwd = process.cwd()) {
+export async function improvementClaim(sessionID: string, summary: string, priority: "P0" | "P1" | "P2" | "P3", cwd = process.cwd()) {
   return await run([
     "dbsctrctl", "improvement-claim",
     "--session-id", sessionID,
     "--summary", summary,
+    "--priority", priority,
   ], cwd)
 }
 

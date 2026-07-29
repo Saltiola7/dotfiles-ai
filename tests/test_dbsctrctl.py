@@ -4101,6 +4101,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(registered["tab_id"], "w1:t1")
         self.assertEqual(registered["pane_id"], "w1:p1")
         self.assertIsNone(registered["opportunity_id"])
+        self.assertIsNone(registered["priority"])
         invalid_worker = run(
             self.repo, "improvement-register", "--state-root", str(state),
             "--worker-id", "worker:2", "--session-id", "session-2", ok=False,
@@ -4108,10 +4109,11 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("invalid improvement worker ID", invalid_worker.stderr)
         first = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
-            "--session-id", "session-1", "--summary", summary,
+            "--session-id", "session-1", "--summary", summary, "--priority", "P1",
         ).stdout)
         self.assertRegex(first["opportunity_id"], r"^[0-9a-f]{64}$")
         self.assertEqual(first["state"], "claimed")
+        self.assertEqual(first["priority"], "P1")
         bypass = run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
@@ -4303,6 +4305,39 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(tables, set())
         self.assertIsNone(connection.execute(
             "select value from ledger_meta where key='improvement_schema'").fetchone())
+        connection.close()
+
+    def test_improvement_schema_migrates_existing_claims_to_p2(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_migration", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            create table ledger_meta (key text primary key, value text not null);
+            insert into ledger_meta values ('improvement_schema', '1');
+            create table improvement_workers (
+                worker_id text primary key, session_id text not null unique,
+                opportunity_id text unique, summary text, state text not null,
+                resume_state text not null, recovery_attempts integer not null default 0,
+                workspace_id text, tab_id text, pane_id text, cycle_id text,
+                pr_number integer, pr_url text, created_at integer not null,
+                updated_at integer not null) without rowid;
+            create table improvement_scope (
+                worker_id text not null references improvement_workers(worker_id) on delete cascade,
+                path text not null, primary key (worker_id,path)) without rowid;
+        """)
+        connection.execute(
+            "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("worker-1", "session-1", "a" * 64, "Existing claim", "claimed", "claimed", 0,
+             None, None, None, None, None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        connection.commit()
+        module.ensure_improvement_schema(connection)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
+        self.assertEqual(connection.execute(
+            "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
+        module.improvement_integrity(connection)
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

@@ -42,7 +42,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
-IMPROVEMENT_SCHEMA = 1
+IMPROVEMENT_SCHEMA = 2
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
@@ -608,6 +608,20 @@ def ensure_improvement_schema(connection):
     row = connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
     if row == (str(IMPROVEMENT_SCHEMA),):
         return
+    if row == ("1",):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN priority TEXT "
+                               "CHECK (priority IN ('P0','P1','P2','P3'))")
+            connection.execute("UPDATE improvement_workers SET priority='P2' "
+                               "WHERE opportunity_id IS NOT NULL")
+            connection.execute("UPDATE ledger_meta SET value=? WHERE key='improvement_schema'",
+                               (str(IMPROVEMENT_SCHEMA),))
+            connection.commit()
+            return
+        except Exception:
+            connection.rollback()
+            raise
     if row is not None:
         fail("private improvement ledger has an unsupported schema")
     workers = """CREATE TABLE improvement_workers (
@@ -615,6 +629,7 @@ def ensure_improvement_schema(connection):
             session_id TEXT NOT NULL UNIQUE,
             opportunity_id TEXT UNIQUE,
             summary TEXT,
+            priority TEXT CHECK (priority IN ('P0','P1','P2','P3')),
             state TEXT NOT NULL CHECK (state IN (
                 'reviewing', 'claimed', 'discovery', 'implementing', 'draft_pr',
                 'blocked', 'merged', 'closed', 'abandoned'
@@ -656,12 +671,12 @@ def improvement_integrity(connection):
     if tables != expected_tables:
         fail("private improvement ledger tables are invalid")
     for row in connection.execute("""
-            SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+            SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                    recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                    pr_number, pr_url, created_at, updated_at
             FROM improvement_workers
     """):
-        worker_id, session_id, opportunity_id, summary, state, resume_state, attempts, *rest = row
+        worker_id, session_id, opportunity_id, summary, priority, state, resume_state, attempts, *rest = row
         presentation_ids, cycle_id = rest[:3], rest[3]
         pr_number, pr_url, created_at, updated_at = rest[4:]
         if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
@@ -669,6 +684,8 @@ def improvement_integrity(connection):
                 or summary is not None and (not isinstance(summary, str)
                                              or not 1 <= len(summary.encode()) <= 512 or review_unsafe(summary))
                 or (opportunity_id is None) != (summary is None)
+                or (opportunity_id is None) != (priority is None)
+                or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
                 or state == "reviewing" and opportunity_id is not None
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
@@ -5830,14 +5847,14 @@ def improvement_opportunity_id(summary):
 
 def improvement_worker(connection, worker_id):
     row = connection.execute("""
-        SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+        SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                pr_number, pr_url, created_at, updated_at
         FROM improvement_workers WHERE worker_id=?
     """, (worker_id,)).fetchone()
     if row is None:
         fail("improvement worker is missing")
-    names = ("worker_id", "session_id", "opportunity_id", "summary", "state", "resume_state",
+    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "state", "resume_state",
              "recovery_attempts", "workspace_id", "tab_id", "pane_id", "cycle_id",
              "pr_number", "pr_url", "created_at", "updated_at")
     value = dict(zip(names, row))
@@ -5873,6 +5890,7 @@ def command_improvement_claim(args):
     requested_worker_id = improvement_id(args.worker_id, "worker ID") if args.worker_id is not None else None
     session_id = improvement_id(args.session_id, "session ID")
     summary = improvement_summary(args.summary)
+    priority = args.priority
     opportunity_id = improvement_opportunity_id(summary)
     timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
     root = review_root(args.state_root)
@@ -5892,17 +5910,17 @@ def command_improvement_claim(args):
             if existing is None:
                 connection.execute("""
                     INSERT INTO improvement_workers (
-                        worker_id, session_id, opportunity_id, summary, state, resume_state,
+                        worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                         recovery_attempts, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
-                """, (worker_id, session_id, opportunity_id, summary, timestamp, timestamp))
+                    ) VALUES (?, ?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
+                """, (worker_id, session_id, opportunity_id, summary, priority, timestamp, timestamp))
             elif existing != (session_id, None):
                 fail("improvement opportunity or worker is already claimed")
             else:
                 connection.execute("""
-                    UPDATE improvement_workers SET opportunity_id=?, summary=?, state='claimed',
+                    UPDATE improvement_workers SET opportunity_id=?, summary=?, priority=?, state='claimed',
                            resume_state='claimed', updated_at=? WHERE worker_id=?
-                """, (opportunity_id, summary, timestamp, worker_id))
+                """, (opportunity_id, summary, priority, timestamp, worker_id))
         except sqlite3.IntegrityError:
             fail("improvement opportunity or worker is already claimed")
         return improvement_public(improvement_worker(connection, worker_id))
@@ -7214,6 +7232,7 @@ def parser():
     improvement_claim.add_argument("--worker-id")
     improvement_claim.add_argument("--session-id", required=True)
     improvement_claim.add_argument("--summary", required=True)
+    improvement_claim.add_argument("--priority", choices=("P0", "P1", "P2", "P3"), default="P2")
     improvement_claim.set_defaults(func=command_improvement_claim)
     improvement_update = commands.add_parser("improvement-update")
     improvement_update.add_argument("--state-root")
