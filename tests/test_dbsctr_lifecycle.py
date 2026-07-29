@@ -149,6 +149,7 @@ def test_global_routing_defaults_to_unversioned_v3():
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
     assert 'python-version: ["3.12", "3.13", "3.14"]' in workflow
+    assert "push:\n    branches: [main]" in workflow
     assert "pull_request:\n\n" in workflow
     assert "uv run --group test pytest" in workflow
 

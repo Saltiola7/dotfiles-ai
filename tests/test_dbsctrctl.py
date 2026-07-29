@@ -3264,7 +3264,7 @@ class DbsctrctlTest(unittest.TestCase):
              "operation": "reconcile", "ownership_paths": []},
         ], "completed": []}
         fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,
-                         "measured_pairs": 5, "synthetic_delay_ms": 50,
+                         "measured_pairs": 5, "synthetic_delay_ms": 200,
                          "required_gates": required_gates, "dag": fixture_dag}
         fixture_path = self.repo / "tests/fixtures/execution.json"
         fixture_path.parent.mkdir(parents=True)
