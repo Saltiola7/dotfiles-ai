@@ -170,7 +170,11 @@ def state_connection():
             manifest_digest TEXT NOT NULL,
             outcome TEXT NOT NULL CHECK (outcome IN ('yield','no_yield')),
             lenses_digest TEXT NOT NULL,
-            recorded_at INTEGER NOT NULL
+            recorded_at INTEGER NOT NULL,
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0),
+            quarter TEXT NOT NULL,
+            next_eligible_at INTEGER NOT NULL CHECK (next_eligible_at>=0)
         ) WITHOUT ROWID;
     """)
     version = connection.execute("SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
@@ -231,13 +235,16 @@ def state_connection():
             connection.close()
             persist_malformed_halt()
             raise RuntimeError("scheduler lens attempt is malformed")
-    for worker_id, day, digest, outcome, lenses_digest, recorded_at in connection.execute(
-            "SELECT worker_id,capture_day,manifest_digest,outcome,lenses_digest,recorded_at FROM lens_passes"):
+    for worker_id, day, digest, outcome, lenses_digest, recorded_at, cadence, count, quarter, next_at in connection.execute(
+            "SELECT worker_id,capture_day,manifest_digest,outcome,lenses_digest,recorded_at,"
+            "cadence,no_yield_count,quarter,next_eligible_at FROM lens_passes"):
         if (not safe_id(worker_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)
                 or not re.fullmatch(r"[0-9a-f]{64}", digest)
                 or outcome not in {"yield", "no_yield"}
                 or not re.fullmatch(r"[0-9a-f]{64}", lenses_digest)
-                or type(recorded_at) is not int or recorded_at < 0):
+                or type(recorded_at) is not int or recorded_at < 0
+                or cadence not in LENS_CADENCE_SECONDS or type(count) is not int or count < 0
+                or not isinstance(quarter, str) or type(next_at) is not int or next_at < 0):
             connection.close()
             persist_malformed_halt()
             raise RuntimeError("scheduler lens pass is malformed")
@@ -358,6 +365,15 @@ def reserve_spawn(workers, now):
                       if isinstance(worker, dict) and isinstance(worker.get("worker_id"), str)]
         if len(worker_ids) != len(workers):
             raise RuntimeError("invalid improvement worker state")
+        if worker_ids:
+            connection.execute(
+                f"DELETE FROM spawn_reservations WHERE worker_id IS NOT NULL AND created_at<=? "
+                f"AND worker_id NOT IN ({','.join('?' for _ in worker_ids)})",
+                (now - RESERVATION_LEASE_SECONDS, *worker_ids))
+        else:
+            connection.execute(
+                "DELETE FROM spawn_reservations WHERE worker_id IS NOT NULL AND created_at<=?",
+                (now - RESERVATION_LEASE_SECONDS,))
         terminal_workers = [worker["worker_id"] for worker in workers if worker.get("state") in TERMINAL]
         if terminal_workers:
             connection.execute(
@@ -500,12 +516,8 @@ def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
     now = int(time.time()) if now is None else now
     if (not safe_id(worker_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", capture_day or "")
             or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest or "")
-            or outcome not in {"yield", "no_yield"} or capture_day != capture_day_at(now)):
+            or outcome not in {"yield", "no_yield"}):
         raise RuntimeError("invalid lens result")
-    workers = validated_workers(command([DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
-    if (len(workers) != 1 or workers[0].get("worker_id") != worker_id
-            or workers[0].get("state") not in NONTERMINAL):
-        raise RuntimeError("lens result worker is not active")
     lenses_digest = hashlib.sha256(json.dumps(
         [{"name": name, "version": LENS_VERSION} for name in LENSES],
         sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -513,13 +525,27 @@ def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
     try:
         connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
-            "SELECT capture_day,manifest_digest,outcome,lenses_digest FROM lens_passes WHERE worker_id=?",
+            "SELECT capture_day,manifest_digest,outcome,lenses_digest,cadence,no_yield_count,quarter,"
+            "next_eligible_at FROM lens_passes WHERE worker_id=?",
             (worker_id,)).fetchone()
         identity = (capture_day, manifest_digest, outcome, lenses_digest)
         if existing is not None:
-            if existing != identity:
+            if existing[:4] != identity:
                 raise RuntimeError("lens result conflicts with immutable pass")
+            connection.commit()
+            return {"schema_version": 1, "worker_id": worker_id, "capture_day": capture_day,
+                    "manifest_digest": manifest_digest, "outcome": outcome, "cadence": existing[4],
+                    "no_yield_count": existing[5], "quarter": existing[6],
+                    "next_eligible_at": existing[7]}
         else:
+            if capture_day != capture_day_at(now):
+                raise RuntimeError("invalid lens result")
+            workers = validated_workers(command(
+                [DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
+            required_state = "claimed" if outcome == "yield" else "reviewing"
+            if (len(workers) != 1 or workers[0].get("worker_id") != worker_id
+                    or workers[0].get("state") != required_state):
+                raise RuntimeError("lens result worker is not in the required state")
             attempt = connection.execute(
                 "SELECT reservation_id FROM lens_attempts WHERE capture_day=? AND worker_id=?",
                 (capture_day, worker_id)).fetchone()
@@ -535,12 +561,15 @@ def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
                 if threshold and count >= threshold:
                     cadence = "weekly" if cadence == "daily" else "monthly"
                     count = 0
-            connection.execute("INSERT INTO lens_passes VALUES (?,?,?,?,?,?)",
-                               (worker_id, capture_day, manifest_digest, outcome, lenses_digest, now))
+            next_at = now + LENS_CADENCE_SECONDS[cadence]
+            quarter = quarter_at(now)
+            connection.execute("INSERT INTO lens_passes VALUES (?,?,?,?,?,?,?,?,?,?)",
+                               (worker_id, capture_day, manifest_digest, outcome, lenses_digest,
+                                now, cadence, count, quarter, next_at))
             connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (attempt[0],))
             connection.execute(
-                "UPDATE lens_state SET cadence=?,no_yield_count=?,next_eligible_at=? WHERE singleton=1",
-                (cadence, count, now + LENS_CADENCE_SECONDS[cadence]))
+                "UPDATE lens_state SET cadence=?,no_yield_count=?,quarter=?,next_eligible_at=? "
+                "WHERE singleton=1", (cadence, count, quarter, next_at))
         state = connection.execute(
             "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
         ).fetchone()
@@ -1007,6 +1036,7 @@ def spawn():
     worker_id = f"dbsctr-{uuid.uuid4().hex[:8]}"
     workspace_id = tab_id = pane_id = None
     try:
+        claim_reservation(reservation, worker_id)
         workspace_id = workspace()
         session_id, tab_id, pane_id = launch(workspace_id, worker_id)
         worker = command([
