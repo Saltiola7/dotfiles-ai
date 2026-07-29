@@ -9,7 +9,7 @@
 - Protected-base advancement requires one exact reconciliation merge and fresh
   evidence for every required gate. Affected QA passed 189 tests with one existing
   skip; fixed-commit audit and independent review found no remaining issues.
-  Commits: `706711d..727f3bd`. Intended Final Push: feature branch and draft pull
+  Commits: `706711d..33a0e09`. Intended Final Push: feature branch and draft pull
   request into `main`.
 
 ## 2026-07-28 - DAI-016 Hermes-First Orchestration
