@@ -52,6 +52,11 @@ operator inbox item: answer in its tab and explicitly say `proceed` only when
 satisfied. The worker then completes its isolated DBSCTR cycle and opens a draft
 pull request. It never merges, marks ready, releases, or deploys.
 
+P0/P1 claims enter Discovery automatically. P2/P3 claims stop in `claimed`; run
+`/dbsctr-backlog` for the report-only queue. They cannot enter Discovery until a
+separate promotion contract exists; the current operator action is explicit
+abandonment through normal recovery controls.
+
 ## Health And Controls
 
 ```sh

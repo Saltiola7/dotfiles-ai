@@ -1723,7 +1723,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         run(self.repo, "improvement-claim", "--session-id", "session-1",
-            "--summary", "Improve draft delivery", env=worker_env)
+            "--summary", "Improve draft delivery", "--priority", "P1", env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "discovery",
             env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
@@ -4101,6 +4101,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(registered["tab_id"], "w1:t1")
         self.assertEqual(registered["pane_id"], "w1:p1")
         self.assertIsNone(registered["opportunity_id"])
+        self.assertIsNone(registered["priority"])
         invalid_worker = run(
             self.repo, "improvement-register", "--state-root", str(state),
             "--worker-id", "worker:2", "--session-id", "session-2", ok=False,
@@ -4108,10 +4109,11 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("invalid improvement worker ID", invalid_worker.stderr)
         first = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
-            "--session-id", "session-1", "--summary", summary,
+            "--session-id", "session-1", "--summary", summary, "--priority", "P1",
         ).stdout)
         self.assertRegex(first["opportunity_id"], r"^[0-9a-f]{64}$")
         self.assertEqual(first["state"], "claimed")
+        self.assertEqual(first["priority"], "P1")
         bypass = run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
@@ -4137,6 +4139,22 @@ class DbsctrctlTest(unittest.TestCase):
             "--summary", "Observed in /Users/private/repo", ok=False,
         )
         self.assertIn("unsafe improvement summary", unsafe.stderr)
+        p2 = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-4", "--session-id", "session-4",
+            "--summary", "Queue a bounded operator improvement",
+        ).stdout)
+        self.assertEqual(p2["priority"], "P2")
+        rejected = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-4", "--state", "discovery", ok=False,
+        )
+        self.assertIn("remain queued", rejected.stderr)
+        recovery = run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-4", "--action", "failed", ok=False,
+        )
+        self.assertIn("remain queued", recovery.stderr)
         ledger = state / "reviews/ledger.sqlite3"
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
 
@@ -4147,7 +4165,8 @@ class DbsctrctlTest(unittest.TestCase):
             ("worker-2", "session-2", "Improve supervisor policy"),
         ):
             run(self.repo, "improvement-claim", "--state-root", str(state),
-                "--worker-id", worker, "--session-id", session, "--summary", summary)
+                "--worker-id", worker, "--session-id", session, "--summary", summary,
+                "--priority", "P1")
             run(self.repo, "improvement-update", "--state-root", str(state),
                 "--worker-id", worker, "--state", "discovery")
         updated = json.loads(run(
@@ -4174,7 +4193,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "improvement-recovery"
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1",
-            "--summary", "Recover exact worker sessions")
+            "--summary", "Recover exact worker sessions", "--priority", "P1")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "discovery",
             "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1")
@@ -4208,6 +4227,7 @@ class DbsctrctlTest(unittest.TestCase):
         claimed = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         active = run(
             self.repo, "improvement-forget", "--state-root", str(state),
@@ -4244,12 +4264,13 @@ class DbsctrctlTest(unittest.TestCase):
         replacement = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-2", "--session-id", "session-2", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         self.assertEqual(replacement["opportunity_id"], claimed["opportunity_id"])
 
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-3", "--session-id", "session-3",
-            "--summary", "Preserve closed improvement history")
+            "--summary", "Preserve closed improvement history", "--priority", "P1")
         connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
         connection.execute("update improvement_workers set state='merged' where worker_id='worker-2'")
         connection.execute("update improvement_workers set state='closed' where worker_id='worker-3'")
@@ -4303,6 +4324,72 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(tables, set())
         self.assertIsNone(connection.execute(
             "select value from ledger_meta where key='improvement_schema'").fetchone())
+        connection.close()
+
+    def test_improvement_schema_migrates_existing_claims_to_p2(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_migration", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            create table ledger_meta (key text primary key, value text not null);
+            insert into ledger_meta values ('improvement_schema', '1');
+            create table improvement_workers (
+                worker_id text primary key, session_id text not null unique,
+                opportunity_id text unique, summary text, state text not null,
+                resume_state text not null, recovery_attempts integer not null default 0,
+                workspace_id text, tab_id text, pane_id text, cycle_id text,
+                pr_number integer, pr_url text, created_at integer not null,
+                updated_at integer not null) without rowid;
+            create table improvement_scope (
+                worker_id text not null references improvement_workers(worker_id) on delete cascade,
+                path text not null, primary key (worker_id,path)) without rowid;
+        """)
+        connection.execute(
+            "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("worker-1", "session-1", "a" * 64, "Existing claim", "claimed", "claimed", 0,
+             None, None, None, None, None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        for index, state, resume_state in (
+            (2, "discovery", "discovery"), (3, "implementing", "implementing"),
+            (4, "draft_pr", "draft_pr"), (5, "blocked", "discovery"),
+        ):
+            connection.execute(
+                "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"worker-{index}", f"session-{index}", f"{index:x}" * 64,
+                 f"Existing {state}", state, resume_state, 0, None, None, None, None,
+                 None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        connection.commit()
+        module.ensure_improvement_schema(connection)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
+        self.assertEqual(connection.execute(
+            "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
+        self.assertEqual(connection.execute(
+            "select distinct priority from improvement_workers where worker_id!='worker-1'"
+        ).fetchall(), [("P1",)])
+        module.improvement_integrity(connection)
+        connection.close()
+
+    def test_improvement_status_migrates_v1_ledger_under_lock(self):
+        state = Path(self.temp.name) / "improvement-status-migration"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Migrate an existing queued claim")
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("update ledger_meta set value='1' where key='improvement_schema'")
+        connection.execute("alter table improvement_workers drop column priority")
+        connection.commit()
+        connection.close()
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertEqual(status["workers"][0]["priority"], "P2")
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-019 Proposal Priority Governance
+
+- Added migration-safe P0-P3 priority to durable improvement claims. P0/P1 may
+  enter Discovery automatically, while P2/P3 remain queued or may be abandoned
+  and are visible through the report-only `/dbsctr-backlog` skill. Legacy queued
+  claims migrate to P2 and already-active claims to P1. Full QA passed 265 tests
+  with one optional Lima skip; fixed-commit audit and independent review found no
+  remaining issues. Commits: `3e293b8..3cb3e19`. Intended Final Push: feature
+  branch and draft pull request into `main`.
+
 ## 2026-07-29 - DAI-018 Adaptive Lens Governance
 
 - Added one recoverable capture-day owner and five fixed versioned R&D lenses.

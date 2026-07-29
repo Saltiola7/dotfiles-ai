@@ -1090,6 +1090,13 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   content are neither persisted in the opportunity nor returned to workers.
 - One SQLite transaction atomically creates or acquires an opportunity claim.
   Active, Discovery-blocked, implementing, and draft-PR claims do not expire.
+- Improvement schema v2 stores exactly one P0-P3 priority with every claimed
+  opportunity; existing schema-v1 queued claims migrate conservatively to P2,
+  workers already beyond `claimed` migrate to P1, and unclaimed reviewing
+  workers retain no priority.
+- Priority is immutable claim evidence in this slice. P0/P1 may advance into
+  Discovery under the worker policy; P2/P3 remain claimed for report-only
+  operator review and no queue reader receives lifecycle mutation authority.
 - A worker records one exact OpenCode session and optional Herdr workspace, tab,
   and pane identity. Presentation metadata never replaces the ledger or Cycle
   Record as authority.

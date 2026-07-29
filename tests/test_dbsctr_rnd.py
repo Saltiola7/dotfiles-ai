@@ -657,6 +657,25 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
 
 
+def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, capsys):
+    runner, _ = load_runner(tmp_path, monkeypatch, "waiting-priority")
+    worker = {"worker_id": "worker-1", "session_id": "session-1", "state": "claimed",
+              "priority": "P2", "recovery_attempts": 0}
+
+    def execute(argv, **_kwargs):
+        if argv[0] == runner["DBSCTRCTL"]:
+            return {"workers": [worker]}
+        if argv[:3] == [runner["HERDR"], "agent", "list"]:
+            raise AssertionError("Herdr queried for waiting-only workers")
+        raise AssertionError(argv)
+
+    runner["command"] = execute
+    runner["launch"] = lambda *_args: (_ for _ in ()).throw(AssertionError("worker recovered"))
+    assert runner["watchdog"]() == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
+
+
 def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
     root = tmp_path / "projects"
     repo = root / "project"

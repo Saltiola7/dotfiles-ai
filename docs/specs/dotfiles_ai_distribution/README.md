@@ -279,6 +279,14 @@ OpenCode control-plane behavior, and shell authentication.
 - One worker owns a capture day from reservation through its immutable result.
   Identical result replay is idempotent; conflicting replay, an unknown worker,
   a second same-day pass, or a changed capture identity fails closed.
+- Every distinct claim stores exactly one P0-P3 priority. P0/P1 claims enter
+  Discovery autonomously but retain the explicit human implementation boundary;
+  P2/P3 remain in `claimed` and appear in the report-only `/dbsctr-backlog`
+  operator queue. Existing queued claims migrate conservatively to P2; workers
+  already beyond `claimed` migrate to P1 so active work is not demoted.
+- `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
+  or delivers a worker. P2/P3 cannot enter Discovery until a separate promotion
+  contract is delivered.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.
