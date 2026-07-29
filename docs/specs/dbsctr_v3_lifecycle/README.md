@@ -97,7 +97,8 @@ Adjacent contexts:
 | OpenCode Adapter | Skills, commands, todos, agents, and permissions implementing the lifecycle in OpenCode. |
 | V2 Archive | Source-only historical V2 skills that are excluded from deployment. |
 | Gate Commit | Atomic commit containing one coherent gate increment; tiny adjacent gates may combine. |
-| Final Push | One normal push of completed cycle commits to the recorded upstream after all required gates pass. |
+| Protected Base Branch | Configured integration branch, default `main`, that cycle automation never updates directly. |
+| Final Push | One push of completed cycle commits to the feature branch plus a verified draft pull request into the Protected Base Branch. |
 | Push Readiness | Verified branch, upstream, clean worktree, passing evidence, and no unrelated pre-cycle commits included. |
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
 | Worktree Identity | Stable hash of a cycle worktree's canonical path, used to isolate its active pointer. |
@@ -358,8 +359,20 @@ ledger.
 - Given every required gate passes and all Gate Commits exist
 - And the current branch and upstream were recorded at cycle start
 - When the worktree is clean and the push contains no unrelated pre-cycle commits
-- Then the primary performs one normal Final Push without another confirmation
-- And verifies the branch is synchronized with its upstream
+- Then the primary pushes only the feature branch without another confirmation
+- And verifies a draft pull request targets the Protected Base Branch
+
+**Scenario: Reject direct protected-branch delivery**
+- Given the recorded delivery branch is configured `main`
+- When a non-PR Final Push or cycle setup requests direct delivery
+- Then DBSCTR fails before push and leaves the remote protected branch unchanged
+
+**Scenario: Retain a teammate feature-branch baseline**
+- Given a dedicated clean worktree is already on a feature branch with commits
+  ahead of configured `main`
+- When the teammate starts a draft-PR cycle in that worktree
+- Then DBSCTR records its current HEAD as baseline and accepts later Gate Commits
+- And Final Push publishes the same feature branch into a draft PR against `main`
 
 **Scenario: Stop an unsafe automatic push**
 - Given Final Push would include unrelated pre-cycle commits, lacks an upstream,
@@ -1095,6 +1108,20 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   accepted as helper arguments or persisted evidence.
 - Human merge or close is an observed terminal outcome, not an authority granted
   to DBSCTR. Pull-request comments and revisions are outside the first slice.
+
+### V3.32 Protected Delivery Contract
+
+- `main` is the default Protected Base Branch and may be overridden explicitly
+  for repositories whose integration branch has another name.
+- Non-PR cycle setup and Final Push reject a delivery branch equal to the
+  Protected Base Branch. Existing historical records remain readable.
+- `draft_pr` records the Protected Base Branch independently from the feature
+  branch upstream, so an existing teammate feature branch may target `main`.
+- `begin` continues to create an isolated `dbsctr/<context>/<cycle-id>` branch.
+  `start` supports an already prepared dedicated clean feature worktree and
+  treats its current HEAD, including existing commits, as the cycle baseline.
+- Dirty worktrees fail closed with bounded path diagnostics; DBSCTR does not
+  automatically stash, commit, discard, or adopt pre-cycle changes.
 
 ### V3.20-V3.22 Analytics Program Overrides
 
@@ -1905,13 +1932,14 @@ Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
 Contention fails without waiting or mutating cycle state. Completion removes only
 the current worktree pointer and retains the completed common record.
-Under that lock, Final Push refreshes the recorded remote branch and rejects target
-advancement before changing cycle state or pushing. Reconciliation and renewed
-validation remain explicit; conflicts are never resolved automatically.
+Under that lock, Final Push refreshes the recorded feature and protected base
+branches and rejects unsafe advancement before changing cycle state or pushing.
+Reconciliation and renewed validation remain explicit; conflicts are never
+resolved automatically.
 
 Method Revision `3.4` adds `dbsctrctl begin` as the normal write-cycle entry.
-It accepts the same context, risk, delivery intent, and plan as `start`, refreshes
-the configured upstream, rejects unknown ahead commits, creates
+It accepts the same context, risk, delivery intent, protected base branch, and
+plan as `start`, refreshes the configured upstream, rejects unknown ahead commits, creates
 `dbsctr/<context>/<cycle-id>` from that upstream beneath the DBSCTR state root,
 sets the delivery upstream, starts the cycle, and returns a JSON OpenCode handoff.
 Dirty source-worktree files are neither copied nor changed. `start` remains the

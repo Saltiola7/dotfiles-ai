@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.32-1 | Protect configured main and support existing teammate feature branches through draft PR delivery | critical | active | V3.23-1 | `dbsctrctl` start/begin/final-push delivery validation and focused fixtures | Existing schema-3 records, Git upstream semantics, GitHub draft-PR adapter | no | Direct upstream delivery can update main and bypass contributor review | M | Red/green tests for protected-main rejection, teammate baseline preservation, draft base verification, remote drift, and dirty-state failure |
 
 ## Completed
 

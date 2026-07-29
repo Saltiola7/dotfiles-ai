@@ -148,6 +148,8 @@ OpenCode control-plane behavior, and shell authentication.
   refinement, and resumable OpenCode R&D workers.
 - Review sanitized global history, pause for human Discovery, and create only
   human-merge draft pull requests for this source.
+- Keep automatic Gate Commits on feature branches and require draft pull requests
+  into configured `main` for ordinary and autonomous DBSCTR delivery.
 
 ## Non-goals
 
@@ -214,6 +216,21 @@ OpenCode control-plane behavior, and shell authentication.
   that guest without Lima ports, copied private keys, or a Mac mini jump host.
 - Given Tailscale is disabled after enrollment, then existing peer state is not
   deleted; retirement is an explicit operator action.
+
+### Collaborative Git Delivery
+
+- Given a developer begins a non-trivial cycle from configured `main`, when
+  DBSCTR prepares delivery, then it creates an isolated cycle feature branch and
+  rejects direct delivery to `main`.
+- Given a teammate has a dedicated clean worktree on an existing feature branch,
+  when DBSCTR starts there, then it records the current HEAD as the cycle baseline,
+  permits existing commits ahead of `main`, and adds only cycle Gate Commits.
+- Given either feature-branch workflow completes, when Final Push runs, then it
+  pushes only that feature branch and creates a verified draft pull request into
+  configured `main`.
+- Given the prepared worktree is dirty, when cycle setup is requested, then it
+  reports the dirty paths and stops for explicit reconciliation rather than
+  stashing, committing, discarding, or absorbing unrelated work automatically.
 
 ### Autonomous R&D Worker
 
