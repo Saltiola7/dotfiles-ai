@@ -1694,6 +1694,7 @@ class DbsctrctlTest(unittest.TestCase):
                 {"runtime": {"opencode": {"session_ids": ["ordinary-session"]}}},
                 {"number": 1, "url": "https://github.com/example/repo/pull/1"},
             )
+        self.assertFalse((home / ".local/state/dbsctr/reviews/ledger.sqlite3").exists())
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"

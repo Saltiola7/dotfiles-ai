@@ -6815,20 +6815,32 @@ def link_improvement_pull_request(record, pull_request):
     if not sessions:
         return
     root = review_root()
+    if not ledger_exists(root):
+        return
+    connection = ledger_connection(root)
+    try:
+        if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='improvement_workers'"
+        ).fetchone() is None:
+            return
+        row = connection.execute(
+            "SELECT worker_id FROM improvement_workers WHERE session_id=?", (sessions[-1],)
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return
+    worker_id = row[0]
 
     def link(connection):
-        row = connection.execute("SELECT worker_id FROM improvement_workers WHERE session_id=?",
-                                 (sessions[-1],)).fetchone()
-        if row is None:
-            return
-        current = improvement_worker(connection, row[0])
+        current = improvement_worker(connection, worker_id)
         if current["state"] not in {"implementing", "draft_pr"}:
             fail("improvement worker is not ready for draft_pr delivery")
         connection.execute("""
             UPDATE improvement_workers SET state='draft_pr', resume_state='draft_pr',
                    pr_number=?, pr_url=?, updated_at=? WHERE worker_id=?
         """, (pull_request["number"], pull_request["url"],
-              int(datetime.now(timezone.utc).timestamp() * 1000), row[0]))
+              int(datetime.now(timezone.utc).timestamp() * 1000), worker_id))
 
     improvement_write(root, link)
 
