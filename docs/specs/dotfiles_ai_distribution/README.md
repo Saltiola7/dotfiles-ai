@@ -244,6 +244,9 @@ OpenCode control-plane behavior, and shell authentication.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
+- Feature branches run one pull-request matrix; direct pushes run the same matrix
+  only on `main`. Timing-sensitive concurrency fixtures use enough synthetic work
+  to preserve their required ten-percent signal under hosted-runner contention.
 - Given a bounded command exceeds its output limit, then cleanup preserves the
   intended bound error even if the child already exited or macOS denies the late
   process-group signal.
