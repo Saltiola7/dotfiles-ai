@@ -1754,7 +1754,7 @@ class DbsctrctlTest(unittest.TestCase):
             "  'auth token') printf 'test-token\\n' ;;\n"
             "  'pr list') printf '[]\\n' ;;\n"
             "  'pr create') printf 'https://github.com/example-org/dotfiles-ai/pull/1\\n' ;;\n"
-            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-org/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-org/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\",\"headRepositoryOwner\":{\"login\":\"example-org\"}}' ;;\n"
             "esac\n"
         )
         gh.chmod(0o755)
@@ -1786,6 +1786,30 @@ class DbsctrctlTest(unittest.TestCase):
                                 env=worker_env).stdout)["workers"][0]
         self.assertEqual(worker["state"], "draft_pr")
         self.assertEqual(worker["pr_number"], 1)
+
+    def test_draft_pr_reuses_only_same_repository_branch(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_pr_reuse", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        record = {"cycle_id": "cycle-1", "context": "test", "delivery": {
+            "base_branch": "main", "branch": "dbsctr/test/cycle-1",
+            "github": {"account": "example-user", "repository": "example-org/dotfiles-ai"},
+        }}
+        pull_requests = [
+            {"number": 1, "url": "https://github.com/fork/pull/1", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "fork"}},
+            {"number": 2, "url": "https://github.com/example-org/dotfiles-ai/pull/2", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "example-org"}},
+        ]
+        with mock.patch.object(module, "github_environment", return_value={}), \
+                mock.patch.object(module, "github_json", return_value=pull_requests), \
+                mock.patch.object(module.subprocess, "run") as create:
+            result = module.deliver_draft_pr(self.repo, record)
+        self.assertEqual(result["number"], 2)
+        create.assert_not_called()
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"

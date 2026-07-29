@@ -6772,13 +6772,18 @@ def deliver_draft_pr(root, record):
     delivery = record["delivery"]
     github = delivery["github"]
     env = github_environment(github["account"])
-    fields = "number,url,isDraft,state,baseRefName,headRefName"
-    head = f"{github['repository'].partition('/')[0]}:{delivery['branch']}"
+    fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
+    owner = github["repository"].partition("/")[0]
+    head = f"{owner}:{delivery['branch']}"
     existing = github_json(
         root, env, "pr", "list", "--repo", github["repository"], "--head", delivery["branch"],
-        "--state", "all", "--limit", "2", "--json", fields,
+        "--state", "all", "--limit", "100", "--json", fields,
     )
-    if not isinstance(existing, list) or len(existing) > 1:
+    if not isinstance(existing, list):
+        fail("GitHub returned invalid pull requests for the feature branch")
+    existing = [pull_request for pull_request in existing
+                if pull_request.get("headRepositoryOwner", {}).get("login") == owner]
+    if len(existing) > 1:
         fail("GitHub returned ambiguous pull requests for the feature branch")
     if existing:
         pull_request = existing[0]
@@ -6800,6 +6805,7 @@ def deliver_draft_pr(root, record):
             or pull_request.get("state") != "OPEN"
             or pull_request.get("baseRefName") != delivery["base_branch"]
             or pull_request.get("headRefName") != delivery["branch"]
+            or pull_request.get("headRepositoryOwner", {}).get("login") != owner
             or type(pull_request.get("number")) is not int or pull_request["number"] < 1
             or not isinstance(pull_request.get("url"), str)
             or not pull_request["url"].startswith("https://github.com/")):

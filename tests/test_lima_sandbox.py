@@ -566,10 +566,11 @@ def test_command_stops_oversized_output(tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
     monkeypatch.setattr(helper.os, "killpg", mock.Mock(side_effect=PermissionError))
     noisy = tmp_path / "noisy"
-    noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\n")
+    noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\nsleep 30\n")
     noisy.chmod(0o755)
     with pytest.raises(RuntimeError, match="output exceeded"):
         helper.command([str(noisy)])
+    assert helper.os.killpg.called
 
 
 def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> None:
