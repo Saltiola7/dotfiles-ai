@@ -361,7 +361,7 @@ def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Pat
     assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
 
 
-def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
+def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
     helper = load_helper()
     values = config(tmp_path)
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
@@ -369,15 +369,23 @@ def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
                 .replace("{{ .dotfiles_ai.sandbox.memory_gib }}", "8")
                 .replace("{{ .dotfiles_ai.sandbox.disk_gib }}", "60"))
     rendered = helper.render_workspace(values, values["workspaces"][1], template)
+    path = tmp_path / "rendered.yaml"
+    path.write_text(rendered)
+    return rendered, path
+
+
+def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
+    rendered, _ = rendered_workspace(tmp_path)
     assert 'location: "' + str(tmp_path / "reference") + '"' in rendered
     assert 'mountPoint: "/workspace/reference"' in rendered
     assert "writable: true" in rendered
     assert '"protect_git_submodules":true' in rendered
     assert "@@" not in rendered
-    path = tmp_path / "rendered.yaml"
-    path.write_text(rendered)
-    if shutil.which("limactl") is None:
-        pytest.skip("limactl is unavailable")
+
+
+@pytest.mark.skipif(shutil.which("limactl") is None, reason="limactl is unavailable")
+def test_workspace_renderer_passes_lima_validation(tmp_path: Path) -> None:
+    _, path = rendered_workspace(tmp_path)
     subprocess.run(["limactl", "validate", str(path)], check=True, capture_output=True, text=True)
 
 

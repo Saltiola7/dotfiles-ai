@@ -237,11 +237,12 @@ OpenCode control-plane behavior, and shell authentication.
 
 ### Capability-Dependent Validation
 
-- Given deterministic rendering runs without optional `limactl` or `opencode`
-  executables, then source-level assertions still run and only the dependent
-  integration assertion reports an explicit skip.
-- Given either executable is installed, then its integration assertion remains
-  required and any nonzero result fails validation.
+- Given deterministic rendering runs without optional `limactl`, then source-level
+  assertions pass independently and only the Lima integration test reports an
+  explicit skip.
+- OpenCode parser validation remains required in configured CI, which installs a
+  pinned OpenCode version. An ad hoc environment without OpenCode may skip only
+  that separate integration test; any available nonzero result fails validation.
 
 ### Autonomous R&D Worker
 
