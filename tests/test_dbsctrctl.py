@@ -4149,7 +4149,12 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-4", "--state", "discovery", ok=False,
         )
-        self.assertIn("require operator promotion", rejected.stderr)
+        self.assertIn("remain queued", rejected.stderr)
+        recovery = run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-4", "--action", "failed", ok=False,
+        )
+        self.assertIn("remain queued", recovery.stderr)
         ledger = state / "reviews/ledger.sqlite3"
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
 

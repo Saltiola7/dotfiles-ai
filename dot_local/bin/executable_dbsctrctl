@@ -6000,9 +6000,9 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
-        if (current["state"] == "claimed" and state == "discovery"
-                and current["priority"] not in {"P0", "P1"}):
-            fail("P2/P3 improvement claims require operator promotion before Discovery")
+        if (current["state"] == "claimed" and current["priority"] in {"P2", "P3"}
+                and state not in {"claimed", "abandoned"}):
+            fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
@@ -6049,6 +6049,9 @@ def command_improvement_recover(args):
         current = improvement_worker(connection, worker_id)
         if current["state"] in {"merged", "closed", "abandoned"}:
             fail("terminal improvement worker cannot be recovered")
+        if (current["state"] == "claimed" and current["priority"] in {"P2", "P3"}
+                and args.action != "abandon"):
+            fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         if args.action == "failed":
             attempts = min(current["recovery_attempts"] + 1, 3)
