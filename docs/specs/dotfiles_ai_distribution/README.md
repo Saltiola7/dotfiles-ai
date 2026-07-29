@@ -241,8 +241,8 @@ OpenCode control-plane behavior, and shell authentication.
   assertions pass independently and only the Lima integration test reports an
   explicit skip.
 - OpenCode parser validation remains required in configured CI, which installs a
-  pinned OpenCode version. An ad hoc environment without OpenCode may skip only
-  that separate integration test; any available nonzero result fails validation.
+  pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
+  that separate integration test.
 
 ### Autonomous R&D Worker
 

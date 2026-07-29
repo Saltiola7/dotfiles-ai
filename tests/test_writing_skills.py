@@ -1,11 +1,8 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
-
-import pytest
 
 from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 
@@ -167,7 +164,6 @@ def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
     assert (tmp_path / ".agents/skills/pyramid/SKILL.md").is_file()
 
 
-@pytest.mark.skipif(shutil.which("opencode") is None, reason="opencode is unavailable")
 def test_isolated_render_resolves_writing_commands(tmp_path):
     env = render_writing_targets(tmp_path)
     result = subprocess.run(
