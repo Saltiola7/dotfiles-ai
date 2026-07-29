@@ -4,10 +4,12 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
 import tomllib
+from unittest import mock
 
 import pytest
 
@@ -360,7 +362,7 @@ def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Pat
     assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
 
 
-def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
+def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
     helper = load_helper()
     values = config(tmp_path)
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
@@ -368,13 +370,23 @@ def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
                 .replace("{{ .dotfiles_ai.sandbox.memory_gib }}", "8")
                 .replace("{{ .dotfiles_ai.sandbox.disk_gib }}", "60"))
     rendered = helper.render_workspace(values, values["workspaces"][1], template)
+    path = tmp_path / "rendered.yaml"
+    path.write_text(rendered)
+    return rendered, path
+
+
+def test_workspace_renderer_maps_access_and_protection(tmp_path: Path) -> None:
+    rendered, _ = rendered_workspace(tmp_path)
     assert 'location: "' + str(tmp_path / "reference") + '"' in rendered
     assert 'mountPoint: "/workspace/reference"' in rendered
     assert "writable: true" in rendered
     assert '"protect_git_submodules":true' in rendered
     assert "@@" not in rendered
-    path = tmp_path / "rendered.yaml"
-    path.write_text(rendered)
+
+
+@pytest.mark.skipif(shutil.which("limactl") is None, reason="limactl is unavailable")
+def test_workspace_renderer_passes_lima_validation(tmp_path: Path) -> None:
+    _, path = rendered_workspace(tmp_path)
     subprocess.run(["limactl", "validate", str(path)], check=True, capture_output=True, text=True)
 
 
@@ -550,13 +562,15 @@ def test_privacy_epochs_preserve_source_order(tmp_path: Path) -> None:
     assert all(source["availability"] == "available" for source in result["sources"])
 
 
-def test_command_stops_oversized_output(tmp_path: Path) -> None:
+def test_command_stops_oversized_output(tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
+    monkeypatch.setattr(helper.os, "killpg", mock.Mock(side_effect=PermissionError))
     noisy = tmp_path / "noisy"
-    noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\n")
+    noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\nsleep 30\n")
     noisy.chmod(0o755)
     with pytest.raises(RuntimeError, match="output exceeded"):
         helper.command([str(noisy)])
+    assert helper.os.killpg.called
 
 
 def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> None:

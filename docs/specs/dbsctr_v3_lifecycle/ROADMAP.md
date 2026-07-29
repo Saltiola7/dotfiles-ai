@@ -12,9 +12,10 @@
   only and may remain dirty.
 - Cycle state ultimately lives beneath the Git common directory, with one active
   cycle per worktree and serialized delivery per target branch.
-- Direct upstream remains the default delivery route. V3.23 permits one bounded
-  draft-only feature-branch pull-request flow; comments, ready transitions,
-  merge, release, and deployment authority remain deferred.
+- The configured `main` branch is protected from direct cycle delivery. Gate
+  Commits remain on feature branches and Final Push creates a draft pull request;
+  comments, ready transitions, merge, release, and deployment authority remain
+  deferred.
 - Completed commits, lifecycle artifacts, CI, and retained Cycle Records are the
   durable track record. Successful worktrees are initially retained for 24 hours;
   failed or dirty worktrees are never removed automatically.

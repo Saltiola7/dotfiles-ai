@@ -148,6 +148,8 @@ OpenCode control-plane behavior, and shell authentication.
   refinement, and resumable OpenCode R&D workers.
 - Review sanitized global history, pause for human Discovery, and create only
   human-merge draft pull requests for this source.
+- Keep automatic Gate Commits on feature branches and require draft pull requests
+  into configured `main` for ordinary and autonomous DBSCTR delivery.
 
 ## Non-goals
 
@@ -214,6 +216,40 @@ OpenCode control-plane behavior, and shell authentication.
   that guest without Lima ports, copied private keys, or a Mac mini jump host.
 - Given Tailscale is disabled after enrollment, then existing peer state is not
   deleted; retirement is an explicit operator action.
+
+### Collaborative Git Delivery
+
+- Given a developer begins a non-trivial cycle from configured `main`, when
+  DBSCTR prepares delivery, then it creates an isolated cycle feature branch and
+  rejects direct delivery to `main`.
+- Given a teammate has a dedicated clean worktree on an existing feature branch,
+  when DBSCTR starts there, then it records the current HEAD as the cycle baseline,
+  permits existing commits ahead of `main`, and adds only cycle Gate Commits.
+- Given either feature-branch workflow completes, when Final Push runs, then it
+  pushes only that feature branch and creates a verified draft pull request into
+  configured `main`, or reuses the same-repository branch's existing open draft
+  without trying to create a duplicate or accepting a fork collision.
+- Given configured `main` advances during a cycle, when Final Push runs, then the
+  feature branch must contain one exact merge of current `main` and fresh evidence
+  for every required gate before delivery can continue.
+- Given the prepared worktree is dirty, when cycle setup is requested, then it
+  reports the dirty paths and stops for explicit reconciliation rather than
+  stashing, committing, discarding, or absorbing unrelated work automatically.
+
+### Capability-Dependent Validation
+
+- Given deterministic rendering runs without optional `limactl`, then source-level
+  assertions pass independently and only the Lima integration test reports an
+  explicit skip.
+- OpenCode parser validation remains required in configured CI, which installs a
+  pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
+  that separate integration test.
+- Feature branches run one pull-request matrix; direct pushes run the same matrix
+  only on `main`. Timing-sensitive concurrency fixtures use enough synthetic work
+  to preserve their required ten-percent signal under hosted-runner contention.
+- Given a bounded command exceeds its output limit, then cleanup preserves the
+  intended bound error even if the child already exited or macOS denies the late
+  process-group signal.
 
 ### Autonomous R&D Worker
 

@@ -38,6 +38,9 @@ target files.
 10. An opted-in developer reaches each managed VM from authorized tailnet hosts
     with native Herdr remote attach while public configuration remains free of
     peer identity, policy, and enrollment secrets.
+11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
+    feature branch and submits a draft pull request into the configured `main`
+    branch; automation never commits or pushes cycle work directly to `main`.
 
 ## Constraints And Trust
 
@@ -72,6 +75,9 @@ target files.
   review jobs are repeatable, while Discovery still pauses for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
+- A cycle started from `main` creates an isolated feature branch, while a cycle
+  started in a dedicated clean teammate worktree may retain that feature branch;
+  both publish only a draft pull request into configured `main`.
 - Monthly cadence decisions are reproducible from sanitized evidence, preserve
   the human Discovery and delivery boundaries, and fail closed on malformed
   authoritative state.

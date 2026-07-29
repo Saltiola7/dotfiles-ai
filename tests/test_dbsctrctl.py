@@ -89,12 +89,14 @@ class DbsctrctlTest(unittest.TestCase):
         }))
         return plan
 
-    def start(self, intent="local"):
+    def start(self, intent="local", base_branch="main", account="example-user",
+              repository="example-user/dotfiles-ai"):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
-                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan)]
+                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
+                   "--base-branch", base_branch]
         if intent == "draft_pr":
-            command += ["--github-account", "example-user", "--github-repository", "example-user/dotfiles-ai"]
+            command += ["--github-account", account, "--github-repository", repository]
         return run(self.repo, *command)
 
     def record_path(self, repo=None):
@@ -1608,7 +1610,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "final-push")
         self.assertFalse(pointer.exists())
 
-    def test_final_push_targets_recorded_upstream_branch(self):
+    def test_start_rejects_direct_protected_branch_delivery(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
@@ -1616,27 +1618,83 @@ class DbsctrctlTest(unittest.TestCase):
             ["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
             capture_output=True,
         )
-        self.start()
+        result = run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+            "--delivery-intent", "local", "--plan", str(self.plan_path()), "--base-branch", "main",
+            ok=False,
+        )
+        self.assertIn("protected base branch", result.stderr)
+        self.assertFalse(self.record_path().exists())
+
+    def test_draft_pr_records_configured_base_for_existing_feature_branch(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD:develop"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "checkout", "-b", "teammate/change"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+
+        self.start("draft_pr", base_branch="develop")
+
+        delivery = json.loads(self.record_path().read_text())["delivery"]
+        self.assertEqual(delivery["branch"], "teammate/change")
+        self.assertEqual(delivery["base_branch"], "develop")
+
+    def test_draft_reconciliation_requires_merge_and_fresh_gate_evidence(self):
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                              capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "-b", "feature"], cwd=self.repo, check=True,
+                       capture_output=True)
         (self.repo / "tracked.txt").write_text("cycle\n")
-        (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
-        self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
-        run(
-            self.repo, "gate-commit", "--message", "cycle change", "--gates", "domain", "--paths",
-            "tracked.txt", "docs/specs/test/CHANGELOG.md",
-        )
-        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
-        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
-        run(
-            self.repo, "review-artifact", "CHANGELOG", "--result", "changed",
-            "--reason", "recorded", "--path", "docs/specs/test/CHANGELOG.md",
-        )
-        self.pass_gates()
-        run(self.repo, "final-push")
-        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+        subprocess.run(["git", "commit", "-am", "cycle"], cwd=self.repo, check=True,
+                       capture_output=True)
+        cycle = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                                capture_output=True).stdout.strip()
-        pushed = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
-                                text=True, capture_output=True).stdout.strip()
-        self.assertEqual(local, pushed)
+        subprocess.run(["git", "checkout", "-b", "target", base], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "upstream.txt").write_text("advance\n")
+        subprocess.run(["git", "add", "upstream.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=self.repo, check=True,
+                       capture_output=True)
+        target = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "feature"], cwd=self.repo, check=True, capture_output=True)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_reconcile", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        with self.assertRaisesRegex(RuntimeError, "without reconciliation"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        subprocess.run(["git", "merge", "--no-ff", "target", "-m", "reconcile"], cwd=self.repo,
+                       check=True, capture_output=True)
+        reconciliation = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                        text=True, capture_output=True).stdout.strip()
+        with self.assertRaisesRegex(RuntimeError, "evidence predates"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle], [reconciliation]
+            ),
+            [cycle],
+        )
+
+    def test_ordinary_draft_pr_does_not_require_improvement_worker(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_ordinary_pr", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        home = Path(self.temp.name) / "home"
+        home.mkdir()
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            module.link_improvement_pull_request(
+                {"runtime": {"opencode": {"session_ids": ["ordinary-session"]}}},
+                {"number": 1, "url": "https://github.com/example/repo/pull/1"},
+            )
+        self.assertFalse((home / ".local/state/dbsctr/reviews/ledger.sqlite3").exists())
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1644,13 +1702,21 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
                        capture_output=True)
+        main_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                     capture_output=True).stdout.strip()
         subprocess.run(["git", "checkout", "-b", "dbsctr/test/cycle-1"], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "tracked.txt").write_text("teammate baseline\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "teammate baseline"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
         subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
                        capture_output=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
-        self.start("draft_pr")
+        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
         home = Path(self.temp.name) / "home"
         home.mkdir()
         worker_env = {**os.environ, "HOME": str(home)}
@@ -1687,8 +1753,8 @@ class DbsctrctlTest(unittest.TestCase):
             "case \"$1 $2\" in\n"
             "  'auth token') printf 'test-token\\n' ;;\n"
             "  'pr list') printf '[]\\n' ;;\n"
-            "  'pr create') printf 'https://github.com/example-user/dotfiles-ai/pull/1\\n' ;;\n"
-            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-user/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "  'pr create') printf 'https://github.com/example-org/dotfiles-ai/pull/1\\n' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-org/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\",\"headRepositoryOwner\":{\"login\":\"example-org\"}}' ;;\n"
             "esac\n"
         )
         gh.chmod(0o755)
@@ -1701,9 +1767,16 @@ class DbsctrctlTest(unittest.TestCase):
                               text=True, capture_output=True).stdout.strip()
         self.assertEqual(feature, subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
                                                  text=True, capture_output=True).stdout.strip())
-        self.assertEqual(main, base)
+        self.assertEqual(main, main_before)
+        self.assertEqual(
+            subprocess.run(["git", "show", "refs/heads/dbsctr/test/cycle-1^:tracked.txt"], cwd=remote,
+                           check=True, text=True, capture_output=True).stdout,
+            "teammate baseline\n",
+        )
         log = gh_log.read_text()
         self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
+        self.assertIn("<--head>\n<dbsctr/test/cycle-1>", log)
+        self.assertIn("<--head>\n<example-org:dbsctr/test/cycle-1>", log)
         self.assertIn("<pr>\n<create>", log)
         self.assertNotIn("<merge>", log)
         record = json.loads(self.record_path().read_text())
@@ -1713,6 +1786,30 @@ class DbsctrctlTest(unittest.TestCase):
                                 env=worker_env).stdout)["workers"][0]
         self.assertEqual(worker["state"], "draft_pr")
         self.assertEqual(worker["pr_number"], 1)
+
+    def test_draft_pr_reuses_only_same_repository_branch(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_pr_reuse", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        record = {"cycle_id": "cycle-1", "context": "test", "delivery": {
+            "base_branch": "main", "branch": "dbsctr/test/cycle-1",
+            "github": {"account": "example-user", "repository": "example-org/dotfiles-ai"},
+        }}
+        pull_requests = [
+            {"number": 1, "url": "https://github.com/fork/pull/1", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "fork"}},
+            {"number": 2, "url": "https://github.com/example-org/dotfiles-ai/pull/2", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "example-org"}},
+        ]
+        with mock.patch.object(module, "github_environment", return_value={}), \
+                mock.patch.object(module, "github_json", return_value=pull_requests), \
+                mock.patch.object(module.subprocess, "run") as create:
+            result = module.deliver_draft_pr(self.repo, record)
+        self.assertEqual(result["number"], 2)
+        create.assert_not_called()
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -3167,7 +3264,7 @@ class DbsctrctlTest(unittest.TestCase):
              "operation": "reconcile", "ownership_paths": []},
         ], "completed": []}
         fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,
-                         "measured_pairs": 5, "synthetic_delay_ms": 50,
+                         "measured_pairs": 5, "synthetic_delay_ms": 200,
                          "required_gates": required_gates, "dag": fixture_dag}
         fixture_path = self.repo / "tests/fixtures/execution.json"
         fixture_path.parent.mkdir(parents=True)

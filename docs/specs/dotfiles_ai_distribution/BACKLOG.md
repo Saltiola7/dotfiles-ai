@@ -11,6 +11,9 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-017-F2 | Run one feature pull-request matrix and stabilize the concurrency benchmark test signal | 2026-07-29 | `a4027d5..079276b` |
+| DAI-017-F1 | Make external-tool validation, bounded-command cleanup, and existing same-repository draft-PR delivery reliable | 2026-07-29 | `fc20e0f..c7d9981` |
+| DAI-017 | Protect main, retain published teammate feature baselines, and require verified draft-PR delivery with fresh reconciliation evidence | 2026-07-28 | `706711d..b7dedfe` |
 | DAI-016 | Deploy context-isolated Hermes orchestration, bounded backlog refinement, direct OpenCode Discovery launch, and guarded global maintenance | 2026-07-28 | `269125b..dc6d284` |
 | DAI-015 | Deploy default-off rootless Tailscale SSH and native remote Herdr to managed Lima guests | 2026-07-27 | `818f83c..6f06090` |
 | DAI-014 | Launch guest Herdr directly while preserving Starship and Atuin hooks | 2026-07-26 | `c3d32b9..4c85a4d` |

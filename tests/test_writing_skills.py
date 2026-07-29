@@ -134,7 +134,7 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
         )
 
 
-def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
+def render_writing_targets(tmp_path):
     targets = [
         tmp_path / ".agents/skills/jira-ticket",
         tmp_path / ".agents/skills/pyramid",
@@ -154,10 +154,18 @@ def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
         check=False,
     )
     assert render.returncode == 0, render.stderr
+    return {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
+
+
+def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
+    render_writing_targets(tmp_path)
 
     assert (tmp_path / ".agents/skills/jira-ticket/SKILL.md").is_file()
     assert (tmp_path / ".agents/skills/pyramid/SKILL.md").is_file()
-    env = {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
+
+
+def test_isolated_render_resolves_writing_commands(tmp_path):
+    env = render_writing_targets(tmp_path)
     result = subprocess.run(
         ["opencode", "debug", "config", "--pure"], cwd=tmp_path, env=env,
         text=True, capture_output=True, check=True,

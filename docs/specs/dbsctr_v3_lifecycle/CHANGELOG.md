@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-28 - V3.32 Protected Draft-PR Delivery
+
+- Added configurable protected-base validation, fail-closed direct-main setup and
+  Final Push checks, published teammate feature baselines, and same-repository PR
+  head identity independent from credential selection.
+- Explicit base reconciliation admits only one verified first-parent merge and
+  requires every current gate evidence point to descend from it. Legacy records
+  retain their recorded rules. Affected QA passed 189 tests with one existing
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `706711d..b7dedfe`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-28 - V3.31 Global Worktree Maintenance
 
 - Added read-only multi-repository inventory and guarded completed-cycle cleanup
