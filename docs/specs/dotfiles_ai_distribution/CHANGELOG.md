@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-017 CI Reliability Follow-up
+
+- Preserved bounded-command failures across late macOS process cleanup races and
+  made Final Push reuse only the exact same-repository draft PR despite fork
+  branch-name collisions. Full QA passed 259 tests with one optional Lima skip;
+  fixed-commit audit and independent review found no remaining issues. Commits:
+  `6446290..c7d9981`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-29 - DAI-017 CI Portability
 
 - Split deterministic rendering checks from external-tool integration checks,
