@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-018 Adaptive Lens Governance
+
+- Added one recoverable capture-day owner and five fixed versioned R&D lenses.
+  Three daily no-yield passes back off to weekly, four weekly passes back off to
+  monthly, and a distinct claim or UTC-quarter rollover restores daily cadence
+  without expiring claims. Schema-v1 scheduler data migrates to v3 while legacy
+  effect analytics remain intact. Full QA passed 261 tests with one optional Lima
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `83b0cd8..c834fd3`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-29 - DAI-017 CI Determinism
 
 - Limited feature delivery to one pull-request matrix while retaining direct
