@@ -268,6 +268,17 @@ OpenCode control-plane behavior, and shell authentication.
   including reviewed sessions, saves sanitized cohorts without changing markers,
   ranks concrete findings, claims one distinct proposal, and presents plain-
   language evidence before Discovery.
+- Every due pass applies version 1 of exactly five lens families to one shared
+  daily immutable capture: correctness/safety, reliability/recovery,
+  performance/cost, operator experience, and architecture/R&D meta. A pass
+  yields only when it persists one distinct improvement claim.
+- Lens governance starts daily. Three complete daily passes without a yield move
+  it to weekly; four complete weekly passes without a yield move it to monthly.
+  A yield or UTC calendar-quarter rollover restores daily cadence without
+  expiring or rewriting any live claim.
+- One worker owns a capture day from reservation through its immutable result.
+  Identical result replay is idempotent; conflicting replay, an unknown worker,
+  a second same-day pass, or a changed capture identity fails closed.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.

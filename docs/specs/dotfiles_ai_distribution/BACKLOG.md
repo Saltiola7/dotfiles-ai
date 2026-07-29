@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-018 | Govern one shared immutable capture through five fixed adaptive R&D lenses with recoverable ownership and no-yield backoff | 2026-07-29 | `83b0cd8..c834fd3` |
 | DAI-017-F2 | Run one feature pull-request matrix and stabilize the concurrency benchmark test signal | 2026-07-29 | `a4027d5..079276b` |
 | DAI-017-F1 | Make external-tool validation, bounded-command cleanup, and existing same-repository draft-PR delivery reliable | 2026-07-29 | `fc20e0f..c7d9981` |
 | DAI-017 | Protect main, retain published teammate feature baselines, and require verified draft-PR delivery with fresh reconciliation evidence | 2026-07-28 | `706711d..b7dedfe` |

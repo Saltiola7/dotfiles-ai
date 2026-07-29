@@ -188,13 +188,18 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
            "SESSION_SEEN": str(tmp_path / "session-seen"),
            "DBSCTR_RND_STATE": str(tmp_path / "scheduler.sqlite3")}
     completed = subprocess.run(["python3", str(runner), "spawn"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout)["worker_id"].startswith("dbsctr-")
+    worker_id = json.loads(completed.stdout)["worker_id"]
+    assert worker_id.startswith("dbsctr-")
     commands = log.read_text()
     assert "opencode run --agent build --command dbsctr-improve --interactive" in commands
+    assert "--env DBSCTR_RND_WORKER_ID=dbsctr-" in commands
     assert "pane move w7:p9 --new-tab" in commands
     assert "tab close w7:t0" in commands
     assert "improvement-register" in commands
     assert "--session-id ses_test --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
+    connection = sqlite3.connect(env["DBSCTR_RND_STATE"])
+    assert connection.execute("select worker_id from spawn_reservations").fetchone() == (worker_id,)
+    connection.close()
     no_identity = herdr.read_text().replace(
         '{"pane_id":"w7:p9","agent_session":{"value":"ses_test"},"agent_status":"working"}',
         '{"pane_id":"w7:p9","agent_status":"working"}',
@@ -506,6 +511,12 @@ def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
     runner, state = load_runner(tmp_path, monkeypatch, "reservation")
     reservation, reason = runner["reserve_spawn"]([], 100)
     assert reason == "reserved"
+    try:
+        runner["complete_reservation"](reservation, "worker-unclaimed", 100)
+    except RuntimeError as error:
+        assert "unclaimed" in str(error)
+    else:
+        raise AssertionError("unclaimed reservation was completed")
     connection = sqlite3.connect(state)
     assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (0,)
     connection.close()
@@ -521,9 +532,129 @@ def test_failed_reservation_does_not_consume_cadence(tmp_path, monkeypatch):
     runner["claim_reservation"](retried, "worker-1", 101)
     runner["complete_reservation"](retried, "worker-1", 101)
     connection = sqlite3.connect(state)
-    assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (
-        101 + runner["CADENCE_SECONDS"]["weekly"],)
+    assert connection.execute("select next_eligible_at from scheduler_state").fetchone() == (0,)
+    assert connection.execute("select worker_id from lens_attempts").fetchone() == ("worker-1",)
     connection.close()
+    reclaimed, reason = runner["reserve_spawn"](
+        [], 101 + runner["RESERVATION_LEASE_SECONDS"] + 1)
+    assert reason == "reserved"
+    runner["release_reservation"](reclaimed)
+
+
+def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "lens-governance")
+    connection = runner["state_connection"]()
+    connection.execute("update scheduler_state set cadence='daily',next_eligible_at=123")
+    runner["append_event"](connection, "preserved-attempt", "failed", "blocked", 10)
+    connection.execute("drop table lens_passes")
+    connection.execute("drop table lens_attempts")
+    connection.execute("drop table lens_state")
+    connection.execute("update scheduler_meta set value='1' where key='schema_version'")
+    connection.commit()
+    connection.close()
+    connection = runner["state_connection"]()
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("3",)
+    assert connection.execute("select cadence,no_yield_count from lens_state").fetchone() == ("daily", 0)
+    assert connection.execute("select cadence,next_eligible_at from scheduler_state").fetchone() == ("daily", 123)
+    assert connection.execute(
+        "select attempt_id,kind,reason from outcome_events where attempt_id='preserved-attempt'"
+    ).fetchone() == ("preserved-attempt", "failed", "blocked")
+    connection.close()
+
+    start = 1_704_067_200
+    connection = runner["state_connection"]()
+    plan = runner["lens_plan"](connection, start)
+    connection.commit()
+    connection.close()
+    assert plan["capture_day"] == "2024-01-01" and plan["due"]
+    assert [item["name"] for item in plan["lenses"]] == list(runner["LENSES"])
+    assert all(item["version"] == 1 for item in plan["lenses"])
+
+    runner["command"] = lambda _argv, **_kwargs: {
+        "workers": [{"worker_id": current_worker, "state": current_state}]}
+
+    def record(now, outcome, number):
+        nonlocal current_worker, current_state
+        current_worker = f"worker-{number}"
+        current_state = "claimed" if outcome == "yield" else "reviewing"
+        reservation, reason = runner["reserve_spawn"]([], now)
+        assert reason == "reserved"
+        runner["claim_reservation"](reservation, current_worker, now)
+        runner["complete_reservation"](reservation, current_worker, now)
+        day = runner["capture_day_at"](now)
+        return runner["lens_result"](current_worker, day, f"{number:064x}", outcome, now)
+
+    current_worker = ""
+    current_state = "reviewing"
+    now = start
+    for number in range(1, 4):
+        result = record(now, "no_yield", number)
+        now = result["next_eligible_at"]
+    assert result["cadence"] == "weekly" and result["no_yield_count"] == 0
+    for number in range(4, 8):
+        result = record(now, "no_yield", number)
+        now = result["next_eligible_at"]
+    assert result["cadence"] == "monthly" and result["no_yield_count"] == 0
+    result = record(now, "yield", 8)
+    assert result["cadence"] == "daily" and result["no_yield_count"] == 0
+    runner["command"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("idempotent replay queried worker state"))
+    assert runner["lens_result"](
+        current_worker, result["capture_day"], result["manifest_digest"],
+        "yield", now + 86400) == result
+    try:
+        runner["lens_result"](current_worker, result["capture_day"], "f" * 64, "yield", now + 86400)
+    except RuntimeError as error:
+        assert "conflicts" in str(error)
+    else:
+        raise AssertionError("conflicting lens result was accepted")
+
+    connection = runner["state_connection"]()
+    connection.execute(
+        "update lens_state set cadence='monthly',no_yield_count=2,quarter='2024-Q1',next_eligible_at=?",
+        (2_000_000_000,))
+    reset = runner["lens_plan"](connection, 1_712_275_200)
+    connection.commit()
+    connection.close()
+    assert reset["quarter"] == "2024-Q2" and reset["cadence"] == "daily" and reset["due"]
+
+
+def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "lens-duplicate")
+    now = 1_704_067_200
+    reservation, reason = runner["reserve_spawn"]([], now)
+    assert reason == "reserved"
+    runner["claim_reservation"](reservation, "worker-1", now)
+    runner["complete_reservation"](reservation, "worker-1", now)
+    assert runner["reserve_spawn"]([], now) == (None, "cadence_not_due")
+    connection = runner["state_connection"]()
+    assert runner["lens_plan"](connection, now, "worker-1")["due"]
+    recovered = runner["lens_plan"](connection, now + 86400, "worker-1")
+    assert recovered["due"] and recovered["capture_day"] == "2024-01-01"
+    connection.close()
+    assert runner["reserve_spawn"](
+        [{"worker_id": "worker-1", "state": "reviewing"}], now + 86400
+    ) == (None, "cadence_not_due")
+    runner["command"] = lambda _argv, **_kwargs: {"workers": []}
+    try:
+        runner["lens_result"]("worker-1", "2024-01-01", "a" * 64, "yield", now)
+    except RuntimeError as error:
+        assert "required state" in str(error)
+    else:
+        raise AssertionError("missing worker was accepted")
+    runner["command"] = lambda _argv, **_kwargs: {
+        "workers": [{"worker_id": "worker-1", "state": "blocked"}]}
+    try:
+        runner["lens_result"]("worker-1", "2024-01-01", "a" * 64, "no_yield", now)
+    except RuntimeError as error:
+        assert "required state" in str(error)
+    else:
+        raise AssertionError("blocked worker was accepted")
+    runner["command"] = lambda _argv, **_kwargs: {
+        "workers": [{"worker_id": "worker-1", "state": "reviewing"}]}
+    late = runner["lens_result"](
+        "worker-1", "2024-01-01", "a" * 64, "no_yield", now + 86400)
+    assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
 
 
 def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):

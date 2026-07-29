@@ -32,6 +32,10 @@ SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "240"))
 COMMAND_TIMEOUT = float(os.environ.get("DBSCTR_RND_COMMAND_TIMEOUT", "180"))
 CADENCES = ("weekly", "twice_weekly", "daily")
 CADENCE_SECONDS = {"weekly": 7 * 86400, "twice_weekly": 7 * 86400 // 2, "daily": 86400}
+LENS_CADENCE_SECONDS = {"daily": 86400, "weekly": 7 * 86400, "monthly": 30 * 86400}
+LENSES = ("correctness_safety", "reliability_recovery", "performance_cost",
+          "operator_experience", "architecture_rnd_meta")
+LENS_VERSION = 1
 MONTH_SECONDS = 30 * 86400
 RESERVATION_LEASE_SECONDS = 15 * 60
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
@@ -148,13 +152,45 @@ def state_connection():
         ) WITHOUT ROWID;
         CREATE UNIQUE INDEX IF NOT EXISTS unique_terminal_attempt
             ON outcome_events(attempt_id,kind) WHERE kind!='effect_finalized';
+        CREATE TABLE IF NOT EXISTS lens_state (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0),
+            quarter TEXT NOT NULL,
+            next_eligible_at INTEGER NOT NULL CHECK (next_eligible_at>=0)
+        );
+        CREATE TABLE IF NOT EXISTS lens_attempts (
+            capture_day TEXT PRIMARY KEY,
+            reservation_id TEXT NOT NULL UNIQUE REFERENCES spawn_reservations(reservation_id) ON DELETE CASCADE,
+            worker_id TEXT UNIQUE,
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0),
+            quarter TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS lens_passes (
+            worker_id TEXT PRIMARY KEY,
+            capture_day TEXT NOT NULL UNIQUE,
+            manifest_digest TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK (outcome IN ('yield','no_yield')),
+            lenses_digest TEXT NOT NULL,
+            recorded_at INTEGER NOT NULL,
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0),
+            quarter TEXT NOT NULL,
+            next_eligible_at INTEGER NOT NULL CHECK (next_eligible_at>=0)
+        ) WITHOUT ROWID;
     """)
     version = connection.execute("SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:
-        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','1')")
+        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','3')")
         connection.execute("INSERT INTO scheduler_state VALUES (1,'weekly',0,0,'',NULL,0,0)")
+        connection.execute("INSERT INTO lens_state VALUES (1,'daily',0,'',0)")
         connection.commit()
-    elif version != ("1",):
+    elif version == ("1",):
+        connection.execute("INSERT OR IGNORE INTO lens_state VALUES (1,'daily',0,'',0)")
+        connection.execute("UPDATE scheduler_meta SET value='3' WHERE key='schema_version'")
+        connection.commit()
+    elif version != ("3",):
         connection.close()
         persist_malformed_halt()
         raise RuntimeError("scheduler state has an unsupported schema")
@@ -178,6 +214,16 @@ def state_connection():
         connection.close()
         persist_malformed_halt()
         raise RuntimeError("scheduler state is malformed")
+    lens_row = connection.execute(
+        "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
+    ).fetchall()
+    if (len(lens_row) != 1 or lens_row[0][0] not in LENS_CADENCE_SECONDS
+            or type(lens_row[0][1]) is not int or lens_row[0][1] < 0
+            or not isinstance(lens_row[0][2], str)
+            or type(lens_row[0][3]) is not int or lens_row[0][3] < 0):
+        connection.close()
+        persist_malformed_halt()
+        raise RuntimeError("scheduler lens state is malformed")
     for reservation, created_at, worker_id in connection.execute(
             "SELECT reservation_id,created_at,worker_id FROM spawn_reservations"):
         if (not safe_id(reservation) or type(created_at) is not int or created_at < 0
@@ -185,6 +231,28 @@ def state_connection():
             connection.close()
             persist_malformed_halt()
             raise RuntimeError("scheduler state is malformed")
+    for day, reservation, worker_id, cadence, count, quarter in connection.execute(
+            "SELECT capture_day,reservation_id,worker_id,cadence,no_yield_count,quarter FROM lens_attempts"):
+        if (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or not safe_id(reservation)
+                or worker_id is not None and not safe_id(worker_id)
+                or cadence not in LENS_CADENCE_SECONDS or type(count) is not int or count < 0
+                or not isinstance(quarter, str)):
+            connection.close()
+            persist_malformed_halt()
+            raise RuntimeError("scheduler lens attempt is malformed")
+    for worker_id, day, digest, outcome, lenses_digest, recorded_at, cadence, count, quarter, next_at in connection.execute(
+            "SELECT worker_id,capture_day,manifest_digest,outcome,lenses_digest,recorded_at,"
+            "cadence,no_yield_count,quarter,next_eligible_at FROM lens_passes"):
+        if (not safe_id(worker_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)
+                or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or outcome not in {"yield", "no_yield"}
+                or not re.fullmatch(r"[0-9a-f]{64}", lenses_digest)
+                or type(recorded_at) is not int or recorded_at < 0
+                or cadence not in LENS_CADENCE_SECONDS or type(count) is not int or count < 0
+                or not isinstance(quarter, str) or type(next_at) is not int or next_at < 0):
+            connection.close()
+            persist_malformed_halt()
+            raise RuntimeError("scheduler lens pass is malformed")
     for event in connection.execute(
             "SELECT event_id,attempt_id,kind,classification,reason,recorded_at,benchmark_id,"
             "definition_version,activation_identity,merge_event_id,merge_identity,cost FROM outcome_events"):
@@ -304,14 +372,25 @@ def reserve_spawn(workers, now):
             raise RuntimeError("invalid improvement worker state")
         if worker_ids:
             connection.execute(
-                f"DELETE FROM spawn_reservations WHERE worker_id IN ({','.join('?' for _ in worker_ids)})",
-                worker_ids)
+                f"DELETE FROM spawn_reservations WHERE worker_id IS NOT NULL AND created_at<=? "
+                f"AND worker_id NOT IN ({','.join('?' for _ in worker_ids)})",
+                (now - RESERVATION_LEASE_SECONDS, *worker_ids))
+        else:
+            connection.execute(
+                "DELETE FROM spawn_reservations WHERE worker_id IS NOT NULL AND created_at<=?",
+                (now - RESERVATION_LEASE_SECONDS,))
+        terminal_workers = [worker["worker_id"] for worker in workers if worker.get("state") in TERMINAL]
+        if terminal_workers:
+            connection.execute(
+                f"DELETE FROM spawn_reservations WHERE worker_id IN ({','.join('?' for _ in terminal_workers)})",
+                terminal_workers)
         sync_worker_outcomes(connection, workers, now)
         evaluate_month(connection, now)
         active_workers = sum(worker.get("state") in NONTERMINAL for worker in workers)
-        cadence, halt_reason, next_eligible = connection.execute(
-            "SELECT cadence,halt_reason,next_eligible_at FROM scheduler_state WHERE singleton=1").fetchone()
-        reservations = connection.execute("SELECT COUNT(*) FROM spawn_reservations").fetchone()[0]
+        halt_reason = connection.execute(
+            "SELECT halt_reason FROM scheduler_state WHERE singleton=1").fetchone()[0]
+        reservations = connection.execute(
+            "SELECT COUNT(*) FROM spawn_reservations WHERE worker_id IS NULL").fetchone()[0]
         if halt_reason:
             connection.commit()
             return None, "halted"
@@ -321,11 +400,15 @@ def reserve_spawn(workers, now):
         if reservations:
             connection.commit()
             return None, "spawn_in_progress"
-        if now < next_eligible:
+        plan = lens_plan(connection, now)
+        if not plan["due"]:
             connection.commit()
             return None, "cadence_not_due"
         reservation = f"reservation-{uuid.uuid4().hex}"
         connection.execute("INSERT INTO spawn_reservations VALUES (?,?,NULL)", (reservation, now))
+        connection.execute("INSERT INTO lens_attempts VALUES (?,?,NULL,?,?,?)",
+                           (plan["capture_day"], reservation, plan["cadence"],
+                            plan["no_yield_count"], plan["quarter"]))
         connection.commit()
         return reservation, "reserved"
     finally:
@@ -365,6 +448,8 @@ def claim_reservation(reservation, worker_id, claimed_at=None):
         )
         if connection.total_changes != 1:
             raise RuntimeError("spawn reservation claim failed")
+        connection.execute("UPDATE lens_attempts SET worker_id=? WHERE reservation_id=?",
+                           (worker_id, reservation))
         connection.commit()
     except Exception:
         connection.rollback()
@@ -376,20 +461,151 @@ def claim_reservation(reservation, worker_id, claimed_at=None):
 def complete_reservation(reservation, worker_id, completed_at=None):
     connection = state_connection()
     try:
-        completed_at = int(time.time()) if completed_at is None else completed_at
-        cadence = connection.execute(
-            "SELECT cadence FROM scheduler_state WHERE singleton=1").fetchone()[0]
         row = connection.execute(
             "SELECT worker_id FROM spawn_reservations WHERE reservation_id=?", (reservation,)
         ).fetchone()
-        if row is None or row[0] not in (None, worker_id):
-            raise RuntimeError("spawn reservation is missing")
-        if row[0] is None:
-            connection.execute("UPDATE spawn_reservations SET worker_id=? WHERE reservation_id=?",
-                               (worker_id, reservation))
-        connection.execute("UPDATE scheduler_state SET next_eligible_at=? WHERE singleton=1",
-                           (completed_at + CADENCE_SECONDS[cadence],))
+        if row is None or row[0] != worker_id:
+            raise RuntimeError("spawn reservation is missing or unclaimed")
         connection.commit()
+    finally:
+        connection.close()
+
+
+def quarter_at(now):
+    value = time.gmtime(now)
+    return f"{value.tm_year}-Q{(value.tm_mon - 1) // 3 + 1}"
+
+
+def capture_day_at(now):
+    return time.strftime("%Y-%m-%d", time.gmtime(now))
+
+
+def lens_plan(connection, now, worker_id=None):
+    if worker_id is not None:
+        owned = connection.execute(
+            "SELECT capture_day,cadence,no_yield_count,quarter FROM lens_attempts WHERE worker_id=?",
+            (worker_id,)).fetchone()
+        if owned is not None:
+            next_eligible = connection.execute(
+                "SELECT next_eligible_at FROM lens_state WHERE singleton=1").fetchone()[0]
+            return {"schema_version": 1, "capture_day": owned[0], "quarter": owned[3],
+                    "cadence": owned[1], "no_yield_count": owned[2], "due": True,
+                    "next_eligible_at": next_eligible,
+                    "lenses": [{"name": name, "version": LENS_VERSION} for name in LENSES]}
+    quarter = quarter_at(now)
+    cadence, count, recorded_quarter, next_eligible = connection.execute(
+        "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
+    ).fetchone()
+    day = capture_day_at(now)
+    if connection.execute("SELECT 1 FROM lens_attempts LIMIT 1").fetchone() is not None:
+        return {"schema_version": 1, "capture_day": day, "quarter": recorded_quarter,
+                "cadence": cadence, "no_yield_count": count, "due": False,
+                "next_eligible_at": next_eligible, "lenses": []}
+    if recorded_quarter != quarter:
+        cadence, count, next_eligible = "daily", 0, now
+        connection.execute(
+            "UPDATE lens_state SET cadence='daily',no_yield_count=0,quarter=?,next_eligible_at=? "
+            "WHERE singleton=1", (quarter, now))
+    passed = connection.execute("SELECT 1 FROM lens_passes WHERE capture_day=?", (day,)).fetchone()
+    due = now >= next_eligible and passed is None
+    return {"schema_version": 1, "capture_day": day, "quarter": quarter,
+            "cadence": cadence, "no_yield_count": count, "due": due,
+            "next_eligible_at": next_eligible,
+            "lenses": ([{"name": name, "version": LENS_VERSION} for name in LENSES] if due else [])}
+
+
+def lens_plan_action(worker_id=None, now=None):
+    connection = state_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        plan = lens_plan(connection, int(time.time()) if now is None else now, worker_id)
+        connection.commit()
+        print(json.dumps(plan, sort_keys=True, separators=(",", ":")))
+    finally:
+        connection.close()
+
+
+def lens_result(worker_id, capture_day, manifest_digest, outcome, now=None):
+    now = int(time.time()) if now is None else now
+    if (not safe_id(worker_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", capture_day or "")
+            or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest or "")
+            or outcome not in {"yield", "no_yield"}):
+        raise RuntimeError("invalid lens result")
+    lenses_digest = hashlib.sha256(json.dumps(
+        [{"name": name, "version": LENS_VERSION} for name in LENSES],
+        sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def replay(existing):
+        if existing is None:
+            return None
+        if existing[:4] != (capture_day, manifest_digest, outcome, lenses_digest):
+            raise RuntimeError("lens result conflicts with immutable pass")
+        return {"schema_version": 1, "worker_id": worker_id, "capture_day": capture_day,
+                "manifest_digest": manifest_digest, "outcome": outcome, "cadence": existing[4],
+                "no_yield_count": existing[5], "quarter": existing[6],
+                "next_eligible_at": existing[7]}
+
+    connection = state_connection()
+    try:
+        existing = connection.execute(
+            "SELECT capture_day,manifest_digest,outcome,lenses_digest,cadence,no_yield_count,quarter,"
+            "next_eligible_at FROM lens_passes WHERE worker_id=?",
+            (worker_id,)).fetchone()
+        restored = replay(existing)
+        if restored is not None:
+            return restored
+    finally:
+        connection.close()
+    workers = validated_workers(command([DBSCTRCTL, "improvement-status", "--worker-id", worker_id]))
+    required_state = "claimed" if outcome == "yield" else "reviewing"
+    if (len(workers) != 1 or workers[0].get("worker_id") != worker_id
+            or workers[0].get("state") != required_state):
+        raise RuntimeError("lens result worker is not in the required state")
+    connection = state_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT capture_day,manifest_digest,outcome,lenses_digest,cadence,no_yield_count,quarter,"
+            "next_eligible_at FROM lens_passes WHERE worker_id=?", (worker_id,)).fetchone()
+        restored = replay(existing)
+        if restored is not None:
+            connection.commit()
+            return restored
+        attempt = connection.execute(
+            "SELECT reservation_id,cadence,no_yield_count,quarter FROM lens_attempts "
+            "WHERE capture_day=? AND worker_id=?",
+            (capture_day, worker_id)).fetchone()
+        if attempt is None:
+            raise RuntimeError("lens result has no due pass")
+        cadence, count, recorded_quarter = attempt[1:]
+        quarter = quarter_at(now)
+        quarter_reset = recorded_quarter != quarter
+        if outcome == "yield" or quarter_reset:
+            cadence, count = "daily", 0
+        else:
+            count += 1
+            threshold = {"daily": 3, "weekly": 4}.get(cadence)
+            if threshold and count >= threshold:
+                cadence = "weekly" if cadence == "daily" else "monthly"
+                count = 0
+        next_at = now + LENS_CADENCE_SECONDS[cadence]
+        connection.execute("INSERT INTO lens_passes VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (worker_id, capture_day, manifest_digest, outcome, lenses_digest,
+                            now, cadence, count, quarter, next_at))
+        connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (attempt[0],))
+        connection.execute(
+            "UPDATE lens_state SET cadence=?,no_yield_count=?,quarter=?,next_eligible_at=? "
+            "WHERE singleton=1", (cadence, count, quarter, next_at))
+        state = connection.execute(
+            "SELECT cadence,no_yield_count,quarter,next_eligible_at FROM lens_state WHERE singleton=1"
+        ).fetchone()
+        connection.commit()
+        return {"schema_version": 1, "worker_id": worker_id, "capture_day": capture_day,
+                "manifest_digest": manifest_digest, "outcome": outcome, "cadence": state[0],
+                "no_yield_count": state[1], "quarter": state[2], "next_eligible_at": state[3]}
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -691,8 +907,9 @@ def launch_action(reservation, worker_id, repository_id):
         try:
             process = subprocess.Popen(
                 [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
-                 "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
-                env={**os.environ, "PATH": MANAGED_PATH}, start_new_session=True,
+                  "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
+                env={**os.environ, "PATH": MANAGED_PATH, "DBSCTR_RND_WORKER_ID": worker_id},
+                start_new_session=True,
             )
             session_id = None
             for _ in range(SESSION_POLLS):
@@ -800,7 +1017,8 @@ def launch(workspace_id, worker_id, session_id=None):
                 ["opencode", "run", "--agent", "build", "--command", "dbsctr-improve", "--interactive"])
         started = command([
             HERDR, "agent", "start", worker_id, "--cwd", str(REVIEW_WORKDIR),
-            "--tab", staging_tab, "--env", f"PATH={MANAGED_PATH}", "--no-focus", "--", *argv,
+            "--tab", staging_tab, "--env", f"PATH={MANAGED_PATH}",
+            "--env", f"DBSCTR_RND_WORKER_ID={worker_id}", "--no-focus", "--", *argv,
         ])
         agent_pane = required_id(started, "pane_id")
         moved = command([
@@ -844,6 +1062,7 @@ def spawn():
     worker_id = f"dbsctr-{uuid.uuid4().hex[:8]}"
     workspace_id = tab_id = pane_id = None
     try:
+        claim_reservation(reservation, worker_id)
         workspace_id = workspace()
         session_id, tab_id, pane_id = launch(workspace_id, worker_id)
         worker = command([
@@ -1020,13 +1239,17 @@ def persist_malformed_halt():
 
 parser = argparse.ArgumentParser()
 parser.add_argument("action", choices=("spawn", "watchdog", "analytics", "reset-schedule",
-                                       "backlogs", "repositories", "reserve", "complete", "release", "launch"))
+                                        "backlogs", "repositories", "reserve", "complete", "release", "launch",
+                                        "lens-plan", "lens-result"))
 parser.add_argument("--json", action="store_true")
 parser.add_argument("--finalize-json")
 parser.add_argument("--failure-json")
 parser.add_argument("--reservation")
 parser.add_argument("--worker-id")
 parser.add_argument("--repository-id")
+parser.add_argument("--capture-day")
+parser.add_argument("--manifest-digest")
+parser.add_argument("--outcome", choices=("yield", "no_yield"))
 args = parser.parse_args()
 try:
     if args.action == "analytics":
@@ -1055,6 +1278,13 @@ try:
         if not args.reservation or not args.worker_id or not args.repository_id:
             raise RuntimeError("launch requires reservation, worker ID, and repository ID")
         launch_action(args.reservation, args.worker_id, args.repository_id)
+    elif args.action == "lens-plan":
+        lens_plan_action(args.worker_id)
+    elif args.action == "lens-result":
+        if not all((args.worker_id, args.capture_day, args.manifest_digest, args.outcome)):
+            raise RuntimeError("lens-result requires worker, capture, digest, and outcome")
+        print(json.dumps(lens_result(args.worker_id, args.capture_day, args.manifest_digest,
+                                    args.outcome), sort_keys=True, separators=(",", ":")))
     else:
         if args.json or args.finalize_json or args.failure_json:
             raise RuntimeError(f"{args.action} does not accept analytics inputs")

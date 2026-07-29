@@ -1225,6 +1225,12 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     command = text("private_dot_config/opencode/commands/dbsctr-improve.md")
     assert "`dbsctr_review_federated` with `limit=100`" in command
     assert "Do not call\n   `dbsctr_review_history_save`" in command
+    assert "dbsctr-rnd lens-plan --worker-id" in command
+    assert all(lens in command for lens in (
+        "correctness/safety", "reliability/recovery", "performance/cost",
+        "operator experience", "architecture/R&D meta",
+    ))
+    assert "--outcome no_yield" in command and "--outcome yield" in command
 
 
 def test_removed_managed_integrations_are_absent():

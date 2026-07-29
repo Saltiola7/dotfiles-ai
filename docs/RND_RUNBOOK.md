@@ -9,8 +9,12 @@ Launchd runs two opt-in jobs in the macOS Aqua session:
 | `dev.dotfiles-ai.dbsctr-spawner` | Daily at 09:00 | Start one fresh native-Build OpenCode `/dbsctr-improve` worker |
 | `dev.dotfiles-ai.dbsctr-watchdog` | Every five minutes | Reconcile durable workers, exact sessions, and pull-request outcomes |
 
-The daily launchd tick creates a worker only when the private adaptive cadence is
-due. Older workers awaiting Discovery do not block an otherwise eligible run.
+The daily launchd tick creates a worker only when the private lens cadence is
+due. One pass applies five fixed lens families to one shared immutable capture.
+Three daily no-yield passes back off to weekly and four weekly no-yield passes
+back off to monthly; a distinct claim or UTC quarter rollover restores daily.
+Older workers awaiting Discovery do not block an otherwise eligible run, but a
+capture day has exactly one owning worker until its result is recorded.
 Herdr keeps each worker in a visible single-pane tab. OpenCode performs review,
 Discovery, implementation, validation, and draft-PR delivery; launchd and the
 runner provide only scheduling and deterministic recovery.
@@ -58,6 +62,7 @@ launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-watchdog
 dbsctrctl improvement-status | jq
 dbsctr-rnd spawn
 dbsctr-rnd watchdog
+dbsctr-rnd lens-plan --worker-id WORKER_ID
 ```
 
 Disable both scheduled jobs without removing the manual runner:
