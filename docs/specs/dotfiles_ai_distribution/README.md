@@ -284,7 +284,8 @@ OpenCode control-plane behavior, and shell authentication.
   P2/P3 remain in `claimed` and appear in the report-only `/dbsctr-backlog`
   operator queue. Existing unprioritized claims migrate conservatively to P2.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
-  or delivers a worker; the operator continues through its existing Herdr tab.
+  or delivers a worker. P2/P3 cannot enter Discovery until a separate promotion
+  contract is delivered.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.

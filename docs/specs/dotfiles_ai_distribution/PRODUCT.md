@@ -42,8 +42,8 @@ target files.
     feature branch and submits a draft pull request into the configured `main`
     branch; automation never commits or pushes cycle work directly to `main`.
 12. High-impact P0/P1 claims enter Discovery automatically, while an operator
-    reviews waiting P2/P3 claims through `/dbsctr-backlog` and the existing Herdr
-    worker tab before allowing further work.
+    reviews waiting P2/P3 claims through `/dbsctr-backlog`; promotion remains a
+    separate governed capability.
 
 ## Constraints And Trust
 
