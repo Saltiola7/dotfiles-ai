@@ -235,6 +235,14 @@ OpenCode control-plane behavior, and shell authentication.
   reports the dirty paths and stops for explicit reconciliation rather than
   stashing, committing, discarding, or absorbing unrelated work automatically.
 
+### Capability-Dependent Validation
+
+- Given deterministic rendering runs without optional `limactl` or `opencode`
+  executables, then source-level assertions still run and only the dependent
+  integration assertion reports an explicit skip.
+- Given either executable is installed, then its integration assertion remains
+  required and any nonzero result fails validation.
+
 ### Autonomous R&D Worker
 
 - Given the daily Hermes schedule fires, when private adaptive cadence is due,
