@@ -227,8 +227,8 @@ OpenCode control-plane behavior, and shell authentication.
   permits existing commits ahead of `main`, and adds only cycle Gate Commits.
 - Given either feature-branch workflow completes, when Final Push runs, then it
   pushes only that feature branch and creates a verified draft pull request into
-  configured `main`, or reuses the branch's existing open draft without trying
-  to create a duplicate.
+  configured `main`, or reuses the same-repository branch's existing open draft
+  without trying to create a duplicate or accepting a fork collision.
 - Given configured `main` advances during a cycle, when Final Push runs, then the
   feature branch must contain one exact merge of current `main` and fresh evidence
   for every required gate before delivery can continue.
