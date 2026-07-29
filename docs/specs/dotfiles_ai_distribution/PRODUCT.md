@@ -41,6 +41,9 @@ target files.
 11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
     feature branch and submits a draft pull request into the configured `main`
     branch; automation never commits or pushes cycle work directly to `main`.
+12. High-impact P0/P1 claims enter Discovery automatically, while an operator
+    reviews waiting P2/P3 claims through `/dbsctr-backlog` and the existing Herdr
+    worker tab before allowing further work.
 
 ## Constraints And Trust
 
@@ -58,7 +61,7 @@ target files.
 - Hermes owns scheduling, Kanban, and delegation; Herdr owns optional terminal
   presentation; OpenCode owns implementation; the DBSCTR ledger owns lifecycle
   coordination and approval state.
-- Adaptive cadence remains between weekly and daily, allows at most three
+- Adaptive lens cadence remains between monthly and daily, allows at most three
   nonterminal workers, halts on repeated failures, and requires manual reset.
 - Private session, project, and repository provenance never appears in public
   findings, branches, documentation, or pull requests.
@@ -75,6 +78,8 @@ target files.
   review jobs are repeatable, while Discovery still pauses for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
+- Every claim carries P0-P3 priority; P0/P1 may enter Discovery automatically,
+  while P2/P3 remain claimed and visible through a report-only operator queue.
 - A cycle started from `main` creates an isolated feature branch, while a cycle
   started in a dedicated clean teammate worktree may retain that feature branch;
   both publish only a draft pull request into configured `main`.
