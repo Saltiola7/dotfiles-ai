@@ -1775,6 +1775,7 @@ class DbsctrctlTest(unittest.TestCase):
         )
         log = gh_log.read_text()
         self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
+        self.assertIn("<--head>\n<dbsctr/test/cycle-1>", log)
         self.assertIn("<--head>\n<example-org:dbsctr/test/cycle-1>", log)
         self.assertIn("<pr>\n<create>", log)
         self.assertNotIn("<merge>", log)

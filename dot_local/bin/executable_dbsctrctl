@@ -6775,7 +6775,7 @@ def deliver_draft_pr(root, record):
     fields = "number,url,isDraft,state,baseRefName,headRefName"
     head = f"{github['repository'].partition('/')[0]}:{delivery['branch']}"
     existing = github_json(
-        root, env, "pr", "list", "--repo", github["repository"], "--head", head,
+        root, env, "pr", "list", "--repo", github["repository"], "--head", delivery["branch"],
         "--state", "all", "--limit", "2", "--json", fields,
     )
     if not isinstance(existing, list) or len(existing) > 1:

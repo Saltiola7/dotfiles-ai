@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import tomllib
+from unittest import mock
 
 import pytest
 
@@ -561,8 +562,9 @@ def test_privacy_epochs_preserve_source_order(tmp_path: Path) -> None:
     assert all(source["availability"] == "available" for source in result["sources"])
 
 
-def test_command_stops_oversized_output(tmp_path: Path) -> None:
+def test_command_stops_oversized_output(tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
+    monkeypatch.setattr(helper.os, "killpg", mock.Mock(side_effect=PermissionError))
     noisy = tmp_path / "noisy"
     noisy.write_text("#!/bin/sh\ndd if=/dev/zero bs=300000 count=1 2>/dev/null\n")
     noisy.chmod(0o755)
