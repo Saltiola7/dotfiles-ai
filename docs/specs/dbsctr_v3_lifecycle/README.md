@@ -1128,6 +1128,11 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   automatically stash, commit, discard, or adopt pre-cycle changes.
 - Schema-less and older schema records without protected-base metadata retain
   their recorded legacy Final Push rules; the new guard is not inferred into them.
+- If the Protected Base Branch advances, draft delivery requires exactly one
+  first-parent reconciliation merge of its current head. Every required gate's
+  current evidence must descend from that merge; stale evidence blocks delivery.
+  The verified reconciliation merge is the only non-Gate Commit admitted between
+  the cycle baseline and Final Push.
 
 ### V3.20-V3.22 Analytics Program Overrides
 

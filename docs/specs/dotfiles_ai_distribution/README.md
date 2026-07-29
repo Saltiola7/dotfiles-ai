@@ -228,6 +228,9 @@ OpenCode control-plane behavior, and shell authentication.
 - Given either feature-branch workflow completes, when Final Push runs, then it
   pushes only that feature branch and creates a verified draft pull request into
   configured `main`.
+- Given configured `main` advances during a cycle, when Final Push runs, then the
+  feature branch must contain one exact merge of current `main` and fresh evidence
+  for every required gate before delivery can continue.
 - Given the prepared worktree is dirty, when cycle setup is requested, then it
   reports the dirty paths and stops for explicit reconciliation rather than
   stashing, committing, discarding, or absorbing unrelated work automatically.

@@ -1643,6 +1643,45 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(delivery["branch"], "teammate/change")
         self.assertEqual(delivery["base_branch"], "develop")
 
+    def test_draft_reconciliation_requires_merge_and_fresh_gate_evidence(self):
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                              capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "-b", "feature"], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        subprocess.run(["git", "commit", "-am", "cycle"], cwd=self.repo, check=True,
+                       capture_output=True)
+        cycle = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                               capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "-b", "target", base], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "upstream.txt").write_text("advance\n")
+        subprocess.run(["git", "add", "upstream.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=self.repo, check=True,
+                       capture_output=True)
+        target = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "feature"], cwd=self.repo, check=True, capture_output=True)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_reconcile", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        with self.assertRaisesRegex(RuntimeError, "without reconciliation"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        subprocess.run(["git", "merge", "--no-ff", "target", "-m", "reconcile"], cwd=self.repo,
+                       check=True, capture_output=True)
+        reconciliation = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                        text=True, capture_output=True).stdout.strip()
+        with self.assertRaisesRegex(RuntimeError, "evidence predates"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle], [reconciliation]
+            ),
+            [cycle],
+        )
+
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)

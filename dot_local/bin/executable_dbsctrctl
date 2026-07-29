@@ -6726,6 +6726,27 @@ def sync_source_checkout(record, remote, remote_branch):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
+def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits, evidence_points):
+    if git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode:
+        fail("protected base advanced without reconciliation")
+    merges = git(root, "rev-list", "--first-parent", "--merges", f"{cycle_base}..HEAD").stdout.splitlines()
+    matches = [commit for commit in merges
+               if git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head]
+    if len(matches) != 1:
+        fail("protected base reconciliation merge is missing or ambiguous")
+    reconciliation = matches[0]
+    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
+               check=False).returncode for point in evidence_points):
+        fail("required gate evidence predates protected base reconciliation")
+    first_parent = git(
+        root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
+    ).stdout.splitlines()
+    current_ahead = [commit for commit in first_parent if commit != reconciliation]
+    if current_ahead != recorded_commits:
+        fail("ahead commits are not exactly the recorded cycle commits")
+    return current_ahead
+
+
 def github_environment(account):
     result = subprocess.run(
         ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
@@ -6872,14 +6893,26 @@ def finish_push(root, path, record):
     recorded_commits = [entry["id"] for entry in record["commits"]]
     reconciled = False
     base_head = delivery.get("base_head", cycle_base)
-    if target_head != base_head:
-        if (record["delivery_intent"] != "draft_pr"
-                and git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
-                or git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode):
-            fail("delivery target advanced outside the cycle lineage")
+    if record["delivery_intent"] == "draft_pr" and target_head != base_head:
+        evidence_points = []
+        for name, gate in record["gates"].items():
+            if gate["applicability"] == "required":
+                item = record["evidence"]["items"][gate["evidence"]]
+                evidence_points.append(item.get("commit") or item["head"])
+        current_ahead = validate_draft_reconciliation(
+            root, cycle_base, target_head, recorded_commits, evidence_points
+        )
         reconciled = True
-    comparison_base = cycle_base if record["delivery_intent"] == "draft_pr" else current_upstream
-    current_ahead = git(root, "rev-list", "--reverse", f"{comparison_base}..HEAD").stdout.splitlines()
+    else:
+        if (target_head != base_head
+                and (git(root, "merge-base", "--is-ancestor", cycle_base, target_head,
+                         check=False).returncode
+                     or git(root, "merge-base", "--is-ancestor", target_head, "HEAD",
+                            check=False).returncode)):
+            fail("delivery target advanced outside the cycle lineage")
+        reconciled = target_head != base_head
+        comparison_base = cycle_base if record["delivery_intent"] == "draft_pr" else current_upstream
+        current_ahead = git(root, "rev-list", "--reverse", f"{comparison_base}..HEAD").stdout.splitlines()
     if current_ahead != recorded_commits:
         if not (record["state"] == "finalizing" and not current_ahead and reconciled
                 and git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()[-len(recorded_commits):]
