@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.32-1 | Protect configured main and support existing teammate feature branches through draft PR delivery | critical | in_progress | V3.23-1 | `dbsctrctl` start/begin/final-push delivery validation and focused fixtures | Existing schema-3 records, Git upstream semantics, GitHub draft-PR adapter | no | Direct upstream delivery can update main and bypass contributor review | M | Red/green tests for protected-main rejection, teammate baseline preservation, draft base verification, remote drift, and dirty-state failure |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.32-1 | Protect configured main and support published teammate feature baselines, same-repository draft PRs, and explicit base reconciliation | 2026-07-28 | `706711d..727f3bd` |
 | V3.31-1 | Add bounded global completed-worktree inventory and cleanup with fixed-registry containment and scheduled maintenance | 2026-07-28 | `269125b..dc6d284` |
 | V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | `8b2bf0b`, `b9dd44c`, `b08540b` |
 | V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |

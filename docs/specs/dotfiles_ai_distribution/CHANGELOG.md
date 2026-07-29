@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-28 - DAI-017 PR-Only Protected Delivery
+
+- Protected configured `main` from direct cycle delivery while retaining
+  automatic Gate Commits on isolated or existing published teammate feature
+  branches. Same-repository draft PR identity now separates repository ownership
+  from the authenticated collaborator account.
+- Protected-base advancement requires one exact reconciliation merge and fresh
+  evidence for every required gate. Affected QA passed 189 tests with one existing
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `706711d..727f3bd`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-28 - DAI-016 Hermes-First Orchestration
 
 - Installed checksum-pinned Hermes `0.19.0` with isolated authenticated host,
