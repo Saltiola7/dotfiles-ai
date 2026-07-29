@@ -227,7 +227,8 @@ OpenCode control-plane behavior, and shell authentication.
   permits existing commits ahead of `main`, and adds only cycle Gate Commits.
 - Given either feature-branch workflow completes, when Final Push runs, then it
   pushes only that feature branch and creates a verified draft pull request into
-  configured `main`.
+  configured `main`, or reuses the branch's existing open draft without trying
+  to create a duplicate.
 - Given configured `main` advances during a cycle, when Final Push runs, then the
   feature branch must contain one exact merge of current `main` and fresh evidence
   for every required gate before delivery can continue.
@@ -243,6 +244,9 @@ OpenCode control-plane behavior, and shell authentication.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
+- Given a bounded command exceeds its output limit, then cleanup preserves the
+  intended bound error even if the child already exited or macOS denies the late
+  process-group signal.
 
 ### Autonomous R&D Worker
 
