@@ -1682,6 +1682,19 @@ class DbsctrctlTest(unittest.TestCase):
             [cycle],
         )
 
+    def test_ordinary_draft_pr_does_not_require_improvement_worker(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_ordinary_pr", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        home = Path(self.temp.name) / "home"
+        home.mkdir()
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            module.link_improvement_pull_request(
+                {"runtime": {"opencode": {"session_ids": ["ordinary-session"]}}},
+                {"number": 1, "url": "https://github.com/example/repo/pull/1"},
+            )
+
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)

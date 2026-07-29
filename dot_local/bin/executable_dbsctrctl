@@ -6820,7 +6820,7 @@ def link_improvement_pull_request(record, pull_request):
         row = connection.execute("SELECT worker_id FROM improvement_workers WHERE session_id=?",
                                  (sessions[-1],)).fetchone()
         if row is None:
-            fail("draft_pr runtime is not a registered improvement worker")
+            return
         current = improvement_worker(connection, row[0])
         if current["state"] not in {"implementing", "draft_pr"}:
             fail("improvement worker is not ready for draft_pr delivery")

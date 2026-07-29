@@ -1119,6 +1119,9 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   branch upstream, so an existing teammate feature branch may target `main`.
 - Same-repository pull requests derive their head owner from the configured
   repository, while the separately configured GitHub account selects credentials.
+- Ordinary draft-PR cycles do not require an autonomous improvement worker. When
+  the exact runtime session belongs to one, verified delivery links its PR in the
+  private worker ledger; an unrelated or absent worker leaves that ledger unchanged.
 - A feature branch tracking the protected base is accepted only when its complete
   pre-cycle HEAD is already published under the same remote feature ref.
 - `begin` continues to create an isolated `dbsctr/<context>/<cycle-id>` branch.
