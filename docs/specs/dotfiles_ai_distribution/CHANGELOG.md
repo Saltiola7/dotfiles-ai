@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-017 CI Portability
+
+- Split deterministic rendering checks from external-tool integration checks,
+  kept Lima validation capability-optional, and made pinned OpenCode parser
+  validation required in CI. Full QA passed 258 tests with one Lima skip;
+  fixed-commit audit and independent review found no remaining issues. Commits:
+  `fc20e0f..ae54056`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-28 - DAI-017 PR-Only Protected Delivery
 
 - Protected configured `main` from direct cycle delivery while retaining
