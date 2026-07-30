@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.35 repository documentation authority reconciled
+**Status:** V3.35 repository documentation authority reconciled; F1 Discovery handoff activated
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -1403,6 +1403,22 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Deploy | Apply managed prompt/configuration changes | not_applicable | not_run | Merge-only delivery; no live chezmoi apply requested | - | User |
 | Operate | Verify a running service | not_applicable | not_run | No running-service change | - | User |
 | Maintain/Retire | Preserve history under `_archive` and current references | required | passed | Archive contract, plan JSON, and path checks | - | Primary |
+
+#### V3.35-F1 Gate Ledger
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Version-neutral current lifecycle language | required | passed | V3.35 contract | - | Primary |
+| Behavior | Discovery handoff reports DBSCTR V3 applicability | required | passed | Focused prompt assertion | - | Primary |
+| Spec | Active prompt and bounded follow-up scope | required | passed | README and BACKLOG | - | Primary |
+| Contract | No current `V3.2 applicability plan` phrase | required | passed | Regression assertion and stale-term search | - | Primary |
+| Test-driven implementation | Deployed stale target failed before source correction | required | passed | Red deployed assertion; 30 focused tests passed | - | Primary |
+| Refactor | One wording correction without new abstraction | required | passed | Diff and whitespace validation | - | Primary |
+| Review/Integrate | Prompt, spec, and test coherence | required | passed | Affected review and QA | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply corrected Discovery skill | required | passed | Targeted chezmoi apply and empty second dry-run | - | Primary |
+| Operate | Activate and verify corrected prompt | required | passed | Restarted OpenCode, loaded skill, healthy Herdr attribution | - | Primary |
+| Maintain/Retire | Prevent stale minor-version wording from returning | required | passed | Focused regression contract | - | Primary |
 
 ### V3.32 Concurrent Target Reconciliation
 

@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff | high | in_progress | V3.35-1 | Discovery handoff wording and focused lifecycle regression | V3.35 documentation authority contract | no | Prompt source, deployed target, and runtime activation require serialized delivery | XS | Focused lifecycle test, stale-term search, targeted apply identity, restart health |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff and activate the corrected prompt | 2026-07-30 | `9914f12` |
 | V3.35-1 | Reconcile current documentation authority, operator guidance, exact statuses, and historical archives | 2026-07-30 | `b2d9909` |
 | V3.34-1 | Require accessible, source-bound visual decisions and meaningful diagrams across normative specifications | 2026-07-30 | `dc7aace` |
 | V3.32-F1 | Add explicit helper-owned preview and no-commit preparation for an advanced cycle target | 2026-07-30 | `eabcd06`, `8e20a16` |
