@@ -48,6 +48,23 @@ material ambiguity, and produce a useful artifact only when its basis is clear.
    asks material questions when needed, returns the requested artifact, and then
    shows its logic as an original Mermaid map.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | not_applicable: the context README owns the canonical evidence and consent boundary diagram | - | `README.md` Visual Evidence | Writing-skills owner |
+| Interaction | not_applicable: the three product journeys are linear and the context README owns detailed ordering | - | Core Journeys and `README.md` | Product owner |
+| State | not_applicable: Product Intent defines outcomes rather than persistent workflow state | - | Desired Outcomes | Product owner |
+| Data/trust | not_applicable: Privacy And Trust plus the context README Text Equivalent fully state the boundary | - | Privacy And Trust | Product owner |
+| Schema | not_applicable: Jira artifact schemas belong to the skill references | - | Product Constraints | Writing-skills owner |
+| Dependency/deployment | not_applicable: deployment is outside this Product Intent and canonical in the control-plane specification | - | Non-goals | Control-plane owner |
+| Quantitative | not_applicable: success evidence is categorical and no comparative dataset controls a product decision | - | Success Evidence | Product owner |
+
+The context README's accessible workflow is the canonical visual for these
+journeys. This Product Intent intentionally does not duplicate it. Its prose is
+the Text Equivalent for product outcomes; the product owner revisits this plan
+when journeys, privacy boundaries, or measurable success decisions change.
+
 ## Success Evidence
 
 - Focused contracts verify portable skill metadata, thin commands, bounded ACLI

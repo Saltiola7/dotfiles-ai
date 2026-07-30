@@ -50,6 +50,39 @@ target files.
 14. An operator can inspect bounded local Herdr pane history for the prior 30 days
     without publishing terminal content or weakening filesystem ownership checks.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: product journey boundary flowchart | Where does the operator cross from portable setup into isolated automation and governed delivery? | Core Journeys and context README architecture | Product owner; journey or trust-boundary changes |
+| Interaction | not_applicable: detailed approval ordering is canonical in the context README sequence | - | Context README Visual Evidence | Distribution owner |
+| State | not_applicable: product outcomes do not define a separate state machine | - | Core Journeys | Product owner |
+| Data/trust | required: product journey boundary flowchart | Which outcomes must preserve local identity and secrets? | Constraints And Trust | Product owner; privacy outcome changes |
+| Schema | not_applicable: Product Intent owns outcomes rather than configuration schema | - | Context README contracts | Distribution owner |
+| Dependency/deployment | not_applicable: deployment topology is canonical in the context README | - | Context README Visual Evidence | Distribution owner |
+| Quantitative | not_applicable: success is verified by invariants and runtime checks, not a comparative dataset | - | Success Evidence | Product owner |
+
+```mermaid
+flowchart LR
+    accTitle: dotfiles-ai product journey boundaries
+    accDescr: A developer configures portable public defaults with private local values, applies managed host and workspace environments, explicitly opts into automation, approves implementation, and reviews draft pull requests while secrets and identities remain local.
+    P[Public repository] -->|Add private local values| C[Machine-local configuration]
+    C -->|Preview and apply| W[Managed host and workspaces]
+    W -->|Optional opt-in| A[Isolated automation profiles]
+    A -->|Discovery asks and waits| U[Operator approval]
+    U -->|Explicit proceed| I[Isolated implementation cycle]
+    I -->|Draft pull request| R[Human review and merge]
+    C -.->|Never publish| X[Secrets and machine identity]
+```
+
+**Text Equivalent:** Public defaults become usable only after private local
+values are supplied. Applying them creates managed host and workspace
+environments; automation remains optional and isolated. Discovery waits for the
+operator before implementation, and delivery ends at a draft pull request for
+human review. Secrets and machine identity never enter the public repository.
+The product owner updates this view when a core journey, privacy boundary, or
+approval outcome changes.
+
 ## Constraints And Trust
 
 - Public Git history contains no credentials or machine-local identifiers.

@@ -71,6 +71,8 @@ command mechanics, global permissions, provider routing, and deployment.
 
 ```mermaid
 flowchart LR
+    accTitle: Evidence-driven writing workflow
+    accDescr: An explicit request selects a writing skill, which gathers bounded local, Jira, or approved public evidence, asks material questions, and returns the requested artifact with evidence and uncertainty notes.
     U[Explicit user request] --> C[Thin OpenCode command or skill request]
     C --> S[Writing skill]
     S --> L[Relevant local and Git evidence]
@@ -86,6 +88,29 @@ flowchart LR
 Commands only select a workflow. Skills own reasoning and output behavior.
 OpenCode permissions provide coarse ACLI guardrails; prompt contracts and ACLI's
 read-only subcommands remain necessary because Bash matching is not a sandbox.
+
+**Text Equivalent:** An explicit request selects a thin command or writing skill.
+The skill may gather relevant local and Git evidence, bounded Jira evidence for
+an explicit key or approved query, and public research approved for that
+invocation. Those sources feed a material-question interview. The skill then
+returns the requested artifact followed by evidence and uncertainty notes.
+
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: evidence workflow flowchart | Which evidence and consent boundaries feed a writing invocation? | Architecture and Trust boundaries | Writing-skills owner; evidence boundary changes |
+| Interaction | required: evidence workflow flowchart | What ordering prevents drafting before material questions are resolved? | Behavior Scenarios | Writing-skills owner; interview ordering changes |
+| State | not_applicable: readiness is a decision condition, not a persisted state machine | - | Domain | Writing-skills owner |
+| Data/trust | required: evidence workflow flowchart | Which reads require an identifier or per-invocation approval? | Contracts And Invariants | Writing-skills owner; consent changes |
+| Schema | not_applicable: Jira output contracts remain authoritative in their reference files | - | Interfaces and references | Writing-skills owner |
+| Dependency/deployment | not_applicable: the File Map and control-plane specification own deployment relationships | - | File Map | Control-plane owner |
+| Quantitative | not_applicable: no writing decision depends on comparative numeric evidence | - | Behavior Scenarios | Writing-skills owner |
+
+The Mermaid source above is canonical for workflow ordering; this README is its
+Text Equivalent. The writing-skills owner updates both whenever evidence sources,
+consent, interview ordering, or output obligations change and checks the rendered
+GitHub pull request.
 
 ## Domain
 

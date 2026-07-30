@@ -30,7 +30,28 @@ Brief description of what this bounded context covers.
 
 ## Architecture
 
-High-level architecture diagram or description.
+Describe the high-level architecture. Implement each required view selected by
+the Visual Evidence Plan below; prose does not silently replace a required view.
+
+## Visual Evidence
+
+The Visual Evidence Plan uses `required: TYPE` or `not_applicable: REASON`.
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | | | | |
+| Interaction | | | | |
+| State | | | | |
+| Data/trust | | | | |
+| Schema | | | | |
+| Dependency/deployment | | | | |
+| Quantitative | | | | |
+
+Each required Mermaid visual includes `accTitle` and `accDescr`, meaningful
+directional labels, and an adjacent **Text Equivalent**. A quantitative chart
+also includes an adjacent source-data table with values, units, period, source,
+denominator, and uncertainty. Verify non-trivial Mermaid in the rendered GitHub
+pull request and update represented facts in the same change.
 
 ## Domain
 

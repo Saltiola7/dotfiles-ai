@@ -99,6 +99,11 @@ contract, profile, or validation truth changes. It contains:
 - contracts, risks, Gate Ledger, and validation strategy
 - facts, assumptions, accepted risks, and unresolved decisions
 
+When creating or materially updating a Normative Specification, load
+`../dbsctr/references/spec-visuals.md`. Its Visual Evidence Plan must decide each
+concern explicitly, include accessible Text Equivalents for required visuals,
+and reject decorative or unsupported quantitative charts.
+
 ### Conditional Product Intent
 
 When the Engineering Profile establishes product-facing behavior, first select

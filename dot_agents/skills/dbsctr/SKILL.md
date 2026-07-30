@@ -105,6 +105,9 @@ applicable, and downstream-visible outcomes. Resolve consequential ambiguity.
 Define concrete interfaces, signatures, commands, config/schema shapes, files,
 examples, migrations, architecture decisions, and a dependency-aware backlog.
 Map each interface to behavior and assign non-overlapping ownership.
+For every Normative Specification created or materially changed, load
+`references/spec-visuals.md`, add or refresh its Visual Evidence Plan, and
+implement every required accessible visual without inventing decorative charts.
 
 ### 4. Contract
 

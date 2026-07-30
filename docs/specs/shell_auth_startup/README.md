@@ -37,6 +37,49 @@ Glossary:
 - **Fail-fast**: auth command exits with an error after a bounded timeout.
 - **Poll loop**: recurring SketchyBar script execution driven by `update_freq`.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: authentication decision flow | Which shell contexts may use environment, Keychain, cache, or biometric authentication? | Domain and SecretLoader contracts | Shell-auth owner; authentication boundary changes |
+| Interaction | required: authentication decision flow | In what order are authentication sources considered? | Behavior Scenarios | Shell-auth owner; precedence or failure changes |
+| State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
+| Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
+| Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
+| Dependency/deployment | not_applicable: launchd ownership is a bounded contract without additional topology | - | HerdrServer scenarios | Shell-auth owner |
+| Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
+
+```mermaid
+flowchart TD
+    accTitle: Shell secret authentication decision flow
+    accDescr: Startup never loads secrets. An explicit secret request prefers a valid environment service token, then permits Keychain only in Herdr, permits a valid cache or biometric mint only in an interactive local shell, and fails fast in SSH or noninteractive contexts without valid credentials.
+    S[Login shell starts] -->|Never auto-load| N[Startup completes]
+    N -->|Explicit secret request| E{Valid service token in environment?}
+    E -->|Yes| F[Fetch one secret item]
+    E -->|No| H{Herdr pane?}
+    H -->|Yes| K{Valid Keychain service token?}
+    K -->|Yes| F
+    K -->|No| X[Fail fast without biometric signin]
+    H -->|No| C{Valid cached session?}
+    C -->|Yes| F
+    C -->|No| T{Interactive local TTY?}
+    T -->|Yes| M[Mint one bounded session]
+    M --> F
+    T -->|No| X
+    F --> P[Validate complete projected secret set]
+    P -->|Complete| O[Export values and materialize files]
+    P -->|Missing or invalid| X
+```
+
+**Text Equivalent:** Shell startup never loads secrets. An explicit request first
+uses a valid environment service token. A Herdr pane may then use only a valid
+Keychain service token and otherwise fails without biometric sign-in. Other
+shells may use a valid cache; only an interactive local TTY may mint a new bounded
+session. SSH and noninteractive contexts without valid credentials fail fast.
+One grouped fetch succeeds only after the complete projected secret set validates.
+The shell-auth owner updates this view when authentication precedence, context,
+or failure behavior changes.
+
 ## Behavior Scenarios
 
 ### Feature: Startup-safe Herdr panes

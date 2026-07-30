@@ -139,6 +139,77 @@ rendered targets, installation, migration, rollback, and maintenance for the
 DBSCTR/OpenCode/Herdr workbench. Adjacent contexts own lifecycle semantics,
 OpenCode control-plane behavior, and shell authentication.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: host/workspace trust flowchart | Which runtime owns orchestration, implementation, presentation, lifecycle, and credentials? | Bounded Context and Constraints in PRODUCT.md | Distribution owner; runtime or trust boundary changes |
+| Interaction | required: approval-handoff sequence | Where must automation stop for human authority? | Autonomous R&D Worker and Collaborative Git Delivery | Distribution owner; approval or delivery flow changes |
+| State | not_applicable: claim and cycle states are authoritative in the lifecycle specification | - | `dbsctr_v3_lifecycle` | Lifecycle owner |
+| Data/trust | required: host/workspace trust flowchart | What may cross VM and host boundaries? | Federated Host R&D contracts | Distribution owner; federation changes |
+| Schema | not_applicable: TOML and generated schema contracts remain authoritative text and tests | - | Interfaces And Contracts | Distribution owner |
+| Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
+| Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
+
+```mermaid
+flowchart LR
+    accTitle: dotfiles-ai host and workspace trust boundaries
+    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, credentials, and local history. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
+    subgraph H[macOS host trust boundary]
+        HH[Host Hermes]
+        HO[Host OpenCode]
+        HR[Host Herdr]
+        HL[Host private ledger]
+    end
+    subgraph V[Fedora workspace trust boundary]
+        VH[Workspace Hermes]
+        VO[Workspace OpenCode]
+        VR[Workspace Herdr]
+        VC[Workspace credentials and history]
+    end
+    HH -->|Schedule and refine| HO
+    HR -->|Present sessions| HO
+    VH -->|Schedule and refine| VO
+    VR -->|Present sessions| VO
+    VC -->|Sanitized bounded evidence| HL
+    HO -->|Explicit approved handoff| VO
+    HO -->|Gate evidence and feature commits| G[DBSCTR and Git authority]
+    VO -->|Gate evidence and feature commits| G
+```
+
+**Text Equivalent:** Host and workspace profiles have independent Hermes,
+OpenCode, Herdr, credentials, history, and private state. Herdr presents sessions
+but does not own lifecycle state. Only bounded sanitized evidence crosses from a
+workspace to host review; only an explicitly approved implementation handoff
+crosses from host to workspace. Both OpenCode runtimes produce feature-branch
+evidence governed by DBSCTR and Git.
+
+```mermaid
+sequenceDiagram
+    accTitle: Autonomous improvement approval and delivery
+    accDescr: Hermes schedules and refines work, OpenCode performs Discovery, the operator must answer material questions and explicitly approve implementation, and DBSCTR can publish only a feature branch and draft pull request.
+    participant H as Hermes
+    participant O as OpenCode
+    participant U as Operator
+    participant D as DBSCTR
+    participant G as GitHub
+    H->>O: Start bounded Discovery worker
+    O->>O: Gather evidence and ask material questions
+    O-->>U: Wait for answers and explicit proceed
+    U->>O: Answer and approve implementation
+    O->>D: Begin isolated lifecycle cycle
+    D->>D: Require gates and Gate Commits
+    D->>G: Push feature branch and create draft PR
+    G-->>U: Human review and merge authority
+```
+
+**Text Equivalent:** Hermes may start Discovery, but OpenCode waits for the
+operator to answer material questions and explicitly approve implementation.
+Only then may DBSCTR create an isolated cycle, require gate evidence, and push a
+feature branch with a draft pull request. The operator retains review and merge
+authority. The distribution owner updates both views when profile isolation,
+federation, approval, or delivery boundaries change.
+
 ## Goals
 
 - Reproduce the maintainer's working AI development configuration without

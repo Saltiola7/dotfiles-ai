@@ -65,6 +65,47 @@ For this initiative, `dbsctr_v3_lifecycle` owns shared lifecycle and evaluation
 semantics, while `dotfiles_ai_distribution` owns federated capture transport,
 weekly scheduling, private report persistence, and operational deployment.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: provider-affine control flowchart | Which surfaces own routing, permissions, lifecycle, and provider selection? | Overview and Contracts | Control-plane owner; ownership or permission changes |
+| Interaction | required: provider-affine control flowchart | How do Plan, Build, and bounded subagents hand work off? | Plan and Build behavior | Control-plane owner; handoff or delegation changes |
+| State | not_applicable: agent lifecycle state is runtime-owned and not specified here | - | OpenCode runtime | Control-plane owner |
+| Data/trust | required: provider-affine control flowchart | Where are local, external, and provider boundaries enforced? | Permission and provider-affinity contracts | Control-plane owner; trust boundary changes |
+| Schema | not_applicable: JSON configuration and typed adapter schemas remain authoritative | - | Managed configuration and tests | Control-plane owner |
+| Dependency/deployment | required: provider-affine control flowchart | Which managed surfaces are loaded into OpenCode? | Engineering Profile and File contracts | Control-plane owner; loaded surface changes |
+| Quantitative | not_applicable: evaluation metrics are persisted evidence, but this specification makes no comparative decision from a current dataset | - | Evaluation contracts | Control-plane owner |
+
+```mermaid
+flowchart TD
+    accTitle: OpenCode provider-affine control plane
+    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects.
+    U[User or thin command] -->|Select workflow| P{Primary agent}
+    P -->|Native Plan| N[Read-only planning]
+    N -->|Build handoff| B[Native Build]
+    P -->|OpenAI entry| G[build-gpt]
+    P -->|Bedrock entry| C[build-claude]
+    B -->|Generic bounded work| X[Inheriting subagents]
+    G -->|OpenAI only| O[OpenAI subagents]
+    C -->|Bedrock only| A[Bedrock subagents]
+    B --> S[Shared DBSCTR, Discovery, and QA skills]
+    G --> S
+    C --> S
+    S --> T[Typed local adapters]
+    T -->|Local validated effects| W[Worktree and private local state]
+    T -->|Permission required| E[External or destructive boundary]
+```
+
+**Text Equivalent:** Thin commands select a native or provider-affine primary.
+Plan is read-only and hands bounded scope to Build. Native Build uses generic
+inheriting subagents; `build-gpt` uses only OpenAI subagents; `build-claude` uses
+only Bedrock subagents. All primaries load shared lifecycle skills and typed local
+adapters. Validated local effects may reach the worktree or private local state;
+external or destructive effects remain permission-gated. The control-plane owner
+updates this view when routing, delegation, loaded skills, adapters, permissions,
+or provider boundaries change.
+
 ## Goals
 
 - Keep native Plan and Build, plus provider-affine `build-gpt` and `build-claude`.

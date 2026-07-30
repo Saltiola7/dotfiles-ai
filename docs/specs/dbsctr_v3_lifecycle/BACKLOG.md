@@ -11,6 +11,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.34-1 | Require accessible, source-bound visual decisions and meaningful diagrams across normative specifications | 2026-07-30 | `dc7aace` |
 | V3.32-F1 | Add explicit helper-owned preview and no-commit preparation for an advanced cycle target | 2026-07-30 | `eabcd06`, `8e20a16` |
 | V3.33-F1 | Retire shared completed worktrees only after every associated cycle and current HEAD are integrated | 2026-07-30 | `2ecae53` |
 | V3.33-1 | Add exact-confirmation stale-cycle retirement that preserves records and branches while rejecting dirty worktrees | 2026-07-30 | `98abffe` |
