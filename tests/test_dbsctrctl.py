@@ -4155,8 +4155,101 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-4", "--action", "failed", ok=False,
         )
         self.assertIn("remain queued", recovery.stderr)
+        mismatch = run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-x", ok=False,
+        )
+        self.assertIn("confirmation does not match", mismatch.stderr)
+        promoted = json.loads(run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-4",
+        ).stdout)
+        self.assertEqual((promoted["priority"], promoted["state"]), ("P1", "discovery"))
+        repeated = run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,
+        )
+        self.assertIn("only a claimed P2/P3", repeated.stderr)
         ledger = state / "reviews/ledger.sqlite3"
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+
+    def test_batch_commands_reject_invalid_or_unconfirmed_identity(self):
+        invalid = run(
+            self.repo, "batch-create", "--batch-id", "../main",
+            "--github-account", "owner", "--github-repository", "owner/repo", ok=False,
+        )
+        self.assertIn("invalid batch ID", invalid.stderr)
+        missing = run(
+            self.repo, "batch-publish", "--batch-id", "batch-1", "--confirm", "batch-2", ok=False,
+        )
+        self.assertIn("batch confirmation does not match", missing.stderr)
+
+    def test_batch_integration_creates_no_ff_merge_and_preview_is_ephemeral(self):
+        bare = Path(self.temp.name) / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.repo, check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=self.repo,
+                       check=True, capture_output=True)
+        records = self.repo / ".git/dbsctr/cycles"
+        records.mkdir(parents=True)
+        for number in (1, 2):
+            branch = f"dbsctr/test/cycle-{number}"
+            subprocess.run(["git", "switch", "-c", branch, "main"], cwd=self.repo,
+                           check=True, capture_output=True)
+            (self.repo / f"source-{number}.txt").write_text(f"source {number}\n")
+            subprocess.run(["git", "add", f"source-{number}.txt"], cwd=self.repo, check=True)
+            subprocess.run(["git", "commit", "-m", f"source {number}"], cwd=self.repo,
+                           check=True, capture_output=True)
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+                                 check=True, capture_output=True).stdout.strip()
+            subprocess.run(["git", "push", "origin", branch], cwd=self.repo,
+                           check=True, capture_output=True)
+            (records / f"cycle-{number}.json").write_text(json.dumps({
+                "state": "completed", "delivery_intent": "draft_pr",
+                "delivery": {"branch": branch, "published_feature_head": sha},
+            }))
+        subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
+        env = {**os.environ, "HOME": str(Path(self.temp.name) / "home")}
+        created = json.loads(run(
+            self.repo, "batch-create", "--batch-id", "batch-1",
+            "--github-account", "owner", "--github-repository", "owner/repo", env=env,
+        ).stdout)
+        integrated = json.loads(run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-1", env=env,
+        ).stdout)
+        merge = integrated["sources"][0]["merge"]
+        parents = subprocess.run(
+            ["git", "show", "-s", "--format=%P", merge], cwd=self.repo,
+            text=True, check=True, capture_output=True,
+        ).stdout.split()
+        self.assertEqual(len(parents), 2)
+        preview = json.loads(run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-2", "--preview", env=env,
+        ).stdout)
+        self.assertTrue(preview["preview"])
+        worktrees = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=self.repo,
+                                   text=True, check=True, capture_output=True).stdout
+        self.assertNotIn("dbsctr-batch-batch-1-", worktrees)
+        duplicate = run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-1", env=env, ok=False,
+        )
+        self.assertIn("already integrated", duplicate.stderr)
+        batch_worktree = Path(created["worktree"])
+        (batch_worktree / "unrecorded.txt").write_text("unrecorded\n")
+        subprocess.run(["git", "add", "unrecorded.txt"], cwd=batch_worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "unrecorded"], cwd=batch_worktree,
+                       check=True, capture_output=True)
+        unrecorded = run(
+            self.repo, "batch-publish", "--batch-id", "batch-1", "--confirm", "batch-1",
+            env=env, ok=False,
+        )
+        self.assertIn("batch tip is not the recorded merge history", unrecorded.stderr)
+        subprocess.run(["git", "worktree", "remove", "--force", created["worktree"]],
+                       cwd=self.repo, check=True, capture_output=True)
 
     def test_improvement_scope_claims_reject_overlapping_paths(self):
         state = Path(self.temp.name) / "improvement-scope"

@@ -467,7 +467,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
-    assert "pane_history = false" in herdr
+    assert "pane_history = true" in herdr
+    assert "scrollback_limit_bytes = 10000000" in herdr
     assert ".dotfiles_ai.herdr.theme" in herdr
 
 

@@ -5,6 +5,7 @@ import os
 import plistlib
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -114,6 +115,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "terminal.home_mode profile" in configure
     assert "config set model openai-codex/gpt-5.6-sol" in configure
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
+    assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
     assert "cron pause" in configure and "cutover-ready" in configure
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
@@ -124,6 +126,45 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     )[1]
     assert ".local/bin/dbsctr-rnd" not in linux_ignores
     assert ".hermes/managed" not in linux_ignores
+
+
+def test_herdr_history_archives_once_daily_and_prunes_older_than_30_days(tmp_path):
+    source = tmp_path / "session-history.json"
+    archive = tmp_path / "archive"
+    source.write_text('{"pane":"private"}\n')
+    archive.mkdir(mode=0o700)
+    (archive / "2026-06-01.json").write_text("old\n")
+    (archive / "2026-07-01.json").write_text("boundary\n")
+    script = ROOT / "dot_local/bin/executable_herdr-history-maintain"
+    env = {
+        **os.environ,
+        "HERDR_HISTORY_SOURCE": str(source),
+        "HERDR_HISTORY_ARCHIVE": str(archive),
+        "HERDR_HISTORY_NOW": "2026-07-31T03:00:00+00:00",
+    }
+    result = subprocess.run([sys.executable, script], env=env, text=True, capture_output=True, check=True)
+    report = json.loads(result.stdout)
+    assert report == {"archived": True, "path": "2026-07-31.json", "pruned": 1}
+    assert not (archive / "2026-06-01.json").exists()
+    assert (archive / "2026-07-01.json").exists()
+    snapshot = archive / "2026-07-31.json"
+    assert snapshot.read_text() == source.read_text()
+    assert snapshot.stat().st_mode & 0o777 == 0o600
+
+
+def test_herdr_history_rejects_symlink_source(tmp_path):
+    target = tmp_path / "target.json"
+    target.write_text("{}\n")
+    source = tmp_path / "session-history.json"
+    source.symlink_to(target)
+    result = subprocess.run(
+        [sys.executable, ROOT / "dot_local/bin/executable_herdr-history-maintain"],
+        env={**os.environ, "HERDR_HISTORY_SOURCE": str(source),
+             "HERDR_HISTORY_ARCHIVE": str(tmp_path / "archive")},
+        text=True, capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "source is unsafe" in result.stderr
 
 
 def test_runner_bounds_dependency_commands(tmp_path):

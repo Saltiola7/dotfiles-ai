@@ -5938,6 +5938,26 @@ def command_improvement_claim(args):
     print(json.dumps(improvement_write(root, claim), sort_keys=True))
 
 
+def command_improvement_promote(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    if improvement_id(args.confirm, "confirmation") != worker_id:
+        fail("improvement worker confirmation does not match")
+    root = review_root(args.state_root)
+
+    def promote(connection):
+        current = improvement_worker(connection, worker_id)
+        if current["state"] != "claimed" or current["priority"] not in {"P2", "P3"}:
+            fail("only a claimed P2/P3 improvement worker can be promoted")
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        connection.execute("""
+            UPDATE improvement_workers SET priority='P1', state='discovery',
+                   resume_state='discovery', updated_at=? WHERE worker_id=?
+        """, (timestamp, worker_id))
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, promote), sort_keys=True))
+
+
 def command_improvement_register(args):
     worker_id = improvement_id(args.worker_id, "worker ID")
     session_id = improvement_id(args.session_id, "session ID")
@@ -6849,6 +6869,179 @@ def deliver_draft_pr(root, record):
     }
 
 
+def batch_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}", value):
+        fail("invalid batch ID")
+    return value
+
+
+def batch_path(root, identifier):
+    return cycle_dir(root) / "batches" / f"{identifier}.json"
+
+
+def batch_worktree(root, identifier):
+    repository = hashlib.sha256(str(common_git_dir(root).resolve()).encode()).hexdigest()[:16]
+    return Path.home() / ".local/state/dbsctr/batch-worktrees" / repository / identifier
+
+
+def load_batch(root, identifier):
+    path = batch_path(root, identifier)
+    if not path.is_file() or path.is_symlink():
+        fail("batch is missing")
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        fail("batch metadata is invalid")
+    if (value.get("schema_version") != 1 or value.get("batch_id") != identifier
+            or value.get("branch") != f"rnd/batch/{identifier}"
+            or value.get("worktree") != str(batch_worktree(root, identifier))):
+        fail("batch metadata is invalid")
+    return path, value
+
+
+def validate_batch_tip(worktree, value):
+    expected = value["base"]
+    for item in value["sources"]:
+        if (not isinstance(item, dict) or set(item) != {"branch", "sha", "merge"}
+                or not all(isinstance(item[name], str) for name in item)
+                or not re.fullmatch(r"dbsctr/[A-Za-z0-9._/-]+", item["branch"])
+                or ".." in PurePosixPath(item["branch"]).parts
+                or not re.fullmatch(r"[0-9a-f]{40,64}", item["sha"])
+                or not re.fullmatch(r"[0-9a-f]{40,64}", item["merge"])
+                or git(worktree, "show", "-s", "--format=%P", item["merge"]).stdout.split()
+                != [expected, item["sha"]]):
+            fail("batch merge history is invalid")
+        expected = item["merge"]
+    if git(worktree, "rev-parse", "HEAD").stdout.strip() != expected:
+        fail("batch tip is not the recorded merge history")
+
+
+def completed_source(root, source, sha):
+    matches = []
+    for path in (cycle_dir(root) / "cycles").glob("*.json"):
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        delivery = record.get("delivery", {})
+        if (record.get("state") == "completed" and record.get("delivery_intent") == "draft_pr"
+                and delivery.get("branch") == source
+                and delivery.get("published_feature_head") == sha):
+            matches.append(record)
+    if len(matches) != 1:
+        fail("batch source is not one completed DBSCTR draft-PR delivery")
+
+
+def command_batch_create(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    branch_name = f"rnd/batch/{identifier}"
+    path = batch_path(root, identifier)
+    worktree = batch_worktree(root, identifier)
+    if (not OPAQUE_ID.fullmatch(args.github_account)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.github_repository)):
+        fail("batch requires a valid GitHub account and repository")
+    if path.exists() or worktree.exists() or git(root, "show-ref", "--verify", "--quiet",
+                                                 f"refs/heads/{branch_name}", check=False).returncode == 0:
+        fail("batch already exists")
+    if status_paths(root):
+        fail("source worktree is not clean")
+    git(root, "fetch", "origin", "main")
+    base = git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    git(root, "worktree", "add", "-b", branch_name, str(worktree), base)
+    value = {
+        "schema_version": 1, "batch_id": identifier, "branch": branch_name,
+        "base": base, "worktree": str(worktree), "sources": [],
+        "github": {"host": "github.com", "account": args.github_account,
+                   "repository": args.github_repository}, "created_at": now(),
+    }
+    private_json(path, value)
+    print(json.dumps(value, sort_keys=True))
+
+
+def batch_source(root, source):
+    if not re.fullmatch(r"dbsctr/[A-Za-z0-9._/-]+", source) or ".." in PurePosixPath(source).parts:
+        fail("invalid batch source branch")
+    git(root, "fetch", "origin", source)
+    sha = git(root, "rev-parse", f"refs/remotes/origin/{source}").stdout.strip()
+    completed_source(root, source, sha)
+    return sha
+
+
+def command_batch_integrate(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    sources = list(dict.fromkeys(args.source))
+    if len(sources) != len(args.source):
+        fail("batch source is duplicated")
+    git(root, "fetch", "origin", "main")
+    source_heads = [(source, batch_source(root, source)) for source in sources]
+    if args.preview:
+        parent = Path(tempfile.mkdtemp(prefix=f"dbsctr-batch-{identifier}-"))
+        temporary = parent / "worktree"
+        try:
+            base = git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+            git(root, "worktree", "add", "--detach", str(temporary), base)
+            for _source, sha in source_heads:
+                git(temporary, "merge", "--no-ff", "--no-edit", sha)
+            print(json.dumps({"batch_id": identifier, "preview": True,
+                              "head": git(temporary, "rev-parse", "HEAD").stdout.strip()}, sort_keys=True))
+        finally:
+            git(root, "worktree", "remove", "--force", str(temporary), check=False)
+            shutil.rmtree(parent, ignore_errors=True)
+        return
+    path, value = load_batch(root, identifier)
+    worktree = Path(value["worktree"])
+    if not worktree.is_dir() or status_paths(worktree):
+        fail("batch worktree is missing or dirty")
+    validate_batch_tip(worktree, value)
+    if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
+        fail("protected base branch drifted")
+    recorded = {item["branch"] for item in value["sources"]}
+    if recorded.intersection(sources):
+        fail("batch source is already integrated")
+    for item in value["sources"]:
+        git(root, "fetch", "origin", item["branch"])
+        current = git(root, "rev-parse", f"refs/remotes/origin/{item['branch']}").stdout.strip()
+        if current != item["sha"]:
+            fail("batch source drifted")
+    for source, sha in source_heads:
+        git(worktree, "merge", "--no-ff", "--no-edit", sha)
+        value["sources"].append({"branch": source, "sha": sha,
+                                 "merge": git(worktree, "rev-parse", "HEAD").stdout.strip()})
+    value["updated_at"] = now()
+    private_json(path, value)
+    print(json.dumps(value, sort_keys=True))
+
+
+def command_batch_publish(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    if batch_id(args.confirm) != identifier:
+        fail("batch confirmation does not match")
+    path, value = load_batch(root, identifier)
+    worktree = Path(value["worktree"])
+    if not value["sources"] or not worktree.is_dir() or status_paths(worktree):
+        fail("batch is not ready for publication")
+    validate_batch_tip(worktree, value)
+    git(root, "fetch", "origin", "main")
+    if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
+        fail("protected base branch drifted")
+    for item in value["sources"]:
+        git(root, "fetch", "origin", item["branch"])
+        if git(root, "rev-parse", f"refs/remotes/origin/{item['branch']}").stdout.strip() != item["sha"]:
+            fail("batch source drifted")
+    git(worktree, "push", "origin", f"HEAD:{value['branch']}")
+    record = {"cycle_id": identifier, "context": "batch integration", "delivery": {
+        "branch": value["branch"], "base_branch": "main", "github": value["github"]}}
+    pull_request = deliver_draft_pr(worktree, record)
+    value["pull_request"] = pull_request
+    value["published_at"] = now()
+    private_json(path, value)
+    print(json.dumps({"batch_id": identifier, "pull_request": pull_request}, sort_keys=True))
+
+
 def link_improvement_pull_request(record, pull_request):
     sessions = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
     if not sessions:
@@ -7249,6 +7442,11 @@ def parser():
     improvement_claim.add_argument("--summary", required=True)
     improvement_claim.add_argument("--priority", choices=("P0", "P1", "P2", "P3"), default="P2")
     improvement_claim.set_defaults(func=command_improvement_claim)
+    improvement_promote = commands.add_parser("improvement-promote")
+    improvement_promote.add_argument("--state-root")
+    improvement_promote.add_argument("--worker-id", required=True)
+    improvement_promote.add_argument("--confirm", required=True)
+    improvement_promote.set_defaults(func=command_improvement_promote)
     improvement_update = commands.add_parser("improvement-update")
     improvement_update.add_argument("--state-root")
     improvement_update.add_argument("--worker-id")
@@ -7274,6 +7472,20 @@ def parser():
     improvement_status.add_argument("--state-root")
     improvement_status.add_argument("--worker-id")
     improvement_status.set_defaults(func=command_improvement_status)
+    batch_create = commands.add_parser("batch-create")
+    batch_create.add_argument("--batch-id", required=True)
+    batch_create.add_argument("--github-account", required=True)
+    batch_create.add_argument("--github-repository", required=True)
+    batch_create.set_defaults(func=command_batch_create)
+    batch_integrate = commands.add_parser("batch-integrate")
+    batch_integrate.add_argument("--batch-id", required=True)
+    batch_integrate.add_argument("--source", action="append", required=True)
+    batch_integrate.add_argument("--preview", action="store_true")
+    batch_integrate.set_defaults(func=command_batch_integrate)
+    batch_publish = commands.add_parser("batch-publish")
+    batch_publish.add_argument("--batch-id", required=True)
+    batch_publish.add_argument("--confirm", required=True)
+    batch_publish.set_defaults(func=command_batch_publish)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))

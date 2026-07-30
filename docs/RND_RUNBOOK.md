@@ -53,9 +53,24 @@ satisfied. The worker then completes its isolated DBSCTR cycle and opens a draft
 pull request. It never merges, marks ready, releases, or deploys.
 
 P0/P1 claims enter Discovery automatically. P2/P3 claims stop in `claimed`; run
-`/dbsctr-backlog` for the report-only queue. They cannot enter Discovery until a
-separate promotion contract exists; the current operator action is explicit
-abandonment through normal recovery controls.
+`/dbsctr-backlog` for the report-only queue. Promote one deliberately with
+`/dbsctr-integrate`, or directly with the exact confirmation:
+
+```sh
+dbsctrctl improvement-promote --worker-id WORKER_ID --confirm WORKER_ID
+```
+
+To preview and combine completed feature branches without weakening `main`, use
+`/dbsctr-integrate`. It creates `rnd/batch/BATCH_ID`, records exact source SHAs,
+and uses no-fast-forward merges. Hermes may create, preview, and integrate the
+batch; only the operator may publish its draft pull request:
+
+```sh
+dbsctrctl batch-create --batch-id BATCH_ID --github-account ACCOUNT --github-repository OWNER/REPO
+dbsctrctl batch-integrate --batch-id BATCH_ID --source dbsctr/CONTEXT/CYCLE --preview
+dbsctrctl batch-integrate --batch-id BATCH_ID --source dbsctr/CONTEXT/CYCLE
+dbsctrctl batch-publish --batch-id BATCH_ID --confirm BATCH_ID
+```
 
 ## Health And Controls
 
@@ -79,6 +94,12 @@ enabled = false
 
 Apply the source after changing the flag. Existing OpenCode tabs, claims,
 worktrees, and draft pull requests remain untouched.
+
+Herdr pane history uses a 10 MB scrollback bound. Daily Hermes maintenance keeps
+private UTC-day snapshots under `~/.local/state/dotfiles-ai/herdr-history` and
+prunes snapshots older than 30 days. Run `herdr-history-maintain` for an explicit
+archive/prune pass; missing source history is a no-op and unsafe ownership or
+symlinks fail closed.
 
 Retry or abandon an exhausted worker explicitly:
 
