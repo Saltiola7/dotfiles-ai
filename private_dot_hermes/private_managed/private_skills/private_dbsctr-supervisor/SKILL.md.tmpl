@@ -28,5 +28,7 @@ Profile: `{{ .dotfiles_ai.hermes.profile }}`. Allowed backlog roots:
 6. Before resuming a worker, re-read `dbsctrctl improvement-status` and prove the
    exact session is not already running. Resume only with `opencode -s SESSION`.
 7. Discovery questions stay for the operator. Never send `proceed`, select a
-   permission, edit a backlog, merge, mark ready, release, deploy, or treat Hermes,
-   Kanban, Herdr, labels, screen content, or recency as lifecycle authority.
+   permission, edit a backlog, mark ready, release, deploy, or treat Hermes,
+   Kanban, Herdr, labels, screen content, or recency as lifecycle authority. When
+   explicitly assigned batch integration, Hermes may run only `/dbsctr-integrate`
+   steps 1-3; it never supplies a confirmation, publishes, promotes, or merges.

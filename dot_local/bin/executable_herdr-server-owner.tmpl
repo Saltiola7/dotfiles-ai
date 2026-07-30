@@ -2,11 +2,14 @@
 
 set -u
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+herdr_server_running() {
+    "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
+}
 error=$(mktemp "${TMPDIR:-/tmp}/herdr-server.XXXXXX") || exit 1
 trap '/bin/rm -f "$error"' EXIT
 "$HERDR" server 2>"$error"
 status=$?
-if [[ $status -ne 0 ]] && "$HERDR" status server >/dev/null 2>&1; then
+if [[ $status -ne 0 ]] && herdr_server_running; then
     exit 0
 fi
 /bin/cat "$error" >&2

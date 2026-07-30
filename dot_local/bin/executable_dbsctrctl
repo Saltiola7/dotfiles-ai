@@ -42,7 +42,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
-IMPROVEMENT_SCHEMA = 1
+IMPROVEMENT_SCHEMA = 2
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
@@ -457,6 +457,14 @@ def ledger_connection(root, write=False, path=None):
         row = connection.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()
         if row != (str(REVIEW_LEDGER_SCHEMA),):
             fail("private review ledger has an unsupported schema")
+        improvement_schema = connection.execute(
+            "SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
+        if write and improvement_schema == ("1",):
+            if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                fail("private review ledger integrity check failed")
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                fail("private review ledger foreign-key check failed")
+            ensure_improvement_schema(connection)
         ledger_integrity(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
@@ -608,6 +616,21 @@ def ensure_improvement_schema(connection):
     row = connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
     if row == (str(IMPROVEMENT_SCHEMA),):
         return
+    if row == ("1",):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN priority TEXT "
+                               "CHECK (priority IN ('P0','P1','P2','P3'))")
+            connection.execute("UPDATE improvement_workers SET priority="
+                               "CASE WHEN state='claimed' THEN 'P2' ELSE 'P1' END "
+                               "WHERE opportunity_id IS NOT NULL")
+            connection.execute("UPDATE ledger_meta SET value=? WHERE key='improvement_schema'",
+                               (str(IMPROVEMENT_SCHEMA),))
+            connection.commit()
+            return
+        except Exception:
+            connection.rollback()
+            raise
     if row is not None:
         fail("private improvement ledger has an unsupported schema")
     workers = """CREATE TABLE improvement_workers (
@@ -615,6 +638,7 @@ def ensure_improvement_schema(connection):
             session_id TEXT NOT NULL UNIQUE,
             opportunity_id TEXT UNIQUE,
             summary TEXT,
+            priority TEXT CHECK (priority IN ('P0','P1','P2','P3')),
             state TEXT NOT NULL CHECK (state IN (
                 'reviewing', 'claimed', 'discovery', 'implementing', 'draft_pr',
                 'blocked', 'merged', 'closed', 'abandoned'
@@ -656,12 +680,12 @@ def improvement_integrity(connection):
     if tables != expected_tables:
         fail("private improvement ledger tables are invalid")
     for row in connection.execute("""
-            SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+            SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                    recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                    pr_number, pr_url, created_at, updated_at
             FROM improvement_workers
     """):
-        worker_id, session_id, opportunity_id, summary, state, resume_state, attempts, *rest = row
+        worker_id, session_id, opportunity_id, summary, priority, state, resume_state, attempts, *rest = row
         presentation_ids, cycle_id = rest[:3], rest[3]
         pr_number, pr_url, created_at, updated_at = rest[4:]
         if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
@@ -669,7 +693,10 @@ def improvement_integrity(connection):
                 or summary is not None and (not isinstance(summary, str)
                                              or not 1 <= len(summary.encode()) <= 512 or review_unsafe(summary))
                 or (opportunity_id is None) != (summary is None)
+                or (opportunity_id is None) != (priority is None)
+                or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
                 or state == "reviewing" and opportunity_id is not None
+                or priority in {"P2", "P3"} and state not in {"claimed", "abandoned"}
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
                 or not isinstance(attempts, int) or not 0 <= attempts <= 3
@@ -2025,24 +2052,41 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
     current_branch = branch(root)
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
+    pre_cycle_ahead = ahead(root, current_upstream)
+    protected_base_branch = args.base_branch
+    if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
+        fail("invalid protected base branch")
     if args.delivery_intent == "draft_pr":
         account = getattr(args, "github_account", None)
         repository = getattr(args, "github_repository", None)
         if (not account or not OPAQUE_ID.fullmatch(account) or not repository
                 or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)):
             fail("draft_pr delivery requires a valid GitHub account and repository")
-        if not current_branch or current_branch == delivery_branch:
+        if not current_branch or current_branch == protected_base_branch:
             fail("draft_pr delivery requires a feature branch distinct from its base")
+        if not delivery_remote:
+            fail("draft_pr delivery requires a configured remote")
+        git(root, "fetch", delivery_remote, protected_base_branch)
+        base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
+        published_head = git(
+            root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
+        ).stdout.split()
+        if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
+            fail("pre-cycle commits are not published on the feature branch")
         delivery = {
             "upstream": current_upstream, "remote": delivery_remote,
-            "branch": current_branch, "base_branch": delivery_branch,
+            "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
+            **({"published_feature_head": published_head[0]} if published_head else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
             "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
                                         remote_branch=current_branch),
         }
     else:
+        if delivery_branch == protected_base_branch:
+            fail("direct delivery to the protected base branch requires draft_pr")
         delivery = {"upstream": current_upstream, "remote": delivery_remote,
-                    "branch": delivery_branch, "lock_id": delivery_lock_id(
+                    "branch": delivery_branch, "protected_base_branch": protected_base_branch,
+                    "lock_id": delivery_lock_id(
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
     record = {
@@ -2055,7 +2099,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         }},
         "git": {"head": git(root, "rev-parse", "HEAD").stdout.strip(), "branch": current_branch,
                 "upstream": current_upstream, "dirty_paths": dirty_paths,
-                "pre_cycle_ahead_commits": ahead(root, current_upstream),
+                "pre_cycle_ahead_commits": pre_cycle_ahead,
                  "remote": remote_destination(root, current_upstream)},
         "worktree": {"id": worktree_id(root), "path": str(root.resolve()),
                      "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
@@ -2281,6 +2325,178 @@ def cleanup_cycle(root, cycle_id, immediate):
     return "removed " + str(worktree)
 
 
+def cycle_retirement_reason(value):
+    normalized = " ".join(value.split())
+    if not 1 <= len(normalized.encode()) <= 512 or review_unsafe(normalized):
+        fail("invalid cycle retirement reason")
+    return normalized
+
+
+def command_cycle_retire(args):
+    root = root_dir()
+    cycle_id = improvement_id(args.cycle_id, "cycle ID")
+    if improvement_id(args.confirm, "confirmation") != cycle_id:
+        fail("cycle confirmation does not match")
+    reason = cycle_retirement_reason(args.reason)
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    if not path.is_file() or path.is_symlink():
+        fail("cycle record is missing")
+
+    with evidence_lock(root, cycle_id):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        retirement = record.get("retirement")
+        retrying = (record.get("state") == "active" and isinstance(retirement, dict)
+                    and retirement.get("state") == "removing_worktree")
+        if record.get("state") != "active" or retirement is not None and not retrying:
+            fail("only an active unretired cycle can be retired")
+        if record.get("cycle_id") != cycle_id:
+            fail("cycle record identity mismatch")
+        details = record.get("worktree", {})
+        if details.get("created_by_dbsctr") is not True:
+            fail("retirement only removes DBSCTR-created worktrees")
+        worktree = Path(details.get("path", ""))
+        branch_name = details.get("branch")
+        expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
+        if branch_name != expected_branch or worktree.resolve() == root.resolve():
+            fail("invalid cycle retirement worktree")
+        pointer = cycle_dir(root) / "worktrees" / details.get("id", "") / "active"
+        if pointer.exists() and (not pointer.is_file() or pointer.is_symlink()
+                                 or pointer.read_text(encoding="utf-8").strip() != cycle_id):
+            fail("cycle active pointer identity changed")
+        if not pointer.exists() and not (retrying and not worktree.is_dir()):
+            fail("cycle active pointer is missing")
+        marker = {
+            "state": "removing_worktree", "disposition": args.disposition,
+            "reason": reason, "branch": branch_name,
+        }
+        if retrying:
+            if any(retirement.get(name) != value for name, value in marker.items()):
+                fail("cycle retirement retry changed")
+        elif not worktree.is_dir():
+            fail("cycle retirement worktree is missing")
+
+        if worktree.is_dir():
+            if status_paths(worktree):
+                fail("refusing to retire a dirty cycle worktree")
+            if (branch(worktree) != branch_name or worktree_id(worktree) != details.get("id")
+                    or git_dir(worktree).resolve() != Path(details.get("git_dir", "")).resolve()
+                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+                fail("cycle retirement worktree identity changed")
+            head = git(worktree, "rev-parse", "HEAD").stdout.strip()
+            commits = [entry["id"] for entry in record.get("commits", [])]
+            if args.disposition == "empty":
+                if commits or head != record.get("git", {}).get("head"):
+                    fail("empty retirement requires an unchanged cycle baseline")
+            elif args.disposition == "integrated":
+                if not commits:
+                    fail("integrated retirement requires recorded Gate Commits")
+                remote, target_branch = remote_for_upstream(worktree, record["git"]["upstream"])
+                if not remote or not target_branch:
+                    fail("cycle delivery target is unavailable")
+                git(worktree, "fetch", remote, target_branch)
+                target = f"refs/remotes/{remote}/{target_branch}"
+                if (any(git(worktree, "merge-base", "--is-ancestor", commit, target,
+                            check=False).returncode for commit in commits)
+                        or git(worktree, "merge-base", "--is-ancestor", head, target,
+                               check=False).returncode):
+                    fail("cycle work is not integrated into its delivery target")
+            record["retirement"] = {**marker, "head": head, "started_at": now()}
+            save(path, record)
+            git(root, "worktree", "remove", str(worktree))
+        elif not retrying:
+            fail("cycle retirement worktree is missing")
+
+        pointer.unlink(missing_ok=True)
+        record["state"] = "retired"
+        record["retired_at"] = now()
+        record["retirement"] = {**record["retirement"], "state": "retired",
+                                "retired_at": record["retired_at"]}
+        save(path, record)
+    print(json.dumps({"cycle_id": cycle_id, "state": "retired",
+                      "disposition": args.disposition, "branch": branch_name}, sort_keys=True))
+
+
+def command_cycle_retire_worktree(args):
+    root = root_dir()
+    cycle_id = improvement_id(args.cycle_id, "cycle ID")
+    if improvement_id(args.confirm, "confirmation") != cycle_id:
+        fail("cycle confirmation does not match")
+    reason = cycle_retirement_reason(args.reason)
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    if not path.is_file() or path.is_symlink():
+        fail("cycle record is missing")
+
+    with evidence_lock(root, cycle_id):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        retirement = record.get("worktree_retirement")
+        retrying = (record.get("state") == "completed" and isinstance(retirement, dict)
+                    and retirement.get("state") == "removing_worktree")
+        if record.get("state") != "completed" or retirement is not None and not retrying:
+            fail("only a completed cycle worktree can be retired")
+        if record.get("cycle_id") != cycle_id:
+            fail("cycle record identity mismatch")
+        details = record.get("worktree", {})
+        if details.get("created_by_dbsctr") is not True:
+            fail("worktree retirement requires its DBSCTR-created owner cycle")
+        worktree = Path(details.get("path", ""))
+        branch_name = details.get("branch")
+        expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
+        if branch_name != expected_branch or worktree.resolve() == root.resolve():
+            fail("invalid completed cycle worktree")
+        pointer = cycle_dir(root) / "worktrees" / details.get("id", "") / "active"
+        if pointer.exists():
+            fail("completed cycle worktree still has an active pointer")
+        marker = {"state": "removing_worktree", "reason": reason, "branch": branch_name}
+        if retrying:
+            if any(retirement.get(name) != value for name, value in marker.items()):
+                fail("completed worktree retirement retry changed")
+        elif not worktree.is_dir():
+            fail("completed cycle worktree is missing")
+
+        if worktree.is_dir():
+            if status_paths(worktree):
+                fail("refusing to retire a dirty completed worktree")
+            if (branch(worktree) != branch_name or worktree_id(worktree) != details.get("id")
+                    or git_dir(worktree).resolve() != Path(details.get("git_dir", "")).resolve()
+                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+                fail("completed cycle worktree identity changed")
+            related = []
+            for candidate in (cycle_dir(root) / "cycles").glob("*.json"):
+                value = json.loads(candidate.read_text(encoding="utf-8"))
+                other = value.get("worktree", {})
+                if (other.get("id") == details["id"] or other.get("path") == details["path"]):
+                    related.append(value)
+            if not related or any(value.get("state") != "completed" for value in related):
+                fail("shared worktree has a non-completed cycle")
+            remote, target_branch = remote_for_upstream(worktree, record["git"]["upstream"])
+            if not remote or not target_branch:
+                fail("cycle delivery target is unavailable")
+            git(worktree, "fetch", remote, target_branch)
+            target = f"refs/remotes/{remote}/{target_branch}"
+            commits = [entry["id"] for value in related for entry in value.get("commits", [])]
+            head = git(worktree, "rev-parse", "HEAD").stdout.strip()
+            if (not commits or any(git(worktree, "merge-base", "--is-ancestor", commit, target,
+                                       check=False).returncode for commit in commits)
+                    or git(worktree, "merge-base", "--is-ancestor", head, target,
+                           check=False).returncode):
+                fail("shared cycle work is not integrated into its delivery target")
+            record["worktree_retirement"] = {
+                **marker, "head": head, "related_cycles": sorted(value["cycle_id"] for value in related),
+                "started_at": now(),
+            }
+            save(path, record)
+            git(root, "worktree", "remove", str(worktree))
+        elif not retrying:
+            fail("completed cycle worktree is missing")
+
+        record["worktree_retirement"] = {
+            **record["worktree_retirement"], "state": "retired", "retired_at": now(),
+        }
+        save(path, record)
+    print(json.dumps({"cycle_id": cycle_id, "state": "completed", "worktree": "retired",
+                      "branch": branch_name}, sort_keys=True))
+
+
 def worktree_bytes(path):
     if not path.is_dir():
         return 0
@@ -2377,9 +2593,13 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
             continue
         worktree = Path(record["worktree"]["path"])
         blockers = []
-        if record.get("state") != "completed":
+        shared_retired = record.get("worktree_retirement", {}).get("state") == "retired"
+        if record.get("state") == "retired":
+            if worktree.is_dir() or record.get("retirement", {}).get("state") != "retired":
+                blockers.append("retirement_incomplete")
+        elif record.get("state") != "completed":
             blockers.append("not_completed")
-        else:
+        elif not shared_retired:
             try:
                 completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
                 if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
@@ -2402,11 +2622,13 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
                     or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
                     or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
                 blockers.append("identity_changed")
-        elif record.get("cleanup", {}).get("state") not in ("worktree_removed", "evidence_parked"):
+        elif (record.get("state") != "retired" and not shared_retired
+              and record.get("cleanup", {}).get("state") not in ("worktree_removed", "evidence_parked")):
             blockers.append("missing")
         result.append({
             "bytes": worktree_bytes(worktree),
-            "cleanup_candidate": not blockers,
+            "cleanup_candidate": (record.get("state") == "completed"
+                                  and not shared_retired and not blockers),
             "cleanup_blockers": blockers,
             "cycle_id": record["cycle_id"],
             "present": worktree.is_dir(),
@@ -5813,14 +6035,14 @@ def improvement_opportunity_id(summary):
 
 def improvement_worker(connection, worker_id):
     row = connection.execute("""
-        SELECT worker_id, session_id, opportunity_id, summary, state, resume_state,
+        SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                pr_number, pr_url, created_at, updated_at
         FROM improvement_workers WHERE worker_id=?
     """, (worker_id,)).fetchone()
     if row is None:
         fail("improvement worker is missing")
-    names = ("worker_id", "session_id", "opportunity_id", "summary", "state", "resume_state",
+    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "state", "resume_state",
              "recovery_attempts", "workspace_id", "tab_id", "pane_id", "cycle_id",
              "pr_number", "pr_url", "created_at", "updated_at")
     value = dict(zip(names, row))
@@ -5856,6 +6078,7 @@ def command_improvement_claim(args):
     requested_worker_id = improvement_id(args.worker_id, "worker ID") if args.worker_id is not None else None
     session_id = improvement_id(args.session_id, "session ID")
     summary = improvement_summary(args.summary)
+    priority = args.priority
     opportunity_id = improvement_opportunity_id(summary)
     timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
     root = review_root(args.state_root)
@@ -5875,22 +6098,42 @@ def command_improvement_claim(args):
             if existing is None:
                 connection.execute("""
                     INSERT INTO improvement_workers (
-                        worker_id, session_id, opportunity_id, summary, state, resume_state,
+                        worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
                         recovery_attempts, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
-                """, (worker_id, session_id, opportunity_id, summary, timestamp, timestamp))
+                    ) VALUES (?, ?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
+                """, (worker_id, session_id, opportunity_id, summary, priority, timestamp, timestamp))
             elif existing != (session_id, None):
                 fail("improvement opportunity or worker is already claimed")
             else:
                 connection.execute("""
-                    UPDATE improvement_workers SET opportunity_id=?, summary=?, state='claimed',
+                    UPDATE improvement_workers SET opportunity_id=?, summary=?, priority=?, state='claimed',
                            resume_state='claimed', updated_at=? WHERE worker_id=?
-                """, (opportunity_id, summary, timestamp, worker_id))
+                """, (opportunity_id, summary, priority, timestamp, worker_id))
         except sqlite3.IntegrityError:
             fail("improvement opportunity or worker is already claimed")
         return improvement_public(improvement_worker(connection, worker_id))
 
     print(json.dumps(improvement_write(root, claim), sort_keys=True))
+
+
+def command_improvement_promote(args):
+    worker_id = improvement_id(args.worker_id, "worker ID")
+    if improvement_id(args.confirm, "confirmation") != worker_id:
+        fail("improvement worker confirmation does not match")
+    root = review_root(args.state_root)
+
+    def promote(connection):
+        current = improvement_worker(connection, worker_id)
+        if current["state"] != "claimed" or current["priority"] not in {"P2", "P3"}:
+            fail("only a claimed P2/P3 improvement worker can be promoted")
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        connection.execute("""
+            UPDATE improvement_workers SET priority='P1', state='discovery',
+                   resume_state='discovery', updated_at=? WHERE worker_id=?
+        """, (timestamp, worker_id))
+        return improvement_public(improvement_worker(connection, worker_id))
+
+    print(json.dumps(improvement_write(root, promote), sort_keys=True))
 
 
 def command_improvement_register(args):
@@ -5957,6 +6200,8 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
+        if current["priority"] in {"P2", "P3"} and state not in {"claimed", "abandoned"}:
+            fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
@@ -6003,6 +6248,8 @@ def command_improvement_recover(args):
         current = improvement_worker(connection, worker_id)
         if current["state"] in {"merged", "closed", "abandoned"}:
             fail("terminal improvement worker cannot be recovered")
+        if current["priority"] in {"P2", "P3"} and args.action != "abandon":
+            fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         if args.action == "failed":
             attempts = min(current["recovery_attempts"] + 1, 3)
@@ -6047,8 +6294,9 @@ def command_improvement_status(args):
     if not ledger_exists(root):
         print(json.dumps({"workers": []}, sort_keys=True))
         return
-    with existing_review_lock(root):
-        connection = ledger_connection(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ledger_connection(root, write=True)
         try:
             if connection.execute("SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone() is None:
                 workers = []
@@ -6709,6 +6957,27 @@ def sync_source_checkout(record, remote, remote_branch):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
+def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits, evidence_points):
+    if git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode:
+        fail("protected base advanced without reconciliation")
+    merges = git(root, "rev-list", "--first-parent", "--merges", f"{cycle_base}..HEAD").stdout.splitlines()
+    matches = [commit for commit in merges
+               if git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head]
+    if len(matches) != 1:
+        fail("protected base reconciliation merge is missing or ambiguous")
+    reconciliation = matches[0]
+    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
+               check=False).returncode for point in evidence_points):
+        fail("required gate evidence predates protected base reconciliation")
+    first_parent = git(
+        root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
+    ).stdout.splitlines()
+    current_ahead = [commit for commit in first_parent if commit != reconciliation]
+    if current_ahead != recorded_commits:
+        fail("ahead commits are not exactly the recorded cycle commits")
+    return current_ahead
+
+
 def github_environment(account):
     result = subprocess.run(
         ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
@@ -6734,13 +7003,18 @@ def deliver_draft_pr(root, record):
     delivery = record["delivery"]
     github = delivery["github"]
     env = github_environment(github["account"])
-    fields = "number,url,isDraft,state,baseRefName,headRefName"
-    head = f"{github['account']}:{delivery['branch']}"
+    fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
+    owner = github["repository"].partition("/")[0]
+    head = f"{owner}:{delivery['branch']}"
     existing = github_json(
-        root, env, "pr", "list", "--repo", github["repository"], "--head", head,
-        "--state", "all", "--limit", "2", "--json", fields,
+        root, env, "pr", "list", "--repo", github["repository"], "--head", delivery["branch"],
+        "--state", "all", "--limit", "100", "--json", fields,
     )
-    if not isinstance(existing, list) or len(existing) > 1:
+    if not isinstance(existing, list):
+        fail("GitHub returned invalid pull requests for the feature branch")
+    existing = [pull_request for pull_request in existing
+                if pull_request.get("headRepositoryOwner", {}).get("login") == owner]
+    if len(existing) > 1:
         fail("GitHub returned ambiguous pull requests for the feature branch")
     if existing:
         pull_request = existing[0]
@@ -6762,6 +7036,7 @@ def deliver_draft_pr(root, record):
             or pull_request.get("state") != "OPEN"
             or pull_request.get("baseRefName") != delivery["base_branch"]
             or pull_request.get("headRefName") != delivery["branch"]
+            or pull_request.get("headRepositoryOwner", {}).get("login") != owner
             or type(pull_request.get("number")) is not int or pull_request["number"] < 1
             or not isinstance(pull_request.get("url"), str)
             or not pull_request["url"].startswith("https://github.com/")):
@@ -6772,25 +7047,210 @@ def deliver_draft_pr(root, record):
     }
 
 
+def batch_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}", value):
+        fail("invalid batch ID")
+    return value
+
+
+def batch_path(root, identifier):
+    return cycle_dir(root) / "batches" / f"{identifier}.json"
+
+
+def batch_worktree(root, identifier):
+    repository = hashlib.sha256(str(common_git_dir(root).resolve()).encode()).hexdigest()[:16]
+    return Path.home() / ".local/state/dbsctr/batch-worktrees" / repository / identifier
+
+
+def load_batch(root, identifier):
+    path = batch_path(root, identifier)
+    if not path.is_file() or path.is_symlink():
+        fail("batch is missing")
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        fail("batch metadata is invalid")
+    if (value.get("schema_version") != 1 or value.get("batch_id") != identifier
+            or value.get("branch") != f"rnd/batch/{identifier}"
+            or value.get("worktree") != str(batch_worktree(root, identifier))):
+        fail("batch metadata is invalid")
+    return path, value
+
+
+def validate_batch_tip(worktree, value):
+    expected = value["base"]
+    for item in value["sources"]:
+        if (not isinstance(item, dict) or set(item) != {"branch", "sha", "merge"}
+                or not all(isinstance(item[name], str) for name in item)
+                or not re.fullmatch(r"dbsctr/[A-Za-z0-9._/-]+", item["branch"])
+                or ".." in PurePosixPath(item["branch"]).parts
+                or not re.fullmatch(r"[0-9a-f]{40,64}", item["sha"])
+                or not re.fullmatch(r"[0-9a-f]{40,64}", item["merge"])
+                or git(worktree, "show", "-s", "--format=%P", item["merge"]).stdout.split()
+                != [expected, item["sha"]]):
+            fail("batch merge history is invalid")
+        expected = item["merge"]
+    if git(worktree, "rev-parse", "HEAD").stdout.strip() != expected:
+        fail("batch tip is not the recorded merge history")
+
+
+def completed_source(root, source, sha):
+    matches = []
+    for path in (cycle_dir(root) / "cycles").glob("*.json"):
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        delivery = record.get("delivery", {})
+        if (record.get("state") == "completed" and record.get("delivery_intent") == "draft_pr"
+                and delivery.get("branch") == source
+                and delivery.get("published_feature_head") == sha):
+            matches.append(record)
+    if len(matches) != 1:
+        fail("batch source is not one completed DBSCTR draft-PR delivery")
+
+
+def command_batch_create(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    branch_name = f"rnd/batch/{identifier}"
+    path = batch_path(root, identifier)
+    worktree = batch_worktree(root, identifier)
+    if (not OPAQUE_ID.fullmatch(args.github_account)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.github_repository)):
+        fail("batch requires a valid GitHub account and repository")
+    if path.exists() or worktree.exists() or git(root, "show-ref", "--verify", "--quiet",
+                                                 f"refs/heads/{branch_name}", check=False).returncode == 0:
+        fail("batch already exists")
+    if status_paths(root):
+        fail("source worktree is not clean")
+    git(root, "fetch", "origin", "main")
+    base = git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    git(root, "worktree", "add", "-b", branch_name, str(worktree), base)
+    value = {
+        "schema_version": 1, "batch_id": identifier, "branch": branch_name,
+        "base": base, "worktree": str(worktree), "sources": [],
+        "github": {"host": "github.com", "account": args.github_account,
+                   "repository": args.github_repository}, "created_at": now(),
+    }
+    private_json(path, value)
+    print(json.dumps(value, sort_keys=True))
+
+
+def batch_source(root, source):
+    if not re.fullmatch(r"dbsctr/[A-Za-z0-9._/-]+", source) or ".." in PurePosixPath(source).parts:
+        fail("invalid batch source branch")
+    git(root, "fetch", "origin", source)
+    sha = git(root, "rev-parse", f"refs/remotes/origin/{source}").stdout.strip()
+    completed_source(root, source, sha)
+    return sha
+
+
+def command_batch_integrate(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    sources = list(dict.fromkeys(args.source))
+    if len(sources) != len(args.source):
+        fail("batch source is duplicated")
+    git(root, "fetch", "origin", "main")
+    source_heads = [(source, batch_source(root, source)) for source in sources]
+    if args.preview:
+        parent = Path(tempfile.mkdtemp(prefix=f"dbsctr-batch-{identifier}-"))
+        temporary = parent / "worktree"
+        try:
+            base = git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+            git(root, "worktree", "add", "--detach", str(temporary), base)
+            for _source, sha in source_heads:
+                git(temporary, "merge", "--no-ff", "--no-edit", sha)
+            print(json.dumps({"batch_id": identifier, "preview": True,
+                              "head": git(temporary, "rev-parse", "HEAD").stdout.strip()}, sort_keys=True))
+        finally:
+            git(root, "worktree", "remove", "--force", str(temporary), check=False)
+            shutil.rmtree(parent, ignore_errors=True)
+        return
+    path, value = load_batch(root, identifier)
+    worktree = Path(value["worktree"])
+    if not worktree.is_dir() or status_paths(worktree):
+        fail("batch worktree is missing or dirty")
+    validate_batch_tip(worktree, value)
+    if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
+        fail("protected base branch drifted")
+    recorded = {item["branch"] for item in value["sources"]}
+    if recorded.intersection(sources):
+        fail("batch source is already integrated")
+    for item in value["sources"]:
+        git(root, "fetch", "origin", item["branch"])
+        current = git(root, "rev-parse", f"refs/remotes/origin/{item['branch']}").stdout.strip()
+        if current != item["sha"]:
+            fail("batch source drifted")
+    for source, sha in source_heads:
+        git(worktree, "merge", "--no-ff", "--no-edit", sha)
+        value["sources"].append({"branch": source, "sha": sha,
+                                 "merge": git(worktree, "rev-parse", "HEAD").stdout.strip()})
+    value["updated_at"] = now()
+    private_json(path, value)
+    print(json.dumps(value, sort_keys=True))
+
+
+def command_batch_publish(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    if batch_id(args.confirm) != identifier:
+        fail("batch confirmation does not match")
+    path, value = load_batch(root, identifier)
+    worktree = Path(value["worktree"])
+    if not value["sources"] or not worktree.is_dir() or status_paths(worktree):
+        fail("batch is not ready for publication")
+    validate_batch_tip(worktree, value)
+    git(root, "fetch", "origin", "main")
+    if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
+        fail("protected base branch drifted")
+    for item in value["sources"]:
+        git(root, "fetch", "origin", item["branch"])
+        if git(root, "rev-parse", f"refs/remotes/origin/{item['branch']}").stdout.strip() != item["sha"]:
+            fail("batch source drifted")
+    git(worktree, "push", "origin", f"HEAD:{value['branch']}")
+    record = {"cycle_id": identifier, "context": "batch integration", "delivery": {
+        "branch": value["branch"], "base_branch": "main", "github": value["github"]}}
+    pull_request = deliver_draft_pr(worktree, record)
+    value["pull_request"] = pull_request
+    value["published_at"] = now()
+    private_json(path, value)
+    print(json.dumps({"batch_id": identifier, "pull_request": pull_request}, sort_keys=True))
+
+
 def link_improvement_pull_request(record, pull_request):
     sessions = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
     if not sessions:
         return
     root = review_root()
+    if not ledger_exists(root):
+        return
+    connection = ledger_connection(root)
+    try:
+        if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='improvement_workers'"
+        ).fetchone() is None:
+            return
+        row = connection.execute(
+            "SELECT worker_id FROM improvement_workers WHERE session_id=?", (sessions[-1],)
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return
+    worker_id = row[0]
 
     def link(connection):
-        row = connection.execute("SELECT worker_id FROM improvement_workers WHERE session_id=?",
-                                 (sessions[-1],)).fetchone()
-        if row is None:
-            fail("draft_pr runtime is not a registered improvement worker")
-        current = improvement_worker(connection, row[0])
+        current = improvement_worker(connection, worker_id)
         if current["state"] not in {"implementing", "draft_pr"}:
             fail("improvement worker is not ready for draft_pr delivery")
         connection.execute("""
             UPDATE improvement_workers SET state='draft_pr', resume_state='draft_pr',
                    pr_number=?, pr_url=?, updated_at=? WHERE worker_id=?
         """, (pull_request["number"], pull_request["url"],
-              int(datetime.now(timezone.utc).timestamp() * 1000), row[0]))
+              int(datetime.now(timezone.utc).timestamp() * 1000), worker_id))
 
     improvement_write(root, link)
 
@@ -6828,29 +7288,53 @@ def finish_push(root, path, record):
     current_upstream = upstream(root)
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
-    if baseline["pre_cycle_ahead_commits"]:
-        fail("pre-cycle ahead commits would be pushed")
     delivery = record.get("delivery", {})
+    if (baseline["pre_cycle_ahead_commits"] and not (
+            record["delivery_intent"] == "draft_pr"
+            and delivery.get("published_feature_head") == baseline["head"])):
+        fail("pre-cycle ahead commits would be pushed")
     remote = delivery.get("remote")
     remote_branch = delivery.get("branch")
-    base_branch = delivery.get("base_branch", remote_branch)
     if not remote or not remote_branch:
         remote, remote_branch = remote_for_upstream(root, current_upstream)
     if not remote or not remote_branch:
         fail("upstream is not a remote branch")
+    protected_base_branch = delivery.get("protected_base_branch")
+    if (record["delivery_intent"] != "draft_pr" and protected_base_branch
+            and remote_branch == protected_base_branch):
+        fail("direct delivery to the protected base branch requires draft_pr")
+    base_branch = (delivery.get("base_branch", "main")
+                   if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
     git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
-    target_head = git(root, "rev-parse", current_upstream).stdout.strip()
+    target_ref = (f"refs/remotes/{remote}/{base_branch}"
+                  if record["delivery_intent"] == "draft_pr" else current_upstream)
+    target_head = git(root, "rev-parse", target_ref).stdout.strip()
     recorded_commits = [entry["id"] for entry in record["commits"]]
     reconciled = False
-    if target_head != cycle_base:
-        if (git(root, "merge-base", "--is-ancestor", cycle_base, target_head, check=False).returncode
-                or git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode):
-            fail("delivery target advanced outside the cycle lineage")
+    base_head = delivery.get("base_head", cycle_base)
+    if record["delivery_intent"] == "draft_pr" and target_head != base_head:
+        evidence_points = []
+        for name, gate in record["gates"].items():
+            if gate["applicability"] == "required":
+                item = record["evidence"]["items"][gate["evidence"]]
+                evidence_points.append(item.get("commit") or item["head"])
+        current_ahead = validate_draft_reconciliation(
+            root, cycle_base, target_head, recorded_commits, evidence_points
+        )
         reconciled = True
-    current_ahead = git(root, "rev-list", "--reverse", f"{current_upstream}..HEAD").stdout.splitlines()
+    else:
+        if (target_head != base_head
+                and (git(root, "merge-base", "--is-ancestor", cycle_base, target_head,
+                         check=False).returncode
+                     or git(root, "merge-base", "--is-ancestor", target_head, "HEAD",
+                            check=False).returncode)):
+            fail("delivery target advanced outside the cycle lineage")
+        reconciled = target_head != base_head
+        comparison_base = cycle_base if record["delivery_intent"] == "draft_pr" else current_upstream
+        current_ahead = git(root, "rev-list", "--reverse", f"{comparison_base}..HEAD").stdout.splitlines()
     if current_ahead != recorded_commits:
         if not (record["state"] == "finalizing" and not current_ahead and reconciled
                 and git(root, "rev-list", "--reverse", f"{cycle_base}..{target_head}").stdout.splitlines()[-len(recorded_commits):]
@@ -6897,7 +7381,7 @@ def finish_push(root, path, record):
         link_improvement_pull_request(record, record["delivery"]["pull_request"])
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
-    if reconciled:
+    if reconciled and record["delivery_intent"] != "draft_pr":
         baseline["head"] = target_head
         baseline["reconciled_at"] = now()
     record["state"] = "completed"
@@ -6996,6 +7480,7 @@ def parser():
     start.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     start.add_argument("--github-account")
     start.add_argument("--github-repository")
+    start.add_argument("--base-branch", default="main")
     start.set_defaults(func=command_start)
     begin = commands.add_parser("begin")
     begin.add_argument("--cycle-id", required=True)
@@ -7005,6 +7490,7 @@ def parser():
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
+    begin.add_argument("--base-branch", default="main")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
     begin.add_argument("--opencode-message-id")
@@ -7195,7 +7681,13 @@ def parser():
     improvement_claim.add_argument("--worker-id")
     improvement_claim.add_argument("--session-id", required=True)
     improvement_claim.add_argument("--summary", required=True)
+    improvement_claim.add_argument("--priority", choices=("P0", "P1", "P2", "P3"), default="P2")
     improvement_claim.set_defaults(func=command_improvement_claim)
+    improvement_promote = commands.add_parser("improvement-promote")
+    improvement_promote.add_argument("--state-root")
+    improvement_promote.add_argument("--worker-id", required=True)
+    improvement_promote.add_argument("--confirm", required=True)
+    improvement_promote.set_defaults(func=command_improvement_promote)
     improvement_update = commands.add_parser("improvement-update")
     improvement_update.add_argument("--state-root")
     improvement_update.add_argument("--worker-id")
@@ -7221,6 +7713,20 @@ def parser():
     improvement_status.add_argument("--state-root")
     improvement_status.add_argument("--worker-id")
     improvement_status.set_defaults(func=command_improvement_status)
+    batch_create = commands.add_parser("batch-create")
+    batch_create.add_argument("--batch-id", required=True)
+    batch_create.add_argument("--github-account", required=True)
+    batch_create.add_argument("--github-repository", required=True)
+    batch_create.set_defaults(func=command_batch_create)
+    batch_integrate = commands.add_parser("batch-integrate")
+    batch_integrate.add_argument("--batch-id", required=True)
+    batch_integrate.add_argument("--source", action="append", required=True)
+    batch_integrate.add_argument("--preview", action="store_true")
+    batch_integrate.set_defaults(func=command_batch_integrate)
+    batch_publish = commands.add_parser("batch-publish")
+    batch_publish.add_argument("--batch-id", required=True)
+    batch_publish.add_argument("--confirm", required=True)
+    batch_publish.set_defaults(func=command_batch_publish)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))
@@ -7289,6 +7795,18 @@ def parser():
     cleanup.add_argument("--now", action="store_true")
     cleanup.add_argument("--all", action="store_true")
     cleanup.set_defaults(func=command_cleanup)
+    retire = commands.add_parser("cycle-retire")
+    retire.add_argument("--cycle-id", required=True)
+    retire.add_argument("--confirm", required=True)
+    retire.add_argument("--disposition", required=True,
+                        choices=("empty", "integrated", "superseded"))
+    retire.add_argument("--reason", required=True)
+    retire.set_defaults(func=command_cycle_retire)
+    retire_worktree = commands.add_parser("cycle-retire-worktree")
+    retire_worktree.add_argument("--cycle-id", required=True)
+    retire_worktree.add_argument("--confirm", required=True)
+    retire_worktree.add_argument("--reason", required=True)
+    retire_worktree.set_defaults(func=command_cycle_retire_worktree)
     audit = commands.add_parser("audit")
     audit.add_argument("--commit", default="HEAD")
     audit.add_argument("--json", action="store_true")

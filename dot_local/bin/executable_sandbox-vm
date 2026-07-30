@@ -105,8 +105,17 @@ def command(argv, timeout=30, input_data=None):
                 chunks[key.fileobj].append(chunk)
         return_code = process.wait(timeout=max(0, deadline - time.monotonic()))
     except Exception:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
         raise
     stdout = b"".join(chunks[process.stdout]).decode(errors="replace").strip()
     stderr = b"".join(chunks[process.stderr]).decode(errors="replace").strip()

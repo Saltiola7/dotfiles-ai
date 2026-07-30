@@ -148,6 +148,8 @@ OpenCode control-plane behavior, and shell authentication.
   refinement, and resumable OpenCode R&D workers.
 - Review sanitized global history, pause for human Discovery, and create only
   human-merge draft pull requests for this source.
+- Keep automatic Gate Commits on feature branches and require draft pull requests
+  into configured `main` for ordinary and autonomous DBSCTR delivery.
 
 ## Non-goals
 
@@ -215,6 +217,40 @@ OpenCode control-plane behavior, and shell authentication.
 - Given Tailscale is disabled after enrollment, then existing peer state is not
   deleted; retirement is an explicit operator action.
 
+### Collaborative Git Delivery
+
+- Given a developer begins a non-trivial cycle from configured `main`, when
+  DBSCTR prepares delivery, then it creates an isolated cycle feature branch and
+  rejects direct delivery to `main`.
+- Given a teammate has a dedicated clean worktree on an existing feature branch,
+  when DBSCTR starts there, then it records the current HEAD as the cycle baseline,
+  permits existing commits ahead of `main`, and adds only cycle Gate Commits.
+- Given either feature-branch workflow completes, when Final Push runs, then it
+  pushes only that feature branch and creates a verified draft pull request into
+  configured `main`, or reuses the same-repository branch's existing open draft
+  without trying to create a duplicate or accepting a fork collision.
+- Given configured `main` advances during a cycle, when Final Push runs, then the
+  feature branch must contain one exact merge of current `main` and fresh evidence
+  for every required gate before delivery can continue.
+- Given the prepared worktree is dirty, when cycle setup is requested, then it
+  reports the dirty paths and stops for explicit reconciliation rather than
+  stashing, committing, discarding, or absorbing unrelated work automatically.
+
+### Capability-Dependent Validation
+
+- Given deterministic rendering runs without optional `limactl`, then source-level
+  assertions pass independently and only the Lima integration test reports an
+  explicit skip.
+- OpenCode parser validation remains required in configured CI, which installs a
+  pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
+  that separate integration test.
+- Feature branches run one pull-request matrix; direct pushes run the same matrix
+  only on `main`. Timing-sensitive concurrency fixtures use enough synthetic work
+  to preserve their required ten-percent signal under hosted-runner contention.
+- Given a bounded command exceeds its output limit, then cleanup preserves the
+  intended bound error even if the child already exited or macOS denies the late
+  process-group signal.
+
 ### Autonomous R&D Worker
 
 - Given the daily Hermes schedule fires, when private adaptive cadence is due,
@@ -232,6 +268,25 @@ OpenCode control-plane behavior, and shell authentication.
   including reviewed sessions, saves sanitized cohorts without changing markers,
   ranks concrete findings, claims one distinct proposal, and presents plain-
   language evidence before Discovery.
+- Every due pass applies version 1 of exactly five lens families to one shared
+  daily immutable capture: correctness/safety, reliability/recovery,
+  performance/cost, operator experience, and architecture/R&D meta. A pass
+  yields only when it persists one distinct improvement claim.
+- Lens governance starts daily. Three complete daily passes without a yield move
+  it to weekly; four complete weekly passes without a yield move it to monthly.
+  A yield or UTC calendar-quarter rollover restores daily cadence without
+  expiring or rewriting any live claim.
+- One worker owns a capture day from reservation through its immutable result.
+  Identical result replay is idempotent; conflicting replay, an unknown worker,
+  a second same-day pass, or a changed capture identity fails closed.
+- Every distinct claim stores exactly one P0-P3 priority. P0/P1 claims enter
+  Discovery autonomously but retain the explicit human implementation boundary;
+  P2/P3 remain in `claimed` and appear in the report-only `/dbsctr-backlog`
+  operator queue. Existing queued claims migrate conservatively to P2; workers
+  already beyond `claimed` migrate to P1 so active work is not demoted.
+- `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
+  or delivers a worker. P2/P3 cannot enter Discovery until a separate promotion
+  contract is delivered.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.

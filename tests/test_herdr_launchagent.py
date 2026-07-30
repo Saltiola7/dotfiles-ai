@@ -17,9 +17,11 @@ def test_herdr_server_runs_in_aqua_without_secrets() -> None:
     assert '{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin' in plist
     assert "OP_SERVICE_ACCOUNT_TOKEN" not in plist + loader
     assert "launchctl bootstrap" in loader
-    assert "herdr server stop" not in loader
+    assert '"$HERDR" server stop' not in loader
     assert "unmanaged server owns the socket" in loader
     assert "status server" in loader
+    assert "for _ in {1..50}" in loader
+    assert "managed server did not stop within 5 seconds" in loader
     assert "kickstart" not in loader
     assert "com" + ".tis" not in plist + loader
 
@@ -59,6 +61,7 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     ).stdout
     assert '/tmp/a&b/herdr' in wrapper
     assert "status server" in wrapper
+    assert '"running":true' in wrapper
 
     values["dotfiles_ai"]["herdr"]["launchagent"] = False
     disabled = subprocess.run(
@@ -69,3 +72,54 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     assert "PlistBuddy -c 'Print :Label'" in disabled
     assert '[[ "$PLIST_LABEL" == "$LABEL" ]]' in disabled
     assert 'rm -f "$PLIST"' in disabled
+
+
+def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
+    calls = tmp_path / "calls"
+    launchctl = tmp_path / "launchctl"
+    herdr = tmp_path / "herdr"
+    launchctl.write_text(
+        '#!/bin/bash\nprintf "launchctl %s\\n" "$1" >> "$CALLS"\n[[ "$1" == print ]] && exit 1\nexit 99\n'
+    )
+    herdr.write_text(
+        '#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$CALLS"\n'
+        '[[ "$*" == "status server --json" ]] && printf \'{"running":true}\\n\'\n'
+    )
+    launchctl.chmod(0o755)
+    herdr.chmod(0o755)
+
+    values = {
+        "dotfiles_ai": {
+            "opencode": {
+                "bedrock_region": "us-west-2", "bedrock_profile": "",
+                "default_model": "openai/gpt-5.6-sol",
+                "small_model": "openai/gpt-5.6-terra",
+                "lmstudio_base_url": "http://localhost:1234/v1",
+            },
+            "herdr": {"theme": "nord", "launchagent": True, "executable": str(herdr)},
+            "onepassword": {
+                "enabled": False, "account": "", "user_uuid": "",
+                "keychain_service": "op-service-account-token",
+            },
+        }
+    }
+    loader = subprocess.run(
+        [
+            "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+            "--config-format", "toml", "--override-data", json.dumps(values),
+            "cat", str(Path.home() / "load-herdr-launchagent.sh"),
+        ],
+        text=True, capture_output=True, check=True,
+    ).stdout.replace("/bin/launchctl", str(launchctl))
+    home = tmp_path / "home"
+    plist = home / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
+    plist.parent.mkdir(parents=True)
+    plist.touch()
+
+    result = subprocess.run(
+        ["bash"], input=loader, text=True, capture_output=True,
+        env={"HOME": str(home), "CALLS": str(calls), "PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 1
+    assert "run 'herdr server stop', then rerun chezmoi apply" in result.stderr
+    assert calls.read_text().splitlines() == ["launchctl print", "herdr status server --json"]

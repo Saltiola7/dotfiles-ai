@@ -6,12 +6,15 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.32-1 | Add explicit helper-owned concurrent target reconciliation | high | in_progress | - | helper, typed adapter, lifecycle/control-plane tests and docs | V3.15 final-push and V3.4 worktree contracts | no | Let concurrent isolated cycles safely integrate an advanced shared target without rewriting Gate Commits | L | Helper conflict/lineage fixtures, typed argv tests, affected QA |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.32-F1 | Add explicit helper-owned preview and no-commit preparation for an advanced cycle target | 2026-07-30 | `eabcd06`, `8e20a16` |
+| V3.33-F1 | Retire shared completed worktrees only after every associated cycle and current HEAD are integrated | 2026-07-30 | `2ecae53` |
+| V3.33-1 | Add exact-confirmation stale-cycle retirement that preserves records and branches while rejecting dirty worktrees | 2026-07-30 | `98abffe` |
+| V3.32-1 | Protect configured main and support published teammate feature baselines, same-repository draft PRs, and explicit base reconciliation | 2026-07-28 | `706711d..b7dedfe` |
 | V3.31-1 | Add bounded global completed-worktree inventory and cleanup with fixed-registry containment and scheduled maintenance | 2026-07-28 | `269125b..dc6d284` |
 | V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | `8b2bf0b`, `b9dd44c`, `b08540b` |
 | V3.29-D | Specify provider-native lifecycle and evaluation contracts | 2026-07-26 | `d65d2ad` |

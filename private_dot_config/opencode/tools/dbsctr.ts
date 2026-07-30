@@ -380,10 +380,13 @@ export const improvement_status = tool({
 
 export const improvement_claim = tool({
   description: "Atomically claim one sanitized distinct improvement for the current native-Build session.",
-  args: { summary: tool.schema.string().min(1).max(512) },
+  args: {
+    summary: tool.schema.string().min(1).max(512),
+    priority: tool.schema.enum(["P0", "P1", "P2", "P3"]),
+  },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_improvement_claim", patterns: ["*"], always: [] })
-    return await improvementClaim(context.sessionID, args.summary, context.worktree)
+    return await improvementClaim(context.sessionID, args.summary, args.priority, context.worktree)
   },
 })
 

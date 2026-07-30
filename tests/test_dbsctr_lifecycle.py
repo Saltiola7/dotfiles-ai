@@ -149,6 +149,7 @@ def test_global_routing_defaults_to_unversioned_v3():
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
     assert 'python-version: ["3.12", "3.13", "3.14"]' in workflow
+    assert "push:\n    branches: [main]" in workflow
     assert "pull_request:\n\n" in workflow
     assert "uv run --group test pytest" in workflow
 
@@ -288,6 +289,15 @@ def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():
     assert 'cleanup_target.add_argument("--completed"' in helper
 
 
+def test_stale_cycle_retirement_is_explicit_and_preserves_dirty_work():
+    helper = (ROOT / "dot_local/bin/executable_dbsctrctl").read_text()
+    spec = (ROOT / "docs/specs/dbsctr_v3_lifecycle/STALE_CYCLE_RETIREMENT.md").read_text()
+    assert 'commands.add_parser("cycle-retire")' in helper
+    assert 'commands.add_parser("cycle-retire-worktree")' in helper
+    assert "refusing to retire a dirty cycle worktree" in helper
+    assert "preserves the cycle record" in spec.lower() or "preserve the cycle record" in spec.lower()
+
+
 def test_v324_profiles_explicit_spans_and_keeps_dispatch_primary_mediated():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
@@ -386,3 +396,11 @@ def test_v39_semantic_reconciliation_is_fixed_commit_report_only_and_authority_o
     assert "Keep `/qa full` separate" in protocol
     for boundary in ("never changes files", "lifecycle state", "without explicit approval"):
         assert boundary in protocol
+
+
+def test_dbsctr_backlog_is_report_only_priority_queue():
+    backlog = text(SKILLS / "dbsctr-backlog/SKILL.md")
+    assert "P2/P3" in backlog and "state is `claimed`" in backlog
+    assert "This skill is report-only" in backlog
+    for term in ("Do not reprioritize", "advance", "recover", "abandon", "launch", "merge"):
+        assert term in backlog

@@ -9,6 +9,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| AUTH-011 | Keep Herdr LaunchAgent handoff retryable with structured ownership status | 2026-07-28 | `e858602`, `4a05198` |
 | AUTH-009 | Support Keychain token loading with shell `noclobber` enabled | 2026-07-15 | `0d0be5f` |
 | AUTH-008 | Run persistent Herdr server in the Aqua security context | 2026-07-13 | `ea9eaeb` |
 | AUTH-007 | Preserve safe Keychain failure diagnostics and repair guidance | 2026-07-13 | `ea9eaeb` |

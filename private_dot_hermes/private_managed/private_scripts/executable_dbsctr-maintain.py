@@ -2,5 +2,11 @@
 import subprocess
 import sys
 
-result = subprocess.run(["dbsctrctl", "cleanup", "--completed", "--all"], text=True)
-raise SystemExit(result.returncode)
+failed = False
+for command in (["herdr-history-maintain"], ["dbsctrctl", "cleanup", "--completed", "--all"]):
+    try:
+        failed |= subprocess.run(command, text=True).returncode != 0
+    except OSError as error:
+        print(f"{command[0]}: {error}", file=sys.stderr)
+        failed = True
+raise SystemExit(failed)

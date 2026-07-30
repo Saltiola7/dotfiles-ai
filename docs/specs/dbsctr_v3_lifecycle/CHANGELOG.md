@@ -1,5 +1,52 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-30 - V3.32 Proactive Target Reconciliation Follow-up
+
+- Added a primary-only typed preview/prepare operation for cycles whose recorded
+  upstream advanced. It proves exact first-parent Gate Commit lineage, preserves
+  conflicts for explicit resolution, prepares only a no-commit merge, and never
+  mutates the source checkout or chooses validation.
+- The preserved implementation passed 158 focused tests with one optional skip,
+  then prepared a conflict-free merge of current `main`. Implementation commits:
+  `eabcd06`, `8e20a16`. Intended Final Push: feature branch and draft pull request
+  into `main` after merged-profile rebinding and full affected QA.
+
+## 2026-07-30 - V3.33 Shared Worktree Follow-up
+
+- Added exact-confirmation retirement for one physical worktree reused by
+  multiple completed cycles. Every associated record must be completed and every
+  Gate Commit plus current HEAD must be contained in the fetched delivery target.
+  Records and branch refs remain intact; dirty or active shared work fails closed.
+- Full QA passed 272 tests with one optional Lima skip. Implementation commit:
+  `2ecae53`. Intended Final Push: feature branch and draft pull request into
+  `main`; DAI-017 worktree retirement follows verified merge.
+
+## 2026-07-30 - V3.33 Stale Cycle Retirement
+
+- Added exact-confirmation retirement for clean DBSCTR-created active worktrees.
+  Empty and integrated dispositions prove their Git state; superseded retirement
+  records an explicit reason. Every retirement preserves its Cycle Record, commit
+  identities, and local branch ref, rejects dirty or identity-changed worktrees,
+  and retries safely after interrupted removal.
+- Full QA passed 271 tests with one optional Lima skip before the final retry
+  regression; focused retry evidence passed afterward. Independent review was
+  unavailable because its sandbox could not read the isolated worktree; primary
+  safety review found no remaining issue. Implementation commit: `98abffe`.
+  Intended Final Push: feature branch and draft pull request into `main`; local
+  deployment and four exact legacy retirements follow verified merge.
+
+## 2026-07-28 - V3.32 Protected Draft-PR Delivery
+
+- Added configurable protected-base validation, fail-closed direct-main setup and
+  Final Push checks, published teammate feature baselines, and same-repository PR
+  head identity independent from credential selection.
+- Explicit base reconciliation admits only one verified first-parent merge and
+  requires every current gate evidence point to descend from it. Legacy records
+  retain their recorded rules. Affected QA passed 189 tests with one existing
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `706711d..b7dedfe`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-28 - V3.31 Global Worktree Maintenance
 
 - Added read-only multi-repository inventory and guarded completed-cycle cleanup

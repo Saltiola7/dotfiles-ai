@@ -11,6 +11,12 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-020 | Add guarded no-fast-forward batch integration, explicit queued-claim promotion, and private 30-day Herdr history retention | 2026-07-29 | `748265d` |
+| DAI-019 | Persist P0-P3 claim authority and expose waiting P2/P3 claims through a report-only operator backlog | 2026-07-29 | `3e293b8..3cb3e19` |
+| DAI-018 | Govern one shared immutable capture through five fixed adaptive R&D lenses with recoverable ownership and no-yield backoff | 2026-07-29 | `83b0cd8..c834fd3` |
+| DAI-017-F2 | Run one feature pull-request matrix and stabilize the concurrency benchmark test signal | 2026-07-29 | `a4027d5..079276b` |
+| DAI-017-F1 | Make external-tool validation, bounded-command cleanup, and existing same-repository draft-PR delivery reliable | 2026-07-29 | `fc20e0f..c7d9981` |
+| DAI-017 | Protect main, retain published teammate feature baselines, and require verified draft-PR delivery with fresh reconciliation evidence | 2026-07-28 | `706711d..b7dedfe` |
 | DAI-016 | Deploy context-isolated Hermes orchestration, bounded backlog refinement, direct OpenCode Discovery launch, and guarded global maintenance | 2026-07-28 | `269125b..dc6d284` |
 | DAI-015 | Deploy default-off rootless Tailscale SSH and native remote Herdr to managed Lima guests | 2026-07-27 | `818f83c..6f06090` |
 | DAI-014 | Launch guest Herdr directly while preserving Starship and Atuin hooks | 2026-07-26 | `c3d32b9..4c85a4d` |

@@ -341,6 +341,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
             assert bash[form.format(command)] == "ask"
     assert bash["*dbsctrctl improvement-forget*"] == "ask"
     assert bash["dbsctrctl cleanup*"] == "ask"
+    assert bash["dbsctrctl cycle-retire*"] == "ask"
     assert bash["*limactl *"] == "deny"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
@@ -484,7 +485,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
-    assert "pane_history = false" in herdr
+    assert "pane_history = true" in herdr
+    assert "scrollback_limit_bytes = 10000000" in herdr
     assert ".dotfiles_ai.herdr.theme" in herdr
 
 
@@ -848,7 +850,7 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
-        'await improvementClaim("session-1","safe; literal",process.cwd());'
+        'await improvementClaim("session-1","safe; literal","P1",process.cwd());'
         'await improvementUpdate("session-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd(),true);'
         'await improvementStatus("worker-1",process.cwd());'
     )
@@ -858,7 +860,7 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     calls = log.read_text().splitlines()
     assert calls == [
         "CALL", "<improvement-claim>", "<--session-id>", "<session-1>",
-        "<--summary>", "<safe; literal>",
+        "<--summary>", "<safe; literal>", "<--priority>", "<P1>",
         "CALL", "<improvement-update>", "<--session-id>", "<session-1>",
         "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
         "<--path>", "<a b>", "<--path>", "<x;nope>",
@@ -1270,6 +1272,14 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     command = text("private_dot_config/opencode/commands/dbsctr-improve.md")
     assert "`dbsctr_review_federated` with `limit=100`" in command
     assert "Do not call\n   `dbsctr_review_history_save`" in command
+    assert "dbsctr-rnd lens-plan --worker-id" in command
+    assert all(lens in command for lens in (
+        "correctness/safety", "reliability/recovery", "performance/cost",
+        "operator experience", "architecture/R&D meta",
+    ))
+    assert "--outcome no_yield" in command and "--outcome yield" in command
+    assert "P0 and P1" in command and "P2 and P3 remain in `claimed`" in command
+    assert "`/dbsctr-backlog`" in command
 
 
 def test_removed_managed_integrations_are_absent():

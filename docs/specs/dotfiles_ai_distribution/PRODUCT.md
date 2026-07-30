@@ -38,6 +38,17 @@ target files.
 10. An opted-in developer reaches each managed VM from authorized tailnet hosts
     with native Herdr remote attach while public configuration remains free of
     peer identity, policy, and enrollment secrets.
+11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
+    feature branch and submits a draft pull request into the configured `main`
+    branch; automation never commits or pushes cycle work directly to `main`.
+12. High-impact P0/P1 claims enter Discovery automatically, while an operator
+    reviews waiting P2/P3 claims through `/dbsctr-backlog`; promotion remains a
+    separate governed capability.
+13. An operator combines completed feature branches on an ephemeral batch branch,
+    reviews the exact merge commits, and explicitly publishes the batch for normal
+    pull-request review without granting Hermes authority over `main`.
+14. An operator can inspect bounded local Herdr pane history for the prior 30 days
+    without publishing terminal content or weakening filesystem ownership checks.
 
 ## Constraints And Trust
 
@@ -55,7 +66,7 @@ target files.
 - Hermes owns scheduling, Kanban, and delegation; Herdr owns optional terminal
   presentation; OpenCode owns implementation; the DBSCTR ledger owns lifecycle
   coordination and approval state.
-- Adaptive cadence remains between weekly and daily, allows at most three
+- Adaptive lens cadence remains between monthly and daily, allows at most three
   nonterminal workers, halts on repeated failures, and requires manual reset.
 - Private session, project, and repository provenance never appears in public
   findings, branches, documentation, or pull requests.
@@ -72,6 +83,16 @@ target files.
   review jobs are repeatable, while Discovery still pauses for human input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
+- Every claim carries P0-P3 priority; P0/P1 may enter Discovery automatically,
+  while P2/P3 remain claimed and visible through a report-only operator queue.
+- Confirmed P2/P3 promotion atomically enters Discovery; batch previews and
+  integration retain exact source SHAs while batch publication remains an
+  explicit operator action and `main` remains pull-request protected.
+- Herdr scrollback is bounded to 10 MB and private daily snapshots older than 30
+  days are pruned without following symlinks or changing source history.
+- A cycle started from `main` creates an isolated feature branch, while a cycle
+  started in a dedicated clean teammate worktree may retain that feature branch;
+  both publish only a draft pull request into configured `main`.
 - Monthly cadence decisions are reproducible from sanitized evidence, preserve
   the human Discovery and delivery boundaries, and fail closed on malformed
   authoritative state.

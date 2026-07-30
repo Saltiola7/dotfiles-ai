@@ -89,12 +89,14 @@ class DbsctrctlTest(unittest.TestCase):
         }))
         return plan
 
-    def start(self, intent="local"):
+    def start(self, intent="local", base_branch="main", account="example-user",
+              repository="example-user/dotfiles-ai"):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
-                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan)]
+                   "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
+                   "--base-branch", base_branch]
         if intent == "draft_pr":
-            command += ["--github-account", "example-user", "--github-repository", "example-user/dotfiles-ai"]
+            command += ["--github-account", account, "--github-repository", repository]
         return run(self.repo, *command)
 
     def record_path(self, repo=None):
@@ -760,6 +762,149 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertFalse(Path(handoff["worktree"]).exists())
         self.assertFalse(record_path.exists())
         self.assertFalse(evidence.exists())
+
+    def test_cycle_retirement_preserves_record_and_branch_and_rejects_dirty_work(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+
+        created = {}
+        for cycle_id in ("retire-empty", "retire-integrated", "retire-superseded",
+                         "retire-dirty", "retire-retry"):
+            handoff = json.loads(run(
+                self.repo, "begin", "--cycle-id", cycle_id, "--context", "test",
+                "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                "--worktree-root", str(worktrees),
+            ).stdout)
+            created[cycle_id] = Path(handoff["worktree"])
+            if cycle_id not in {"retire-empty", "retire-retry"}:
+                target = created[cycle_id]
+                (target / "tracked.txt").write_text(cycle_id + "\n")
+                subprocess.run(["git", "commit", "-am", cycle_id], cwd=target,
+                               check=True, capture_output=True)
+                commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=target, text=True,
+                                        check=True, capture_output=True).stdout.strip()
+                record_path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+                record = json.loads(record_path.read_text())
+                record["commits"] = [{"id": commit, "gates": ["domain"]}]
+                record_path.write_text(json.dumps(record))
+                if cycle_id == "retire-integrated":
+                    subprocess.run(["git", "push", "origin", "HEAD:master"], cwd=target,
+                                   check=True, capture_output=True)
+            if cycle_id == "retire-dirty":
+                (created[cycle_id] / "dirty.txt").write_text("dirty\n")
+
+        mismatch = run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-empty", "--confirm", "wrong",
+            "--disposition", "empty", "--reason", "No cycle work exists", ok=False,
+        )
+        self.assertIn("confirmation does not match", mismatch.stderr)
+        dirty = run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-dirty", "--confirm", "retire-dirty",
+            "--disposition", "superseded", "--reason", "Current behavior supersedes this cycle", ok=False,
+        )
+        self.assertIn("dirty cycle worktree", dirty.stderr)
+
+        for cycle_id, disposition in (("retire-empty", "empty"),
+                                      ("retire-integrated", "integrated"),
+                                      ("retire-superseded", "superseded")):
+            result = json.loads(run(
+                self.repo, "cycle-retire", "--cycle-id", cycle_id, "--confirm", cycle_id,
+                "--disposition", disposition, "--reason", "Explicit stale cycle reconciliation",
+            ).stdout)
+            self.assertEqual(result["state"], "retired")
+            self.assertFalse(created[cycle_id].exists())
+            record = json.loads((self.repo / f".git/dbsctr/cycles/{cycle_id}.json").read_text())
+            self.assertEqual(record["retirement"]["disposition"], disposition)
+            self.assertEqual(record["state"], "retired")
+            branch_name = f"dbsctr/test/{cycle_id}"
+            subprocess.run(["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
+                           cwd=self.repo, check=True, capture_output=True)
+        inventory = json.loads(run(self.repo, "worktree-list", "--json", "--now").stdout)["worktrees"]
+        retired = [item for item in inventory if item["state"] == "retired"]
+        self.assertEqual(len(retired), 3)
+        self.assertTrue(all(not item["present"] and not item["cleanup_candidate"]
+                            and not item["cleanup_blockers"] for item in retired))
+
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_retire_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        original_save = module.save
+
+        def interrupt_terminal_save(path, value):
+            if value.get("state") == "retired":
+                raise OSError("interrupted retirement")
+            return original_save(path, value)
+
+        arguments = SimpleNamespace(cycle_id="retire-retry", confirm="retire-retry",
+                                    disposition="empty", reason="Explicit retry evidence")
+        with mock.patch.object(module, "root_dir", return_value=self.repo), \
+              mock.patch.object(module, "save", side_effect=interrupt_terminal_save):
+            with self.assertRaises(OSError):
+                module.command_cycle_retire(arguments)
+        self.assertFalse(created["retire-retry"].exists())
+        interrupted = json.loads((self.repo / ".git/dbsctr/cycles/retire-retry.json").read_text())
+        self.assertEqual(interrupted["retirement"]["state"], "removing_worktree")
+        recovered = json.loads(run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-retry", "--confirm", "retire-retry",
+            "--disposition", "empty", "--reason", "Explicit retry evidence",
+        ).stdout)
+        self.assertEqual(recovered["state"], "retired")
+
+    def test_completed_shared_worktree_retirement_proves_every_cycle_is_integrated(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "shared-owner", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(worktrees),
+        ).stdout)
+        worktree = Path(handoff["worktree"])
+        record_path = self.repo / ".git/dbsctr/cycles/shared-owner.json"
+        owner = json.loads(record_path.read_text())
+        commits = []
+        for number in (1, 2):
+            (worktree / "tracked.txt").write_text(f"shared {number}\n")
+            subprocess.run(["git", "commit", "-am", f"shared {number}"], cwd=worktree,
+                           check=True, capture_output=True)
+            commits.append(subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=worktree, text=True,
+                check=True, capture_output=True,
+            ).stdout.strip())
+        owner.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z",
+                      "commits": [{"id": commits[0], "gates": ["domain"]}]})
+        record_path.write_text(json.dumps(owner))
+        followup = {**owner, "cycle_id": "shared-followup",
+                    "commits": [{"id": commits[1], "gates": ["review_integrate"]}],
+                    "worktree": {**owner["worktree"], "created_by_dbsctr": False}}
+        (self.repo / ".git/dbsctr/cycles/shared-followup.json").write_text(json.dumps(followup))
+        (self.repo / ".git/dbsctr/worktrees" / owner["worktree"]["id"] / "active").unlink()
+        subprocess.run(["git", "push", "origin", "HEAD:master"], cwd=worktree,
+                       check=True, capture_output=True)
+
+        result = json.loads(run(
+            self.repo, "cycle-retire-worktree", "--cycle-id", "shared-owner",
+            "--confirm", "shared-owner", "--reason", "All shared cycles are integrated",
+        ).stdout)
+        self.assertEqual(result["worktree"], "retired")
+        self.assertFalse(worktree.exists())
+        retired = json.loads(record_path.read_text())
+        self.assertEqual(retired["state"], "completed")
+        self.assertEqual(retired["worktree_retirement"]["related_cycles"],
+                         ["shared-followup", "shared-owner"])
+        subprocess.run(["git", "show-ref", "--verify", "refs/heads/dbsctr/test/shared-owner"],
+                       cwd=self.repo, check=True, capture_output=True)
+        inventory = json.loads(run(self.repo, "worktree-list", "--json", "--now").stdout)["worktrees"]
+        item = next(item for item in inventory if item["cycle_id"] == "shared-owner")
+        self.assertFalse(item["present"] or item["cleanup_candidate"] or item["cleanup_blockers"])
 
     def test_batch_cleanup_continues_after_dirty_completed_worktree(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1733,7 +1878,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "final-push")
         self.assertFalse(pointer.exists())
 
-    def test_final_push_targets_recorded_upstream_branch(self):
+    def test_start_rejects_direct_protected_branch_delivery(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
@@ -1741,27 +1886,83 @@ class DbsctrctlTest(unittest.TestCase):
             ["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
             capture_output=True,
         )
-        self.start()
+        result = run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+            "--delivery-intent", "local", "--plan", str(self.plan_path()), "--base-branch", "main",
+            ok=False,
+        )
+        self.assertIn("protected base branch", result.stderr)
+        self.assertFalse(self.record_path().exists())
+
+    def test_draft_pr_records_configured_base_for_existing_feature_branch(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD:develop"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "checkout", "-b", "teammate/change"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+
+        self.start("draft_pr", base_branch="develop")
+
+        delivery = json.loads(self.record_path().read_text())["delivery"]
+        self.assertEqual(delivery["branch"], "teammate/change")
+        self.assertEqual(delivery["base_branch"], "develop")
+
+    def test_draft_reconciliation_requires_merge_and_fresh_gate_evidence(self):
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                              capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "-b", "feature"], cwd=self.repo, check=True,
+                       capture_output=True)
         (self.repo / "tracked.txt").write_text("cycle\n")
-        (self.repo / "docs/specs/test/CHANGELOG.md").write_text("completed\n")
-        self.record_gate("domain", paths=("tracked.txt", "docs/specs/test/CHANGELOG.md"))
-        run(
-            self.repo, "gate-commit", "--message", "cycle change", "--gates", "domain", "--paths",
-            "tracked.txt", "docs/specs/test/CHANGELOG.md",
-        )
-        run(self.repo, "review-artifact", "README", "--result", "unchanged", "--reason", "accurate")
-        run(self.repo, "review-artifact", "BACKLOG", "--result", "unchanged", "--reason", "accurate")
-        run(
-            self.repo, "review-artifact", "CHANGELOG", "--result", "changed",
-            "--reason", "recorded", "--path", "docs/specs/test/CHANGELOG.md",
-        )
-        self.pass_gates()
-        run(self.repo, "final-push")
-        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+        subprocess.run(["git", "commit", "-am", "cycle"], cwd=self.repo, check=True,
+                       capture_output=True)
+        cycle = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                                capture_output=True).stdout.strip()
-        pushed = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
-                                text=True, capture_output=True).stdout.strip()
-        self.assertEqual(local, pushed)
+        subprocess.run(["git", "checkout", "-b", "target", base], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "upstream.txt").write_text("advance\n")
+        subprocess.run(["git", "add", "upstream.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=self.repo, check=True,
+                       capture_output=True)
+        target = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                capture_output=True).stdout.strip()
+        subprocess.run(["git", "checkout", "feature"], cwd=self.repo, check=True, capture_output=True)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_reconcile", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        with self.assertRaisesRegex(RuntimeError, "without reconciliation"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        subprocess.run(["git", "merge", "--no-ff", "target", "-m", "reconcile"], cwd=self.repo,
+                       check=True, capture_output=True)
+        reconciliation = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                                        text=True, capture_output=True).stdout.strip()
+        with self.assertRaisesRegex(RuntimeError, "evidence predates"):
+            module.validate_draft_reconciliation(self.repo, base, target, [cycle], [cycle])
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle], [reconciliation]
+            ),
+            [cycle],
+        )
+
+    def test_ordinary_draft_pr_does_not_require_improvement_worker(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_ordinary_pr", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        home = Path(self.temp.name) / "home"
+        home.mkdir()
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            module.link_improvement_pull_request(
+                {"runtime": {"opencode": {"session_ids": ["ordinary-session"]}}},
+                {"number": 1, "url": "https://github.com/example/repo/pull/1"},
+            )
+        self.assertFalse((home / ".local/state/dbsctr/reviews/ledger.sqlite3").exists())
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -1769,20 +1970,28 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
                        capture_output=True)
+        main_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
+                                     capture_output=True).stdout.strip()
         subprocess.run(["git", "checkout", "-b", "dbsctr/test/cycle-1"], cwd=self.repo, check=True,
+                       capture_output=True)
+        (self.repo / "tracked.txt").write_text("teammate baseline\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "teammate baseline"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
         subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
                        capture_output=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
-        self.start("draft_pr")
+        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
         home = Path(self.temp.name) / "home"
         home.mkdir()
         worker_env = {**os.environ, "HOME": str(home)}
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         run(self.repo, "improvement-claim", "--session-id", "session-1",
-            "--summary", "Improve draft delivery", env=worker_env)
+            "--summary", "Improve draft delivery", "--priority", "P1", env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "discovery",
             env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
@@ -1812,8 +2021,8 @@ class DbsctrctlTest(unittest.TestCase):
             "case \"$1 $2\" in\n"
             "  'auth token') printf 'test-token\\n' ;;\n"
             "  'pr list') printf '[]\\n' ;;\n"
-            "  'pr create') printf 'https://github.com/example-user/dotfiles-ai/pull/1\\n' ;;\n"
-            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-user/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\"}' ;;\n"
+            "  'pr create') printf 'https://github.com/example-org/dotfiles-ai/pull/1\\n' ;;\n"
+            "  'pr view') printf '%s\\n' '{\"number\":1,\"url\":\"https://github.com/example-org/dotfiles-ai/pull/1\",\"isDraft\":true,\"state\":\"OPEN\",\"baseRefName\":\"main\",\"headRefName\":\"dbsctr/test/cycle-1\",\"headRepositoryOwner\":{\"login\":\"example-org\"}}' ;;\n"
             "esac\n"
         )
         gh.chmod(0o755)
@@ -1826,9 +2035,16 @@ class DbsctrctlTest(unittest.TestCase):
                               text=True, capture_output=True).stdout.strip()
         self.assertEqual(feature, subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
                                                  text=True, capture_output=True).stdout.strip())
-        self.assertEqual(main, base)
+        self.assertEqual(main, main_before)
+        self.assertEqual(
+            subprocess.run(["git", "show", "refs/heads/dbsctr/test/cycle-1^:tracked.txt"], cwd=remote,
+                           check=True, text=True, capture_output=True).stdout,
+            "teammate baseline\n",
+        )
         log = gh_log.read_text()
         self.assertIn("<auth>\n<token>\n<--hostname>\n<github.com>\n<--user>\n<example-user>", log)
+        self.assertIn("<--head>\n<dbsctr/test/cycle-1>", log)
+        self.assertIn("<--head>\n<example-org:dbsctr/test/cycle-1>", log)
         self.assertIn("<pr>\n<create>", log)
         self.assertNotIn("<merge>", log)
         record = json.loads(self.record_path().read_text())
@@ -1838,6 +2054,30 @@ class DbsctrctlTest(unittest.TestCase):
                                 env=worker_env).stdout)["workers"][0]
         self.assertEqual(worker["state"], "draft_pr")
         self.assertEqual(worker["pr_number"], 1)
+
+    def test_draft_pr_reuses_only_same_repository_branch(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_pr_reuse", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        record = {"cycle_id": "cycle-1", "context": "test", "delivery": {
+            "base_branch": "main", "branch": "dbsctr/test/cycle-1",
+            "github": {"account": "example-user", "repository": "example-org/dotfiles-ai"},
+        }}
+        pull_requests = [
+            {"number": 1, "url": "https://github.com/fork/pull/1", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "fork"}},
+            {"number": 2, "url": "https://github.com/example-org/dotfiles-ai/pull/2", "isDraft": True,
+             "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
+             "headRepositoryOwner": {"login": "example-org"}},
+        ]
+        with mock.patch.object(module, "github_environment", return_value={}), \
+                mock.patch.object(module, "github_json", return_value=pull_requests), \
+                mock.patch.object(module.subprocess, "run") as create:
+            result = module.deliver_draft_pr(self.repo, record)
+        self.assertEqual(result["number"], 2)
+        create.assert_not_called()
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"
@@ -3292,7 +3532,7 @@ class DbsctrctlTest(unittest.TestCase):
              "operation": "reconcile", "ownership_paths": []},
         ], "completed": []}
         fixture_value = {"schema_version": 1, "fixture_id": "test-read-v1", "warmup_pairs": 1,
-                         "measured_pairs": 5, "synthetic_delay_ms": 50,
+                         "measured_pairs": 5, "synthetic_delay_ms": 200,
                          "required_gates": required_gates, "dag": fixture_dag}
         fixture_path = self.repo / "tests/fixtures/execution.json"
         fixture_path.parent.mkdir(parents=True)
@@ -4129,6 +4369,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(registered["tab_id"], "w1:t1")
         self.assertEqual(registered["pane_id"], "w1:p1")
         self.assertIsNone(registered["opportunity_id"])
+        self.assertIsNone(registered["priority"])
         invalid_worker = run(
             self.repo, "improvement-register", "--state-root", str(state),
             "--worker-id", "worker:2", "--session-id", "session-2", ok=False,
@@ -4136,10 +4377,11 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("invalid improvement worker ID", invalid_worker.stderr)
         first = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
-            "--session-id", "session-1", "--summary", summary,
+            "--session-id", "session-1", "--summary", summary, "--priority", "P1",
         ).stdout)
         self.assertRegex(first["opportunity_id"], r"^[0-9a-f]{64}$")
         self.assertEqual(first["state"], "claimed")
+        self.assertEqual(first["priority"], "P1")
         bypass = run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
@@ -4165,8 +4407,117 @@ class DbsctrctlTest(unittest.TestCase):
             "--summary", "Observed in /Users/private/repo", ok=False,
         )
         self.assertIn("unsafe improvement summary", unsafe.stderr)
+        p2 = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-4", "--session-id", "session-4",
+            "--summary", "Queue a bounded operator improvement",
+        ).stdout)
+        self.assertEqual(p2["priority"], "P2")
+        rejected = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-4", "--state", "discovery", ok=False,
+        )
+        self.assertIn("remain queued", rejected.stderr)
+        recovery = run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-4", "--action", "failed", ok=False,
+        )
+        self.assertIn("remain queued", recovery.stderr)
+        mismatch = run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-x", ok=False,
+        )
+        self.assertIn("confirmation does not match", mismatch.stderr)
+        promoted = json.loads(run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-4",
+        ).stdout)
+        self.assertEqual((promoted["priority"], promoted["state"]), ("P1", "discovery"))
+        repeated = run(
+            self.repo, "improvement-promote", "--state-root", str(state),
+            "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,
+        )
+        self.assertIn("only a claimed P2/P3", repeated.stderr)
         ledger = state / "reviews/ledger.sqlite3"
         self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+
+    def test_batch_commands_reject_invalid_or_unconfirmed_identity(self):
+        invalid = run(
+            self.repo, "batch-create", "--batch-id", "../main",
+            "--github-account", "owner", "--github-repository", "owner/repo", ok=False,
+        )
+        self.assertIn("invalid batch ID", invalid.stderr)
+        missing = run(
+            self.repo, "batch-publish", "--batch-id", "batch-1", "--confirm", "batch-2", ok=False,
+        )
+        self.assertIn("batch confirmation does not match", missing.stderr)
+
+    def test_batch_integration_creates_no_ff_merge_and_preview_is_ephemeral(self):
+        bare = Path(self.temp.name) / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.repo, check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=self.repo,
+                       check=True, capture_output=True)
+        records = self.repo / ".git/dbsctr/cycles"
+        records.mkdir(parents=True)
+        for number in (1, 2):
+            branch = f"dbsctr/test/cycle-{number}"
+            subprocess.run(["git", "switch", "-c", branch, "main"], cwd=self.repo,
+                           check=True, capture_output=True)
+            (self.repo / f"source-{number}.txt").write_text(f"source {number}\n")
+            subprocess.run(["git", "add", f"source-{number}.txt"], cwd=self.repo, check=True)
+            subprocess.run(["git", "commit", "-m", f"source {number}"], cwd=self.repo,
+                           check=True, capture_output=True)
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+                                 check=True, capture_output=True).stdout.strip()
+            subprocess.run(["git", "push", "origin", branch], cwd=self.repo,
+                           check=True, capture_output=True)
+            (records / f"cycle-{number}.json").write_text(json.dumps({
+                "state": "completed", "delivery_intent": "draft_pr",
+                "delivery": {"branch": branch, "published_feature_head": sha},
+            }))
+        subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
+        env = {**os.environ, "HOME": str(Path(self.temp.name) / "home")}
+        created = json.loads(run(
+            self.repo, "batch-create", "--batch-id", "batch-1",
+            "--github-account", "owner", "--github-repository", "owner/repo", env=env,
+        ).stdout)
+        integrated = json.loads(run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-1", env=env,
+        ).stdout)
+        merge = integrated["sources"][0]["merge"]
+        parents = subprocess.run(
+            ["git", "show", "-s", "--format=%P", merge], cwd=self.repo,
+            text=True, check=True, capture_output=True,
+        ).stdout.split()
+        self.assertEqual(len(parents), 2)
+        preview = json.loads(run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-2", "--preview", env=env,
+        ).stdout)
+        self.assertTrue(preview["preview"])
+        worktrees = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=self.repo,
+                                   text=True, check=True, capture_output=True).stdout
+        self.assertNotIn("dbsctr-batch-batch-1-", worktrees)
+        duplicate = run(
+            self.repo, "batch-integrate", "--batch-id", "batch-1",
+            "--source", "dbsctr/test/cycle-1", env=env, ok=False,
+        )
+        self.assertIn("already integrated", duplicate.stderr)
+        batch_worktree = Path(created["worktree"])
+        (batch_worktree / "unrecorded.txt").write_text("unrecorded\n")
+        subprocess.run(["git", "add", "unrecorded.txt"], cwd=batch_worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "unrecorded"], cwd=batch_worktree,
+                       check=True, capture_output=True)
+        unrecorded = run(
+            self.repo, "batch-publish", "--batch-id", "batch-1", "--confirm", "batch-1",
+            env=env, ok=False,
+        )
+        self.assertIn("batch tip is not the recorded merge history", unrecorded.stderr)
+        subprocess.run(["git", "worktree", "remove", "--force", created["worktree"]],
+                       cwd=self.repo, check=True, capture_output=True)
 
     def test_improvement_scope_claims_reject_overlapping_paths(self):
         state = Path(self.temp.name) / "improvement-scope"
@@ -4175,7 +4526,8 @@ class DbsctrctlTest(unittest.TestCase):
             ("worker-2", "session-2", "Improve supervisor policy"),
         ):
             run(self.repo, "improvement-claim", "--state-root", str(state),
-                "--worker-id", worker, "--session-id", session, "--summary", summary)
+                "--worker-id", worker, "--session-id", session, "--summary", summary,
+                "--priority", "P1")
             run(self.repo, "improvement-update", "--state-root", str(state),
                 "--worker-id", worker, "--state", "discovery")
         updated = json.loads(run(
@@ -4202,7 +4554,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "improvement-recovery"
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1",
-            "--summary", "Recover exact worker sessions")
+            "--summary", "Recover exact worker sessions", "--priority", "P1")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "discovery",
             "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1")
@@ -4236,6 +4588,7 @@ class DbsctrctlTest(unittest.TestCase):
         claimed = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-1", "--session-id", "session-1", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         active = run(
             self.repo, "improvement-forget", "--state-root", str(state),
@@ -4272,12 +4625,13 @@ class DbsctrctlTest(unittest.TestCase):
         replacement = json.loads(run(
             self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-2", "--session-id", "session-2", "--summary", summary,
+            "--priority", "P1",
         ).stdout)
         self.assertEqual(replacement["opportunity_id"], claimed["opportunity_id"])
 
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-3", "--session-id", "session-3",
-            "--summary", "Preserve closed improvement history")
+            "--summary", "Preserve closed improvement history", "--priority", "P1")
         connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
         connection.execute("update improvement_workers set state='merged' where worker_id='worker-2'")
         connection.execute("update improvement_workers set state='closed' where worker_id='worker-3'")
@@ -4331,6 +4685,72 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(tables, set())
         self.assertIsNone(connection.execute(
             "select value from ledger_meta where key='improvement_schema'").fetchone())
+        connection.close()
+
+    def test_improvement_schema_migrates_existing_claims_to_p2(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_improvement_migration", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            create table ledger_meta (key text primary key, value text not null);
+            insert into ledger_meta values ('improvement_schema', '1');
+            create table improvement_workers (
+                worker_id text primary key, session_id text not null unique,
+                opportunity_id text unique, summary text, state text not null,
+                resume_state text not null, recovery_attempts integer not null default 0,
+                workspace_id text, tab_id text, pane_id text, cycle_id text,
+                pr_number integer, pr_url text, created_at integer not null,
+                updated_at integer not null) without rowid;
+            create table improvement_scope (
+                worker_id text not null references improvement_workers(worker_id) on delete cascade,
+                path text not null, primary key (worker_id,path)) without rowid;
+        """)
+        connection.execute(
+            "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("worker-1", "session-1", "a" * 64, "Existing claim", "claimed", "claimed", 0,
+             None, None, None, None, None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        for index, state, resume_state in (
+            (2, "discovery", "discovery"), (3, "implementing", "implementing"),
+            (4, "draft_pr", "draft_pr"), (5, "blocked", "discovery"),
+        ):
+            connection.execute(
+                "insert into improvement_workers values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"worker-{index}", f"session-{index}", f"{index:x}" * 64,
+                 f"Existing {state}", state, resume_state, 0, None, None, None, None,
+                 None, None, module.REVIEW_START_MS, module.REVIEW_START_MS))
+        connection.commit()
+        module.ensure_improvement_schema(connection)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
+        self.assertEqual(connection.execute(
+            "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
+        self.assertEqual(connection.execute(
+            "select distinct priority from improvement_workers where worker_id!='worker-1'"
+        ).fetchall(), [("P1",)])
+        module.improvement_integrity(connection)
+        connection.close()
+
+    def test_improvement_status_migrates_v1_ledger_under_lock(self):
+        state = Path(self.temp.name) / "improvement-status-migration"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Migrate an existing queued claim")
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("update ledger_meta set value='1' where key='improvement_schema'")
+        connection.execute("alter table improvement_workers drop column priority")
+        connection.commit()
+        connection.close()
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertEqual(status["workers"][0]["priority"], "P2")
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

@@ -333,12 +333,13 @@ matches Final Push HEAD.
 The primary alone stages, commits, and pushes. If hooks reject a commit, fix the
 issue and create a new commit; never bypass hooks or rewrite published history.
 
-After all required gates pass, perform one Final Push with `dbsctrctl final-push` to the recorded upstream
+After all required gates pass, perform one Final Push with `dbsctrctl final-push`
 without another confirmation when the worktree is clean and only cycle-owned
-commits are ahead. The user's standing DBSCTR policy authorizes this normal push.
-Verify synchronization with the upstream and report pushed commit IDs. After a
-successful push, report whether the recorded original checkout was fast-forwarded
-or left untouched because it was dirty, missing, changed, or diverged.
+commits are ahead. The user's standing DBSCTR policy authorizes only the recorded
+feature-branch push and verified draft pull request into the protected base
+branch; direct cycle delivery to `main` is prohibited. Verify synchronization and
+report pushed commit IDs plus the draft pull-request URL. Draft delivery leaves
+the recorded original checkout untouched.
 
 Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,

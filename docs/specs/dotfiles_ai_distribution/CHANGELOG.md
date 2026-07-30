@@ -1,5 +1,77 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-020 Final Integration
+
+- Added exact-SHA no-fast-forward integration on ephemeral `rnd/batch/<id>`
+  branches, operator-confirmed draft-PR publication, atomic P2/P3 promotion, and
+  `/dbsctr-integrate`. Enabled 10 MB Herdr pane history with owner-safe private
+  daily snapshots and 30-day pruning. Full QA passed 269 tests with one optional
+  Lima skip; primary security review tightened recorded-tip, source/base drift,
+  and symlink checks. Independent review was unavailable because the reviewer
+  sandbox could not read the isolated worktree. Implementation commit: `748265d`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull
+  request into `main`; local deployment follows verified merge.
+
+## 2026-07-29 - DAI-019 Proposal Priority Governance
+
+- Added migration-safe P0-P3 priority to durable improvement claims. P0/P1 may
+  enter Discovery automatically, while P2/P3 remain queued or may be abandoned
+  and are visible through the report-only `/dbsctr-backlog` skill. Legacy queued
+  claims migrate to P2 and already-active claims to P1. Full QA passed 265 tests
+  with one optional Lima skip; fixed-commit audit and independent review found no
+  remaining issues. Commits: `3e293b8..3cb3e19`. Intended Final Push: feature
+  branch and draft pull request into `main`.
+
+## 2026-07-29 - DAI-018 Adaptive Lens Governance
+
+- Added one recoverable capture-day owner and five fixed versioned R&D lenses.
+  Three daily no-yield passes back off to weekly, four weekly passes back off to
+  monthly, and a distinct claim or UTC-quarter rollover restores daily cadence
+  without expiring claims. Schema-v1 scheduler data migrates to v3 while legacy
+  effect analytics remain intact. Full QA passed 261 tests with one optional Lima
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `83b0cd8..c834fd3`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
+## 2026-07-29 - DAI-017 CI Determinism
+
+- Limited feature delivery to one pull-request matrix while retaining direct
+  `main` push coverage, and increased the generated concurrency benchmark test
+  signal to remain above its ten-percent activation threshold under runner
+  contention. Independent review found no issues. Commits:
+  `a4027d5..079276b`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
+## 2026-07-29 - DAI-017 CI Reliability Follow-up
+
+- Preserved bounded-command failures across late macOS process cleanup races and
+  made Final Push reuse only the exact same-repository draft PR despite fork
+  branch-name collisions. Full QA passed 259 tests with one optional Lima skip;
+  fixed-commit audit and independent review found no remaining issues. Commits:
+  `6446290..c7d9981`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
+## 2026-07-29 - DAI-017 CI Portability
+
+- Split deterministic rendering checks from external-tool integration checks,
+  kept Lima validation capability-optional, and made pinned OpenCode parser
+  validation required in CI. Full QA passed 258 tests with one Lima skip;
+  fixed-commit audit and independent review found no remaining issues. Commits:
+  `fc20e0f..ae54056`. Intended Final Push: existing feature branch and draft pull
+  request into `main`.
+
+## 2026-07-28 - DAI-017 PR-Only Protected Delivery
+
+- Protected configured `main` from direct cycle delivery while retaining
+  automatic Gate Commits on isolated or existing published teammate feature
+  branches. Same-repository draft PR identity now separates repository ownership
+  from the authenticated collaborator account.
+- Protected-base advancement requires one exact reconciliation merge and fresh
+  evidence for every required gate. Affected QA passed 189 tests with one existing
+  skip; fixed-commit audit and independent review found no remaining issues.
+  Commits: `706711d..b7dedfe`. Intended Final Push: feature branch and draft pull
+  request into `main`.
+
 ## 2026-07-28 - DAI-016 Hermes-First Orchestration
 
 - Installed checksum-pinned Hermes `0.19.0` with isolated authenticated host,
