@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-07-29 - DAI-020 Final Integration
+
+- Added exact-SHA no-fast-forward integration on ephemeral `rnd/batch/<id>`
+  branches, operator-confirmed draft-PR publication, atomic P2/P3 promotion, and
+  `/dbsctr-integrate`. Enabled 10 MB Herdr pane history with owner-safe private
+  daily snapshots and 30-day pruning. Full QA passed 269 tests with one optional
+  Lima skip; primary security review tightened recorded-tip, source/base drift,
+  and symlink checks. Independent review was unavailable because the reviewer
+  sandbox could not read the isolated worktree. Implementation commit: `748265d`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull
+  request into `main`; local deployment follows verified merge.
+
 ## 2026-07-29 - DAI-019 Proposal Priority Governance
 
 - Added migration-safe P0-P3 priority to durable improvement claims. P0/P1 may
