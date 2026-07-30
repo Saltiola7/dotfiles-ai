@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff | high | in_progress | V3.35-1 | Discovery handoff wording and focused lifecycle regression | V3.35 documentation authority contract | no | Prompt source, deployed target, and runtime activation require serialized delivery | XS | Focused lifecycle test, stale-term search, targeted apply identity, restart health |
 
 ## Completed
 

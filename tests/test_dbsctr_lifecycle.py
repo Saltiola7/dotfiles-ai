@@ -31,6 +31,8 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "trigger: /discovery" in discovery
     assert "Engineering Profile" in discovery
     assert "Gate Ledger" in discovery
+    assert "V3.2 applicability plan" not in discovery
+    assert "DBSCTR V3 applicability plan" in discovery
 
     assert "name: dbsctr" in dbsctr
     assert "trigger: /dbsctr" in dbsctr

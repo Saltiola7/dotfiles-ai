@@ -149,7 +149,7 @@ before persisting them.
 ## Handoff
 
 Report bounded context, readiness, Engineering Profile, applicable modules and
-gates, the V3.2 applicability plan, remaining risks, next DBSCTR task, and
+gates, the DBSCTR V3 applicability plan, remaining risks, next DBSCTR task, and
 parallel-safe ownership. End a
 read-only plan with a Build Handoff containing scope, constraints, affected
 artifacts, validation, risks, unresolved decisions, and recommended Build agent.

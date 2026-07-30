@@ -1383,6 +1383,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 - Archive moves preserve file content and Git history. Current specs and routing
   references use `docs/_archive/`; completed plan files move only within their
   owning context.
+- Current Discovery cycle-start and Build Handoff language names a version-neutral
+  DBSCTR V3 applicability plan; historical minor-version records remain unchanged.
 - This cycle has merge-only delivery. Release, live chezmoi deployment, and
   running-service operation are not applicable.
 
