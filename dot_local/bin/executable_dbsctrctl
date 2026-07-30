@@ -6971,9 +6971,8 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
         root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
     ).stdout.splitlines()
     if reconciliation in recorded_commits:
-        if (recorded_commits[-1] != reconciliation or first_parent != recorded_commits
-                or review_point != reconciliation):
-            fail("recorded reconciliation is not the final reviewed Gate Commit")
+        if first_parent != recorded_commits or review_point != reconciliation:
+            fail("recorded reconciliation is not the reviewed Gate Commit")
         return recorded_commits
     if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
                check=False).returncode for point in evidence_points):

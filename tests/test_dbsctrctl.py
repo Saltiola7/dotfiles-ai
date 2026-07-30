@@ -1949,7 +1949,7 @@ class DbsctrctlTest(unittest.TestCase):
             ),
             [cycle],
         )
-        with self.assertRaisesRegex(RuntimeError, "final reviewed Gate Commit"):
+        with self.assertRaisesRegex(RuntimeError, "reviewed Gate Commit"):
             module.validate_draft_reconciliation(
                 self.repo, base, target, [cycle, reconciliation], [cycle], cycle
             )
@@ -1958,6 +1958,18 @@ class DbsctrctlTest(unittest.TestCase):
                 self.repo, base, target, [cycle, reconciliation], [cycle], reconciliation
             ),
             [cycle, reconciliation],
+        )
+        (self.repo / "later.txt").write_text("later\n")
+        subprocess.run(["git", "add", "later.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "later gate"], cwd=self.repo,
+                       check=True, capture_output=True)
+        later = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                               text=True, capture_output=True).stdout.strip()
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation, later], [cycle], reconciliation
+            ),
+            [cycle, reconciliation, later],
         )
 
     def test_ordinary_draft_pr_does_not_require_improvement_worker(self):

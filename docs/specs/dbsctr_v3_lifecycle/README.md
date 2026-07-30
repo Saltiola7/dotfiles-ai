@@ -2354,8 +2354,8 @@ module routing without changing Cycle Record schema or public commands.
   evidence; a dirty or missing changed target still blocks.
 - Reconciliation never changes the source checkout. Dirty, missing, changed, or
   diverged primary checkouts remain untouched by post-push synchronization.
-- An explicit prepared reconciliation may be the final recorded Review/Integrate
-  Gate Commit when first-parent history exactly equals all recorded Gate Commits
+- An explicit prepared reconciliation may be a recorded Review/Integrate Gate
+  Commit when first-parent history exactly equals all recorded Gate Commits
   and Review/Integrate evidence is bound to that merge. The legacy unrecorded
   reconciliation form remains valid only when every required evidence point
   descends from the special merge.
