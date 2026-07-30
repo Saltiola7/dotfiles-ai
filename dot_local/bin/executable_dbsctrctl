@@ -2416,6 +2416,87 @@ def command_cycle_retire(args):
                       "disposition": args.disposition, "branch": branch_name}, sort_keys=True))
 
 
+def command_cycle_retire_worktree(args):
+    root = root_dir()
+    cycle_id = improvement_id(args.cycle_id, "cycle ID")
+    if improvement_id(args.confirm, "confirmation") != cycle_id:
+        fail("cycle confirmation does not match")
+    reason = cycle_retirement_reason(args.reason)
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    if not path.is_file() or path.is_symlink():
+        fail("cycle record is missing")
+
+    with evidence_lock(root, cycle_id):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        retirement = record.get("worktree_retirement")
+        retrying = (record.get("state") == "completed" and isinstance(retirement, dict)
+                    and retirement.get("state") == "removing_worktree")
+        if record.get("state") != "completed" or retirement is not None and not retrying:
+            fail("only a completed cycle worktree can be retired")
+        if record.get("cycle_id") != cycle_id:
+            fail("cycle record identity mismatch")
+        details = record.get("worktree", {})
+        if details.get("created_by_dbsctr") is not True:
+            fail("worktree retirement requires its DBSCTR-created owner cycle")
+        worktree = Path(details.get("path", ""))
+        branch_name = details.get("branch")
+        expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
+        if branch_name != expected_branch or worktree.resolve() == root.resolve():
+            fail("invalid completed cycle worktree")
+        pointer = cycle_dir(root) / "worktrees" / details.get("id", "") / "active"
+        if pointer.exists():
+            fail("completed cycle worktree still has an active pointer")
+        marker = {"state": "removing_worktree", "reason": reason, "branch": branch_name}
+        if retrying:
+            if any(retirement.get(name) != value for name, value in marker.items()):
+                fail("completed worktree retirement retry changed")
+        elif not worktree.is_dir():
+            fail("completed cycle worktree is missing")
+
+        if worktree.is_dir():
+            if status_paths(worktree):
+                fail("refusing to retire a dirty completed worktree")
+            if (branch(worktree) != branch_name or worktree_id(worktree) != details.get("id")
+                    or git_dir(worktree).resolve() != Path(details.get("git_dir", "")).resolve()
+                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+                fail("completed cycle worktree identity changed")
+            related = []
+            for candidate in (cycle_dir(root) / "cycles").glob("*.json"):
+                value = json.loads(candidate.read_text(encoding="utf-8"))
+                other = value.get("worktree", {})
+                if (other.get("id") == details["id"] or other.get("path") == details["path"]):
+                    related.append(value)
+            if not related or any(value.get("state") != "completed" for value in related):
+                fail("shared worktree has a non-completed cycle")
+            remote, target_branch = remote_for_upstream(worktree, record["git"]["upstream"])
+            if not remote or not target_branch:
+                fail("cycle delivery target is unavailable")
+            git(worktree, "fetch", remote, target_branch)
+            target = f"refs/remotes/{remote}/{target_branch}"
+            commits = [entry["id"] for value in related for entry in value.get("commits", [])]
+            head = git(worktree, "rev-parse", "HEAD").stdout.strip()
+            if (not commits or any(git(worktree, "merge-base", "--is-ancestor", commit, target,
+                                       check=False).returncode for commit in commits)
+                    or git(worktree, "merge-base", "--is-ancestor", head, target,
+                           check=False).returncode):
+                fail("shared cycle work is not integrated into its delivery target")
+            record["worktree_retirement"] = {
+                **marker, "head": head, "related_cycles": sorted(value["cycle_id"] for value in related),
+                "started_at": now(),
+            }
+            save(path, record)
+            git(root, "worktree", "remove", str(worktree))
+        elif not retrying:
+            fail("completed cycle worktree is missing")
+
+        record["worktree_retirement"] = {
+            **record["worktree_retirement"], "state": "retired", "retired_at": now(),
+        }
+        save(path, record)
+    print(json.dumps({"cycle_id": cycle_id, "state": "completed", "worktree": "retired",
+                      "branch": branch_name}, sort_keys=True))
+
+
 def worktree_bytes(path):
     if not path.is_dir():
         return 0
@@ -2512,12 +2593,13 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
             continue
         worktree = Path(record["worktree"]["path"])
         blockers = []
+        shared_retired = record.get("worktree_retirement", {}).get("state") == "retired"
         if record.get("state") == "retired":
             if worktree.is_dir() or record.get("retirement", {}).get("state") != "retired":
                 blockers.append("retirement_incomplete")
         elif record.get("state") != "completed":
             blockers.append("not_completed")
-        else:
+        elif not shared_retired:
             try:
                 completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
                 if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
@@ -2540,12 +2622,13 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
                     or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
                     or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
                 blockers.append("identity_changed")
-        elif (record.get("state") != "retired"
+        elif (record.get("state") != "retired" and not shared_retired
               and record.get("cleanup", {}).get("state") not in ("worktree_removed", "evidence_parked")):
             blockers.append("missing")
         result.append({
             "bytes": worktree_bytes(worktree),
-            "cleanup_candidate": record.get("state") == "completed" and not blockers,
+            "cleanup_candidate": (record.get("state") == "completed"
+                                  and not shared_retired and not blockers),
             "cleanup_blockers": blockers,
             "cycle_id": record["cycle_id"],
             "present": worktree.is_dir(),
@@ -7652,6 +7735,11 @@ def parser():
                         choices=("empty", "integrated", "superseded"))
     retire.add_argument("--reason", required=True)
     retire.set_defaults(func=command_cycle_retire)
+    retire_worktree = commands.add_parser("cycle-retire-worktree")
+    retire_worktree.add_argument("--cycle-id", required=True)
+    retire_worktree.add_argument("--confirm", required=True)
+    retire_worktree.add_argument("--reason", required=True)
+    retire_worktree.set_defaults(func=command_cycle_retire_worktree)
     audit = commands.add_parser("audit")
     audit.add_argument("--commit", default="HEAD")
     audit.add_argument("--json", action="store_true")

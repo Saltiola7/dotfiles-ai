@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.33-F1 | Retire a shared worktree after every associated completed cycle is integrated | high | in_progress | V3.33-1 | Shared completed worktree retirement and terminal inventory state | Completed Cycle Records sharing one physical worktree | no | Later completed follow-ups legitimately advance the owner cycle's recorded HEAD | S | Synthetic shared-cycle ancestry, record/branch retention, and live DAI-017 retirement |
 
 ## Completed
 

@@ -25,3 +25,16 @@ deleting cycle records, deleting branch refs, or touching dirty worktrees.
 Synthetic Git fixtures cover all three dispositions, exact confirmation, dirty
 rejection, target ancestry, branch retention, record retention, and retry after
 interrupted worktree removal.
+
+## Shared Completed Worktrees
+
+- `dbsctrctl cycle-retire-worktree --cycle-id ID --confirm ID --reason TEXT`
+  accepts only the DBSCTR-created owner of one clean completed worktree.
+- Every Cycle Record sharing its worktree identity must be completed, and every
+  recorded Gate Commit plus current HEAD must be contained in the fetched delivery
+  target. A remaining active pointer, dirty path, foreign identity, missing commit,
+  or unintegrated follow-up fails closed.
+- The operation removes only the physical worktree. It keeps every completed Cycle
+  Record and branch ref, and records all associated cycle IDs on the owner record.
+  Inventory treats the absent, explicitly retired shared worktree as terminal
+  rather than missing cleanup state.

@@ -841,6 +841,57 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         self.assertEqual(recovered["state"], "retired")
 
+    def test_completed_shared_worktree_retirement_proves_every_cycle_is_integrated(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "shared-owner", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(worktrees),
+        ).stdout)
+        worktree = Path(handoff["worktree"])
+        record_path = self.repo / ".git/dbsctr/cycles/shared-owner.json"
+        owner = json.loads(record_path.read_text())
+        commits = []
+        for number in (1, 2):
+            (worktree / "tracked.txt").write_text(f"shared {number}\n")
+            subprocess.run(["git", "commit", "-am", f"shared {number}"], cwd=worktree,
+                           check=True, capture_output=True)
+            commits.append(subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=worktree, text=True,
+                check=True, capture_output=True,
+            ).stdout.strip())
+        owner.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z",
+                      "commits": [{"id": commits[0], "gates": ["domain"]}]})
+        record_path.write_text(json.dumps(owner))
+        followup = {**owner, "cycle_id": "shared-followup",
+                    "commits": [{"id": commits[1], "gates": ["review_integrate"]}],
+                    "worktree": {**owner["worktree"], "created_by_dbsctr": False}}
+        (self.repo / ".git/dbsctr/cycles/shared-followup.json").write_text(json.dumps(followup))
+        (self.repo / ".git/dbsctr/worktrees" / owner["worktree"]["id"] / "active").unlink()
+        subprocess.run(["git", "push", "origin", "HEAD:master"], cwd=worktree,
+                       check=True, capture_output=True)
+
+        result = json.loads(run(
+            self.repo, "cycle-retire-worktree", "--cycle-id", "shared-owner",
+            "--confirm", "shared-owner", "--reason", "All shared cycles are integrated",
+        ).stdout)
+        self.assertEqual(result["worktree"], "retired")
+        self.assertFalse(worktree.exists())
+        retired = json.loads(record_path.read_text())
+        self.assertEqual(retired["state"], "completed")
+        self.assertEqual(retired["worktree_retirement"]["related_cycles"],
+                         ["shared-followup", "shared-owner"])
+        subprocess.run(["git", "show-ref", "--verify", "refs/heads/dbsctr/test/shared-owner"],
+                       cwd=self.repo, check=True, capture_output=True)
+        inventory = json.loads(run(self.repo, "worktree-list", "--json", "--now").stdout)["worktrees"]
+        item = next(item for item in inventory if item["cycle_id"] == "shared-owner")
+        self.assertFalse(item["present"] or item["cleanup_candidate"] or item["cleanup_blockers"])
+
     def test_batch_cleanup_continues_after_dirty_completed_worktree(self):
         remote = Path(self.temp.name) / "remote.git"
         worktrees = Path(self.temp.name) / "isolated"
