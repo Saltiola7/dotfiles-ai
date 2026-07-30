@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.33-1 | Add guarded stale-cycle retirement and reconcile four clean legacy worktrees | high | in_progress | V3.32-1 | Exact retirement command, retained records/branches, worktree cleanup | Existing Cycle Records and completed/superseded outcomes | no | Active records cannot use completed cleanup, while direct metadata edits would fabricate lifecycle success | M | Synthetic disposition, identity, dirty-state, ancestry, retry, and live reconciliation checks |
 
 ## Completed
 
