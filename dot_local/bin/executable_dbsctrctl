@@ -7320,7 +7320,12 @@ def finish_push(root, path, record):
     recorded_commits = [entry["id"] for entry in record["commits"]]
     reconciled = False
     base_head = delivery.get("base_head", cycle_base)
-    if record["delivery_intent"] == "draft_pr" and target_head != base_head:
+    recorded_reconciliation = any(
+        git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head
+        for commit in recorded_commits
+    )
+    if (record["delivery_intent"] == "draft_pr"
+            and (target_head != base_head or recorded_reconciliation)):
         evidence_points, review_point = [], None
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required":
