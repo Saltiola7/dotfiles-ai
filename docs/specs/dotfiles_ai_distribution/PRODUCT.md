@@ -3,7 +3,7 @@
 ## Users And Outcomes
 
 Developers should be able to install one public configuration repository and
-receive a working DBSCTR, OpenCode, Herdr, and opt-in launchd R&D automation
+receive a working DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration
 environment without adopting the maintainer's personal paths, account
 identifiers, or secrets.
 
@@ -61,6 +61,9 @@ target files.
 | Schema | not_applicable: Product Intent owns outcomes rather than configuration schema | - | Context README contracts | Distribution owner |
 | Dependency/deployment | not_applicable: deployment topology is canonical in the context README | - | Context README Visual Evidence | Distribution owner |
 | Quantitative | not_applicable: success is verified by invariants and runtime checks, not a comparative dataset | - | Success Evidence | Product owner |
+
+V3.35 corrects the orchestration name without changing a product journey or trust
+boundary. The existing journey view and Text Equivalent remain current.
 
 ```mermaid
 flowchart LR

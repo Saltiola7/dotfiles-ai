@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution Changelog
 
+Historical `Intended Final Push` values record the policy at the time. Current
+delivery requires a feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-07-29 - DAI-020 Final Integration
 
 - Added exact-SHA no-fast-forward integration on ephemeral `rnd/batch/<id>`

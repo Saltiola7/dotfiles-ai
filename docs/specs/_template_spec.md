@@ -109,7 +109,7 @@ Applicability is `required` or `not_applicable`. Result is `pending`, `passed`,
 `failed`, `unavailable`, or `not_run`. Exceptions are user-approved `deferred`
 or `accepted_risk` records with rationale, owner, and review condition.
 
-For a new V3.2 cycle, export these decisions as JSON for
+For a new DBSCTR V3 cycle, export these decisions as JSON for
 `dbsctrctl start --plan PATH`. The plan names this committed README and defines
 every gate; each `not_applicable` gate includes its reason.
 

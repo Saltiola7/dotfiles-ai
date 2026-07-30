@@ -65,7 +65,7 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
 
 
 def test_v2_is_archived_and_not_deployable():
-    archive = ROOT / "docs/archive/opencode/skills/v2"
+    archive = ROOT / "docs/_archive/opencode/skills/v2"
     assert (archive / "discovery2/SKILL.md").exists()
     assert (archive / "dbsctr2/SKILL.md").exists()
     assert {

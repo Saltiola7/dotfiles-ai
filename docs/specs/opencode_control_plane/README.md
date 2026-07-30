@@ -1,8 +1,8 @@
 # OpenCode Control Plane
 
-**Status:** OCP-17 through OCP-26 deployed
-**Discovery2 confidence:** 99%
-**Provider-native harness discovery:** Ready at 97%; implementation blocked on DAI-011 reconciliation
+**Status:** OCP-30 delivered to Git without live apply; OCP-27/OCP-28 provider-native harness deployed
+**Discovery readiness:** Complete
+**Provider-native harness:** Delivered; GPT activation passed and unavailable Opus 5 invocation remains a provider-local follow-up
 
 ## Engineering Profile
 
@@ -50,7 +50,7 @@
 | Field | Value |
 |---|---|
 | Risk | Elevated: changes global model selection, agent prompts, provider routing, and private evaluation identity |
-| Delivery intent | Prepare contracts on integrated DAI-011 commit `c24f7e5`; later merge and deploy managed OpenCode configuration after review |
+| Delivery intent | Delivered and deployed managed provider-affine OpenCode configuration on integrated DAI-011 commit `c24f7e5` |
 | Scope | Exact provider entry commands, Opus 5 high, provider-native prompts, strict provider affinity, exact telemetry identity, and report-only five-cycle evaluation |
 | Overrides | OpenAI and Bedrock billing routes never mix automatically; no account, role, email, or client label enters telemetry; unavailable Opus inference becomes an operational follow-up rather than fallback |
 
@@ -76,6 +76,10 @@ weekly scheduling, private report persistence, and operational deployment.
 | Schema | not_applicable: JSON configuration and typed adapter schemas remain authoritative | - | Managed configuration and tests | Control-plane owner |
 | Dependency/deployment | required: provider-affine control flowchart | Which managed surfaces are loaded into OpenCode? | Engineering Profile and File contracts | Control-plane owner; loaded surface changes |
 | Quantitative | not_applicable: evaluation metrics are persisted evidence, but this specification makes no comparative decision from a current dataset | - | Evaluation contracts | Control-plane owner |
+
+V3.35 corrects delivered status and evidence wording without changing provider
+routing, trust boundaries, or control-plane topology. The existing view and Text
+Equivalent remain current.
 
 ```mermaid
 flowchart TD
@@ -604,7 +608,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 ## Gate Ledger - Provider-Native Harness Initiative
 
-| Gate | Capability | Applicability | Candidate result | Authority/evidence | Exception | Owner |
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
 | Domain | Provider-affine harness and evaluation language | required | passed | This bounded-context specification | - | Primary |
 | Behavior | Exact routing, provider-native review, isolation, and unavailable-model behavior | required | passed | Given/When/Then scenarios and focused tests | - | Primary |

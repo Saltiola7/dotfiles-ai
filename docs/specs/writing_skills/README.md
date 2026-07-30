@@ -1,8 +1,8 @@
 # Writing Skills
 
-**Status:** Experimental
+**Status:** WS-1 through WS-6 delivered to Git; live managed deployment intentionally excluded
 **Created:** 2026-07-28
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-30
 **Product intent:** [`PRODUCT.md`](PRODUCT.md)
 
 ## Engineering Profile
@@ -21,12 +21,12 @@
 | Release/deployment | Git delivery only; no packaged release or live `chezmoi apply` |
 | Maintenance/retirement | Contract changes update specs/tests; public command retirement requires explicit migration |
 
-### Current Cycle Overrides
+### WS-1 Through WS-6 Delivered Overrides
 
 | Field | Value |
 |---|---|
 | Risk | Elevated: public prompts cross private-evidence and external Jira/research boundaries |
-| Delivery intent | Merge and normal final push to the cycle-start upstream |
+| Delivery intent | Merged to Git; no packaged release or live managed-config apply |
 | Scope | `jira-ticket`, `pyramid`, three commands, ACLI permission boundaries, focused tests, and adjacent control-plane documentation |
 | Overrides | No Jira mutation, ACLI authentication, release publication, or live managed-config apply |
 
@@ -106,6 +106,9 @@ returns the requested artifact followed by evidence and uncertainty notes.
 | Schema | not_applicable: Jira output contracts remain authoritative in their reference files | - | Interfaces and references | Writing-skills owner |
 | Dependency/deployment | not_applicable: the File Map and control-plane specification own deployment relationships | - | File Map | Control-plane owner |
 | Quantitative | not_applicable: no writing decision depends on comparative numeric evidence | - | Behavior Scenarios | Writing-skills owner |
+
+V3.35 corrects delivery status and provenance without changing writing behavior,
+interfaces, or trust flow. The existing view and Text Equivalent remain current.
 
 The Mermaid source above is canonical for workflow ordering; this README is its
 Text Equivalent. The writing-skills owner updates both whenever evidence sources,

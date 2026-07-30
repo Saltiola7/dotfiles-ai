@@ -1,5 +1,9 @@
 # Writing Skills Changelog
 
+Historical `Intended Final Push` values record the policy at the time. Current
+delivery requires a feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-07-28 - Implementation
 
 - Added public `jira-ticket` and `pyramid` skills with five Jira policy
@@ -14,8 +18,8 @@
   and portability tests, isolated chezmoi rendering, and resolved OpenCode
   command discovery passed.
   No Jira mutation, release, deployment, or live `chezmoi apply` occurred. Gate
-  Exceptions: none. Implementation Gate Commit: `761d01e`. Intended Final Push:
-  `origin/main`.
+  Exceptions: none. Implementation and remediation commits: `761d01e`,
+  `6904ff6`, `4b00081`. Intended Final Push: `origin/main`.
 
 ## 2026-07-28 - Discovery
 

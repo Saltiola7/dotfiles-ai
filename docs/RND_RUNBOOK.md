@@ -2,26 +2,26 @@
 
 ## Operating Model
 
-Launchd runs two opt-in jobs in the macOS Aqua session:
+Hermes runs isolated opt-in profiles on the host and enabled Lima workspaces:
 
-| Job | Default | Purpose |
+| Component | Default | Purpose |
 |---|---|---|
-| `dev.dotfiles-ai.dbsctr-spawner` | Daily at 09:00 | Start one fresh native-Build OpenCode `/dbsctr-improve` worker |
-| `dev.dotfiles-ai.dbsctr-watchdog` | Every five minutes | Reconcile durable workers, exact sessions, and pull-request outcomes |
+| Daily agent job | 09:00 | Refine bounded evidence and canonical backlogs, then start eligible OpenCode Discovery work |
+| Script-only maintenance | Profile schedule | Reconcile durable workers and clean eligible completed worktrees without model tokens |
 
-The daily launchd tick creates a worker only when the private lens cadence is
+The daily Hermes tick creates a worker only when the private lens cadence is
 due. One pass applies five fixed lens families to one shared immutable capture.
 Three daily no-yield passes back off to weekly and four weekly no-yield passes
 back off to monthly; a distinct claim or UTC quarter rollover restores daily.
 Older workers awaiting Discovery do not block an otherwise eligible run, but a
 capture day has exactly one owning worker until its result is recorded.
-Herdr keeps each worker in a visible single-pane tab. OpenCode performs review,
-Discovery, implementation, validation, and draft-PR delivery; launchd and the
-runner provide only scheduling and deterministic recovery.
+OpenCode performs review, Discovery, implementation, validation, and draft-PR
+delivery. Herdr is optional presentation and attachment; it is not required for
+scheduling, recovery, or lifecycle proof. Hermes provides orchestration only.
 
 ## Configure
 
-Shared defaults disable scheduling. Enable only the desired machine in
+Shared defaults disable Hermes orchestration. Enable only the desired machine in
 `~/.config/dotfiles-ai/chezmoi.toml`:
 
 ```toml
@@ -47,10 +47,11 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 
 ## Daily Use
 
-Run `herdr` and open the `DBSCTR R&D` workspace. A Discovery worker is an
-operator inbox item: answer in its tab and explicitly say `proceed` only when
-satisfied. The worker then completes its isolated DBSCTR cycle and opens a draft
-pull request. It never merges, marks ready, releases, or deploys.
+Resume the exact OpenCode session directly or attach it to a Herdr pane. A
+Discovery worker is an operator inbox item: answer in its session and explicitly
+say `proceed` only when satisfied. The worker then completes its isolated DBSCTR
+cycle and opens a draft pull request. It never merges, marks ready, releases, or
+deploys.
 
 P0/P1 claims enter Discovery automatically. P2/P3 claims stop in `claimed`; run
 `/dbsctr-backlog` for the report-only queue. Promote one deliberately with
@@ -77,15 +78,13 @@ dbsctrctl batch-publish --batch-id BATCH_ID --confirm BATCH_ID
 ```sh
 herdr status server
 herdr integration status
-launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-spawner
-launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-watchdog
 dbsctrctl improvement-status | jq
 dbsctr-rnd spawn
 dbsctr-rnd watchdog
 dbsctr-rnd lens-plan --worker-id WORKER_ID
 ```
 
-Disable both scheduled jobs without removing the manual runner:
+Disable Hermes orchestration without removing durable DBSCTR state:
 
 ```toml
 [data.dotfiles_ai.rnd]
@@ -110,14 +109,13 @@ dbsctrctl improvement-recover --worker-id WORKER_ID --action abandon
 
 ## Recovery And Security
 
-The watchdog matches exact native session IDs. A missing process is restarted
-as `opencode --mini REVIEW_WORKDIR -s SESSION_ID --agent build --no-replay` in a fresh single-pane tab. Exactly one
-recorded pane with that foreground argv may be adopted when Herdr omits native
-metadata. Ambiguity blocks; three failed recoveries require explicit retry or
-abandonment. Live idle, blocked, and Discovery sessions are never prompted or
+Hermes reconciliation matches exact native session IDs. A stopped delegated task
+may resume only its recorded `opencode -s SESSION_ID`; an existing or ambiguous
+session blocks duplicate launch. Three failed recoveries require explicit retry
+or abandonment. Live idle, blocked, and Discovery sessions are never prompted or
 answered by automation.
 
 Global OpenCode history supplies sanitized evidence only. Workers may modify
 this source, not projects that inspired a pattern. GitHub credentials remain in
 the `gh` store and enter only the child process environment used for PR status.
-The DBSCTR ledger, not launchd or Herdr labels, remains coordination authority.
+The DBSCTR ledger, not Hermes Kanban or Herdr labels, remains coordination authority.

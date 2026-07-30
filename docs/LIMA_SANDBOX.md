@@ -22,6 +22,11 @@ all configured host paths exist.
 
 Optional direct tailnet access is global and defaults off:
 
+> [!WARNING]
+> Enrollment creates an external tailnet peer identity. Disabling this setting
+> prevents new enrollment but does not disconnect or revoke an existing peer;
+> retirement must remove it from the Tailscale admin console.
+
 ```toml
 [data.dotfiles_ai.tailscale]
 enabled = false

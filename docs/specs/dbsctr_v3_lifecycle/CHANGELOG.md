@@ -1,5 +1,9 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+Historical `Intended Final Push` values record the policy at the time. Current
+delivery requires a feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-07-30 - V3.34 Normative Visual Evidence
 
 - Added one canonical Visual Evidence Plan for normative READMEs, Product Intent,
@@ -772,7 +776,7 @@
   Maintain/Retire gates.
 - Added Python and Security modules and normalized Data, Cloud, ML/AI, and
   Analytics into provider-neutral modules with optional references.
-- Archived complete V2 source beneath `docs/archive/opencode/skills/v2/` and
+- Archived complete V2 source, now retained beneath `docs/_archive/opencode/skills/v2/`, and
   removed V2 runtime skills and commands.
 - Added unversioned `/discovery` and `/dbsctr` commands, retargeted global routing,
   and extended QA with optional capability coverage.

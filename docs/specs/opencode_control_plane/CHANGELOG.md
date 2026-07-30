@@ -1,5 +1,9 @@
 # OpenCode Control Plane Changelog
 
+Historical `Intended Final Push` values record the policy at the time. Current
+delivery requires a feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-07-28 - Writing Skill ACLI Boundary
 
 - Added direct ACLI account-status, work-item view, and comment-list reads plus
@@ -7,8 +11,8 @@
   browser, filter, wrapper, separator, redirection, and mutation forms are denied.
 - Rendered permission contracts and isolated OpenCode configuration discovery
   passed. No live managed configuration was applied; existing OpenCode processes
-  remain unchanged. Implementation Gate Commit: `761d01e`. Intended Final Push:
-  `origin/main`.
+  remain unchanged. Implementation and remediation commits: `761d01e`,
+  `6904ff6`, `4b00081`. Intended Final Push: `origin/main`.
 
 ## 2026-07-28 - OCP-29 Hermes-Origin Discovery
 

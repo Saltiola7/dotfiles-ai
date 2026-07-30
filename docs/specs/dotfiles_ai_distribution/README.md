@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-015 native tailnet guest access deployed
+**Status:** DAI-020 guarded integration, claim promotion, and pane-history retention delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
 
@@ -114,6 +114,10 @@
 | Scope | Default-off local TOML, checksum-pinned rootless Linux client, stdin-only one-off enrollment, Tailscale SSH, tests, and live two-workspace validation |
 | Overrides | Public defaults and teammate configurations remain off; peer names derive from machine-local Lima identity; keys, tags, account identities, and tailnet policy never enter Git or rendered configuration |
 
+The completed DAI-015 cycle-start applicability plan is retained for provenance
+at [`_archive/DAI-015.plan.json`](_archive/DAI-015.plan.json); this README,
+BACKLOG, and CHANGELOG own final results.
+
 ### DAI-016 Cycle Overrides
 
 | Field | Value |
@@ -122,6 +126,15 @@
 | Delivery intent | Deploy Hermes-first orchestration to the host and configured Lima workspaces after controlled cutover evidence |
 | Scope | Hermes bootstrap and profiles, canonical backlog mirroring, Kanban refinement, direct resumable OpenCode Discovery, global completed-worktree maintenance, Herdr ownership repair, and native scheduler retirement |
 | Overrides | Hermes owns orchestration only; DBSCTR remains lifecycle authority; generated skills and raw context stay profile-local; updates are manual; no disk-space gate, messaging integration, automatic Discovery answer, merge, release, or deploy |
+
+### DAI-020 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: publishes guarded integration branches, advances selected queued claims, and retains private terminal history |
+| Delivery intent | Merge and deploy operator-controlled batch integration, explicit promotion, and local history maintenance |
+| Scope | Exact-SHA batch preview/integration, confirmed draft-PR publication, P2/P3 promotion, and owner-safe 30-day pane-history retention |
+| Overrides | Hermes may preview and integrate but cannot confirm promotion or publication; no direct `main` write, force push, automatic launch, or public terminal history |
 
 ### Provider-Native Evaluation Initiative Overrides
 
@@ -150,6 +163,10 @@ OpenCode control-plane behavior, and shell authentication.
 | Schema | not_applicable: TOML and generated schema contracts remain authoritative text and tests | - | Interfaces And Contracts | Distribution owner |
 | Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
+
+V3.35 reconciles operator guidance with the existing Hermes, approval, and trust
+contracts; it changes no represented topology or handoff. The two existing views
+and Text Equivalents remain current.
 
 ```mermaid
 flowchart LR
@@ -356,8 +373,10 @@ federation, approval, or delivery boundaries change.
   operator queue. Existing queued claims migrate conservatively to P2; workers
   already beyond `claimed` migrate to P1 so active work is not demoted.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
-  or delivers a worker. P2/P3 cannot enter Discovery until a separate promotion
-  contract is delivered.
+  or delivers a worker. An operator may explicitly confirm the exact worker ID of
+  a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
+  `discovery` without launching or resuming a worker. Every other state fails
+  closed. [`DAI-020.md`](DAI-020.md) owns the detailed contract.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
   reads that capture without rescanning live history.

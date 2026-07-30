@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.35-1 | Reconcile current documentation authority, operator guidance, exact statuses, and historical archives | high | in_progress | V3.34-1, DAI-020, OCP-30, AUTH-011, WS-1 through WS-6 | Root README, docs/runbooks, five bounded-context artifact triplets, `_archive` paths, managed archive reference | Fixed commit `7c73f439`, current normative specs, completed backlogs/changelogs | no | Cross-context references and archive moves require one serialized integration owner | M | Affected contract QA, path/reference checks, accessible visual review, fixed-commit DBSCTR audit, independent review |
 
 ## Completed
 

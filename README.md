@@ -1,7 +1,21 @@
 # dotfiles-ai
 
-Portable macOS configuration for DBSCTR, OpenCode, and Herdr, managed by an
-independent chezmoi source repository.
+Portable macOS configuration for DBSCTR, OpenCode, Herdr, and optional Hermes
+orchestration, managed as an independent chezmoi source repository.
+
+This repository configures those tools. It does not install OpenCode or Herdr,
+store provider credentials, or replace the DBSCTR specifications as lifecycle
+authority.
+
+## Choose Your Path
+
+| Goal | Start here |
+|---|---|
+| Install on a new workstation | [Safe Quickstart](#safe-quickstart) |
+| Transfer files from another chezmoi source | [Existing Chezmoi Migration](#existing-chezmoi-migration) |
+| Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
+| Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
+| Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
 
 ## Requirements
 
@@ -9,14 +23,17 @@ independent chezmoi source repository.
 - [chezmoi](https://www.chezmoi.io/)
 - [OpenCode](https://opencode.ai/)
 - [Herdr](https://herdr.dev/)
-- Python 3.12+ and `uv` for repository tests
-- Optional: 1Password CLI for the opt-in `op-session` helper
+- Python 3.12+ and `uv` for repository validation
+- Optional: 1Password CLI for `op-session`
+- Optional: Lima for managed Fedora workspaces
+- Optional: Hermes for autonomous R&D; enabled installations manage it through
+  this source
 
-This repository configures those tools and can opt in to native launchd
-scheduling for autonomous OpenCode review workers. It does not install OpenCode
-or Herdr or store provider credentials.
+## Safe Quickstart
 
-## Install
+> [!WARNING]
+> Review the dry-run before applying. Back up any target already managed by
+> another chezmoi source; two sources must not own the same live file.
 
 ```sh
 mkdir -p ~/.config/dotfiles-ai
@@ -29,54 +46,55 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 ```
 
 The real TOML stays outside the checkout. Its `[data.dotfiles_ai]` values
-override the public defaults without entering Git history.
-
-Restart OpenCode after applying because it loads configuration only at startup.
+override public defaults without entering Git history. Restart OpenCode after an
+apply because it loads configuration only at startup.
 
 ## Configuration
 
-- `opencode`: Bedrock profile/region, default models, LM Studio endpoint, and theme.
-- `sandbox`: locally named workspaces, host-to-guest mounts, access modes,
-  optional Git protection and references, federation, and Build destination.
-- `herdr`: theme, LaunchAgent toggle, and executable path.
-- `rnd`: opt-in daily review hour/minute, watchdog interval, managed workspace,
-  writable source, and non-secret GitHub identity.
-- `onepassword`: optional account UUID, account alias, and Keychain service.
+- `opencode`: provider profile/region, models, local endpoint, and theme.
+- `sandbox`: named Lima workspaces, mounts, Git protection, references,
+  federation, aliases, and the approved Build destination.
+- `herdr`: theme, Aqua LaunchAgent ownership for the Herdr server, and executable.
+- `rnd`: optional Hermes profiles, schedule, review workspace, writable source,
+  and non-secret GitHub identity.
+- `onepassword`: optional account UUID, alias, and Keychain service.
+- `tailscale`: default-off workspace enrollment and SSH policy switch; secrets,
+  peer identities, and tailnet policy stay external.
 
-When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode
-remain usable with their normal environment-based authentication.
+When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode keep
+their ordinary environment-based authentication.
 
-When R&D scheduling is enabled, apply loads a daily worker spawner and a
-five-minute watchdog through launchd. Shared defaults keep it disabled; enable
-it only in the machine-local config, authenticate GitHub separately, then verify:
+## Optional Autonomous R&D
 
-```sh
-herdr integration status
-launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-spawner
-launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-watchdog
-```
+> [!WARNING]
+> Enable R&D only after `gh` is authenticated for the configured repository and
+> the writable source path is verified. Hermes may schedule and refine work, but
+> it cannot answer Discovery, approve implementation, publish a batch without
+> exact operator confirmation, mark a pull request ready, or merge it.
 
-Launchd runs the loop in the background; opening a terminal does not require a
-startup command. Run `herdr` to attach to the persistent workspace and review
-one OpenCode tab per scheduled worker.
+Hermes owns current scheduling, profile-local Kanban state, and OpenCode dispatch.
+The DBSCTR private ledger remains lifecycle authority. P0/P1 claims may enter
+Discovery automatically; P2/P3 remain claimed until an operator promotes one
+explicitly. Delivery pushes only a feature branch and creates a draft pull
+request into protected `main`.
 
-Each worker reviews sanitized evidence from the global OpenCode database but may
-change only this source. It claims one distinct improvement, waits in Discovery
-for your answers and explicit `proceed`, then completes an isolated DBSCTR cycle,
-pushes only its feature branch, and opens a human-merge-only draft pull request.
-Workers and claims are durable across terminal or pane failures.
+See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for configuration, daily use,
+promotion, batch integration, health, recovery, history retention, and rollback.
 
-See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for status, manual runs,
-Discovery handoff, pause, recovery, logs, and rollback.
+## Optional Lima Workspaces
 
-See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for client VM creation,
-credentials, persistent VM Herdr use, federated R&D, updates, recovery, and
-retirement.
+Managed Fedora workspaces keep OpenCode, Herdr, credentials, sessions, and
+Hermes profiles isolated. Only declared mounts cross the VM boundary. Optional
+Tailscale enrollment creates an external tailnet identity that disabling local
+configuration does not revoke.
 
-## Existing Personal-Chezmoi Migration
+See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for creation, protected mounts,
+credentials, federation, updates, recovery, and explicit peer retirement.
 
-Do not apply two sources indefinitely. First compare the intended rendering
-while the personal source still owns the live files:
+## Existing Chezmoi Migration
+
+Do not apply two sources indefinitely. Compare ownership while the personal
+source still owns the live files:
 
 ```sh
 chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply --dry-run --verbose
@@ -85,14 +103,13 @@ chezmoi managed > /tmp/personal-managed
 comm -12 <(sort /tmp/dotfiles-ai-managed) <(sort /tmp/personal-managed)
 ```
 
-Back up the live targets, apply this source, verify OpenCode and Herdr, then
-remove the corresponding source-state files from the personal repository. Do
+Back up overlapping live targets, apply this source, verify OpenCode and Herdr,
+then remove the transferred source-state files from the personal repository. Do
 not add transferred targets to the personal repository's `.chezmoiremove`; that
-would delete files now owned here. A personal `chezmoi apply --dry-run` must no
-longer mention transferred targets before the migration is complete.
+would delete files now owned here. Complete only after a personal-source dry-run
+no longer mentions transferred targets.
 
-Before cutover, retire obsolete DBSCTR V2 files without making public apply
-delete possibly user-owned paths:
+Before cutover, retire obsolete deployed DBSCTR V2 paths reversibly:
 
 ```sh
 backup="$HOME/.local/state/dotfiles-ai/legacy-backup"
@@ -109,17 +126,10 @@ do
 done
 ```
 
-The backup makes this cleanup opt-in and reversible. Verify those four live
-paths are absent before restarting OpenCode.
-
-Rollback before personal-source cleanup by reapplying the personal source.
-Rollback afterward in this order: set `data.dotfiles_ai.herdr.launchagent=false`
-in the local config, apply this source, verify the `dev.dotfiles-ai.herdr-server`
-job is absent, stop invoking this source, rename its checkout to
-`~/.local/share/chezmoi-dotfiles-ai.disabled`, revert the personal repository's
-ownership-removal commit, apply the personal source, and confirm its managed list
-contains the restored targets. The local `dotfiles-ai` config continues pointing
-at the now-missing original source path, preventing accidental dual application.
+Rollback before ownership cleanup by reapplying the personal source. After
+cleanup, disable this source's managed services, apply that change, rename this
+checkout, restore the personal repository's ownership commit, apply the personal
+source, and verify its managed list. Never leave both sources active.
 
 ## Update And Validate
 
@@ -130,4 +140,26 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 uv run --group test pytest
 ```
 
-Lifecycle and release artifacts live in `docs/specs/dotfiles_ai_distribution/`.
+Restart OpenCode after managed prompt or configuration changes. Hermes updates
+are separate, manual maintenance using `hermes update --backup` followed by
+profile health verification.
+
+## Documentation Authority
+
+| Bounded context | Authority |
+|---|---|
+| [`dbsctr_v3_lifecycle`](docs/specs/dbsctr_v3_lifecycle/) | Lifecycle method, gates, evidence, delivery, and retirement |
+| [`dotfiles_ai_distribution`](docs/specs/dotfiles_ai_distribution/) | Portable distribution, Hermes, R&D, Lima, and delivery operations |
+| [`opencode_control_plane`](docs/specs/opencode_control_plane/) | Providers, agents, prompts, permissions, skills, and routing |
+| [`shell_auth_startup`](docs/specs/shell_auth_startup/) | Shell, 1Password, Keychain, and Herdr startup boundaries |
+| [`writing_skills`](docs/specs/writing_skills/) | Jira and Pyramid writing behavior and evidence contracts |
+
+Within each context, `README.md` owns durable truth, `BACKLOG.md` owns active and
+completed work, and `CHANGELOG.md` owns completed cycle evidence. Historical V2
+source is retained under [`docs/_archive/`](docs/_archive/) and is not deployed or
+current guidance. Public lifecycle entry points are `/discovery`, `/dbsctr`, and
+`/qa`; Method Revision 3.27 is current.
+
+## License
+
+[MIT](LICENSE)

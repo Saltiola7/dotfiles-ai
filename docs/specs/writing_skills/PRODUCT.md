@@ -1,8 +1,8 @@
 # Writing Skills Product Intent
 
-**Status:** Experimental
+**Status:** WS-1 through WS-6 delivered to Git; live managed deployment intentionally excluded
 **Created:** 2026-07-28
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-30
 
 ## Users And Stakeholders
 
@@ -64,6 +64,7 @@ The context README's accessible workflow is the canonical visual for these
 journeys. This Product Intent intentionally does not duplicate it. Its prose is
 the Text Equivalent for product outcomes; the product owner revisits this plan
 when journeys, privacy boundaries, or measurable success decisions change.
+V3.35 corrects delivery status without changing those journeys or boundaries.
 
 ## Success Evidence
 
