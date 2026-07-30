@@ -4,6 +4,16 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-30 - V3.35-F1 Discovery Handoff Activation
+
+- Replaced the final current `V3.2 applicability plan` label with version-neutral
+  DBSCTR V3 language and added a focused regression assertion. The deployed stale
+  target failed before correction; 30 focused tests passed afterward.
+- Applied only the Discovery skill, verified source identity and an empty second
+  dry-run, restarted OpenCode, loaded the corrected skill, and restored healthy
+  Herdr session attribution. Gate Commit: `9914f12`. Gate Exceptions: none.
+  Intended Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
 - Rewrote the root operator/maintainer guide, aligned Hermes and P2/P3 promotion
