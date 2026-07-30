@@ -44,6 +44,11 @@ target files.
 12. High-impact P0/P1 claims enter Discovery automatically, while an operator
     reviews waiting P2/P3 claims through `/dbsctr-backlog`; promotion remains a
     separate governed capability.
+13. An operator combines completed feature branches on an ephemeral batch branch,
+    reviews the exact merge commits, and explicitly publishes the batch for normal
+    pull-request review without granting Hermes authority over `main`.
+14. An operator can inspect bounded local Herdr pane history for the prior 30 days
+    without publishing terminal content or weakening filesystem ownership checks.
 
 ## Constraints And Trust
 
@@ -80,6 +85,11 @@ target files.
   sessions without duplicate work, and cannot merge their draft pull requests.
 - Every claim carries P0-P3 priority; P0/P1 may enter Discovery automatically,
   while P2/P3 remain claimed and visible through a report-only operator queue.
+- Confirmed P2/P3 promotion atomically enters Discovery; batch previews and
+  integration retain exact source SHAs while batch publication remains an
+  explicit operator action and `main` remains pull-request protected.
+- Herdr scrollback is bounded to 10 MB and private daily snapshots older than 30
+  days are pruned without following symlinks or changing source history.
 - A cycle started from `main` creates an isolated feature branch, while a cycle
   started in a dedicated clean teammate worktree may retain that feature branch;
   both publish only a draft pull request into configured `main`.
