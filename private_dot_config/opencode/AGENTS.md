@@ -88,5 +88,5 @@ weak, or irrelevant. Source remains authoritative.
 ## Lifecycle Version
 
 `/discovery` and `/dbsctr` load the unversioned DBSCTR V3 skills. V1 is removed.
-V2 is retained only as source history under `docs/archive/` and is not deployed.
+V2 is retained only as source history under `docs/_archive/` and is not deployed.
 `/qa` remains available for explicit audits and DBSCTR capability gates.

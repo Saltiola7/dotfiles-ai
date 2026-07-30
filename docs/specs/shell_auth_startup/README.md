@@ -1,5 +1,32 @@
 # Shell Auth Startup
 
+**Status:** AUTH-011 deployed and verified in the local macOS Aqua session
+
+## Engineering Profile
+
+### Defaults
+
+| Field | Value |
+|---|---|
+| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, and status-bar polling contracts |
+| Languages/frameworks | Bash, Zsh, Go templates, launchd plist, and Markdown |
+| Applicable modules | Security |
+| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, Aqua LaunchAgent, chezmoi, 1Password CLI, and Keychain |
+| Public compatibility | Shell startup remains non-blocking; optional authentication does not become a startup dependency |
+| Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs |
+| Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
+| Release/deployment | No packaged release; managed configuration deploys through explicit chezmoi apply |
+| Maintenance/retirement | Rotate or revoke credentials externally; preserve bounded failure and explicit Herdr ownership handoff |
+
+### AUTH-011 Delivered Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes ownership handoff for a persistent credential-aware Herdr server |
+| Delivery intent | Deployed to the local macOS Aqua session after targeted validation |
+| Scope | Structured running-state detection, unmanaged-server refusal, bounded managed shutdown, and retryable chezmoi handoff |
+| Overrides | Never stop an unmanaged server; never expose credentials; a blocked handoff remains retryable |
+
 ## Domain
 
 Bounded context: shell authentication startup for interactive panes, agents, and status-bar plugins.
@@ -48,6 +75,10 @@ Glossary:
 | Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
 | Dependency/deployment | not_applicable: launchd ownership is a bounded contract without additional topology | - | HerdrServer scenarios | Shell-auth owner |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
+
+V3.35 adds the missing profile and completion ledger without changing credential
+precedence or the authentication boundary. The existing decision flow and Text
+Equivalent remain current.
 
 ```mermaid
 flowchart TD
@@ -249,6 +280,22 @@ or failure behavior changes.
 - **Invariant:** recurring poll path reads `CachedClockifyApiKey` only.
 - **Invariant:** recurring poll path never calls `op read`.
 - **Post:** missing API key hides the Clockify item and exits successfully.
+
+## Gate Ledger - AUTH-011
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Managed and unmanaged Herdr ownership language | required | passed | This README and BACKLOG | - | Primary |
+| Behavior | Structured status, refusal, bounded handoff, and retry scenarios | required | passed | Focused regression tests | - | Primary |
+| Spec | Loader, owner wrapper, and LaunchAgent handoff | required | passed | README and `_archive/AUTH-011.plan.json` start plan | - | Primary |
+| Contract | Preserve unmanaged server, credentials, and retryability | required | passed | Rendered shell and ownership assertions | - | Primary |
+| Test-driven implementation | Regression failures followed by focused pass | required | passed | 3 focused tests | - | Primary |
+| Refactor | One structured running-state authority and bounded wait | required | passed | Shell syntax and integrated diff | - | Primary |
+| Review/Integrate | Authentication and ownership safety | required | passed | Targeted review and deployment evidence | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed Herdr ownership configuration | required | passed | Targeted chezmoi deployment; `e858602`, `4a05198` | - | Primary |
+| Operate | Verify Aqua LaunchAgent and Herdr-mode authentication | required | passed | Running Aqua LaunchAgent, Keychain access, and `op-session` | - | Primary |
+| Maintain/Retire | Keep failed ownership handoff retryable | required | passed | Unmanaged refusal and bounded shutdown contracts | - | Primary |
 
 ## Verification
 

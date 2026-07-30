@@ -1,6 +1,6 @@
 # Backlog: Writing Skills
 
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-30
 
 ## Active
 
@@ -19,4 +19,4 @@ Sequential chain: WS-1 -> WS-2/WS-3/WS-4 -> WS-5 -> WS-6.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
-| WS-1 through WS-6 | Add Jira refinement/completion, explicit Pyramid structure, bounded ACLI reads, and isolated validation | 2026-07-28 | `761d01e` and final lifecycle commit |
+| WS-1 through WS-6 | Add Jira refinement/completion, explicit Pyramid structure, bounded ACLI reads, and isolated validation | 2026-07-28 | `a571f51`, `761d01e`, `8c8ee40`, `6904ff6`, `4b00081` |

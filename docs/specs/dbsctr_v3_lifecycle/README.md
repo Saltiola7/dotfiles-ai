@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.28 federated review handoff deployed
+**Status:** V3.35 repository documentation authority reconciled
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -1333,6 +1333,75 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   identity, cleanliness, retention, branch, HEAD, remote, and delivery check
   remains authoritative.
 
+### V3.35 Documentation Authority Reconciliation
+
+- **Risk:** Elevated because operator guidance covers authentication, autonomous
+  work, external identities, and protected delivery even though this cycle changes
+  no executable behavior.
+- **Scope:** Reconcile the root README, runbooks, templates, archives, and all five
+  bounded-context artifact triplets against fixed commit evidence. Tests and
+  executable source remain outside the audit scope.
+- **Authority:** A context README owns durable domain, behavior, interface, and
+  contract truth. Its BACKLOG owns current/completed work, its CHANGELOG owns
+  completed cycle evidence, and the root README provides task-oriented navigation
+  without replacing those authorities.
+- **Status:** Exact context status names the latest delivered capability and any
+  still-active follow-up. It must agree with the context BACKLOG and CHANGELOG at
+  the same commit.
+- **Archive:** Non-deployed V2 source and completed cycle-start plans live beneath
+  an `_archive` directory, retain their content, and are clearly excluded from
+  current operational guidance.
+- **Audit boundary:** Fixed-commit lifecycle audits exclude dirty worktree overlays.
+  A clean structural inventory proves artifact presence, not semantic consistency.
+
+#### V3.35 Behaviors
+
+- Given an operator opens the repository README, when choosing installation,
+  migration, autonomous R&D, or Lima operation, then the document identifies the
+  safe path and links the owning current specification.
+- Given a bounded-context status or gate result, when BACKLOG or CHANGELOG records
+  completion, then the README reports the same exact state rather than an older
+  initiative or pending result.
+- Given current Hermes scheduling and explicit P2/P3 promotion, when operator
+  guidance describes autonomous work, then it does not direct users to retired
+  launchd workers or claim that promotion is unavailable.
+- Given historical V2 source or a completed start plan, when a reader encounters
+  it, then its `_archive` location and archive index prevent it from appearing to
+  be current executable guidance.
+- Given archive paths move, when documentation and managed prompt references are
+  reconciled, then no current reference points to the removed path. Reverting the
+  move and those references together restores the prior layout without changing
+  runtime state.
+
+#### V3.35 Contracts
+
+- The root README links all five bounded contexts and states that context READMEs,
+  BACKLOGs, and CHANGELOGs are the durable authorities.
+- Operational claims remain source-bound and preserve security boundaries: no
+  credentials enter Git, explicit human approval remains required, and external
+  identities require explicit retirement.
+- Archive moves preserve file content and Git history. Current specs and routing
+  references use `docs/_archive/`; completed plan files move only within their
+  owning context.
+- This cycle has merge-only delivery. Release, live chezmoi deployment, and
+  running-service operation are not applicable.
+
+#### V3.35 Gate Ledger
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Documentation Authority, exact status, and Historical Source language | required | passed | V3.35 specification and fixed-commit audit | - | Primary |
+| Behavior | Operator path, status coherence, Hermes, promotion, and archive scenarios | required | passed | Root README, runbooks, and affected assertions | - | Primary |
+| Spec | Context ownership, archive layout, interfaces, and migration | required | passed | Normative specs and focused lifecycle contracts | - | Primary |
+| Contract | Cross-context authority, trust, path freshness, and rollback invariants | required | passed | 74 affected tests and Markdown-link validation | - | Primary |
+| Test-driven implementation | Old archive-path failure followed by affected and full pass | required | passed | 74 affected; 280 passed, 1 optional Lima skip repository-wide | - | Primary |
+| Refactor | Remove stale status, launchd, promotion, version, and provenance wording | required | passed | Stale-term search and Git whitespace validation | - | Primary |
+| Review/Integrate | Cross-context coherence and operator safety | required | passed | Independent fixed-commit review; one P2 Hermes wording finding remediated | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed prompt/configuration changes | not_applicable | not_run | Merge-only delivery; no live chezmoi apply requested | - | User |
+| Operate | Verify a running service | not_applicable | not_run | No running-service change | - | User |
+| Maintain/Retire | Preserve history under `_archive` and current references | required | passed | Archive contract, plan JSON, and path checks | - | Primary |
+
 ### V3.32 Concurrent Target Reconciliation
 
 - **Risk:** Elevated because the helper prepares Git merges and exposes a new
@@ -1360,17 +1429,17 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Target Reconciliation, Recorded Lineage, and Prepared Merge language | required | pending | V3.32 specification | - | Primary |
-| Behavior | Preview, prepare, conflict, repeated advance, and refusal scenarios | required | pending | Focused helper fixtures | - | Primary |
-| Spec | CLI, JSON, typed tool, permissions, and recovery interfaces | required | pending | README and BACKLOG | - | Primary |
-| Contract | First-parent identity, clean state, target ancestry, bounded output, and role isolation | required | pending | Helper and control-plane tests | - | Primary |
-| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected tests | - | Primary |
-| Refactor | Shared delivery validation without duplicate state machine | required | pending | Diff and compilation | - | Primary |
-| Review/Integrate | Concurrent delivery safety and compatibility review | required | pending | Affected QA and independent review | - | Primary |
+| Domain | Target Reconciliation, Recorded Lineage, and Prepared Merge language | required | passed | V3.32 specification; `eabcd06` | - | Primary |
+| Behavior | Preview, prepare, conflict, repeated advance, and refusal scenarios | required | passed | Focused helper fixtures; 158 passed, 1 optional skip | - | Primary |
+| Spec | CLI, JSON, typed tool, permissions, and recovery interfaces | required | passed | README, BACKLOG, and `8e20a16` | - | Primary |
+| Contract | First-parent identity, clean state, target ancestry, bounded output, and role isolation | required | passed | Helper and control-plane tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | passed | 158 passed, 1 optional skip | - | Primary |
+| Refactor | Shared delivery validation without duplicate state machine | required | passed | `8e20a16` and compilation evidence | - | Primary |
+| Review/Integrate | Concurrent delivery safety and compatibility review | required | passed | Prepared conflict-free current-main reconciliation | - | Primary |
 | Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
 | Deploy | Apply managed helper or OpenCode configuration | not_applicable | not_run | No deployment requested | - | User |
 | Operate | Verify a running service | not_applicable | not_run | No service changes | - | User |
-| Maintain/Retire | Preserve old Cycle Records and manual merge compatibility | required | pending | Compatibility tests and lifecycle docs | - | Primary |
+| Maintain/Retire | Preserve old Cycle Records and manual merge compatibility | required | passed | Compatibility tests and lifecycle docs | - | Primary |
 
 ## Gate Ledger — V3.26 Worktree Maintenance
 
@@ -1771,6 +1840,11 @@ Mermaid source and Text Equivalents are maintained with this README. The
 trust, or protected-delivery contracts change and checks non-trivial rendering in
 the GitHub pull request.
 
+V3.35 changes documentation authority and archive paths, not lifecycle topology,
+gate state transitions, or protected-delivery ordering. The existing boundary,
+state, trust, and interaction views therefore remain current; another diagram
+would duplicate the contracts above rather than answer a new review question.
+
 ## Engineering Profile Shape
 
 The matching bounded-context README contains this compact shape:
@@ -1850,7 +1924,7 @@ tool and provider examples and load only when useful.
 | `dbsctr_execution_dag` | Validate read/read-only-QA dependencies, ownership, risk, and activation | Concurrent authorization or deterministic serial fallback; no dispatch |
 | `dbsctr_execution_benchmark` | Retain paired fixture timing and quality evidence | Method-bound activation only after the configured threshold passes |
 | `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
-| `docs/archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
+| `docs/_archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
 | `tests/test_dbsctr_lifecycle.py` | Deterministic lifecycle and migration contracts | All static contracts |
 | `.github/workflows/test.yml` | Run contract tests when lifecycle sources change | Integration validation |
@@ -2054,7 +2128,7 @@ tool and provider examples and load only when useful.
 
 - Unversioned `discovery` and `dbsctr` source paths become V3 in place.
 - V1 content is removed with explicit user authorization.
-- V2 source moves under `docs/archive/opencode/skills/v2/`, which is already
+- V2 source moves under `docs/_archive/opencode/skills/v2/`, which is already
   excluded from chezmoi deployment through the repository's `docs/` rule.
 - Versioned command sources and deployed V2 skills/commands are removed.
 - Public `/discovery`, `/dbsctr`, and `/qa` commands remain thin and inherit the

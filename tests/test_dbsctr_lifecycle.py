@@ -65,7 +65,7 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
 
 
 def test_v2_is_archived_and_not_deployable():
-    archive = ROOT / "docs/archive/opencode/skills/v2"
+    archive = ROOT / "docs/_archive/opencode/skills/v2"
     assert (archive / "discovery2/SKILL.md").exists()
     assert (archive / "dbsctr2/SKILL.md").exists()
     assert {
@@ -76,6 +76,12 @@ def test_v2_is_archived_and_not_deployable():
 
     removals = [line for line in text(".chezmoiremove").splitlines() if not line.startswith("#")]
     assert not [path for path in removals if "discovery2" in path or "dbsctr2" in path]
+
+
+def test_current_distribution_profile_names_hermes_orchestration():
+    spec = text("docs/specs/dotfiles_ai_distribution/README.md")
+    assert "opt-in Hermes R&D orchestration" in spec
+    assert "opt-in native R&D scheduling" not in spec
 
 
 def test_v3_module_registry_is_extensible_and_normalized():
