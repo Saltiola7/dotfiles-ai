@@ -172,11 +172,18 @@ record and remains confirmation-gated; it never turns retention into background
 deletion. New DVC worktrees share the source cache and prefer copy-on-write
 `reflink,copy`; generated virtualenvs remain per-worktree.
 Typed OpenCode tools are argument-safe adapters over `dbsctrctl`, not another
-state machine. Standing authorization for validated Build-primary begin and resume permits
-`dbsctr_begin`, `dbsctr_attach`, and DBSCTR worktree access after its committed applicability plan;
+state machine. Standing authorization for validated Build-primary begin, resume, and reconciliation permits
+`dbsctr_begin`, `dbsctr_attach`, `dbsctr_reconcile`, and DBSCTR worktree access after its committed applicability plan;
 Plan and subagents remain denied and Plan hands off the validated plan. The `launch` argument defaults to `false`; when
 explicitly true in a Herdr pane, the same authorization covers launching OpenCode
 in the new worktree. Herdr state is presentation only and never gate evidence.
+
+Before final artifact closure, use `dbsctr_reconcile` preview when the recorded
+upstream may have advanced. If it reports `diverged`, prepare the no-commit merge,
+resolve only explicit conflict paths, rerun the union affected validation, and
+record every staged path through the Review/Integrate Gate Commit. The helper
+never resolves conflicts, selects QA, rebases Gate Commits, or mutates the source
+checkout. Repeat if Final Push detects another advance.
 
 ## Lifecycle Reconciliation Audit
 

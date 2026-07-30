@@ -6922,6 +6922,69 @@ def command_final_push(args):
         finish_push(root, path, record)
 
 
+def command_reconcile_target(args):
+    root = root_dir()
+    _, record = load(root)
+    require_active(record)
+    require_current_profile(root, record)
+    if status_paths(root):
+        fail("target reconciliation requires a clean worktree")
+    for operation in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if git(root, "rev-parse", "--verify", "-q", operation, check=False).returncode == 0:
+            fail("another Git operation is already active")
+
+    baseline = record["git"]
+    if not baseline["branch"] or branch(root) != baseline["branch"]:
+        fail("HEAD is detached or not on the original branch")
+    current_upstream = upstream(root)
+    if not baseline["upstream"] or current_upstream != baseline["upstream"]:
+        fail("upstream is missing or changed")
+    if baseline["pre_cycle_ahead_commits"]:
+        fail("pre-cycle ahead commits cannot be reconciled")
+    if baseline.get("remote") != remote_destination(root, current_upstream):
+        fail("remote push destination changed")
+
+    recorded = [entry["id"] for entry in record["commits"]]
+    first_parent = git(
+        root, "rev-list", "--first-parent", "--reverse", f"{baseline['head']}..HEAD"
+    ).stdout.splitlines()
+    if not recorded or first_parent != recorded:
+        fail("first-parent lineage is not exactly the recorded Gate Commits")
+
+    remote, remote_branch = remote_for_upstream(root, current_upstream)
+    if not remote or not remote_branch:
+        fail("upstream is not a remote branch")
+    with target_lock(root, record):
+        git(root, "fetch", remote, remote_branch)
+        target = git(root, "rev-parse", current_upstream).stdout.strip()
+        if git(root, "merge-base", "--is-ancestor", baseline["head"], target,
+               check=False).returncode:
+            fail("delivery target no longer descends from the cycle baseline")
+        if target == baseline["head"]:
+            result = {"status": "up_to_date", "staged_paths": [], "conflict_paths": []}
+        elif git(root, "merge-base", "--is-ancestor", target, "HEAD", check=False).returncode == 0:
+            result = {"status": "integrated", "staged_paths": [], "conflict_paths": []}
+        elif args.mode == "preview":
+            result = {"status": "diverged", "staged_paths": [], "conflict_paths": []}
+        else:
+            merged = git(root, "merge", "--no-commit", "--no-ff", target, check=False)
+            conflicts = sorted(set(git(
+                root, "diff", "--name-only", "--diff-filter=U"
+            ).stdout.splitlines()))
+            staged = sorted(set(git(root, "diff", "--cached", "--name-only").stdout.splitlines()))
+            if merged.returncode and not conflicts:
+                fail(merged.stderr.strip() or "target merge failed without conflicts")
+            if len(staged) > 512 or len(conflicts) > 512 or any(
+                    len(name.encode()) > 512 for name in staged + conflicts):
+                fail("target reconciliation path output exceeded bounds")
+            result = {
+                "status": "conflicts" if conflicts else "prepared",
+                "staged_paths": staged,
+                "conflict_paths": conflicts,
+            }
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
@@ -7210,6 +7273,10 @@ def parser():
     commit.set_defaults(func=command_gate_commit)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
+    reconcile = commands.add_parser("reconcile-target")
+    reconcile.add_argument("--mode", choices=("preview", "prepare"), default="preview")
+    reconcile.add_argument("--json", action="store_true", required=True)
+    reconcile.set_defaults(func=command_reconcile_target)
     worktree_list = commands.add_parser("worktree-list")
     worktree_list.add_argument("--json", action="store_true")
     worktree_list.add_argument("--now", action="store_true", help="ignore the 24-hour retention window")

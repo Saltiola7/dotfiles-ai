@@ -31,7 +31,8 @@ A validated Build-primary agent has standing authorization to use typed
 resuming an active cycle in its recorded worktree, typed `dbsctr_phase_span` for
 private explicit lifecycle markers, typed `dbsctr_execution_benchmark` for bounded
 local activation evidence, typed `dbsctr_execution_dag` for primary-only execution
-authorization, and DBSCTR worktree access.
+authorization, typed `dbsctr_reconcile` to preview or prepare explicit no-commit
+integration with an advanced recorded target, and DBSCTR worktree access.
 Plan and subagents remain denied; this authorization does not cover destructive
 or external writes.
 

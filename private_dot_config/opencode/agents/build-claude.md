@@ -7,6 +7,7 @@ permission:
   dbsctr_vm_handoff: deny
   dbsctr_begin: allow
   dbsctr_attach: allow
+  dbsctr_reconcile: allow
   dbsctr_phase_span: allow
   dbsctr_execution_benchmark: allow
   dbsctr_execution_dag: allow
