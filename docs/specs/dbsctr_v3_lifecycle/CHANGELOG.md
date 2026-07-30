@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-30 - V3.34 Normative Visual Evidence
+
+- Added one canonical Visual Evidence Plan for normative READMEs, Product Intent,
+  feature/decision specifications, and templates. Every concern now receives a
+  required named view or reasoned `not_applicable`; diagrams require accessible
+  metadata, a Text Equivalent, source ownership, and same-change freshness, while
+  quantitative charts require decision-grade source tables.
+- Added twelve accessible Mermaid architecture, sequence, state, trust, journey,
+  retirement, delivery, and archive views across all current normative contexts.
+  Focused red/green contracts now discover normative Markdown and enforce the
+  policy plus Mermaid accessibility metadata. Affected QA passed 73 tests.
+  Optimized Builder and reviewer routes could not access the isolated worktree;
+  the OpenAI primary implemented and reviewed directly. Gate Commit: `dc7aace`.
+  Intended Final Push: feature branch and draft pull request into `main` after
+  managed-skill deployment, runtime smoke, and GitHub render review.
+
 ## 2026-07-30 - V3.32 Proactive Target Reconciliation Follow-up
 
 - Added a primary-only typed preview/prepare operation for cycles whose recorded
