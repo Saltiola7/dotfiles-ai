@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-30 - V3.33 Shared Worktree Follow-up
+
+- Added exact-confirmation retirement for one physical worktree reused by
+  multiple completed cycles. Every associated record must be completed and every
+  Gate Commit plus current HEAD must be contained in the fetched delivery target.
+  Records and branch refs remain intact; dirty or active shared work fails closed.
+- Full QA passed 272 tests with one optional Lima skip. Implementation commit:
+  `2ecae53`. Intended Final Push: feature branch and draft pull request into
+  `main`; DAI-017 worktree retirement follows verified merge.
+
 ## 2026-07-30 - V3.33 Stale Cycle Retirement
 
 - Added exact-confirmation retirement for clean DBSCTR-created active worktrees.
