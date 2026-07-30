@@ -1,5 +1,18 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-30 - V3.32 Proactive Target Reconciliation Follow-up
+
+- Added a primary-only typed preview/prepare operation for cycles whose recorded
+  upstream advanced. It proves exact first-parent Gate Commit lineage, preserves
+  conflicts for explicit resolution, prepares only a no-commit merge, and never
+  mutates the source checkout or chooses validation.
+- The preserved implementation passed 158 focused tests with one optional skip,
+  then prepared a conflict-free merge of current `main`. Implementation commits:
+  `eabcd06`, `8e20a16`. Final Push validation accepts that exact merge only as
+  the recorded Review/Integrate Gate Commit with evidence bound to it; the
+  stricter legacy fresh-evidence path remains unchanged. Intended Final Push:
+  feature branch and draft pull request into `main` after full affected QA.
+
 ## 2026-07-30 - V3.33 Shared Worktree Follow-up
 
 - Added exact-confirmation retirement for one physical worktree reused by

@@ -54,7 +54,7 @@
 - Add `dbsctrctl begin` to create cycle branch/worktree and start state.
 - Add deterministic handoff, retention, and cleanup commands.
 - Detect target advancement before push and require explicit reconciliation and
-  renewed validation; never resolve conflicts automatically.
+  renewed validation; `reconcile-target` prepares but never resolves a merge.
 
 ### V3.5 — OpenCode And Herdr (complete)
 

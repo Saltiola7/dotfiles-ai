@@ -6957,7 +6957,8 @@ def sync_source_checkout(record, remote, remote_branch):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
-def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits, evidence_points):
+def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits,
+                                  evidence_points, review_point=None):
     if git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode:
         fail("protected base advanced without reconciliation")
     merges = git(root, "rev-list", "--first-parent", "--merges", f"{cycle_base}..HEAD").stdout.splitlines()
@@ -6966,12 +6967,16 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
     if len(matches) != 1:
         fail("protected base reconciliation merge is missing or ambiguous")
     reconciliation = matches[0]
-    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
-               check=False).returncode for point in evidence_points):
-        fail("required gate evidence predates protected base reconciliation")
     first_parent = git(
         root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
     ).stdout.splitlines()
+    if reconciliation in recorded_commits:
+        if first_parent != recorded_commits or review_point != reconciliation:
+            fail("recorded reconciliation is not the reviewed Gate Commit")
+        return recorded_commits
+    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
+               check=False).returncode for point in evidence_points):
+        fail("required gate evidence predates protected base reconciliation")
     current_ahead = [commit for commit in first_parent if commit != reconciliation]
     if current_ahead != recorded_commits:
         fail("ahead commits are not exactly the recorded cycle commits")
@@ -7315,14 +7320,22 @@ def finish_push(root, path, record):
     recorded_commits = [entry["id"] for entry in record["commits"]]
     reconciled = False
     base_head = delivery.get("base_head", cycle_base)
-    if record["delivery_intent"] == "draft_pr" and target_head != base_head:
-        evidence_points = []
+    recorded_reconciliation = any(
+        git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head
+        for commit in recorded_commits
+    )
+    if (record["delivery_intent"] == "draft_pr"
+            and (target_head != base_head or recorded_reconciliation)):
+        evidence_points, review_point = [], None
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required":
                 item = record["evidence"]["items"][gate["evidence"]]
-                evidence_points.append(item.get("commit") or item["head"])
+                point = item.get("commit") or item["head"]
+                evidence_points.append(point)
+                if name == "review_integrate":
+                    review_point = point
         current_ahead = validate_draft_reconciliation(
-            root, cycle_base, target_head, recorded_commits, evidence_points
+            root, cycle_base, target_head, recorded_commits, evidence_points, review_point
         )
         reconciled = True
     else:
@@ -7404,6 +7417,69 @@ def command_final_push(args):
     path, record = load(root)
     with target_lock(root, record):
         finish_push(root, path, record)
+
+
+def command_reconcile_target(args):
+    root = root_dir()
+    _, record = load(root)
+    require_active(record)
+    require_current_profile(root, record)
+    if status_paths(root):
+        fail("target reconciliation requires a clean worktree")
+    for operation in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if git(root, "rev-parse", "--verify", "-q", operation, check=False).returncode == 0:
+            fail("another Git operation is already active")
+
+    baseline = record["git"]
+    if not baseline["branch"] or branch(root) != baseline["branch"]:
+        fail("HEAD is detached or not on the original branch")
+    current_upstream = upstream(root)
+    if not baseline["upstream"] or current_upstream != baseline["upstream"]:
+        fail("upstream is missing or changed")
+    if baseline["pre_cycle_ahead_commits"]:
+        fail("pre-cycle ahead commits cannot be reconciled")
+    if baseline.get("remote") != remote_destination(root, current_upstream):
+        fail("remote push destination changed")
+
+    recorded = [entry["id"] for entry in record["commits"]]
+    first_parent = git(
+        root, "rev-list", "--first-parent", "--reverse", f"{baseline['head']}..HEAD"
+    ).stdout.splitlines()
+    if not recorded or first_parent != recorded:
+        fail("first-parent lineage is not exactly the recorded Gate Commits")
+
+    remote, remote_branch = remote_for_upstream(root, current_upstream)
+    if not remote or not remote_branch:
+        fail("upstream is not a remote branch")
+    with target_lock(root, record):
+        git(root, "fetch", remote, remote_branch)
+        target = git(root, "rev-parse", current_upstream).stdout.strip()
+        if git(root, "merge-base", "--is-ancestor", baseline["head"], target,
+               check=False).returncode:
+            fail("delivery target no longer descends from the cycle baseline")
+        if target == baseline["head"]:
+            result = {"status": "up_to_date", "staged_paths": [], "conflict_paths": []}
+        elif git(root, "merge-base", "--is-ancestor", target, "HEAD", check=False).returncode == 0:
+            result = {"status": "integrated", "staged_paths": [], "conflict_paths": []}
+        elif args.mode == "preview":
+            result = {"status": "diverged", "staged_paths": [], "conflict_paths": []}
+        else:
+            merged = git(root, "merge", "--no-commit", "--no-ff", target, check=False)
+            conflicts = sorted(set(git(
+                root, "diff", "--name-only", "--diff-filter=U"
+            ).stdout.splitlines()))
+            staged = sorted(set(git(root, "diff", "--cached", "--name-only").stdout.splitlines()))
+            if merged.returncode and not conflicts:
+                fail(merged.stderr.strip() or "target merge failed without conflicts")
+            if len(staged) > 512 or len(conflicts) > 512 or any(
+                    len(name.encode()) > 512 for name in staged + conflicts):
+                fail("target reconciliation path output exceeded bounds")
+            result = {
+                "status": "conflicts" if conflicts else "prepared",
+                "staged_paths": staged,
+                "conflict_paths": conflicts,
+            }
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
 
 
 def parser():
@@ -7716,6 +7792,10 @@ def parser():
     commit.set_defaults(func=command_gate_commit)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
+    reconcile = commands.add_parser("reconcile-target")
+    reconcile.add_argument("--mode", choices=("preview", "prepare"), default="preview")
+    reconcile.add_argument("--json", action="store_true", required=True)
+    reconcile.set_defaults(func=command_reconcile_target)
     worktree_list = commands.add_parser("worktree-list")
     worktree_list.add_argument("--json", action="store_true")
     worktree_list.add_argument("--now", action="store_true", help="ignore the 24-hour retention window")

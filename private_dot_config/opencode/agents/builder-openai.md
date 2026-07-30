@@ -55,6 +55,10 @@ permission:
     "*/dbsctrctl attach-runtime*": deny
     "env *dbsctrctl attach-runtime*": deny
     "command *dbsctrctl attach-runtime*": deny
+    "dbsctrctl reconcile-target*": deny
+    "*/dbsctrctl reconcile-target*": deny
+    "env *dbsctrctl reconcile-target*": deny
+    "command *dbsctrctl reconcile-target*": deny
     "dbsctrctl phase-span*": deny
     "*/dbsctrctl phase-span*": deny
     "env *dbsctrctl phase-span*": deny

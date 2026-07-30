@@ -124,6 +124,20 @@ class DbsctrctlTest(unittest.TestCase):
             command += ["--path", path]
         return run(self.repo, *command, "--", sys.executable, "-c", f"raise SystemExit({code})")
 
+    def start_remote_cycle(self):
+        remote = Path(self.temp.name) / "remote.git"
+        other = Path(self.temp.name) / "other"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo,
+                       check=True, capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+        subprocess.run(["git", "clone", str(remote), str(other)], check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "other@example.com"], cwd=other, check=True)
+        subprocess.run(["git", "config", "user.name", "Other"], cwd=other, check=True)
+        self.start("merge")
+        return other
+
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
@@ -1617,6 +1631,117 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["git"]["head"], advance)
         self.assertIn("reconciled_at", record["git"])
 
+    def test_reconcile_target_previews_and_prepares_recorded_divergence(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        (other / "other.txt").write_text("upstream\n")
+        subprocess.run(["git", "add", "other.txt"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+
+        before = json.loads(self.record_path().read_text())
+        preview = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "preview", "--json").stdout)
+        self.assertEqual(preview["status"], "diverged")
+        self.assertEqual(preview["staged_paths"], [])
+        self.assertEqual(preview["conflict_paths"], [])
+        self.assertFalse((self.repo / ".git/MERGE_HEAD").exists())
+        self.assertFalse(subprocess.run(["git", "status", "--porcelain"], cwd=self.repo,
+                                        text=True, capture_output=True).stdout)
+
+        prepared = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "prepare", "--json").stdout)
+        self.assertEqual(prepared["status"], "prepared")
+        self.assertEqual(prepared["staged_paths"], ["other.txt"])
+        self.assertEqual(prepared["conflict_paths"], [])
+        self.assertTrue((self.repo / ".git/MERGE_HEAD").exists())
+        self.assertEqual(json.loads(self.record_path().read_text()), before)
+
+    def test_reconcile_target_preserves_conflicts_for_primary_resolution(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        (other / "tracked.txt").write_text("upstream\n")
+        subprocess.run(["git", "commit", "-am", "advance"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+
+        result = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "prepare", "--json").stdout)
+        self.assertEqual(result["status"], "conflicts")
+        self.assertEqual(result["conflict_paths"], ["tracked.txt"])
+        self.assertEqual(result["staged_paths"], ["tracked.txt"])
+        self.assertTrue((self.repo / ".git/MERGE_HEAD").exists())
+
+    def test_reconcile_target_supports_recorded_merge_and_repeated_advance(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        for gate in ("behavior", "spec", "contract", "test_driven_implementation", "refactor"):
+            self.record_gate(gate)
+        (other / "other.txt").write_text("upstream\n")
+        subprocess.run(["git", "add", "other.txt"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+
+        prepared = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "prepare", "--json").stdout)
+        self.assertEqual(prepared["status"], "prepared")
+        self.record_gate("review_integrate", paths=("other.txt",))
+        run(self.repo, "gate-commit", "--message", "integrate", "--gates", "review_integrate",
+            "--paths", "other.txt")
+        integrated = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "preview", "--json").stdout)
+        self.assertEqual(integrated["status"], "integrated")
+
+        (other / "later.txt").write_text("later\n")
+        subprocess.run(["git", "add", "later.txt"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "later"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+        repeated = json.loads(run(
+            self.repo, "reconcile-target", "--mode", "preview", "--json").stdout)
+        self.assertEqual(repeated["status"], "diverged")
+
+    def test_reconcile_target_refuses_dirty_worktree(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        (other / "other.txt").write_text("upstream\n")
+        subprocess.run(["git", "add", "other.txt"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+        (self.repo / "dirty.txt").write_text("dirty\n")
+
+        result = run(self.repo, "reconcile-target", "--mode", "prepare", "--json", ok=False)
+        self.assertIn("clean worktree", result.stderr)
+
+    def test_reconcile_target_rejects_unrecorded_first_parent_commit(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("unrecorded\n")
+        subprocess.run(["git", "commit", "-am", "unrecorded"], cwd=self.repo, check=True,
+                       capture_output=True)
+        (other / "other.txt").write_text("upstream\n")
+        subprocess.run(["git", "add", "other.txt"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=other, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+
+        result = run(self.repo, "reconcile-target", "--mode", "preview", "--json", ok=False)
+        self.assertIn("first-parent", result.stderr)
+
     def test_final_push_rejects_unrecorded_commit_in_linear_advance(self):
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -1823,6 +1948,28 @@ class DbsctrctlTest(unittest.TestCase):
                 self.repo, base, target, [cycle], [reconciliation]
             ),
             [cycle],
+        )
+        with self.assertRaisesRegex(RuntimeError, "reviewed Gate Commit"):
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation], [cycle], cycle
+            )
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation], [cycle], reconciliation
+            ),
+            [cycle, reconciliation],
+        )
+        (self.repo / "later.txt").write_text("later\n")
+        subprocess.run(["git", "add", "later.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "later gate"], cwd=self.repo,
+                       check=True, capture_output=True)
+        later = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
+                               text=True, capture_output=True).stdout.strip()
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation, later], [cycle], reconciliation
+            ),
+            [cycle, reconciliation, later],
         )
 
     def test_ordinary_draft_pr_does_not_require_improvement_worker(self):

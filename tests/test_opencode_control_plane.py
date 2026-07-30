@@ -118,6 +118,10 @@ def test_provider_and_primary_contracts():
         "*/dbsctrctl execution-dag*": "deny",
         "env *dbsctrctl execution-dag*": "deny",
         "command *dbsctrctl execution-dag*": "deny",
+        "dbsctrctl reconcile-target*": "deny",
+        "*/dbsctrctl reconcile-target*": "deny",
+        "env *dbsctrctl reconcile-target*": "deny",
+        "command *dbsctrctl reconcile-target*": "deny",
         "acli *": "deny",
         "*/acli *": "deny",
         "env *acli *": "deny",
@@ -246,6 +250,8 @@ def test_builder_boundaries():
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
             "dbsctrctl improvement-*", "*/dbsctrctl improvement-*",
             "env *dbsctrctl improvement-*", "command *dbsctrctl improvement-*",
+            "dbsctrctl reconcile-target*", "*/dbsctrctl reconcile-target*",
+            "env *dbsctrctl reconcile-target*", "command *dbsctrctl reconcile-target*",
         ):
             assert f'"{command}": deny' in body
 
@@ -256,6 +262,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     local_config = "~/.config/dotfiles-ai/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
+    assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
     assert config["permission"]["external_directory"] == "deny"
@@ -263,6 +270,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_reconcile": "allow",
         "dbsctr_phase_span": "allow",
         "dbsctr_execution_benchmark": "allow",
         "dbsctr_execution_dag": "allow",
@@ -279,6 +287,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "mode: primary" in body
             assert "dbsctr_begin: allow" in body
             assert "dbsctr_attach: allow" in body
+            assert "dbsctr_reconcile: allow" in body
             assert "dbsctr_phase_span: allow" in body
             assert "dbsctr_execution_benchmark: allow" in body
             assert "dbsctr_execution_dag: allow" in body
@@ -288,6 +297,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "mode: subagent" in body
             assert "dbsctr_begin: allow" not in body
             assert "dbsctr_attach: allow" not in body
+            assert "dbsctr_reconcile: allow" not in body
             assert "dbsctr_phase_span: allow" not in body
             assert "dbsctr_execution_benchmark: allow" not in body
             assert "dbsctr_execution_dag: allow" not in body
@@ -312,6 +322,9 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         for command in (f"dbsctrctl {operation}*", f"*/dbsctrctl {operation}*",
                         f"env *dbsctrctl {operation}*", f"command *dbsctrctl {operation}*"):
             assert bash[command] == "deny"
+    for command in ("dbsctrctl reconcile-target*", "*/dbsctrctl reconcile-target*",
+                    "env *dbsctrctl reconcile-target*", "command *dbsctrctl reconcile-target*"):
+        assert bash[command] == "deny"
     assert bash["dbsctrctl review-complete*"] == "ask"
     assert bash["*/dbsctrctl review-complete*"] == "ask"
     assert bash["env *dbsctrctl review-complete*"] == "ask"
@@ -342,6 +355,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
     assert config["permission"]["dbsctr_execution_dag"] == "deny"
+    assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_audit"] == "allow"
     assert config["permission"]["dbsctr_inspect"] == "allow"
     assert config["permission"]["dbsctr_review"] == "allow"
@@ -359,6 +373,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_phase_span"] == "deny"
+    assert config["agent"]["plan"]["permission"]["dbsctr_reconcile"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_vm_handoff"] == "deny"
     for command in (
         "git push --force*", "git push -f*", "git *push*--force*", "git push *+*",
@@ -417,6 +432,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const improvement_update = tool({' in tools
     assert 'export const phase_span = tool({' in tools
     assert 'export const execution_dag = tool({' in tools
+    assert 'export const reconcile = tool({' in tools
     assert 'export const execution_benchmark = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
@@ -457,6 +473,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "phase-span"' in runtime
     assert '"dbsctrctl", "execution-dag"' in runtime
     assert '"dbsctrctl", "execution-benchmark"' in runtime
+    assert '"dbsctrctl", "reconcile-target", "--mode", mode, "--json"' in runtime
     assert runtime.count('"--excluded-session-id"') == 5
     assert "context.sessionID" in tools
     assert "context.worktree, true" in tools
@@ -572,6 +589,34 @@ def test_dbsctr_inspect_runtime_preserves_argv(tmp_path):
         "<inspect>", "<--commit>", "<ref;touch nope>", "<--action>", "<search>",
         "<--path>", "<docs/specs>", "<--query>", "<literal.* value>",
         "<--limit>", "<7>", "<--cursor>", "<2>", "<--excerpt>", "<80>", "<--json>",
+    ]
+
+
+def test_dbsctr_reconcile_runtime_preserves_mode_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "reconcile.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" > "$RECONCILE_LOG"\n'
+        'printf \'{"status":"diverged","staged_paths":[],"conflict_paths":[]}\\n\'\n'
+    )
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reconcileTarget }} from {json.dumps(str(runtime))};'
+        'console.log(JSON.stringify(await reconcileTarget("prepare",process.cwd())));'
+    )
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RECONCILE_LOG": str(log)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(result.stdout) == {
+        "status": "diverged", "staged_paths": [], "conflict_paths": [],
+    }
+    assert log.read_text().splitlines() == [
+        "<reconcile-target>", "<--mode>", "<prepare>", "<--json>",
     ]
 
 

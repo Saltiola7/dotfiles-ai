@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current worktree.",
@@ -426,5 +426,15 @@ export const begin = tool({
       directory: context.directory,
       worktree: context.worktree,
     }))
+  },
+})
+
+export const reconcile = tool({
+  description: "Preview or prepare explicit reconciliation with the current cycle's advanced upstream.",
+  args: {
+    mode: tool.schema.enum(["preview", "prepare"]),
+  },
+  async execute(args, context) {
+    return JSON.stringify(await reconcileTarget(args.mode, context.worktree))
   },
 })

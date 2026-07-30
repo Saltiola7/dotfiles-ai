@@ -1296,6 +1296,45 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   identity, cleanliness, retention, branch, HEAD, remote, and delivery check
   remains authoritative.
 
+### V3.32 Concurrent Target Reconciliation
+
+- **Risk:** Elevated because the helper prepares Git merges and exposes a new
+  Build-only typed mutation boundary.
+- **Scope:** `reconcile-target` preview/prepare, bounded JSON results, recorded
+  first-parent lineage validation, typed OpenCode access, and conflict fixtures.
+- **Non-goals:** Automatic conflict resolution, rebase, force push, automatic
+  Gate Commit, automatic QA selection, cycle-long target locking, or source
+  checkout mutation.
+- **Behavior:** Preview fetches under the existing destination lock and reports
+  `up_to_date`, `integrated`, or `diverged`. Prepare returns the same no-op states
+  or leaves one no-commit merge as `prepared` or `conflicts` with sorted bounded
+  paths. It refuses dirty worktrees, another Git operation, changed branch,
+  upstream, or remote, non-descendant target history, absent recorded commits,
+  and any unrecorded first-parent commit.
+- **Authority:** Only native and provider-affine Build primaries may prepare.
+  Plan and every subagent deny the typed tool. The Cycle Record remains unchanged
+  until ordinary evidence and `gate-commit --gates review_integrate` record the
+  merge.
+- **Recovery:** A conflict remains ordinary Git merge state for the owning primary
+  to resolve or explicitly abort. No helper command silently discards resolution
+  work. Final Push still re-fetches and rejects a target that advanced again.
+
+## Gate Ledger — V3.32 Concurrent Target Reconciliation
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Target Reconciliation, Recorded Lineage, and Prepared Merge language | required | pending | V3.32 specification | - | Primary |
+| Behavior | Preview, prepare, conflict, repeated advance, and refusal scenarios | required | pending | Focused helper fixtures | - | Primary |
+| Spec | CLI, JSON, typed tool, permissions, and recovery interfaces | required | pending | README and BACKLOG | - | Primary |
+| Contract | First-parent identity, clean state, target ancestry, bounded output, and role isolation | required | pending | Helper and control-plane tests | - | Primary |
+| Test-driven implementation | Intended failures followed by focused passing fixtures | required | pending | Affected tests | - | Primary |
+| Refactor | Shared delivery validation without duplicate state machine | required | pending | Diff and compilation | - | Primary |
+| Review/Integrate | Concurrent delivery safety and compatibility review | required | pending | Affected QA and independent review | - | Primary |
+| Release | Publish a versioned external artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed helper or OpenCode configuration | not_applicable | not_run | No deployment requested | - | User |
+| Operate | Verify a running service | not_applicable | not_run | No service changes | - | User |
+| Maintain/Retire | Preserve old Cycle Records and manual merge compatibility | required | pending | Compatibility tests and lifecycle docs | - | Primary |
+
 ## Gate Ledger — V3.26 Worktree Maintenance
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
@@ -1958,6 +1997,15 @@ branches and rejects unsafe advancement before changing cycle state or pushing.
 Reconciliation and renewed validation remain explicit; conflicts are never
 resolved automatically.
 
+`dbsctrctl reconcile-target` moves that explicit reconciliation into the helper.
+Preview fetches and reports target state without changing the worktree. Prepare
+requires a clean active cycle whose recorded Gate Commits exactly form the
+first-parent lineage from its baseline, then starts a no-commit merge of the
+fetched target. It returns bounded repository-relative staged and conflict paths.
+The primary resolves conflicts, reruns affected validation, and records the merge
+through the normal Review/Integrate Gate Commit; the helper never chooses content
+or bypasses evidence. Repeated target advancement may repeat this process.
+
 Method Revision `3.4` adds `dbsctrctl begin` as the normal write-cycle entry.
 It accepts the same context, risk, delivery intent, protected base branch, and
 plan as `start`, refreshes the configured upstream, rejects unknown ahead commits, creates
@@ -2306,6 +2354,11 @@ module routing without changing Cycle Record schema or public commands.
   evidence; a dirty or missing changed target still blocks.
 - Reconciliation never changes the source checkout. Dirty, missing, changed, or
   diverged primary checkouts remain untouched by post-push synchronization.
+- An explicit prepared reconciliation may be a recorded Review/Integrate Gate
+  Commit when first-parent history exactly equals all recorded Gate Commits
+  and Review/Integrate evidence is bound to that merge. The legacy unrecorded
+  reconciliation form remains valid only when every required evidence point
+  descends from the special merge.
 
 ### V3.16 Historical Review And Backtesting Contract
 

@@ -987,3 +987,9 @@ export async function beginCycle(args: {
     return { ...handoff, herdr: `launch_failed: ${error}` }
   }
 }
+
+export async function reconcileTarget(mode: "preview" | "prepare", cwd = process.cwd()) {
+  return JSON.parse(await run([
+    "dbsctrctl", "reconcile-target", "--mode", mode, "--json",
+  ], cwd))
+}
