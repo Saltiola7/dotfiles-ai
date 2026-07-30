@@ -1,5 +1,11 @@
 # Shell Auth Startup Changelog
 
+## 2026-07-30 - V3.35 Documentation Reconciliation
+
+- Added the missing Engineering Profile and completed AUTH-011 Gate Ledger,
+  ordered history newest-first, and archived the completed AUTH-011 start plan.
+  Credential precedence and deployed Aqua LaunchAgent behavior are unchanged.
+
 ## 2026-07-28
 
 - Made unmanaged Herdr handoff fail without stopping the active server so chezmoi keeps the deployment retryable.

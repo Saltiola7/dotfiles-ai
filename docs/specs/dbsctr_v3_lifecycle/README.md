@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.34 normative visual evidence delivered; V3.35 documentation reconciliation active
+**Status:** V3.35 repository documentation authority reconciled
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -1385,6 +1385,22 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   owning context.
 - This cycle has merge-only delivery. Release, live chezmoi deployment, and
   running-service operation are not applicable.
+
+#### V3.35 Gate Ledger
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Documentation Authority, exact status, and Historical Source language | required | passed | V3.35 specification and fixed-commit audit | - | Primary |
+| Behavior | Operator path, status coherence, Hermes, promotion, and archive scenarios | required | passed | Root README, runbooks, and affected assertions | - | Primary |
+| Spec | Context ownership, archive layout, interfaces, and migration | required | passed | Normative specs and focused lifecycle contracts | - | Primary |
+| Contract | Cross-context authority, trust, path freshness, and rollback invariants | required | passed | 74 affected tests and Markdown-link validation | - | Primary |
+| Test-driven implementation | Old archive-path failure followed by affected and full pass | required | passed | 74 affected; 280 passed, 1 optional Lima skip repository-wide | - | Primary |
+| Refactor | Remove stale status, launchd, promotion, version, and provenance wording | required | passed | Stale-term search and Git whitespace validation | - | Primary |
+| Review/Integrate | Cross-context coherence and operator safety | required | passed | Independent fixed-commit review; one P2 Hermes wording finding remediated | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply managed prompt/configuration changes | not_applicable | not_run | Merge-only delivery; no live chezmoi apply requested | - | User |
+| Operate | Verify a running service | not_applicable | not_run | No running-service change | - | User |
+| Maintain/Retire | Preserve history under `_archive` and current references | required | passed | Archive contract, plan JSON, and path checks | - | Primary |
 
 ### V3.32 Concurrent Target Reconciliation
 

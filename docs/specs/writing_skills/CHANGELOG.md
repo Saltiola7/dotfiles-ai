@@ -4,6 +4,12 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-30 - V3.35 Documentation Reconciliation
+
+- Replaced experimental status with exact WS-1 through WS-6 Git delivery,
+  preserved the intentional no-live-apply boundary, and recorded every relevant
+  implementation and remediation commit. Writing behavior is unchanged.
+
 ## 2026-07-28 - Implementation
 
 - Added public `jira-ticket` and `pyramid` skills with five Jira policy

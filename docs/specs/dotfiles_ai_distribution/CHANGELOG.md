@@ -4,6 +4,13 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-30 - V3.35 Documentation Reconciliation
+
+- Made DAI-020, Hermes orchestration, explicit P2/P3 promotion, private history,
+  and current protected delivery authoritative in the profile, Product Intent,
+  root guide, and runbook. Archived the completed DAI-015 start plan without
+  changing its content. No runtime configuration was applied.
+
 ## 2026-07-29 - DAI-020 Final Integration
 
 - Added exact-SHA no-fast-forward integration on ephemeral `rnd/batch/<id>`

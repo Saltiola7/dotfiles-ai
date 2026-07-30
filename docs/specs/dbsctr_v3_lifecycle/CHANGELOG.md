@@ -4,6 +4,20 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-30 - V3.35 Documentation Reconciliation
+
+- Rewrote the root operator/maintainer guide, aligned Hermes and P2/P3 promotion
+  guidance, indexed all five bounded contexts, corrected exact status, gate, and
+  commit evidence, and added the missing shell-auth profile and final ledger.
+- Moved unchanged V2 source and completed start plans beneath `_archive`, updated
+  every current reference, and retained one focused archive regression contract.
+  The old path failed as intended; 74 affected tests and 33-file Markdown-link
+  validation passed. Full QA passed 280 tests with one optional Lima skip.
+  Independent review found one stale native-scheduling phrase, which was corrected
+  and regression-guarded. Gate Commit: `b2d9909`. Gate Exceptions: none.
+  Deployment: not run. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-07-30 - V3.34 Normative Visual Evidence
 
 - Added one canonical Visual Evidence Plan for normative READMEs, Product Intent,

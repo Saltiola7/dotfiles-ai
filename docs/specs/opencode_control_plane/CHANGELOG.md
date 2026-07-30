@@ -4,6 +4,12 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-30 - V3.35 Documentation Reconciliation
+
+- Corrected the current OCP-30 and provider-native harness status, retained Opus 5
+  availability as a provider-local follow-up, and replaced ambiguous writing-skill
+  provenance with exact commits. No managed configuration was applied.
+
 ## 2026-07-28 - Writing Skill ACLI Boundary
 
 - Added direct ACLI account-status, work-item view, and comment-list reads plus

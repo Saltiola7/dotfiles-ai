@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in native R&D scheduling |
+| Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
 | Modules | Python, Security, Cloud |
 | Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
