@@ -6957,7 +6957,8 @@ def sync_source_checkout(record, remote, remote_branch):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
-def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits, evidence_points):
+def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits,
+                                  evidence_points, review_point=None):
     if git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode:
         fail("protected base advanced without reconciliation")
     merges = git(root, "rev-list", "--first-parent", "--merges", f"{cycle_base}..HEAD").stdout.splitlines()
@@ -6966,12 +6967,17 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
     if len(matches) != 1:
         fail("protected base reconciliation merge is missing or ambiguous")
     reconciliation = matches[0]
-    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
-               check=False).returncode for point in evidence_points):
-        fail("required gate evidence predates protected base reconciliation")
     first_parent = git(
         root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
     ).stdout.splitlines()
+    if reconciliation in recorded_commits:
+        if (recorded_commits[-1] != reconciliation or first_parent != recorded_commits
+                or review_point != reconciliation):
+            fail("recorded reconciliation is not the final reviewed Gate Commit")
+        return recorded_commits
+    if any(git(root, "merge-base", "--is-ancestor", reconciliation, point,
+               check=False).returncode for point in evidence_points):
+        fail("required gate evidence predates protected base reconciliation")
     current_ahead = [commit for commit in first_parent if commit != reconciliation]
     if current_ahead != recorded_commits:
         fail("ahead commits are not exactly the recorded cycle commits")
@@ -7316,13 +7322,16 @@ def finish_push(root, path, record):
     reconciled = False
     base_head = delivery.get("base_head", cycle_base)
     if record["delivery_intent"] == "draft_pr" and target_head != base_head:
-        evidence_points = []
+        evidence_points, review_point = [], None
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required":
                 item = record["evidence"]["items"][gate["evidence"]]
-                evidence_points.append(item.get("commit") or item["head"])
+                point = item.get("commit") or item["head"]
+                evidence_points.append(point)
+                if name == "review_integrate":
+                    review_point = point
         current_ahead = validate_draft_reconciliation(
-            root, cycle_base, target_head, recorded_commits, evidence_points
+            root, cycle_base, target_head, recorded_commits, evidence_points, review_point
         )
         reconciled = True
     else:

@@ -8,8 +8,10 @@
   mutates the source checkout or chooses validation.
 - The preserved implementation passed 158 focused tests with one optional skip,
   then prepared a conflict-free merge of current `main`. Implementation commits:
-  `eabcd06`, `8e20a16`. Intended Final Push: feature branch and draft pull request
-  into `main` after merged-profile rebinding and full affected QA.
+  `eabcd06`, `8e20a16`. Final Push validation accepts that exact merge only as
+  the final recorded Review/Integrate Gate Commit with evidence bound to it; the
+  stricter legacy fresh-evidence path remains unchanged. Intended Final Push:
+  feature branch and draft pull request into `main` after full affected QA.
 
 ## 2026-07-30 - V3.33 Shared Worktree Follow-up
 

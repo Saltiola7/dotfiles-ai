@@ -1949,6 +1949,16 @@ class DbsctrctlTest(unittest.TestCase):
             ),
             [cycle],
         )
+        with self.assertRaisesRegex(RuntimeError, "final reviewed Gate Commit"):
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation], [cycle], cycle
+            )
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation], [cycle], reconciliation
+            ),
+            [cycle, reconciliation],
+        )
 
     def test_ordinary_draft_pr_does_not_require_improvement_worker(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_ordinary_pr", str(SCRIPT))
