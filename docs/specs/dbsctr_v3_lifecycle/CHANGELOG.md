@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-07-30 - V3.33 Stale Cycle Retirement
+
+- Added exact-confirmation retirement for clean DBSCTR-created active worktrees.
+  Empty and integrated dispositions prove their Git state; superseded retirement
+  records an explicit reason. Every retirement preserves its Cycle Record, commit
+  identities, and local branch ref, rejects dirty or identity-changed worktrees,
+  and retries safely after interrupted removal.
+- Full QA passed 271 tests with one optional Lima skip before the final retry
+  regression; focused retry evidence passed afterward. Independent review was
+  unavailable because its sandbox could not read the isolated worktree; primary
+  safety review found no remaining issue. Implementation commit: `98abffe`.
+  Intended Final Push: feature branch and draft pull request into `main`; local
+  deployment and four exact legacy retirements follow verified merge.
+
 ## 2026-07-28 - V3.32 Protected Draft-PR Delivery
 
 - Added configurable protected-base validation, fail-closed direct-main setup and
