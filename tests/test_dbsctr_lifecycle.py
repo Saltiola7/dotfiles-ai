@@ -293,6 +293,7 @@ def test_stale_cycle_retirement_is_explicit_and_preserves_dirty_work():
     helper = (ROOT / "dot_local/bin/executable_dbsctrctl").read_text()
     spec = (ROOT / "docs/specs/dbsctr_v3_lifecycle/STALE_CYCLE_RETIREMENT.md").read_text()
     assert 'commands.add_parser("cycle-retire")' in helper
+    assert 'commands.add_parser("cycle-retire-worktree")' in helper
     assert "refusing to retire a dirty cycle worktree" in helper
     assert "preserves the cycle record" in spec.lower() or "preserve the cycle record" in spec.lower()
 
