@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.34-1 | Require accessible, source-bound visual decisions in normative specifications | P1 | in_progress | - | `dot_agents/skills/{dbsctr,discovery}/`, `docs/specs/`, `tests/test_dbsctr_lifecycle.py` | canonical prompts, normative specs, GitHub Mermaid guidance | no | Cross-cutting prompt and specification contract needs one integrated owner | M | focused lifecycle contracts, Mermaid source checks, GitHub PR render review |
 
 ## Completed
 

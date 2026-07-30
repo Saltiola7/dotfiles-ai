@@ -128,6 +128,10 @@ Adjacent contexts:
 | Review Source | One authoritative local OpenCode database identified by a stable non-secret source ID and independent immutable scan envelope. |
 | Federated Review Manifest | Ordered identity over every requested Review Source envelope and explicit availability result. |
 | Implementation Handoff | Sanitized host-approved context that starts a separate target-runtime Lifecycle Cycle without sharing mutable cycle authority. |
+| Normative Specification | A bounded-context README, Product Intent, feature/decision specification, or specification template that defines durable behavior or constraints; backlogs, changelogs, roadmaps, and machine plans are excluded. |
+| Visual Concern | A boundary, interaction, state, data/trust flow, schema, dependency/deployment, or quantitative relationship that may need a diagram or chart. |
+| Visual Evidence Plan | The specification section that records each Visual Concern as a required named visual or reasoned `not_applicable` decision. |
+| Text Equivalent | Adjacent prose or tabular data that preserves every decision-relevant fact without relying on rendering, color, or spatial position. |
 
 ## Domain Model
 
@@ -235,6 +239,39 @@ correlation; neither runtime may mutate the other's Cycle Record or private
 ledger.
 
 ## Behavior Scenarios
+
+### Feature: Visual Specification Evidence
+
+**Scenario: Decide every visual concern explicitly**
+- Given Discovery creates or materially updates a Normative Specification
+- When architecture, behavior, and contracts become ready
+- Then its Visual Evidence Plan classifies boundary, interaction, state,
+  data/trust flow, schema, dependency/deployment, and quantitative concerns
+- And each concern names a required visual type or a reasoned `not_applicable`
+  decision
+
+**Scenario: Keep an informative visual accessible and reviewable**
+- Given a Visual Concern requires a Mermaid diagram
+- When the Normative Specification is reviewed
+- Then the diagram states one review question, scope, canonical source, owner,
+  and change trigger
+- And it includes `accTitle`, `accDescr`, meaningful directional labels, and an
+  adjacent Text Equivalent without color-only meaning
+
+**Scenario: Make quantitative evidence reproducible**
+- Given a decision depends on a quantitative chart
+- When the chart is added or updated
+- Then an adjacent table provides the values, units, period, source, denominator,
+  and uncertainty or assumptions
+- And a single value or unsupported forecast remains prose or a table instead
+  of becoming a decorative chart
+
+**Scenario: Prevent stale visual evidence**
+- Given a change alters a represented interface, state, relationship, trust
+  boundary, deployment topology, or metric
+- When the same change is reviewed
+- Then its visual source and Text Equivalent change in the same pull request
+- And non-trivial Mermaid is checked in the rendered GitHub pull request
 
 ### Feature: OpenCode Entry Points
 
@@ -1637,27 +1674,102 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 
 ## Architecture
 
-```text
-OpenCode AGENTS routing
-  ├─ /discovery → discovery skill
-  │    └─ Engineering Profile + DBSCTR-ready artifacts
-  ├─ /dbsctr → dbsctr skill
-  │    ├─ Development Kernel
-  │    ├─ applicable modules and references
-  │    └─ completion gates + Gate Ledger
-  └─ /qa → qa skill
-       └─ configured authorities + optional capability profile
-
-Stable state: docs/specs/<bounded_context>/README.md
-Development history: BACKLOG.md, CHANGELOG.md, tests, commits, and CI
-Active cycle state: .git/dbsctr/<cycle>.json plus OpenCode todos
-Integration authority: Git
+```mermaid
+flowchart TD
+    accTitle: DBSCTR lifecycle architecture
+    accDescr: OpenCode routes discovery, lifecycle execution, and quality checks through managed skills. Specifications and Git retain durable truth while the local cycle record retains active coordination state.
+    U[User intent] -->|Clarify| D[Discovery skill]
+    D -->|Persist durable context| S[Normative specifications]
+    U -->|Deliver change| B[DBSCTR skill]
+    S -->|Profile and behavior| B
+    B -->|Select applicable guidance| M[Modules and references]
+    B -->|Request scoped evidence| Q[QA skill]
+    Q -->|Gate results| G[Gate Ledger]
+    B -->|Record active coordination| C[Local Cycle Record]
+    G -->|Authorize Gate Commits| R[Feature branch and Git]
+    R -->|Draft pull request only| P[Protected base branch]
 ```
 
 Skills own reasoning and orchestration. Thin commands expose stable entry points.
 Project instructions and configured tools remain authoritative. A future harness
 adapter must implement these contracts rather than copy OpenCode-specific prompt
 mechanics.
+
+**Text Equivalent:** User intent enters Discovery when durable context is
+unclear and DBSCTR when delivery is ready. Discovery writes normative
+specifications. DBSCTR selects modules, asks QA for evidence, and stores active
+coordination only in the local Cycle Record. Passing Gate Ledger evidence permits
+feature-branch Gate Commits and a draft pull request; Git remains integration
+authority and automation never writes directly to the protected base branch.
+
+```mermaid
+stateDiagram-v2
+    accTitle: DBSCTR gate lifecycle
+    accDescr: A required gate starts pending, may fail or become unavailable, passes only with evidence, and may reopen when applicability or profile truth tightens. Explicit user exceptions dispose only failed or unavailable evidence.
+    [*] --> Pending
+    Pending --> Passed: required evidence passes
+    Pending --> Failed: authority fails
+    Pending --> Unavailable: authority unavailable
+    Failed --> Pending: remediation
+    Unavailable --> Pending: capability restored
+    Failed --> Exception: user-approved disposition
+    Unavailable --> Exception: user-approved disposition
+    Passed --> Pending: earlier gate or profile reopens
+    Exception --> [*]
+    Passed --> [*]
+```
+
+**Text Equivalent:** Required gates begin pending. Evidence can pass, fail, or be
+unavailable. Remediation or restored capability returns a gate to pending; only
+the user can dispose failed or unavailable evidence through an explicit
+exception. Tightened applicability or profile truth can reopen a passed gate.
+
+```mermaid
+sequenceDiagram
+    accTitle: Protected Final Push with target reconciliation
+    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, then pushes only the feature branch and creates a draft pull request.
+    participant P as Primary
+    participant D as DBSCTR helper
+    participant T as Protected target
+    participant G as GitHub
+    P->>D: Preview target reconciliation
+    D->>T: Fetch and compare recorded target
+    alt target diverged
+        D-->>P: Report exact divergence
+        P->>D: Prepare no-commit merge
+        P->>P: Resolve explicit conflicts and run union validation
+        P->>D: Record Review/Integrate Gate Commit
+    else target integrated
+        D-->>P: Confirm current target containment
+    end
+    P->>D: Request Final Push
+    D->>D: Revalidate lineage, evidence, branch, and clean state
+    D->>G: Push feature branch and create draft PR
+```
+
+**Text Equivalent:** The primary previews the protected target before delivery.
+If it advanced, DBSCTR prepares only a no-commit merge; the primary resolves
+explicit conflicts, reruns validation over both change sets, and records the
+merge through Review/Integrate. Final Push revalidates lineage, evidence, branch,
+and cleanliness, then pushes only the feature branch and creates a draft pull
+request. If the target is already integrated, reconciliation makes no change.
+
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
+| Interaction | required: protected-delivery sequence | How does evidence reach protected delivery when the target advances? | Development Kernel and Final Push contracts | Lifecycle owner; gate or delivery ordering changes |
+| State | required: state diagram | Which gate transitions and reopen paths are legal? | Gate Ledger Contract | Lifecycle owner; gate transition changes |
+| Data/trust | required: context flowchart and Text Equivalent | Which state is public, local, or external? | Artifact Lifecycle and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
+| Schema | not_applicable: Cycle Record JSON and tables are authoritative and a second schema view would duplicate them | - | Cycle Record Interface | Lifecycle owner; schema remains textual |
+| Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
+| Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
+
+Mermaid source and Text Equivalents are maintained with this README. The
+`dbsctr_v3_lifecycle` owner reviews them whenever routing, gate state, persistence,
+trust, or protected-delivery contracts change and checks non-trivial rendering in
+the GitHub pull request.
 
 ## Engineering Profile Shape
 
@@ -1820,6 +1932,28 @@ tool and provider examples and load only when useful.
   response because it cannot truthfully appear in a commit made before that push.
 - Active Cycle Records stay beneath `.git/dbsctr/`; they are not portable or
   durable authority.
+
+### Visual Specification Contract
+
+- Normative Specifications are bounded-context READMEs, Product Intent,
+  feature/decision specifications, and specification templates. BACKLOG,
+  CHANGELOG, ROADMAP, and machine plan files are excluded.
+- Every Normative Specification has a Visual Evidence Plan classifying boundary,
+  interaction, state, data/trust, schema, dependency/deployment, and quantitative
+  concerns as a required named type or reasoned `not_applicable`.
+- A required visual answers one review question, names its scope, uses meaningful
+  directional labels, and has an adjacent Text Equivalent.
+- Mermaid source includes `accTitle` and `accDescr`; essential meaning never
+  depends on rendering, spatial position, or color alone.
+- A quantitative chart is required only when comparative data controls a
+  decision. Its adjacent table records values, units, period, source,
+  denominator, and uncertainty or assumptions.
+- Every visual names canonical source, owner, and change trigger. Represented
+  facts and visual evidence change in the same pull request.
+- Non-trivial Mermaid is checked in the rendered GitHub pull request. Missing or
+  broken rendering cannot be claimed as passing visual evidence.
+- Decorative visuals, single-value charts, copied dependency graphs, and schema
+  duplication are prohibited; reasoned `not_applicable` is preferred.
 
 ### Readiness And Scaling Contract
 

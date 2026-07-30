@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -89,6 +90,7 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "analytics.md",
         "python.md",
             "semantic-audit.md",
+            "spec-visuals.md",
             "web.md",
             "openai.md",
             "anthropic.md",
@@ -201,6 +203,29 @@ def test_v31_templates_match_artifact_and_gate_contracts():
     assert "Artifact Review" in spec_template
     assert "parallel_safe" in backlog_template
     assert "Gate commits" in changelog_template
+
+
+def test_v334_normative_specs_require_accessible_visual_evidence():
+    policy = text(SKILLS / "dbsctr/references/spec-visuals.md")
+    dbsctr = text(SKILLS / "dbsctr/SKILL.md")
+    discovery = text(SKILLS / "discovery/SKILL.md")
+    template = text("docs/specs/_template_spec.md")
+    excluded = {"BACKLOG.md", "CHANGELOG.md", "ROADMAP.md", "_template_backlog.md", "_template_changelog.md"}
+    specs = sorted(path for path in (ROOT / "docs/specs").rglob("*.md") if path.name not in excluded)
+
+    for term in ("Visual Evidence Plan", "Text Equivalent", "quantitative", "not_applicable"):
+        assert term in policy
+        assert term in template
+    assert "references/spec-visuals.md" in dbsctr
+    assert "../dbsctr/references/spec-visuals.md" in discovery
+
+    for path in specs:
+        body = text(path)
+        assert "## Visual Evidence" in body, path.relative_to(ROOT)
+        assert "Quantitative" in body, path.relative_to(ROOT)
+        for diagram in re.findall(r"```mermaid\n(.*?)```", body, re.DOTALL):
+            assert "accTitle:" in diagram, path.relative_to(ROOT)
+            assert "accDescr:" in diagram, path.relative_to(ROOT)
 
 
 def test_v31_helper_and_reviewer_surfaces_exist():
