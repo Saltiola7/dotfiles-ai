@@ -749,6 +749,98 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertFalse(record_path.exists())
         self.assertFalse(evidence.exists())
 
+    def test_cycle_retirement_preserves_record_and_branch_and_rejects_dirty_work(self):
+        remote = Path(self.temp.name) / "remote.git"
+        worktrees = Path(self.temp.name) / "isolated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+
+        created = {}
+        for cycle_id in ("retire-empty", "retire-integrated", "retire-superseded",
+                         "retire-dirty", "retire-retry"):
+            handoff = json.loads(run(
+                self.repo, "begin", "--cycle-id", cycle_id, "--context", "test",
+                "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+                "--worktree-root", str(worktrees),
+            ).stdout)
+            created[cycle_id] = Path(handoff["worktree"])
+            if cycle_id not in {"retire-empty", "retire-retry"}:
+                target = created[cycle_id]
+                (target / "tracked.txt").write_text(cycle_id + "\n")
+                subprocess.run(["git", "commit", "-am", cycle_id], cwd=target,
+                               check=True, capture_output=True)
+                commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=target, text=True,
+                                        check=True, capture_output=True).stdout.strip()
+                record_path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+                record = json.loads(record_path.read_text())
+                record["commits"] = [{"id": commit, "gates": ["domain"]}]
+                record_path.write_text(json.dumps(record))
+                if cycle_id == "retire-integrated":
+                    subprocess.run(["git", "push", "origin", "HEAD:master"], cwd=target,
+                                   check=True, capture_output=True)
+            if cycle_id == "retire-dirty":
+                (created[cycle_id] / "dirty.txt").write_text("dirty\n")
+
+        mismatch = run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-empty", "--confirm", "wrong",
+            "--disposition", "empty", "--reason", "No cycle work exists", ok=False,
+        )
+        self.assertIn("confirmation does not match", mismatch.stderr)
+        dirty = run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-dirty", "--confirm", "retire-dirty",
+            "--disposition", "superseded", "--reason", "Current behavior supersedes this cycle", ok=False,
+        )
+        self.assertIn("dirty cycle worktree", dirty.stderr)
+
+        for cycle_id, disposition in (("retire-empty", "empty"),
+                                      ("retire-integrated", "integrated"),
+                                      ("retire-superseded", "superseded")):
+            result = json.loads(run(
+                self.repo, "cycle-retire", "--cycle-id", cycle_id, "--confirm", cycle_id,
+                "--disposition", disposition, "--reason", "Explicit stale cycle reconciliation",
+            ).stdout)
+            self.assertEqual(result["state"], "retired")
+            self.assertFalse(created[cycle_id].exists())
+            record = json.loads((self.repo / f".git/dbsctr/cycles/{cycle_id}.json").read_text())
+            self.assertEqual(record["retirement"]["disposition"], disposition)
+            self.assertEqual(record["state"], "retired")
+            branch_name = f"dbsctr/test/{cycle_id}"
+            subprocess.run(["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
+                           cwd=self.repo, check=True, capture_output=True)
+        inventory = json.loads(run(self.repo, "worktree-list", "--json", "--now").stdout)["worktrees"]
+        retired = [item for item in inventory if item["state"] == "retired"]
+        self.assertEqual(len(retired), 3)
+        self.assertTrue(all(not item["present"] and not item["cleanup_candidate"]
+                            and not item["cleanup_blockers"] for item in retired))
+
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_retire_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        original_save = module.save
+
+        def interrupt_terminal_save(path, value):
+            if value.get("state") == "retired":
+                raise OSError("interrupted retirement")
+            return original_save(path, value)
+
+        arguments = SimpleNamespace(cycle_id="retire-retry", confirm="retire-retry",
+                                    disposition="empty", reason="Explicit retry evidence")
+        with mock.patch.object(module, "root_dir", return_value=self.repo), \
+              mock.patch.object(module, "save", side_effect=interrupt_terminal_save):
+            with self.assertRaises(OSError):
+                module.command_cycle_retire(arguments)
+        self.assertFalse(created["retire-retry"].exists())
+        interrupted = json.loads((self.repo / ".git/dbsctr/cycles/retire-retry.json").read_text())
+        self.assertEqual(interrupted["retirement"]["state"], "removing_worktree")
+        recovered = json.loads(run(
+            self.repo, "cycle-retire", "--cycle-id", "retire-retry", "--confirm", "retire-retry",
+            "--disposition", "empty", "--reason", "Explicit retry evidence",
+        ).stdout)
+        self.assertEqual(recovered["state"], "retired")
+
     def test_batch_cleanup_continues_after_dirty_completed_worktree(self):
         remote = Path(self.temp.name) / "remote.git"
         worktrees = Path(self.temp.name) / "isolated"

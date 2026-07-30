@@ -11,6 +11,7 @@ Discovery readiness: complete.
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.33-1 | Add exact-confirmation stale-cycle retirement that preserves records and branches while rejecting dirty worktrees | 2026-07-30 | `98abffe` |
 | V3.32-1 | Protect configured main and support published teammate feature baselines, same-repository draft PRs, and explicit base reconciliation | 2026-07-28 | `706711d..b7dedfe` |
 | V3.31-1 | Add bounded global completed-worktree inventory and cleanup with fixed-registry containment and scheduled maintenance | 2026-07-28 | `269125b..dc6d284` |
 | V3.29-1/V3.30-1 | Add deterministic exact-identity cohorts and thin provider-conditional lifecycle guidance | 2026-07-26 | `8b2bf0b`, `b9dd44c`, `b08540b` |

@@ -289,6 +289,14 @@ def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():
     assert 'cleanup_target.add_argument("--completed"' in helper
 
 
+def test_stale_cycle_retirement_is_explicit_and_preserves_dirty_work():
+    helper = (ROOT / "dot_local/bin/executable_dbsctrctl").read_text()
+    spec = (ROOT / "docs/specs/dbsctr_v3_lifecycle/STALE_CYCLE_RETIREMENT.md").read_text()
+    assert 'commands.add_parser("cycle-retire")' in helper
+    assert "refusing to retire a dirty cycle worktree" in helper
+    assert "preserves the cycle record" in spec.lower() or "preserve the cycle record" in spec.lower()
+
+
 def test_v324_profiles_explicit_spans_and_keeps_dispatch_primary_mediated():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
