@@ -592,10 +592,17 @@ def _valid_candidate(candidate):
     if not isinstance(cycles, list):
         return False
     for cycle in cycles:
-        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation"}
+        interval_fields = {"context", "started_at", "ended_at"}
+        has_interval = isinstance(cycle, dict) and interval_fields <= set(cycle)
+        if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation", *interval_fields}
                 or not {"cycle_id", "state"} <= set(cycle)
                 or cycle.get("risk", "unavailable") not in {"routine", "elevated", "critical", "unavailable"}
-                or cycle.get("delivery_intent", "unavailable") not in {"local", "merge", "release", "deploy", "draft_pr", "unavailable"}):
+                or cycle.get("delivery_intent", "unavailable") not in {"local", "merge", "release", "deploy", "draft_pr", "unavailable"}
+                or bool(interval_fields.intersection(cycle)) != has_interval
+                or has_interval and (not isinstance(cycle["context"], str) or not ID.fullmatch(cycle["context"])
+                    or not _nonnegative_integer(cycle["started_at"])
+                    or cycle["ended_at"] is not None and (not _nonnegative_integer(cycle["ended_at"])
+                        or cycle["ended_at"] < cycle["started_at"]))):
             return False
         if not _valid_phase_profile(cycle.get("phase_profile"), cycle.get("cycle_id")):
             return False

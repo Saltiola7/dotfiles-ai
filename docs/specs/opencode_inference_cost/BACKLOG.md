@@ -1,12 +1,13 @@
 # Backlog - OpenCode Inference Cost Reporting
 
 **Last updated:** 2026-07-30
-**Critical path:** MVP complete; OIC-006 and OIC-007 require separate cycles
+**Critical path:** OIC-008 replaces lossy session-grain attribution; OIC-006 and OIC-007 remain separate cycles
 
 ## Active
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OIC-008 | Attribute canonical step-finish costs through timestamped DBSCTR context intervals | P1 | implementing | OIC-005 | inference adapter, report schema, focused tests, inference lifecycle artifacts | sanitized lifecycle intervals and OpenCode metadata schema | false | Extraction, reconciliation, attribution, and schema-v2 output share one financial/privacy contract. | L | Focused red/green tests, affected QA, live read-only smoke, and independent review. |
 | OIC-006 | Evaluate scheduled snapshots and trend reporting | P2 | pending | OIC-005 | Future cycle; ownership not assigned | validated MVP reports | false | Scheduling is useful only after manual reports prove stable. | M | Separate DBSCTR cycle and operational profile. |
 | OIC-007 | Join governed outcome values for ROI reporting | P2 | pending | OIC-005 | Future cycle; ownership not assigned | separately governed benefit source | false | Cost alone is not ROI and benefit semantics require another bounded context. | L | Separate discovery and authority contract. |
 

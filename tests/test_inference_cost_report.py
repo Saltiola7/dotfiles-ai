@@ -28,6 +28,14 @@ def database(path, supported=True):
                 tokens_reasoning integer not null, tokens_cache_read integer not null,
                 tokens_cache_write integer not null
             );
+            create table message (
+                id text primary key, session_id text not null, time_created integer not null,
+                time_updated integer not null, data text not null
+            );
+            create table part (
+                id text primary key, message_id text not null, session_id text not null,
+                time_created integer not null, time_updated integer not null, data text not null
+            );
         """)
         sentinel = "PROHIBITED /Users/private prompt response"
         rows = [
@@ -45,6 +53,30 @@ def database(path, supported=True):
              json.dumps({"id": "gpt-boundary", "providerID": "openai"}), 0, 1, 0, 0, 0, 0),
         ]
         connection.executemany("insert into session values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        for session_id, _, _, created, updated, _, _, _, raw_model, cost, *tokens in rows:
+            try:
+                model = json.loads(raw_model)
+            except json.JSONDecodeError:
+                model = {}
+            message_id = f"message-{session_id}"
+            connection.execute("insert into message values (?,?,?,?,?)", (
+                message_id, session_id, created, updated,
+                json.dumps({"role": "assistant", "providerID": model.get("providerID"),
+                            "modelID": model.get("id"), "variant": model.get("variant", "default"),
+                            "secret": sentinel}),
+            ))
+            part_tokens = list(tokens)
+            if session_id == "four":
+                part_tokens[0] = 2
+                part_tokens[1] = -1
+            connection.execute("insert into part values (?,?,?,?,?,?)", (
+                f"part-{session_id}", message_id, session_id, created, updated,
+                json.dumps({"type": "step-finish", "cost": cost,
+                            "tokens": {"input": part_tokens[0], "output": part_tokens[1],
+                                       "reasoning": part_tokens[2],
+                                       "cache": {"read": part_tokens[3], "write": part_tokens[4]}},
+                            "secret": sentinel}),
+            ))
     connection.commit()
     connection.close()
 
@@ -63,13 +95,17 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
     (history / "one.json").write_text(json.dumps({
         "schema_version": 1, "session_id": "one", "completed_at": "1784073600000",
         "method_revision": "3.27", "context": "alpha", "project_digest": "unavailable",
-        "cycles": [], "aggregates": {}, "reviewed_status": "reviewed",
+        "cycles": [{"cycle_id": "cycle-alpha", "state": "completed", "context": "alpha",
+                    "started_at": 1784073599000, "ended_at": 1784073600500}],
+        "aggregates": {}, "reviewed_status": "reviewed",
         "correlation_quality": "exact",
     }))
     (history / "three.json").write_text(json.dumps({
         "schema_version": 1, "session_id": "three", "completed_at": "1784073602000",
         "method_revision": "3.27", "context": "gamma", "project_digest": "unavailable",
-        "cycles": [], "aggregates": {}, "reviewed_status": "reviewed",
+        "cycles": [{"cycle_id": "cycle-gamma", "state": "completed", "context": "gamma",
+                    "started_at": 1784073601500, "ended_at": 1784073602500}],
+        "aggregates": {}, "reviewed_status": "reviewed",
         "correlation_quality": "exact",
     }))
     for path in (state / "reviews", history):
@@ -107,6 +143,8 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
         "--mapping", mapping, "--state-root", state, "--rate-card", rates, "--dry-run",
     ).stdout)
     assert dry_run["planned_session_count"] == 5
+    assert dry_run["planned_usage_count"] == 5
+    assert dry_run["unreconciled_session_count"] == 1
     assert not output.exists()
 
     run(
@@ -138,6 +176,13 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
     assert unknown["tokens_per_session_stats"]["population_standard_deviation"] == 0
     assert boundary["estimated_cost_usd"] is None
     assert report["totals"]["session_count"] == 5
+    assert report["schema_version"] == 2
+    assert report["totals"]["reconciled_session_count"] == 4
+    assert report["totals"]["unreconciled_session_count"] == 1
+    assert report["totals"]["reconciliation_coverage"] == 0.998172
+    assert report["source_snapshot"]["part_ceiling"] == 5
+    assert report["source_snapshot"]["message_ceiling"] == 5
+    assert report["source_snapshot"]["capabilities"]["adapter"] == "opencode_step_finish_v2"
     assert len(report["rate_card"]["used_entries"]) == 1
     assert len(report["source_snapshot"]["attribution_digest"]) == 64
     persisted = "".join(path.read_text() for path in output.iterdir())
@@ -145,6 +190,7 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
     assert "/Users/private" not in persisted
     assert "\"one\"" not in persisted
     assert "Actual coverage" in (output / "inference-cost-report.md").read_text()
+    assert "Reconciliation coverage" in (output / "inference-cost-report.md").read_text()
 
     first_report = (output / "inference-cost-report.json").read_text()
     backup = output.parent / ".report-backup"
@@ -218,3 +264,85 @@ def test_inference_cost_report_fails_before_replacing_outputs(tmp_path):
         ok=False,
     )
     assert "missing required metadata columns" in alias_result.stderr
+
+
+def test_inference_cost_report_splits_one_session_by_context_interval(tmp_path):
+    source = tmp_path / "opencode.db"
+    database(source)
+    connection = sqlite3.connect(source)
+    connection.execute("delete from part")
+    connection.execute("delete from message")
+    connection.execute("delete from session")
+    base = 1784073600000
+    connection.execute("insert into session values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+        "shared", None, "project", base, base + 5000, "PROHIBITED", "PROHIBITED", "PROHIBITED",
+        None, 10, 100, 0, 0, 0, 0,
+    ))
+    for index, (offset, cost, tokens) in enumerate(((500, 1, 10), (1500, 2, 20),
+                                                    (2500, 3, 30), (3500, 4, 40))):
+        message_id = f"message-{index}"
+        connection.execute("insert into message values (?,?,?,?,?)", (
+            message_id, "shared", base + offset, base + offset,
+            json.dumps({"role": "assistant", "providerID": "openai", "modelID": "gpt-test"}),
+        ))
+        connection.execute("insert into part values (?,?,?,?,?,?)", (
+            f"part-{index}", message_id, "shared", base + offset, base + offset,
+            json.dumps({"type": "step-finish", "cost": cost,
+                        "tokens": {"input": tokens, "output": 0, "reasoning": 0,
+                                   "cache": {"read": 0, "write": 0}}}),
+        ))
+    connection.commit()
+    connection.close()
+    state = tmp_path / "state"
+    history = state / "reviews/history"
+    history.mkdir(parents=True)
+    (history / "shared.json").write_text(json.dumps({
+        "schema_version": 1, "session_id": "shared", "completed_at": str(base + 5000),
+        "method_revision": "3.27", "context": "unavailable", "project_digest": "unavailable",
+        "cycles": [
+            {"cycle_id": "alpha-cycle", "state": "completed", "context": "alpha",
+             "started_at": base, "ended_at": base + 1000},
+            {"cycle_id": "beta-cycle", "state": "completed", "context": "beta",
+             "started_at": base + 1000, "ended_at": base + 3000},
+            {"cycle_id": "gamma-cycle", "state": "completed", "context": "gamma",
+             "started_at": base + 2000, "ended_at": base + 3000},
+            {"cycle_id": "old-cycle", "state": "abandoned", "context": "old",
+             "started_at": base + 3000, "ended_at": None},
+        ],
+        "aggregates": {}, "reviewed_status": "reviewed", "correlation_quality": "ambiguous",
+    }))
+    for path in (state / "reviews", history):
+        path.chmod(0o700)
+    (history / "shared.json").chmod(0o600)
+    rates = tmp_path / "rates.json"
+    rates.write_text(json.dumps({"schema_version": 1, "currency": "USD",
+                                 "retrieved_at": "2026-07-30", "entries": []}))
+    output = tmp_path / "report"
+
+    run("inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--state-root", state, "--rate-card", rates)
+    report = json.loads((output / "inference-cost-report.json").read_text())
+    contexts = {item["bounded_context"]: item for item in report["contexts"]}
+    assert contexts["alpha"]["input_tokens"] == 10
+    assert contexts["beta"]["input_tokens"] == 20
+    assert contexts["MULTI_CONTEXT"]["input_tokens"] == 30
+    assert contexts["UNKNOWN"]["input_tokens"] == 40
+    assert report["totals"]["session_count"] == 1
+    assert report["totals"]["usage_count"] == 4
+
+
+def test_inference_cost_report_rejects_orphaned_canonical_part(tmp_path):
+    source = tmp_path / "opencode.db"
+    database(source)
+    connection = sqlite3.connect(source)
+    connection.execute("delete from message where id='message-one'")
+    connection.commit()
+    connection.close()
+    output = tmp_path / "report"
+    result = run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--rate-card", Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json",
+        ok=False,
+    )
+    assert "canonical usage metadata contains invalid values" in result.stderr
+    assert not output.exists()

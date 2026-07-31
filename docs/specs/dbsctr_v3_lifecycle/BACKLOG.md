@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.35-F2 | Expose privacy-safe cycle context intervals for inference attribution | P1 | implementing | V3.18-1 | correlated cycle summaries, history compatibility, lifecycle tests and artifacts | Cycle Record timestamps and runtime correlation | false | Public validators and persisted legacy evidence must change coherently. | M | Lifecycle, control-plane, sandbox, and inference attribution tests. |
 
 ## Completed
 
