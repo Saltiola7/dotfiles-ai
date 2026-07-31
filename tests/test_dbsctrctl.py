@@ -3032,6 +3032,8 @@ class DbsctrctlTest(unittest.TestCase):
                                       "decision": "reviewed"}))
         run(self.repo, "review-complete", "--report", str(report), "--scan-digest", inbox["digest"],
             "--database", str(database), "--state-root", str(state))
+        run(self.repo, "improvement-register", "--state-root", str(state),
+            "--worker-id", "history-worker", "--session-id", "session-100")
         connection = sqlite3.connect(database)
         connection.execute("delete from part where id='part-099'")
         connection.execute("delete from message where id='message-099'")
@@ -3051,6 +3053,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(history["candidates"][0]["aggregates"]["tool_error_count"], 1)
         self.assertEqual(history["candidates"][0]["aggregates"]["token_total"], 10)
         self.assertEqual(history["candidates"][0]["aggregates"]["cost_total"], 1.25)
+        self.assertTrue(history["candidates"][0]["review_session"])
+        self.assertFalse(history["candidates"][1]["review_session"])
         self.assertRegex(history["candidates"][0]["project_digest"], r"^[0-9a-f]{64}$")
         older = json.loads(run(
             self.repo, "review-history", "--database", str(database), "--state-root", str(state),
@@ -4455,6 +4459,17 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-4", "--confirm", "worker-4",
         ).stdout)
         self.assertEqual((promoted["priority"], promoted["state"]), ("P1", "discovery"))
+        autonomous = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-5", "--session-id", "session-5",
+            "--summary", "Autonomously refine bounded operator telemetry", "--priority", "P3",
+        ).stdout)
+        self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "claimed"))
+        autonomous = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
+        ).stdout)
+        self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
         repeated = run(
             self.repo, "improvement-promote", "--state-root", str(state),
             "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,

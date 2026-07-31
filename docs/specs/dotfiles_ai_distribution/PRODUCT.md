@@ -21,29 +21,28 @@ target files.
    1Password never blocks Herdr or shell startup.
 4. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
-5. A developer opts into Hermes orchestration and receives context-isolated
-   backlog refinement plus resumable OpenCode Discovery workers.
-6. The operator uses host or VM Herdr to inspect Hermes and resume blocked
-   OpenCode sessions, explicitly authorizes implementation, and manually manages
-   resulting draft pull requests.
+5. A developer opts into Hermes orchestration and receives continuous independent
+   full-history lenses, including one dedicated review-session governance lens.
+6. Evidence-ready noncritical workers may reach draft pull requests unattended;
+   the operator uses Herdr for critical or uncertain sessions and manually reviews
+   every resulting pull request.
 7. An opted-in operator receives bounded CLI/JSON evidence about merged
    improvement effects while private runtime state conservatively adjusts worker
    cadence without changing source configuration or granting workers delivery
    authority.
 8. An operator enters a client-specific Fedora VM, reattaches to persistent VM
    Herdr panes, and runs auto-approved OpenCode against only declared host paths.
-9. Host R&D reviews sanitized evidence from host and VM histories, pauses for
-   explicit approval, and hands implementation to a visible configured-workspace Build
-   session without moving databases or credentials across trust boundaries.
+9. Host R&D reviews sanitized evidence from all host and VM histories and hands
+   ready implementation to a visible configured-workspace Build session without
+   moving databases or credentials across trust boundaries.
 10. An opted-in developer reaches each managed VM from authorized tailnet hosts
     with native Herdr remote attach while public configuration remains free of
     peer identity, policy, and enrollment secrets.
 11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
     feature branch and submits a draft pull request into the configured `main`
     branch; automation never commits or pushes cycle work directly to `main`.
-12. High-impact P0/P1 claims enter Discovery automatically, while an operator
-    reviews waiting P2/P3 claims through `/dbsctr-backlog`; promotion remains a
-    separate governed capability.
+12. Noncritical P1-P3 claims may enter autonomous Discovery when every material
+    question is resolved; P0, critical, and uncertain claims wait for the operator.
 13. An operator combines completed feature branches on an ephemeral batch branch,
     reviews the exact merge commits, and explicitly publishes the batch for normal
     pull-request review without granting Hermes authority over `main`.
@@ -68,21 +67,23 @@ boundary. The existing journey view and Text Equivalent remain current.
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai product journey boundaries
-    accDescr: A developer configures portable public defaults with private local values, applies managed host and workspace environments, explicitly opts into automation, approves implementation, and reviews draft pull requests while secrets and identities remain local.
+    accDescr: A developer configures portable public defaults with private local values, opts into isolated automation, reviews critical or uncertain decisions and every draft pull request, while evidence-ready noncritical work may proceed autonomously and secrets remain local.
     P[Public repository] -->|Add private local values| C[Machine-local configuration]
     C -->|Preview and apply| W[Managed host and workspaces]
     W -->|Optional opt-in| A[Isolated automation profiles]
-    A -->|Discovery asks and waits| U[Operator approval]
-    U -->|Explicit proceed| I[Isolated implementation cycle]
+    A -->|Ready noncritical work| I[Isolated implementation cycle]
+    A -->|Critical or uncertain| U[Operator approval]
+    U -->|Explicit proceed| I
     I -->|Draft pull request| R[Human review and merge]
     C -.->|Never publish| X[Secrets and machine identity]
 ```
 
 **Text Equivalent:** Public defaults become usable only after private local
 values are supplied. Applying them creates managed host and workspace
-environments; automation remains optional and isolated. Discovery waits for the
-operator before implementation, and delivery ends at a draft pull request for
-human review. Secrets and machine identity never enter the public repository.
+environments; automation remains optional and isolated. Evidence-ready
+noncritical Discovery may proceed automatically, while critical or uncertain
+work waits for the operator. Delivery ends at a draft pull request for human
+review. Secrets and machine identity never enter the public repository.
 The product owner updates this view when a core journey, privacy boundary, or
 approval outcome changes.
 
@@ -102,8 +103,8 @@ approval outcome changes.
 - Hermes owns scheduling, Kanban, and delegation; Herdr owns optional terminal
   presentation; OpenCode owns implementation; the DBSCTR ledger owns lifecycle
   coordination and approval state.
-- Adaptive lens cadence remains between monthly and daily, allows at most three
-  nonterminal workers, halts on repeated failures, and requires manual reset.
+- Each lens has independent monthly-to-immediate cadence and one active review
+  attempt; repeated systemic failures halt dispatch and require manual reset.
 - Private session, project, and repository provenance never appears in public
   findings, branches, documentation, or pull requests.
 
@@ -116,11 +117,11 @@ approval outcome changes.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
   cutover.
 - Enabled and disabled Hermes profiles, backlog mirrors, Herdr attachment, and
-  review jobs are repeatable, while Discovery still pauses for human input.
+  review jobs are repeatable; critical or uncertain Discovery pauses for input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
-- Every claim carries P0-P3 priority; P0/P1 may enter Discovery automatically,
-  while P2/P3 remain claimed and visible through a report-only operator queue.
+- Every claim carries P0-P3 priority; explicit autonomous readiness may advance
+  noncritical P1-P3 while P0 and materially uncertain work remain visible.
 - Confirmed P2/P3 promotion atomically enters Discovery; batch previews and
   integration retain exact source SHAs while batch publication remains an
   explicit operator action and `main` remains pull-request protected.

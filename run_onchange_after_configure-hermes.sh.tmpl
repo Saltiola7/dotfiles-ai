@@ -65,9 +65,9 @@ replace_job() {
 {{ if .dotfiles_ai.hermes.project_profiles -}}
 replace_job "$state/catalog-cron-id" "every 15m" "dotfiles-ai project catalog" "" "dbsctr-catalog.py"
 {{ else -}}
-replace_job "$state/refinement-cron-id" "{{ .dotfiles_ai.rnd.review_minute }} {{ .dotfiles_ai.rnd.review_hour }} * * *" \
+replace_job "$state/refinement-cron-id" "every 5m" \
     "dotfiles-ai context refinement" \
-    "Reconcile canonical backlogs and sanitized history, claim at most one distinct opportunity, then call the deterministic direct OpenCode Discovery launcher."
+    "Fill every eligible lens reservation with its deterministic direct OpenCode R&D launcher."
 {{ end -}}
 replace_job "$state/maintenance-cron-id" "0 3 * * *" \
     "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"

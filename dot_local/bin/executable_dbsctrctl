@@ -698,7 +698,6 @@ def improvement_integrity(connection):
                 or (opportunity_id is None) != (priority is None)
                 or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
                 or state == "reviewing" and opportunity_id is not None
-                or priority in {"P2", "P3"} and state not in {"claimed", "abandoned"}
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
                 or not isinstance(attempts, int) or not 0 <= attempts <= 3
@@ -3937,6 +3936,14 @@ def review_scan(args):
     finally:
         if 'connection' in locals():
             connection.close()
+    improvement_sessions = set()
+    root = review_root(args.state_root)
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='improvement_workers'").fetchone():
+                improvement_sessions = {row[0] for row in ledger.execute(
+                    "SELECT session_id FROM improvement_workers WHERE session_id IS NOT NULL")}
     reviewed_sessions, _ = reviewed_ids(args.state_root, snapshot if continuation else None,
                                          lock=not getattr(args, "lock_held", False))
     eligible, cycle_cache, identity_cache = [], {}, {}
@@ -3980,7 +3987,8 @@ def review_scan(args):
                           "last_activity": str(last_activity)[:64] if last_activity is not None else None,
                           "cycles": cycles, "attention": attention,
                            "correlation_quality": correlation_quality,
-                           "reviewed_status": "reviewed" if reviewed else "unreviewed"}
+                           "reviewed_status": "reviewed" if reviewed else "unreviewed",
+                           "review_session": bool(set(related_ids).intersection(improvement_sessions))}
         if getattr(args, "history_metrics", False):
             metrics = history_metrics.get(session_id, {})
             candidate["_history_metrics"] = metrics
@@ -4161,7 +4169,8 @@ def validate_history_telemetry(value):
 def validate_history_evidence(value):
     allowed = {"schema_version", "session_id", "completed_at", "method_revision", "context",
                "project_digest", "cycles", "aggregates", "snapshot", "session_ceiling",
-               "part_ceiling", "database_digest", "reviewed_status", "correlation_quality", "telemetry"}
+               "part_ceiling", "database_digest", "reviewed_status", "correlation_quality", "telemetry",
+               "review_session"}
     if (not isinstance(value, dict) or set(value) - allowed or value.get("schema_version") != 1
             or not isinstance(value.get("completed_at"), str) or not value["completed_at"].isdigit()
             or int(value["completed_at"]) < REVIEW_START_MS
@@ -4169,6 +4178,7 @@ def validate_history_evidence(value):
             or not isinstance(value.get("context"), str) or (value["context"] != "unavailable" and not OPAQUE_ID.fullmatch(value["context"]))
             or not isinstance(value.get("project_digest"), str)
             or value.get("reviewed_status", "reviewed") not in ("reviewed", "unreviewed")
+            or type(value.get("review_session", False)) is not bool
             or value.get("correlation_quality", "unavailable") not in (
                 "exact", "family", "worktree", "source", "ambiguous", "unavailable")):
         fail("review history evidence has an invalid schema")
@@ -4271,6 +4281,7 @@ def candidate_history_evidence(candidate, scan, mark_reviewed=True):
         "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
         "database_digest": scan["database_digest"],
         "reviewed_status": "reviewed" if mark_reviewed else candidate.get("reviewed_status", "unreviewed"),
+        "review_session": candidate.get("review_session", False),
     }
     if "telemetry" in candidate:
         evidence["telemetry"] = candidate["telemetry"]
@@ -4602,6 +4613,7 @@ def review_history_page(args, lock_held=False):
                             "snapshot": live["snapshot"], "session_ceiling": live["session_ceiling"],
                             "part_ceiling": live["part_ceiling"], "database_digest": live["database_digest"],
                              "reviewed_status": item["reviewed_status"],
+                             "review_session": item.get("review_session", False),
                              **({"telemetry": item["telemetry"]} if "telemetry" in item else {})}
                             for item in live_candidates]
             archived = {item["session_id"]: item for item in records}
@@ -6202,8 +6214,9 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
-        if current["priority"] in {"P2", "P3"} and state not in {"claimed", "abandoned"}:
-            fail("P2/P3 improvement claims remain queued until promotion or abandonment")
+        if (current["priority"] in {"P2", "P3"} and state not in {"claimed", "abandoned"}
+                and not args.autonomous):
+            fail("P2/P3 improvement claims remain queued until promotion or autonomous readiness")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
@@ -8105,6 +8118,7 @@ def parser():
     improvement_update.add_argument("--pane-id")
     improvement_update.add_argument("--cycle-id")
     improvement_update.add_argument("--path", action="append")
+    improvement_update.add_argument("--autonomous", action="store_true")
     improvement_update.set_defaults(func=command_improvement_update)
     improvement_recover = commands.add_parser("improvement-recover")
     improvement_recover.add_argument("--state-root")

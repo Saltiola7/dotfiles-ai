@@ -4,6 +4,20 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-31 - DAI-021 Continuous Per-Lens R&D
+
+- Replaced the single global lens slot with six independent source-controlled
+  slots. Five ordinary lenses exclude improvement-worker session families;
+  `review_session_governance` alone reviews them and audits lens usefulness.
+- Added durable per-pass page, source, selected-session, selected-review-session,
+  and excluded-review-session telemetry. Yield immediately reopens only its lens;
+  no-yield retains daily-to-weekly-to-monthly backoff per lens.
+- Hermes now fills every eligible lens every five minutes. Noncritical P1-P3
+  claims may cross Discovery only with explicit autonomous readiness and no
+  material uncertainty; P0 and critical or uncertain work block. Draft pull
+  request remains the maximum delivery authority. Implementation and live
+  validation are in progress.
+
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 
 - Replaced plugin-loading OpenCode session discovery with the supported `--pure`

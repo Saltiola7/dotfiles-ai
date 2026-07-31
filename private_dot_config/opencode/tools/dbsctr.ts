@@ -396,6 +396,7 @@ export const improvement_update = tool({
     state: tool.schema.enum(["claimed", "discovery", "implementing", "draft_pr", "blocked", "merged", "closed", "abandoned"]),
     cycleId: tool.schema.string().optional(),
     paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
+    autonomous: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_improvement_update", patterns: ["*"], always: [] })
@@ -403,6 +404,7 @@ export const improvement_update = tool({
       state: args.state,
       cycleID: args.cycleId,
       paths: args.paths,
+      autonomous: args.autonomous,
     }, context.worktree, true)
   },
 })

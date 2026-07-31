@@ -1278,8 +1278,11 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
         "operator experience", "architecture/R&D meta",
     ))
     assert "--outcome no_yield" in command and "--outcome yield" in command
-    assert "P0 and P1" in command and "P2 and P3 remain in `claimed`" in command
-    assert "`/dbsctr-backlog`" in command
+    assert "review_session_governance" in command and "Never let an ordinary lens" in command
+    assert "--telemetry-json" in command and "P1-P3 enter `discovery`" in command
+    assert "autonomous=true" in command and "risk is not critical" in command
+    audit = text("dot_agents/skills/dbsctr-lens-audit/SKILL.md")
+    assert "review_session_governance" in audit and "Missing telemetry is unavailable, not zero" in audit
 
 
 def test_removed_managed_integrations_are_absent():

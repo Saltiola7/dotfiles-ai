@@ -4,6 +4,13 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-31 - OCP-31 Isolated Lens Workers
+
+- Added one-lens worker plans, deterministic review-session family attribution,
+  pass telemetry, a dedicated lens-audit skill, and an explicit autonomous flag
+  for evidence-ready noncritical P1-P3 Discovery. Critical or uncertain work and
+  every merge/deploy decision remain operator-owned. Validation is in progress.
+
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
 - Corrected the current OCP-30 and provider-native harness status, retained Opus 5

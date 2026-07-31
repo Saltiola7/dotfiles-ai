@@ -374,6 +374,7 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
   const candidateKeys = ["schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality",
     "cycles", "aggregates", "telemetry", "method_revision"]
+  const currentCandidateKeys = [...candidateKeys, "review_session"]
   const aggregateKeys = ["approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count",
     "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count",
     "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"]
@@ -412,7 +413,8 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
       const currentTelemetry = exactKeys(candidate?.telemetry, telemetryKeys)
       const legacyTelemetry = exactKeys(candidate?.telemetry, legacyTelemetryKeys)
       const expectedAvailability = currentTelemetry ? availabilityKeys : legacyAvailabilityKeys
-      return exactKeys(candidate, candidateKeys)
+      return (exactKeys(candidate, candidateKeys) || exactKeys(candidate, currentCandidateKeys))
+      && (candidate.review_session === undefined || typeof candidate.review_session === "boolean")
       && exactKeys(candidate.aggregates, aggregateKeys) && (currentTelemetry || legacyTelemetry)
       && (!currentTelemetry || candidate.telemetry.schema_version === 2)
       && exactKeys(candidate.telemetry.availability, expectedAvailability) && Array.isArray(candidate.cycles)
@@ -916,13 +918,15 @@ export async function improvementUpdate(workerID: string, args: {
   paneID?: string
   cycleID?: string
   paths?: string[]
+  autonomous?: boolean
 }, cwd = process.cwd(), bySession = false) {
   const argv = ["dbsctrctl", "improvement-update", bySession ? "--session-id" : "--worker-id", workerID, "--state", args.state]
   const names: Record<string, string> = {
     workspaceID: "workspace-id", tabID: "tab-id", paneID: "pane-id", cycleID: "cycle-id",
   }
   for (const [name, value] of Object.entries(args)) {
-    if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
+    if (name === "autonomous" && value === true) argv.push("--autonomous")
+    else if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
   }
   for (const path of args.paths ?? []) argv.push("--path", path)
   return await run(argv, cwd)

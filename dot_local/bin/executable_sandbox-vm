@@ -70,6 +70,7 @@ exit 1
 """
 PAGE_KEYS = {"schema_version", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "limit", "cursor", "continuation", "candidates", "digest", "query", "session_ids"}
 CANDIDATE_KEYS = {"schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality", "cycles", "aggregates", "telemetry", "method_revision"}
+CURRENT_CANDIDATE_KEYS = CANDIDATE_KEYS | {"review_session"}
 QUERY_KEYS = {"after", "archive_only", "before", "context", "cycle_id", "method_revision", "project_digest", "reviewed_status", "state"}
 AGGREGATE_KEYS = {"approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"}
 LEGACY_TELEMETRY_KEYS = {"approval_count", "attribution_status", "availability", "cost_total", "delegation_count", "error_classes", "model_families", "retry_count", "token_total"}
@@ -582,7 +583,9 @@ def _valid_phase_profile(profile, cycle_id):
 
 
 def _valid_candidate(candidate):
-    if not _exact(candidate, CANDIDATE_KEYS) or not _exact(candidate.get("aggregates"), AGGREGATE_KEYS):
+    if (not (_exact(candidate, CANDIDATE_KEYS) or _exact(candidate, CURRENT_CANDIDATE_KEYS))
+            or not _exact(candidate.get("aggregates"), AGGREGATE_KEYS)
+            or type(candidate.get("review_session", False)) is not bool):
         return False
     telemetry = candidate.get("telemetry")
     current_telemetry = _exact(telemetry, TELEMETRY_KEYS)

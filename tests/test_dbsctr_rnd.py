@@ -619,7 +619,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     assert plan["capture_day"] == "2024-01-01" and plan["due"]
-    assert [item["name"] for item in plan["lenses"]] == list(runner["LENSES"])
+    assert [item["name"] for item in plan["lenses"]] == list(runner["LEGACY_LENSES"])
     assert all(item["version"] == 1 for item in plan["lenses"])
 
     runner["command"] = lambda _argv, **_kwargs: {
@@ -707,6 +707,54 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     late = runner["lens_result"](
         "worker-1", "2024-01-01", "a" * 64, "no_yield", now + 86400)
     assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
+
+
+def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "parallel-lenses")
+    now = 1_704_067_200
+    attempts = {}
+    for expected in runner["LENSES"]:
+        reservation, lens, reason = runner["reserve_parallel_lens"]([], now)
+        assert (lens, reason) == (expected, "reserved")
+        worker = f"worker-{len(attempts)}"
+        runner["claim_reservation"](reservation, worker, now)
+        attempts[lens] = (reservation, worker)
+    assert runner["reserve_parallel_lens"]([], now) == (None, None, "no_lens_due")
+
+    states = {worker: "reviewing" for _, worker in attempts.values()}
+    runner["command"] = lambda argv, **_kwargs: {
+        "workers": [{"worker_id": argv[-1], "state": states[argv[-1]]}],
+    }
+    ordinary = attempts["correctness_safety"][1]
+    review = attempts[runner["REVIEW_SESSION_LENS"]][1]
+    base = {"page_count": 7, "session_count": 10, "review_session_count": 0,
+            "excluded_review_session_count": 2, "source_count": 3}
+    try:
+        runner["parallel_lens_result"](
+            ordinary, "2024-01-01", "a" * 64, "no_yield",
+            {**base, "review_session_count": 1}, now)
+    except RuntimeError as error:
+        assert "ordinary lens" in str(error)
+    else:
+        raise AssertionError("ordinary lens accepted review-session evidence")
+    ordinary_result = runner["parallel_lens_result"](
+        ordinary, "2024-01-01", "a" * 64, "no_yield", base, now)
+    assert ordinary_result["next_eligible_at"] == now + 86400
+
+    review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
+                      "excluded_review_session_count": 0, "source_count": 3}
+    review_result = runner["parallel_lens_result"](
+        review, "2024-01-01", "b" * 64, "no_yield", review_metrics, now)
+    assert review_result["lens"] == "review_session_governance"
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select review_session_count,excluded_review_session_count,source_count "
+        "from parallel_lens_passes where worker_id=?", (review,)).fetchone() == (2, 0, 3)
+    connection.close()
+
+    for lens, (reservation, _worker) in attempts.items():
+        if lens not in {"correctness_safety", runner["REVIEW_SESSION_LENS"]}:
+            runner["release_reservation"](reservation)
 
 
 def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, capsys):
