@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.35-F2 | Expose privacy-safe cycle context intervals for inference attribution | P1 | implementing | V3.18-1 | correlated cycle summaries, history compatibility, lifecycle tests and artifacts | Cycle Record timestamps and runtime correlation | false | Public validators and persisted legacy evidence must change coherently. | M | Lifecycle, control-plane, sandbox, and inference attribution tests. |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.35-F2 | Added backward-compatible sanitized cycle context intervals and retained multiple exact runtime matches for timestamp attribution. | 2026-07-31 | `0315f15` |
 | V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff and activate the corrected prompt | 2026-07-30 | `9914f12` |
 | V3.35-1 | Reconcile current documentation authority, operator guidance, exact statuses, and historical archives | 2026-07-30 | `b2d9909` |
 | V3.34-1 | Require accessible, source-bound visual decisions and meaningful diagrams across normative specifications | 2026-07-30 | `dc7aace` |

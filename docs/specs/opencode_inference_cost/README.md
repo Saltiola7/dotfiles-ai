@@ -444,14 +444,14 @@ flow changes.
 
 | Gate | Applicability | Result | Evidence or reason |
 |---|---|---|---|
-| Domain | required | passed | Ubiquitous language, domain model, source ownership, and trust boundaries defined. |
-| Behavior | required | passed | Happy, edge, failure, privacy, and recovery scenarios defined. |
-| Spec | required | passed | CLI, report schema, source contracts, and visual evidence plan defined. |
-| Contract | required | passed | Preconditions, invariants, failure semantics, compatibility, and privacy constraints defined. |
-| Test-driven implementation | required | passed | Synthetic SQLite behavior tests cover extraction, privacy, attribution, costing, statistics, dry-run, and failure preservation. |
-| Refactor | required | passed | Reused existing history, SQLite, validation, and atomic-write patterns; no runtime dependency added. |
-| Review/Integrate | required | passed | Two independent remediation reviews and a final focused review resolved all material findings; affected suites and live metadata-only execution passed. |
+| Domain | required | passed | Canonical usage, session controls, context intervals, quarantine, source ownership, and trust boundaries defined. |
+| Behavior | required | passed | Timestamp attribution, overlap, unknown usage, reconciliation, privacy, and recovery scenarios defined. |
+| Spec | required | passed | Schema-v2 output, strict source projections, interval fields, CLI compatibility, and visual evidence are defined. |
+| Contract | required | passed | Reconciliation, quarantine, half-open intervals, backward compatibility, and privacy failure semantics are explicit. |
+| Test-driven implementation | required | passed | Synthetic SQLite tests cover canonical parts, interval splits, overlap, abandoned fallback, legacy quarantine, orphan rejection, privacy, and recovery. |
+| Refactor | required | passed | Reused existing history, SQLite, validation, statistics, and atomic publication without a runtime dependency. |
+| Review/Integrate | required | passed | Conflict-free upstream reconciliation and 271 union tests passed; independent review was unavailable under sandbox policy and primary review found no unresolved issue. |
 | Release | not_applicable | not_run | MVP is an internal Git-versioned tool with no package publication. |
 | Deploy | not_applicable | not_run | Manual local command; no environment change. |
 | Operate | not_applicable | not_run | No service, schedule, or alerting in MVP. |
-| Maintain/Retire | required | passed | AI Tooling owns strict adapter updates, dated rate refreshes, source retirement, and deletion of replaceable local reports. |
+| Maintain/Retire | required | passed | AI Tooling owns the strict adapter, schema-v1 replacement, history compatibility, rate refreshes, and deletion of replaceable local reports. |

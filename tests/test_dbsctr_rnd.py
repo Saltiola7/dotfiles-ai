@@ -118,6 +118,17 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
     assert "cron pause" in configure and "cutover-ready" in configure
+
+
+def test_supervisor_uses_argparse_safe_direct_launch_command():
+    skill = render(
+        "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl"
+    )
+    assert (
+        "dbsctr-rnd --reservation RESERVATION --worker-id WORKER_ID "
+        "--repository-id REPOSITORY_ID launch"
+    ) in skill
+    assert "dbsctr-rnd --reservation RESERVATION release" in skill
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
@@ -261,7 +272,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     assert rejected.returncode != 0
     assert log.read_text().count("tab close w7:t9") == 1
     empty = bin_dir / "opencode-empty"
-    empty.write_text("#!/bin/sh\nprintf '[]\\n'\n")
+    empty.write_text("#!/bin/sh\nexit 0\n")
     empty.chmod(0o755)
     timed_out = subprocess.run(
         ["python3", str(runner), "spawn"],
@@ -830,6 +841,265 @@ def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path
         assert "expired" in str(error)
     else:
         raise AssertionError("expired reservation was accepted")
+
+
+def test_direct_launch_reaps_process_when_reservation_cleanup_fails(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "cleanup-direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], int(runner["time"].time()))
+    assert reason == "reserved"
+    events = []
+
+    class Process:
+        pid = 123
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            return 0
+
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    calls = 0
+
+    def sessions(_repository):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return set()
+        raise RuntimeError("session lookup failed")
+
+    def release(_reservation):
+        events.append(("release", None))
+        raise RuntimeError("reservation cleanup failed")
+
+    runner["session_ids"] = sessions
+    runner["release_reservation"] = release
+    monkeypatch.setattr(runner["subprocess"], "Popen", Process)
+    def killpg(pid, sig):
+        events.append(("kill", (pid, sig)))
+        if sig == 0:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(runner["os"], "killpg", killpg)
+
+    try:
+        runner["launch_action"](reservation, "worker-1", "repo-1")
+    except ExceptionGroup as error:
+        assert [str(item) for item in error.exceptions] == [
+            "session lookup failed", "reservation cleanup failed",
+        ]
+    else:
+        raise AssertionError("combined launch and cleanup failure was not reported")
+    assert events == [
+        ("kill", (123, runner["signal"].SIGTERM)), ("wait", 5),
+        ("kill", (123, 0)), ("wait", 5), ("release", None),
+    ]
+
+
+def test_direct_launch_kills_group_after_leader_exits(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "exited-leader-direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], int(runner["time"].time()))
+    assert reason == "reserved"
+    signals = []
+
+    class Process:
+        pid = 456
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout):
+            assert timeout == 5
+            return 0
+
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    calls = 0
+
+    def sessions(_repository):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return set()
+        raise RuntimeError("session lookup failed")
+
+    runner["session_ids"] = sessions
+    monkeypatch.setattr(runner["subprocess"], "Popen", Process)
+    monkeypatch.setattr(runner["os"], "killpg", lambda pid, sig: signals.append((pid, sig)))
+
+    try:
+        runner["launch_action"](reservation, "worker-1", "repo-1")
+    except RuntimeError as error:
+        assert str(error) == "session lookup failed"
+    else:
+        raise AssertionError("failed launch was accepted")
+    assert signals == [
+        (456, runner["signal"].SIGTERM), (456, 0), (456, runner["signal"].SIGKILL),
+    ]
+
+
+def test_installed_opencode_supports_pure_session_json():
+    completed = subprocess.run(
+        ["opencode", "session", "list", "--pure", "--format", "json", "-n", "1"],
+        cwd=ROOT, text=True, capture_output=True, check=True,
+    )
+    assert completed.stdout == "" or isinstance(json.loads(completed.stdout), list)
+
+
+def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp_path):
+    repository = tmp_path / "project"
+    backlog = repository / "docs/specs/example/BACKLOG.md"
+    backlog.parent.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", repository], check=True)
+    backlog.write_text(
+        "# Backlog\n\n## Active\n\n"
+        "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        "| X-1 | Exercise launch | high | pending | - | runner | sessions | no | regression | S | e2e |\n"
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    command_log = tmp_path / "commands.log"
+    session_marker = tmp_path / "session-created"
+    pid_file = tmp_path / "worker.pid"
+    opencode = bin_dir / "opencode"
+    opencode.write_text(
+        "#!/bin/sh\n"
+        "printf 'opencode %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
+        "if [ \"$1 $2\" = 'session list' ]; then\n"
+        "  case \" $* \" in *' --pure '*) ;; *) exit 0;; esac\n"
+        "  [ \"${SESSION_LIST_MODE:-valid}\" = invalid ] && { printf 'not-json\\n'; exit 0; }\n"
+        "  if [ -f \"$SESSION_MARKER\" ]; then\n"
+        f"    printf '%s\\n' '[{{\"id\":\"ses_e2e\",\"directory\":\"{repository}\"}}]'\n"
+        "  else printf '%s\\n' '[]'; fi\n"
+        "elif [ \"$1\" = run ]; then\n"
+        "  touch \"$SESSION_MARKER\"\n"
+        "  printf '%s\\n' \"$$\" > \"$PID_FILE\"\n"
+        "  printf '%s\\n' '{\"sessionID\":\"ses_e2e\"}'\n"
+        "  sleep 30\n"
+        "fi\n"
+    )
+    dbsctrctl = bin_dir / "dbsctrctl"
+    dbsctrctl.write_text(
+        "#!/bin/sh\n"
+        "printf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
+        "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; exit 0; fi\n"
+        "worker= session=\n"
+        "while [ $# -gt 0 ]; do\n"
+        "  case \"$1\" in --worker-id) worker=$2; shift 2;; --session-id) session=$2; shift 2;; *) shift;; esac\n"
+        "done\n"
+        "[ \"${REGISTER_MODE:-valid}\" = invalid ] && worker=wrong-worker\n"
+        "printf '{\"worker_id\":\"%s\",\"session_id\":\"%s\",\"state\":\"reviewing\"}\\n' \"$worker\" \"$session\"\n"
+    )
+    opencode.chmod(0o755)
+    dbsctrctl.chmod(0o755)
+    runner = tmp_path / "dbsctr-rnd"
+    runner.write_text(render(
+        "dot_local/bin/executable_dbsctr-rnd.tmpl",
+        values(review_workdir=str(repository), roots=[str(repository)]),
+    ))
+    runner.chmod(0o755)
+    state = tmp_path / "scheduler.sqlite3"
+    env = {
+        **os.environ,
+        "COMMAND_LOG": str(command_log),
+        "DBSCTRCTL": str(dbsctrctl),
+        "DBSCTR_RND_STATE": str(state),
+        "OPENCODE_BIN": str(opencode),
+        "PID_FILE": str(pid_file),
+        "SESSION_MARKER": str(session_marker),
+    }
+
+    reserved = json.loads(subprocess.run(
+        [str(runner), "reserve"], env=env, text=True, capture_output=True, check=True,
+    ).stdout)
+    repository_id = json.loads(subprocess.run(
+        [str(runner), "repositories"], env=env, text=True, capture_output=True, check=True,
+    ).stdout)["repositories"][0]["repository_id"]
+    launched = subprocess.run([
+        str(runner), "--reservation", reserved["reservation"],
+        "--worker-id", reserved["worker_id"], "--repository-id", repository_id, "launch",
+    ], env=env, text=True, capture_output=True, check=True)
+    assert json.loads(launched.stdout) == {
+        "session_id": "ses_e2e", "status": "started", "worker_id": reserved["worker_id"],
+    }
+    commands = command_log.read_text()
+    assert "opencode session list --pure --format json -n 100" in commands
+    assert f"improvement-register --worker-id {reserved['worker_id']} --session-id ses_e2e" in commands
+    successful_pid = int(pid_file.read_text())
+    os.kill(successful_pid, 0)
+    os.killpg(successful_pid, 15)
+
+    failed_state = tmp_path / "failed.sqlite3"
+    failed_env = {**env, "DBSCTR_RND_STATE": str(failed_state), "SESSION_LIST_MODE": "invalid"}
+    failed_reservation = json.loads(subprocess.run(
+        [str(runner), "reserve"], env=failed_env, text=True, capture_output=True, check=True,
+    ).stdout)
+    failed = subprocess.run([
+        str(runner), "--reservation", failed_reservation["reservation"],
+        "--worker-id", failed_reservation["worker_id"], "--repository-id", repository_id, "launch",
+    ], env=failed_env, text=True, capture_output=True)
+    assert failed.returncode != 0
+    assert "returned invalid JSON" in failed.stderr
+    connection = sqlite3.connect(failed_state)
+    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
+    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
+    connection.close()
+
+    setup_failure_dir = tmp_path / "setup-failure"
+    setup_failure_dir.mkdir()
+    setup_state = setup_failure_dir / "scheduler.sqlite3"
+    setup_env = {**env, "DBSCTR_RND_STATE": str(setup_state)}
+    setup_reservation = json.loads(subprocess.run(
+        [str(runner), "reserve"], env=setup_env, text=True, capture_output=True, check=True,
+    ).stdout)
+    (setup_failure_dir / "launches").write_text("not a directory")
+    setup_failed = subprocess.run([
+        str(runner), "--reservation", setup_reservation["reservation"],
+        "--worker-id", setup_reservation["worker_id"], "--repository-id", repository_id, "launch",
+    ], env=setup_env, text=True, capture_output=True)
+    assert setup_failed.returncode != 0
+    connection = sqlite3.connect(setup_state)
+    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
+    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
+    connection.close()
+
+    session_marker.unlink()
+    failed_state = tmp_path / "failed-after-start.sqlite3"
+    failed_env = {**env, "DBSCTR_RND_STATE": str(failed_state), "REGISTER_MODE": "invalid"}
+    failed_reservation = json.loads(subprocess.run(
+        [str(runner), "reserve"], env=failed_env, text=True, capture_output=True, check=True,
+    ).stdout)
+    failed = subprocess.run([
+        str(runner), "--reservation", failed_reservation["reservation"],
+        "--worker-id", failed_reservation["worker_id"], "--repository-id", repository_id, "launch",
+    ], env=failed_env, text=True, capture_output=True)
+    assert failed.returncode != 0
+    failed_pid = int(pid_file.read_text())
+    try:
+        os.kill(failed_pid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise AssertionError("failed direct-launch process was not reaped")
+    connection = sqlite3.connect(failed_state)
+    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
+    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
+    connection.close()
 
 
 def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):

@@ -4,6 +4,51 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
+
+- Replaced plugin-loading OpenCode session discovery with the supported `--pure`
+  metadata path, added bounded invalid-JSON diagnostics, and made every post-claim
+  failure release scheduler ownership and terminate/reap its process group.
+- Pinned the exact argparse-safe direct-launch and release commands in the Hermes
+  supervisor skill. Added a rendered subprocess E2E covering reserve, discovery,
+  live process registration, malformed output, setup failure, post-spawn failure,
+  cleanup, and a real installed-OpenCode capability check.
+- Split federated history bounds to 300 seconds for the 1.26-million-part host
+  database and 120 seconds for workspaces. A controlled Hermes run registered
+  worker `dbsctr-5b6f2dc3` and session `ses_049adff6dffeRK2xyOrMZGZMe4`, captured
+  644 sessions across seven pages with all three sources available, saved a
+  truthful insufficient provider evaluation, and persisted a P2 `yield` claim
+  while retaining daily cadence. No Discovery or implementation started.
+- Affected QA passed 29 R&D, 38 Lima, and 59 downstream tests; independent review
+  found no remaining launch findings. Deployed `dbsctr-rnd`, `sandbox-vm`, and the
+  active Hermes supervisor skill with empty second dry-runs. Gate Commits:
+  `24d0fd0`, `9a251eb`, `4db52d4`. Gate Exceptions: none. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
+### DAI-016-F2 CI Session-List Contract
+
+- CI proved that OpenCode 1.18.10 returns successful empty stdout when no stored
+  sessions exist. Session discovery now treats that response as an empty set while
+  retaining fail-closed handling for non-empty malformed JSON. The subprocess E2E
+  fixture distinguishes both contracts instead of relying on a populated local
+  session database. The complete 29-test R&D suite passed locally, the corrected
+  runner was deployed with an empty second dry-run, and Gate Commit `12d83c6`
+   updates draft PR 13. Gate Exceptions: none.
+
+### DAI-016-F3 Launch Cleanup Review
+
+- Independent review found reservation-release failure could skip termination of
+  an already-started unregistered worker. Failure cleanup now bounds process-group
+  termination and reaping before independently releasing scheduler ownership,
+  reports combined failures, and bounds blocked-state recording. Regression
+  coverage proves cleanup still reaps the process when reservation release fails
+  and kills descendants when the process-group leader has already exited.
+- The subprocess fixture now emits actual zero-byte stdout for an empty OpenCode
+  session inventory while retaining separate malformed non-empty JSON coverage.
+- Focused QA passed 31 R&D tests and union affected QA passed 268 tests with one
+  optional Lima skip. Final independent review found no remaining runtime defect;
+  commits `5aa248a..857e7af`. Gate Exceptions: none.
+
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
 - Made DAI-020, Hermes orchestration, explicit P2/P3 promotion, private history,

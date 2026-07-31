@@ -7,7 +7,6 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OIC-008 | Attribute canonical step-finish costs through timestamped DBSCTR context intervals | P1 | implementing | OIC-005 | inference adapter, report schema, focused tests, inference lifecycle artifacts | sanitized lifecycle intervals and OpenCode metadata schema | false | Extraction, reconciliation, attribution, and schema-v2 output share one financial/privacy contract. | L | Focused red/green tests, affected QA, live read-only smoke, and independent review. |
 | OIC-006 | Evaluate scheduled snapshots and trend reporting | P2 | pending | OIC-005 | Future cycle; ownership not assigned | validated MVP reports | false | Scheduling is useful only after manual reports prove stable. | M | Separate DBSCTR cycle and operational profile. |
 | OIC-007 | Join governed outcome values for ROI reporting | P2 | pending | OIC-005 | Future cycle; ownership not assigned | separately governed benefit source | false | Cost alone is not ROI and benefit semantics require another bounded context. | L | Separate discovery and authority contract. |
 
@@ -23,6 +22,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OIC-008 | Replaced lossy session attribution with reconciled step-finish usage, timestamped context intervals, and explicit legacy quarantine. | 2026-07-31 | 0315f15 |
 | OIC-001 | Reconciled the portable specification with the owning repository and live metadata schema. | 2026-07-30 | 1a5b8a9 |
 | OIC-002 | Added strict read-only capability detection and synthetic privacy fixtures. | 2026-07-30 | 67056a2 |
 | OIC-003 | Added sanitized history/mapping attribution with explicit status, confidence, source, and coverage. | 2026-07-30 | ab46a73 |

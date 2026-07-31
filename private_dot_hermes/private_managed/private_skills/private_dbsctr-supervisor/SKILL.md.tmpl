@@ -19,12 +19,13 @@ Profile: `{{ .dotfiles_ai.hermes.profile }}`. Allowed backlog roots:
    The host system profile may use sanitized federated history only for generalized
    dotfiles/DBSCTR/OpenCode improvements.
 4. Run `dbsctr-rnd reserve`. A no-op ends this invocation. For a reservation,
-   select one defensible distinct opportunity, then call only `dbsctr-rnd launch`
-   with the reservation, worker ID, and selected repository ID. That deterministic
-   helper starts `/dbsctr-improve`, proves one new native session, registers it,
-   and advances cadence. Never launch or register OpenCode through another path.
-5. On a pre-launch failure run `dbsctr-rnd release`; never start a substitute
-   worker in that invocation.
+   select one defensible distinct opportunity, then call only
+   `dbsctr-rnd --reservation RESERVATION --worker-id WORKER_ID --repository-id REPOSITORY_ID launch`.
+   The global options must precede the action. That deterministic helper starts
+   `/dbsctr-improve`, proves one new native session, registers it, and advances
+   cadence. Never launch or register OpenCode through another path.
+5. On a pre-launch failure run `dbsctr-rnd --reservation RESERVATION release`;
+   never start a substitute worker in that invocation.
 6. Before resuming a worker, re-read `dbsctrctl improvement-status` and prove the
    exact session is not already running. Resume only with `opencode -s SESSION`.
 7. Discovery questions stay for the operator. Never send `proceed`, select a
