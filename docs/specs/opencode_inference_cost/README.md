@@ -211,7 +211,7 @@ prior reports. Failed checks write no final output.
 ### OpenCode database
 
 The MVP adapter discovers and validates the current `session` table and requires
-`id`, `time_created`, `model`, `cost`, `tokens_input`, `tokens_output`,
+`id`, `time_created`, `time_updated`, `model`, `cost`, `tokens_input`, `tokens_output`,
 `tokens_reasoning`, `tokens_cache_read`, and `tokens_cache_write`. Unknown source
 shapes fail capability validation rather than receiving a guessed mapping. The
 adapter opens SQLite in read-only mode, fixes a `rowid` ceiling, and selects only
@@ -270,7 +270,9 @@ class has non-zero usage.
 The initial card contains official OpenAI standard short-context rates retrieved
 2026-07-30. OpenAI model documentation states that requests above 272K input
 tokens use long-context pricing. Because the source grain is a session rather
-than a request, the adapter applies short rates only when the session's total
+than a request, the adapter applies one rate only when its effective interval
+covers the complete session creation-to-update interval, and applies short rates
+only when the session's total
 uncached input plus cache reads and writes is at most 272K. This is conservative:
 larger multi-request sessions remain unestimated even when each request may have
 been short. Bedrock models and unidentified pricing modes stay unestimated rather
@@ -297,6 +299,10 @@ The command writes `inference-cost-report.json`,
 `inference-cost-report.md`, and `manifest.json`. A `--dry-run` mode emits only
 the capability report and planned row counts. Secrets and content never appear
 in arguments, logs, errors, or output.
+
+Rate source URLs must be HTTPS and contain no user information, query, or
+fragment. Reports retain only rate entries that actually produced estimates,
+identified by card-bound digest, model, effective interval, and source.
 
 ### Context summary
 

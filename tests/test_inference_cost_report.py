@@ -22,7 +22,7 @@ def database(path, supported=True):
     else:
         connection.executescript("""
             create table session (
-                id text primary key, parent_id text, project_id text, time_created integer,
+                id text primary key, parent_id text, project_id text, time_created integer, time_updated integer,
                 title text, directory text, metadata text, model text, cost real not null,
                 tokens_input integer not null, tokens_output integer not null,
                 tokens_reasoning integer not null, tokens_cache_read integer not null,
@@ -31,18 +31,20 @@ def database(path, supported=True):
         """)
         sentinel = "PROHIBITED /Users/private prompt response"
         rows = [
-            ("one", None, "project", 1784073600000, sentinel, sentinel, sentinel,
+            ("one", None, "project", 1784073600000, 1784073600000, sentinel, sentinel, sentinel,
              json.dumps({"id": "gpt-test", "providerID": "openai", "variant": "medium"}),
              1.25, 100, 20, 5, 40, 0),
-            ("two", None, "project", 1784073601000, sentinel, sentinel, sentinel,
+            ("two", None, "project", 1784073601000, 1784073601000, sentinel, sentinel, sentinel,
              json.dumps({"id": "gpt-test", "providerID": "openai", "variant": "low"}),
              0, 300, 40, 10, 0, 20),
-            ("three", None, "project", 1784073602000, sentinel, sentinel, sentinel,
+            ("three", None, "project", 1784073602000, 1784073602000, sentinel, sentinel, sentinel,
              "malformed", 0, 10, 0, 0, 0, 0),
-            ("four", None, "project", 1784073603000, sentinel, sentinel, sentinel,
+            ("four", None, "project", 1784073603000, 1784073603000, sentinel, sentinel, sentinel,
              "malformed", 0, 1, 0, 0, 0, 0),
+            ("boundary", None, "project", 1784073602000, 1784073603000, sentinel, sentinel, sentinel,
+             json.dumps({"id": "gpt-boundary", "providerID": "openai"}), 0, 1, 0, 0, 0, 0),
         ]
-        connection.executemany("insert into session values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        connection.executemany("insert into session values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     connection.commit()
     connection.close()
 
@@ -53,7 +55,7 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
     mapping = tmp_path / "mapping.json"
     mapping.write_text(json.dumps({
         "schema_version": 1,
-        "sessions": {"two": "alpha", "three": "beta"},
+        "sessions": {"two": "alpha", "three": "beta", "boundary": "boundary"},
     }))
     state = tmp_path / "state"
     history = state / "reviews/history"
@@ -88,6 +90,14 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
                 "input": "5", "output": "30", "reasoning": "30",
                 "cache_read": "0.5", "cache_write": "6.25",
             },
+        }, {
+            "provider": "openai", "model": "gpt-boundary",
+            "effective_from": 1784070000000, "effective_to": 1784073602500,
+            "max_input_tokens": None, "source": "https://example.invalid/boundary",
+            "usd_per_million_tokens": {
+                "input": "1", "output": "1", "reasoning": "1",
+                "cache_read": "1", "cache_write": "1",
+            },
         }],
     }))
     output = tmp_path / "report"
@@ -96,7 +106,7 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
         "inference-cost-report", "--opencode-db", source, "--output-dir", output,
         "--mapping", mapping, "--state-root", state, "--rate-card", rates, "--dry-run",
     ).stdout)
-    assert dry_run["planned_session_count"] == 4
+    assert dry_run["planned_session_count"] == 5
     assert not output.exists()
 
     run(
@@ -107,6 +117,7 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
     alpha = next(item for item in report["contexts"] if item["bounded_context"] == "alpha")
     ambiguous = next(item for item in report["contexts"] if item["bounded_context"] == "MULTI_CONTEXT")
     unknown = next(item for item in report["contexts"] if item["bounded_context"] == "UNKNOWN")
+    boundary = next(item for item in report["contexts"] if item["bounded_context"] == "boundary")
     assert alpha["session_count"] == 2
     assert alpha["input_tokens"] == 400
     assert alpha["actual_cost_usd"] == 1.25
@@ -118,13 +129,16 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
         "p75": 370, "p95": 370, "max": 370, "population_standard_deviation": 102.5,
     }
     assert alpha["models"][0]["provider"] == "openai"
+    assert alpha["models"][0]["rate_entry_ids"]
     assert alpha["attribution_confidence"] == {"HIGH": 1, "MEDIUM": 1, "UNAVAILABLE": 0}
     assert alpha["attribution_sources"]["DBSCTR_HISTORY"] == 1
     assert ambiguous["estimated_cost_usd"] is None
     assert ambiguous["attribution_sources"]["CONFLICT"] == 1
     assert unknown["session_count"] == 1
     assert unknown["tokens_per_session_stats"]["population_standard_deviation"] == 0
-    assert report["totals"]["session_count"] == 4
+    assert boundary["estimated_cost_usd"] is None
+    assert report["totals"]["session_count"] == 5
+    assert len(report["rate_card"]["used_entries"]) == 1
     assert len(report["source_snapshot"]["attribution_digest"]) == 64
     persisted = "".join(path.read_text() for path in output.iterdir())
     assert "PROHIBITED" not in persisted
@@ -140,6 +154,14 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
         "--mapping", mapping, "--state-root", state, "--rate-card", rates,
     )
     assert not backup.exists()
+    assert (output / "inference-cost-report.json").read_text() == first_report
+
+    output.rename(backup)
+    run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--mapping", mapping, "--state-root", state, "--rate-card", rates,
+    )
+    assert output.is_dir() and not backup.exists()
     assert (output / "inference-cost-report.json").read_text() == first_report
 
     shutil.copytree(output, backup)
@@ -167,6 +189,15 @@ def test_inference_cost_report_fails_before_replacing_outputs(tmp_path):
         ok=False,
     )
     assert str(missing_mapping) not in private_error.stderr
+    unsafe_rates = tmp_path / "unsafe-rates.json"
+    value = json.loads((Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json").read_text())
+    value["entries"][0]["source"] = "https://secret@example.invalid/pricing?token=private"
+    unsafe_rates.write_text(json.dumps(value))
+    unsafe = run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--rate-card", unsafe_rates, ok=False,
+    )
+    assert "secret" not in unsafe.stderr and "token" not in unsafe.stderr
     result = run(
         "inference-cost-report", "--opencode-db", source, "--output-dir", output,
         "--rate-card", Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json",

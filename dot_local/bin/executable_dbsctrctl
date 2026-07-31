@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
 from statistics import median, pstdev
+from urllib.parse import urlsplit
 
 
 GATES = (
@@ -7497,7 +7498,7 @@ def inference_capabilities(connection):
     table = tables["session"]
     columns = {row[1].lower().replace("_", ""): row[1]
                for row in connection.execute(f'PRAGMA table_info("{table}")')}
-    required = {"id", "timecreated", "model", "cost", *INFERENCE_TOKEN_COLUMNS.values()}
+    required = {"id", "timecreated", "timeupdated", "model", "cost", *INFERENCE_TOKEN_COLUMNS.values()}
     missing = sorted(required - set(columns))
     if missing:
         fail(f"OpenCode database is missing required metadata columns: {', '.join(missing)}")
@@ -7592,6 +7593,8 @@ def load_inference_rates(path):
                          for name in INFERENCE_TOKEN_COLUMNS}
         except (KeyError, InvalidOperation, TypeError):
             fail("inference rate card has invalid token rates")
+        source_value = entry.get("source") if isinstance(entry, dict) else None
+        source = urlsplit(source_value) if isinstance(source_value, str) else urlsplit("")
         if (not isinstance(entry, dict) or set(entry) != fields
                 or not isinstance(entry.get("provider"), str) or not OPAQUE_ID.fullmatch(entry["provider"])
                 or not isinstance(entry.get("model"), str)
@@ -7601,11 +7604,13 @@ def load_inference_rates(path):
                     or entry["effective_to"] <= entry["effective_from"])
                 or entry.get("max_input_tokens") is not None and (type(entry["max_input_tokens"]) is not int
                     or entry["max_input_tokens"] < 1)
-                or not isinstance(entry.get("source"), str) or not entry["source"].startswith("https://")
+                or not isinstance(entry.get("source"), str) or source.scheme != "https" or not source.hostname
+                or source.username is not None or source.password is not None or source.query or source.fragment
                 or not isinstance(rates, dict) or set(rates) != set(INFERENCE_TOKEN_COLUMNS)
                 or any(rate is not None and (not rate.is_finite() or rate < 0) for rate in converted.values())):
             fail("inference rate card has an invalid entry")
-        parsed.append({**entry, "rates": converted})
+        rate_id = hashlib.sha256(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        parsed.append({**entry, "rates": converted, "rate_id": rate_id})
     for index, entry in enumerate(parsed):
         for other in parsed[index + 1:]:
             if entry["provider"] != other["provider"] or entry["model"] != other["model"]:
@@ -7662,6 +7667,7 @@ def inference_summary(context, records):
             "estimated_cost_usd": (inference_money(sum((item["estimated_cost"] for item in members
                                                          if item["estimated_cost"] is not None), Decimal()))
                                    if any(item["estimated_cost"] is not None for item in members) else None),
+            "rate_entry_ids": sorted({item["rate_entry"]["id"] for item in members if item["rate_entry"]}),
         })
     token_values = [record["token_total"] for record in records]
     stats = inference_stats(token_values)
@@ -7769,7 +7775,7 @@ def command_inference_cost_report(args):
         connection.execute("BEGIN")
         table, columns = inference_capabilities(connection)
         ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid), 0) FROM "{table}"').fetchone()[0]
-        selected = [columns[name] for name in ("id", "timecreated", "model", "cost")]
+        selected = [columns[name] for name in ("id", "timecreated", "timeupdated", "model", "cost")]
         selected += [columns[name] for name in INFERENCE_TOKEN_COLUMNS.values()]
         conditions, parameters = ["rowid <= ?"], [ceiling]
         if args.after is not None:
@@ -7788,9 +7794,9 @@ def command_inference_cost_report(args):
             connection.close()
     records, source_identity, attribution_identity = [], hashlib.sha256(), hashlib.sha256()
     for row in rows:
-        session_id, timestamp, raw_model, raw_cost, *tokens = row
+        session_id, timestamp, updated, raw_model, raw_cost, *tokens = row
         if (not isinstance(session_id, str) or not OPAQUE_ID.fullmatch(session_id)
-                or type(timestamp) is not int or timestamp < 0
+                or type(timestamp) is not int or timestamp < 0 or type(updated) is not int or updated < timestamp
                 or any(type(value) is not int or value < 0 for value in tokens)
                 or not isinstance(raw_cost, (int, float)) or isinstance(raw_cost, bool)
                 or not math.isfinite(raw_cost) or raw_cost < 0):
@@ -7801,15 +7807,19 @@ def command_inference_cost_report(args):
         actual = Decimal(str(raw_cost)) if raw_cost > 0 or total == 0 else None
         matching = [entry for entry in rates if entry["provider"] == provider and entry["model"] == model
                     and entry["effective_from"] <= timestamp
-                    and (entry["effective_to"] is None or timestamp < entry["effective_to"])
+                    and (entry["effective_to"] is None or updated < entry["effective_to"])
                     and (entry["max_input_tokens"] is None or sum(token_values[name] for name in (
                         "input", "cache_read", "cache_write")) <= entry["max_input_tokens"])]
         estimated = None
+        rate_entry = None
         if len(matching) == 1 and all(
                 matching[0]["rates"][name] is not None or token_values[name] == 0
                 for name in INFERENCE_TOKEN_COLUMNS):
             estimated = sum((Decimal(token_values[name]) * (matching[0]["rates"][name] or Decimal())
                              for name in INFERENCE_TOKEN_COLUMNS), Decimal()) / Decimal(1_000_000)
+            rate_entry = {"id": matching[0]["rate_id"], "provider": provider, "model": model,
+                          "effective_from": matching[0]["effective_from"],
+                          "effective_to": matching[0]["effective_to"], "source": matching[0]["source"]}
         source_identity.update(json.dumps(row, sort_keys=True, default=str).encode() + b"\0")
         attribution = contexts.get(session_id, {"context": "UNKNOWN", "status": "UNKNOWN",
                                                   "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"})
@@ -7819,7 +7829,8 @@ def command_inference_cost_report(args):
                         "attribution_confidence": attribution["confidence"],
                         "attribution_source": attribution["source"], "provider": provider,
                         "model": model, "variant": variant, "actual_cost": actual,
-                        "estimated_cost": estimated, "token_total": total, **token_values})
+                        "estimated_cost": estimated, "rate_entry": rate_entry,
+                        "token_total": total, **token_values})
     capability = {"adapter": "opencode_session_v1", "table": "session",
                   "columns": sorted({name.lower() for name in selected})}
     if args.dry_run:
@@ -7828,12 +7839,13 @@ def command_inference_cost_report(args):
         return
     summaries = [inference_summary(context, [record for record in records if record["context"] == context])
                  for context in sorted({record["context"] for record in records})]
+    used_rates = {record["rate_entry"]["id"]: record["rate_entry"] for record in records if record["rate_entry"]}
     report = {"schema_version": 1, "source_snapshot": {"session_ceiling": ceiling,
                "database_digest": source_identity.hexdigest(), "after": args.after, "before": args.before,
                "attribution_digest": attribution_identity.hexdigest(), "capabilities": capability},
                "rate_card": {"schema_version": rate_card["schema_version"],
                "retrieved_at": rate_card["retrieved_at"], "digest": rate_digest,
-               "sources": sorted({entry["source"] for entry in rate_card["entries"]})},
+               "used_entries": [used_rates[key] for key in sorted(used_rates)]},
                "contexts": summaries, "totals": inference_summary("ALL", records)}
     report_json = json.dumps(report, sort_keys=True, indent=2) + "\n"
     markdown = inference_markdown(report)

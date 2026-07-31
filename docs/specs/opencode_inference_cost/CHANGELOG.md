@@ -21,7 +21,8 @@ plane suites passed. Final independent review and Gate Commit are pending.
 **Review remediation:** Sanitized path-bearing input errors, exposed monetary
 and attribution coverage in Markdown, retained attribution source/confidence,
 clarified conservative session-grain pricing, and made interrupted publication
-self-recovering.
+self-recovering. Re-review additionally hardened rate-source URLs and bound each
+estimate to a rate entry covering the complete session lifetime.
 
 **Gate exceptions:** None.
 
