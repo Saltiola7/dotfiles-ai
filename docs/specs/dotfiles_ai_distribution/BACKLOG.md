@@ -4,7 +4,6 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-016-F3 | Preserve process cleanup when reservation release fails | high | in_progress | DAI-016-F2 | Direct-launch failure cleanup and regression evidence | DAI-016 launch contract and PR 13 review | no | Independent review found reservation cleanup could prevent process-group termination | XS | Focused subprocess and cleanup-failure tests plus Python 3.12-3.14 CI |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 | DAI-012-F1 | Record the first real provider-native five-cycle report | medium | pending | DAI-012 | One immutable report and operational evidence | Five unused completed cycles under one exact activated harness identity | no | The helper must wait for the normal weekly run and cannot manufacture or loosen eligibility | S | Exact five-member replay, availability/confounders, and no automatic harness mutation |
 
@@ -12,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-016-F3 | Preserved bounded process-group cleanup through release failure and exited-leader races | 2026-07-31 | `5aa248a..857e7af` |
 | DAI-016-F2 | Accepted OpenCode's successful empty session inventory while preserving malformed-output rejection in the subprocess E2E | 2026-07-31 | `12d83c6` |
 | DAI-016-F1 | Repaired plugin-free exact-session launch, pinned argparse-safe Hermes dispatch, bounded large host capture, added subprocess E2E coverage, and completed one 644-session three-source live round with a persisted P2 yield | 2026-07-31 | `24d0fd0..4db52d4` |
 | DAI-020 | Add guarded no-fast-forward batch integration, explicit queued-claim promotion, and private 30-day Herdr history retention | 2026-07-29 | `748265d` |

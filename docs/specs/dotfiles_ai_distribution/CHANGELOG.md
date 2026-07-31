@@ -45,6 +45,9 @@ delivery requires a feature branch and verified draft pull request into protecte
   and kills descendants when the process-group leader has already exited.
 - The subprocess fixture now emits actual zero-byte stdout for an empty OpenCode
   session inventory while retaining separate malformed non-empty JSON coverage.
+- Focused QA passed 31 R&D tests and union affected QA passed 268 tests with one
+  optional Lima skip. Final independent review found no remaining runtime defect;
+  commits `5aa248a..857e7af`. Gate Exceptions: none.
 
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
