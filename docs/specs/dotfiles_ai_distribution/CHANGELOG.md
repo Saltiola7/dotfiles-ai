@@ -31,7 +31,9 @@ delivery requires a feature branch and verified draft pull request into protecte
   sessions exist. Session discovery now treats that response as an empty set while
   retaining fail-closed handling for non-empty malformed JSON. The subprocess E2E
   fixture distinguishes both contracts instead of relying on a populated local
-  session database.
+  session database. The complete 29-test R&D suite passed locally, the corrected
+  runner was deployed with an empty second dry-run, and Gate Commit `12d83c6`
+  updates draft PR 13. Gate Exceptions: none.
 
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
