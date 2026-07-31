@@ -1075,6 +1075,58 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     assert "review-session attribution is unavailable" in failed.stderr
 
 
+def test_federated_review_rejects_scope_switch_on_continuation(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    candidate = federated_candidate("ordinary", False)
+
+    def response(cursor, continuation):
+        page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
+                "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+                "exclusion_digest": None, "limit": 25, "cursor": cursor,
+                "continuation": continuation, "candidates": [candidate],
+                "digest": f"{cursor + 1:064x}", "query": query, "session_ids": ["ordinary"]}
+        sources = [{"source_id": "host", "availability": "available", "page": page}]
+        state = None if continuation is None else [{
+            "source_id": "host", "capture_id": page["capture_id"], "snapshot": 10,
+            "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+            "exclusion_digest": None,
+            "query_digest": hashlib.sha256(json.dumps(query, sort_keys=True,
+                                                       separators=(",", ":")).encode()).hexdigest(),
+            "continuation": continuation,
+        }]
+        return {"schema_version": 2, "sources": sources, "source_state": state,
+                "manifest_digest": federated_digest(query, sources)}
+
+    first, terminal = response(0, 25), response(25, None)
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(
+        "#!/bin/sh\ncase \" $* \" in *' --source-state-json '*) "
+        f"printf '%s\\n' '{json.dumps(terminal, separators=(',', ':'))}';; *) "
+        f"printf '%s\\n' '{json.dumps(first, separators=(',', ':'))}';; esac\n"
+    )
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
+        'const first=JSON.parse(await reviewFederated({},process.cwd()));'
+        'await reviewFederated({reviewSessions:"exclude",sourceState:first.source_state},process.cwd());'
+    )
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(tmp_path / "receipts")},
+        text=True, capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "scope is not bound to this capture" in result.stderr
+
+
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

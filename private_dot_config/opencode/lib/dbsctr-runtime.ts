@@ -12,6 +12,7 @@ const harnessActivation = {
 const evaluationPages = new Map<string, { source_id: string, capture_id: string, pages: Map<number, any> }>()
 const evaluationReceipts = new Map<string, any>()
 const lensPages = new Map<string, Map<number, any>>()
+const lensCaptureScopes = new Map<string, "only" | "exclude">()
 
 function discardEvaluationReceipt(manifestDigest: string) {
   const receipt = evaluationReceipts.get(manifestDigest)
@@ -623,6 +624,15 @@ export async function reviewFederated(args: {
   }
   if (reviewSessions !== undefined) for (const source of value.sources) {
     if (source.availability !== "available") continue
+    const captureKey = `${source.source_id}\0${source.page.capture_id}`
+    if (sourceState === undefined && source.page.cursor === 0) {
+      const existing = lensCaptureScopes.get(captureKey)
+      if (existing !== undefined && existing !== reviewSessions)
+        throw new Error("federated review-session scope changed")
+      lensCaptureScopes.set(captureKey, reviewSessions)
+    } else if (lensCaptureScopes.get(captureKey) !== reviewSessions) {
+      throw new Error("federated review-session scope is not bound to this capture")
+    }
     const candidates = source.page.candidates
     if (candidates.some((candidate: any) => candidate.review_session === undefined))
       throw new Error("federated review-session attribution is unavailable")
@@ -639,7 +649,7 @@ export async function reviewFederated(args: {
     }
     const key = `${reviewSessions}\0${source.source_id}\0${source.page.capture_id}`
     const pages = lensPages.get(key) ?? new Map<number, any>()
-    pages.set(source.page.cursor, source.page.filter_telemetry)
+    pages.set(source.page.cursor, { limit: source.page.limit, telemetry: source.page.filter_telemetry })
     lensPages.set(key, pages)
   }
   if (reviewSessions !== undefined && value.source_state === null
@@ -651,7 +661,12 @@ export async function reviewFederated(args: {
       const key = `${reviewSessions}\0${sourceID}\0${captureID}`
       const pages = lensPages.get(key)
       if (pages === undefined) throw new Error("scoped federated capture receipt is incomplete")
-      return { key, pages: [...pages.values()] }
+      const ordered = [...pages.entries()].sort((left, right) => left[0] - right[0])
+      if (ordered.length === 0 || ordered[0][0] !== 0
+          || ordered.some(([cursor], index) => index > 0
+            && cursor !== ordered[index - 1][0] + ordered[index - 1][1].limit))
+        throw new Error("scoped federated capture pages are incomplete")
+      return { key, captureKey: `${sourceID}\0${captureID}`, pages: ordered.map(([, page]) => page.telemetry) }
     })
     const telemetry = {
       page_count: pageSets.reduce((total, source) => total + source.pages.length, 0),
@@ -675,7 +690,10 @@ export async function reviewFederated(args: {
     await writeFile(temporary, JSON.stringify(receipt), { encoding: "utf8", mode: 0o600, flag: "wx" })
     await rename(temporary, path)
     await chmod(path, 0o600)
-    for (const source of pageSets) lensPages.delete(source.key)
+    for (const source of pageSets) {
+      lensPages.delete(source.key)
+      lensCaptureScopes.delete(source.captureKey)
+    }
   }
   return JSON.stringify(value)
 }
