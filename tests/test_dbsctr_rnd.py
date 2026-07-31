@@ -728,7 +728,8 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     ordinary = attempts["correctness_safety"][1]
     review = attempts[runner["REVIEW_SESSION_LENS"]][1]
     base = {"page_count": 7, "session_count": 10, "review_session_count": 0,
-            "excluded_review_session_count": 2, "source_count": 3}
+            "excluded_review_session_count": 2, "unattributed_session_count": 0,
+            "source_count": 3}
     try:
         runner["parallel_lens_result"](
             ordinary, "2024-01-01", "a" * 64, "no_yield",
@@ -742,7 +743,8 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     assert ordinary_result["next_eligible_at"] == now + 86400
 
     review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
-                      "excluded_review_session_count": 0, "source_count": 3}
+                      "excluded_review_session_count": 0, "unattributed_session_count": 0,
+                      "source_count": 3}
     review_result = runner["parallel_lens_result"](
         review, "2024-01-01", "b" * 64, "no_yield", review_metrics, now)
     assert review_result["lens"] == "review_session_governance"
@@ -760,7 +762,7 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
 def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, capsys):
     runner, _ = load_runner(tmp_path, monkeypatch, "waiting-priority")
     worker = {"worker_id": "worker-1", "session_id": "session-1", "state": "claimed",
-              "priority": "P2", "recovery_attempts": 0}
+              "priority": "P0", "recovery_attempts": 0}
 
     def execute(argv, **_kwargs):
         if argv[0] == runner["DBSCTRCTL"]:
@@ -771,9 +773,11 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
 
     runner["command"] = execute
     runner["launch"] = lambda *_args: (_ for _ in ()).throw(AssertionError("worker recovered"))
-    assert runner["watchdog"]() == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
+    for priority in ("P0", "P2", "P3"):
+        worker["priority"] = priority
+        assert runner["watchdog"]() == 0
+        assert json.loads(capsys.readouterr().out) == {
+            "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
 
 
 def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):

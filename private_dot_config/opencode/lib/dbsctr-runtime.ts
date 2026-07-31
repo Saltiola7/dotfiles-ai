@@ -487,6 +487,7 @@ export async function reviewFederated(args: {
   projectDigest?: string
   reviewedStatus?: "reviewed" | "unreviewed"
   archiveOnly?: boolean
+  reviewSessions?: "only" | "exclude"
   limit?: number
   cursor?: number
   sourceState?: {
@@ -501,7 +502,7 @@ export async function reviewFederated(args: {
   continuation: number | null
   }[]
 } = {}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string, env = process.env) {
-  const { limit = 25, cursor = 0, sourceState, ...requested } = args
+  const { limit = 25, cursor = 0, sourceState, reviewSessions, ...requested } = args
   const opaqueID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
   if ([excludedSessionID, excludedMessageID].some(value => value !== undefined && !opaqueID.test(value)))
     throw new Error("invalid excluded history identity")
@@ -617,6 +618,20 @@ export async function reviewFederated(args: {
     for (const source of receiptSources) evaluationPages.delete(`${source.source_id}\0${source.capture_id}`)
     while (evaluationReceipts.size > 8)
       discardEvaluationReceipt(evaluationReceipts.keys().next().value as string)
+  }
+  if (reviewSessions !== undefined) for (const source of value.sources) {
+    if (source.availability !== "available") continue
+    const candidates = source.page.candidates
+    const selected = candidates.filter((candidate: any) => reviewSessions === "only"
+      ? candidate.review_session === true : candidate.review_session === false)
+    source.page.candidates = selected
+    source.page.session_ids = selected.map((candidate: any) => candidate.session_id)
+    source.page.filter_telemetry = {
+      selected_session_count: selected.length,
+      selected_review_session_count: selected.filter((candidate: any) => candidate.review_session === true).length,
+      excluded_review_session_count: candidates.filter((candidate: any) => candidate.review_session === true).length,
+      unattributed_session_count: candidates.filter((candidate: any) => candidate.review_session === undefined).length,
+    }
   }
   return JSON.stringify(value)
 }

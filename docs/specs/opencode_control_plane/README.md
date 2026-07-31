@@ -328,9 +328,10 @@ the typed claim and draft-PR delivery interfaces. Builder and read-only subagent
 remain denied those writes.
 
 Given no distinct finding under the assigned lens, then the worker records
-no-yield and its exact telemetry. Ordinary lenses exclude review-worker session
-families; only `review_session_governance` selects them. No lens manufactures a
-proposal merely to finish a scheduled run.
+no-yield and its exact telemetry. Typed federation removes review-worker session
+families before returning ordinary-lens pages; only `review_session_governance`
+receives attributed review sessions, and legacy unattributed sessions fail
+closed into neither scope. No lens manufactures a proposal merely to finish a run.
 
 Given typed cycle begin runs, stable OpenCode tool context records the initiating
 session and worktree in the Cycle Record. Optional Herdr launch metadata remains

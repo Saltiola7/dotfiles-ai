@@ -399,7 +399,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   `review_session_governance` selects those sessions and may propose lens changes.
 - Every pass records its lens, outcome, immutable manifest, page count, selected
   session count, selected review-session count, excluded review-session count,
-  source count, cadence, and exact next eligibility. Validation rejects ordinary
+  unattributed-session count, source count, cadence, and exact next eligibility.
+  The typed federation adapter removes out-of-scope candidates before returning
+  a page; unattributed legacy evidence is selected by neither scope. Validation rejects ordinary
   lens telemetry with selected review sessions and governance telemetry with
   excluded review sessions.
 - A yield resets only that lens and makes it immediately eligible for another
@@ -706,7 +708,7 @@ feature branch with a draft pull request; the operator retains merge authority.
   authoritative worker state (including a reverted merged attempt).
 - `lens-plan --worker-id ID` returns exactly one assigned lens and whether it
   exclusively selects or excludes review sessions. `lens-result` requires a
-  terminal manifest plus five bounded telemetry counters for parallel passes.
+  terminal manifest plus six bounded telemetry counters for parallel passes.
 - Read-only typed `dbsctr_provider_evaluation` lists bounded report summaries or
   replays one exact report ID. Write-capable
   `dbsctr_provider_evaluation_save` accepts a rubric version, validated federated

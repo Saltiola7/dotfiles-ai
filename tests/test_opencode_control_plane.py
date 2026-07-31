@@ -53,6 +53,40 @@ def federated_digest(query, sources):
                                      separators=(",", ":")).encode()).hexdigest()
 
 
+def federated_candidate(identifier, review_session="missing"):
+    aggregate_names = ("approval_count", "candidate_count", "child_count", "cost_total",
+                       "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count",
+                       "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms",
+                       "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count")
+    telemetry_names = ("approval_count", "retry_count", "delegation_count", "model_families",
+                       "error_classes", "token_total", "cost_total", "provider_ids", "model_ids",
+                       "agent_ids", "session_relation", "core_revisions", "overlay_revisions",
+                       "gate_failure_count", "gate_reopen_count", "remediation_round_count")
+    candidate = {
+        "schema_version": 1, "session_id": identifier, "snapshot": 10,
+        "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+        "project_digest": "d" * 64, "context": "dotfiles_ai_distribution",
+        "completed_at": "2026-07-24T10:00:00Z", "reviewed_status": "unreviewed",
+        "correlation_quality": "exact", "cycles": [],
+        "aggregates": {name: 0 for name in aggregate_names},
+        "telemetry": {
+            "schema_version": 2, "approval_count": 0, "retry_count": 0,
+            "delegation_count": 0, "model_families": ["gpt"], "error_classes": {},
+            "token_total": 0, "cost_total": 0, "provider_ids": ["openai"],
+            "model_ids": ["gpt-5.6-sol"], "agent_ids": ["build"],
+            "session_relation": "primary", "core_revisions": ["3.27"],
+            "overlay_revisions": ["default"], "gate_failure_count": 0,
+            "gate_reopen_count": 0, "remediation_round_count": 0,
+            "availability": {name: "available" for name in telemetry_names},
+            "attribution_status": "exact",
+        },
+        "method_revision": "3.27",
+    }
+    if review_session != "missing":
+        candidate["review_session"] = review_session
+    return candidate
+
+
 def rendered_config(env: dict[str, str] | None = None, data: dict | None = None) -> dict:
     result = subprocess.run(
         [
@@ -966,6 +1000,53 @@ def test_provider_evaluation_receipt_is_single_use(tmp_path):
                                   "PRIVACY_LOG": str(privacy_log), "PRIVACY_CHANGE": "1"},
                              text=True, capture_output=True, check=True)
     assert changed.stdout.strip() == "terminal federated capture privacy epoch changed"
+
+
+def test_federated_review_enforces_review_session_scope(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    candidates = [federated_candidate("review", True), federated_candidate("ordinary", False),
+                  federated_candidate("legacy")]
+    page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
+            "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+            "exclusion_digest": None, "limit": 25, "cursor": 0, "continuation": None,
+            "candidates": candidates, "digest": "e" * 64, "query": query,
+            "session_ids": [candidate["session_id"] for candidate in candidates]}
+    sources = [{"source_id": "host", "availability": "available", "page": page}]
+    query_digest = hashlib.sha256(json.dumps(query, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    response = {"schema_version": 2, "sources": sources, "source_state": [{
+        "source_id": "host", "capture_id": page["capture_id"], "snapshot": 10,
+        "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+        "exclusion_digest": None, "query_digest": query_digest, "continuation": None,
+    }], "manifest_digest": federated_digest(query, sources)}
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
+        'for (const scope of ["exclude","only"]) {'
+        ' const value=JSON.parse(await reviewFederated({reviewSessions:scope},process.cwd()));'
+        ' console.log(JSON.stringify(value.sources[0].page)); }'
+    )
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config)}, text=True, capture_output=True, check=True,
+    )
+    excluded, only = [json.loads(line) for line in result.stdout.splitlines()]
+    assert excluded["session_ids"] == ["ordinary"]
+    assert excluded["filter_telemetry"] == {
+        "selected_session_count": 1, "selected_review_session_count": 0,
+        "excluded_review_session_count": 1, "unattributed_session_count": 1,
+    }
+    assert only["session_ids"] == ["review"]
+    assert only["filter_telemetry"]["selected_review_session_count"] == 1
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):

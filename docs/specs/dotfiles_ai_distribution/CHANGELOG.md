@@ -10,7 +10,8 @@ delivery requires a feature branch and verified draft pull request into protecte
   slots. Five ordinary lenses exclude improvement-worker session families;
   `review_session_governance` alone reviews them and audits lens usefulness.
 - Added durable per-pass page, source, selected-session, selected-review-session,
-  and excluded-review-session telemetry. Yield immediately reopens only its lens;
+  excluded-review-session, and unattributed-session telemetry. Typed federation
+  removes out-of-scope candidates before model access. Yield immediately reopens only its lens;
   no-yield retains daily-to-weekly-to-monthly backoff per lens.
 - Hermes now fills every eligible lens every five minutes. Noncritical P1-P3
   claims may cross Discovery only with explicit autonomous readiness and no

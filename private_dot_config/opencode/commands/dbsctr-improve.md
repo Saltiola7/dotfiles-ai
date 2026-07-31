@@ -15,7 +15,8 @@ Operate as one bounded native-Build R&D worker:
    reliability/recovery, performance/cost, operator experience, and
    architecture/R&D meta. When assigned `review_session_governance`, also load
    `dbsctr-lens-audit`.
-2. Call `dbsctr_review_federated` with `limit=100` once
+2. Call `dbsctr_review_federated` with `limit=100` and `reviewSessions` set to
+   the assigned plan's exact `only` or `exclude` value once
    without a `reviewedStatus` filter and follow every continuation. This full
    history pass must include the host and every federated workspace source and both
    previously reviewed and unreviewed sessions. Stop if any configured source is
@@ -51,7 +52,8 @@ Operate as one bounded native-Build R&D worker:
    run `dbsctr-rnd lens-result` with the worker ID, planned capture day, terminal
    manifest digest, `--outcome no_yield`, and `--telemetry-json` containing the
    exact non-negative counters `page_count`, `session_count`,
-   `review_session_count`, `excluded_review_session_count`, and `source_count`,
+   `review_session_count`, `excluded_review_session_count`,
+   `unattributed_session_count`, and `source_count`,
    then stop. Never manufacture work.
 7. Assign exactly one priority before claiming: P0 for an immediate critical
    safety, security, data-loss, or broad-outage risk; P1 for a concrete high-impact

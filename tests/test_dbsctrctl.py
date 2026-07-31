@@ -4470,6 +4470,20 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
+        autonomous = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "implementing",
+            "--cycle-id", "cycle-5", "--path", "autonomous.txt",
+        ).stdout)
+        self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "implementing"))
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-6", "--session-id", "session-6",
+            "--summary", "Escalate a critical autonomous finding", "--priority", "P0")
+        critical = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-6", "--state", "discovery", "--autonomous", ok=False,
+        )
+        self.assertIn("require operator authorization", critical.stderr)
         repeated = run(
             self.repo, "improvement-promote", "--state-root", str(state),
             "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,

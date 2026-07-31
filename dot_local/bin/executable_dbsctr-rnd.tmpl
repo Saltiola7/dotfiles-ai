@@ -218,6 +218,7 @@ def state_connection():
             session_count INTEGER NOT NULL CHECK (session_count>=0),
             review_session_count INTEGER NOT NULL CHECK (review_session_count>=0),
             excluded_review_session_count INTEGER NOT NULL CHECK (excluded_review_session_count>=0),
+            unattributed_session_count INTEGER NOT NULL CHECK (unattributed_session_count>=0),
             source_count INTEGER NOT NULL CHECK (source_count>=0)
         ) WITHOUT ROWID;
     """)
@@ -323,7 +324,7 @@ def state_connection():
     for row in connection.execute(
             "SELECT worker_id,lens_name,capture_day,manifest_digest,outcome,recorded_at,cadence,"
             "no_yield_count,quarter,next_eligible_at,page_count,session_count,review_session_count,"
-            "excluded_review_session_count,source_count FROM parallel_lens_passes"):
+            "excluded_review_session_count,unattributed_session_count,source_count FROM parallel_lens_passes"):
         worker_id, lens_name, day, digest, outcome, recorded_at, cadence, count, quarter, next_at, *metrics = row
         if (not safe_id(worker_id) or lens_name not in LENSES
                 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)
@@ -685,7 +686,7 @@ def lens_plan_action(worker_id=None, now=None):
 def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telemetry, now=None):
     now = int(time.time()) if now is None else now
     telemetry_names = {"page_count", "session_count", "review_session_count",
-                       "excluded_review_session_count", "source_count"}
+                       "excluded_review_session_count", "unattributed_session_count", "source_count"}
     if (not safe_id(worker_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", capture_day or "")
             or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest or "")
             or outcome not in {"yield", "no_yield"} or set(telemetry) != telemetry_names
@@ -696,12 +697,14 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
         existing = connection.execute(
             "SELECT lens_name,capture_day,manifest_digest,outcome,cadence,no_yield_count,quarter,"
             "next_eligible_at,page_count,session_count,review_session_count,"
-            "excluded_review_session_count,source_count FROM parallel_lens_passes WHERE worker_id=?",
+            "excluded_review_session_count,unattributed_session_count,source_count "
+            "FROM parallel_lens_passes WHERE worker_id=?",
             (worker_id,)).fetchone()
         if existing is not None:
             supplied = (existing[0], capture_day, manifest_digest, outcome, *existing[4:8],
                         telemetry["page_count"], telemetry["session_count"],
                         telemetry["review_session_count"], telemetry["excluded_review_session_count"],
+                        telemetry["unattributed_session_count"],
                         telemetry["source_count"])
             if supplied != existing:
                 raise RuntimeError("parallel lens result conflicts with immutable pass")
@@ -742,10 +745,11 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
                 count = 0
             next_at = now + LENS_CADENCE_SECONDS[cadence]
         connection.execute(
-            "INSERT INTO parallel_lens_passes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO parallel_lens_passes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (worker_id, lens_name, capture_day, manifest_digest, outcome, now, cadence, count,
              quarter, next_at, telemetry["page_count"], telemetry["session_count"],
              telemetry["review_session_count"], telemetry["excluded_review_session_count"],
+             telemetry["unattributed_session_count"],
              telemetry["source_count"]),
         )
         connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (reservation,))
@@ -1427,7 +1431,7 @@ def watchdog():
     current_workers = {worker["worker_id"]: worker for worker in workers}
     merge_identities = {}
     actionable = [worker for worker in workers
-                  if not (worker["state"] == "claimed" and worker.get("priority") in {"P2", "P3"})]
+                  if not (worker["state"] == "claimed" and worker.get("priority") != "P1")]
     agents = (records(command([HERDR, "agent", "list"]), "agents") if actionable else [])
     token = None
     events = []
@@ -1444,7 +1448,7 @@ def watchdog():
         if worker["state"] == "blocked":
             events.append({"worker_id": worker["worker_id"], "status": "blocked"})
             continue
-        if worker["state"] == "claimed" and worker.get("priority") in {"P2", "P3"}:
+        if worker["state"] == "claimed" and worker.get("priority") != "P1":
             events.append({"worker_id": worker["worker_id"], "status": "waiting_priority"})
             continue
         matches = [agent for agent in agents

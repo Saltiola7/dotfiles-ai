@@ -192,6 +192,7 @@ export const review_history = tool({
     reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
     replay: tool.schema.string().optional(),
     archiveOnly: tool.schema.boolean().optional().default(false),
+    reviewSessions: tool.schema.enum(["only", "exclude"]).optional(),
     snapshot: tool.schema.number().int().min(0).optional(),
     sessionCeiling: tool.schema.number().int().min(0).optional(),
     partCeiling: tool.schema.number().int().min(0).optional(),
