@@ -535,6 +535,9 @@ def reserve_parallel_lens(workers, now):
                 "SELECT halt_reason FROM scheduler_state WHERE singleton=1").fetchone()[0]:
             connection.commit()
             return None, None, "halted"
+        if connection.execute("SELECT 1 FROM lens_attempts LIMIT 1").fetchone() is not None:
+            connection.commit()
+            return None, None, "legacy_attempt_active"
         quarter = quarter_at(now)
         active = {row[0] for row in connection.execute("SELECT lens_name FROM parallel_lens_attempts")}
         selected = None

@@ -38,12 +38,9 @@ Operate as one bounded native-Build R&D worker:
    only with the configured read-only `gh issue list` and `gh pr list` forms. Use Scout for
    authoritative external documentation when useful. Never expose or persist a
    private project, path, content excerpt, or traceable provenance.
-4. After synthesis, call `dbsctr_provider_evaluation_save` with the terminal
-   manifest digest, rubric `provider-harness` version `1`, digest
-   `0c68c7f075667778536925202dd5abe84fd8ecc8b295e43cf98d8565669301ee`,
-   and only bounded sanitized findings/recommendations. The helper derives the
-   exact cohort. `insufficient` is a truthful result; never loosen eligibility,
-   rerun federation, alter cadence, or implement a recommendation automatically.
+4. Do not save a provider evaluation from a scoped lens capture. Filtering makes
+   it intentionally different from the complete provider-evaluation cohort; the
+   separate unfiltered provider evaluation operation remains authoritative.
 5. Treat session-to-cycle correlation as supporting evidence. Do not propose
    correlation metadata merely because a link is ambiguous or unavailable;
    require a concrete correctness, safety, reliability, latency, cost, or user

@@ -1015,12 +1015,8 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
             "candidates": candidates, "digest": "e" * 64, "query": query,
             "session_ids": [candidate["session_id"] for candidate in candidates]}
     sources = [{"source_id": "host", "availability": "available", "page": page}]
-    query_digest = hashlib.sha256(json.dumps(query, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    response = {"schema_version": 2, "sources": sources, "source_state": [{
-        "source_id": "host", "capture_id": page["capture_id"], "snapshot": 10,
-        "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
-        "exclusion_digest": None, "query_digest": query_digest, "continuation": None,
-    }], "manifest_digest": federated_digest(query, sources)}
+    response = {"schema_version": 2, "sources": sources, "source_state": None,
+                "manifest_digest": federated_digest(query, sources)}
     sandbox = bin_dir / "sandbox-vm"
     sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
     sandbox.chmod(0o755)
@@ -1028,17 +1024,22 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     config.write_text(json.dumps({"workspaces": []}))
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
-        f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
+        f'import {{ reviewFederated, providerEvaluationSave }} from {json.dumps(str(runtime))};'
+        'let digest="";'
         'for (const scope of ["exclude","only"]) {'
         ' const value=JSON.parse(await reviewFederated({reviewSessions:scope},process.cwd()));'
-        ' console.log(JSON.stringify(value.sources[0].page)); }'
+        ' digest=value.manifest_digest; console.log(JSON.stringify(value.sources[0].page)); }'
+        'try { await providerEvaluationSave({manifestDigest:digest,rubric:{name:"provider-harness",version:"1",digest:"a".repeat(64)},findings:[],recommendations:[]},process.cwd()); }'
+        'catch (error) { console.log(error.message); }'
     )
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
              "OPENCODE_VM_CONFIG": str(config)}, text=True, capture_output=True, check=True,
     )
-    excluded, only = [json.loads(line) for line in result.stdout.splitlines()]
+    lines = result.stdout.splitlines()
+    excluded, only = [json.loads(line) for line in lines[:2]]
+    assert lines[2] == "terminal federated capture receipt is unavailable"
     assert excluded["session_ids"] == ["ordinary"]
     assert excluded["filter_telemetry"] == {
         "selected_session_count": 1, "selected_review_session_count": 0,

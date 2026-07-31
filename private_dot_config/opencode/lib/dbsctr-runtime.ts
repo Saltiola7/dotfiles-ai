@@ -586,7 +586,8 @@ export async function reviewFederated(args: {
     evaluationPages.set(key, captured)
     trimEvaluationPages()
   }
-  if (value.source_state === null && value.sources.some((source: any) => source.availability === "available")
+  if (reviewSessions === undefined && value.source_state === null
+      && value.sources.some((source: any) => source.availability === "available")
       && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
     const privacy = await analyticsJSON(["sandbox-vm", "privacy-epochs"], cwd, null)
     if (!exactKeys(privacy, ["schema_version", "sources"]) || privacy.schema_version !== 1

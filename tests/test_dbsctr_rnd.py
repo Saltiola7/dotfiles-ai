@@ -698,6 +698,7 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     assert reason == "reserved"
     runner["claim_reservation"](reservation, "worker-1", now)
     runner["complete_reservation"](reservation, "worker-1", now)
+    assert runner["reserve_parallel_lens"]([], now) == (None, None, "legacy_attempt_active")
     assert runner["reserve_spawn"]([], now) == (None, "cadence_not_due")
     connection = runner["state_connection"]()
     assert runner["lens_plan"](connection, now, "worker-1")["due"]
