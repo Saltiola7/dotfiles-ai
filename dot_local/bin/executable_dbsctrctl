@@ -21,8 +21,9 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
-from statistics import median
+from statistics import median, pstdev
 
 
 GATES = (
@@ -7482,6 +7483,316 @@ def command_reconcile_target(args):
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
 
 
+INFERENCE_TOKEN_COLUMNS = {
+    "input": "tokensinput", "output": "tokensoutput", "reasoning": "tokensreasoning",
+    "cache_read": "tokenscacheread", "cache_write": "tokenscachewrite",
+}
+
+
+def inference_capabilities(connection):
+    tables = {row[0].lower(): row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    if "session" not in tables:
+        fail("OpenCode database is missing required session metadata table")
+    table = tables["session"]
+    columns = {row[1].lower().replace("_", ""): row[1]
+               for row in connection.execute(f'PRAGMA table_info("{table}")')}
+    required = {"id", "timecreated", "model", "cost", *INFERENCE_TOKEN_COLUMNS.values()}
+    missing = sorted(required - set(columns))
+    if missing:
+        fail(f"OpenCode database is missing required metadata columns: {', '.join(missing)}")
+    return table, {name: columns[name] for name in required}
+
+
+def parse_inference_model(raw):
+    try:
+        value = json.loads(raw, object_pairs_hook=no_duplicate_keys) if isinstance(raw, str) else None
+    except json.JSONDecodeError:
+        value = None
+    provider = value.get("providerID") if isinstance(value, dict) else None
+    model = value.get("id", value.get("modelID")) if isinstance(value, dict) else None
+    variant = value.get("variant", "default") if isinstance(value, dict) else None
+    if (not isinstance(provider, str) or not OPAQUE_ID.fullmatch(provider)
+            or not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model)
+            or not isinstance(variant, str) or not OPAQUE_ID.fullmatch(variant)):
+        return "UNAVAILABLE", "UNAVAILABLE", "UNAVAILABLE"
+    return provider, model, variant
+
+
+def load_inference_mapping(path):
+    if path is None:
+        return {}
+    try:
+        value = json.loads(Path(path).expanduser().read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read inference context mapping: {error}")
+    sessions = value.get("sessions") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "sessions"}
+            or value.get("schema_version") != 1 or not isinstance(sessions, dict)
+            or any(not isinstance(key, str) or not OPAQUE_ID.fullmatch(key)
+                   or not isinstance(context, str) or not OPAQUE_ID.fullmatch(context)
+                   for key, context in sessions.items())):
+        fail("inference context mapping has an invalid schema")
+    return sessions
+
+
+def inference_contexts(state_root, mapping):
+    contexts = {}
+    for record in history_evidence(review_root(state_root)):
+        session_id = record["session_id"]
+        context = record.get("context", "unavailable")
+        quality = record.get("correlation_quality", "unavailable")
+        contexts[session_id] = ("MULTI_CONTEXT" if quality == "ambiguous" else
+                                context if context != "unavailable" else "UNKNOWN")
+    for session_id, context in mapping.items():
+        existing = contexts.get(session_id)
+        contexts[session_id] = ("MULTI_CONTEXT" if existing not in (None, "UNKNOWN", context)
+                                else context)
+    return contexts
+
+
+def load_inference_rates(path):
+    try:
+        raw = Path(path).expanduser().read_bytes()
+        value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read inference rate card: {error}")
+    entries = value.get("entries") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "currency", "retrieved_at", "entries"}
+            or value.get("schema_version") != 1 or value.get("currency") != "USD"
+            or not isinstance(value.get("retrieved_at"), str) or not isinstance(entries, list)):
+        fail("inference rate card has an invalid schema")
+    parsed = []
+    for entry in entries:
+        rates = entry.get("usd_per_million_tokens") if isinstance(entry, dict) else None
+        fields = {"provider", "model", "effective_from", "effective_to", "source",
+                  "max_input_tokens", "usd_per_million_tokens"}
+        try:
+            converted = {name: (Decimal(str(rates[name])) if rates[name] is not None else None)
+                         for name in INFERENCE_TOKEN_COLUMNS}
+        except (KeyError, InvalidOperation, TypeError):
+            fail("inference rate card has invalid token rates")
+        if (not isinstance(entry, dict) or set(entry) != fields
+                or not isinstance(entry.get("provider"), str) or not OPAQUE_ID.fullmatch(entry["provider"])
+                or not isinstance(entry.get("model"), str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", entry["model"])
+                or type(entry.get("effective_from")) is not int or entry["effective_from"] < 0
+                or entry.get("effective_to") is not None and (type(entry["effective_to"]) is not int
+                    or entry["effective_to"] <= entry["effective_from"])
+                or entry.get("max_input_tokens") is not None and (type(entry["max_input_tokens"]) is not int
+                    or entry["max_input_tokens"] < 1)
+                or not isinstance(entry.get("source"), str) or not entry["source"].startswith("https://")
+                or not isinstance(rates, dict) or set(rates) != set(INFERENCE_TOKEN_COLUMNS)
+                or any(rate is not None and (not rate.is_finite() or rate < 0) for rate in converted.values())):
+            fail("inference rate card has an invalid entry")
+        parsed.append({**entry, "rates": converted})
+    for index, entry in enumerate(parsed):
+        for other in parsed[index + 1:]:
+            if entry["provider"] != other["provider"] or entry["model"] != other["model"]:
+                continue
+            left_end = entry["effective_to"] if entry["effective_to"] is not None else 2**63 - 1
+            right_end = other["effective_to"] if other["effective_to"] is not None else 2**63 - 1
+            if max(entry["effective_from"], other["effective_from"]) < min(left_end, right_end):
+                fail("inference rate card contains overlapping entries")
+    return value, parsed, hashlib.sha256(raw).hexdigest()
+
+
+def nearest_rank(values, fraction):
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]
+
+
+def inference_number(value):
+    value = round(float(value), 6)
+    return int(value) if value.is_integer() else value
+
+
+def inference_stats(values):
+    if not values:
+        return None
+    return {
+        "min": min(values), "p25": nearest_rank(values, .25),
+        "mean": inference_number(sum(values) / len(values)), "median": inference_number(median(values)),
+        "p75": nearest_rank(values, .75), "p95": nearest_rank(values, .95), "max": max(values),
+        "population_standard_deviation": inference_number(pstdev(values)),
+    }
+
+
+def inference_money(value):
+    return float(value.quantize(Decimal("0.000001")))
+
+
+def inference_summary(context, records):
+    token_total = sum(record["token_total"] for record in records)
+    actual_covered = sum(record["token_total"] for record in records if record["actual_cost"] is not None)
+    estimate_covered = sum(record["token_total"] for record in records if record["estimated_cost"] is not None)
+    actual_values = [record["actual_cost"] for record in records if record["actual_cost"] is not None]
+    estimate_values = [record["estimated_cost"] for record in records if record["estimated_cost"] is not None]
+    grouped = {}
+    for record in records:
+        grouped.setdefault((record["provider"], record["model"], record["variant"]), []).append(record)
+    models = []
+    for (provider, model, variant), members in sorted(grouped.items()):
+        models.append({
+            "provider": provider, "model": model, "variant": variant, "session_count": len(members),
+            "tokens": sum(item["token_total"] for item in members),
+            "actual_cost_usd": (inference_money(sum((item["actual_cost"] for item in members
+                                                      if item["actual_cost"] is not None), Decimal()))
+                                if any(item["actual_cost"] is not None for item in members) else None),
+            "estimated_cost_usd": (inference_money(sum((item["estimated_cost"] for item in members
+                                                         if item["estimated_cost"] is not None), Decimal()))
+                                   if any(item["estimated_cost"] is not None for item in members) else None),
+        })
+    token_values = [record["token_total"] for record in records]
+    stats = inference_stats(token_values)
+    mean = stats["mean"] if stats else 0
+    return {
+        "bounded_context": context, "session_count": len(records), "usage_count": len(records),
+        **{f"{name}_tokens": sum(record[name] for record in records) for name in INFERENCE_TOKEN_COLUMNS},
+        "actual_cost_usd": inference_money(sum(actual_values, Decimal())) if actual_values else None,
+        "estimated_cost_usd": inference_money(sum(estimate_values, Decimal())) if estimate_values else None,
+        "actual_cost_coverage": round(actual_covered / token_total, 6) if token_total else 1.0,
+        "estimated_cost_coverage": round(estimate_covered / token_total, 6) if token_total else 1.0,
+        "models": models, "tokens_per_session_stats": stats,
+        "actual_cost_per_session_stats": inference_stats([float(value) for value in actual_values]),
+        "estimated_cost_per_session_stats": inference_stats([float(value) for value in estimate_values]),
+        "p95_to_median_tokens": (round(stats["p95"] / stats["median"], 6)
+                                  if stats and stats["median"] else None),
+        "token_coefficient_of_variation": (round(stats["population_standard_deviation"] / mean, 6)
+                                             if mean else None),
+    }
+
+
+def inference_markdown(report):
+    lines = ["# OpenCode inference cost report", "", "| Bounded context | Sessions | Tokens | Actual USD | Estimated USD | Models |", "|---|---:|---:|---:|---:|---|"]
+    for item in report["contexts"]:
+        tokens = sum(item[f"{name}_tokens"] for name in INFERENCE_TOKEN_COLUMNS)
+        models = ", ".join(sorted({f'{model["provider"]}/{model["model"]}' for model in item["models"]}))
+        lines.append(f'| {item["bounded_context"]} | {item["session_count"]} | {tokens} | '
+                     f'{item["actual_cost_usd"] if item["actual_cost_usd"] is not None else "unavailable"} | '
+                     f'{item["estimated_cost_usd"] if item["estimated_cost_usd"] is not None else "unavailable"} | {models} |')
+    return "\n".join(lines) + "\n"
+
+
+def publish_inference_report(output, files):
+    output = output.expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
+    backup = output.parent / f".{output.name}-backup"
+    try:
+        if backup.exists():
+            if output.exists():
+                fail("inference report has a stale recovery directory")
+            os.replace(backup, output)
+        for name, content in files.items():
+            (temporary / name).write_text(content, encoding="utf-8")
+        if output.exists():
+            os.replace(output, backup)
+        try:
+            os.replace(temporary, output)
+        except Exception:
+            if backup.exists():
+                os.replace(backup, output)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+
+def command_inference_cost_report(args):
+    database = Path(args.opencode_db).expanduser()
+    if not database.is_file():
+        fail("OpenCode database is missing")
+    if args.after is not None and args.after < 0 or args.before is not None and args.before < 0:
+        fail("inference report time bounds must be non-negative milliseconds")
+    if args.after is not None and args.before is not None and args.after >= args.before:
+        fail("inference report time bounds are invalid")
+    rate_card, rates, rate_digest = load_inference_rates(args.rate_card)
+    mapping = load_inference_mapping(args.mapping)
+    contexts = inference_contexts(args.state_root, mapping)
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection.execute("BEGIN")
+        table, columns = inference_capabilities(connection)
+        ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid), 0) FROM "{table}"').fetchone()[0]
+        selected = [columns[name] for name in ("id", "timecreated", "model", "cost")]
+        selected += [columns[name] for name in INFERENCE_TOKEN_COLUMNS.values()]
+        conditions, parameters = ["rowid <= ?"], [ceiling]
+        if args.after is not None:
+            conditions.append(f'"{columns["timecreated"]}" >= ?')
+            parameters.append(args.after)
+        if args.before is not None:
+            conditions.append(f'"{columns["timecreated"]}" < ?')
+            parameters.append(args.before)
+        query = (f'SELECT {", ".join(f"\"{name}\"" for name in selected)} FROM "{table}" '
+                 f'WHERE {" AND ".join(conditions)} ORDER BY "{columns["id"]}"')
+        rows = connection.execute(query, parameters).fetchall()
+    except sqlite3.Error as error:
+        fail(f"cannot read OpenCode database: {error}")
+    finally:
+        if "connection" in locals():
+            connection.close()
+    records, source_identity, attribution_identity = [], hashlib.sha256(), hashlib.sha256()
+    for row in rows:
+        session_id, timestamp, raw_model, raw_cost, *tokens = row
+        if (not isinstance(session_id, str) or not OPAQUE_ID.fullmatch(session_id)
+                or type(timestamp) is not int or timestamp < 0
+                or any(type(value) is not int or value < 0 for value in tokens)
+                or not isinstance(raw_cost, (int, float)) or isinstance(raw_cost, bool)
+                or not math.isfinite(raw_cost) or raw_cost < 0):
+            fail("OpenCode session metadata contains invalid values")
+        provider, model, variant = parse_inference_model(raw_model)
+        token_values = dict(zip(INFERENCE_TOKEN_COLUMNS, tokens))
+        total = sum(tokens)
+        actual = Decimal(str(raw_cost)) if raw_cost > 0 or total == 0 else None
+        matching = [entry for entry in rates if entry["provider"] == provider and entry["model"] == model
+                    and entry["effective_from"] <= timestamp
+                    and (entry["effective_to"] is None or timestamp < entry["effective_to"])
+                    and (entry["max_input_tokens"] is None or sum(token_values[name] for name in (
+                        "input", "cache_read", "cache_write")) <= entry["max_input_tokens"])]
+        estimated = None
+        if len(matching) == 1 and all(
+                matching[0]["rates"][name] is not None or token_values[name] == 0
+                for name in INFERENCE_TOKEN_COLUMNS):
+            estimated = sum((Decimal(token_values[name]) * (matching[0]["rates"][name] or Decimal())
+                             for name in INFERENCE_TOKEN_COLUMNS), Decimal()) / Decimal(1_000_000)
+        source_identity.update(json.dumps(row, sort_keys=True, default=str).encode() + b"\0")
+        context = contexts.get(session_id, "UNKNOWN")
+        attribution_identity.update(f"{session_id}\0{context}\0".encode())
+        records.append({"context": context, "provider": provider,
+                        "model": model, "variant": variant, "actual_cost": actual,
+                        "estimated_cost": estimated, "token_total": total, **token_values})
+    capability = {"adapter": "opencode_session_v1", "table": "session",
+                  "columns": sorted({name.lower() for name in selected})}
+    if args.dry_run:
+        print(json.dumps({"schema_version": 1, "capabilities": capability,
+                          "planned_session_count": len(records)}, sort_keys=True, separators=(",", ":")))
+        return
+    summaries = [inference_summary(context, [record for record in records if record["context"] == context])
+                 for context in sorted({record["context"] for record in records})]
+    report = {"schema_version": 1, "source_snapshot": {"session_ceiling": ceiling,
+               "database_digest": source_identity.hexdigest(), "after": args.after, "before": args.before,
+               "attribution_digest": attribution_identity.hexdigest(), "capabilities": capability},
+               "rate_card": {"schema_version": rate_card["schema_version"],
+               "retrieved_at": rate_card["retrieved_at"], "digest": rate_digest},
+               "contexts": summaries, "totals": inference_summary("ALL", records)}
+    report_json = json.dumps(report, sort_keys=True, indent=2) + "\n"
+    markdown = inference_markdown(report)
+    generated = now()
+    manifest = {"schema_version": 1, "generated_at": generated,
+                "files": {"inference-cost-report.json": hashlib.sha256(report_json.encode()).hexdigest(),
+                          "inference-cost-report.md": hashlib.sha256(markdown.encode()).hexdigest()},
+                "source_snapshot": report["source_snapshot"], "rate_card": report["rate_card"]}
+    publish_inference_report(Path(args.output_dir), {
+        "inference-cost-report.json": report_json, "inference-cost-report.md": markdown,
+        "manifest.json": json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+    })
+    print(json.dumps({"status": "written", "session_count": len(records),
+                      "context_count": len(summaries)}, sort_keys=True, separators=(",", ":")))
+
+
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
@@ -7548,6 +7859,17 @@ def parser():
     execution_benchmark.add_argument("--fixture-path", required=True)
     execution_benchmark.add_argument("--fixture-blob", required=True)
     execution_benchmark.set_defaults(func=command_execution_benchmark)
+    inference = commands.add_parser("inference-cost-report")
+    inference.add_argument("--opencode-db", required=True)
+    inference.add_argument("--output-dir", required=True)
+    inference.add_argument("--mapping")
+    inference.add_argument("--state-root")
+    inference.add_argument("--rate-card", default=str(
+        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "opencode/inference-cost-rates.json"))
+    inference.add_argument("--after", type=int)
+    inference.add_argument("--before", type=int)
+    inference.add_argument("--dry-run", action="store_true")
+    inference.set_defaults(func=command_inference_cost_report)
     review_scan = commands.add_parser("review-scan")
     review_scan.add_argument("--database")
     review_scan.add_argument("--state-root")

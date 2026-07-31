@@ -2,10 +2,10 @@
 title: "OpenCode Inference Cost Reporting (Spec v0.1)"
 owner: AI Tooling
 goal: "Report token usage and actual or estimated inference cost by DBSCTR bounded context without retaining prompt or response content."
-status: "draft"
+status: "implemented"
 created: 2026-07-30
 last_updated: 2026-07-30
-version: "0.1"
+version: "0.2"
 pipeline_type: "analysis"
 tags: ["opencode", "dbsctr", "telemetry", "cost", "roi"]
 ---
@@ -54,7 +54,7 @@ captures, permissions, retention state machines, or deployment paths.
 
 | Concern | Value |
 |---|---|
-| Affected scope | Specification and portable implementation backlog only; no live database mutation, scheduler, dashboard, or ROI benefit model |
+| Affected scope | Manual read-only report CLI, current OpenCode session-schema adapter, checked-in rate card, synthetic tests, and lifecycle artifacts; no database mutation, scheduler, dashboard, or ROI benefit model |
 | Risk | `elevated`: private developer telemetry and decision-facing financial estimates |
 | Delivery intent | Transfer this specification to the dotfiles/DBSCTR repository, then implement through a feature branch and draft pull request |
 
@@ -210,11 +210,20 @@ prior reports. Failed checks write no final output.
 
 ### OpenCode database
 
-The adapter must discover, not assume, table and column names. It may select only
-stable identifiers, parent/session relations, timestamps, project/workspace
-identity, provider/model identity, token counters, recorded cost, and source
-schema metadata. It must open the database read-only and must not run migrations,
-DDL, pragmas that mutate state, or content queries.
+The MVP adapter discovers and validates the current `session` table and requires
+`id`, `time_created`, `model`, `cost`, `tokens_input`, `tokens_output`,
+`tokens_reasoning`, `tokens_cache_read`, and `tokens_cache_write`. Unknown source
+shapes fail capability validation rather than receiving a guessed mapping. The
+adapter opens SQLite in read-only mode, fixes a `rowid` ceiling, and selects only
+those metadata columns. It never queries title, path, directory, metadata,
+message, part, prompt, response, or tool-argument content.
+
+`model` is a JSON object containing `providerID`, `id` or `modelID`, and an
+optional `variant`. Malformed or missing model identity becomes `UNAVAILABLE`;
+the raw JSON and session ID never enter report output. A positive finite `cost`
+is recorded cost. Zero with positive token usage is unavailable because the
+source does not distinguish a free request from missing billing data. A
+zero-token session may retain authoritative zero.
 
 Required capability for a token report is a stable usage-to-session relation and
 at least one token counter. Actual cost requires a source cost field with
@@ -241,6 +250,28 @@ An optional local mapping may associate a session ID with exactly one context.
 It is input-only, excluded from persisted reports, and never overrides a
 contradictory DBSCTR cycle. Contradictions become `MULTI_CONTEXT`.
 
+```json
+{"schema_version": 1, "sessions": {"opaque-session-id": "bounded_context"}}
+```
+
+Archived sanitized DBSCTR history is primary. An unambiguous history context is
+`ATTRIBUTED`; ambiguous correlation becomes `MULTI_CONTEXT`; absent evidence
+becomes `UNKNOWN`. Mapping supplies only missing evidence or confirms the same
+context.
+
+### Rate card
+
+The checked-in `$XDG_CONFIG_HOME/opencode/inference-cost-rates.json` contains
+USD-per-million-token rates, source URL, retrieval date, effective interval,
+and an optional maximum input-context size. Entries for one provider/model must
+not overlap. Null token-class rates make an estimate unavailable when that
+class has non-zero usage.
+
+The initial card contains official OpenAI standard short-context rates retrieved
+2026-07-30. The context ceiling applies to uncached input plus cache reads and
+writes. Bedrock models and pricing modes not identified in OpenCode metadata stay
+unestimated rather than inheriting direct-provider or inferred regional prices.
+
 ## Report Contract
 
 ### CLI
@@ -250,6 +281,7 @@ dbsctrctl inference-cost-report \
   --opencode-db PATH \
   --output-dir PATH \
   [--mapping PATH] \
+  [--state-root PATH] [--rate-card PATH] \
   [--after UNIX_MS] [--before UNIX_MS]
 ```
 
@@ -281,8 +313,14 @@ in arguments, logs, errors, or output.
 | `p95_to_median_tokens` | number/null | Predictability ratio; null when median is zero. |
 | `token_coefficient_of_variation` | number/null | Population standard deviation divided by mean; null when mean is zero. |
 
-Quantiles use one documented deterministic method for all outputs. Monetary
-values retain calculation precision internally and round only for display.
+Quantiles use nearest rank over sorted session values. Means, medians, and
+population standard deviations use Python standard-library statistics.
+Monetary calculations use decimal arithmetic and round to six decimal places
+only when serialized.
+
+Context cost sums sessions with that cost basis and is null only when none are
+covered. Coverage is the fraction of context tokens belonging to covered
+sessions, so partial sums cannot be mistaken for complete spend.
 
 ### Reconciliation invariants
 
@@ -305,7 +343,8 @@ values retain calculation precision internally and round only for display.
 | Unknown model/rate | Preserve tokens, null the estimate, lower coverage. |
 | Invalid rate-card overlap | Fail before aggregation. |
 | Reconciliation/privacy failure | Fail loud and leave prior valid outputs unchanged. |
-| Markdown rendering failure | Fail the run; JSON and Markdown are one atomic report set. |
+| Publication interruption | Stage a complete sibling directory, preserve one deterministic backup, and restore it on the next run before replacement. |
+| Markdown rendering failure | Fail before publication; JSON, Markdown, and manifest are one coherent staged report set. |
 
 ## Validation Strategy
 
@@ -323,7 +362,7 @@ values retain calculation precision internally and round only for display.
 - Run repository-configured lint and type checks over touched source, then
   `git diff --check` over all affected artifacts.
 
-## Visual Evidence Plan
+## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
@@ -361,10 +400,10 @@ flow changes.
 | Behavior | required | passed | Happy, edge, failure, privacy, and recovery scenarios defined. |
 | Spec | required | passed | CLI, report schema, source contracts, and visual evidence plan defined. |
 | Contract | required | passed | Preconditions, invariants, failure semantics, compatibility, and privacy constraints defined. |
-| Test-driven implementation | required | pending | Target-repository implementation has not started. |
-| Refactor | required | pending | Applies after affected behavior passes. |
-| Review/Integrate | required | pending | Target-repository review and downstream trace required. |
+| Test-driven implementation | required | passed | Synthetic SQLite behavior tests cover extraction, privacy, attribution, costing, statistics, dry-run, and failure preservation. |
+| Refactor | required | passed | Reused existing history, SQLite, validation, and atomic-write patterns; no runtime dependency added. |
+| Review/Integrate | required | pending | Independent review, final affected QA, and target reconciliation remain. |
 | Release | not_applicable | not_run | MVP is an internal Git-versioned tool with no package publication. |
 | Deploy | not_applicable | not_run | Manual local command; no environment change. |
 | Operate | not_applicable | not_run | No service, schedule, or alerting in MVP. |
-| Maintain/Retire | required | pending | Adapter/rate-card ownership and retirement guidance must be finalized with implementation. |
+| Maintain/Retire | required | pending | AI Tooling owns schema capability failures and rate updates; final review must confirm this guidance. |
