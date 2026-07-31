@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-020 guarded integration, claim promotion, and pane-history retention delivered; DAI-004-F1 and DAI-012-F1 pending
+**Status:** DAI-016-F1 autonomous R&D launch repair and DAI-020 guarded integration delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
 
@@ -126,6 +126,18 @@ BACKLOG, and CHANGELOG own final results.
 | Delivery intent | Deploy Hermes-first orchestration to the host and configured Lima workspaces after controlled cutover evidence |
 | Scope | Hermes bootstrap and profiles, canonical backlog mirroring, Kanban refinement, direct resumable OpenCode Discovery, global completed-worktree maintenance, Herdr ownership repair, and native scheduler retirement |
 | Overrides | Hermes owns orchestration only; DBSCTR remains lifecycle authority; generated skills and raw context stay profile-local; updates are manual; no disk-space gate, messaging integration, automatic Discovery answer, merge, release, or deploy |
+
+### DAI-016-F1 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: repairs live autonomous dispatch and proves it with a controlled real worker run |
+| Delivery intent | Deploy the corrected runner locally and manually trigger one Hermes R&D pass after affected gates pass |
+| Scope | Plugin-free OpenCode session discovery, argparse-safe supervisor launch, bounded cleanup, host history capture timeout, subprocess E2E coverage, and live round evidence |
+| Overrides | Session identity remains exact; the E2E harness uses executable fakes, while operational proof requires Hermes to register one real native OpenCode session |
+
+The completed DAI-016-F1 applicability plan is retained at
+[`_archive/DAI-016-F1.plan.json`](_archive/DAI-016-F1.plan.json).
 
 ### DAI-020 Cycle Overrides
 
@@ -338,6 +350,10 @@ federation, approval, or delivery boundaries change.
 - Given a bounded command exceeds its output limit, then cleanup preserves the
   intended bound error even if the child already exited or macOS denies the late
   process-group signal.
+- The direct-launch E2E test renders the managed runner, executes fake OpenCode
+  and DBSCTR binaries through real subprocess boundaries, and proves reserve,
+  plugin-free session discovery, process start, exact registration, malformed-
+  JSON rejection, and reservation/lens-attempt cleanup.
 
 ### Autonomous R&D Worker
 
@@ -348,6 +364,14 @@ federation, approval, or delivery boundaries change.
 - Failed dispatch releases its reservation without advancing cadence. Successful
   registration advances cadence exactly once; concurrent ticks cannot duplicate
   an attempt or admit a fourth nonterminal worker.
+- Session discovery invokes OpenCode's plugin-free CLI path because listing stored
+  session metadata does not require project plugins. OpenCode's successful empty
+  stdout means no stored sessions; non-empty malformed JSON is a bounded dispatch
+  failure that releases the claimed reservation, starts no process, and leaves the
+  lens pass eligible for retry.
+- Hermes passes reservation, worker, and repository identities as global runner
+  options before the `launch` action; generated supervisor instructions include
+  the exact argparse-safe command and matching release command.
 - Given earlier workers are active or awaiting Discovery, when the schedule
   fires, then one additional fresh worker still starts.
 - Given launch or identity is ambiguous, then spawning fails closed, closes only
@@ -390,7 +414,9 @@ federation, approval, or delivery boundaries change.
   instance that this collection started. Transitional states fail closed.
 - Given a valid source takes longer than the generic analytics deadline, then the
   typed federation call waits for its source-bounded command instead of killing the
-  aggregate operation. Per-command time and output bounds remain enforced.
+  aggregate operation. Host history capture has a 300-second bound for the larger
+  local database; workspace history and lifecycle commands retain 120-second
+  bounds, and every source retains the existing output bound.
 - Given Discovery has unresolved material questions, then the worker waits until
   the operator resumes its exact OpenCode session in any host or VM Herdr pane and
   explicitly instructs it to proceed. Hermes never supplies that answer.
