@@ -1046,7 +1046,10 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
         "excluded_review_session_count": 1, "unattributed_session_count": 1,
     }
     assert only["session_ids"] == ["review"]
-    assert only["filter_telemetry"]["selected_review_session_count"] == 1
+    assert only["filter_telemetry"] == {
+        "selected_session_count": 1, "selected_review_session_count": 1,
+        "excluded_review_session_count": 0, "unattributed_session_count": 1,
+    }
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
@@ -1364,6 +1367,9 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     assert "autonomous=true" in command and "risk is not critical" in command
     audit = text("dot_agents/skills/dbsctr-lens-audit/SKILL.md")
     assert "review_session_governance" in audit and "Missing telemetry is unavailable, not zero" in audit
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    federated = tools.split("export const review_federated", 1)[1].split("export const vm_handoff", 1)[0]
+    assert 'reviewSessions: tool.schema.enum(["only", "exclude"])' in federated
 
 
 def test_removed_managed_integrations_are_absent():

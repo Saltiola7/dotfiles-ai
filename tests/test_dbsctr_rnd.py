@@ -605,7 +605,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     connection = runner["state_connection"]()
-    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("3",)
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("4",)
     assert connection.execute("select cadence,no_yield_count from lens_state").fetchone() == ("daily", 0)
     assert connection.execute("select cadence,next_eligible_at from scheduler_state").fetchone() == ("daily", 123)
     assert connection.execute(
@@ -669,6 +669,26 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     assert reset["quarter"] == "2024-Q2" and reset["cadence"] == "daily" and reset["due"]
+
+    migrated, migrated_state = load_runner(tmp_path, monkeypatch, "parallel-v3-migration")
+    connection = migrated["state_connection"]()
+    connection.execute("drop table parallel_lens_passes")
+    connection.execute("""create table parallel_lens_passes (
+        worker_id text primary key, lens_name text not null, capture_day text not null,
+        manifest_digest text not null, outcome text not null, recorded_at integer not null,
+        cadence text not null, no_yield_count integer not null, quarter text not null,
+        next_eligible_at integer not null, page_count integer not null,
+        session_count integer not null, review_session_count integer not null,
+        excluded_review_session_count integer not null, source_count integer not null
+    ) without rowid""")
+    connection.execute("update scheduler_meta set value='3' where key='schema_version'")
+    connection.commit()
+    connection.close()
+    connection = migrated["state_connection"]()
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("4",)
+    assert "unattributed_session_count" in {
+        row[1] for row in connection.execute("pragma table_info(parallel_lens_passes)")}
+    connection.close()
 
 
 def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
@@ -745,6 +765,14 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
                       "excluded_review_session_count": 0, "unattributed_session_count": 0,
                       "source_count": 3}
+    try:
+        runner["parallel_lens_result"](
+            review, "2024-01-01", "b" * 64, "no_yield",
+            {**review_metrics, "review_session_count": 3}, now)
+    except RuntimeError as error:
+        assert "inconsistent" in str(error)
+    else:
+        raise AssertionError("inconsistent lens counters were accepted")
     review_result = runner["parallel_lens_result"](
         review, "2024-01-01", "b" * 64, "no_yield", review_metrics, now)
     assert review_result["lens"] == "review_session_governance"

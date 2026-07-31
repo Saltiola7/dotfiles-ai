@@ -224,15 +224,23 @@ def state_connection():
     """)
     version = connection.execute("SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:
-        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','3')")
+        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','4')")
         connection.execute("INSERT INTO scheduler_state VALUES (1,'weekly',0,0,'',NULL,0,0)")
         connection.execute("INSERT INTO lens_state VALUES (1,'daily',0,'',0)")
         connection.commit()
     elif version == ("1",):
         connection.execute("INSERT OR IGNORE INTO lens_state VALUES (1,'daily',0,'',0)")
-        connection.execute("UPDATE scheduler_meta SET value='3' WHERE key='schema_version'")
+        connection.execute("UPDATE scheduler_meta SET value='4' WHERE key='schema_version'")
         connection.commit()
-    elif version != ("3",):
+    elif version == ("3",):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(parallel_lens_passes)")}
+        if "unattributed_session_count" not in columns:
+            connection.execute(
+                "ALTER TABLE parallel_lens_passes ADD COLUMN unattributed_session_count "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (unattributed_session_count>=0)")
+        connection.execute("UPDATE scheduler_meta SET value='4' WHERE key='schema_version'")
+        connection.commit()
+    elif version != ("4",):
         connection.close()
         persist_malformed_halt()
         raise RuntimeError("scheduler state has an unsupported schema")
@@ -333,7 +341,9 @@ def state_connection():
                 or cadence not in LENS_CADENCE_SECONDS or type(count) is not int or count < 0
                 or not isinstance(quarter, str) or type(next_at) is not int or next_at < 0
                 or any(type(value) is not int or value < 0 for value in metrics)
+                or metrics[5] < 1 or metrics[0] < metrics[5] or metrics[2] > metrics[1]
                 or lens_name == REVIEW_SESSION_LENS and metrics[3] != 0
+                or lens_name == REVIEW_SESSION_LENS and metrics[1] != metrics[2]
                 or lens_name != REVIEW_SESSION_LENS and metrics[2] != 0):
             connection.close()
             persist_malformed_halt()
@@ -692,6 +702,9 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
             or outcome not in {"yield", "no_yield"} or set(telemetry) != telemetry_names
             or any(type(telemetry[name]) is not int or telemetry[name] < 0 for name in telemetry_names)):
         raise RuntimeError("invalid parallel lens result")
+    if (telemetry["source_count"] < 1 or telemetry["page_count"] < telemetry["source_count"]
+            or telemetry["review_session_count"] > telemetry["session_count"]):
+        raise RuntimeError("inconsistent parallel lens telemetry")
     connection = state_connection()
     try:
         existing = connection.execute(
@@ -729,7 +742,8 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
             raise RuntimeError("parallel lens result has no due pass")
         reservation, lens_name, cadence, count, recorded_quarter = attempt
         if lens_name == REVIEW_SESSION_LENS:
-            if telemetry["excluded_review_session_count"]:
+            if (telemetry["excluded_review_session_count"]
+                    or telemetry["session_count"] != telemetry["review_session_count"]):
                 raise RuntimeError("review-session lens cannot exclude review sessions")
         elif telemetry["review_session_count"]:
             raise RuntimeError("ordinary lens cannot review review sessions")

@@ -4476,6 +4476,11 @@ class DbsctrctlTest(unittest.TestCase):
             "--cycle-id", "cycle-5", "--path", "autonomous.txt",
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "implementing"))
+        recovered = json.loads(run(
+            self.repo, "improvement-recover", "--state-root", str(state),
+            "--worker-id", "worker-5", "--action", "success",
+        ).stdout)
+        self.assertEqual((recovered["state"], recovered["recovery_attempts"]), ("implementing", 0))
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-6", "--session-id", "session-6",
             "--summary", "Escalate a critical autonomous finding", "--priority", "P0")
@@ -4483,7 +4488,18 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-6", "--state", "discovery", "--autonomous", ok=False,
         )
-        self.assertIn("require operator authorization", critical.stderr)
+        self.assertIn("require exact operator confirmation", critical.stderr)
+        critical = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-6", "--state", "discovery", ok=False,
+        )
+        self.assertIn("require exact operator confirmation", critical.stderr)
+        critical = json.loads(run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-6", "--state", "discovery",
+            "--operator-confirm", "worker-6",
+        ).stdout)
+        self.assertEqual((critical["priority"], critical["state"]), ("P0", "discovery"))
         repeated = run(
             self.repo, "improvement-promote", "--state-root", str(state),
             "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,

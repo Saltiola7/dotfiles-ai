@@ -4284,8 +4284,9 @@ def candidate_history_evidence(candidate, scan, mark_reviewed=True):
         "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
         "database_digest": scan["database_digest"],
         "reviewed_status": "reviewed" if mark_reviewed else candidate.get("reviewed_status", "unreviewed"),
-        "review_session": candidate.get("review_session", False),
     }
+    if "review_session" in candidate:
+        evidence["review_session"] = candidate["review_session"]
     if "telemetry" in candidate:
         evidence["telemetry"] = candidate["telemetry"]
     return validate_history_evidence(evidence)
@@ -6224,8 +6225,9 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
-        if current["priority"] == "P0" and args.autonomous:
-            fail("P0 improvement claims require operator authorization")
+        if (current["priority"] == "P0" and current["state"] == "claimed"
+                and state == "discovery" and args.operator_confirm != worker_id):
+            fail("P0 improvement claims require exact operator confirmation")
         if (current["priority"] in {"P2", "P3"} and current["state"] == "claimed"
                 and state not in {"claimed", "abandoned"} and not args.autonomous):
             fail("P2/P3 improvement claims remain queued until promotion or autonomous readiness")
@@ -6275,7 +6277,8 @@ def command_improvement_recover(args):
         current = improvement_worker(connection, worker_id)
         if current["state"] in {"merged", "closed", "abandoned"}:
             fail("terminal improvement worker cannot be recovered")
-        if current["priority"] in {"P2", "P3"} and args.action != "abandon":
+        if (current["priority"] in {"P2", "P3"} and current["state"] == "claimed"
+                and args.action != "abandon"):
             fail("P2/P3 improvement claims remain queued until promotion or abandonment")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         if args.action == "failed":
@@ -8131,6 +8134,7 @@ def parser():
     improvement_update.add_argument("--cycle-id")
     improvement_update.add_argument("--path", action="append")
     improvement_update.add_argument("--autonomous", action="store_true")
+    improvement_update.add_argument("--operator-confirm")
     improvement_update.set_defaults(func=command_improvement_update)
     improvement_recover = commands.add_parser("improvement-recover")
     improvement_recover.add_argument("--state-root")

@@ -192,7 +192,6 @@ export const review_history = tool({
     reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
     replay: tool.schema.string().optional(),
     archiveOnly: tool.schema.boolean().optional().default(false),
-    reviewSessions: tool.schema.enum(["only", "exclude"]).optional(),
     snapshot: tool.schema.number().int().min(0).optional(),
     sessionCeiling: tool.schema.number().int().min(0).optional(),
     partCeiling: tool.schema.number().int().min(0).optional(),
@@ -218,6 +217,7 @@ export const review_federated = tool({
     projectDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/).optional(),
     reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
     archiveOnly: tool.schema.boolean().optional().default(false),
+    reviewSessions: tool.schema.enum(["only", "exclude"]).optional(),
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
     sourceState: tool.schema.array(tool.schema.object({

@@ -629,7 +629,8 @@ export async function reviewFederated(args: {
     source.page.filter_telemetry = {
       selected_session_count: selected.length,
       selected_review_session_count: selected.filter((candidate: any) => candidate.review_session === true).length,
-      excluded_review_session_count: candidates.filter((candidate: any) => candidate.review_session === true).length,
+      excluded_review_session_count: reviewSessions === "exclude"
+        ? candidates.filter((candidate: any) => candidate.review_session === true).length : 0,
       unattributed_session_count: candidates.filter((candidate: any) => candidate.review_session === undefined).length,
     }
   }
