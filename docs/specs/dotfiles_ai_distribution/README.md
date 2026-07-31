@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-020 guarded integration, claim promotion, and pane-history retention delivered; DAI-004-F1 and DAI-012-F1 pending
+**Status:** DAI-016-F1 autonomous R&D launch repair and DAI-020 guarded integration delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
 
@@ -135,6 +135,9 @@ BACKLOG, and CHANGELOG own final results.
 | Delivery intent | Deploy the corrected runner locally and manually trigger one Hermes R&D pass after affected gates pass |
 | Scope | Plugin-free OpenCode session discovery, argparse-safe supervisor launch, bounded cleanup, host history capture timeout, subprocess E2E coverage, and live round evidence |
 | Overrides | Session identity remains exact; the E2E harness uses executable fakes, while operational proof requires Hermes to register one real native OpenCode session |
+
+The completed DAI-016-F1 applicability plan is retained at
+[`_archive/DAI-016-F1.plan.json`](_archive/DAI-016-F1.plan.json).
 
 ### DAI-020 Cycle Overrides
 
