@@ -848,7 +848,7 @@ def test_installed_opencode_supports_pure_session_json():
         ["opencode", "session", "list", "--pure", "--format", "json", "-n", "1"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert isinstance(json.loads(completed.stdout), list)
+    assert completed.stdout == "" or isinstance(json.loads(completed.stdout), list)
 
 
 def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp_path):
@@ -873,7 +873,7 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "printf 'opencode %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "if [ \"$1 $2\" = 'session list' ]; then\n"
         "  case \" $* \" in *' --pure '*) ;; *) exit 0;; esac\n"
-        "  [ \"${SESSION_LIST_MODE:-valid}\" = invalid ] && exit 0\n"
+        "  [ \"${SESSION_LIST_MODE:-valid}\" = invalid ] && { printf 'not-json\\n'; exit 0; }\n"
         "  if [ -f \"$SESSION_MARKER\" ]; then\n"
         f"    printf '%s\\n' '[{{\"id\":\"ses_e2e\",\"directory\":\"{repository}\"}}]'\n"
         "  else printf '%s\\n' '[]'; fi\n"

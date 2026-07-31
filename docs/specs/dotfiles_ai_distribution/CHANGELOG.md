@@ -25,6 +25,14 @@ delivery requires a feature branch and verified draft pull request into protecte
   `24d0fd0`, `9a251eb`, `4db52d4`. Gate Exceptions: none. Intended Final Push:
   feature branch and draft pull request into protected `main`.
 
+### DAI-016-F2 CI Session-List Contract
+
+- CI proved that OpenCode 1.18.10 returns successful empty stdout when no stored
+  sessions exist. Session discovery now treats that response as an empty set while
+  retaining fail-closed handling for non-empty malformed JSON. The subprocess E2E
+  fixture distinguishes both contracts instead of relying on a populated local
+  session database.
+
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
 - Made DAI-020, Hermes orchestration, explicit P2/P3 promotion, private history,

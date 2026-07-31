@@ -982,7 +982,11 @@ def workspace():
 
 
 def session_ids(workdir=REVIEW_WORKDIR):
-    value = command([OPENCODE, "session", "list", "--pure", "--format", "json", "-n", "100"])
+    output = command([OPENCODE, "session", "list", "--pure", "--format", "json", "-n", "100"], parse=False)
+    try:
+        value = json.loads(output) if output.strip() else []
+    except json.JSONDecodeError as error:
+        raise RuntimeError("opencode returned invalid JSON") from error
     if not isinstance(value, list):
         raise RuntimeError("invalid OpenCode session list")
     return {item["id"] for item in value

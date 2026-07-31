@@ -365,9 +365,10 @@ federation, approval, or delivery boundaries change.
   registration advances cadence exactly once; concurrent ticks cannot duplicate
   an attempt or admit a fourth nonterminal worker.
 - Session discovery invokes OpenCode's plugin-free CLI path because listing stored
-  session metadata does not require project plugins. Empty or malformed JSON is a
-  bounded dispatch failure, releases the claimed reservation, starts no process,
-  and leaves the lens pass eligible for retry.
+  session metadata does not require project plugins. OpenCode's successful empty
+  stdout means no stored sessions; non-empty malformed JSON is a bounded dispatch
+  failure that releases the claimed reservation, starts no process, and leaves the
+  lens pass eligible for retry.
 - Hermes passes reservation, worker, and repository identities as global runner
   options before the `launch` action; generated supervisor instructions include
   the exact argparse-safe command and matching release command.
