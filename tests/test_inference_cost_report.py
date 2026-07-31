@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -117,14 +118,38 @@ def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):
         "p75": 370, "p95": 370, "max": 370, "population_standard_deviation": 102.5,
     }
     assert alpha["models"][0]["provider"] == "openai"
+    assert alpha["attribution_confidence"] == {"HIGH": 1, "MEDIUM": 1, "UNAVAILABLE": 0}
+    assert alpha["attribution_sources"]["DBSCTR_HISTORY"] == 1
     assert ambiguous["estimated_cost_usd"] is None
+    assert ambiguous["attribution_sources"]["CONFLICT"] == 1
     assert unknown["session_count"] == 1
+    assert unknown["tokens_per_session_stats"]["population_standard_deviation"] == 0
     assert report["totals"]["session_count"] == 4
     assert len(report["source_snapshot"]["attribution_digest"]) == 64
     persisted = "".join(path.read_text() for path in output.iterdir())
     assert "PROHIBITED" not in persisted
     assert "/Users/private" not in persisted
     assert "\"one\"" not in persisted
+    assert "Actual coverage" in (output / "inference-cost-report.md").read_text()
+
+    first_report = (output / "inference-cost-report.json").read_text()
+    backup = output.parent / ".report-backup"
+    shutil.copytree(output, backup)
+    run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--mapping", mapping, "--state-root", state, "--rate-card", rates,
+    )
+    assert not backup.exists()
+    assert (output / "inference-cost-report.json").read_text() == first_report
+
+    shutil.copytree(output, backup)
+    (output / "inference-cost-report.json").write_text("corrupt\n")
+    run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--mapping", mapping, "--state-root", state, "--rate-card", rates,
+    )
+    assert not backup.exists()
+    assert (output / "inference-cost-report.json").read_text() == first_report
 
 
 def test_inference_cost_report_fails_before_replacing_outputs(tmp_path):
@@ -134,6 +159,14 @@ def test_inference_cost_report_fails_before_replacing_outputs(tmp_path):
     output.mkdir()
     prior = output / "inference-cost-report.json"
     prior.write_text("prior\n")
+    missing_mapping = tmp_path / "secret-mapping-name.json"
+    private_error = run(
+        "inference-cost-report", "--opencode-db", source, "--output-dir", output,
+        "--mapping", missing_mapping,
+        "--rate-card", Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json",
+        ok=False,
+    )
+    assert str(missing_mapping) not in private_error.stderr
     result = run(
         "inference-cost-report", "--opencode-db", source, "--output-dir", output,
         "--rate-card", Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json",

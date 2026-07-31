@@ -18,6 +18,11 @@ zero recorded costs remain null and lower coverage.
 **Validation:** Focused inference behavior tests and affected lifecycle/control
 plane suites passed. Final independent review and Gate Commit are pending.
 
+**Review remediation:** Sanitized path-bearing input errors, exposed monetary
+and attribution coverage in Markdown, retained attribution source/confidence,
+clarified conservative session-grain pricing, and made interrupted publication
+self-recovering.
+
 **Gate exceptions:** None.
 
 ## 2026-07-30 - Specification created (v0.1)

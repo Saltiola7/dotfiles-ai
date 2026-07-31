@@ -7524,8 +7524,10 @@ def load_inference_mapping(path):
         return {}
     try:
         value = json.loads(Path(path).expanduser().read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
-    except (OSError, json.JSONDecodeError) as error:
-        fail(f"cannot read inference context mapping: {error}")
+    except OSError:
+        fail("cannot read inference context mapping")
+    except json.JSONDecodeError:
+        fail("inference context mapping is not valid JSON")
     sessions = value.get("sessions") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) != {"schema_version", "sessions"}
             or value.get("schema_version") != 1 or not isinstance(sessions, dict)
@@ -7538,16 +7540,32 @@ def load_inference_mapping(path):
 
 def inference_contexts(state_root, mapping):
     contexts = {}
-    for record in history_evidence(review_root(state_root)):
+    try:
+        records = history_evidence(review_root(state_root))
+    except (OSError, RuntimeError, json.JSONDecodeError):
+        fail("cannot read sanitized DBSCTR history")
+    for record in records:
         session_id = record["session_id"]
         context = record.get("context", "unavailable")
         quality = record.get("correlation_quality", "unavailable")
-        contexts[session_id] = ("MULTI_CONTEXT" if quality == "ambiguous" else
-                                context if context != "unavailable" else "UNKNOWN")
+        if quality == "ambiguous":
+            contexts[session_id] = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
+                                    "confidence": "UNAVAILABLE", "source": "DBSCTR_HISTORY"}
+        elif context != "unavailable":
+            contexts[session_id] = {"context": context, "status": "ATTRIBUTED",
+                                    "confidence": "HIGH" if quality == "exact" else "MEDIUM",
+                                    "source": "DBSCTR_HISTORY"}
+        else:
+            contexts[session_id] = {"context": "UNKNOWN", "status": "UNKNOWN",
+                                    "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"}
     for session_id, context in mapping.items():
         existing = contexts.get(session_id)
-        contexts[session_id] = ("MULTI_CONTEXT" if existing not in (None, "UNKNOWN", context)
-                                else context)
+        if existing is None or existing["status"] == "UNKNOWN":
+            contexts[session_id] = {"context": context, "status": "ATTRIBUTED",
+                                    "confidence": "MEDIUM", "source": "EXPLICIT_MAPPING"}
+        elif existing["context"] != context:
+            contexts[session_id] = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
+                                    "confidence": "UNAVAILABLE", "source": "CONFLICT"}
     return contexts
 
 
@@ -7555,8 +7573,10 @@ def load_inference_rates(path):
     try:
         raw = Path(path).expanduser().read_bytes()
         value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-    except (OSError, json.JSONDecodeError) as error:
-        fail(f"cannot read inference rate card: {error}")
+    except OSError:
+        fail("cannot read inference rate card")
+    except json.JSONDecodeError:
+        fail("inference rate card is not valid JSON")
     entries = value.get("entries") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) != {"schema_version", "currency", "retrieved_at", "entries"}
             or value.get("schema_version") != 1 or value.get("currency") != "USD"
@@ -7646,6 +7666,8 @@ def inference_summary(context, records):
     token_values = [record["token_total"] for record in records]
     stats = inference_stats(token_values)
     mean = stats["mean"] if stats else 0
+    attribution_tokens = sum(record["token_total"] for record in records
+                             if record["attribution_status"] == "ATTRIBUTED")
     return {
         "bounded_context": context, "session_count": len(records), "usage_count": len(records),
         **{f"{name}_tokens": sum(record[name] for record in records) for name in INFERENCE_TOKEN_COLUMNS},
@@ -7653,6 +7675,13 @@ def inference_summary(context, records):
         "estimated_cost_usd": inference_money(sum(estimate_values, Decimal())) if estimate_values else None,
         "actual_cost_coverage": round(actual_covered / token_total, 6) if token_total else 1.0,
         "estimated_cost_coverage": round(estimate_covered / token_total, 6) if token_total else 1.0,
+        "attribution_coverage": round(attribution_tokens / token_total, 6) if token_total else 1.0,
+        "attribution_statuses": {name: sum(record["attribution_status"] == name for record in records)
+                                 for name in ("ATTRIBUTED", "MULTI_CONTEXT", "UNKNOWN")},
+        "attribution_confidence": {name: sum(record["attribution_confidence"] == name for record in records)
+                                   for name in ("HIGH", "MEDIUM", "UNAVAILABLE")},
+        "attribution_sources": {name: sum(record["attribution_source"] == name for record in records)
+                                for name in ("DBSCTR_HISTORY", "EXPLICIT_MAPPING", "CONFLICT", "UNAVAILABLE")},
         "models": models, "tokens_per_session_stats": stats,
         "actual_cost_per_session_stats": inference_stats([float(value) for value in actual_values]),
         "estimated_cost_per_session_stats": inference_stats([float(value) for value in estimate_values]),
@@ -7664,14 +7693,28 @@ def inference_summary(context, records):
 
 
 def inference_markdown(report):
-    lines = ["# OpenCode inference cost report", "", "| Bounded context | Sessions | Tokens | Actual USD | Estimated USD | Models |", "|---|---:|---:|---:|---:|---|"]
+    lines = ["# OpenCode inference cost report", "", "| Bounded context | Sessions | Tokens | Actual USD | Actual coverage | Estimated USD | Estimated coverage | Attribution coverage | Models |", "|---|---:|---:|---:|---:|---:|---:|---:|---|"]
     for item in report["contexts"]:
         tokens = sum(item[f"{name}_tokens"] for name in INFERENCE_TOKEN_COLUMNS)
         models = ", ".join(sorted({f'{model["provider"]}/{model["model"]}' for model in item["models"]}))
         lines.append(f'| {item["bounded_context"]} | {item["session_count"]} | {tokens} | '
                      f'{item["actual_cost_usd"] if item["actual_cost_usd"] is not None else "unavailable"} | '
-                     f'{item["estimated_cost_usd"] if item["estimated_cost_usd"] is not None else "unavailable"} | {models} |')
+                     f'{item["actual_cost_coverage"]:.1%} | '
+                     f'{item["estimated_cost_usd"] if item["estimated_cost_usd"] is not None else "unavailable"} | '
+                     f'{item["estimated_cost_coverage"]:.1%} | {item["attribution_coverage"]:.1%} | {models} |')
+    lines.extend(["", "Costs are sums over covered sessions; coverage shows the share of tokens represented."])
     return "\n".join(lines) + "\n"
+
+
+def valid_inference_output(path):
+    try:
+        manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+        files = manifest["files"]
+        return set(files) == {"inference-cost-report.json", "inference-cost-report.md"} and all(
+            hashlib.sha256((path / name).read_bytes()).hexdigest() == digest
+            for name, digest in files.items())
+    except (KeyError, OSError, json.JSONDecodeError, TypeError):
+        return False
 
 
 def publish_inference_report(output, files):
@@ -7682,8 +7725,17 @@ def publish_inference_report(output, files):
     try:
         if backup.exists():
             if output.exists():
-                fail("inference report has a stale recovery directory")
-            os.replace(backup, output)
+                if valid_inference_output(output):
+                    shutil.rmtree(backup)
+                else:
+                    interrupted = output.parent / f".{output.name}-interrupted"
+                    if interrupted.exists():
+                        fail("inference report requires manual recovery")
+                    os.replace(output, interrupted)
+                    os.replace(backup, output)
+                    shutil.rmtree(interrupted)
+            else:
+                os.replace(backup, output)
         for name, content in files.items():
             (temporary / name).write_text(content, encoding="utf-8")
         if output.exists():
@@ -7759,9 +7811,13 @@ def command_inference_cost_report(args):
             estimated = sum((Decimal(token_values[name]) * (matching[0]["rates"][name] or Decimal())
                              for name in INFERENCE_TOKEN_COLUMNS), Decimal()) / Decimal(1_000_000)
         source_identity.update(json.dumps(row, sort_keys=True, default=str).encode() + b"\0")
-        context = contexts.get(session_id, "UNKNOWN")
-        attribution_identity.update(f"{session_id}\0{context}\0".encode())
-        records.append({"context": context, "provider": provider,
+        attribution = contexts.get(session_id, {"context": "UNKNOWN", "status": "UNKNOWN",
+                                                  "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"})
+        attribution_identity.update(f'{session_id}\0{attribution["context"]}\0{attribution["status"]}\0'
+                                    f'{attribution["confidence"]}\0{attribution["source"]}\0'.encode())
+        records.append({"context": attribution["context"], "attribution_status": attribution["status"],
+                        "attribution_confidence": attribution["confidence"],
+                        "attribution_source": attribution["source"], "provider": provider,
                         "model": model, "variant": variant, "actual_cost": actual,
                         "estimated_cost": estimated, "token_total": total, **token_values})
     capability = {"adapter": "opencode_session_v1", "table": "session",
@@ -7776,7 +7832,8 @@ def command_inference_cost_report(args):
                "database_digest": source_identity.hexdigest(), "after": args.after, "before": args.before,
                "attribution_digest": attribution_identity.hexdigest(), "capabilities": capability},
                "rate_card": {"schema_version": rate_card["schema_version"],
-               "retrieved_at": rate_card["retrieved_at"], "digest": rate_digest},
+               "retrieved_at": rate_card["retrieved_at"], "digest": rate_digest,
+               "sources": sorted({entry["source"] for entry in rate_card["entries"]})},
                "contexts": summaries, "totals": inference_summary("ALL", records)}
     report_json = json.dumps(report, sort_keys=True, indent=2) + "\n"
     markdown = inference_markdown(report)
@@ -7785,10 +7842,13 @@ def command_inference_cost_report(args):
                 "files": {"inference-cost-report.json": hashlib.sha256(report_json.encode()).hexdigest(),
                           "inference-cost-report.md": hashlib.sha256(markdown.encode()).hexdigest()},
                 "source_snapshot": report["source_snapshot"], "rate_card": report["rate_card"]}
-    publish_inference_report(Path(args.output_dir), {
-        "inference-cost-report.json": report_json, "inference-cost-report.md": markdown,
-        "manifest.json": json.dumps(manifest, sort_keys=True, indent=2) + "\n",
-    })
+    try:
+        publish_inference_report(Path(args.output_dir), {
+            "inference-cost-report.json": report_json, "inference-cost-report.md": markdown,
+            "manifest.json": json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+        })
+    except OSError:
+        fail("cannot publish inference report")
     print(json.dumps({"status": "written", "session_count": len(records),
                       "context_count": len(summaries)}, sort_keys=True, separators=(",", ":")))
 

@@ -225,10 +225,10 @@ is recorded cost. Zero with positive token usage is unavailable because the
 source does not distinguish a free request from missing billing data. A
 zero-token session may retain authoritative zero.
 
-Required capability for a token report is a stable usage-to-session relation and
-at least one token counter. Actual cost requires a source cost field with
-availability semantics. Estimated cost requires provider and model identity plus
-a matching effective rate-card entry.
+The `opencode_session_v1` MVP intentionally supports only this complete current
+shape. Missing normalized metadata columns are returned as content-free
+capability diagnostics and no report is written. A later source shape requires
+a separately tested adapter rather than optional-field inference in this one.
 
 ### DBSCTR telemetry
 
@@ -268,9 +268,17 @@ not overlap. Null token-class rates make an estimate unavailable when that
 class has non-zero usage.
 
 The initial card contains official OpenAI standard short-context rates retrieved
-2026-07-30. The context ceiling applies to uncached input plus cache reads and
-writes. Bedrock models and pricing modes not identified in OpenCode metadata stay
-unestimated rather than inheriting direct-provider or inferred regional prices.
+2026-07-30. OpenAI model documentation states that requests above 272K input
+tokens use long-context pricing. Because the source grain is a session rather
+than a request, the adapter applies short rates only when the session's total
+uncached input plus cache reads and writes is at most 272K. This is conservative:
+larger multi-request sessions remain unestimated even when each request may have
+been short. Bedrock models and unidentified pricing modes stay unestimated rather
+than inheriting direct-provider or inferred regional prices.
+
+| Models | Standard short-context USD per million tokens | Evidence |
+|---|---|---|
+| `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4-mini` | Exact input, cached-input, cache-write where published, and output rates are retained in the checked-in card. | OpenAI pricing and model pages retrieved 2026-07-30; the Git blob and report digest pin the consulted values. |
 
 ## Report Contract
 
@@ -299,13 +307,17 @@ in arguments, logs, errors, or output.
 | `usage_count` | integer | Distinct usage records. |
 | `input_tokens` | integer | Sum of available uncached input tokens. |
 | `output_tokens` | integer | Sum of available output tokens. |
-| `cache_read_tokens` | integer/null | Null when source capability is absent. |
-| `cache_write_tokens` | integer/null | Null when source capability is absent. |
-| `reasoning_tokens` | integer/null | Null when source capability is absent. |
+| `cache_read_tokens` | integer | Sum of cache-read tokens. |
+| `cache_write_tokens` | integer | Sum of cache-write tokens. |
+| `reasoning_tokens` | integer | Sum of reasoning tokens. |
 | `actual_cost_usd` | decimal/null | Sum only when recorded-cost coverage is explicit. |
 | `estimated_cost_usd` | decimal/null | Versioned list-price estimate; never substituted for actual. |
 | `actual_cost_coverage` | number | Fraction of included tokens with authoritative recorded cost. |
 | `estimated_cost_coverage` | number | Fraction of included tokens with supported model/rate data. |
+| `attribution_coverage` | number | Fraction of tokens assigned to one bounded context. |
+| `attribution_statuses` | object | Session counts for `ATTRIBUTED`, `MULTI_CONTEXT`, and `UNKNOWN`. |
+| `attribution_confidence` | object | Session counts for `HIGH`, `MEDIUM`, and `UNAVAILABLE`. |
+| `attribution_sources` | object | Session counts by sanitized history, explicit mapping, conflict, or unavailable source. |
 | `models` | array | Provider/model usage and cost breakdown; unavailable identity stays explicit. |
 | `tokens_per_session_stats` | object | min, p25, mean, median, p75, p95, max, population standard deviation. |
 | `actual_cost_per_session_stats` | object/null | Same statistics over sessions with authoritative actual cost. |
@@ -343,7 +355,7 @@ sessions, so partial sums cannot be mistaken for complete spend.
 | Unknown model/rate | Preserve tokens, null the estimate, lower coverage. |
 | Invalid rate-card overlap | Fail before aggregation. |
 | Reconciliation/privacy failure | Fail loud and leave prior valid outputs unchanged. |
-| Publication interruption | Stage a complete sibling directory, preserve one deterministic backup, and restore it on the next run before replacement. |
+| Publication interruption | Stage a complete sibling directory; restore a lone backup, retain a valid new set when both exist, or restore the prior set when the new manifest is invalid. |
 | Markdown rendering failure | Fail before publication; JSON, Markdown, and manifest are one coherent staged report set. |
 
 ## Validation Strategy
@@ -358,6 +370,7 @@ sessions, so partial sums cannot be mistaken for complete spend.
   effective-date boundaries, and overlapping rate-card rejection.
 - Verify statistics for empty, singleton, repeated, and highly skewed samples.
 - Verify source/context/model reconciliation and atomic output replacement.
+- Verify sanitized errors, attribution provenance, Markdown coverage, deterministic reruns, singleton statistics, and interrupted-publication recovery.
 - Run `uv run --group test pytest tests/test_dbsctr_lifecycle.py tests/test_opencode_control_plane.py -q` plus focused report tests.
 - Run repository-configured lint and type checks over touched source, then
   `git diff --check` over all affected artifacts.
@@ -402,7 +415,7 @@ flow changes.
 | Contract | required | passed | Preconditions, invariants, failure semantics, compatibility, and privacy constraints defined. |
 | Test-driven implementation | required | passed | Synthetic SQLite behavior tests cover extraction, privacy, attribution, costing, statistics, dry-run, and failure preservation. |
 | Refactor | required | passed | Reused existing history, SQLite, validation, and atomic-write patterns; no runtime dependency added. |
-| Review/Integrate | required | pending | Independent review, final affected QA, and target reconciliation remain. |
+| Review/Integrate | required | pending | Independent review found and remediation addressed sanitized errors, coverage visibility, attribution provenance, and interrupted-publication recovery; re-review remains. |
 | Release | not_applicable | not_run | MVP is an internal Git-versioned tool with no package publication. |
 | Deploy | not_applicable | not_run | Manual local command; no environment change. |
 | Operate | not_applicable | not_run | No service, schedule, or alerting in MVP. |
