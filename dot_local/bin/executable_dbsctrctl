@@ -7496,13 +7496,13 @@ def inference_capabilities(connection):
     if "session" not in tables:
         fail("OpenCode database is missing required session metadata table")
     table = tables["session"]
-    columns = {row[1].lower().replace("_", ""): row[1]
-               for row in connection.execute(f'PRAGMA table_info("{table}")')}
-    required = {"id", "timecreated", "timeupdated", "model", "cost", *INFERENCE_TOKEN_COLUMNS.values()}
-    missing = sorted(required - set(columns))
+    names = {row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}
+    canonical = {"id", "time_created", "time_updated", "model", "cost", "tokens_input",
+                 "tokens_output", "tokens_reasoning", "tokens_cache_read", "tokens_cache_write"}
+    missing = sorted(canonical - names)
     if missing:
         fail(f"OpenCode database is missing required metadata columns: {', '.join(missing)}")
-    return table, {name: columns[name] for name in required}
+    return table, {name.replace("_", ""): name for name in canonical}
 
 
 def parse_inference_model(raw):

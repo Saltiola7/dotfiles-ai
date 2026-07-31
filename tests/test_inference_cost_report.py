@@ -205,3 +205,16 @@ def test_inference_cost_report_fails_before_replacing_outputs(tmp_path):
     )
     assert "missing required metadata columns" in result.stderr
     assert prior.read_text() == "prior\n"
+
+    aliases = tmp_path / "aliases.db"
+    connection = sqlite3.connect(aliases)
+    connection.execute("create table session (id text, timecreated integer, timeupdated integer, model text, "
+                       "cost real, tokensinput integer, tokensoutput integer, tokensreasoning integer, "
+                       "tokenscacheread integer, tokenscachewrite integer)")
+    connection.close()
+    alias_result = run(
+        "inference-cost-report", "--opencode-db", aliases, "--output-dir", output,
+        "--rate-card", Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json",
+        ok=False,
+    )
+    assert "missing required metadata columns" in alias_result.stderr
