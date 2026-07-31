@@ -127,6 +127,15 @@ BACKLOG, and CHANGELOG own final results.
 | Scope | Hermes bootstrap and profiles, canonical backlog mirroring, Kanban refinement, direct resumable OpenCode Discovery, global completed-worktree maintenance, Herdr ownership repair, and native scheduler retirement |
 | Overrides | Hermes owns orchestration only; DBSCTR remains lifecycle authority; generated skills and raw context stay profile-local; updates are manual; no disk-space gate, messaging integration, automatic Discovery answer, merge, release, or deploy |
 
+### DAI-016-F1 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: repairs live autonomous dispatch and proves it with a controlled real worker run |
+| Delivery intent | Deploy the corrected runner locally and manually trigger one Hermes R&D pass after affected gates pass |
+| Scope | Plugin-free OpenCode session discovery, bounded invalid-JSON diagnostics, pre-launch reservation cleanup, subprocess E2E coverage, and live dispatch evidence |
+| Overrides | Session identity remains exact; the E2E harness uses executable fakes, while operational proof requires Hermes to register one real native OpenCode session |
+
 ### DAI-020 Cycle Overrides
 
 | Field | Value |
@@ -338,6 +347,10 @@ federation, approval, or delivery boundaries change.
 - Given a bounded command exceeds its output limit, then cleanup preserves the
   intended bound error even if the child already exited or macOS denies the late
   process-group signal.
+- The direct-launch E2E test renders the managed runner, executes fake OpenCode
+  and DBSCTR binaries through real subprocess boundaries, and proves reserve,
+  plugin-free session discovery, process start, exact registration, malformed-
+  JSON rejection, and reservation/lens-attempt cleanup.
 
 ### Autonomous R&D Worker
 
@@ -348,6 +361,10 @@ federation, approval, or delivery boundaries change.
 - Failed dispatch releases its reservation without advancing cadence. Successful
   registration advances cadence exactly once; concurrent ticks cannot duplicate
   an attempt or admit a fourth nonterminal worker.
+- Session discovery invokes OpenCode's plugin-free CLI path because listing stored
+  session metadata does not require project plugins. Empty or malformed JSON is a
+  bounded dispatch failure, releases the claimed reservation, starts no process,
+  and leaves the lens pass eligible for retry.
 - Given earlier workers are active or awaiting Discovery, when the schedule
   fires, then one additional fresh worker still starts.
 - Given launch or identity is ambiguous, then spawning fails closed, closes only

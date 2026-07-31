@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sqlite3
 import stat
 import subprocess
@@ -49,7 +50,12 @@ def command(argv, *, parse=True, env=None):
         result = subprocess.run(argv, check=True, text=True, capture_output=True, env=env, timeout=COMMAND_TIMEOUT)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"{argv[0]} timed out") from error
-    return json.loads(result.stdout) if parse else result.stdout
+    if not parse:
+        return result.stdout
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"{Path(argv[0]).name} returned invalid JSON") from error
 
 
 def result(value):
@@ -895,16 +901,16 @@ def launch_action(reservation, worker_id, repository_id):
         raise RuntimeError("direct launch repository is missing or ambiguous")
     repository = Path(matches.pop()).resolve()
     claim_reservation(reservation, worker_id)
-    before = session_ids(repository)
-    log_dir = STATE.parent / "launches"
-    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(log_dir, 0o700)
-    log_path = log_dir / f"{worker_id}.log"
     process = None
     registered = False
-    with log_path.open("a", encoding="utf-8") as output:
-        os.chmod(log_path, 0o600)
-        try:
+    try:
+        before = session_ids(repository)
+        log_dir = STATE.parent / "launches"
+        log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(log_dir, 0o700)
+        log_path = log_dir / f"{worker_id}.log"
+        with log_path.open("a", encoding="utf-8") as output:
+            os.chmod(log_path, 0o600)
             process = subprocess.Popen(
                 [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
                   "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
@@ -934,14 +940,21 @@ def launch_action(reservation, worker_id, repository_id):
             complete_reservation(reservation, worker_id)
             print(json.dumps({"session_id": session_id, "status": "started",
                               "worker_id": worker_id}, separators=(",", ":")))
-        except Exception:
-            release_reservation(reservation)
-            if process is not None and process.poll() is None:
-                process.terminate()
-            if registered:
-                subprocess.run([DBSCTRCTL, "improvement-update", "--worker-id", worker_id,
-                                "--state", "blocked"], check=False)
-            raise
+    except Exception:
+        release_reservation(reservation)
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            except ProcessLookupError:
+                process.wait()
+        if registered:
+            subprocess.run([DBSCTRCTL, "improvement-update", "--worker-id", worker_id,
+                            "--state", "blocked"], check=False)
+        raise
 
 
 def panes(workspace_id):
@@ -969,7 +982,7 @@ def workspace():
 
 
 def session_ids(workdir=REVIEW_WORKDIR):
-    value = command([OPENCODE, "session", "list", "--format", "json", "-n", "100"])
+    value = command([OPENCODE, "session", "list", "--pure", "--format", "json", "-n", "100"])
     if not isinstance(value, list):
         raise RuntimeError("invalid OpenCode session list")
     return {item["id"] for item in value
