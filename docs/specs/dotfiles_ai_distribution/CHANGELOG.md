@@ -33,7 +33,17 @@ delivery requires a feature branch and verified draft pull request into protecte
   fixture distinguishes both contracts instead of relying on a populated local
   session database. The complete 29-test R&D suite passed locally, the corrected
   runner was deployed with an empty second dry-run, and Gate Commit `12d83c6`
-  updates draft PR 13. Gate Exceptions: none.
+   updates draft PR 13. Gate Exceptions: none.
+
+### DAI-016-F3 Launch Cleanup Review
+
+- Independent review found reservation-release failure could skip termination of
+  an already-started unregistered worker. Failure cleanup now bounds process-group
+  termination and reaping before independently releasing scheduler ownership,
+  reports combined failures, and bounds blocked-state recording. Regression
+  coverage proves cleanup still reaps the process when reservation release fails.
+- The subprocess fixture now emits actual zero-byte stdout for an empty OpenCode
+  session inventory while retaining separate malformed non-empty JSON coverage.
 
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 

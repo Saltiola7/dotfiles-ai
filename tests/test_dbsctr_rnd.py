@@ -272,7 +272,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     assert rejected.returncode != 0
     assert log.read_text().count("tab close w7:t9") == 1
     empty = bin_dir / "opencode-empty"
-    empty.write_text("#!/bin/sh\nprintf '[]\\n'\n")
+    empty.write_text("#!/bin/sh\nexit 0\n")
     empty.chmod(0o755)
     timed_out = subprocess.run(
         ["python3", str(runner), "spawn"],
@@ -841,6 +841,59 @@ def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path
         assert "expired" in str(error)
     else:
         raise AssertionError("expired reservation was accepted")
+
+
+def test_direct_launch_reaps_process_when_reservation_cleanup_fails(tmp_path, monkeypatch):
+    runner, _ = load_runner(tmp_path, monkeypatch, "cleanup-direct-launch")
+    repository = tmp_path / "project"
+    repository.mkdir()
+    reservation, reason = runner["reserve_spawn"]([], int(runner["time"].time()))
+    assert reason == "reserved"
+    events = []
+
+    class Process:
+        pid = 123
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            return 0
+
+    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+        "repository_id": "repo-1", "repository": str(repository),
+    }]}
+    calls = 0
+
+    def sessions(_repository):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return set()
+        raise RuntimeError("session lookup failed")
+
+    def release(_reservation):
+        events.append(("release", None))
+        raise RuntimeError("reservation cleanup failed")
+
+    runner["session_ids"] = sessions
+    runner["release_reservation"] = release
+    monkeypatch.setattr(runner["subprocess"], "Popen", Process)
+    monkeypatch.setattr(runner["os"], "killpg", lambda pid, sig: events.append(("kill", (pid, sig))))
+
+    try:
+        runner["launch_action"](reservation, "worker-1", "repo-1")
+    except ExceptionGroup as error:
+        assert [str(item) for item in error.exceptions] == [
+            "session lookup failed", "reservation cleanup failed",
+        ]
+    else:
+        raise AssertionError("combined launch and cleanup failure was not reported")
+    assert events == [("kill", (123, runner["signal"].SIGTERM)), ("wait", 5), ("release", None)]
 
 
 def test_installed_opencode_supports_pure_session_json():

@@ -940,21 +940,38 @@ def launch_action(reservation, worker_id, repository_id):
             complete_reservation(reservation, worker_id)
             print(json.dumps({"session_id": session_id, "status": "started",
                               "worker_id": worker_id}, separators=(",", ":")))
-    except Exception:
-        release_reservation(reservation)
+    except Exception as launch_error:
+        cleanup_errors = []
         if process is not None and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    cleanup_errors.append(error)
             except ProcessLookupError:
-                process.wait()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired as error:
+                    cleanup_errors.append(error)
+            except OSError as error:
+                cleanup_errors.append(error)
+        try:
+            release_reservation(reservation)
+        except Exception as error:
+            cleanup_errors.append(error)
         if registered:
-            subprocess.run([DBSCTRCTL, "improvement-update", "--worker-id", worker_id,
-                            "--state", "blocked"], check=False)
-        raise
+            try:
+                subprocess.run([DBSCTRCTL, "improvement-update", "--worker-id", worker_id,
+                                "--state", "blocked"], check=False, timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                cleanup_errors.append(error)
+        if cleanup_errors:
+            raise ExceptionGroup("direct launch and cleanup failed", [launch_error, *cleanup_errors])
+        raise launch_error
 
 
 def panes(workspace_id):
