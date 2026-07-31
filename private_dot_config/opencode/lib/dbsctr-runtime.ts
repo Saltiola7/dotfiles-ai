@@ -1,4 +1,4 @@
-import { readFile, realpath } from "node:fs/promises"
+import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -11,6 +11,7 @@ const harnessActivation = {
 
 const evaluationPages = new Map<string, { source_id: string, capture_id: string, pages: Map<number, any> }>()
 const evaluationReceipts = new Map<string, any>()
+const lensPages = new Map<string, Map<number, any>>()
 
 function discardEvaluationReceipt(manifestDigest: string) {
   const receipt = evaluationReceipts.get(manifestDigest)
@@ -636,6 +637,45 @@ export async function reviewFederated(args: {
         ? candidates.filter((candidate: any) => candidate.review_session === true).length : 0,
       unattributed_session_count: 0,
     }
+    const key = `${reviewSessions}\0${source.source_id}\0${source.page.capture_id}`
+    const pages = lensPages.get(key) ?? new Map<number, any>()
+    pages.set(source.page.cursor, source.page.filter_telemetry)
+    lensPages.set(key, pages)
+  }
+  if (reviewSessions !== undefined && value.source_state === null
+      && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
+    const pageSets = expectedSources.map(sourceID => {
+      const page = value.sources.find((source: any) => source.source_id === sourceID)?.page
+      const state = sourceState?.find(source => source.source_id === sourceID)
+      const captureID = page?.capture_id ?? state?.capture_id
+      const key = `${reviewSessions}\0${sourceID}\0${captureID}`
+      const pages = lensPages.get(key)
+      if (pages === undefined) throw new Error("scoped federated capture receipt is incomplete")
+      return { key, pages: [...pages.values()] }
+    })
+    const telemetry = {
+      page_count: pageSets.reduce((total, source) => total + source.pages.length, 0),
+      session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.selected_session_count, 0), 0),
+      review_session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.selected_review_session_count, 0), 0),
+      excluded_review_session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.excluded_review_session_count, 0), 0),
+      unattributed_session_count: 0,
+      source_count: expectedSources.length,
+    }
+    const receipt = { schema_version: 1, manifest_digest: value.manifest_digest,
+      scope: reviewSessions, telemetry }
+    const directory = process.env.DBSCTR_RND_RECEIPTS
+      ?? join(homedir(), ".local", "state", "dotfiles-ai", "rnd-lens-receipts")
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await chmod(directory, 0o700)
+    const path = join(directory, `${value.manifest_digest}.${reviewSessions}.json`)
+    const temporary = `${path}.${process.pid}.tmp`
+    await writeFile(temporary, JSON.stringify(receipt), { encoding: "utf8", mode: 0o600, flag: "wx" })
+    await rename(temporary, path)
+    await chmod(path, 0o600)
+    for (const source of pageSets) lensPages.delete(source.key)
   }
   return JSON.stringify(value)
 }

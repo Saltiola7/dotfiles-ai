@@ -44,7 +44,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
-IMPROVEMENT_SCHEMA = 2
+IMPROVEMENT_SCHEMA = 3
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
@@ -461,7 +461,7 @@ def ledger_connection(root, write=False, path=None):
             fail("private review ledger has an unsupported schema")
         improvement_schema = connection.execute(
             "SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
-        if write and improvement_schema == ("1",):
+        if write and improvement_schema in (("1",), ("2",)):
             if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
                 fail("private review ledger integrity check failed")
             if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
@@ -626,6 +626,19 @@ def ensure_improvement_schema(connection):
             connection.execute("UPDATE improvement_workers SET priority="
                                "CASE WHEN state='claimed' THEN 'P2' ELSE 'P1' END "
                                "WHERE opportunity_id IS NOT NULL")
+            connection.execute("UPDATE ledger_meta SET value='2' WHERE key='improvement_schema'")
+            connection.commit()
+            row = ("2",)
+        except Exception:
+            connection.rollback()
+            raise
+    if row == ("2",):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN authorization TEXT NOT NULL "
+                               "DEFAULT 'none' CHECK (authorization IN ('none','autonomous','operator'))")
+            connection.execute("UPDATE improvement_workers SET authorization='operator' "
+                               "WHERE state NOT IN ('reviewing','claimed','abandoned')")
             connection.execute("UPDATE ledger_meta SET value=? WHERE key='improvement_schema'",
                                (str(IMPROVEMENT_SCHEMA),))
             connection.commit()
@@ -641,6 +654,7 @@ def ensure_improvement_schema(connection):
             opportunity_id TEXT UNIQUE,
             summary TEXT,
             priority TEXT CHECK (priority IN ('P0','P1','P2','P3')),
+            authorization TEXT NOT NULL DEFAULT 'none' CHECK (authorization IN ('none','autonomous','operator')),
             state TEXT NOT NULL CHECK (state IN (
                 'reviewing', 'claimed', 'discovery', 'implementing', 'draft_pr',
                 'blocked', 'merged', 'closed', 'abandoned'
@@ -682,12 +696,12 @@ def improvement_integrity(connection):
     if tables != expected_tables:
         fail("private improvement ledger tables are invalid")
     for row in connection.execute("""
-            SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
+            SELECT worker_id, session_id, opportunity_id, summary, priority, authorization, state, resume_state,
                    recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                    pr_number, pr_url, created_at, updated_at
             FROM improvement_workers
     """):
-        worker_id, session_id, opportunity_id, summary, priority, state, resume_state, attempts, *rest = row
+        worker_id, session_id, opportunity_id, summary, priority, authorization, state, resume_state, attempts, *rest = row
         presentation_ids, cycle_id = rest[:3], rest[3]
         pr_number, pr_url, created_at, updated_at = rest[4:]
         if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
@@ -697,7 +711,9 @@ def improvement_integrity(connection):
                 or (opportunity_id is None) != (summary is None)
                 or (opportunity_id is None) != (priority is None)
                 or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
+                or authorization not in {"none", "autonomous", "operator"}
                 or state == "reviewing" and opportunity_id is not None
+                or state in {"discovery", "implementing", "draft_pr"} and authorization == "none"
                 or state not in IMPROVEMENT_STATES
                 or resume_state not in IMPROVEMENT_RESUMABLE_STATES
                 or not isinstance(attempts, int) or not 0 <= attempts <= 3
@@ -6060,14 +6076,14 @@ def improvement_opportunity_id(summary):
 
 def improvement_worker(connection, worker_id):
     row = connection.execute("""
-        SELECT worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
+        SELECT worker_id, session_id, opportunity_id, summary, priority, authorization, state, resume_state,
                recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                pr_number, pr_url, created_at, updated_at
         FROM improvement_workers WHERE worker_id=?
     """, (worker_id,)).fetchone()
     if row is None:
         fail("improvement worker is missing")
-    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "state", "resume_state",
+    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "authorization", "state", "resume_state",
              "recovery_attempts", "workspace_id", "tab_id", "pane_id", "cycle_id",
              "pr_number", "pr_url", "created_at", "updated_at")
     value = dict(zip(names, row))
@@ -6132,7 +6148,7 @@ def command_improvement_claim(args):
             else:
                 connection.execute("""
                     UPDATE improvement_workers SET opportunity_id=?, summary=?, priority=?, state='claimed',
-                           resume_state='claimed', updated_at=? WHERE worker_id=?
+                           authorization='none', resume_state='claimed', updated_at=? WHERE worker_id=?
                 """, (opportunity_id, summary, priority, timestamp, worker_id))
         except sqlite3.IntegrityError:
             fail("improvement opportunity or worker is already claimed")
@@ -6153,7 +6169,7 @@ def command_improvement_promote(args):
             fail("only a claimed P2/P3 improvement worker can be promoted")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         connection.execute("""
-            UPDATE improvement_workers SET priority='P1', state='discovery',
+            UPDATE improvement_workers SET priority='P1', authorization='operator', state='discovery',
                    resume_state='discovery', updated_at=? WHERE worker_id=?
         """, (timestamp, worker_id))
         return improvement_public(improvement_worker(connection, worker_id))
@@ -6225,12 +6241,16 @@ def command_improvement_update(args):
         else:
             worker_id = requested_worker_id
         current = improvement_worker(connection, worker_id)
-        if (current["priority"] == "P0" and current["state"] == "claimed"
-                and state == "discovery" and args.operator_confirm != worker_id):
-            fail("P0 improvement claims require exact operator confirmation")
-        if (current["priority"] in {"P2", "P3"} and current["state"] == "claimed"
-                and state not in {"claimed", "abandoned"} and not args.autonomous):
-            fail("P2/P3 improvement claims remain queued until promotion or autonomous readiness")
+        authorization = current["authorization"]
+        if current["state"] == "claimed" and state == "discovery":
+            if args.operator_confirm == worker_id:
+                authorization = "operator"
+            elif current["priority"] in {"P1", "P2", "P3"} and args.autonomous:
+                authorization = "autonomous"
+            elif current["priority"] == "P0":
+                fail("P0 improvement claims require exact operator confirmation")
+            else:
+                fail("P1-P3 improvement claims require autonomous readiness or operator confirmation")
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
         if state == "implementing" and (not paths or args.cycle_id is None):
@@ -6254,6 +6274,9 @@ def command_improvement_update(args):
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         assignments = ["state=?", "updated_at=?"]
         values = [state, timestamp]
+        if authorization != current["authorization"]:
+            assignments.append("authorization=?")
+            values.append(authorization)
         if state in IMPROVEMENT_RESUMABLE_STATES:
             assignments.append("resume_state=?")
             values.append(state)

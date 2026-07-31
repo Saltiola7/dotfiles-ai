@@ -29,6 +29,8 @@ MANAGED_PATH = {{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bi
 TERMINAL = {"merged", "closed", "abandoned"}
 LOCK = Path(os.environ.get("DBSCTR_RND_LOCK", {{ printf "%s/.local/state/dotfiles-ai/dbsctr-rnd-watchdog.lock" .chezmoi.homeDir | quote }}))
 STATE = Path(os.environ.get("DBSCTR_RND_STATE", str(LOCK.with_name("dbsctr-rnd.sqlite3"))))
+RECEIPTS = Path(os.environ.get(
+    "DBSCTR_RND_RECEIPTS", str(STATE.parent / "rnd-lens-receipts")))
 SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "240"))
 COMMAND_TIMEOUT = float(os.environ.get("DBSCTR_RND_COMMAND_TIMEOUT", "180"))
 CADENCES = ("weekly", "twice_weekly", "daily")
@@ -746,6 +748,18 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
         if attempt is None:
             raise RuntimeError("parallel lens result has no due pass")
         reservation, lens_name, cadence, count, recorded_quarter = attempt
+        scope = "only" if lens_name == REVIEW_SESSION_LENS else "exclude"
+        receipt_path = RECEIPTS / f"{manifest_digest}.{scope}.json"
+        if RECEIPTS.is_symlink() or not RECEIPTS.is_dir() or receipt_path.is_symlink():
+            raise RuntimeError("parallel lens telemetry receipt path is unsafe")
+        details = receipt_path.lstat()
+        if (stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) != 0o600):
+            raise RuntimeError("parallel lens telemetry receipt is unsafe")
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if (receipt != {"schema_version": 1, "manifest_digest": manifest_digest,
+                        "scope": scope, "telemetry": telemetry}):
+            raise RuntimeError("parallel lens telemetry does not match its capture receipt")
         if lens_name == REVIEW_SESSION_LENS:
             if (telemetry["excluded_review_session_count"]
                     or telemetry["session_count"] != telemetry["review_session_count"]):
@@ -776,6 +790,7 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
             "UPDATE parallel_lens_state SET cadence=?,no_yield_count=?,quarter=?,next_eligible_at=? "
             "WHERE lens_name=?", (cadence, count, quarter, next_at, lens_name))
         connection.commit()
+        receipt_path.unlink()
         return {"schema_version": 2, "worker_id": worker_id, "lens": lens_name,
                 "capture_day": capture_day, "manifest_digest": manifest_digest,
                 "outcome": outcome, "cadence": cadence, "no_yield_count": count,

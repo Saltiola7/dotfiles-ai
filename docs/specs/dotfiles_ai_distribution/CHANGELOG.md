@@ -18,6 +18,9 @@ delivery requires a feature branch and verified draft pull request into protecte
   material uncertainty; P0 and critical or uncertain work block. Draft pull
   request remains the maximum delivery authority. Implementation and live
   validation are in progress.
+- Autonomous/operator authorization is durable in the improvement ledger, and
+  pass telemetry is accepted only from a private scope/manifest receipt derived
+  by the typed adapter from the actual filtered pages.
 
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 

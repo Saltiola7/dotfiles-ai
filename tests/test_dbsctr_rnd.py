@@ -491,6 +491,7 @@ def load_runner(tmp_path, monkeypatch, name):
     state = tmp_path / f"{name}.sqlite3"
     monkeypatch.setenv("DBSCTR_RND_STATE", str(state))
     monkeypatch.setenv("DBSCTR_RND_LOCK", str(tmp_path / f"{name}.lock"))
+    monkeypatch.setenv("DBSCTR_RND_RECEIPTS", str(tmp_path / f"{name}-receipts"))
     source = render("dot_local/bin/executable_dbsctr-rnd.tmpl")
     namespace = {"__name__": f"dbsctr_rnd_{name}"}
     exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
@@ -751,12 +752,21 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     base = {"page_count": 7, "session_count": 10, "review_session_count": 0,
             "excluded_review_session_count": 2, "unattributed_session_count": 0,
             "source_count": 3}
+    runner["RECEIPTS"].mkdir(mode=0o700)
+
+    def write_receipt(digest, scope, telemetry):
+        path = runner["RECEIPTS"] / f"{digest}.{scope}.json"
+        path.write_text(json.dumps({"schema_version": 1, "manifest_digest": digest,
+                                    "scope": scope, "telemetry": telemetry}))
+        path.chmod(0o600)
+
+    write_receipt("a" * 64, "exclude", base)
     try:
         runner["parallel_lens_result"](
             ordinary, "2024-01-01", "a" * 64, "no_yield",
             {**base, "review_session_count": 1}, now)
     except RuntimeError as error:
-        assert "ordinary lens" in str(error)
+        assert "capture receipt" in str(error)
     else:
         raise AssertionError("ordinary lens accepted review-session evidence")
     try:
@@ -774,6 +784,7 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
                       "excluded_review_session_count": 0, "unattributed_session_count": 0,
                       "source_count": 3}
+    write_receipt("b" * 64, "only", review_metrics)
     try:
         runner["parallel_lens_result"](
             review, "2024-01-01", "b" * 64, "no_yield",

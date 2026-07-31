@@ -319,8 +319,9 @@ state, and authoritative external documentation through Scout when useful.
 
 Given a defensible distinct opportunity, when the worker claims it atomically,
 then it records lens telemetry and runs Discovery in the same session. Explicit
-autonomous readiness may advance noncritical P1-P3 work only when no material
-question remains; P0, critical, and uncertain work waits for the operator.
+autonomous readiness may durably authorize noncritical P1-P3 work only when no
+material question remains; exact operator confirmation is recorded separately.
+P0, critical, and uncertain work waits for the operator.
 
 Given autonomous readiness or explicit proceed and completed Discovery, when the worker begins DBSCTR,
 then it edits only the helper-owned isolated worktree for this source and may use

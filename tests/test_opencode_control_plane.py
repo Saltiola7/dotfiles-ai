@@ -1022,6 +1022,7 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     sandbox.chmod(0o755)
     config = tmp_path / "sandbox.json"
     config.write_text(json.dumps({"workspaces": []}))
+    receipts = tmp_path / "receipts"
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ reviewFederated, providerEvaluationSave }} from {json.dumps(str(runtime))};'
@@ -1035,7 +1036,8 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-             "OPENCODE_VM_CONFIG": str(config)}, text=True, capture_output=True, check=True,
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True, check=True,
     )
     lines = result.stdout.splitlines()
     excluded, only = [json.loads(line) for line in lines[:2]]
@@ -1050,6 +1052,14 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
         "selected_session_count": 1, "selected_review_session_count": 1,
         "excluded_review_session_count": 0, "unattributed_session_count": 0,
     }
+    exclude_receipt = json.loads((receipts / f'{response["manifest_digest"]}.exclude.json').read_text())
+    only_receipt = json.loads((receipts / f'{response["manifest_digest"]}.only.json').read_text())
+    assert exclude_receipt["telemetry"] == {
+        "page_count": 1, "session_count": 1, "review_session_count": 0,
+        "excluded_review_session_count": 1, "unattributed_session_count": 0,
+        "source_count": 1,
+    }
+    assert only_receipt["telemetry"]["review_session_count"] == 1
     legacy = federated_candidate("legacy")
     page["candidates"].append(legacy)
     page["session_ids"].append("legacy")
@@ -1058,7 +1068,8 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     failed = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-             "OPENCODE_VM_CONFIG": str(config)}, text=True, capture_output=True,
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True,
     )
     assert failed.returncode != 0
     assert "review-session attribution is unavailable" in failed.stderr

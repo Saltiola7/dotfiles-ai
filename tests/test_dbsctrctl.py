@@ -2015,7 +2015,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "improvement-claim", "--session-id", "session-1",
             "--summary", "Improve draft delivery", "--priority", "P1", env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "discovery",
-            env=worker_env)
+            "--operator-confirm", "worker-1", env=worker_env)
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
             "--cycle-id", "cycle-1", "--path", "tracked.txt", env=worker_env)
         record = json.loads(self.record_path().read_text())
@@ -4415,7 +4415,8 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("claimed -> implementing", bypass.stderr)
         run(self.repo, "improvement-update", "--state-root", str(state),
-            "--worker-id", "worker-1", "--state", "discovery")
+            "--worker-id", "worker-1", "--state", "discovery",
+            "--operator-confirm", "worker-1")
         missing_scope = run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing", ok=False,
@@ -4443,7 +4444,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-4", "--state", "discovery", ok=False,
         )
-        self.assertIn("remain queued", rejected.stderr)
+        self.assertIn("require autonomous readiness or operator confirmation", rejected.stderr)
         recovery = run(
             self.repo, "improvement-recover", "--state-root", str(state),
             "--worker-id", "worker-4", "--action", "failed", ok=False,
@@ -4470,6 +4471,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
+        self.assertEqual(autonomous["authorization"], "autonomous")
         autonomous = json.loads(run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "implementing",
@@ -4500,6 +4502,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--operator-confirm", "worker-6",
         ).stdout)
         self.assertEqual((critical["priority"], critical["state"]), ("P0", "discovery"))
+        self.assertEqual(critical["authorization"], "operator")
         repeated = run(
             self.repo, "improvement-promote", "--state-root", str(state),
             "--worker-id", "worker-4", "--confirm", "worker-4", ok=False,
@@ -4596,7 +4599,7 @@ class DbsctrctlTest(unittest.TestCase):
                 "--worker-id", worker, "--session-id", session, "--summary", summary,
                 "--priority", "P1")
             run(self.repo, "improvement-update", "--state-root", str(state),
-                "--worker-id", worker, "--state", "discovery")
+                "--worker-id", worker, "--state", "discovery", "--operator-confirm", worker)
         updated = json.loads(run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
@@ -4624,7 +4627,8 @@ class DbsctrctlTest(unittest.TestCase):
             "--summary", "Recover exact worker sessions", "--priority", "P1")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "discovery",
-            "--workspace-id", "workspace-1", "--tab-id", "tab-1", "--pane-id", "pane-1")
+            "--operator-confirm", "worker-1", "--workspace-id", "workspace-1",
+            "--tab-id", "tab-1", "--pane-id", "pane-1")
         for attempt in range(1, 4):
             worker = json.loads(run(
                 self.repo, "improvement-recover", "--state-root", str(state),
@@ -4663,7 +4667,8 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("only an abandoned improvement worker", active.stderr)
         run(self.repo, "improvement-update", "--state-root", str(state),
-            "--worker-id", "worker-1", "--state", "discovery")
+            "--worker-id", "worker-1", "--state", "discovery",
+            "--operator-confirm", "worker-1")
         run(self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-1", "--state", "implementing",
             "--cycle-id", "cycle-1", "--path", "tracked.txt")
@@ -4790,12 +4795,17 @@ class DbsctrctlTest(unittest.TestCase):
         connection.commit()
         module.ensure_improvement_schema(connection)
         self.assertEqual(connection.execute(
-            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("3",))
         self.assertEqual(connection.execute(
             "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
         self.assertEqual(connection.execute(
             "select distinct priority from improvement_workers where worker_id!='worker-1'"
         ).fetchall(), [("P1",)])
+        self.assertEqual(connection.execute(
+            "select authorization from improvement_workers where worker_id='worker-1'").fetchone(), ("none",))
+        self.assertEqual(connection.execute(
+            "select distinct authorization from improvement_workers where worker_id!='worker-1'"
+        ).fetchall(), [("operator",)])
         module.improvement_integrity(connection)
         connection.close()
 
@@ -4808,6 +4818,7 @@ class DbsctrctlTest(unittest.TestCase):
         connection = sqlite3.connect(ledger)
         connection.execute("update ledger_meta set value='1' where key='improvement_schema'")
         connection.execute("alter table improvement_workers drop column priority")
+        connection.execute("alter table improvement_workers drop column authorization")
         connection.commit()
         connection.close()
         status = json.loads(run(
@@ -4817,7 +4828,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(status["workers"][0]["priority"], "P2")
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute(
-            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("2",))
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("3",))
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

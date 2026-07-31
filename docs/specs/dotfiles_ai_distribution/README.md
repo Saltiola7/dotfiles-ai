@@ -403,13 +403,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   The typed federation adapter removes out-of-scope candidates before returning
   a page; unattributed legacy evidence fails the pass. Validation rejects ordinary
   lens telemetry with selected review sessions and governance telemetry with
-  excluded review sessions.
+  excluded review sessions. The adapter writes one mode-`0600` terminal receipt
+  derived from filtered pages; `lens-result` consumes only an exact matching
+  manifest/scope/counter receipt and deletes it after durable recording.
 - A yield resets only that lens and makes it immediately eligible for another
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores
   daily cadence without changing another lens or any live claim.
 - Every distinct claim stores exactly one P0-P3 priority. P1-P3 may enter
-  Discovery under explicit autonomous readiness; P0, critical risk, and material
+  Discovery under a durable `autonomous` readiness authorization; exact operator
+  confirmation records `operator` authorization. P0, critical risk, and material
   unresolved questions block for the operator. Evidence-ready noncritical work
   may proceed through DBSCTR to a draft pull request, but never merge or deploy.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
@@ -730,6 +733,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   separate mode-`0600` private scheduler SQLite ledger owns reservations,
   per-lens attempts, pass telemetry, sanitized outcome references, and cadence
   state. Launchd and Herdr are advisory.
+- The private improvement ledger stores `none`, `autonomous`, or `operator`
+  authorization. Claimed P1-P3 require readiness or exact confirmation before
+  Discovery; P0 always requires exact operator confirmation.
 - The DBSCTR private ledger adds separately versioned
   `provider_evaluation_reports`, `provider_evaluation_members`,
   `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather
