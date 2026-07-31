@@ -1,5 +1,35 @@
 # Changelog - OpenCode Inference Cost Reporting
 
+## 2026-07-31 - Message-level context attribution (v0.3)
+
+**Outcome:** Replaced lossy session-grain model and context attribution with
+allowlisted OpenCode `step-finish` metadata joined to parent assistant messages.
+Each reconciled usage record is assigned through a half-open DBSCTR context
+interval; non-DBSCTR, abandoned, and interval-less historical usage remains
+`UNKNOWN`, while overlapping contexts remain `MULTI_CONTEXT`.
+
+**Reconciliation:** Session aggregates remain authoritative controls. Exact
+canonical parts receive message/model/context detail; eight legacy live sessions
+with historical source inconsistencies were quarantined once into `UNKNOWN`.
+The live report retained 99.9886% token reconciliation coverage without
+fabricated allocation.
+
+**Privacy and compatibility:** SQL projects only opaque IDs, timestamps,
+provider/model/variant, cost, and token classes through explicit JSON paths.
+Raw message/part JSON and content never enter persisted output. Schema v2 replaces
+v1 in place; existing history without interval fields remains valid and is not
+migrated.
+
+**Validation:** Focused red/green behavior tests, Python compilation, and the
+reconciled union suite passed `271 tests` with one optional Lima skip. Live
+metadata-only dry-run and full report generation succeeded. Independent review
+was unavailable because its sandbox could not read the isolated worktree; primary
+diff review found no unresolved issue.
+
+**Gate exceptions:** None. **Gate Commit:** `0315f15`. **Deployment:** Not run.
+Intended Final Push: feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-07-30 - MVP implemented (v0.2)
 
 **Outcome:** Added the read-only `inference-cost-report` CLI, current OpenCode

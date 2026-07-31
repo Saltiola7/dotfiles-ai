@@ -2685,6 +2685,23 @@ module routing without changing Cycle Record schema or public commands.
   Build primaries receive standing authorization; Plan and subagents remain
   denied. Reading status never mutates runtime metadata.
 
+### Sanitized Context Interval Contract
+
+- Correlated Cycle Record summaries may expose bounded context plus millisecond
+  `started_at` and nullable `ended_at` values. They never expose runtime paths,
+  transcript content, tool payloads, or raw session identity outside the
+  existing private candidate envelope.
+- `started_at` derives only from a valid Cycle Record `created_at`. `ended_at`
+  derives only from a valid completed `completed_at`; active and blocked cycles
+  remain open. Abandoned and unknown cycles have no trustworthy allocation end.
+- Multiple exact runtime matches remain `ambiguous` but retain their sanitized
+  cycle summaries so timestamp consumers can distinguish non-overlapping context
+  intervals. Lower-confidence ambiguous tiers remain empty and cannot multiply
+  attribution.
+- Existing persisted history without interval fields remains valid and is not
+  migrated. Consumers treat missing or invalid interval authority as unavailable,
+  never as a zero-length interval.
+
 ### V3.19 Private Ledger Contract
 
 - The authoritative private store is `~/.local/state/dbsctr/reviews/ledger.sqlite3`.
