@@ -133,7 +133,7 @@ BACKLOG, and CHANGELOG own final results.
 |---|---|
 | Risk | Elevated: repairs live autonomous dispatch and proves it with a controlled real worker run |
 | Delivery intent | Deploy the corrected runner locally and manually trigger one Hermes R&D pass after affected gates pass |
-| Scope | Plugin-free OpenCode session discovery, bounded invalid-JSON diagnostics, pre-launch reservation cleanup, subprocess E2E coverage, and live dispatch evidence |
+| Scope | Plugin-free OpenCode session discovery, argparse-safe supervisor launch, bounded cleanup, host history capture timeout, subprocess E2E coverage, and live round evidence |
 | Overrides | Session identity remains exact; the E2E harness uses executable fakes, while operational proof requires Hermes to register one real native OpenCode session |
 
 ### DAI-020 Cycle Overrides
@@ -410,7 +410,9 @@ federation, approval, or delivery boundaries change.
   instance that this collection started. Transitional states fail closed.
 - Given a valid source takes longer than the generic analytics deadline, then the
   typed federation call waits for its source-bounded command instead of killing the
-  aggregate operation. Per-command time and output bounds remain enforced.
+  aggregate operation. Host history capture has a 300-second bound for the larger
+  local database; workspace history and lifecycle commands retain 120-second
+  bounds, and every source retains the existing output bound.
 - Given Discovery has unresolved material questions, then the worker waits until
   the operator resumes its exact OpenCode session in any host or VM Herdr pane and
   explicitly instructs it to proceed. Hermes never supplies that answer.

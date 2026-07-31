@@ -27,6 +27,8 @@ EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]", re.I)
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
+HOST_HISTORY_TIMEOUT = 300
+WORKSPACE_HISTORY_TIMEOUT = 120
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 TAILSCALE_INSTALL = """\
 set -eu
@@ -777,7 +779,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
     def collect_host():
         try:
             argv = _history_argv(limit, cursor, host_state, filters, excluded_session_id, excluded_message_id)
-            return _source_page("host", execute(argv, timeout=120),
+            return _source_page("host", execute(argv, timeout=HOST_HISTORY_TIMEOUT),
                                 limit, host_cursor, host_state, filters)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
             return {"source_id": "host", "availability": "invalid_output"}, None
@@ -801,7 +803,7 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
                 started = statuses[instance] == "stopped"
                 if started:
                     execute(["limactl", "start", instance], timeout=120)
-                output = execute(["limactl", "shell", instance, "--", *_history_argv(limit, cursor, state_before, filters)], timeout=120)
+                output = execute(["limactl", "shell", instance, "--", *_history_argv(limit, cursor, state_before, filters)], timeout=WORKSPACE_HISTORY_TIMEOUT)
                 envelope, state = _source_page(source, output, limit, source_cursor, state_before, filters)
             except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
                 pass
