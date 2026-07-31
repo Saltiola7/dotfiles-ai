@@ -15,8 +15,10 @@ message, part, prompt, response, and tool arguments do not enter output.
 Unsupported providers, long contexts, missing token-class rates, and ambiguous
 zero recorded costs remain null and lower coverage.
 
-**Validation:** Focused inference behavior tests and affected lifecycle/control
-plane suites passed. Final independent review and Gate Commit are pending.
+**Validation:** `200 passed, 1 skipped` across focused inference,
+`test_dbsctrctl`, lifecycle, and control-plane suites; metadata-only live dry run
+and full local report generation succeeded; final independent review found no
+remaining material issues.
 
 **Review remediation:** Sanitized path-bearing input errors, exposed monetary
 and attribution coverage in Markdown, retained attribution source/confidence,
@@ -25,6 +27,11 @@ self-recovering. Re-review additionally hardened rate-source URLs and bound each
 estimate to a rate entry covering the complete session lifetime.
 
 **Gate exceptions:** None.
+
+**Gate commits:** `1a5b8a9`, `ab46a73`, `85ab5b8`, `67056a2`.
+
+**Deployment:** None. The command and rate card are delivered through the normal
+dotfiles apply path; this cycle does not apply local configuration.
 
 ## 2026-07-30 - Specification created (v0.1)
 

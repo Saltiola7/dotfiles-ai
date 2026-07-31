@@ -421,8 +421,8 @@ flow changes.
 | Contract | required | passed | Preconditions, invariants, failure semantics, compatibility, and privacy constraints defined. |
 | Test-driven implementation | required | passed | Synthetic SQLite behavior tests cover extraction, privacy, attribution, costing, statistics, dry-run, and failure preservation. |
 | Refactor | required | passed | Reused existing history, SQLite, validation, and atomic-write patterns; no runtime dependency added. |
-| Review/Integrate | required | pending | Independent review found and remediation addressed sanitized errors, coverage visibility, attribution provenance, and interrupted-publication recovery; re-review remains. |
+| Review/Integrate | required | passed | Two independent remediation reviews and a final focused review resolved all material findings; affected suites and live metadata-only execution passed. |
 | Release | not_applicable | not_run | MVP is an internal Git-versioned tool with no package publication. |
 | Deploy | not_applicable | not_run | Manual local command; no environment change. |
 | Operate | not_applicable | not_run | No service, schedule, or alerting in MVP. |
-| Maintain/Retire | required | pending | AI Tooling owns schema capability failures and rate updates; final review must confirm this guidance. |
+| Maintain/Retire | required | passed | AI Tooling owns strict adapter updates, dated rate refreshes, source retirement, and deletion of replaceable local reports. |
