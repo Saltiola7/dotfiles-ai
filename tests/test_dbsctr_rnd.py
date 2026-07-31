@@ -118,6 +118,17 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
     assert "cron pause" in configure and "cutover-ready" in configure
+
+
+def test_supervisor_uses_argparse_safe_direct_launch_command():
+    skill = render(
+        "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl"
+    )
+    assert (
+        "dbsctr-rnd --reservation RESERVATION --worker-id WORKER_ID "
+        "--repository-id REPOSITORY_ID launch"
+    ) in skill
+    assert "dbsctr-rnd --reservation RESERVATION release" in skill
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog

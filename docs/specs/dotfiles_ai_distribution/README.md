@@ -365,6 +365,9 @@ federation, approval, or delivery boundaries change.
   session metadata does not require project plugins. Empty or malformed JSON is a
   bounded dispatch failure, releases the claimed reservation, starts no process,
   and leaves the lens pass eligible for retry.
+- Hermes passes reservation, worker, and repository identities as global runner
+  options before the `launch` action; generated supervisor instructions include
+  the exact argparse-safe command and matching release command.
 - Given earlier workers are active or awaiting Discovery, when the schedule
   fires, then one additional fresh worker still starts.
 - Given launch or identity is ambiguous, then spawning fails closed, closes only
