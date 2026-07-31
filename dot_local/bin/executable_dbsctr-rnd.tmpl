@@ -942,22 +942,38 @@ def launch_action(reservation, worker_id, repository_id):
                               "worker_id": worker_id}, separators=(",", ":")))
     except Exception as launch_error:
         cleanup_errors = []
-        if process is not None and process.poll() is None:
+        if process is not None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                cleanup_errors.append(error)
+            try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                pass
+            except OSError as error:
+                cleanup_errors.append(error)
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                group_alive = False
+            except OSError as error:
+                cleanup_errors.append(error)
+                group_alive = False
+            else:
+                group_alive = True
+            if group_alive:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=5)
-                except (OSError, subprocess.TimeoutExpired) as error:
+                except ProcessLookupError:
+                    pass
+                except OSError as error:
                     cleanup_errors.append(error)
-            except ProcessLookupError:
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired as error:
-                    cleanup_errors.append(error)
-            except OSError as error:
+            try:
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
                 cleanup_errors.append(error)
         try:
             release_reservation(reservation)

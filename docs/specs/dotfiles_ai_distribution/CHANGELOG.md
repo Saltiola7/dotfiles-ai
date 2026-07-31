@@ -41,7 +41,8 @@ delivery requires a feature branch and verified draft pull request into protecte
   an already-started unregistered worker. Failure cleanup now bounds process-group
   termination and reaping before independently releasing scheduler ownership,
   reports combined failures, and bounds blocked-state recording. Regression
-  coverage proves cleanup still reaps the process when reservation release fails.
+  coverage proves cleanup still reaps the process when reservation release fails
+  and kills descendants when the process-group leader has already exited.
 - The subprocess fixture now emits actual zero-byte stdout for an empty OpenCode
   session inventory while retaining separate malformed non-empty JSON coverage.
 
