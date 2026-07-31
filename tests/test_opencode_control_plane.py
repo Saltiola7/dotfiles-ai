@@ -1008,8 +1008,7 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     query = {"after": None, "archive_only": False, "before": None, "context": None,
              "cycle_id": None, "method_revision": None, "project_digest": None,
              "reviewed_status": None, "state": None}
-    candidates = [federated_candidate("review", True), federated_candidate("ordinary", False),
-                  federated_candidate("legacy")]
+    candidates = [federated_candidate("review", True), federated_candidate("ordinary", False)]
     page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
             "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
             "exclusion_digest": None, "limit": 25, "cursor": 0, "continuation": None,
@@ -1043,13 +1042,25 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
     assert excluded["session_ids"] == ["ordinary"]
     assert excluded["filter_telemetry"] == {
         "selected_session_count": 1, "selected_review_session_count": 0,
-        "excluded_review_session_count": 1, "unattributed_session_count": 1,
+        "excluded_review_session_count": 1, "unattributed_session_count": 0,
     }
     assert only["session_ids"] == ["review"]
     assert only["filter_telemetry"] == {
         "selected_session_count": 1, "selected_review_session_count": 1,
-        "excluded_review_session_count": 0, "unattributed_session_count": 1,
+        "excluded_review_session_count": 0, "unattributed_session_count": 0,
     }
+    legacy = federated_candidate("legacy")
+    page["candidates"].append(legacy)
+    page["session_ids"].append("legacy")
+    response["manifest_digest"] = federated_digest(query, sources)
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    failed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config)}, text=True, capture_output=True,
+    )
+    assert failed.returncode != 0
+    assert "review-session attribution is unavailable" in failed.stderr
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):

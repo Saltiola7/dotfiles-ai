@@ -401,7 +401,7 @@ feature branch with a draft pull request; the operator retains merge authority.
   session count, selected review-session count, excluded review-session count,
   unattributed-session count, source count, cadence, and exact next eligibility.
   The typed federation adapter removes out-of-scope candidates before returning
-  a page; unattributed legacy evidence is selected by neither scope. Validation rejects ordinary
+  a page; unattributed legacy evidence fails the pass. Validation rejects ordinary
   lens telemetry with selected review sessions and governance telemetry with
   excluded review sessions.
 - A yield resets only that lens and makes it immediately eligible for another

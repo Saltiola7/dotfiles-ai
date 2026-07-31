@@ -758,6 +758,14 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
         assert "ordinary lens" in str(error)
     else:
         raise AssertionError("ordinary lens accepted review-session evidence")
+    try:
+        runner["parallel_lens_result"](
+            ordinary, "2024-01-01", "a" * 64, "no_yield",
+            {**base, "unattributed_session_count": 1}, now)
+    except RuntimeError as error:
+        assert "inconsistent" in str(error)
+    else:
+        raise AssertionError("unattributed lens evidence was accepted")
     ordinary_result = runner["parallel_lens_result"](
         ordinary, "2024-01-01", "a" * 64, "no_yield", base, now)
     assert ordinary_result["next_eligible_at"] == now + 86400

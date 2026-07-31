@@ -342,6 +342,7 @@ def state_connection():
                 or not isinstance(quarter, str) or type(next_at) is not int or next_at < 0
                 or any(type(value) is not int or value < 0 for value in metrics)
                 or metrics[5] < 1 or metrics[0] < metrics[5] or metrics[2] > metrics[1]
+                or metrics[4] != 0
                 or lens_name == REVIEW_SESSION_LENS and metrics[3] != 0
                 or lens_name == REVIEW_SESSION_LENS and metrics[1] != metrics[2]
                 or lens_name != REVIEW_SESSION_LENS and metrics[2] != 0):
@@ -703,7 +704,8 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
             or any(type(telemetry[name]) is not int or telemetry[name] < 0 for name in telemetry_names)):
         raise RuntimeError("invalid parallel lens result")
     if (telemetry["source_count"] < 1 or telemetry["page_count"] < telemetry["source_count"]
-            or telemetry["review_session_count"] > telemetry["session_count"]):
+            or telemetry["review_session_count"] > telemetry["session_count"]
+            or telemetry["unattributed_session_count"] != 0):
         raise RuntimeError("inconsistent parallel lens telemetry")
     connection = state_connection()
     try:

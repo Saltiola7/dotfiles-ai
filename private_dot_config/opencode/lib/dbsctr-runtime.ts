@@ -622,6 +622,8 @@ export async function reviewFederated(args: {
   if (reviewSessions !== undefined) for (const source of value.sources) {
     if (source.availability !== "available") continue
     const candidates = source.page.candidates
+    if (candidates.some((candidate: any) => candidate.review_session === undefined))
+      throw new Error("federated review-session attribution is unavailable")
     const selected = candidates.filter((candidate: any) => reviewSessions === "only"
       ? candidate.review_session === true : candidate.review_session === false)
     source.page.candidates = selected
@@ -631,7 +633,7 @@ export async function reviewFederated(args: {
       selected_review_session_count: selected.filter((candidate: any) => candidate.review_session === true).length,
       excluded_review_session_count: reviewSessions === "exclude"
         ? candidates.filter((candidate: any) => candidate.review_session === true).length : 0,
-      unattributed_session_count: candidates.filter((candidate: any) => candidate.review_session === undefined).length,
+      unattributed_session_count: 0,
     }
   }
   return JSON.stringify(value)
