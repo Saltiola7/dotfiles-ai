@@ -746,6 +746,10 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
 
 def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, monkeypatch):
     runner, state = load_runner(tmp_path, monkeypatch, "parallel-lenses")
+    assert runner["LENSES"] == (
+        "correctness_safety", "reliability_recovery", "performance_cost",
+        "operator_experience", "architecture_rnd_meta", "review_session_governance",
+    )
     now = 1_704_067_200
     attempts = {}
     for expected in runner["LENSES"]:
@@ -863,7 +867,8 @@ def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeyp
     runner["release_reservation"](reservation, "prelaunch_failed")
     health = runner["scheduler_health"]()
     assert health == {
-        "schema_version": 1, "reserve_count": 1, "last_reserve_at": now,
+        "schema_version": 1, "state_schema_version": 7, "lens_count": 6,
+        "reserve_count": 1, "last_reserve_at": now,
         "last_reserve_status": "reserved", "last_lens": lens,
         "release_count": 1, "last_release_at": health["last_release_at"],
         "last_release_reason": "prelaunch_failed", "active_attempt_count": 0,
@@ -1078,6 +1083,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
         def __init__(self, argv, **kwargs):
             calls.append(argv)
             assert not any(key.startswith("OPENCODE") for key in kwargs["env"])
+            assert kwargs["env"]["PWD"] == str(repository)
             kwargs["stdout"].write('{"sessionID":"ses_exact"}\n')
             kwargs["stdout"].flush()
 

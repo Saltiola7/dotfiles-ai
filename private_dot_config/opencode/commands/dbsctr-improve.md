@@ -14,7 +14,9 @@ Operate as one bounded native-Build R&D worker:
    or retired. The ordinary families remain correctness/safety,
    reliability/recovery, performance/cost, operator experience, and
    architecture/R&D meta. When assigned `review_session_governance`, also load
-   `dbsctr-lens-audit`.
+   `dbsctr-lens-audit`. One plan intentionally assigns one of six independent
+   lenses. In `dbsctr-rnd health`, `schema_version` versions the output envelope
+   while `state_schema_version` versions the scheduler database.
 2. Call `dbsctr_review_federated` with `limit=100` and `reviewSessions` set to
    the assigned plan's exact `only` or `exclude` value once
    without a `reviewedStatus` filter and follow every continuation. This full

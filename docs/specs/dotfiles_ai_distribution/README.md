@@ -412,9 +412,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   Result submission rejects an unbound attempt or a reused worker ID whose current
   session differs, even when its state and opportunity would otherwise qualify.
 - `dbsctr-rnd health` reads scheduler activity without opening a write
-  transaction. It reports durable reserve and release counts, last sanitized
-  outcomes, active-attempt count, and pass count; pre-launch and launch failures
-  are distinguishable from an ordinary no-op.
+  transaction. It distinguishes its output-envelope schema from scheduler-state
+  schema 7, reports all six configured lenses, durable reserve and release counts,
+  last sanitized outcomes, active-attempt count, and pass count; pre-launch and
+  launch failures are distinguishable from an ordinary no-op.
 - A yield resets only that lens and makes it immediately eligible for another
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores

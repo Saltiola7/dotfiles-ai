@@ -30,7 +30,8 @@ delivery requires a feature branch and verified draft pull request into protecte
   4 before integrity validation.
 - Added read-only `dbsctr-rnd health` output backed by bounded scheduler activity
   counters, so a completed Hermes cron invocation cannot hide repeated no-op,
-  pre-launch-failure, or launch-failure outcomes.
+  pre-launch-failure, or launch-failure outcomes. Health distinguishes its output
+  envelope from scheduler-state schema 7 and reports all six configured lenses.
 - Hermes configuration now writes `model.default` without replacing the
   provider-bearing model object and verifies both effective values before
   installing schedules.

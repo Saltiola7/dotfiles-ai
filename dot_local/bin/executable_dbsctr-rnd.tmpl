@@ -856,7 +856,8 @@ def scheduler_health():
             or not safe_id(activity[2]) or activity[3] is not None and activity[3] not in LENSES
             or not safe_id(activity[6])):
         raise RuntimeError("scheduler activity is malformed")
-    return {"schema_version": 1, "reserve_count": activity[0], "last_reserve_at": activity[1],
+    return {"schema_version": 1, "state_schema_version": 7, "lens_count": len(LENSES),
+            "reserve_count": activity[0], "last_reserve_at": activity[1],
             "last_reserve_status": activity[2], "last_lens": activity[3],
             "release_count": activity[4], "last_release_at": activity[5],
             "last_release_reason": activity[6], "active_attempt_count": attempts,
@@ -1428,7 +1429,8 @@ def launch_action(reservation, worker_id, repository_id):
             process = subprocess.Popen(
                 [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
                   "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
-                env={**child_env, "PATH": MANAGED_PATH, "DBSCTR_RND_WORKER_ID": worker_id},
+                env={**child_env, "PWD": str(repository), "PATH": MANAGED_PATH,
+                     "DBSCTR_RND_WORKER_ID": worker_id},
                 start_new_session=True,
             )
             session_id = None
