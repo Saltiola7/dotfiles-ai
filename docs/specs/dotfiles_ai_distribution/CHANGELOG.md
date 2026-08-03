@@ -31,6 +31,9 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Added read-only `dbsctr-rnd health` output backed by bounded scheduler activity
   counters, so a completed Hermes cron invocation cannot hide repeated no-op,
   pre-launch-failure, or launch-failure outcomes.
+- Hermes configuration now writes `model.default` without replacing the
+  provider-bearing model object and verifies both effective values before
+  installing schedules.
 
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 

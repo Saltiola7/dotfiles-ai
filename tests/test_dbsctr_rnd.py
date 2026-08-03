@@ -106,6 +106,7 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
 def test_hermes_templates_are_profile_local_and_valid_bash():
     installer = render("run_once_before_install-hermes.sh.tmpl")
     configure = render("run_onchange_after_configure-hermes.sh.tmpl")
+    catalog = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl").read_text()
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
@@ -113,7 +114,11 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert "terminal.home_mode profile" in configure
-    assert "config set model openai-codex/gpt-5.6-sol" in configure
+    assert "config set model.default openai-codex/gpt-5.6-sol" in configure
+    assert "config get model.provider" in configure
+    assert "config get model.default" in configure
+    assert '"config", "get", "model.provider"' in catalog
+    assert '"config", "get", "model.default"' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
@@ -1072,6 +1077,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     class Process:
         def __init__(self, argv, **kwargs):
             calls.append(argv)
+            assert not any(key.startswith("OPENCODE") for key in kwargs["env"])
             kwargs["stdout"].write('{"sessionID":"ses_exact"}\n')
             kwargs["stdout"].flush()
 

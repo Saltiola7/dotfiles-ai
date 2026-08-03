@@ -331,6 +331,30 @@ def state_connection():
         );
         """)
     if migrating:
+        connection.execute("""CREATE TABLE IF NOT EXISTS parallel_lens_state (
+            lens_name TEXT PRIMARY KEY, cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0), quarter TEXT NOT NULL,
+            next_eligible_at INTEGER NOT NULL CHECK (next_eligible_at>=0)
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS parallel_lens_attempts (
+            reservation_id TEXT PRIMARY KEY REFERENCES spawn_reservations(reservation_id) ON DELETE CASCADE,
+            lens_name TEXT NOT NULL UNIQUE, worker_id TEXT UNIQUE, capture_day TEXT NOT NULL,
+            cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0), quarter TEXT NOT NULL,
+            session_id TEXT
+        ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS parallel_lens_passes (
+            worker_id TEXT PRIMARY KEY, lens_name TEXT NOT NULL, capture_day TEXT NOT NULL,
+            manifest_digest TEXT NOT NULL, outcome TEXT NOT NULL CHECK (outcome IN ('yield','no_yield')),
+            recorded_at INTEGER NOT NULL, cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+            no_yield_count INTEGER NOT NULL CHECK (no_yield_count>=0), quarter TEXT NOT NULL,
+            next_eligible_at INTEGER NOT NULL CHECK (next_eligible_at>=0),
+            page_count INTEGER NOT NULL CHECK (page_count>=0), session_count INTEGER NOT NULL CHECK (session_count>=0),
+            review_session_count INTEGER NOT NULL CHECK (review_session_count>=0),
+            excluded_review_session_count INTEGER NOT NULL CHECK (excluded_review_session_count>=0),
+            unattributed_session_count INTEGER NOT NULL CHECK (unattributed_session_count>=0),
+            source_count INTEGER NOT NULL CHECK (source_count>=0), opportunity_id TEXT, session_id TEXT
+        ) WITHOUT ROWID""")
         connection.execute("""CREATE TABLE IF NOT EXISTS scheduler_activity (
             singleton INTEGER PRIMARY KEY CHECK (singleton=1),
             reserve_count INTEGER NOT NULL CHECK (reserve_count>=0),
@@ -1399,10 +1423,12 @@ def launch_action(reservation, worker_id, repository_id):
         log_path = log_dir / f"{worker_id}.log"
         with log_path.open("a", encoding="utf-8") as output:
             os.chmod(log_path, 0o600)
+            child_env = {key: value for key, value in os.environ.items()
+                         if not key.startswith("OPENCODE")}
             process = subprocess.Popen(
                 [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
                   "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
-                env={**os.environ, "PATH": MANAGED_PATH, "DBSCTR_RND_WORKER_ID": worker_id},
+                env={**child_env, "PATH": MANAGED_PATH, "DBSCTR_RND_WORKER_ID": worker_id},
                 start_new_session=True,
             )
             session_id = None
