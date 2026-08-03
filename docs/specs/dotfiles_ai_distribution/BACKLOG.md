@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-021 | Delivered six independent continuous R&D lenses, isolated review-session governance, session-bound telemetry and readiness, controlled live pass validation, and five-minute Hermes scheduling | 2026-08-02 | `560650d..1e86bc8` |
 | DAI-016-F3 | Preserved bounded process-group cleanup through release failure and exited-leader races | 2026-07-31 | `5aa248a..857e7af` |
 | DAI-016-F2 | Accepted OpenCode's successful empty session inventory while preserving malformed-output rejection in the subprocess E2E | 2026-07-31 | `12d83c6` |
 | DAI-016-F1 | Repaired plugin-free exact-session launch, pinned argparse-safe Hermes dispatch, bounded large host capture, added subprocess E2E coverage, and completed one 644-session three-source live round with a persisted P2 yield | 2026-07-31 | `24d0fd0..4db52d4` |

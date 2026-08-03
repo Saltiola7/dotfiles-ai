@@ -69,16 +69,17 @@ their ordinary environment-based authentication.
 > [!WARNING]
 > Enable R&D only after `gh` is authenticated for the configured repository and
 > the writable source path is verified. Hermes may schedule and refine work, but
-> it cannot answer Discovery, approve implementation, publish a batch without
+> it cannot answer unresolved Discovery questions, publish a batch without
 > exact operator confirmation, mark a pull request ready, or merge it.
 
-Hermes owns current scheduling, profile-local Kanban state, and OpenCode dispatch.
-The DBSCTR private ledger remains lifecycle authority. P0/P1 claims may enter
-Discovery automatically; P2/P3 remain claimed until an operator promotes one
-explicitly. Delivery pushes only a feature branch and creates a draft pull
-request into protected `main`.
+Hermes owns scheduling, profile-local Kanban state, and OpenCode dispatch. The
+DBSCTR private ledger remains lifecycle authority. Six independent lenses scan
+all federated history; only the governance lens reviews prior R&D sessions.
+Evidence-ready noncritical P1-P3 claims may proceed autonomously, while P0 and
+material uncertainty wait for the operator. Delivery pushes only a feature
+branch and creates a draft pull request into protected `main`.
 
-See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for configuration, daily use,
+See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for configuration, continuous use,
 promotion, batch integration, health, recovery, history retention, and rollback.
 
 ## Optional Lima Workspaces

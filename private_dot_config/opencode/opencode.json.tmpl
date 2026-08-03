@@ -231,6 +231,8 @@
 {{ if gt (len $references) 0 -}}
     "external_directory": {
       "*": "deny",
+      "~/.local/state/dbsctr/worktrees": "allow",
+      "~/.local/state/dbsctr/worktrees/**": "allow",
 {{- $first := true -}}
 {{- range $name, $reference := $references }}
       {{ if not $first }},{{ end }}{{ $reference.path | toJson }}: "allow",
@@ -238,7 +240,11 @@
 {{- end }}
     },
 {{ else -}}
-    "external_directory": "deny",
+    "external_directory": {
+      "*": "deny",
+      "~/.local/state/dbsctr/worktrees": "allow",
+      "~/.local/state/dbsctr/worktrees/**": "allow"
+    },
 {{ end -}}
     "bash": {
       "*": "allow",

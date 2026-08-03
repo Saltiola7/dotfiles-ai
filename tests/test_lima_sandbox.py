@@ -102,6 +102,7 @@ def history_candidate(helper) -> dict:
         "context": "dotfiles_ai_distribution",
         "completed_at": "2026-07-24T10:00:00Z",
         "reviewed_status": "unreviewed",
+        "review_session": True,
         "correlation_quality": "exact",
         "cycles": [{"cycle_id": "DAI-007", "state": "active",
                     "context": "dotfiles_ai_distribution", "started_at": 1784900000000,

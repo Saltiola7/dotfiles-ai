@@ -312,27 +312,37 @@ inventing an aggregate state.
 ### Autonomous R&D worker
 
 Given a fresh scheduled native-Build session, when its managed worker command
-runs, then it processes global sanitized review evidence, compares it with the
+runs, then it applies exactly one assigned lens to all eligible global sanitized
+review evidence, compares it with the
 private improvement ledger, this repository's specs/source/tests and GitHub
 state, and authoritative external documentation through Scout when useful.
 
 Given a defensible distinct opportunity, when the worker claims it atomically,
-then it runs Discovery in the same session and stops for every material question.
-Answering questions does not itself authorize implementation; the operator must
-explicitly instruct the worker to proceed.
+then it records lens telemetry and runs Discovery in the same session. Explicit
+autonomous readiness may durably authorize noncritical P1-P3 work only when no
+material question remains; exact operator confirmation is recorded separately.
+P0, critical, and uncertain work waits for the operator.
 
-Given explicit proceed and completed Discovery, when the worker begins DBSCTR,
+Given autonomous readiness or explicit proceed and completed Discovery, when the worker begins DBSCTR,
 then it edits only the helper-owned isolated worktree for this source and may use
 the typed claim and draft-PR delivery interfaces. Builder and read-only subagents
 remain denied those writes.
 
-Given no distinct finding after every configured lens is exhausted, when the
-worker cannot justify a change, then it asks the operator where to research next.
-It never manufactures a proposal merely to finish the scheduled run.
+Given no distinct finding under the assigned lens, then the worker records
+no-yield and its exact telemetry. Typed federation removes review-worker session
+families before returning ordinary-lens pages; only `review_session_governance`
+receives attributed review sessions, and legacy unattributed sessions fail
+closed into neither scope. No lens manufactures a proposal merely to finish a run.
 
 Given typed cycle begin runs, stable OpenCode tool context records the initiating
 session and worktree in the Cycle Record. Optional Herdr launch metadata remains
 advisory, uses no-focus launch, and never changes lifecycle state or cleanup.
+
+Given a Build session remains rooted in the source checkout, typed reconciliation
+may name an isolated linked worktree. The adapter canonicalizes both paths and
+requires an exact Git top-level beneath the managed DBSCTR worktree root and the
+same Git common directory before invoking the lifecycle helper; outside-root and
+foreign repositories fail before reconciliation.
 
 Given `/dbsctr-review` is asked to inspect history, a separate read-only typed
 tool includes reviewed candidates through bounded composable filters and fixed

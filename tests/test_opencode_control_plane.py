@@ -53,6 +53,40 @@ def federated_digest(query, sources):
                                      separators=(",", ":")).encode()).hexdigest()
 
 
+def federated_candidate(identifier, review_session="missing"):
+    aggregate_names = ("approval_count", "candidate_count", "child_count", "cost_total",
+                       "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count",
+                       "cycle_completed_count", "cycle_count", "cycle_unknown_count", "elapsed_ms",
+                       "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count")
+    telemetry_names = ("approval_count", "retry_count", "delegation_count", "model_families",
+                       "error_classes", "token_total", "cost_total", "provider_ids", "model_ids",
+                       "agent_ids", "session_relation", "core_revisions", "overlay_revisions",
+                       "gate_failure_count", "gate_reopen_count", "remediation_round_count")
+    candidate = {
+        "schema_version": 1, "session_id": identifier, "snapshot": 10,
+        "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+        "project_digest": "d" * 64, "context": "dotfiles_ai_distribution",
+        "completed_at": "2026-07-24T10:00:00Z", "reviewed_status": "unreviewed",
+        "correlation_quality": "exact", "cycles": [],
+        "aggregates": {name: 0 for name in aggregate_names},
+        "telemetry": {
+            "schema_version": 2, "approval_count": 0, "retry_count": 0,
+            "delegation_count": 0, "model_families": ["gpt"], "error_classes": {},
+            "token_total": 0, "cost_total": 0, "provider_ids": ["openai"],
+            "model_ids": ["gpt-5.6-sol"], "agent_ids": ["build"],
+            "session_relation": "primary", "core_revisions": ["3.27"],
+            "overlay_revisions": ["default"], "gate_failure_count": 0,
+            "gate_reopen_count": 0, "remediation_round_count": 0,
+            "availability": {name: "available" for name in telemetry_names},
+            "attribution_status": "exact",
+        },
+        "method_revision": "3.27",
+    }
+    if review_session != "missing":
+        candidate["review_session"] = review_session
+    return candidate
+
+
 def rendered_config(env: dict[str, str] | None = None, data: dict | None = None) -> dict:
     result = subprocess.run(
         [
@@ -70,7 +104,11 @@ def rendered_config(env: dict[str, str] | None = None, data: dict | None = None)
 
 def test_optional_local_repository_reference():
     assert "references" not in rendered_config()
-    assert rendered_config()["permission"]["external_directory"] == "deny"
+    assert rendered_config()["permission"]["external_directory"] == {
+        "*": "deny",
+        "~/.local/state/dbsctr/worktrees": "allow",
+        "~/.local/state/dbsctr/worktrees/**": "allow",
+    }
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -89,6 +127,8 @@ def test_optional_local_repository_reference():
     }
     assert list(rendered["permission"]["external_directory"].items()) == [
         ("*", "deny"),
+        ("~/.local/state/dbsctr/worktrees", "allow"),
+        ("~/.local/state/dbsctr/worktrees/**", "allow"),
         ("/workspace/reference/docs", "allow"),
         ("/workspace/reference/docs/**", "allow"),
     ]
@@ -265,7 +305,11 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
-    assert config["permission"]["external_directory"] == "deny"
+    assert config["permission"]["external_directory"] == {
+        "*": "deny",
+        "~/.local/state/dbsctr/worktrees": "allow",
+        "~/.local/state/dbsctr/worktrees/**": "allow",
+    }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
@@ -433,6 +477,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const phase_span = tool({' in tools
     assert 'export const execution_dag = tool({' in tools
     assert 'export const reconcile = tool({' in tools
+    assert "reconcileTarget(args.mode, context.worktree, args.worktree)" in tools
     assert 'export const execution_benchmark = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
@@ -618,6 +663,68 @@ def test_dbsctr_reconcile_runtime_preserves_mode_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<reconcile-target>", "<--mode>", "<prepare>", "<--json>",
     ]
+
+
+def test_dbsctr_reconcile_accepts_only_same_repository_worktree(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    source, worktree_root = tmp_path / "source", tmp_path / "worktrees"
+    source.mkdir()
+    worktree_root.mkdir()
+    cycle = worktree_root / "cycle"
+    cycle.mkdir()
+    common = tmp_path / "common"
+    common.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    log = tmp_path / "reconcile-cwd.log"
+    git = bin_dir / "git"
+    git.write_text(
+        '#!/bin/sh\ncase "$*" in *--show-toplevel*) pwd ;; '
+        '*) printf "%s\\n" "$GIT_COMMON" ;; esac\n'
+    )
+    git.chmod(0o755)
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\npwd > "$RECONCILE_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reconcileTarget }} from {json.dumps(str(runtime))};'
+        f'console.log(JSON.stringify(await reconcileTarget("preview",'
+        f'{json.dumps(str(source))},{json.dumps(str(cycle))},'
+        f'{json.dumps(str(worktree_root))})));'
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+           "GIT_COMMON": str(common), "RECONCILE_LOG": str(log)}
+    subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
+                   capture_output=True, check=True)
+    assert log.read_text().strip() == str(cycle)
+
+    git.write_text(
+        '#!/bin/sh\ncase "$*" in *--show-toplevel*) pwd ;; *) case "$PWD" in '
+        '*cycle) printf "%s\\n" "$OTHER_COMMON" ;; *) printf "%s\\n" "$GIT_COMMON" ;; '
+        'esac ;; esac\n'
+    )
+    rejected = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**env, "OTHER_COMMON": str(other)}, text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0
+    assert "must belong to the current Git repository" in rejected.stderr
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_script = (
+        f'import {{ reconcileTarget }} from {json.dumps(str(runtime))};'
+        f'await reconcileTarget("preview",{json.dumps(str(source))},'
+        f'{json.dumps(str(outside))},{json.dumps(str(worktree_root))});'
+    )
+    outside_result = subprocess.run(
+        ["bun", "-e", outside_script], cwd=ROOT, env=env, text=True,
+        capture_output=True,
+    )
+    assert outside_result.returncode != 0
+    assert "inside the authorized DBSCTR worktree root" in outside_result.stderr
 
 
 def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):
@@ -852,6 +959,9 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
         'await improvementClaim("session-1","safe; literal","P1",process.cwd());'
         'await improvementUpdate("session-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd(),true);'
+        'await improvementUpdate("worker-2",{state:"discovery",autonomous:true,readiness:{workerId:"worker-2",'
+        'sessionId:"session-2",opportunityId:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",risk:"routine",'
+        'materialQuestionsResolved:true,evidenceDigest:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},process.cwd());'
         'await improvementStatus("worker-1",process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
@@ -864,6 +974,9 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
         "CALL", "<improvement-update>", "<--session-id>", "<session-1>",
         "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
         "<--path>", "<a b>", "<--path>", "<x;nope>",
+        "CALL", "<improvement-update>", "<--worker-id>", "<worker-2>",
+        "<--state>", "<discovery>", "<--autonomous>", "<--readiness-json>",
+        '<{"schema_version":1,"worker_id":"worker-2","session_id":"session-2","opportunity_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","risk":"routine","material_questions_resolved":true,"evidence_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}>',
         "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",
     ]
 
@@ -966,6 +1079,131 @@ def test_provider_evaluation_receipt_is_single_use(tmp_path):
                                   "PRIVACY_LOG": str(privacy_log), "PRIVACY_CHANGE": "1"},
                              text=True, capture_output=True, check=True)
     assert changed.stdout.strip() == "terminal federated capture privacy epoch changed"
+
+
+def test_federated_review_enforces_review_session_scope(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    candidates = [federated_candidate("review", True), federated_candidate("ordinary", False)]
+    page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
+            "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+            "exclusion_digest": None, "limit": 25, "cursor": 0, "continuation": None,
+            "candidates": candidates, "digest": "e" * 64, "query": query,
+            "session_ids": [candidate["session_id"] for candidate in candidates]}
+    sources = [{"source_id": "host", "availability": "available", "page": page}]
+    response = {"schema_version": 2, "sources": sources, "source_state": None,
+                "manifest_digest": federated_digest(query, sources)}
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    receipts = tmp_path / "receipts"
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewFederated, providerEvaluationSave }} from {json.dumps(str(runtime))};'
+        'let digest="";'
+        'for (const scope of ["exclude","only"]) {'
+        ' const value=JSON.parse(await reviewFederated({reviewSessions:scope},process.cwd()));'
+        ' digest=value.manifest_digest; console.log(JSON.stringify(value.sources[0].page)); }'
+        'try { await providerEvaluationSave({manifestDigest:digest,rubric:{name:"provider-harness",version:"1",digest:"a".repeat(64)},findings:[],recommendations:[]},process.cwd()); }'
+        'catch (error) { console.log(error.message); }'
+    )
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True, check=True,
+    )
+    lines = result.stdout.splitlines()
+    excluded, only = [json.loads(line) for line in lines[:2]]
+    assert lines[2] == "terminal federated capture receipt is unavailable"
+    assert excluded["session_ids"] == ["ordinary"]
+    assert excluded["filter_telemetry"] == {
+        "selected_session_count": 1, "selected_review_session_count": 0,
+        "excluded_review_session_count": 1, "unattributed_session_count": 0,
+    }
+    assert only["session_ids"] == ["review"]
+    assert only["filter_telemetry"] == {
+        "selected_session_count": 1, "selected_review_session_count": 1,
+        "excluded_review_session_count": 0, "unattributed_session_count": 0,
+    }
+    exclude_receipt = json.loads((receipts / f'{response["manifest_digest"]}.exclude.json').read_text())
+    only_receipt = json.loads((receipts / f'{response["manifest_digest"]}.only.json').read_text())
+    assert exclude_receipt["telemetry"] == {
+        "page_count": 1, "session_count": 1, "review_session_count": 0,
+        "excluded_review_session_count": 1, "unattributed_session_count": 0,
+        "source_count": 1,
+    }
+    assert only_receipt["telemetry"]["review_session_count"] == 1
+    legacy = federated_candidate("legacy")
+    page["candidates"].append(legacy)
+    page["session_ids"].append("legacy")
+    response["manifest_digest"] = federated_digest(query, sources)
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    failed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True,
+    )
+    assert failed.returncode != 0
+    assert "review-session attribution is unavailable" in failed.stderr
+
+
+def test_federated_review_rejects_scope_switch_on_continuation(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    candidate = federated_candidate("ordinary", False)
+
+    def response(cursor, continuation):
+        page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
+                "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+                "exclusion_digest": None, "limit": 25, "cursor": cursor,
+                "continuation": continuation, "candidates": [candidate],
+                "digest": f"{cursor + 1:064x}", "query": query, "session_ids": ["ordinary"]}
+        sources = [{"source_id": "host", "availability": "available", "page": page}]
+        state = None if continuation is None else [{
+            "source_id": "host", "capture_id": page["capture_id"], "snapshot": 10,
+            "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
+            "exclusion_digest": None,
+            "query_digest": hashlib.sha256(json.dumps(query, sort_keys=True,
+                                                       separators=(",", ":")).encode()).hexdigest(),
+            "continuation": continuation,
+        }]
+        return {"schema_version": 2, "sources": sources, "source_state": state,
+                "manifest_digest": federated_digest(query, sources)}
+
+    first, terminal = response(0, 25), response(25, None)
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(
+        "#!/bin/sh\ncase \" $* \" in *' --source-state-json '*) "
+        f"printf '%s\\n' '{json.dumps(terminal, separators=(',', ':'))}';; *) "
+        f"printf '%s\\n' '{json.dumps(first, separators=(',', ':'))}';; esac\n"
+    )
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reviewFederated }} from {json.dumps(str(runtime))};'
+        'const first=JSON.parse(await reviewFederated({},process.cwd()));'
+        'await reviewFederated({reviewSessions:"exclude",sourceState:first.source_state},process.cwd());'
+    )
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(tmp_path / "receipts")},
+        text=True, capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "scope is not bound to this capture" in result.stderr
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
@@ -1278,8 +1516,15 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
         "operator experience", "architecture/R&D meta",
     ))
     assert "--outcome no_yield" in command and "--outcome yield" in command
-    assert "P0 and P1" in command and "P2 and P3 remain in `claimed`" in command
-    assert "`/dbsctr-backlog`" in command
+    assert "review_session_governance" in command and "Never let an ordinary lens" in command
+    assert "--telemetry-json" in command and "For P1-P3, load `discovery`" in command
+    assert "autonomous=true" in command and "risk is not critical" in command
+    assert "materialQuestionsResolved=true" in command and "terminal manifest evidence digest" in command
+    audit = text("dot_agents/skills/dbsctr-lens-audit/SKILL.md")
+    assert "review_session_governance" in audit and "Missing telemetry is unavailable, not zero" in audit
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    federated = tools.split("export const review_federated", 1)[1].split("export const vm_handoff", 1)[0]
+    assert 'reviewSessions: tool.schema.enum(["only", "exclude"])' in federated
 
 
 def test_removed_managed_integrations_are_absent():

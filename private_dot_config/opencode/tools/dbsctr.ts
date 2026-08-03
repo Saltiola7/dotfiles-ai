@@ -217,6 +217,7 @@ export const review_federated = tool({
     projectDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/).optional(),
     reviewedStatus: tool.schema.enum(["reviewed", "unreviewed"]).optional(),
     archiveOnly: tool.schema.boolean().optional().default(false),
+    reviewSessions: tool.schema.enum(["only", "exclude"]).optional(),
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
     sourceState: tool.schema.array(tool.schema.object({
@@ -396,6 +397,14 @@ export const improvement_update = tool({
     state: tool.schema.enum(["claimed", "discovery", "implementing", "draft_pr", "blocked", "merged", "closed", "abandoned"]),
     cycleId: tool.schema.string().optional(),
     paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
+    autonomous: tool.schema.boolean().optional().default(false),
+    readiness: tool.schema.object({
+      workerId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      opportunityId: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+      risk: tool.schema.enum(["routine", "elevated"]),
+      materialQuestionsResolved: tool.schema.literal(true),
+      evidenceDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+    }).optional(),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_improvement_update", patterns: ["*"], always: [] })
@@ -403,6 +412,8 @@ export const improvement_update = tool({
       state: args.state,
       cycleID: args.cycleId,
       paths: args.paths,
+      autonomous: args.autonomous,
+      readiness: args.readiness,
     }, context.worktree, true)
   },
 })
@@ -430,11 +441,12 @@ export const begin = tool({
 })
 
 export const reconcile = tool({
-  description: "Preview or prepare explicit reconciliation with the current cycle's advanced upstream.",
+  description: "Preview or prepare explicit reconciliation with the current cycle's advanced upstream, optionally in a linked worktree of the current repository.",
   args: {
     mode: tool.schema.enum(["preview", "prepare"]),
+    worktree: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return JSON.stringify(await reconcileTarget(args.mode, context.worktree))
+    return JSON.stringify(await reconcileTarget(args.mode, context.worktree, args.worktree))
   },
 })

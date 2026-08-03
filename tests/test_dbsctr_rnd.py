@@ -106,6 +106,7 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
 def test_hermes_templates_are_profile_local_and_valid_bash():
     installer = render("run_once_before_install-hermes.sh.tmpl")
     configure = render("run_onchange_after_configure-hermes.sh.tmpl")
+    catalog = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl").read_text()
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
@@ -113,7 +114,11 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert "terminal.home_mode profile" in configure
-    assert "config set model openai-codex/gpt-5.6-sol" in configure
+    assert "config set model.default openai-codex/gpt-5.6-sol" in configure
+    assert "config get model.provider" in configure
+    assert "config get model.default" in configure
+    assert '"config", "get", "model.provider"' in catalog
+    assert '"config", "get", "model.default"' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
@@ -128,7 +133,7 @@ def test_supervisor_uses_argparse_safe_direct_launch_command():
         "dbsctr-rnd --reservation RESERVATION --worker-id WORKER_ID "
         "--repository-id REPOSITORY_ID launch"
     ) in skill
-    assert "dbsctr-rnd --reservation RESERVATION release" in skill
+    assert "dbsctr-rnd --reservation RESERVATION --reason prelaunch_failed release" in skill
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
@@ -222,7 +227,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     dbsctrctl.write_text(
         "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; "
-        "else printf '{\"worker_id\":\"%s\",\"state\":\"reviewing\"}\\n' \"$3\"; fi\n"
+        "else printf '{\"worker_id\":\"%s\",\"session_id\":\"%s\",\"state\":\"reviewing\"}\\n' \"$3\" \"$5\"; fi\n"
     )
     opencode.write_text(
         "#!/bin/sh\nif [ -f \"$SESSION_SEEN\" ]; then "
@@ -491,6 +496,7 @@ def load_runner(tmp_path, monkeypatch, name):
     state = tmp_path / f"{name}.sqlite3"
     monkeypatch.setenv("DBSCTR_RND_STATE", str(state))
     monkeypatch.setenv("DBSCTR_RND_LOCK", str(tmp_path / f"{name}.lock"))
+    monkeypatch.setenv("DBSCTR_RND_RECEIPTS", str(tmp_path / f"{name}-receipts"))
     source = render("dot_local/bin/executable_dbsctr-rnd.tmpl")
     namespace = {"__name__": f"dbsctr_rnd_{name}"}
     exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
@@ -605,7 +611,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     connection = runner["state_connection"]()
-    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("3",)
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("7",)
     assert connection.execute("select cadence,no_yield_count from lens_state").fetchone() == ("daily", 0)
     assert connection.execute("select cadence,next_eligible_at from scheduler_state").fetchone() == ("daily", 123)
     assert connection.execute(
@@ -619,7 +625,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     assert plan["capture_day"] == "2024-01-01" and plan["due"]
-    assert [item["name"] for item in plan["lenses"]] == list(runner["LENSES"])
+    assert [item["name"] for item in plan["lenses"]] == list(runner["LEGACY_LENSES"])
     assert all(item["version"] == 1 for item in plan["lenses"])
 
     runner["command"] = lambda _argv, **_kwargs: {
@@ -670,6 +676,34 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.close()
     assert reset["quarter"] == "2024-Q2" and reset["cadence"] == "daily" and reset["due"]
 
+    migrated, migrated_state = load_runner(tmp_path, monkeypatch, "parallel-v3-migration")
+    connection = migrated["state_connection"]()
+    connection.execute("drop table parallel_lens_passes")
+    connection.execute("""create table parallel_lens_passes (
+        worker_id text primary key, lens_name text not null, capture_day text not null,
+        manifest_digest text not null, outcome text not null, recorded_at integer not null,
+        cadence text not null, no_yield_count integer not null, quarter text not null,
+        next_eligible_at integer not null, page_count integer not null,
+        session_count integer not null, review_session_count integer not null,
+        excluded_review_session_count integer not null, source_count integer not null
+    ) without rowid""")
+    connection.execute("update scheduler_meta set value='3' where key='schema_version'")
+    connection.execute("alter table parallel_lens_attempts drop column session_id")
+    connection.execute("insert into spawn_reservations values ('reservation-old',1,'worker-old')")
+    connection.execute("insert into parallel_lens_attempts values "
+                       "('reservation-old','correctness_safety','worker-old','2024-01-01','daily',0,'2024-Q1')")
+    connection.commit()
+    connection.close()
+    connection = migrated["state_connection"]()
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("7",)
+    columns = {row[1] for row in connection.execute("pragma table_info(parallel_lens_passes)")}
+    assert {"unattributed_session_count", "opportunity_id", "session_id"} <= columns
+    assert connection.execute("select count(*) from parallel_lens_attempts").fetchone() == (0,)
+    assert connection.execute(
+        "select count(*) from spawn_reservations where reservation_id='reservation-old'"
+    ).fetchone() == (0,)
+    connection.close()
+
 
 def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     runner, _ = load_runner(tmp_path, monkeypatch, "lens-duplicate")
@@ -678,6 +712,7 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     assert reason == "reserved"
     runner["claim_reservation"](reservation, "worker-1", now)
     runner["complete_reservation"](reservation, "worker-1", now)
+    assert runner["reserve_parallel_lens"]([], now) == (None, None, "legacy_attempt_active")
     assert runner["reserve_spawn"]([], now) == (None, "cadence_not_due")
     connection = runner["state_connection"]()
     assert runner["lens_plan"](connection, now, "worker-1")["due"]
@@ -709,10 +744,259 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
 
 
+def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "parallel-lenses")
+    assert runner["LENSES"] == (
+        "correctness_safety", "reliability_recovery", "performance_cost",
+        "operator_experience", "architecture_rnd_meta", "review_session_governance",
+    )
+    now = 1_704_067_200
+    attempts = {}
+    for expected in runner["LENSES"]:
+        reservation, lens, reason = runner["reserve_parallel_lens"]([], now)
+        assert (lens, reason) == (expected, "reserved")
+        worker = f"worker-{len(attempts)}"
+        runner["claim_reservation"](reservation, worker, now)
+        runner["complete_reservation"](reservation, worker, session_id=f"session-{len(attempts)}")
+        runner["complete_reservation"](reservation, worker, session_id=f"session-{len(attempts)}")
+        attempts[lens] = (reservation, worker)
+    assert runner["reserve_parallel_lens"]([], now) == (None, None, "no_lens_due")
+
+    states = {worker: "reviewing" for _, worker in attempts.values()}
+    opportunities = {}
+    runner["command"] = lambda argv, **_kwargs: {
+        "workers": [{"worker_id": argv[-1], "state": states[argv[-1]],
+                     "session_id": f"session-{argv[-1].removeprefix('worker-')}",
+                     "opportunity_id": opportunities.get(argv[-1])}],
+    }
+    ordinary = attempts["correctness_safety"][1]
+    review = attempts[runner["REVIEW_SESSION_LENS"]][1]
+    base = {"page_count": 7, "session_count": 10, "review_session_count": 0,
+            "excluded_review_session_count": 2, "unattributed_session_count": 0,
+            "source_count": 3}
+    runner["RECEIPTS"].mkdir(mode=0o700)
+
+    def write_receipt(digest, scope, telemetry):
+        path = runner["RECEIPTS"] / f"{digest}.{scope}.json"
+        path.write_text(json.dumps({"schema_version": 1, "manifest_digest": digest,
+                                    "scope": scope, "telemetry": telemetry}))
+        path.chmod(0o600)
+
+    write_receipt("a" * 64, "exclude", base)
+    try:
+        runner["parallel_lens_result"](
+            ordinary, "2024-01-01", "a" * 64, "no_yield",
+            {**base, "review_session_count": 1}, now)
+    except RuntimeError as error:
+        assert "capture receipt" in str(error)
+    else:
+        raise AssertionError("ordinary lens accepted review-session evidence")
+    try:
+        runner["parallel_lens_result"](
+            ordinary, "2024-01-01", "a" * 64, "no_yield",
+            {**base, "unattributed_session_count": 1}, now)
+    except RuntimeError as error:
+        assert "inconsistent" in str(error)
+    else:
+        raise AssertionError("unattributed lens evidence was accepted")
+    ordinary_result = runner["parallel_lens_result"](
+        ordinary, "2024-01-01", "a" * 64, "no_yield", base, now)
+    assert ordinary_result["next_eligible_at"] == now + 86400
+
+    review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
+                      "excluded_review_session_count": 0, "unattributed_session_count": 0,
+                      "source_count": 3}
+    write_receipt("b" * 64, "only", review_metrics)
+    try:
+        runner["parallel_lens_result"](
+            review, "2024-01-01", "b" * 64, "no_yield",
+            {**review_metrics, "review_session_count": 3}, now)
+    except RuntimeError as error:
+        assert "inconsistent" in str(error)
+    else:
+        raise AssertionError("inconsistent lens counters were accepted")
+    review_result = runner["parallel_lens_result"](
+        review, "2024-01-01", "b" * 64, "no_yield", review_metrics, now)
+    assert review_result["lens"] == "review_session_governance"
+    yielded = attempts["reliability_recovery"][1]
+    states[yielded] = "claimed"
+    opportunities[yielded] = "c" * 64
+    write_receipt("d" * 64, "exclude", base)
+    runner["parallel_lens_result"](yielded, "2024-01-01", "d" * 64, "yield", base, now)
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select review_session_count,excluded_review_session_count,source_count "
+        "from parallel_lens_passes where worker_id=?", (review,)).fetchone() == (2, 0, 3)
+    assert connection.execute(
+        "select session_id,opportunity_id from parallel_lens_passes where worker_id=?", (yielded,)
+    ).fetchone() == (f"session-{yielded.removeprefix('worker-')}", "c" * 64)
+    connection.close()
+
+    reused = attempts["performance_cost"][1]
+    states[reused] = "claimed"
+    opportunities[reused] = "e" * 64
+    original_command = runner["command"]
+    runner["command"] = lambda argv, **kwargs: {
+        "workers": [{**original_command(argv, **kwargs)["workers"][0], "session_id": "session-reused"}],
+    }
+    try:
+        runner["complete_reservation"](
+            attempts["performance_cost"][0], reused, session_id="session-reused")
+    except RuntimeError as error:
+        assert "incarnation changed" in str(error)
+    else:
+        raise AssertionError("completion rebound a pending lens attempt")
+    write_receipt("f" * 64, "exclude", base)
+    try:
+        runner["parallel_lens_result"](reused, "2024-01-01", "f" * 64, "yield", base, now)
+    except RuntimeError as error:
+        assert "incarnation changed" in str(error)
+    else:
+        raise AssertionError("reused worker inherited a pending lens attempt")
+
+    for lens, (reservation, _worker) in attempts.items():
+        if lens not in {"correctness_safety", "reliability_recovery", runner["REVIEW_SESSION_LENS"]}:
+            runner["release_reservation"](reservation)
+
+
+def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "scheduler-health")
+    now = 1_704_067_200
+    reservation, lens, reason = runner["reserve_parallel_lens"]([], now)
+    assert reason == "reserved"
+    runner["release_reservation"](reservation, "prelaunch_failed")
+    health = runner["scheduler_health"]()
+    assert health == {
+        "schema_version": 1, "state_schema_version": 7, "lens_count": 6,
+        "reserve_count": 1, "last_reserve_at": now,
+        "last_reserve_status": "reserved", "last_lens": lens,
+        "release_count": 1, "last_release_at": health["last_release_at"],
+        "last_release_reason": "prelaunch_failed", "active_attempt_count": 0,
+        "pass_count": 0,
+    }
+    connection = sqlite3.connect(state)
+    connection.execute("update scheduler_activity set last_reserve_status='bad status'")
+    connection.commit()
+    connection.close()
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "activity is malformed" in str(error)
+    else:
+        raise AssertionError("malformed scheduler health was accepted")
+    connection = sqlite3.connect(state)
+    connection.execute("update scheduler_activity set last_reserve_status='reserved'")
+    connection.execute("update scheduler_meta set value='5' where key='schema_version'")
+    connection.commit()
+    connection.close()
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "unsupported schema" in str(error)
+    else:
+        raise AssertionError("old scheduler health schema was accepted")
+    connection = sqlite3.connect(state)
+    connection.execute("update scheduler_meta set value='7' where key='schema_version'")
+    connection.execute("pragma foreign_keys=off")
+    connection.execute("insert into parallel_lens_attempts values "
+                       "('missing','correctness_safety',NULL,'2024-01-01','daily',0,'2024-Q1',NULL)")
+    connection.commit()
+    connection.close()
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "foreign-key check failed" in str(error)
+    else:
+        raise AssertionError("invalid scheduler health foreign key was accepted")
+    connection = sqlite3.connect(state)
+    connection.execute("delete from parallel_lens_attempts where reservation_id='missing'")
+    connection.execute("insert into spawn_reservations values ('invalid-domain',1,NULL)")
+    connection.execute("insert into parallel_lens_attempts values "
+                       "('invalid-domain','unsupported_lens',NULL,'2024-01-01','daily',0,'2024-Q1',NULL)")
+    connection.commit()
+    connection.close()
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "attempt is malformed" in str(error)
+    else:
+        raise AssertionError("domain-invalid scheduler health state was accepted")
+    connection = sqlite3.connect(state)
+    connection.execute("delete from spawn_reservations where reservation_id='invalid-domain'")
+    connection.commit()
+    connection.close()
+    state.chmod(0o644)
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "path is unsafe" in str(error)
+    else:
+        raise AssertionError("unsafe scheduler health mode was accepted")
+    state.chmod(0o600)
+    state.parent.chmod(0o755)
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "path is unsafe" in str(error)
+    else:
+        raise AssertionError("unsafe scheduler health parent mode was accepted")
+    state.parent.chmod(0o700)
+    real_state = state.with_suffix(".real")
+    state.rename(real_state)
+    state.symlink_to(real_state)
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "path is unsafe" in str(error)
+    else:
+        raise AssertionError("symlinked scheduler health was accepted")
+    state.unlink()
+    try:
+        runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "path is unsafe" in str(error)
+    else:
+        raise AssertionError("missing scheduler health state was accepted")
+
+    corrupt_runner, corrupt_state = load_runner(tmp_path, monkeypatch, "scheduler-health-corrupt")
+    corrupt_state.write_bytes(b"not a sqlite database")
+    corrupt_state.chmod(0o600)
+    try:
+        corrupt_runner["scheduler_health"]()
+    except RuntimeError as error:
+        assert "integrity check failed" in str(error)
+    else:
+        raise AssertionError("corrupt scheduler health state was accepted")
+
+
+def test_parallel_completion_binds_exactly_one_concurrent_session(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "parallel-completion-race")
+    now = 1_704_067_200
+    reservation, _lens, reason = runner["reserve_parallel_lens"]([], now)
+    assert reason == "reserved"
+    runner["claim_reservation"](reservation, "worker-race", now)
+
+    def complete(session_id):
+        try:
+            runner["complete_reservation"](reservation, "worker-race", session_id=session_id)
+            return session_id
+        except RuntimeError:
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(complete, ("session-a", "session-b")))
+    winners = [result for result in results if result]
+    assert len(winners) == 1
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select session_id from parallel_lens_attempts where reservation_id=?", (reservation,)
+    ).fetchone() == (winners[0],)
+    connection.close()
+
 def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, capsys):
     runner, _ = load_runner(tmp_path, monkeypatch, "waiting-priority")
     worker = {"worker_id": "worker-1", "session_id": "session-1", "state": "claimed",
-              "priority": "P2", "recovery_attempts": 0}
+              "priority": "P0", "recovery_attempts": 0}
 
     def execute(argv, **_kwargs):
         if argv[0] == runner["DBSCTRCTL"]:
@@ -723,9 +1007,11 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
 
     runner["command"] = execute
     runner["launch"] = lambda *_args: (_ for _ in ()).throw(AssertionError("worker recovered"))
-    assert runner["watchdog"]() == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
+    for priority in ("P0", "P2", "P3"):
+        worker["priority"] = priority
+        assert runner["watchdog"]() == 0
+        assert json.loads(capsys.readouterr().out) == {
+            "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
 
 
 def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
@@ -796,6 +1082,8 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     class Process:
         def __init__(self, argv, **kwargs):
             calls.append(argv)
+            assert not any(key.startswith("OPENCODE") for key in kwargs["env"])
+            assert kwargs["env"]["PWD"] == str(repository)
             kwargs["stdout"].write('{"sessionID":"ses_exact"}\n')
             kwargs["stdout"].flush()
 
@@ -811,7 +1099,8 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     runner["session_ids"] = lambda _repository: next(sessions)
     monkeypatch.setattr(runner["subprocess"], "Popen", Process)
     runner["command"] = lambda argv, **_kwargs: {
-        "worker_id": argv[argv.index("--worker-id") + 1]
+        "worker_id": argv[argv.index("--worker-id") + 1],
+        "session_id": argv[argv.index("--session-id") + 1],
     }
     runner["launch_action"](reservation, "worker-1", "repo-1")
     output = json.loads(capsys.readouterr().out)
@@ -876,7 +1165,7 @@ def test_direct_launch_reaps_process_when_reservation_cleanup_fails(tmp_path, mo
             return set()
         raise RuntimeError("session lookup failed")
 
-    def release(_reservation):
+    def release(_reservation, *_args):
         events.append(("release", None))
         raise RuntimeError("reservation cleanup failed")
 

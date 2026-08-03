@@ -1,7 +1,7 @@
-import { readFile, realpath } from "node:fs/promises"
+import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join, relative, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
@@ -11,6 +11,8 @@ const harnessActivation = {
 
 const evaluationPages = new Map<string, { source_id: string, capture_id: string, pages: Map<number, any> }>()
 const evaluationReceipts = new Map<string, any>()
+const lensPages = new Map<string, Map<number, any>>()
+const lensCaptureScopes = new Map<string, "only" | "exclude">()
 
 function discardEvaluationReceipt(manifestDigest: string) {
   const receipt = evaluationReceipts.get(manifestDigest)
@@ -374,6 +376,7 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
   const candidateKeys = ["schema_version", "session_id", "snapshot", "session_ceiling", "part_ceiling",
     "database_digest", "project_digest", "context", "completed_at", "reviewed_status", "correlation_quality",
     "cycles", "aggregates", "telemetry", "method_revision"]
+  const currentCandidateKeys = [...candidateKeys, "review_session"]
   const aggregateKeys = ["approval_count", "candidate_count", "child_count", "cost_total", "cycle_abandoned_count",
     "cycle_active_count", "cycle_blocked_count", "cycle_completed_count", "cycle_count", "cycle_unknown_count",
     "elapsed_ms", "retry_count", "token_total", "tool_call_count", "tool_count", "tool_error_count"]
@@ -412,7 +415,8 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
       const currentTelemetry = exactKeys(candidate?.telemetry, telemetryKeys)
       const legacyTelemetry = exactKeys(candidate?.telemetry, legacyTelemetryKeys)
       const expectedAvailability = currentTelemetry ? availabilityKeys : legacyAvailabilityKeys
-      return exactKeys(candidate, candidateKeys)
+      return (exactKeys(candidate, candidateKeys) || exactKeys(candidate, currentCandidateKeys))
+      && (candidate.review_session === undefined || typeof candidate.review_session === "boolean")
       && exactKeys(candidate.aggregates, aggregateKeys) && (currentTelemetry || legacyTelemetry)
       && (!currentTelemetry || candidate.telemetry.schema_version === 2)
       && exactKeys(candidate.telemetry.availability, expectedAvailability) && Array.isArray(candidate.cycles)
@@ -491,6 +495,7 @@ export async function reviewFederated(args: {
   projectDigest?: string
   reviewedStatus?: "reviewed" | "unreviewed"
   archiveOnly?: boolean
+  reviewSessions?: "only" | "exclude"
   limit?: number
   cursor?: number
   sourceState?: {
@@ -505,7 +510,7 @@ export async function reviewFederated(args: {
   continuation: number | null
   }[]
 } = {}, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string, env = process.env) {
-  const { limit = 25, cursor = 0, sourceState, ...requested } = args
+  const { limit = 25, cursor = 0, sourceState, reviewSessions, ...requested } = args
   const opaqueID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
   if ([excludedSessionID, excludedMessageID].some(value => value !== undefined && !opaqueID.test(value)))
     throw new Error("invalid excluded history identity")
@@ -589,7 +594,8 @@ export async function reviewFederated(args: {
     evaluationPages.set(key, captured)
     trimEvaluationPages()
   }
-  if (value.source_state === null && value.sources.some((source: any) => source.availability === "available")
+  if (reviewSessions === undefined && value.source_state === null
+      && value.sources.some((source: any) => source.availability === "available")
       && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
     const privacy = await analyticsJSON(["sandbox-vm", "privacy-epochs"], cwd, null)
     if (!exactKeys(privacy, ["schema_version", "sources"]) || privacy.schema_version !== 1
@@ -621,6 +627,79 @@ export async function reviewFederated(args: {
     for (const source of receiptSources) evaluationPages.delete(`${source.source_id}\0${source.capture_id}`)
     while (evaluationReceipts.size > 8)
       discardEvaluationReceipt(evaluationReceipts.keys().next().value as string)
+  }
+  if (reviewSessions !== undefined) for (const source of value.sources) {
+    if (source.availability !== "available") continue
+    const captureKey = `${source.source_id}\0${source.page.capture_id}`
+    if (sourceState === undefined && source.page.cursor === 0) {
+      const existing = lensCaptureScopes.get(captureKey)
+      if (existing !== undefined && existing !== reviewSessions)
+        throw new Error("federated review-session scope changed")
+      lensCaptureScopes.set(captureKey, reviewSessions)
+    } else if (lensCaptureScopes.get(captureKey) !== reviewSessions) {
+      throw new Error("federated review-session scope is not bound to this capture")
+    }
+    const candidates = source.page.candidates
+    if (candidates.some((candidate: any) => candidate.review_session === undefined))
+      throw new Error("federated review-session attribution is unavailable")
+    const selected = candidates.filter((candidate: any) => reviewSessions === "only"
+      ? candidate.review_session === true : candidate.review_session === false)
+    source.page.candidates = selected
+    source.page.session_ids = selected.map((candidate: any) => candidate.session_id)
+    source.page.filter_telemetry = {
+      selected_session_count: selected.length,
+      selected_review_session_count: selected.filter((candidate: any) => candidate.review_session === true).length,
+      excluded_review_session_count: reviewSessions === "exclude"
+        ? candidates.filter((candidate: any) => candidate.review_session === true).length : 0,
+      unattributed_session_count: 0,
+    }
+    const key = `${reviewSessions}\0${source.source_id}\0${source.page.capture_id}`
+    const pages = lensPages.get(key) ?? new Map<number, any>()
+    pages.set(source.page.cursor, { limit: source.page.limit, telemetry: source.page.filter_telemetry })
+    lensPages.set(key, pages)
+  }
+  if (reviewSessions !== undefined && value.source_state === null
+      && value.sources.every((source: any) => ["available", "complete"].includes(source.availability))) {
+    const pageSets = expectedSources.map(sourceID => {
+      const page = value.sources.find((source: any) => source.source_id === sourceID)?.page
+      const state = sourceState?.find(source => source.source_id === sourceID)
+      const captureID = page?.capture_id ?? state?.capture_id
+      const key = `${reviewSessions}\0${sourceID}\0${captureID}`
+      const pages = lensPages.get(key)
+      if (pages === undefined) throw new Error("scoped federated capture receipt is incomplete")
+      const ordered = [...pages.entries()].sort((left, right) => left[0] - right[0])
+      if (ordered.length === 0 || ordered[0][0] !== 0
+          || ordered.some(([cursor], index) => index > 0
+            && cursor !== ordered[index - 1][0] + ordered[index - 1][1].limit))
+        throw new Error("scoped federated capture pages are incomplete")
+      return { key, captureKey: `${sourceID}\0${captureID}`, pages: ordered.map(([, page]) => page.telemetry) }
+    })
+    const telemetry = {
+      page_count: pageSets.reduce((total, source) => total + source.pages.length, 0),
+      session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.selected_session_count, 0), 0),
+      review_session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.selected_review_session_count, 0), 0),
+      excluded_review_session_count: pageSets.reduce((total, source) => total + source.pages.reduce(
+        (count, page) => count + page.excluded_review_session_count, 0), 0),
+      unattributed_session_count: 0,
+      source_count: expectedSources.length,
+    }
+    const receipt = { schema_version: 1, manifest_digest: value.manifest_digest,
+      scope: reviewSessions, telemetry }
+    const directory = process.env.DBSCTR_RND_RECEIPTS
+      ?? join(homedir(), ".local", "state", "dotfiles-ai", "rnd-lens-receipts")
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await chmod(directory, 0o700)
+    const path = join(directory, `${value.manifest_digest}.${reviewSessions}.json`)
+    const temporary = `${path}.${process.pid}.tmp`
+    await writeFile(temporary, JSON.stringify(receipt), { encoding: "utf8", mode: 0o600, flag: "wx" })
+    await rename(temporary, path)
+    await chmod(path, 0o600)
+    for (const source of pageSets) {
+      lensPages.delete(source.key)
+      lensCaptureScopes.delete(source.captureKey)
+    }
   }
   return JSON.stringify(value)
 }
@@ -922,13 +1001,29 @@ export async function improvementUpdate(workerID: string, args: {
   paneID?: string
   cycleID?: string
   paths?: string[]
+  autonomous?: boolean
+  readiness?: {
+    workerId: string
+    sessionId?: string
+    opportunityId: string
+    risk: "routine" | "elevated"
+    materialQuestionsResolved: true
+    evidenceDigest: string
+  }
 }, cwd = process.cwd(), bySession = false) {
   const argv = ["dbsctrctl", "improvement-update", bySession ? "--session-id" : "--worker-id", workerID, "--state", args.state]
   const names: Record<string, string> = {
     workspaceID: "workspace-id", tabID: "tab-id", paneID: "pane-id", cycleID: "cycle-id",
   }
   for (const [name, value] of Object.entries(args)) {
-    if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
+    if (name === "autonomous" && value === true) argv.push("--autonomous")
+    else if (name === "readiness" && value !== undefined) argv.push("--readiness-json", JSON.stringify({
+      schema_version: 1, worker_id: value.workerId, session_id: bySession ? workerID : value.sessionId,
+      opportunity_id: value.opportunityId,
+      risk: value.risk, material_questions_resolved: value.materialQuestionsResolved,
+      evidence_digest: value.evidenceDigest,
+    }))
+    else if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
   }
   for (const path of args.paths ?? []) argv.push("--path", path)
   return await run(argv, cwd)
@@ -994,8 +1089,33 @@ export async function beginCycle(args: {
   }
 }
 
-export async function reconcileTarget(mode: "preview" | "prepare", cwd = process.cwd()) {
+async function boundedReconciliationWorktree(cwd: string, worktree?: string,
+  worktreeRoot = join(homedir(), ".local/state/dbsctr/worktrees")) {
+  if (worktree === undefined) return cwd
+  const [current, candidate, root] = await Promise.all([
+    realpath(cwd), realpath(worktree), realpath(worktreeRoot),
+  ])
+  const withinRoot = relative(root, candidate)
+  if (!withinRoot || withinRoot === ".." || withinRoot.startsWith(`..${sep}`) || isAbsolute(withinRoot))
+    throw new Error("reconciliation worktree must be inside the authorized DBSCTR worktree root")
+  const topLevel = await realpath(await run(["git", "rev-parse", "--show-toplevel"], candidate))
+  if (topLevel !== candidate)
+    throw new Error("reconciliation worktree must be a Git worktree root")
+  const commonDirectory = async (directory: string) => realpath(await run([
+    "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+  ], directory))
+  const [currentCommon, candidateCommon] = await Promise.all([
+    commonDirectory(current), commonDirectory(candidate),
+  ])
+  if (currentCommon !== candidateCommon)
+    throw new Error("reconciliation worktree must belong to the current Git repository")
+  return candidate
+}
+
+export async function reconcileTarget(mode: "preview" | "prepare", cwd = process.cwd(), worktree?: string,
+  worktreeRoot?: string) {
+  const target = await boundedReconciliationWorktree(cwd, worktree, worktreeRoot)
   return JSON.parse(await run([
     "dbsctrctl", "reconcile-target", "--mode", mode, "--json",
-  ], cwd))
+  ], target))
 }

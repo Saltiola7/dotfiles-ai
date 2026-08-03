@@ -6,15 +6,15 @@ Hermes runs isolated opt-in profiles on the host and enabled Lima workspaces:
 
 | Component | Default | Purpose |
 |---|---|---|
-| Daily agent job | 09:00 | Refine bounded evidence and canonical backlogs, then start eligible OpenCode Discovery work |
+| Lens fill agent job | Every 5 minutes | Fill every eligible independent lens slot and start exact OpenCode workers |
 | Script-only maintenance | Profile schedule | Reconcile durable workers and clean eligible completed worktrees without model tokens |
 
-The daily Hermes tick creates a worker only when the private lens cadence is
-due. One pass applies five fixed lens families to one shared immutable capture.
-Three daily no-yield passes back off to weekly and four weekly no-yield passes
-back off to monthly; a distinct claim or UTC quarter rollover restores daily.
-Older workers awaiting Discovery do not block an otherwise eligible run, but a
-capture day has exactly one owning worker until its result is recorded.
+Each Hermes tick reserves and registers every due lens, then those workers run in
+parallel. Five ordinary lenses exclude autonomous R&D session families; only
+`review_session_governance` reviews those sessions and proposes source-controlled
+lens changes. A yield immediately reopens that lens. Three daily no-yield passes
+back off that lens to weekly and four weekly no-yield passes back it off to
+monthly; another lens remains independent.
 OpenCode performs review, Discovery, implementation, validation, and draft-PR
 delivery. Herdr is optional presentation and attachment; it is not required for
 scheduling, recovery, or lifecycle proof. Hermes provides orchestration only.
@@ -48,14 +48,15 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 ## Daily Use
 
 Resume the exact OpenCode session directly or attach it to a Herdr pane. A
-Discovery worker is an operator inbox item: answer in its session and explicitly
-say `proceed` only when satisfied. The worker then completes its isolated DBSCTR
-cycle and opens a draft pull request. It never merges, marks ready, releases, or
-deploys.
+Critical or materially uncertain Discovery remains an operator inbox item.
+Evidence-ready noncritical workers may complete their isolated DBSCTR cycle and
+open a draft pull request autonomously. They never merge, mark ready, release, or
+deploy.
 
-P0/P1 claims enter Discovery automatically. P2/P3 claims stop in `claimed`; run
-`/dbsctr-backlog` for the report-only queue. Promote one deliberately with
-`/dbsctr-integrate`, or directly with the exact confirmation:
+P0 and materially uncertain claims stop for the operator. An ordinary manual
+P2/P3 claim remains queued, while a continuous worker may advance P1-P3 only
+with explicit autonomous readiness. Use `/dbsctr-backlog` for the remaining
+report-only queue or promote one deliberately with `/dbsctr-integrate`:
 
 ```sh
 dbsctrctl improvement-promote --worker-id WORKER_ID --confirm WORKER_ID
@@ -82,6 +83,7 @@ dbsctrctl improvement-status | jq
 dbsctr-rnd spawn
 dbsctr-rnd watchdog
 dbsctr-rnd lens-plan --worker-id WORKER_ID
+hermes -p system cron list
 ```
 
 Disable Hermes orchestration without removing durable DBSCTR state:

@@ -18,13 +18,14 @@ Profile: `{{ .dotfiles_ai.hermes.profile }}`. Allowed backlog roots:
 3. Use only this profile's history, skills, memory, credentials, and backlog roots.
    The host system profile may use sanitized federated history only for generalized
    dotfiles/DBSCTR/OpenCode improvements.
-4. Run `dbsctr-rnd reserve`. A no-op ends this invocation. For a reservation,
-   select one defensible distinct opportunity, then call only
+4. Repeatedly run `dbsctr-rnd reserve` until a no-op ends this invocation. Each
+   reservation owns one eligible lens. For every reservation call only
    `dbsctr-rnd --reservation RESERVATION --worker-id WORKER_ID --repository-id REPOSITORY_ID launch`.
    The global options must precede the action. That deterministic helper starts
-   `/dbsctr-improve`, proves one new native session, registers it, and advances
-   cadence. Never launch or register OpenCode through another path.
-5. On a pre-launch failure run `dbsctr-rnd --reservation RESERVATION release`;
+   `/dbsctr-improve`, proves one new native session, and registers it before the
+   next reservation. Registrations serialize while lens workers run in parallel.
+   Never launch or register OpenCode through another path.
+5. On a pre-launch failure run `dbsctr-rnd --reservation RESERVATION --reason prelaunch_failed release`;
    never start a substitute worker in that invocation.
 6. Before resuming a worker, re-read `dbsctrctl improvement-status` and prove the
    exact session is not already running. Resume only with `opencode -s SESSION`.

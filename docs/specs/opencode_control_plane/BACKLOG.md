@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
 
 ## Completed
 

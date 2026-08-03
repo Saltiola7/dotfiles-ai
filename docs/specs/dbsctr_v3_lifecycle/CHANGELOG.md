@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+- `update-plan` and `raise-risk` now recover first-parent lineage only for
+  commits changing exactly the committed Engineering Profile; other unrecorded
+  commits remain reconciliation blockers.
+- Draft delivery now accepts reviewed Gate Commits after a recorded reconciliation
+  merge only when every required evidence point also descends from that merge.
+
 Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.

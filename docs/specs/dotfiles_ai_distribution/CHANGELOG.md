@@ -4,6 +4,40 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-31 - DAI-021 Continuous Per-Lens R&D
+
+- Replaced the single global lens slot with six independent source-controlled
+  slots. Five ordinary lenses exclude improvement-worker session families;
+  `review_session_governance` alone reviews them and audits lens usefulness.
+- Added durable per-pass page, source, selected-session, selected-review-session,
+  excluded-review-session, and unattributed-session telemetry. Typed federation
+  removes out-of-scope candidates before model access. Yield immediately reopens only its lens;
+  no-yield retains daily-to-weekly-to-monthly backoff per lens.
+- Hermes now fills every eligible lens every five minutes. Noncritical P1-P3
+  claims may cross Discovery only with explicit autonomous readiness and no
+  material uncertainty; P0 and critical or uncertain work block. Draft pull
+  request remains the maximum delivery authority. Implementation, one controlled
+  all-source lens pass, targeted deployment, and resumed scheduling completed.
+- Autonomous/operator authorization is durable in the improvement ledger, and
+  pass telemetry is accepted only from a private scope/manifest receipt derived
+  by the typed adapter from the actual filtered pages. Autonomous readiness is
+  canonical and bound to the exact worker, opportunity, noncritical risk, resolved
+  questions, and that worker's immutable successful lens-pass manifest; replay,
+  tampering, missing evidence, and critical risk fail closed.
+- Scheduler schema 7 binds pending parallel-lens attempts and completed passes to the registered
+  OpenCode session, preventing a reused worker ID from inheriting an earlier
+  attempt. Existing improvement-ledger schema 3 now migrates to readiness schema
+  4 before integrity validation.
+- Added read-only `dbsctr-rnd health` output backed by bounded scheduler activity
+  counters, so a completed Hermes cron invocation cannot hide repeated no-op,
+  pre-launch-failure, or launch-failure outcomes. Health distinguishes its output
+  envelope from scheduler-state schema 7 and reports all six configured lenses.
+- Hermes configuration now writes `model.default` without replacing the
+  provider-bearing model object and verifies both effective values before
+  installing schedules.
+- Managed OpenCode permissions expose only the DBSCTR worktree root, and typed
+  reconciliation accepts an explicit same-repository linked worktree.
+
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 
 - Replaced plugin-loading OpenCode session discovery with the supported `--pure`

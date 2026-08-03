@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-016-F1 autonomous R&D launch repair and DAI-020 guarded integration delivered; DAI-004-F1 and DAI-012-F1 pending
+**Status:** DAI-021 continuous per-lens R&D delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
 
@@ -148,6 +148,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Exact-SHA batch preview/integration, confirmed draft-PR publication, P2/P3 promotion, and owner-safe 30-day pane-history retention |
 | Overrides | Hermes may preview and integrate but cannot confirm promotion or publication; no direct `main` write, force push, automatic launch, or public terminal history |
 
+### DAI-021 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: continuously dispatches parallel AI review and permits evidence-ready noncritical claims to reach draft pull requests autonomously |
+| Delivery intent | Deploy per-lens scheduling, review-session attribution, telemetry, and five-minute Hermes fill operation locally after affected gates pass |
+| Scope | Six source-controlled lenses, one lens per worker, all-source full-history review, per-lens yield/backoff, autonomous noncritical Discovery, and lens-governance telemetry |
+| Overrides | Only `review_session_governance` may review prior autonomous review sessions; P0 or materially uncertain work blocks; Git merge, readiness, release, and deployment remain human-controlled |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -216,28 +225,32 @@ evidence governed by DBSCTR and Git.
 ```mermaid
 sequenceDiagram
     accTitle: Autonomous improvement approval and delivery
-    accDescr: Hermes schedules and refines work, OpenCode performs Discovery, the operator must answer material questions and explicitly approve implementation, and DBSCTR can publish only a feature branch and draft pull request.
+    accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready noncritical work, critical or uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
     participant H as Hermes
     participant O as OpenCode
     participant U as Operator
     participant D as DBSCTR
     participant G as GitHub
-    H->>O: Start bounded Discovery worker
-    O->>O: Gather evidence and ask material questions
-    O-->>U: Wait for answers and explicit proceed
-    U->>O: Answer and approve implementation
+    H->>O: Fill one eligible lens slot
+    O->>O: Review all eligible federated history
+    alt Evidence-ready and noncritical
+        O->>O: Complete Discovery autonomously
+    else Critical or materially uncertain
+        O-->>U: Wait for answers and explicit proceed
+        U->>O: Answer and approve implementation
+    end
     O->>D: Begin isolated lifecycle cycle
     D->>D: Require gates and Gate Commits
     D->>G: Push feature branch and create draft PR
     G-->>U: Human review and merge authority
 ```
 
-**Text Equivalent:** Hermes may start Discovery, but OpenCode waits for the
-operator to answer material questions and explicitly approve implementation.
-Only then may DBSCTR create an isolated cycle, require gate evidence, and push a
-feature branch with a draft pull request. The operator retains review and merge
-authority. The distribution owner updates both views when profile isolation,
-federation, approval, or delivery boundaries change.
+**Text Equivalent:** Hermes continuously fills eligible lens slots. OpenCode
+reviews all eligible federated history and may complete Discovery without a
+prompt only when evidence resolves every material question and risk is not
+critical. Critical or materially uncertain work waits for explicit operator
+approval. DBSCTR still requires an isolated gated cycle and can publish only a
+feature branch with a draft pull request; the operator retains merge authority.
 
 ## Goals
 
@@ -246,8 +259,8 @@ federation, approval, or delivery boundaries change.
 - Keep optional 1Password integration fail-open for Herdr startup.
 - Provide machine-local opt-in Hermes scheduling, context-isolated backlog
   refinement, and resumable OpenCode R&D workers.
-- Review sanitized global history, pause for human Discovery, and create only
-  human-merge draft pull requests for this source.
+- Review sanitized global history continuously, autonomously resolve bounded
+  noncritical Discovery, and create only human-merge draft pull requests for this source.
 - Keep automatic Gate Commits on feature branches and require draft pull requests
   into configured `main` for ordinary and autonomous DBSCTR delivery.
 
@@ -257,7 +270,8 @@ federation, approval, or delivery boundaries change.
   DAI-016 installs Hermes only when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
-- Automatically answering Discovery, merging, marking ready, releasing, or deploying.
+- Guessing unresolved Discovery answers or autonomously handling critical risk.
+- Automatically merging, marking ready, releasing, or deploying.
 - Supporting Windows.
 - Supporting Linux as a general-purpose host; Fedora is supported only as the
   managed Lima guest runtime.
@@ -357,13 +371,12 @@ federation, approval, or delivery boundaries change.
 
 ### Autonomous R&D Worker
 
-- Given the daily Hermes schedule fires, when private adaptive cadence is due,
-  then Hermes reserves one attempt, refines permitted history and backlog work,
-  claims one opportunity, starts OpenCode Discovery directly, and registers its
-  exact resumable session without requiring Herdr.
+- Given the five-minute Hermes fill schedule fires, then it reserves and launches
+  each eligible lens sequentially until no slot remains; registered OpenCode
+  workers continue in parallel without requiring Herdr.
 - Failed dispatch releases its reservation without advancing cadence. Successful
-  registration advances cadence exactly once; concurrent ticks cannot duplicate
-  an attempt or admit a fourth nonterminal worker.
+  registration preserves exactly one active review attempt per lens; concurrent
+  ticks cannot duplicate a lens slot.
 - Session discovery invokes OpenCode's plugin-free CLI path because listing stored
   session metadata does not require project plugins. OpenCode's successful empty
   stdout means no stored sessions; non-empty malformed JSON is a bounded dispatch
@@ -376,26 +389,45 @@ federation, approval, or delivery boundaries change.
   fires, then one additional fresh worker still starts.
 - Given launch or identity is ambiguous, then spawning fails closed, closes only
   an unchanged shell-only staging tab, and never starts a substitute worker.
-- Given a worker applies a named lens, then it scans every matching history page,
-  including reviewed sessions, saves sanitized cohorts without changing markers,
-  ranks concrete findings, claims one distinct proposal, and presents plain-
-  language evidence before Discovery.
-- Every due pass applies version 1 of exactly five lens families to one shared
-  daily immutable capture: correctness/safety, reliability/recovery,
-  performance/cost, operator experience, and architecture/R&D meta. A pass
-  yields only when it persists one distinct improvement claim.
-- Lens governance starts daily. Three complete daily passes without a yield move
-  it to weekly; four complete weekly passes without a yield move it to monthly.
-  A yield or UTC calendar-quarter rollover restores daily cadence without
-  expiring or rewriting any live claim.
-- One worker owns a capture day from reservation through its immutable result.
-  Identical result replay is idempotent; conflicting replay, an unknown worker,
-  a second same-day pass, or a changed capture identity fails closed.
-- Every distinct claim stores exactly one P0-P3 priority. P0/P1 claims enter
-  Discovery autonomously but retain the explicit human implementation boundary;
-  P2/P3 remain in `claimed` and appear in the report-only `/dbsctr-backlog`
-  operator queue. Existing queued claims migrate conservatively to P2; workers
-  already beyond `claimed` migrate to P1 so active work is not demoted.
+- Given a worker applies its assigned lens, then it scans every history page from
+  the host and every federated workspace, including reviewed evidence, without
+  changing review markers; a pass yields only after one distinct claim persists.
+- Six source-controlled version-1 lenses run independently: correctness/safety,
+  reliability/recovery, performance/cost, operator experience,
+  architecture/R&D meta, and `review_session_governance`. The first five exclude
+  every session family linked to an autonomous improvement worker. Only
+  `review_session_governance` selects those sessions and may propose lens changes.
+- Every pass records its lens, outcome, immutable manifest, page count, selected
+  session count, selected review-session count, excluded review-session count,
+  unattributed-session count, source count, cadence, and exact next eligibility.
+  A yield also records the exact registered session and claimed opportunity; legacy unbound passes cannot
+  authorize autonomous readiness.
+  The typed federation adapter removes out-of-scope candidates before returning
+  a page; unattributed legacy evidence fails the pass. Validation rejects ordinary
+  lens telemetry with selected review sessions and governance telemetry with
+  excluded review sessions. The adapter writes one mode-`0600` terminal receipt
+  derived from filtered pages; `lens-result` consumes only an exact matching
+  manifest/scope/counter receipt and deletes it after durable recording.
+- A pending parallel-lens attempt binds the exact registered OpenCode session.
+  Result submission rejects an unbound attempt or a reused worker ID whose current
+  session differs, even when its state and opportunity would otherwise qualify.
+- `dbsctr-rnd health` reads scheduler activity without opening a write
+  transaction. It distinguishes its output-envelope schema from scheduler-state
+  schema 7, reports all six configured lenses, durable reserve and release counts,
+  last sanitized outcomes, active-attempt count, and pass count; pre-launch and
+  launch failures are distinguishable from an ordinary no-op.
+- A yield resets only that lens and makes it immediately eligible for another
+  pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
+  and four weekly no-yields move it to monthly. UTC quarter rollover restores
+  daily cadence without changing another lens or any live claim.
+- Every distinct claim stores exactly one P0-P3 priority. P1-P3 may enter
+  Discovery under a durable `autonomous` readiness authorization only when its
+  canonical receipt names the exact worker, session, and opportunity, declares routine or
+  elevated risk and no unresolved material question, and cites that worker's
+  immutable successful lens-pass manifest. Exact operator confirmation records
+  `operator` authorization. P0, critical risk, unresolved questions, missing
+  evidence, tampering, and replay block. Evidence-ready noncritical work may
+  proceed through DBSCTR to a draft pull request, but never merge or deploy.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
   or delivers a worker. An operator may explicitly confirm the exact worker ID of
   a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
@@ -420,9 +452,9 @@ federation, approval, or delivery boundaries change.
 - Given Discovery has unresolved material questions, then the worker waits until
   the operator resumes its exact OpenCode session in any host or VM Herdr pane and
   explicitly instructs it to proceed. Hermes never supplies that answer.
-- Given explicit proceed and passing DBSCTR gates, then the worker pushes only its
-  isolated feature branch and creates a draft pull request. It never merges,
-  marks ready, releases, or deploys.
+- Given autonomous readiness or explicit operator proceed and passing DBSCTR
+  gates, then the worker pushes only its isolated feature branch and creates a
+  draft pull request. It never merges, marks ready, releases, or deploys.
 
 ### Recovery And Completion
 
@@ -469,10 +501,8 @@ federation, approval, or delivery boundaries change.
   never rewrites the prior monthly decision.
 - Given three consecutive blocked, abandoned, or reverted outcomes or malformed
   authoritative state, spawning enters a persistent fail-closed halt. Only an
-  explicit operator reset can resume it. Given three existing nonterminal
-  workers, the current spawn is a bounded no-op without setting that persistent
-  halt. Worker count validation and spawn reservation occur in one SQLite
-  transaction so concurrent ticks cannot admit a fourth worker.
+  explicit operator reset can resume it. One atomic reservation per eligible lens
+  prevents duplicate review workers while allowing different lenses to run in parallel.
 - Given Hermes invokes the fixed daily tick, the runner consults private
   scheduler state and either starts one worker or returns a bounded no-op reason.
   It never rewrites machine-local TOML or Hermes configuration to tune cadence.
@@ -683,14 +713,18 @@ federation, approval, or delivery boundaries change.
   It never replaces an unmanaged path and removes a stale path only when it is
   still a symlink to the managed `sandbox-vm` executable.
 - Machine-local `~/.config/dotfiles-ai/chezmoi.toml` may enable scheduling and
-  supplies source path, daily hour/minute, profile-local discovery roots, and
-  non-secret GitHub account/repository. Shared defaults remain disabled.
+  supplies source path, profile-local discovery roots, and non-secret GitHub
+  account/repository. Shared defaults remain disabled; Hermes mode fills lenses
+  every five minutes while legacy native scheduling retains hour/minute fields.
 - `~/.local/bin/dbsctr-rnd` provides deterministic backlog discovery, dispatch
   reservation/release/completion, reconciliation, `analytics`, and
   `reset-schedule`. `analytics --json` returns the bounded structured report;
   human output is the default. `--finalize-json` binds one retained benchmark to
   its merged attempt, while `--failure-json` accepts only an outcome matching the
   authoritative worker state (including a reverted merged attempt).
+- `lens-plan --worker-id ID` returns exactly one assigned lens and whether it
+  exclusively selects or excludes review sessions. `lens-result` requires a
+  terminal manifest plus six bounded telemetry counters for parallel passes.
 - Read-only typed `dbsctr_provider_evaluation` lists bounded report summaries or
   replays one exact report ID. Write-capable
   `dbsctr_provider_evaluation_save` accepts a rubric version, validated federated
@@ -709,8 +743,13 @@ federation, approval, or delivery boundaries change.
   refinement and gateway restart/recovery pass.
 - The DBSCTR private ledger owns opportunities, workers, recovery attempts,
   declared scope, pull-request outcomes, captures, and benchmark references. A
-  separate mode-`0600` private scheduler SQLite ledger owns only reservations,
-  sanitized outcome references, and cadence state. Launchd and Herdr are advisory.
+  separate mode-`0600` private scheduler SQLite ledger owns reservations,
+  per-lens attempts, pass telemetry, sanitized outcome references, and cadence
+  state. Launchd and Herdr are advisory.
+- The private improvement ledger stores `none`, `autonomous`, or `operator`
+  authorization and the canonical worker/opportunity-bound readiness receipt.
+  Claimed P1-P3 require a matching immutable scheduler `yield` pass or exact
+  confirmation before Discovery; P0 always requires exact operator confirmation.
 - The DBSCTR private ledger adds separately versioned
   `provider_evaluation_reports`, `provider_evaluation_members`,
   `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather
