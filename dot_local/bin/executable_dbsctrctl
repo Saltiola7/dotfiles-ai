@@ -6965,6 +6965,26 @@ def command_set_applicability(args):
     save(path, record)
 
 
+def adopt_profile_only_commits(root, record):
+    baseline = record["git"]["head"]
+    lineage = git(root, "rev-list", "--first-parent", "--reverse", f"{baseline}..HEAD").stdout.splitlines()
+    recorded_ids = [entry["id"] for entry in record["commits"]]
+    if len(recorded_ids) != len(set(recorded_ids)):
+        fail("recorded lifecycle commits contain a duplicate")
+    if any(commit not in lineage for commit in recorded_ids):
+        fail("recorded lifecycle commit is missing from first-parent lineage")
+    recorded = {entry["id"]: entry for entry in record["commits"]}
+    profile = record["applicability_plan"]["profile"]
+    for commit in lineage:
+        if commit in recorded:
+            continue
+        changed = git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", commit).stdout.splitlines()
+        if changed != [profile]:
+            fail("unrecorded commit changes more than the Engineering Profile")
+        recorded[commit] = {"id": commit, "gates": []}
+    record["commits"] = [recorded[commit] for commit in lineage]
+
+
 def command_raise_risk(args):
     root = root_dir()
     path, record = load(root)
@@ -6975,6 +6995,7 @@ def command_raise_risk(args):
         fail("risk may only increase")
     previous = record["risk"]
     apply_stricter_plan(root, record, read_plan(args.plan))
+    adopt_profile_only_commits(root, record)
     record["risk"] = args.to
     record.setdefault("risk_history", []).append({
         "from": previous, "to": args.to, "reason": args.reason, "raised_at": now(),
@@ -6989,6 +7010,7 @@ def command_update_plan(args):
     if not is_v32(record):
         fail("update-plan requires a V3.2 Cycle Record")
     apply_stricter_plan(root, record, read_plan(args.plan))
+    adopt_profile_only_commits(root, record)
     save(path, record)
 
 

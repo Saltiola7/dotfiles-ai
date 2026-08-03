@@ -1,5 +1,9 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+- `update-plan` and `raise-risk` now recover first-parent lineage only for
+  commits changing exactly the committed Engineering Profile; other unrecorded
+  commits remain reconciliation blockers.
+
 Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.

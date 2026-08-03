@@ -1462,6 +1462,66 @@ class DbsctrctlTest(unittest.TestCase):
         self.pass_gates()
         run(self.repo, "final-push")
 
+    def test_plan_update_adopts_only_unrecorded_profile_commit(self):
+        self.start()
+        (self.repo / "tracked.txt").write_text("recorded behavior\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(
+            self.repo, "gate-commit", "--message", "recorded", "--gates", "domain",
+            "--paths", "tracked.txt",
+        )
+        record = json.loads(self.record_path().read_text())
+        gate_entry = record["commits"][0]
+        plan = {"profile": "docs/specs/test/README.md", "gates": {
+            name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
+            for name, gate in record["gates"].items()
+        }}
+        profile = self.repo / "docs/specs/test/README.md"
+        profile.write_text("committed profile update\n")
+        subprocess.run(["git", "add", str(profile)], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "profile update"], cwd=self.repo,
+                       check=True, capture_output=True)
+        profile_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+            capture_output=True, check=True).stdout.strip()
+        run(self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan))
+        self.assertEqual(json.loads(self.record_path().read_text())["commits"], [
+            gate_entry,
+            {"id": profile_commit, "gates": []},
+        ])
+
+        (self.repo / "tracked.txt").write_text("unrecorded behavior\n")
+        subprocess.run(["git", "commit", "-am", "unrecorded behavior"], cwd=self.repo,
+                       check=True, capture_output=True)
+        rejected = run(
+            self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan), ok=False)
+        self.assertIn("changes more than the Engineering Profile", rejected.stderr)
+
+    def test_plan_update_rejects_corrupt_recorded_lineage(self):
+        self.start()
+        (self.repo / "tracked.txt").write_text("recorded behavior\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(
+            self.repo, "gate-commit", "--message", "recorded", "--gates", "domain",
+            "--paths", "tracked.txt",
+        )
+        record = json.loads(self.record_path().read_text())
+        plan = {"profile": "docs/specs/test/README.md", "gates": {
+            name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
+            for name, gate in record["gates"].items()
+        }}
+        record["commits"].append(record["commits"][0])
+        self.record_path().write_text(json.dumps(record))
+        duplicate = run(
+            self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan), ok=False)
+        self.assertIn("contain a duplicate", duplicate.stderr)
+
+        record["commits"] = [{"id": "a" * 40, "gates": ["domain"]}]
+        self.record_path().write_text(json.dumps(record))
+        missing = run(
+            self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan), ok=False)
+        self.assertIn("missing from first-parent lineage", missing.stderr)
+
     def test_artifact_check_and_gate_transition_validation(self):
         self.start()
         self.assertNotEqual(run(self.repo, "check", "artifacts", ok=False).returncode, 0)
