@@ -2020,7 +2020,7 @@ class DbsctrctlTest(unittest.TestCase):
             )
         self.assertEqual(
             module.validate_draft_reconciliation(
-                self.repo, base, target, [cycle, reconciliation], [cycle], reconciliation
+                self.repo, base, target, [cycle, reconciliation], [reconciliation], reconciliation
             ),
             [cycle, reconciliation],
         )
@@ -2030,9 +2030,13 @@ class DbsctrctlTest(unittest.TestCase):
                        check=True, capture_output=True)
         later = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
                                text=True, capture_output=True).stdout.strip()
-        self.assertEqual(
+        with self.assertRaisesRegex(RuntimeError, "evidence predates"):
             module.validate_draft_reconciliation(
                 self.repo, base, target, [cycle, reconciliation, later], [cycle], reconciliation
+            )
+        self.assertEqual(
+            module.validate_draft_reconciliation(
+                self.repo, base, target, [cycle, reconciliation, later], [later], later
             ),
             [cycle, reconciliation, later],
         )

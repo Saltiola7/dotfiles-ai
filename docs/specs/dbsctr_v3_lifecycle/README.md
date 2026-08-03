@@ -2233,7 +2233,9 @@ then starts a no-commit merge of the
 fetched target. It returns bounded repository-relative staged and conflict paths.
 The primary resolves conflicts, reruns affected validation, and records the merge
 through the normal Review/Integrate Gate Commit; the helper never chooses content
-or bypasses evidence. Repeated target advancement may repeat this process.
+or bypasses evidence. Later Gate Commits remain deliverable only when the current
+review point and all required evidence descend from the reconciliation merge.
+Repeated target advancement may repeat this process.
 
 Method Revision `3.4` adds `dbsctrctl begin` as the normal write-cycle entry.
 It accepts the same context, risk, delivery intent, protected base branch, and
