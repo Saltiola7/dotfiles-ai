@@ -16,8 +16,8 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Hermes now fills every eligible lens every five minutes. Noncritical P1-P3
   claims may cross Discovery only with explicit autonomous readiness and no
   material uncertainty; P0 and critical or uncertain work block. Draft pull
-  request remains the maximum delivery authority. Implementation and live
-  validation are in progress.
+  request remains the maximum delivery authority. Implementation, one controlled
+  all-source lens pass, targeted deployment, and resumed scheduling completed.
 - Autonomous/operator authorization is durable in the improvement ledger, and
   pass telemetry is accepted only from a private scope/manifest receipt derived
   by the typed adapter from the actual filtered pages. Autonomous readiness is

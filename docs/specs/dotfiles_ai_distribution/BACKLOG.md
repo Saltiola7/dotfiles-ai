@@ -4,7 +4,6 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-021 | Run continuous isolated R&D lenses with review-session telemetry | high | in_progress | DAI-016-F3 | Per-lens scheduler, review-session attribution, autonomous readiness, Hermes fill loop, specs and operations | Federated history, improvement ledger, runner state, OpenCode command, Hermes supervisor | no | One global pass cannot exhaust lenses independently and lets every lens reconsider review sessions | L | Per-lens concurrency/backoff tests, attribution adapter tests, worker/session/opportunity/evidence-bound readiness and replay tests, affected QA, live six-lens fill smoke |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 | DAI-012-F1 | Record the first real provider-native five-cycle report | medium | pending | DAI-012 | One immutable report and operational evidence | Five unused completed cycles under one exact activated harness identity | no | The helper must wait for the normal weekly run and cannot manufacture or loosen eligibility | S | Exact five-member replay, availability/confounders, and no automatic harness mutation |
 
@@ -12,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-021 | Delivered six independent continuous R&D lenses, isolated review-session governance, session-bound telemetry and readiness, controlled live pass validation, and five-minute Hermes scheduling | 2026-08-02 | `560650d..1e86bc8` |
 | DAI-016-F3 | Preserved bounded process-group cleanup through release failure and exited-leader races | 2026-07-31 | `5aa248a..857e7af` |
 | DAI-016-F2 | Accepted OpenCode's successful empty session inventory while preserving malformed-output rejection in the subprocess E2E | 2026-07-31 | `12d83c6` |
 | DAI-016-F1 | Repaired plugin-free exact-session launch, pinned argparse-safe Hermes dispatch, bounded large host capture, added subprocess E2E coverage, and completed one 644-session three-source live round with a persisted P2 yield | 2026-07-31 | `24d0fd0..4db52d4` |
