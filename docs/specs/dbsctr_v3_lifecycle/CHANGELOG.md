@@ -4,6 +4,22 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-07-31 - V3.35-F2 Sanitized Context Intervals
+
+- Added optional bounded context plus millisecond start/end values to sanitized
+  correlated-cycle summaries. Completed cycles close their half-open interval;
+  active and blocked cycles remain open, while abandoned/unknown cycles do not
+  gain an inferred allocation end.
+- Multiple exact runtime matches now remain visible with `ambiguous` quality so
+  timestamp consumers can separate non-overlapping contexts. Persisted legacy
+  evidence remains valid without migration; TypeScript and sandbox validators
+  accept only complete, ordered interval triples.
+- Reconciled union QA passed 271 tests with one optional Lima skip. Independent
+  review was unavailable because its sandbox could not read the isolated
+  worktree; primary review found no unresolved issue. Gate Commit: `0315f15`.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`; deployment not run.
+
 ## 2026-07-30 - V3.35-F1 Discovery Handoff Activation
 
 - Replaced the final current `V3.2 applicability plan` label with version-neutral

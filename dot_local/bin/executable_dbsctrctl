@@ -3570,9 +3570,9 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
     exact = [record for record in records if exact_ids.intersection(runtime_ids(record))]
     hinted = [record for record in records if record["cycle_id"] in hinted_ids]
     if exact:
-        matched, quality = unique(exact, "exact")
+        matched, quality = exact, "exact" if len(exact) == 1 else "ambiguous"
     elif hinted:
-        matched, quality = unique(hinted, "exact")
+        matched, quality = hinted, "exact" if len(hinted) == 1 else "ambiguous"
     else:
         family_ids = set(session_ids) - exact_ids
         family, family_quality = unique(
@@ -3612,6 +3612,20 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
             risk, delivery = "unavailable", "unavailable"
         item = {"cycle_id": record["cycle_id"], "state": state,
                 "risk": risk, "delivery_intent": delivery}
+        context = record.get("context")
+        try:
+            started = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+            started_at = int(started.timestamp() * 1000)
+            ended_at = None
+            if state == "completed":
+                ended = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+                ended_at = int(ended.timestamp() * 1000)
+                if ended_at < started_at:
+                    raise ValueError
+            if isinstance(context, str) and OPAQUE_ID.fullmatch(context):
+                item.update({"context": context, "started_at": started_at, "ended_at": ended_at})
+        except (KeyError, TypeError, ValueError):
+            pass
         if state == "completed":
             counters = record.get("metrics", {})
             cycle_metrics = {name: counters.get(name, 0) for name in (
@@ -4224,12 +4238,21 @@ def validate_history_evidence(value):
     if not isinstance(value.get("cycles"), list) or len(value["cycles"]) > REVIEW_MAX_LIMIT:
         fail("review history evidence has an invalid schema")
     for cycle in value["cycles"]:
+        interval_fields = {"context", "started_at", "ended_at"}
+        has_interval = isinstance(cycle, dict) and interval_fields <= set(cycle)
         if (not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent",
-                                                         "phase_profile", "metrics", "harness_activation"}
+                                                         "phase_profile", "metrics", "harness_activation",
+                                                         *interval_fields}
                 or not {"cycle_id", "state"} <= set(cycle)
                 or cycle["state"] not in ("active", "blocked", "abandoned", "completed", "unknown")
                 or "risk" in cycle and cycle["risk"] not in ("routine", "elevated", "critical", "unavailable")
-                or "delivery_intent" in cycle and cycle["delivery_intent"] not in (*DELIVERY_INTENTS, "unavailable")):
+                or "delivery_intent" in cycle and cycle["delivery_intent"] not in (*DELIVERY_INTENTS, "unavailable")
+                or bool(interval_fields.intersection(cycle)) != has_interval
+                or has_interval and (not isinstance(cycle["context"], str)
+                    or not OPAQUE_ID.fullmatch(cycle["context"])
+                    or type(cycle["started_at"]) is not int or cycle["started_at"] < REVIEW_START_MS
+                    or cycle["ended_at"] is not None and (type(cycle["ended_at"]) is not int
+                        or cycle["ended_at"] < cycle["started_at"]))):
             fail("review history evidence has an invalid schema")
         history_id(cycle.get("cycle_id"), "history cycle ID")
         if "metrics" in cycle:
@@ -7625,34 +7648,33 @@ def command_reconcile_target(args):
 
 
 INFERENCE_TOKEN_COLUMNS = {
-    "input": "tokensinput", "output": "tokensoutput", "reasoning": "tokensreasoning",
-    "cache_read": "tokenscacheread", "cache_write": "tokenscachewrite",
+    "input": "tokens_input", "output": "tokens_output", "reasoning": "tokens_reasoning",
+    "cache_read": "tokens_cache_read", "cache_write": "tokens_cache_write",
 }
 
 
 def inference_capabilities(connection):
     tables = {row[0].lower(): row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
-    if "session" not in tables:
-        fail("OpenCode database is missing required session metadata table")
-    table = tables["session"]
-    names = {row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}
-    canonical = {"id", "time_created", "time_updated", "model", "cost", "tokens_input",
-                 "tokens_output", "tokens_reasoning", "tokens_cache_read", "tokens_cache_write"}
-    missing = sorted(canonical - names)
-    if missing:
-        fail(f"OpenCode database is missing required metadata columns: {', '.join(missing)}")
-    return table, {name.replace("_", ""): name for name in canonical}
+    required = {
+        "session": {"id", "time_created", "time_updated", "cost", *INFERENCE_TOKEN_COLUMNS.values()},
+        "message": {"id", "session_id", "time_created", "time_updated", "data"},
+        "part": {"id", "message_id", "session_id", "time_created", "time_updated", "data"},
+    }
+    capabilities = {}
+    for name, canonical in required.items():
+        if name not in tables:
+            fail(f"OpenCode database is missing required {name} metadata table")
+        columns = {row[1] for row in connection.execute(f'PRAGMA table_info("{tables[name]}")')}
+        missing = sorted(canonical - columns)
+        if missing:
+            fail(f"OpenCode database is missing required metadata columns: {', '.join(missing)}")
+        capabilities[name] = {"table": tables[name], "columns": sorted(canonical)}
+    return capabilities
 
 
-def parse_inference_model(raw):
-    try:
-        value = json.loads(raw, object_pairs_hook=no_duplicate_keys) if isinstance(raw, str) else None
-    except json.JSONDecodeError:
-        value = None
-    provider = value.get("providerID") if isinstance(value, dict) else None
-    model = value.get("id", value.get("modelID")) if isinstance(value, dict) else None
-    variant = value.get("variant", "default") if isinstance(value, dict) else None
+def inference_model(provider, model, variant):
+    variant = variant if variant is not None else "default"
     if (not isinstance(provider, str) or not OPAQUE_ID.fullmatch(provider)
             or not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model)
             or not isinstance(variant, str) or not OPAQUE_ID.fullmatch(variant)):
@@ -7687,27 +7709,50 @@ def inference_contexts(state_root, mapping):
         fail("cannot read sanitized DBSCTR history")
     for record in records:
         session_id = record["session_id"]
-        context = record.get("context", "unavailable")
         quality = record.get("correlation_quality", "unavailable")
-        if quality == "ambiguous":
-            contexts[session_id] = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
-                                    "confidence": "UNAVAILABLE", "source": "DBSCTR_HISTORY"}
-        elif context != "unavailable":
-            contexts[session_id] = {"context": context, "status": "ATTRIBUTED",
-                                    "confidence": "HIGH" if quality == "exact" else "MEDIUM",
-                                    "source": "DBSCTR_HISTORY"}
-        else:
-            contexts[session_id] = {"context": "UNKNOWN", "status": "UNKNOWN",
-                                    "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"}
+        intervals = []
+        if quality in ("exact", "family", "ambiguous"):
+            for cycle in record.get("cycles", []):
+                if (cycle.get("state") not in ("completed", "active", "blocked")
+                        or not isinstance(cycle.get("context"), str)
+                        or type(cycle.get("started_at")) is not int
+                        or cycle.get("ended_at") is not None and type(cycle["ended_at"]) is not int):
+                    continue
+                intervals.append({"context": cycle["context"], "started_at": cycle["started_at"],
+                                  "ended_at": cycle["ended_at"]})
+        contexts[session_id] = {"quality": quality, "intervals": intervals}
     for session_id, context in mapping.items():
-        existing = contexts.get(session_id)
-        if existing is None or existing["status"] == "UNKNOWN":
-            contexts[session_id] = {"context": context, "status": "ATTRIBUTED",
-                                    "confidence": "MEDIUM", "source": "EXPLICIT_MAPPING"}
-        elif existing["context"] != context:
-            contexts[session_id] = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
-                                    "confidence": "UNAVAILABLE", "source": "CONFLICT"}
+        contexts.setdefault(session_id, {"quality": "unavailable", "intervals": []})["mapping"] = context
     return contexts
+
+
+def inference_attribution(contexts, session_id, timestamp):
+    evidence = contexts.get(session_id, {"quality": "unavailable", "intervals": []})
+    matching = {item["context"] for item in evidence["intervals"]
+                if item["started_at"] <= timestamp
+                and (item["ended_at"] is None or timestamp < item["ended_at"])}
+    if len(matching) > 1:
+        attribution = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
+                       "confidence": "UNAVAILABLE", "source": "DBSCTR_HISTORY"}
+    elif matching:
+        attribution = {"context": matching.pop(), "status": "ATTRIBUTED",
+                       "confidence": "MEDIUM" if evidence["quality"] == "family" else "HIGH",
+                       "source": "DBSCTR_HISTORY"}
+    elif evidence["quality"] == "ambiguous" and not evidence["intervals"]:
+        attribution = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
+                       "confidence": "UNAVAILABLE", "source": "DBSCTR_HISTORY"}
+    else:
+        attribution = {"context": "UNKNOWN", "status": "UNKNOWN",
+                       "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"}
+    mapped = evidence.get("mapping")
+    if mapped is not None:
+        if attribution["status"] == "UNKNOWN":
+            attribution = {"context": mapped, "status": "ATTRIBUTED",
+                           "confidence": "MEDIUM", "source": "EXPLICIT_MAPPING"}
+        elif attribution["context"] != mapped:
+            attribution = {"context": "MULTI_CONTEXT", "status": "MULTI_CONTEXT",
+                           "confidence": "UNAVAILABLE", "source": "CONFLICT"}
+    return attribution
 
 
 def load_inference_rates(path):
@@ -7799,7 +7844,9 @@ def inference_summary(context, records):
     models = []
     for (provider, model, variant), members in sorted(grouped.items()):
         models.append({
-            "provider": provider, "model": model, "variant": variant, "session_count": len(members),
+            "provider": provider, "model": model, "variant": variant,
+            "session_count": len({item["session_key"] for item in members}),
+            "usage_count": len(members),
             "tokens": sum(item["token_total"] for item in members),
             "actual_cost_usd": (inference_money(sum((item["actual_cost"] for item in members
                                                       if item["actual_cost"] is not None), Decimal()))
@@ -7809,28 +7856,49 @@ def inference_summary(context, records):
                                    if any(item["estimated_cost"] is not None for item in members) else None),
             "rate_entry_ids": sorted({item["rate_entry"]["id"] for item in members if item["rate_entry"]}),
         })
-    token_values = [record["token_total"] for record in records]
+    sessions = {}
+    for record in records:
+        session = sessions.setdefault(record["session_key"], {"tokens": 0, "actual": Decimal(),
+                                                               "estimated": Decimal(),
+                                                               "has_actual": False, "has_estimated": False})
+        session["tokens"] += record["token_total"]
+        if record["actual_cost"] is not None:
+            session["actual"] += record["actual_cost"]
+            session["has_actual"] = True
+        if record["estimated_cost"] is not None:
+            session["estimated"] += record["estimated_cost"]
+            session["has_estimated"] = True
+    token_values = [item["tokens"] for item in sessions.values()]
     stats = inference_stats(token_values)
     mean = stats["mean"] if stats else 0
     attribution_tokens = sum(record["token_total"] for record in records
                              if record["attribution_status"] == "ATTRIBUTED")
     return {
-        "bounded_context": context, "session_count": len(records), "usage_count": len(records),
+        "bounded_context": context, "session_count": len(sessions), "usage_count": len(records),
+        "reconciled_session_count": len({record["session_key"] for record in records if record["reconciled"]}),
+        "unreconciled_session_count": len({record["session_key"] for record in records if not record["reconciled"]}),
+        "reconciliation_coverage": (round(sum(record["token_total"] for record in records if record["reconciled"])
+                                                  / token_total, 6) if token_total else 1.0),
         **{f"{name}_tokens": sum(record[name] for record in records) for name in INFERENCE_TOKEN_COLUMNS},
         "actual_cost_usd": inference_money(sum(actual_values, Decimal())) if actual_values else None,
         "estimated_cost_usd": inference_money(sum(estimate_values, Decimal())) if estimate_values else None,
         "actual_cost_coverage": round(actual_covered / token_total, 6) if token_total else 1.0,
         "estimated_cost_coverage": round(estimate_covered / token_total, 6) if token_total else 1.0,
         "attribution_coverage": round(attribution_tokens / token_total, 6) if token_total else 1.0,
-        "attribution_statuses": {name: sum(record["attribution_status"] == name for record in records)
+        "attribution_statuses": {name: len({record["session_key"] for record in records
+                                             if record["attribution_status"] == name})
                                  for name in ("ATTRIBUTED", "MULTI_CONTEXT", "UNKNOWN")},
-        "attribution_confidence": {name: sum(record["attribution_confidence"] == name for record in records)
+        "attribution_confidence": {name: len({record["session_key"] for record in records
+                                               if record["attribution_confidence"] == name})
                                    for name in ("HIGH", "MEDIUM", "UNAVAILABLE")},
-        "attribution_sources": {name: sum(record["attribution_source"] == name for record in records)
+        "attribution_sources": {name: len({record["session_key"] for record in records
+                                            if record["attribution_source"] == name})
                                 for name in ("DBSCTR_HISTORY", "EXPLICIT_MAPPING", "CONFLICT", "UNAVAILABLE")},
         "models": models, "tokens_per_session_stats": stats,
-        "actual_cost_per_session_stats": inference_stats([float(value) for value in actual_values]),
-        "estimated_cost_per_session_stats": inference_stats([float(value) for value in estimate_values]),
+        "actual_cost_per_session_stats": inference_stats([float(item["actual"]) for item in sessions.values()
+                                                           if item["has_actual"]]),
+        "estimated_cost_per_session_stats": inference_stats([float(item["estimated"]) for item in sessions.values()
+                                                              if item["has_estimated"]]),
         "p95_to_median_tokens": (round(stats["p95"] / stats["median"], 6)
                                   if stats and stats["median"] else None),
         "token_coefficient_of_variation": (round(stats["population_standard_deviation"] / mean, 6)
@@ -7839,16 +7907,17 @@ def inference_summary(context, records):
 
 
 def inference_markdown(report):
-    lines = ["# OpenCode inference cost report", "", "| Bounded context | Sessions | Tokens | Actual USD | Actual coverage | Estimated USD | Estimated coverage | Attribution coverage | Models |", "|---|---:|---:|---:|---:|---:|---:|---:|---|"]
+    lines = ["# OpenCode inference cost report", "", "| Bounded context | Sessions | Usage | Tokens | Actual USD | Actual coverage | Estimated USD | Estimated coverage | Attribution coverage | Reconciliation coverage | Models |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for item in report["contexts"]:
         tokens = sum(item[f"{name}_tokens"] for name in INFERENCE_TOKEN_COLUMNS)
         models = ", ".join(sorted({f'{model["provider"]}/{model["model"]}' for model in item["models"]}))
-        lines.append(f'| {item["bounded_context"]} | {item["session_count"]} | {tokens} | '
+        lines.append(f'| {item["bounded_context"]} | {item["session_count"]} | {item["usage_count"]} | {tokens} | '
                      f'{item["actual_cost_usd"] if item["actual_cost_usd"] is not None else "unavailable"} | '
                      f'{item["actual_cost_coverage"]:.1%} | '
                      f'{item["estimated_cost_usd"] if item["estimated_cost_usd"] is not None else "unavailable"} | '
-                     f'{item["estimated_cost_coverage"]:.1%} | {item["attribution_coverage"]:.1%} | {models} |')
-    lines.extend(["", "Costs are sums over covered sessions; coverage shows the share of tokens represented."])
+                     f'{item["estimated_cost_coverage"]:.1%} | {item["attribution_coverage"]:.1%} | '
+                     f'{item["reconciliation_coverage"]:.1%} | {models} |')
+    lines.extend(["", "Costs are sums over covered usage; coverage shows the share of tokens represented."])
     return "\n".join(lines) + "\n"
 
 
@@ -7909,78 +7978,139 @@ def command_inference_cost_report(args):
         fail("inference report time bounds are invalid")
     rate_card, rates, rate_digest = load_inference_rates(args.rate_card)
     mapping = load_inference_mapping(args.mapping)
-    contexts = inference_contexts(args.state_root, mapping)
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         connection.execute("BEGIN")
-        table, columns = inference_capabilities(connection)
-        ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid), 0) FROM "{table}"').fetchone()[0]
-        selected = [columns[name] for name in ("id", "timecreated", "timeupdated", "model", "cost")]
-        selected += [columns[name] for name in INFERENCE_TOKEN_COLUMNS.values()]
-        conditions, parameters = ["rowid <= ?"], [ceiling]
-        if args.after is not None:
-            conditions.append(f'"{columns["timecreated"]}" >= ?')
-            parameters.append(args.after)
-        if args.before is not None:
-            conditions.append(f'"{columns["timecreated"]}" < ?')
-            parameters.append(args.before)
-        query = (f'SELECT {", ".join(f"\"{name}\"" for name in selected)} FROM "{table}" '
-                 f'WHERE {" AND ".join(conditions)} ORDER BY "{columns["id"]}"')
-        rows = connection.execute(query, parameters).fetchall()
+        capabilities = inference_capabilities(connection)
+        session_table = capabilities["session"]["table"]
+        message_table = capabilities["message"]["table"]
+        part_table = capabilities["part"]["table"]
+        ceilings = {name: connection.execute(
+            f'SELECT COALESCE(MAX(rowid), 0) FROM "{value["table"]}"').fetchone()[0]
+                    for name, value in capabilities.items()}
+        session_columns = ["id", "time_created", "time_updated", "cost", *INFERENCE_TOKEN_COLUMNS.values()]
+        session_rows = connection.execute(
+            f'SELECT {", ".join(f"\"{name}\"" for name in session_columns)} FROM "{session_table}" '
+            f'WHERE rowid <= ? ORDER BY "id"', (ceilings["session"],),
+        ).fetchall()
+        part_rows = connection.execute(f'''SELECT
+            p."id", p."session_id", p."time_created", p."time_updated", m."id",
+            json_extract(m."data", '$.role'), json_extract(m."data", '$.providerID'),
+            coalesce(json_extract(m."data", '$.modelID'), json_extract(m."data", '$.model.id')),
+            coalesce(json_extract(m."data", '$.variant'), 'default'),
+            json_extract(p."data", '$.cost'), json_extract(p."data", '$.tokens.input'),
+            json_extract(p."data", '$.tokens.output'), json_extract(p."data", '$.tokens.reasoning'),
+            json_extract(p."data", '$.tokens.cache.read'), json_extract(p."data", '$.tokens.cache.write')
+            FROM "{part_table}" p
+            LEFT JOIN "{message_table}" m ON m."id" = p."message_id" AND m."session_id" = p."session_id"
+            WHERE p.rowid <= ? AND json_extract(p."data", '$.type') = 'step-finish'
+            ORDER BY p."id"''', (ceilings["part"],)).fetchall()
     except sqlite3.Error as error:
         fail(f"cannot read OpenCode database: {error}")
     finally:
         if "connection" in locals():
             connection.close()
-    records, source_identity, attribution_identity = [], hashlib.sha256(), hashlib.sha256()
-    for row in rows:
-        session_id, timestamp, updated, raw_model, raw_cost, *tokens = row
+    source_identity, attribution_identity = hashlib.sha256(), hashlib.sha256()
+    parts_by_session = {}
+    for row in part_rows:
+        part_id, session_id, timestamp, updated, message_id, role, provider, model, variant, raw_cost, *tokens = row
+        if (not isinstance(part_id, str) or not OPAQUE_ID.fullmatch(part_id)
+                or not isinstance(session_id, str) or not OPAQUE_ID.fullmatch(session_id)
+                or not isinstance(message_id, str) or not OPAQUE_ID.fullmatch(message_id)
+                or role != "assistant" or type(timestamp) is not int or timestamp < 0
+                or type(updated) is not int or updated < timestamp
+                or any(type(value) is not int for value in tokens)
+                or not isinstance(raw_cost, (int, float)) or isinstance(raw_cost, bool)
+                or not math.isfinite(raw_cost)):
+            fail("OpenCode canonical usage metadata contains invalid values")
+        provider, model, variant = inference_model(provider, model, variant)
+        token_values = dict(zip(INFERENCE_TOKEN_COLUMNS, tokens))
+        parts_by_session.setdefault(session_id, []).append({
+            "part_key": part_id, "session_key": session_id, "timestamp": timestamp, "updated": updated,
+            "provider": provider, "model": model, "variant": variant,
+            "raw_cost": Decimal(str(raw_cost)), "valid_usage": raw_cost >= 0 and all(value >= 0 for value in tokens),
+            "token_total": sum(tokens), **token_values,
+        })
+        source_identity.update(json.dumps(row, sort_keys=True, default=str).encode() + b"\0")
+    contexts = inference_contexts(args.state_root, mapping)
+    records = []
+    for row in session_rows:
+        session_id, timestamp, updated, raw_cost, *tokens = row
         if (not isinstance(session_id, str) or not OPAQUE_ID.fullmatch(session_id)
                 or type(timestamp) is not int or timestamp < 0 or type(updated) is not int or updated < timestamp
                 or any(type(value) is not int or value < 0 for value in tokens)
                 or not isinstance(raw_cost, (int, float)) or isinstance(raw_cost, bool)
                 or not math.isfinite(raw_cost) or raw_cost < 0):
             fail("OpenCode session metadata contains invalid values")
-        provider, model, variant = parse_inference_model(raw_model)
         token_values = dict(zip(INFERENCE_TOKEN_COLUMNS, tokens))
         total = sum(tokens)
-        actual = Decimal(str(raw_cost)) if raw_cost > 0 or total == 0 else None
-        matching = [entry for entry in rates if entry["provider"] == provider and entry["model"] == model
-                    and entry["effective_from"] <= timestamp
-                    and (entry["effective_to"] is None or updated < entry["effective_to"])
-                    and (entry["max_input_tokens"] is None or sum(token_values[name] for name in (
-                        "input", "cache_read", "cache_write")) <= entry["max_input_tokens"])]
-        estimated = None
-        rate_entry = None
-        if len(matching) == 1 and all(
-                matching[0]["rates"][name] is not None or token_values[name] == 0
-                for name in INFERENCE_TOKEN_COLUMNS):
-            estimated = sum((Decimal(token_values[name]) * (matching[0]["rates"][name] or Decimal())
-                             for name in INFERENCE_TOKEN_COLUMNS), Decimal()) / Decimal(1_000_000)
-            rate_entry = {"id": matching[0]["rate_id"], "provider": provider, "model": model,
-                          "effective_from": matching[0]["effective_from"],
-                          "effective_to": matching[0]["effective_to"], "source": matching[0]["source"]}
         source_identity.update(json.dumps(row, sort_keys=True, default=str).encode() + b"\0")
-        attribution = contexts.get(session_id, {"context": "UNKNOWN", "status": "UNKNOWN",
-                                                  "confidence": "UNAVAILABLE", "source": "UNAVAILABLE"})
-        attribution_identity.update(f'{session_id}\0{attribution["context"]}\0{attribution["status"]}\0'
-                                    f'{attribution["confidence"]}\0{attribution["source"]}\0'.encode())
-        records.append({"context": attribution["context"], "attribution_status": attribution["status"],
-                        "attribution_confidence": attribution["confidence"],
-                        "attribution_source": attribution["source"], "provider": provider,
-                        "model": model, "variant": variant, "actual_cost": actual,
-                        "estimated_cost": estimated, "rate_entry": rate_entry,
-                        "token_total": total, **token_values})
-    capability = {"adapter": "opencode_session_v1", "table": "session",
-                  "columns": sorted({name.lower() for name in selected})}
+        members = parts_by_session.pop(session_id, [])
+        reconciled = (all(item["valid_usage"] for item in members)
+                      and tokens == [sum(item[name] for item in members) for name in INFERENCE_TOKEN_COLUMNS]
+                      and abs(sum((item["raw_cost"] for item in members), Decimal())
+                              - Decimal(str(raw_cost))) <= Decimal("0.000001"))
+        if not reconciled:
+            if (args.after is not None and timestamp < args.after
+                    or args.before is not None and timestamp >= args.before):
+                continue
+            actual = Decimal(str(raw_cost)) if raw_cost > 0 or total == 0 else None
+            records.append({"session_key": session_id, "context": "UNKNOWN",
+                            "attribution_status": "UNKNOWN", "attribution_confidence": "UNAVAILABLE",
+                            "attribution_source": "UNAVAILABLE", "provider": "UNAVAILABLE",
+                            "model": "UNAVAILABLE", "variant": "UNAVAILABLE", "actual_cost": actual,
+                            "estimated_cost": None, "rate_entry": None, "reconciled": False,
+                            "token_total": total, **token_values})
+            continue
+        for member in members:
+            if (args.after is not None and member["timestamp"] < args.after
+                    or args.before is not None and member["timestamp"] >= args.before):
+                continue
+            attribution = inference_attribution(contexts, session_id, member["timestamp"])
+            matching = [entry for entry in rates
+                        if entry["provider"] == member["provider"] and entry["model"] == member["model"]
+                        and entry["effective_from"] <= member["timestamp"]
+                        and (entry["effective_to"] is None or member["updated"] < entry["effective_to"])
+                        and (entry["max_input_tokens"] is None or sum(member[name] for name in (
+                            "input", "cache_read", "cache_write")) <= entry["max_input_tokens"])]
+            estimated, rate_entry = None, None
+            if len(matching) == 1 and all(
+                    matching[0]["rates"][name] is not None or member[name] == 0
+                    for name in INFERENCE_TOKEN_COLUMNS):
+                estimated = sum((Decimal(member[name]) * (matching[0]["rates"][name] or Decimal())
+                                 for name in INFERENCE_TOKEN_COLUMNS), Decimal()) / Decimal(1_000_000)
+                rate_entry = {"id": matching[0]["rate_id"], "provider": member["provider"],
+                              "model": member["model"], "effective_from": matching[0]["effective_from"],
+                              "effective_to": matching[0]["effective_to"], "source": matching[0]["source"]}
+            actual = member["raw_cost"] if member["raw_cost"] > 0 or member["token_total"] == 0 else None
+            attribution_identity.update(
+                f'{session_id}\0{member["part_key"]}\0{attribution["context"]}\0{attribution["status"]}\0'
+                f'{attribution["confidence"]}\0{attribution["source"]}\0'.encode())
+            records.append({"session_key": session_id, "context": attribution["context"],
+                            "attribution_status": attribution["status"],
+                            "attribution_confidence": attribution["confidence"],
+                            "attribution_source": attribution["source"], "provider": member["provider"],
+                            "model": member["model"], "variant": member["variant"], "actual_cost": actual,
+                            "estimated_cost": estimated, "rate_entry": rate_entry, "reconciled": True,
+                            "token_total": member["token_total"],
+                            **{name: member[name] for name in INFERENCE_TOKEN_COLUMNS}})
+    if parts_by_session:
+        fail("OpenCode canonical usage references a missing session control")
+    capability = {"adapter": "opencode_step_finish_v2",
+                  "tables": {name: value["columns"] for name, value in capabilities.items()}}
     if args.dry_run:
-        print(json.dumps({"schema_version": 1, "capabilities": capability,
-                          "planned_session_count": len(records)}, sort_keys=True, separators=(",", ":")))
+        print(json.dumps({"schema_version": 2, "capabilities": capability,
+                          "planned_session_count": len({record["session_key"] for record in records}),
+                          "planned_usage_count": len(records),
+                          "unreconciled_session_count": len({record["session_key"] for record in records
+                                                              if not record["reconciled"]})},
+                         sort_keys=True, separators=(",", ":")))
         return
     summaries = [inference_summary(context, [record for record in records if record["context"] == context])
                  for context in sorted({record["context"] for record in records})]
     used_rates = {record["rate_entry"]["id"]: record["rate_entry"] for record in records if record["rate_entry"]}
-    report = {"schema_version": 1, "source_snapshot": {"session_ceiling": ceiling,
+    report = {"schema_version": 2, "source_snapshot": {"session_ceiling": ceilings["session"],
+               "message_ceiling": ceilings["message"], "part_ceiling": ceilings["part"],
                "database_digest": source_identity.hexdigest(), "after": args.after, "before": args.before,
                "attribution_digest": attribution_identity.hexdigest(), "capabilities": capability},
                "rate_card": {"schema_version": rate_card["schema_version"],
@@ -7990,7 +8120,7 @@ def command_inference_cost_report(args):
     report_json = json.dumps(report, sort_keys=True, indent=2) + "\n"
     markdown = inference_markdown(report)
     generated = now()
-    manifest = {"schema_version": 1, "generated_at": generated,
+    manifest = {"schema_version": 2, "generated_at": generated,
                 "files": {"inference-cost-report.json": hashlib.sha256(report_json.encode()).hexdigest(),
                           "inference-cost-report.md": hashlib.sha256(markdown.encode()).hexdigest()},
                 "source_snapshot": report["source_snapshot"], "rate_card": report["rate_card"]}
@@ -8001,7 +8131,8 @@ def command_inference_cost_report(args):
         })
     except OSError:
         fail("cannot publish inference report")
-    print(json.dumps({"status": "written", "session_count": len(records),
+    print(json.dumps({"status": "written", "session_count": len({record["session_key"] for record in records}),
+                      "usage_count": len(records),
                       "context_count": len(summaries)}, sort_keys=True, separators=(",", ":")))
 
 

@@ -104,7 +104,9 @@ def history_candidate(helper) -> dict:
         "reviewed_status": "unreviewed",
         "review_session": True,
         "correlation_quality": "exact",
-        "cycles": [{"cycle_id": "DAI-007", "state": "active"}],
+        "cycles": [{"cycle_id": "DAI-007", "state": "active",
+                    "context": "dotfiles_ai_distribution", "started_at": 1784900000000,
+                    "ended_at": None}],
         "aggregates": {key: 0 for key in helper.AGGREGATE_KEYS},
         "telemetry": {
             "schema_version": 2,

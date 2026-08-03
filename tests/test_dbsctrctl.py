@@ -37,6 +37,11 @@ def run(repo, *args, ok=True, env=None, input_text=None):
     return result
 
 
+def cycle_core(cycles):
+    return [{key: value for key, value in cycle.items()
+             if key not in {"context", "started_at", "ended_at"}} for cycle in cycles]
+
+
 def ledger_text(state):
     connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
     try:
@@ -2734,9 +2739,13 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        self.assertEqual(module.correlated_cycles(str(self.repo / "docs"), set()), [
+        cycles = module.correlated_cycles(str(self.repo / "docs"), set())
+        self.assertEqual(cycle_core(cycles), [
             {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
         ])
+        self.assertEqual(cycles[0]["context"], "test")
+        self.assertIsInstance(cycles[0]["started_at"], int)
+        self.assertIsNone(cycles[0]["ended_at"])
 
     def test_review_correlation_rejects_ambiguous_source_checkout(self):
         self.start()
@@ -2770,8 +2779,8 @@ class DbsctrctlTest(unittest.TestCase):
         previous = Path.cwd()
         try:
             os.chdir(self.repo)
-            self.assertEqual(module.correlated_cycles(
-                str(Path(self.temp.name) / "missing"), set(), {"session-linked"}), [
+            self.assertEqual(cycle_core(module.correlated_cycles(
+                str(Path(self.temp.name) / "missing"), set(), {"session-linked"})), [
                 {"cycle_id": "cycle-1", "state": "abandoned", "risk": "routine", "delivery_intent": "local"},
             ])
         finally:
@@ -2798,20 +2807,20 @@ class DbsctrctlTest(unittest.TestCase):
             str(self.repo), set(), {"runtime-root", "other-root"}, exact_session_id="runtime-root",
             with_quality=True,
         )
-        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active",
+        self.assertEqual(cycle_core(exact), [{"cycle_id": "cycle-1", "state": "active",
                                   "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "exact")
         exact, quality = module.correlated_cycles(
             str(self.repo), {"cycle-2"}, {"runtime-root"}, exact_session_id="runtime-root",
             with_quality=True,
         )
-        self.assertEqual(exact, [{"cycle_id": "cycle-1", "state": "active",
+        self.assertEqual(cycle_core(exact), [{"cycle_id": "cycle-1", "state": "active",
                                   "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "exact")
         family, quality = module.correlated_cycles(
             str(self.repo), set(), {"runtime-root"}, exact_session_id="child", with_quality=True,
         )
-        self.assertEqual(family, [{"cycle_id": "cycle-1", "state": "active",
+        self.assertEqual(cycle_core(family), [{"cycle_id": "cycle-1", "state": "active",
                                    "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "family")
 
@@ -2823,12 +2832,12 @@ class DbsctrctlTest(unittest.TestCase):
             str(self.repo), set(), {"shared-parent"}, exact_session_id="shared-parent",
             with_quality=True,
         )
-        self.assertEqual(ambiguous, [])
+        self.assertEqual([item["cycle_id"] for item in ambiguous], ["cycle-1", "cycle-2"])
         self.assertEqual(quality, "ambiguous")
         worktree, quality = module.correlated_cycles(
             str(self.repo), set(), {"shared-parent"}, exact_session_id="child", with_quality=True,
         )
-        self.assertEqual(worktree, [{"cycle_id": "cycle-1", "state": "active",
+        self.assertEqual(cycle_core(worktree), [{"cycle_id": "cycle-1", "state": "active",
                                      "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "worktree")
 
@@ -2868,7 +2877,7 @@ class DbsctrctlTest(unittest.TestCase):
         candidates = {item["session_id"]: item for item in scan["candidates"]}
         self.assertEqual(candidates["runtime-root"]["correlation_quality"], "exact")
         self.assertEqual(candidates["grandchild"]["correlation_quality"], "family")
-        self.assertEqual(candidates["grandchild"]["cycles"], [
+        self.assertEqual(cycle_core(candidates["grandchild"]["cycles"]), [
             {"cycle_id": "cycle-1", "state": "abandoned", "risk": "routine",
              "delivery_intent": "local"},
         ])
@@ -2883,12 +2892,12 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+        self.assertEqual(cycle_core(module.correlated_cycles(str(self.repo), set())), [
             {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
         ])
         record["gates"]["domain"]["exception"] = {"kind": "accepted_risk"}
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+        self.assertEqual(cycle_core(module.correlated_cycles(str(self.repo), set())), [
             {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
         ])
         record["gates"]["domain"]["exception"] = {
@@ -2896,18 +2905,18 @@ class DbsctrctlTest(unittest.TestCase):
             "review_condition": "next revision", "approved_at": "not-a-time",
         }
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+        self.assertEqual(cycle_core(module.correlated_cycles(str(self.repo), set())), [
             {"cycle_id": "cycle-1", "state": "blocked", "risk": "routine", "delivery_intent": "local"},
         ])
         record["gates"]["domain"]["exception"]["approved_at"] = "2026-07-15T00:00:00Z"
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+        self.assertEqual(cycle_core(module.correlated_cycles(str(self.repo), set())), [
             {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
         ])
         record["gates"]["domain"]["applicability"] = "not_applicable"
         record["gates"]["domain"].pop("exception")
         self.record_path().write_text(json.dumps(record))
-        self.assertEqual(module.correlated_cycles(str(self.repo), set()), [
+        self.assertEqual(cycle_core(module.correlated_cycles(str(self.repo), set())), [
             {"cycle_id": "cycle-1", "state": "active", "risk": "routine", "delivery_intent": "local"},
         ])
 

@@ -449,10 +449,16 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
           candidate.telemetry[name] === "unavailable" || nonnegativeInteger(candidate.telemetry[name])))
       && candidate.cycles.every((cycle: any) => {
         if (cycle === null || typeof cycle !== "object" || Array.isArray(cycle)
-            || Object.keys(cycle).some(key => !["cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation"].includes(key))
+            || Object.keys(cycle).some(key => !["cycle_id", "state", "risk", "delivery_intent", "phase_profile", "metrics", "harness_activation", "context", "started_at", "ended_at"].includes(key))
             || !id.test(cycle.cycle_id) || !["active", "blocked", "abandoned", "completed", "unknown"].includes(cycle.state)
             || !["routine", "elevated", "critical", "unavailable"].includes(cycle.risk ?? "unavailable")
             || !["local", "merge", "release", "deploy", "draft_pr", "unavailable"].includes(cycle.delivery_intent ?? "unavailable")) return false
+        const intervalKeys = ["context", "started_at", "ended_at"]
+        const hasInterval = intervalKeys.every(key => Object.prototype.hasOwnProperty.call(cycle, key))
+        if (intervalKeys.some(key => Object.prototype.hasOwnProperty.call(cycle, key)) !== hasInterval
+            || hasInterval && (typeof cycle.context !== "string" || !id.test(cycle.context)
+              || !nonnegativeInteger(cycle.started_at)
+              || cycle.ended_at !== null && (!nonnegativeInteger(cycle.ended_at) || cycle.ended_at < cycle.started_at))) return false
         const phaseValid = cycle.phase_profile === undefined || cycle.phase_profile === null
           || exactKeys(cycle.phase_profile, ["schema_version", "cycle_id", "status",
             "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"])
