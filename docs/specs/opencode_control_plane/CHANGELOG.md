@@ -9,7 +9,9 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Added one-lens worker plans, deterministic review-session family attribution,
   pass telemetry, a dedicated lens-audit skill, and an explicit autonomous flag
   for evidence-ready noncritical P1-P3 Discovery. Critical or uncertain work and
-  every merge/deploy decision remain operator-owned. Validation is in progress.
+  every merge/deploy decision remain operator-owned. Affected validation passed.
+- Added same-repository linked-worktree targeting to typed reconciliation so a
+  source-rooted Build session can safely finish an isolated cycle.
 
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 

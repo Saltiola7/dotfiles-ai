@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join, relative, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
@@ -1089,8 +1089,33 @@ export async function beginCycle(args: {
   }
 }
 
-export async function reconcileTarget(mode: "preview" | "prepare", cwd = process.cwd()) {
+async function boundedReconciliationWorktree(cwd: string, worktree?: string,
+  worktreeRoot = join(homedir(), ".local/state/dbsctr/worktrees")) {
+  if (worktree === undefined) return cwd
+  const [current, candidate, root] = await Promise.all([
+    realpath(cwd), realpath(worktree), realpath(worktreeRoot),
+  ])
+  const withinRoot = relative(root, candidate)
+  if (!withinRoot || withinRoot === ".." || withinRoot.startsWith(`..${sep}`) || isAbsolute(withinRoot))
+    throw new Error("reconciliation worktree must be inside the authorized DBSCTR worktree root")
+  const topLevel = await realpath(await run(["git", "rev-parse", "--show-toplevel"], candidate))
+  if (topLevel !== candidate)
+    throw new Error("reconciliation worktree must be a Git worktree root")
+  const commonDirectory = async (directory: string) => realpath(await run([
+    "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+  ], directory))
+  const [currentCommon, candidateCommon] = await Promise.all([
+    commonDirectory(current), commonDirectory(candidate),
+  ])
+  if (currentCommon !== candidateCommon)
+    throw new Error("reconciliation worktree must belong to the current Git repository")
+  return candidate
+}
+
+export async function reconcileTarget(mode: "preview" | "prepare", cwd = process.cwd(), worktree?: string,
+  worktreeRoot?: string) {
+  const target = await boundedReconciliationWorktree(cwd, worktree, worktreeRoot)
   return JSON.parse(await run([
     "dbsctrctl", "reconcile-target", "--mode", mode, "--json",
-  ], cwd))
+  ], target))
 }

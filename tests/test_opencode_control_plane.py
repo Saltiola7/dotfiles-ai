@@ -104,7 +104,11 @@ def rendered_config(env: dict[str, str] | None = None, data: dict | None = None)
 
 def test_optional_local_repository_reference():
     assert "references" not in rendered_config()
-    assert rendered_config()["permission"]["external_directory"] == "deny"
+    assert rendered_config()["permission"]["external_directory"] == {
+        "*": "deny",
+        "~/.local/state/dbsctr/worktrees": "allow",
+        "~/.local/state/dbsctr/worktrees/**": "allow",
+    }
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -123,6 +127,8 @@ def test_optional_local_repository_reference():
     }
     assert list(rendered["permission"]["external_directory"].items()) == [
         ("*", "deny"),
+        ("~/.local/state/dbsctr/worktrees", "allow"),
+        ("~/.local/state/dbsctr/worktrees/**", "allow"),
         ("/workspace/reference/docs", "allow"),
         ("/workspace/reference/docs/**", "allow"),
     ]
@@ -299,7 +305,11 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
-    assert config["permission"]["external_directory"] == "deny"
+    assert config["permission"]["external_directory"] == {
+        "*": "deny",
+        "~/.local/state/dbsctr/worktrees": "allow",
+        "~/.local/state/dbsctr/worktrees/**": "allow",
+    }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_begin": "allow",
@@ -467,6 +477,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const phase_span = tool({' in tools
     assert 'export const execution_dag = tool({' in tools
     assert 'export const reconcile = tool({' in tools
+    assert "reconcileTarget(args.mode, context.worktree, args.worktree)" in tools
     assert 'export const execution_benchmark = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
@@ -652,6 +663,68 @@ def test_dbsctr_reconcile_runtime_preserves_mode_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<reconcile-target>", "<--mode>", "<prepare>", "<--json>",
     ]
+
+
+def test_dbsctr_reconcile_accepts_only_same_repository_worktree(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    source, worktree_root = tmp_path / "source", tmp_path / "worktrees"
+    source.mkdir()
+    worktree_root.mkdir()
+    cycle = worktree_root / "cycle"
+    cycle.mkdir()
+    common = tmp_path / "common"
+    common.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    log = tmp_path / "reconcile-cwd.log"
+    git = bin_dir / "git"
+    git.write_text(
+        '#!/bin/sh\ncase "$*" in *--show-toplevel*) pwd ;; '
+        '*) printf "%s\\n" "$GIT_COMMON" ;; esac\n'
+    )
+    git.chmod(0o755)
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\npwd > "$RECONCILE_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ reconcileTarget }} from {json.dumps(str(runtime))};'
+        f'console.log(JSON.stringify(await reconcileTarget("preview",'
+        f'{json.dumps(str(source))},{json.dumps(str(cycle))},'
+        f'{json.dumps(str(worktree_root))})));'
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+           "GIT_COMMON": str(common), "RECONCILE_LOG": str(log)}
+    subprocess.run(["bun", "-e", script], cwd=ROOT, env=env, text=True,
+                   capture_output=True, check=True)
+    assert log.read_text().strip() == str(cycle)
+
+    git.write_text(
+        '#!/bin/sh\ncase "$*" in *--show-toplevel*) pwd ;; *) case "$PWD" in '
+        '*cycle) printf "%s\\n" "$OTHER_COMMON" ;; *) printf "%s\\n" "$GIT_COMMON" ;; '
+        'esac ;; esac\n'
+    )
+    rejected = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**env, "OTHER_COMMON": str(other)}, text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0
+    assert "must belong to the current Git repository" in rejected.stderr
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_script = (
+        f'import {{ reconcileTarget }} from {json.dumps(str(runtime))};'
+        f'await reconcileTarget("preview",{json.dumps(str(source))},'
+        f'{json.dumps(str(outside))},{json.dumps(str(worktree_root))});'
+    )
+    outside_result = subprocess.run(
+        ["bun", "-e", outside_script], cwd=ROOT, env=env, text=True,
+        capture_output=True,
+    )
+    assert outside_result.returncode != 0
+    assert "inside the authorized DBSCTR worktree root" in outside_result.stderr
 
 
 def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):

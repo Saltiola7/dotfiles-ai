@@ -441,11 +441,12 @@ export const begin = tool({
 })
 
 export const reconcile = tool({
-  description: "Preview or prepare explicit reconciliation with the current cycle's advanced upstream.",
+  description: "Preview or prepare explicit reconciliation with the current cycle's advanced upstream, optionally in a linked worktree of the current repository.",
   args: {
     mode: tool.schema.enum(["preview", "prepare"]),
+    worktree: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return JSON.stringify(await reconcileTarget(args.mode, context.worktree))
+    return JSON.stringify(await reconcileTarget(args.mode, context.worktree, args.worktree))
   },
 })

@@ -35,6 +35,8 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Hermes configuration now writes `model.default` without replacing the
   provider-bearing model object and verifies both effective values before
   installing schedules.
+- Managed OpenCode permissions expose only the DBSCTR worktree root, and typed
+  reconciliation accepts an explicit same-repository linked worktree.
 
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 

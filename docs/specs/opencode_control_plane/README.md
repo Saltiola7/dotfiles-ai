@@ -338,6 +338,12 @@ Given typed cycle begin runs, stable OpenCode tool context records the initiatin
 session and worktree in the Cycle Record. Optional Herdr launch metadata remains
 advisory, uses no-focus launch, and never changes lifecycle state or cleanup.
 
+Given a Build session remains rooted in the source checkout, typed reconciliation
+may name an isolated linked worktree. The adapter canonicalizes both paths and
+requires an exact Git top-level beneath the managed DBSCTR worktree root and the
+same Git common directory before invoking the lifecycle helper; outside-root and
+foreign repositories fail before reconciliation.
+
 Given `/dbsctr-review` is asked to inspect history, a separate read-only typed
 tool includes reviewed candidates through bounded composable filters and fixed
 cohort replay. A schema-validated history-save tool has standing authority only
