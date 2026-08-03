@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution
 
-**Status:** DAI-021 continuous per-lens R&D in progress; DAI-004-F1 and DAI-012-F1 pending
+**Status:** DAI-021 continuous per-lens R&D delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
 
