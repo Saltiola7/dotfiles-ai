@@ -20,7 +20,17 @@ delivery requires a feature branch and verified draft pull request into protecte
   validation are in progress.
 - Autonomous/operator authorization is durable in the improvement ledger, and
   pass telemetry is accepted only from a private scope/manifest receipt derived
-  by the typed adapter from the actual filtered pages.
+  by the typed adapter from the actual filtered pages. Autonomous readiness is
+  canonical and bound to the exact worker, opportunity, noncritical risk, resolved
+  questions, and that worker's immutable successful lens-pass manifest; replay,
+  tampering, missing evidence, and critical risk fail closed.
+- Scheduler schema 7 binds pending parallel-lens attempts and completed passes to the registered
+  OpenCode session, preventing a reused worker ID from inheriting an earlier
+  attempt. Existing improvement-ledger schema 3 now migrates to readiness schema
+  4 before integrity validation.
+- Added read-only `dbsctr-rnd health` output backed by bounded scheduler activity
+  counters, so a completed Hermes cron invocation cannot hide repeated no-op,
+  pre-launch-failure, or launch-failure outcomes.
 
 ## 2026-07-31 - DAI-016-F1 Autonomous R&D Launch Repair
 

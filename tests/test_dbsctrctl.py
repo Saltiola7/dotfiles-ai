@@ -4396,6 +4396,16 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(registered["pane_id"], "w1:p1")
         self.assertIsNone(registered["opportunity_id"])
         self.assertIsNone(registered["priority"])
+        repeated = json.loads(run(
+            self.repo, "improvement-register", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+        ).stdout)
+        self.assertEqual((repeated["worker_id"], repeated["session_id"]), ("worker-1", "session-1"))
+        mismatch = run(
+            self.repo, "improvement-register", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-other", ok=False,
+        )
+        self.assertIn("already registered", mismatch.stderr)
         invalid_worker = run(
             self.repo, "improvement-register", "--state-root", str(state),
             "--worker-id", "worker:2", "--session-id", "session-2", ok=False,
@@ -4466,12 +4476,67 @@ class DbsctrctlTest(unittest.TestCase):
             "--summary", "Autonomously refine bounded operator telemetry", "--priority", "P3",
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "claimed"))
+        readiness = {"schema_version": 1, "worker_id": "worker-5", "session_id": "session-5",
+                     "opportunity_id": autonomous["opportunity_id"], "risk": "elevated",
+                     "material_questions_resolved": True, "evidence_digest": "d" * 64}
+        critical_readiness = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
+            "--readiness-json", json.dumps({**readiness, "risk": "critical"}), ok=False,
+        )
+        self.assertIn("invalid autonomous readiness receipt", critical_readiness.stderr)
+        run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-7", "--session-id", "session-7",
+            "--summary", "Reject readiness replay against another claim", "--priority", "P2",
+        )
+        replay = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-7", "--state", "discovery", "--autonomous",
+            "--readiness-json", json.dumps(readiness), ok=False,
+        )
+        self.assertIn("invalid autonomous readiness receipt", replay.stderr)
+        readiness_home = Path(self.temp.name) / "readiness-home"
+        scheduler = readiness_home / ".local/state/dotfiles-ai/dbsctr-rnd.sqlite3"
+        unavailable = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
+            "--readiness-json", json.dumps(readiness), ok=False,
+            env={**os.environ, "HOME": str(readiness_home)},
+        )
+        self.assertIn("autonomous readiness evidence is unavailable", unavailable.stderr)
+        scheduler.parent.mkdir(parents=True)
+        connection = sqlite3.connect(scheduler)
+        connection.executescript("""
+            CREATE TABLE scheduler_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+            INSERT INTO scheduler_meta VALUES ('schema_version','7');
+            CREATE TABLE parallel_lens_passes (
+                worker_id TEXT PRIMARY KEY, lens_name TEXT NOT NULL, capture_day TEXT NOT NULL,
+                manifest_digest TEXT NOT NULL, outcome TEXT NOT NULL, recorded_at INTEGER NOT NULL,
+                cadence TEXT NOT NULL, no_yield_count INTEGER NOT NULL, quarter TEXT NOT NULL,
+                next_eligible_at INTEGER NOT NULL, page_count INTEGER NOT NULL,
+                session_count INTEGER NOT NULL, review_session_count INTEGER NOT NULL,
+                excluded_review_session_count INTEGER NOT NULL,
+                unattributed_session_count INTEGER NOT NULL, source_count INTEGER NOT NULL,
+                opportunity_id TEXT, session_id TEXT
+            ) WITHOUT ROWID;
+        """)
+        connection.execute("INSERT INTO parallel_lens_passes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           ("worker-5", "correctness_safety", "2026-07-31", "d" * 64,
+                            "yield", 1, "daily", 0, "2026-Q3", 1, 1, 1, 0, 0, 0, 1,
+                            autonomous["opportunity_id"], "session-5"))
+        connection.commit()
+        connection.close()
+        scheduler.chmod(0o600)
         autonomous = json.loads(run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
+            "--readiness-json", json.dumps(readiness),
+            env={**os.environ, "HOME": str(readiness_home)},
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
         self.assertEqual(autonomous["authorization"], "autonomous")
+        self.assertEqual(json.loads(autonomous["readiness"]), readiness)
         autonomous = json.loads(run(
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "implementing",
@@ -4483,6 +4548,30 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-5", "--action", "success",
         ).stdout)
         self.assertEqual((recovered["state"], recovered["recovery_attempts"]), ("implementing", 0))
+        run(self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "abandoned")
+        run(self.repo, "improvement-forget", "--state-root", str(state),
+            "--worker-id", "worker-5", "--confirm", "worker-5")
+        replacement = json.loads(run(
+            self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-5", "--session-id", "session-5b",
+            "--summary", "Reject stale evidence after worker reuse", "--priority", "P2",
+        ).stdout)
+        connection = sqlite3.connect(scheduler)
+        connection.execute(
+            "update parallel_lens_passes set opportunity_id=? where worker_id='worker-5'",
+            (replacement["opportunity_id"],),
+        )
+        connection.commit()
+        connection.close()
+        stale = run(
+            self.repo, "improvement-update", "--state-root", str(state),
+            "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
+            "--readiness-json", json.dumps({**readiness, "session_id": "session-5b",
+                                             "opportunity_id": replacement["opportunity_id"]}),
+            env={**os.environ, "HOME": str(readiness_home)}, ok=False,
+        )
+        self.assertIn("evidence does not match the worker", stale.stderr)
         run(self.repo, "improvement-claim", "--state-root", str(state),
             "--worker-id", "worker-6", "--session-id", "session-6",
             "--summary", "Escalate a critical autonomous finding", "--priority", "P0")
@@ -4795,7 +4884,7 @@ class DbsctrctlTest(unittest.TestCase):
         connection.commit()
         module.ensure_improvement_schema(connection)
         self.assertEqual(connection.execute(
-            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("3",))
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("4",))
         self.assertEqual(connection.execute(
             "select priority from improvement_workers where worker_id='worker-1'").fetchone(), ("P2",))
         self.assertEqual(connection.execute(
@@ -4806,6 +4895,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(connection.execute(
             "select distinct authorization from improvement_workers where worker_id!='worker-1'"
         ).fetchall(), [("operator",)])
+        self.assertEqual(connection.execute(
+            "select distinct readiness from improvement_workers").fetchall(), [(None,)])
         module.improvement_integrity(connection)
         connection.close()
 
@@ -4819,6 +4910,7 @@ class DbsctrctlTest(unittest.TestCase):
         connection.execute("update ledger_meta set value='1' where key='improvement_schema'")
         connection.execute("alter table improvement_workers drop column priority")
         connection.execute("alter table improvement_workers drop column authorization")
+        connection.execute("alter table improvement_workers drop column readiness")
         connection.commit()
         connection.close()
         status = json.loads(run(
@@ -4828,7 +4920,27 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(status["workers"][0]["priority"], "P2")
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute(
-            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("3",))
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("4",))
+        connection.close()
+
+        state = Path(self.temp.name) / "improvement-status-migration-v3"
+        run(self.repo, "improvement-claim", "--state-root", str(state),
+            "--worker-id", "worker-1", "--session-id", "session-1",
+            "--summary", "Migrate an authorized queued claim")
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("update ledger_meta set value='3' where key='improvement_schema'")
+        connection.execute("alter table improvement_workers drop column readiness")
+        connection.commit()
+        connection.close()
+        status = json.loads(run(
+            self.repo, "improvement-status", "--state-root", str(state),
+            "--worker-id", "worker-1",
+        ).stdout)
+        self.assertIsNone(status["workers"][0]["readiness"])
+        connection = sqlite3.connect(ledger)
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='improvement_schema'").fetchone(), ("4",))
         connection.close()
 
     def test_provider_evaluation_derives_exact_five_cycle_report(self):

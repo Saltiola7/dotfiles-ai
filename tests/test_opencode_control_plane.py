@@ -886,6 +886,9 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
         'await improvementClaim("session-1","safe; literal","P1",process.cwd());'
         'await improvementUpdate("session-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd(),true);'
+        'await improvementUpdate("worker-2",{state:"discovery",autonomous:true,readiness:{workerId:"worker-2",'
+        'sessionId:"session-2",opportunityId:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",risk:"routine",'
+        'materialQuestionsResolved:true,evidenceDigest:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},process.cwd());'
         'await improvementStatus("worker-1",process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
@@ -898,6 +901,9 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
         "CALL", "<improvement-update>", "<--session-id>", "<session-1>",
         "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
         "<--path>", "<a b>", "<--path>", "<x;nope>",
+        "CALL", "<improvement-update>", "<--worker-id>", "<worker-2>",
+        "<--state>", "<discovery>", "<--autonomous>", "<--readiness-json>",
+        '<{"schema_version":1,"worker_id":"worker-2","session_id":"session-2","opportunity_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","risk":"routine","material_questions_resolved":true,"evidence_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}>',
         "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",
     ]
 
@@ -1438,8 +1444,9 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     ))
     assert "--outcome no_yield" in command and "--outcome yield" in command
     assert "review_session_governance" in command and "Never let an ordinary lens" in command
-    assert "--telemetry-json" in command and "P1-P3 enter `discovery`" in command
+    assert "--telemetry-json" in command and "For P1-P3, load `discovery`" in command
     assert "autonomous=true" in command and "risk is not critical" in command
+    assert "materialQuestionsResolved=true" in command and "terminal manifest evidence digest" in command
     audit = text("dot_agents/skills/dbsctr-lens-audit/SKILL.md")
     assert "review_session_governance" in audit and "Missing telemetry is unavailable, not zero" in audit
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")

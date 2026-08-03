@@ -66,8 +66,11 @@ Operate as one bounded native-Build R&D worker:
    lens-result` with the same worker, capture day, terminal manifest digest,
    `--outcome yield`, and the same telemetry JSON. Yield makes only this lens
    immediately eligible for another pass; no-yield applies only its adaptive
-   backoff. P0 blocks for operator review. P1-P3 enter `discovery` and load
-   `discovery` with `autonomous=true` and load `discovery` autonomously.
+   backoff. P0 blocks for operator review. For P1-P3, load `discovery` while the
+   claim remains claimed. After Discovery resolves every material question, enter
+   `discovery` with `autonomous=true` and a readiness receipt bound to the worker
+    ID, current OpenCode session ID, claimed opportunity ID, noncritical `routine` or `elevated` risk,
+   `materialQuestionsResolved=true`, and terminal manifest evidence digest.
    Carry the context block into Discovery. Resolve questions from authoritative
    evidence and conservative defaults. Proceed autonomously only when no material
    uncertainty remains and risk is not critical; otherwise block for the operator.

@@ -996,6 +996,14 @@ export async function improvementUpdate(workerID: string, args: {
   cycleID?: string
   paths?: string[]
   autonomous?: boolean
+  readiness?: {
+    workerId: string
+    sessionId?: string
+    opportunityId: string
+    risk: "routine" | "elevated"
+    materialQuestionsResolved: true
+    evidenceDigest: string
+  }
 }, cwd = process.cwd(), bySession = false) {
   const argv = ["dbsctrctl", "improvement-update", bySession ? "--session-id" : "--worker-id", workerID, "--state", args.state]
   const names: Record<string, string> = {
@@ -1003,6 +1011,12 @@ export async function improvementUpdate(workerID: string, args: {
   }
   for (const [name, value] of Object.entries(args)) {
     if (name === "autonomous" && value === true) argv.push("--autonomous")
+    else if (name === "readiness" && value !== undefined) argv.push("--readiness-json", JSON.stringify({
+      schema_version: 1, worker_id: value.workerId, session_id: bySession ? workerID : value.sessionId,
+      opportunity_id: value.opportunityId,
+      risk: value.risk, material_questions_resolved: value.materialQuestionsResolved,
+      evidence_digest: value.evidenceDigest,
+    }))
     else if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
   }
   for (const path of args.paths ?? []) argv.push("--path", path)

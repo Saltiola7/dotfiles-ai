@@ -398,6 +398,13 @@ export const improvement_update = tool({
     cycleId: tool.schema.string().optional(),
     paths: tool.schema.array(tool.schema.string().min(1).max(512)).max(100).optional().default([]),
     autonomous: tool.schema.boolean().optional().default(false),
+    readiness: tool.schema.object({
+      workerId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      opportunityId: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+      risk: tool.schema.enum(["routine", "elevated"]),
+      materialQuestionsResolved: tool.schema.literal(true),
+      evidenceDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+    }).optional(),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_improvement_update", patterns: ["*"], always: [] })
@@ -406,6 +413,7 @@ export const improvement_update = tool({
       cycleID: args.cycleId,
       paths: args.paths,
       autonomous: args.autonomous,
+      readiness: args.readiness,
     }, context.worktree, true)
   },
 })

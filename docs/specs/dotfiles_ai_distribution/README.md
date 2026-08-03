@@ -400,21 +400,33 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Every pass records its lens, outcome, immutable manifest, page count, selected
   session count, selected review-session count, excluded review-session count,
   unattributed-session count, source count, cadence, and exact next eligibility.
+  A yield also records the exact registered session and claimed opportunity; legacy unbound passes cannot
+  authorize autonomous readiness.
   The typed federation adapter removes out-of-scope candidates before returning
   a page; unattributed legacy evidence fails the pass. Validation rejects ordinary
   lens telemetry with selected review sessions and governance telemetry with
   excluded review sessions. The adapter writes one mode-`0600` terminal receipt
   derived from filtered pages; `lens-result` consumes only an exact matching
   manifest/scope/counter receipt and deletes it after durable recording.
+- A pending parallel-lens attempt binds the exact registered OpenCode session.
+  Result submission rejects an unbound attempt or a reused worker ID whose current
+  session differs, even when its state and opportunity would otherwise qualify.
+- `dbsctr-rnd health` reads scheduler activity without opening a write
+  transaction. It reports durable reserve and release counts, last sanitized
+  outcomes, active-attempt count, and pass count; pre-launch and launch failures
+  are distinguishable from an ordinary no-op.
 - A yield resets only that lens and makes it immediately eligible for another
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores
   daily cadence without changing another lens or any live claim.
 - Every distinct claim stores exactly one P0-P3 priority. P1-P3 may enter
-  Discovery under a durable `autonomous` readiness authorization; exact operator
-  confirmation records `operator` authorization. P0, critical risk, and material
-  unresolved questions block for the operator. Evidence-ready noncritical work
-  may proceed through DBSCTR to a draft pull request, but never merge or deploy.
+  Discovery under a durable `autonomous` readiness authorization only when its
+  canonical receipt names the exact worker, session, and opportunity, declares routine or
+  elevated risk and no unresolved material question, and cites that worker's
+  immutable successful lens-pass manifest. Exact operator confirmation records
+  `operator` authorization. P0, critical risk, unresolved questions, missing
+  evidence, tampering, and replay block. Evidence-ready noncritical work may
+  proceed through DBSCTR to a draft pull request, but never merge or deploy.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
   or delivers a worker. An operator may explicitly confirm the exact worker ID of
   a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
@@ -734,8 +746,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   per-lens attempts, pass telemetry, sanitized outcome references, and cadence
   state. Launchd and Herdr are advisory.
 - The private improvement ledger stores `none`, `autonomous`, or `operator`
-  authorization. Claimed P1-P3 require readiness or exact confirmation before
-  Discovery; P0 always requires exact operator confirmation.
+  authorization and the canonical worker/opportunity-bound readiness receipt.
+  Claimed P1-P3 require a matching immutable scheduler `yield` pass or exact
+  confirmation before Discovery; P0 always requires exact operator confirmation.
 - The DBSCTR private ledger adds separately versioned
   `provider_evaluation_reports`, `provider_evaluation_members`,
   `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather

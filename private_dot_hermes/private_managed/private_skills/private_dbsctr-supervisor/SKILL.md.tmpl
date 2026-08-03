@@ -25,7 +25,7 @@ Profile: `{{ .dotfiles_ai.hermes.profile }}`. Allowed backlog roots:
    `/dbsctr-improve`, proves one new native session, and registers it before the
    next reservation. Registrations serialize while lens workers run in parallel.
    Never launch or register OpenCode through another path.
-5. On a pre-launch failure run `dbsctr-rnd --reservation RESERVATION release`;
+5. On a pre-launch failure run `dbsctr-rnd --reservation RESERVATION --reason prelaunch_failed release`;
    never start a substitute worker in that invocation.
 6. Before resuming a worker, re-read `dbsctrctl improvement-status` and prove the
    exact session is not already running. Resume only with `opencode -s SESSION`.

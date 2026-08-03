@@ -120,8 +120,9 @@ approval outcome changes.
   review jobs are repeatable; critical or uncertain Discovery pauses for input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
-- Every claim carries P0-P3 priority; explicit autonomous readiness may advance
-  noncritical P1-P3 while P0 and materially uncertain work remain visible.
+- Every claim carries P0-P3 priority; worker/opportunity-bound autonomous readiness
+  backed by that worker's successful lens manifest may advance noncritical P1-P3,
+  while P0, unsupported evidence, and materially uncertain work remain visible.
 - Confirmed P2/P3 promotion atomically enters Discovery; batch previews and
   integration retain exact source SHAs while batch publication remains an
   explicit operator action and `main` remains pull-request protected.
