@@ -14,9 +14,9 @@
   "provider": {
     "openai": {
       "options": {
-        "headerTimeout": 60000,
+        "headerTimeout": 300000,
         "timeout": 600000,
-        "chunkTimeout": 60000
+        "chunkTimeout": 300000
       },
       "models": {
         "gpt-5.6-sol": {
@@ -31,36 +31,17 @@
         }
       }
     },
-    "amazon-bedrock": {
+{{ if .dotfiles_ai.opencode.vertex_project -}}
+    "google-vertex-anthropic": {
       "options": {
-        "region": {{ .dotfiles_ai.opencode.bedrock_region | toJson }},
-        "profile": {{ .dotfiles_ai.opencode.bedrock_profile | toJson }}
-      },
-      "models": {
-        "global.anthropic.claude-opus-5": {
-          "variants": {
-            "high": {
-              "reasoningConfig": {
-                "type": "adaptive",
-                "maxReasoningEffort": "high",
-                "display": "summarized"
-              }
-            }
-          }
-        },
-        "global.anthropic.claude-sonnet-5": {
-          "variants": {
-            "medium": {
-              "reasoningConfig": {
-                "type": "adaptive",
-                "maxReasoningEffort": "medium",
-                "display": "summarized"
-              }
-            }
-          }
-        }
+        "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
+        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if .dotfiles_ai.opencode.vertex_credentials }},
+        "googleAuthOptions": {
+          "keyFilename": {{ .dotfiles_ai.opencode.vertex_credentials | toJson }}
+        }{{ end }}
       }
     },
+{{ end -}}
     "google": {},
     "moonshotai": {
       "npm": "@ai-sdk/openai-compatible",

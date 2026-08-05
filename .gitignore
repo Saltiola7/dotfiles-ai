@@ -6,3 +6,4 @@ __pycache__/
 graphify-out/
 /config.local.toml
 /.tailscale/
+data/

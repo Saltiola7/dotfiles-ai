@@ -1,7 +1,7 @@
 ---
-description: Fast read-only codebase exploration for an Amazon Bedrock primary.
+description: Fast read-only codebase exploration for a Vertex Claude primary.
 mode: subagent
-model: amazon-bedrock/global.anthropic.claude-sonnet-5
+model: google-vertex-anthropic/claude-sonnet-5@default
 variant: medium
 permission:
   dbsctr_vm_handoff: deny

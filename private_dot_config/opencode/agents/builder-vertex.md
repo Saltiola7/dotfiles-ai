@@ -1,7 +1,7 @@
 ---
-description: Bounded implementation for explicitly owned files under a Bedrock primary.
+description: Bounded implementation for explicitly owned files under a Vertex Claude primary.
 mode: subagent
-model: amazon-bedrock/global.anthropic.claude-sonnet-5
+model: google-vertex-anthropic/claude-sonnet-5@default
 variant: medium
 permission:
   dbsctr_vm_handoff: deny

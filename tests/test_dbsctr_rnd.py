@@ -17,7 +17,7 @@ def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", ro
     return {
         "dotfiles_ai": {
             "opencode": {
-                "bedrock_region": "us-west-2", "bedrock_profile": "",
+                "vertex_project": "", "vertex_location": "global", "vertex_credentials": "",
                 "default_model": "openai/gpt-5.6-sol", "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://127.0.0.1:1234/v1",
             },

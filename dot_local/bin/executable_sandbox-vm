@@ -167,7 +167,7 @@ def validate_config(value):
         guest.setdefault("hermes_enabled", False)
         guest.setdefault("rnd_backend", "native")
     if not isinstance(guest, dict) or set(guest) != {
-            "bedrock_region", "bedrock_profile", "default_model", "small_model", "theme",
+            "default_model", "small_model", "theme",
             "atuin_sync_address", "hermes_enabled", "rnd_backend"} or any(
             not isinstance(guest[name], str) for name in guest if name != "hermes_enabled") \
             or not isinstance(guest["hermes_enabled"], bool) \
@@ -374,8 +374,10 @@ def guest_config(config, workspace):
         'persistentState = "~/.config/dotfiles-ai/chezmoi.boltdb"',
         "",
         "[data.dotfiles_ai.opencode]",
-        f"bedrock_region = {quote(guest['bedrock_region'])}",
-        f"bedrock_profile = {quote(guest['bedrock_profile'])}",
+        # Guests have no Vertex credentials, so the Claude route stays off there.
+        'vertex_project = ""',
+        'vertex_location = "global"',
+        'vertex_credentials = ""',
         f"default_model = {quote(guest['default_model'])}",
         f"small_model = {quote(guest['small_model'])}",
         'lmstudio_base_url = "http://host.lima.internal:1234/v1"',

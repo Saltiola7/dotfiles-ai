@@ -1,7 +1,7 @@
 ---
-description: Claude Opus implementation agent using provider-local Bedrock subagents.
+description: Claude Opus implementation agent using provider-local Vertex subagents.
 mode: primary
-model: amazon-bedrock/global.anthropic.claude-opus-5
+model: google-vertex-anthropic/claude-opus-5@default
 variant: high
 permission:
   dbsctr_vm_handoff: deny
@@ -16,9 +16,9 @@ permission:
     ~/.config/dotfiles-ai/**: allow
   task:
     "*": deny
-    explore-bedrock: allow
-    scout-bedrock: allow
-    builder-bedrock: allow
+    explore-vertex: allow
+    scout-vertex: allow
+    builder-vertex: allow
 ---
 
 Implement approved work and delegate only independent work that clearly benefits.
@@ -27,4 +27,4 @@ evidence, and own staging and commits; do not add generic re-verification or a
 verifier subagent. If an optimized agent fails, report it and continue once with
 this flagship. Never cross provider families. This agent's exact runtime ID is
 `build-claude`; model selection alone does not change the primary. Delegate only
-to `explore-bedrock`, `scout-bedrock`, or `builder-bedrock`.
+to `explore-vertex`, `scout-vertex`, or `builder-vertex`.

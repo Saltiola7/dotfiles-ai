@@ -12,8 +12,9 @@ def data(onepassword: bool = False) -> dict:
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
             "opencode": {
-                "bedrock_region": "eu-west-1",
-                "bedrock_profile": "local-profile",
+                "vertex_project": "example-project",
+                "vertex_location": "global",
+                "vertex_credentials": "/tmp/example-adc.json",
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",
@@ -82,9 +83,10 @@ def test_local_data_renders_complete_configs() -> None:
     config = json.loads(
         chezmoi("cat", str(Path.home() / ".config/opencode/opencode.json")).stdout
     )
-    assert config["provider"]["amazon-bedrock"]["options"] == {
-        "region": "eu-west-1",
-        "profile": "local-profile",
+    assert config["provider"]["google-vertex-anthropic"]["options"] == {
+        "project": "example-project",
+        "location": "global",
+        "googleAuthOptions": {"keyFilename": "/tmp/example-adc.json"},
     }
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config

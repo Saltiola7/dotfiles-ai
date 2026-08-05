@@ -30,7 +30,7 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     values = {
         "dotfiles_ai": {
             "opencode": {
-                "bedrock_region": "us-west-2", "bedrock_profile": "",
+                "vertex_project": "", "vertex_location": "global", "vertex_credentials": "",
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",
@@ -91,7 +91,7 @@ def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
     values = {
         "dotfiles_ai": {
             "opencode": {
-                "bedrock_region": "us-west-2", "bedrock_profile": "",
+                "vertex_project": "", "vertex_location": "global", "vertex_credentials": "",
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",

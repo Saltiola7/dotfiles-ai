@@ -4,3 +4,6 @@
 .local/bin/hermes-update
 Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
 .local/bin/opencode-vm
+.config/opencode/agents/explore-bedrock.md
+.config/opencode/agents/scout-bedrock.md
+.config/opencode/agents/builder-bedrock.md

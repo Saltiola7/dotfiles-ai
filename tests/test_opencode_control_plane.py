@@ -13,8 +13,9 @@ OC = ROOT / "private_dot_config/opencode"
 DATA = {
     "dotfiles_ai": {
         "opencode": {
-            "bedrock_region": "us-west-2",
-            "bedrock_profile": "test-profile",
+            "vertex_project": "test-project",
+            "vertex_location": "global",
+            "vertex_credentials": "/tmp/test-adc.json",
             "default_model": "openai/gpt-5.6-sol",
             "small_model": "openai/gpt-5.6-terra",
             "lmstudio_base_url": "http://127.0.0.1:1234/v1",
@@ -184,7 +185,7 @@ def test_provider_and_primary_contracts():
         "acli jira workitem search * -w*": "deny",
         "acli jira workitem search *--filter*": "deny",
     }
-    assert "amazon-bedrock" in config["provider"]
+    assert "google-vertex-anthropic" in config["provider"]
     assert "lmstudio" in config["provider"]
     assert "headroom" not in config["provider"]
     assert "headroom-lmstudio" not in config["provider"]
@@ -212,7 +213,7 @@ def test_context7_is_remote_optional_key_and_scout_only():
     assert "test-context7-key" not in text("private_dot_config/opencode/opencode.json.tmpl")
     assert authenticated["permission"]["context7_*"] == "deny"
 
-    scouts = {"scout-openai.md", "scout-bedrock.md", "scout.md"}
+    scouts = {"scout-openai.md", "scout-vertex.md", "scout.md"}
     for agent in (OC / "agents").glob("*.md"):
         body = agent.read_text()
         if agent.name in scouts:
@@ -229,7 +230,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
     assert "model: openai/gpt-5.6-sol" in build
     assert "variant: medium" in build
     claude = (OC / "agents/build-claude.md").read_text()
-    assert "model: amazon-bedrock/global.anthropic.claude-opus-5" in claude
+    assert "model: google-vertex-anthropic/claude-opus-5@default" in claude
     assert "variant: high" in claude
     assert "claude-opus-4-8" not in text("private_dot_config/opencode/opencode.json.tmpl")
 
@@ -249,7 +250,7 @@ def test_commands_inherit_current_agent():
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     exact = {
         "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol"),
-        "dbsctr-claude": ("build-claude", "amazon-bedrock/global.anthropic.claude-opus-5"),
+        "dbsctr-claude": ("build-claude", "google-vertex-anthropic/claude-opus-5@default"),
     }
     for name, (agent, model) in exact.items():
         body = (OC / f"commands/{name}.md").read_text()
@@ -260,7 +261,7 @@ def test_commands_inherit_current_agent():
 def test_provider_affine_task_permissions():
     expected = {
         "build-gpt.md": ("explore-openai", "scout-openai", "builder-openai"),
-        "build-claude.md": ("explore-bedrock", "scout-bedrock", "builder-bedrock"),
+        "build-claude.md": ("explore-vertex", "scout-vertex", "builder-vertex"),
     }
     for name, allowed in expected.items():
         body = (OC / "agents" / name).read_text()
@@ -277,7 +278,7 @@ def test_provider_affine_task_permissions():
 
 
 def test_builder_boundaries():
-    for name in ("builder-openai.md", "builder-bedrock.md"):
+    for name in ("builder-openai.md", "builder-vertex.md"):
         body = (OC / "agents" / name).read_text()
         assert "external_directory: deny" in body
         assert "task: deny" in body
@@ -347,7 +348,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_execution_dag: allow" not in body
             assert worktrees not in body
             assert local_config not in body
-    for name in ("builder-openai.md", "builder-bedrock.md"):
+    for name in ("builder-openai.md", "builder-vertex.md"):
         assert "external_directory: deny" in (OC / "agents" / name).read_text()
 
 
@@ -439,7 +440,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_phase_span: allow" in (OC / "agents" / name).read_text()
         assert "dbsctr_execution_benchmark: allow" in (OC / "agents" / name).read_text()
         assert "dbsctr_execution_dag: allow" in (OC / "agents" / name).read_text()
-    for name in ("builder-openai.md", "builder-bedrock.md"):
+    for name in ("builder-openai.md", "builder-vertex.md"):
         assert "dbsctr_begin: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_attach: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_phase_span: allow" not in (OC / "agents" / name).read_text()
@@ -449,8 +450,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_improvement_claim: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_improvement_update: deny" in (OC / "agents" / name).read_text()
-    for name in ("reviewer-openai.md", "explore-openai.md", "explore-bedrock.md",
-                 "scout-openai.md", "scout-bedrock.md", "scout.md"):
+    for name in ("reviewer-openai.md", "explore-openai.md", "explore-vertex.md",
+                 "scout-openai.md", "scout-vertex.md", "scout.md"):
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
 
 
@@ -1541,4 +1542,7 @@ def test_removed_managed_integrations_are_absent():
         ".local/bin/hermes-update",
         ".local/bin/opencode-vm",
             "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist",
+        ".config/opencode/agents/explore-bedrock.md",
+        ".config/opencode/agents/scout-bedrock.md",
+        ".config/opencode/agents/builder-bedrock.md",
     }

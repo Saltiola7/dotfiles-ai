@@ -31,6 +31,13 @@ install-atuin.sh
 install-bash-preexec.sh
 {{ end }}
 
+{{ if not .dotfiles_ai.opencode.vertex_project }}
+.config/opencode/agents/build-claude.md
+.config/opencode/agents/explore-vertex.md
+.config/opencode/agents/scout-vertex.md
+.config/opencode/agents/builder-vertex.md
+.config/opencode/commands/dbsctr-claude.md
+{{ end }}
 {{ if not .dotfiles_ai.onepassword.enabled }}
 .local/bin/op-session
 {{ end }}

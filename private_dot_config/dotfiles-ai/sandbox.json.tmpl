@@ -14,8 +14,6 @@
     "disk_gib": {{ .dotfiles_ai.sandbox.disk_gib }}
   },
   "guest": {
-    "bedrock_region": {{ .dotfiles_ai.opencode.bedrock_region | toJson }},
-    "bedrock_profile": {{ .dotfiles_ai.opencode.bedrock_profile | toJson }},
     "default_model": {{ .dotfiles_ai.opencode.default_model | toJson }},
     "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
     "theme": {{ .dotfiles_ai.opencode.theme | toJson }},

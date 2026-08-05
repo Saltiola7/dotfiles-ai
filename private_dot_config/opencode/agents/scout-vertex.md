@@ -1,7 +1,7 @@
 ---
-description: External documentation research for an Amazon Bedrock primary.
+description: External documentation research for a Vertex Claude primary.
 mode: subagent
-model: amazon-bedrock/global.anthropic.claude-sonnet-5
+model: google-vertex-anthropic/claude-sonnet-5@default
 variant: medium
 permission:
   dbsctr_vm_handoff: deny
