@@ -1,0 +1,69 @@
+#!/bin/bash
+# vertex-reauth — Renew the isolated Vertex ADC behind the Claude route.
+#
+# Why this exists
+# ---------------
+# The Vertex credential is a USER credential kept in its own gcloud config
+# directory, deliberately separate from the default ADC so unrelated projects
+# keep their own identity. Two traps make the obvious command the wrong one:
+#
+#   1. `gcloud auth application-default login` without CLOUDSDK_CONFIG rewrites
+#      the DEFAULT ADC. The isolated file stays stale, so the route keeps
+#      failing, while unrelated tooling silently repoints at this project.
+#   2. The 1Password `secret` loader exports GOOGLE_APPLICATION_CREDENTIALS and
+#      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, which hijack gcloud if left set.
+#
+# gcloud's own expiry message tells you to run the unqualified command, so the
+# wrong thing is also the easy thing. This script is the right thing.
+#
+# An organisation session-control policy expires the reauth proof token, after
+# which the route fails with `invalid_rapt`. The browser step IS the security
+# control and cannot be automated away; this only makes re-running it correct.
+
+set -euo pipefail
+
+ADC={{ .dotfiles_ai.opencode.vertex_credentials | quote }}
+PROJECT={{ .dotfiles_ai.opencode.vertex_project | quote }}
+ACCOUNT={{ .dotfiles_ai.opencode.vertex_account | quote }}
+
+[ -n "$ADC" ] || { echo "vertex-reauth: vertex_credentials is not configured" >&2; exit 2; }
+
+# ADC always sits at $CLOUDSDK_CONFIG/application_default_credentials.json, so
+# the isolated config directory is simply its parent.
+CONFIG_DIR=$(dirname "$ADC")
+
+# Every gcloud call goes through here: isolated config, hijacking vars stripped.
+gc() {
+  env -u CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE \
+      -u GOOGLE_APPLICATION_CREDENTIALS \
+      -u CLOUDSDK_ACTIVE_CONFIG_NAME \
+      CLOUDSDK_CONFIG="$CONFIG_DIR" \
+      gcloud "$@"
+}
+
+# --check reports staleness without opening a browser, so a caller can tell
+# "reauth is due" apart from "configuration is broken".
+if [ "${1:-}" = "--check" ]; then
+  if gc auth application-default print-access-token >/dev/null 2>&1; then
+    echo "vertex-reauth: credentials valid"
+    exit 0
+  fi
+  echo "vertex-reauth: reauth required — run vertex-reauth" >&2
+  exit 1
+fi
+
+# ponytail: two branches rather than an array, because macOS bash 3.2 treats an
+# empty "${array[@]}" as an unbound variable under set -u.
+if [ -n "$ACCOUNT" ]; then
+  gc auth application-default login --account="$ACCOUNT"
+else
+  gc auth application-default login
+fi
+
+# A fresh login can drop the quota project that Vertex bills and quotas against.
+gc auth application-default set-quota-project "$PROJECT" ||
+  echo "vertex-reauth: warning — could not pin quota project $PROJECT" >&2
+
+# A login that cannot mint a token is not a successful login.
+gc auth application-default print-access-token >/dev/null
+echo "vertex-reauth: ok — $CONFIG_DIR"

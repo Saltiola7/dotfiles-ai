@@ -7,14 +7,15 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def data(onepassword: bool = False) -> dict:
+def data(onepassword: bool = False, vertex: bool = True) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
             "opencode": {
-                "vertex_project": "example-project",
+                "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
                 "vertex_credentials": "/tmp/example-adc.json",
+                "vertex_account": "user@example.com",
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",
@@ -66,12 +67,14 @@ def data(onepassword: bool = False) -> dict:
     }
 
 
-def chezmoi(*args: str, onepassword: bool = False) -> subprocess.CompletedProcess[str]:
+def chezmoi(
+    *args: str, onepassword: bool = False, vertex: bool = True
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
-            json.dumps(data(onepassword)), *args,
+            json.dumps(data(onepassword, vertex)), *args,
         ],
         text=True,
         capture_output=True,
@@ -187,6 +190,64 @@ def test_onepassword_helper_is_opt_in_and_localized() -> None:
     assert '__OP_KEYCHAIN_SERVICE="local-service"' in helper
 
 
+def test_vertex_reauth_helper_is_gated_and_localized() -> None:
+    assert ".local/bin/vertex-reauth" not in chezmoi("managed", vertex=False).stdout.splitlines()
+    assert ".local/bin/vertex-reauth" in chezmoi("managed").stdout.splitlines()
+
+    helper = chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout
+    assert 'ADC="/tmp/example-adc.json"' in helper
+    assert 'PROJECT="example-project"' in helper
+    assert 'ACCOUNT="user@example.com"' in helper
+    # Every gcloud call must route through the isolating wrapper, never bare.
+    assert "\ngcloud " not in helper
+
+
+def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) -> None:
+    script = tmp_path / "vertex-reauth"
+    script.write_text(chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout)
+    script.chmod(0o755)
+
+    log = tmp_path / "gcloud.log"
+    fake = tmp_path / "gcloud"
+    fake.write_text(
+        "#!/bin/bash\n"
+        "{\n"
+        '  echo "ARGV: $*"\n'
+        '  echo "CLOUDSDK_CONFIG=${CLOUDSDK_CONFIG-<unset>}"\n'
+        '  echo "GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS-<unset>}"\n'
+        '  echo "OVERRIDE=${CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE-<unset>}"\n'
+        '  echo "ACTIVE_CONFIG=${CLOUDSDK_ACTIVE_CONFIG_NAME-<unset>}"\n'
+        f"}} >> {log}\n"
+    )
+    fake.chmod(0o755)
+
+    # Exactly what the 1Password `secret` loader exports into a shell.
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/ambient/wrong-sa.json",
+        "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": "/ambient/wrong-sa.json",
+        "CLOUDSDK_ACTIVE_CONFIG_NAME": "wrong-config",
+    }
+    subprocess.run([str(script)], check=True, capture_output=True, text=True, env=env)
+
+    recorded = log.read_text()
+    # The isolated config directory is the ADC file's parent, never the default.
+    assert "CLOUDSDK_CONFIG=/tmp\n" in recorded
+    assert "/ambient/wrong-sa.json" not in recorded
+    assert "GOOGLE_APPLICATION_CREDENTIALS=<unset>" in recorded
+    assert "OVERRIDE=<unset>" in recorded
+    assert "ACTIVE_CONFIG=<unset>" in recorded
+    assert "auth application-default login --account=user@example.com" in recorded
+    assert "auth application-default set-quota-project example-project" in recorded
+
+    check = subprocess.run(
+        [str(script), "--check"], capture_output=True, text=True, env=env
+    )
+    assert check.returncode == 0
+    assert "credentials valid" in check.stdout
+
+
 def test_dynamic_workspace_registry_and_template_render() -> None:
     registry = json.loads(chezmoi(
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
@@ -272,7 +333,10 @@ def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:
     result = subprocess.run(
         ["bash", "-c", 'set -C; source "$1"', "bash", str(helper)],
         env={
-            **os.environ,
+            # The helper must mint the token from the mocked keychain. A real
+            # ambient token (exported by `secret`) would shadow it and fail the
+            # mock, making this test pass or fail on shell history alone.
+            **{k: v for k, v in os.environ.items() if k != "OP_SERVICE_ACCOUNT_TOKEN"},
             "HERDR_ENV": "1",
             "HOME": str(tmp_path),
             "PATH": f"{bin_dir}:{os.environ['PATH']}",

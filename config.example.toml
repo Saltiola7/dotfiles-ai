@@ -6,14 +6,22 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 [data.dotfiles_ai.opencode]
 # Vertex Claude stays off until vertex_project is set. Authenticate each
 # environment separately with an isolated ADC file; never commit these values.
+# Bootstrap once by hand, because the helper below only deploys after
+# vertex_project is set:
 #   CLOUDSDK_CONFIG=~/.config/dotfiles-ai/gcloud-vertex \
 #     gcloud auth application-default login
 #   CLOUDSDK_CONFIG=~/.config/dotfiles-ai/gcloud-vertex \
 #     gcloud auth application-default set-quota-project PROJECT_ID
+# Afterwards run `vertex-reauth`; user credentials under an organisation
+# session-control policy expire and must be renewed interactively.
 vertex_project = ""
 vertex_location = "global"
 # Explicit credential file; it outranks any ambient GOOGLE_APPLICATION_CREDENTIALS.
+# Its parent directory is the isolated CLOUDSDK_CONFIG that vertex-reauth targets.
 vertex_credentials = ""
+# Pins the browser login to one identity, so a multi-account picker cannot
+# quietly authenticate the wrong one. Optional; blank prompts for a choice.
+vertex_account = ""
 default_model = "openai/gpt-5.6-sol"
 small_model = "openai/gpt-5.6-terra"
 lmstudio_base_url = "http://127.0.0.1:1234/v1"

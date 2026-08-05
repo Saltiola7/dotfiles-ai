@@ -37,6 +37,7 @@ install-bash-preexec.sh
 .config/opencode/agents/scout-vertex.md
 .config/opencode/agents/builder-vertex.md
 .config/opencode/commands/dbsctr-claude.md
+.local/bin/vertex-reauth
 {{ end }}
 {{ if not .dotfiles_ai.onepassword.enabled }}
 .local/bin/op-session
