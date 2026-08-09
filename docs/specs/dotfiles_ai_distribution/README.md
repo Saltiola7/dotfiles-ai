@@ -166,6 +166,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Existing weekly worker, immutable source captures, dedicated five-cycle report persistence, replay, retention, and operational evidence |
 | Overrides | Keep weekly unhalted cadence; no second scheduler, source rescan, host-history cohort save, automatic tuning, or guest-to-host PR outcome bridge |
 
+### DAI-023 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the storage root for sensitive Lima VM state |
+| Delivery intent | Add an opt-in machine-local Lima home without changing teammate defaults |
+| Scope | Sandbox configuration rendering, controller environment, validation, deployment, and rollback |
+| Overrides | Empty shared default preserves native Lima behavior; configured homes must be absolute and are inherited by every controller-owned Lima command |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -185,9 +194,9 @@ OpenCode control-plane behavior, and shell authentication.
 | Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
 
-V3.35 reconciles operator guidance with the existing Hermes, approval, and trust
-contracts; it changes no represented topology or handoff. The two existing views
-and Text Equivalents remain current.
+V3.35 and DAI-023 change no represented trust topology or handoff. DAI-023 only
+selects the host-side storage root for existing Lima instances. The two existing
+views and Text Equivalents remain current.
 
 ```mermaid
 flowchart LR
@@ -291,6 +300,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   authenticate separately inside their own VM trust boundary.
 - Hermes updates are manual. `hermes update --backup` and post-update health
   verification are operator-owned maintenance, not a scheduled job.
+
+### Optional Lima State Root
+
+- Given shared defaults or machine data with an empty Lima home, when the source
+  renders and the sandbox controller runs, then Lima retains its inherited native
+  storage behavior.
+- Given an absolute machine-local Lima home, when any controller operation runs,
+  then every `limactl` subprocess receives that path through `LIMA_HOME`.
+- Given a relative or non-string Lima home, when sandbox configuration is
+  validated, then the controller fails before invoking Lima.
 
 ### Canonical Backlog Refinement
 
@@ -630,7 +649,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 ## Interfaces And Contracts
 
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
-- `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, resource
+- `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, optional
+  absolute `lima_home`, resource
   ceilings, and an ordered `workspaces` list. Each workspace contains a unique
   `name`, unique `instance`, optional unique `shell_alias`, `federate`, and one or more mount mappings with
   `host`, `guest`, `writable`, `protect_git_submodules`, and optional reference
@@ -639,6 +659,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Shared defaults disable Lima management. Machine-local sandbox data declares
   instance names, host mount roots, protected repository and submodule manifest,
   resource ceilings, and repository-scoped identities without credentials.
+- `lima_home` defaults to empty. A non-empty value must be absolute and becomes
+  `LIMA_HOME` only inside the sandbox controller process; an inherited
+  `LIMA_HOME` remains untouched when the setting is empty.
 - `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.

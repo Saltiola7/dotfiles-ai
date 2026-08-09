@@ -33,6 +33,7 @@ def config(tmp_path: Path) -> dict:
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
+        "lima_home": "",
         "tailscale": {"enabled": False, "ssh": False},
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
@@ -338,6 +339,26 @@ def test_workspace_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> Non
         helper.validate_config(values)
 
 
+def test_lima_home_is_optional_absolute_machine_data(tmp_path: Path, capsys) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["lima_home"] = "relative/lima"
+    with pytest.raises(ValueError, match="Lima home"):
+        helper.validate_config(values)
+
+    values["lima_home"] = str(tmp_path / "lima")
+    helper.load_config = lambda: values
+    with mock.patch.dict(os.environ, {}, clear=True):
+        helper.main(["build-workspace"], "sandbox-vm")
+        assert os.environ["LIMA_HOME"] == values["lima_home"]
+    assert capsys.readouterr().out.strip() == "workspace1"
+
+    values["lima_home"] = ""
+    with mock.patch.dict(os.environ, {"LIMA_HOME": "/inherited"}, clear=True):
+        helper.main(["build-workspace"], "sandbox-vm")
+        assert os.environ["LIMA_HOME"] == "/inherited"
+
+
 def test_workspace_aliases_are_unique_and_cannot_shadow_controller(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
@@ -363,6 +384,31 @@ def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Pat
     assert invoked[0][0:2] == (
         "limactl", ["limactl", "shell", "workspace1-sandbox", "pwd"])
     assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
+
+
+def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    locks = []
+    monkeypatch.setattr(helper, "load_config", lambda: values)
+    monkeypatch.setattr(helper, "command", lambda argv, timeout=30, input_data=None: calls.append((argv, timeout)) or "")
+    class Lock:
+        def __enter__(self):
+            locks.append("enter")
+
+        def __exit__(self, *_args):
+            locks.append("exit")
+    monkeypatch.setattr(helper, "_instance_lock", lambda root, instance: Lock())
+
+    helper.main(["start", "workspace1"], invocation="sandbox-vm")
+    helper.main(["stop", "workspace1"], invocation="sandbox-vm")
+
+    assert calls == [
+        (["limactl", "start", "workspace1-sandbox"], 120),
+        (["limactl", "stop", "workspace1-sandbox"], 120),
+    ]
+    assert locks == ["enter", "exit", "enter", "exit"]
 
 
 def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
@@ -775,11 +821,17 @@ def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
     def execute(_argv, **_kwargs):
         return json.dumps([{"name": "workspace1-sandbox", "status": "Running"}])
 
-    result = helper.status_report(config(tmp_path), execute=execute, lima_root=tmp_path)
+    values = config(tmp_path)
+    values["lima_home"] = str(tmp_path)
+    result = helper.status_report(values, execute=execute)
     assert result["host_free_bytes"] > 0
     assert result["workspaces"]["workspace1"]["running"] is True
     assert result["workspaces"]["workspace1"]["allocated_bytes"] > 0
     assert result["workspaces"]["workspace2"]["allocated_bytes"] is None
+
+    values["lima_home"] = ""
+    with mock.patch.dict(os.environ, {"LIMA_HOME": str(tmp_path)}, clear=True):
+        assert helper.status_report(values, execute=execute)["host_free_bytes"] == result["host_free_bytes"]
 
 
 def test_general_controller_exposes_no_handoff_command() -> None:

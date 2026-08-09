@@ -55,6 +55,7 @@ keychain_service = "op-service-account-token"
 [dotfiles_ai.sandbox]
 enabled = false
 build_workspace = ""
+lima_home = ""
 workspaces = []
 cpus = 4
 memory_gib = 8

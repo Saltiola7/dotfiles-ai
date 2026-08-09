@@ -1,5 +1,20 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-09 - DAI-023 Conditional Lima Home
+
+- Added default-empty machine-local `lima_home`; absolute opt-in values propagate
+  as `LIMA_HOME` to every controller-owned Lima operation while teammate defaults
+  remain native.
+- Added configured-workspace `start` and `stop` under the existing per-instance
+  lifecycle lock. Status now reports allocation and free space from configured,
+  inherited, or default effective Lima storage.
+- Documented sparse migration and rollback. Deployed the Mac mini value to
+  `/Volumes/ext/state/lima`; both configured instances passed live readiness and
+  Atuin synchronization.
+- Validation: 317 tests passed with one optional Lima skip; focused 51-test
+  rendering/controller coverage and independent re-review passed. Gate Commits:
+  `4a795ea`, `0ad4653`, `28ad56b`, `a01c4a1`.
+
 Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.

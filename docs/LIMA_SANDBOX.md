@@ -20,6 +20,15 @@ Set `federate=false` to exclude a workspace from sanitized history review. Set
 receives approved implementation handoffs. Enable sandbox management only after
 all configured host paths exist.
 
+Set `lima_home` only in machine-local data when VM state should live outside
+Lima's native `~/.lima` default. The value must be absolute. Empty preserves an
+inherited `LIMA_HOME`, then falls back to `~/.lima`:
+
+```toml
+[data.dotfiles_ai.sandbox]
+lima_home = "/Volumes/external/state/lima"
+```
+
 Optional direct tailnet access is global and defaults off:
 
 > [!WARNING]
@@ -43,6 +52,8 @@ outside local TOML.
 ```sh
 sandbox-vm validate workspace1
 sandbox-vm create workspace1
+sandbox-vm start workspace1
+sandbox-vm stop workspace1
 sandbox-vm shell workspace1
 sandbox-vm status
 sandbox-vm update workspace1
@@ -89,6 +100,8 @@ copy Lima's private key or localhost port to another host.
 `validate` checks the rendered generic Lima template through the bounded
 controller. `create` validates declared paths, creates the configured instance,
 and starts it.
+`start` and `stop` serialize with temporary federated-review transitions for the
+same configured instance and use a 120-second command bound.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.
@@ -123,3 +136,8 @@ in the Tailscale admin console, verify it is absent, delete the private
 `~/.local/state/tailscale` identity, then stop and delete the configured instance
 and remove its local TOML entry. Disabling management does not delete VMs,
 credentials, or external tailnet identity.
+
+Before changing `lima_home`, stop every managed instance and copy the complete
+Lima home with sparse-disk preservation. Validate each disk and start instances
+from the new home before removing the old tree. Roll back by stopping instances,
+restoring the prior `lima_home`, and restarting from the retained source copy.
