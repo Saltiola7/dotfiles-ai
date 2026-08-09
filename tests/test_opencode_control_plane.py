@@ -32,6 +32,7 @@ DATA = {
             "keychain_service": "op-service-account-token",
         },
         "sandbox": {"workspaces": []},
+        "state": {"root": ""},
     }
 }
 
@@ -110,6 +111,15 @@ def test_optional_local_repository_reference():
         "~/.local/state/dbsctr/worktrees": "allow",
         "~/.local/state/dbsctr/worktrees/**": "allow",
     }
+    centralized = json.loads(json.dumps(DATA))
+    centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
+    assert list(rendered_config(data=centralized)["permission"]["external_directory"].items()) == [
+        ("*", "deny"),
+        ("~/.local/state/dbsctr/worktrees", "allow"),
+        ("~/.local/state/dbsctr/worktrees/**", "allow"),
+        ("/Volumes/ext/state", "allow"),
+        ("/Volumes/ext/state/**", "allow"),
+    ]
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -323,6 +333,12 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
         "external_directory": {worktrees: "allow", local_config: "allow"},
+    }
+    centralized = json.loads(json.dumps(DATA))
+    centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
+    assert rendered_config(data=centralized)["agent"]["build"]["permission"]["external_directory"] == {
+        worktrees: "allow", "/Volumes/ext/state": "allow", "/Volumes/ext/state/**": "allow",
+        local_config: "allow",
     }
 
     build_primaries = {"build-gpt.md", "build-claude.md"}
