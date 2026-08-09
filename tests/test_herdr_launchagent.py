@@ -146,6 +146,7 @@ def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
         "DBSCTR_WORKTREE_ROOT": "/Volumes/ext/state/dbsctr/worktrees",
         "DBSCTR_RND_STATE": "/Volumes/ext/state/dbsctr/rnd/dbsctr-rnd.sqlite3",
         "DBSCTR_RND_RECEIPTS": "/Volumes/ext/state/dbsctr/rnd/receipts",
+        "HERMES_HOME": "/Volumes/ext/state/hermes",
     }
     for name in ("herdr-server", "dbsctr-spawner", "dbsctr-watchdog"):
         rendered = subprocess.run(
@@ -170,3 +171,16 @@ def test_native_state_does_not_render_centralized_environment() -> None:
         text=True, capture_output=True, check=True,
     ).stdout
     assert "DOTFILES_AI_STATE_ROOT" in plist and "[worktrees]" in config
+
+
+def test_centralized_state_scopes_opencode_runtime_environment() -> None:
+    values = {"dotfiles_ai": {"state": {"root": "/Volumes/ext/state"}}}
+    rendered = subprocess.run(
+        ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+         "--override-data", json.dumps(values), "cat", str(Path.home() / ".local/bin/opencode")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
+    assert 'export DBSCTR_WORKTREE_ROOT="/Volumes/ext/state/dbsctr/worktrees"' in rendered
+    assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
+    assert "exec /opt/homebrew/bin/opencode" in rendered

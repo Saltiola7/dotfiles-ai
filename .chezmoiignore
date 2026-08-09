@@ -59,6 +59,7 @@ load-herdr-launchagent.sh
 load-dbsctr-rnd-launchagents.sh
 .local/bin/op-session
 .local/bin/sandbox-vm
+.local/bin/opencode
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
 .config/dotfiles-ai/

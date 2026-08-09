@@ -13,6 +13,7 @@ PROVIDER = {{ .dotfiles_ai.hermes.provider | quote }}
 BACKEND = {{ .dotfiles_ai.rnd.backend | quote }}
 SCHEDULE = {{ printf "%d %d * * *" .dotfiles_ai.rnd.review_minute .dotfiles_ai.rnd.review_hour | quote }}
 HOME = Path.home()
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", HOME / ".hermes"))
 os.umask(0o077)
 
 
@@ -24,7 +25,7 @@ catalog = json.loads(run("dbsctr-rnd", "repositories", output=True).stdout)
 if catalog != {**catalog, "project_profiles": True} or len(catalog["repositories"]) > 128:
     raise SystemExit("invalid project catalog")
 managed_skill = HOME / ".hermes/managed/skills/dbsctr-supervisor/SKILL.md"
-base_env = HOME / f".hermes/profiles/{BASE_PROFILE}/.env"
+base_env = HERMES_HOME / f"profiles/{BASE_PROFILE}/.env"
 state_root = HOME / f".local/state/dotfiles-ai/hermes-{BASE_PROFILE}/projects"
 state_root.mkdir(parents=True, exist_ok=True)
 os.chmod(state_root, 0o700)
@@ -37,7 +38,7 @@ for item in catalog["repositories"]:
             or not isinstance(repository_id, str) or not re.fullmatch(r"[0-9a-f]{16}", repository_id)
             or not repository.is_dir()):
         raise SystemExit("invalid project catalog entry")
-    profile_home = HOME / f".hermes/profiles/{profile}"
+    profile_home = HERMES_HOME / f"profiles/{profile}"
     active.add(repository_id)
     if not profile_home.is_dir():
         run(HERMES, "profile", "create", profile, "--description", "DBSCTR project-local refinement")

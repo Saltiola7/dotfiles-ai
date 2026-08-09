@@ -1,0 +1,12 @@
+#!/bin/bash
+{{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+export XDG_DATA_HOME={{ printf "%s/xdg/data" .dotfiles_ai.state.root | quote }}
+export XDG_STATE_HOME={{ printf "%s/xdg/state" .dotfiles_ai.state.root | quote }}
+export DBSCTR_STATE_ROOT={{ printf "%s/dbsctr" .dotfiles_ai.state.root | quote }}
+export DBSCTR_WORKTREE_ROOT={{ printf "%s/dbsctr/worktrees" .dotfiles_ai.state.root | quote }}
+export DBSCTR_RND_STATE={{ printf "%s/dbsctr/rnd/dbsctr-rnd.sqlite3" .dotfiles_ai.state.root | quote }}
+export DBSCTR_RND_RECEIPTS={{ printf "%s/dbsctr/rnd/receipts" .dotfiles_ai.state.root | quote }}
+export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
+{{ end -}}
+exec /opt/homebrew/bin/opencode "$@"
