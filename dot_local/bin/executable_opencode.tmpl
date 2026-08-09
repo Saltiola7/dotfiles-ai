@@ -8,5 +8,9 @@ export DBSCTR_WORKTREE_ROOT={{ printf "%s/dbsctr/worktrees" .dotfiles_ai.state.r
 export DBSCTR_RND_STATE={{ printf "%s/dbsctr/rnd/dbsctr-rnd.sqlite3" .dotfiles_ai.state.root | quote }}
 export DBSCTR_RND_RECEIPTS={{ printf "%s/dbsctr/rnd/receipts" .dotfiles_ai.state.root | quote }}
 export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
+[[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]] || {
+    echo "centralized state root is unavailable" >&2
+    exit 75
+}
 {{ end -}}
 exec /opt/homebrew/bin/opencode "$@"

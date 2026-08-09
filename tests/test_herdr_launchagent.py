@@ -184,3 +184,14 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     assert 'export DBSCTR_WORKTREE_ROOT="/Volumes/ext/state/dbsctr/worktrees"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
     assert "exec /opt/homebrew/bin/opencode" in rendered
+    assert ".dotfiles-ai-state" in rendered
+
+
+def test_centralized_state_guard_fails_closed() -> None:
+    guard = ROOT / "dot_local/bin/executable_state-root-exec"
+    result = subprocess.run(
+        ["bash", str(guard), "true"], text=True, capture_output=True,
+        env={"DOTFILES_AI_STATE_ROOT": "/definitely/missing/state"},
+    )
+    assert result.returncode == 75
+    assert "state root is unavailable" in result.stderr

@@ -6,6 +6,7 @@
     <string>dev.dotfiles-ai.dbsctr-watchdog</string>
     <key>ProgramArguments</key>
     <array>
+        <string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
         <string>{{ printf "%s/.local/bin/dbsctr-rnd" .chezmoi.homeDir | html }}</string>
         <string>watchdog</string>
     </array>
