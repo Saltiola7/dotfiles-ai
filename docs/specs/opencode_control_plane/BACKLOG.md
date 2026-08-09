@@ -5,12 +5,12 @@
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
 | OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
-| OCP-32 | Centralize configurable durable state without moving live data | high | in_progress | V3.35-F3 | State-root rendering, OpenCode permissions, Herdr/LaunchAgent paths | Native defaults, DBSCTR schema compatibility | no | Live relocation requires portable cycle records and reversible cutover evidence first | M | Render contracts, plist parsing, helper relocation/rollback tests |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-32 | Added configurable centralized durable state, fail-closed runtime routing, portable cycle records, and reversible live migration | 2026-08-08 | `4fe1680..62f1010` |
 | OCP-30 | Add source ACLI read guardrails for writing skills without live deployment | 2026-07-28 | `761d01e`, `6904ff6`, `4b00081` |
 | OCP-29 | Add exact reservation-bound Hermes launch and resumable OpenCode Discovery without Herdr dependency | 2026-07-28 | `269125b..dc6d284` |
 | OCP-27/OCP-28 | Add exact loaded harness identity, provider-local prompts and entry commands, Opus 5 high, and five-cycle evaluation adapters | 2026-07-26 | `c0289f8`, `b08540b` |

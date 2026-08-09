@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.35-F3 | Make Cycle Record locations portable across configured state-root moves | high | in_progress | - | Schema-4 locators, root resolution, explicit conversion and rollback | Schema-3 records, Git worktree registry, OpenCode runtime identity | no | Existing active cycles must survive central-state relocation without unsafe path rewriting | M | Full helper tests, relocation/rollback contracts, affected config tests |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.35-F3 | Added schema-4 portable cycle locators with explicit reversible conversion and validated registry relocation | 2026-08-08 | `4fe1680..62f1010` |
 | V3.35-F2 | Added backward-compatible sanitized cycle context intervals and retained multiple exact runtime matches for timestamp attribution. | 2026-07-31 | `0315f15` |
 | V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff and activate the corrected prompt | 2026-07-30 | `9914f12` |
 | V3.35-1 | Reconcile current documentation authority, operator guidance, exact statuses, and historical archives | 2026-07-30 | `b2d9909` |
