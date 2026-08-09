@@ -917,7 +917,7 @@ def main(argv=None, invocation=None):
         argv = ["shell", matches[0], *(alias_args or ["herdr"])]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "update", "instance", "render", "validate", "shell", "tailscale-enroll"):
+    for name in ("create", "start", "stop", "update", "instance", "render", "validate", "shell", "tailscale-enroll"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
         if name == "shell":
@@ -989,6 +989,9 @@ def main(argv=None, invocation=None):
     if args.command == "tailscale-enroll":
         tailscale_enroll(config, workspace, sys.stdin.buffer)
         print(json.dumps({"workspace": args.workspace, "status": "enrolled"}, sort_keys=True))
+        return
+    if args.command in {"start", "stop"}:
+        command(["limactl", args.command, workspace["instance"]], timeout=120)
         return
     if args.command == "create":
         for mount in workspace["mounts"]:

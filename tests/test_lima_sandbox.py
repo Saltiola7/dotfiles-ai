@@ -386,6 +386,22 @@ def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Pat
     assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
 
 
+def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    monkeypatch.setattr(helper, "load_config", lambda: values)
+    monkeypatch.setattr(helper, "command", lambda argv, timeout=30, input_data=None: calls.append((argv, timeout)) or "")
+
+    helper.main(["start", "workspace1"], invocation="sandbox-vm")
+    helper.main(["stop", "workspace1"], invocation="sandbox-vm")
+
+    assert calls == [
+        (["limactl", "start", "workspace1-sandbox"], 120),
+        (["limactl", "stop", "workspace1-sandbox"], 120),
+    ]
+
+
 def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
     helper = load_helper()
     values = config(tmp_path)
