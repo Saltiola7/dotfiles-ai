@@ -63,6 +63,15 @@
 | Scope | Optional centralized state root, LaunchAgent environments, Herdr worktrees, OpenCode permissions, and DBSCTR schema-4 portability |
 | Overrides | Empty configuration preserves native defaults; existing SQLite stores retain their formats; live relocation requires a separately validated cutover and rollback |
 
+### OCP-33 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes managed model routing for global title generation and read-only OpenAI exploration |
+| Delivery intent | Merge source through a pull request without applying managed configuration |
+| Scope | Route `small_model` and `explore-openai` to GPT-5.6 Luna while retaining Terra for Scout and Builder and Sol for primary review |
+| Overrides | Luna remains bounded to disposable titles and read-only source discovery; primary verification and same-provider failure recovery remain authoritative |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -93,14 +102,14 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects.
+    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
     B -->|Generic bounded work| X[Inheriting subagents]
-    G -->|OpenAI only| O[OpenAI subagents]
+    G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
     C -->|Bedrock only| A[Bedrock subagents]
     B --> S[Shared DBSCTR, Discovery, and QA skills]
     G --> S
@@ -112,12 +121,13 @@ flowchart TD
 
 **Text Equivalent:** Thin commands select a native or provider-affine primary.
 Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents; `build-gpt` uses only OpenAI subagents; `build-claude` uses
-only Bedrock subagents. All primaries load shared lifecycle skills and typed local
-adapters. Validated local effects may reach the worktree or private local state;
-external or destructive effects remain permission-gated. The control-plane owner
-updates this view when routing, delegation, loaded skills, adapters, permissions,
-or provider boundaries change.
+inheriting subagents. `build-gpt` routes read-only Explore to Luna, Scout and
+Builder to Terra, and explicit review to Sol while remaining entirely within
+OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
+lifecycle skills and typed local adapters. Validated local effects may reach the
+worktree or private local state; external or destructive effects remain
+permission-gated. The control-plane owner updates this view when routing,
+delegation, loaded skills, adapters, permissions, or provider boundaries change.
 
 ```mermaid
 flowchart LR
@@ -153,6 +163,8 @@ running OpenCode process.
   exact model instead of relying on model selection to change the active agent.
 - Optimize each primary for its provider's current prompting guidance without
   weakening executable validation or provider isolation.
+- Use Luna for low-impact, high-volume OpenAI work without weakening source
+  verification, implementation, or review tiers.
 
 ## Non-goals
 
@@ -305,8 +317,25 @@ supported by that route are exposed. Native Plan and `build-gpt` use base
 GPT-5.6 Sol with medium effort by default, while the user may select another
 supported effort variant. No agent or provider override claims unavailable Pro
 reasoning mode. The ChatGPT OAuth backend rejects base Sol requests containing
-`reasoning.mode: "pro"` with `unsupported_value`. OpenAI Explore, Scout, and
-Builder remain on GPT-5.6 Terra.
+`reasoning.mode: "pro"` with `unsupported_value`.
+
+Given managed defaults are rendered, `small_model` resolves to GPT-5.6 Luna for
+automatic title generation. This setting does not claim to route compaction,
+summary generation, implementation, or review through Luna.
+
+Given `build-gpt` delegates bounded source discovery, `explore-openai` uses
+GPT-5.6 Luna with low reasoning effort and remains read-only. Scout and Builder
+continue to use GPT-5.6 Terra with medium effort, and Reviewer continues to use
+GPT-5.6 Sol with medium effort. The primary verifies source-backed exploration
+results and retries a failed optimized route once on its active OpenAI flagship;
+no failure changes provider family.
+
+The accepted baseline is the prior Terra route with identical Explore prompt and
+permissions. Contract tests must prove that only the model identity changes.
+Current provider metadata prices Luna at one tenth of Terra's input, cached-input,
+and output token rates; no latency or quality improvement is claimed without
+separate measured evidence. Reassess the route when OAuth entitlement changes,
+the model is deprecated, or observed retries materially offset the cost benefit.
 
 ### Removed integrations
 
@@ -541,7 +570,8 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - `gpt-5.6-sol-pro`, `Plan-GPT-Pro`, `Plan-GPT-Pro-Max`, and `Build-GPT-Pro`
   are absent while ChatGPT OAuth excludes Pro reasoning mode.
 - Native Plan and `build-gpt` resolve to `openai/gpt-5.6-sol` with `medium` as
-  their default effort; OpenAI optimized subagents remain on Terra.
+  their default effort; OpenAI Explore uses Luna low, while Scout and Builder
+  remain on Terra medium.
 - `build-claude` resolves to `amazon-bedrock/global.anthropic.claude-opus-5`
   with high reasoning effort; Bedrock optimized subagents remain on Sonnet 5
   medium. Opus 4.8 is retired rather than retained as fallback.

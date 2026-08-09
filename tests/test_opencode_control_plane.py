@@ -17,7 +17,7 @@ DATA = {
             "vertex_location": "global",
             "vertex_credentials": "/tmp/test-adc.json",
             "default_model": "openai/gpt-5.6-sol",
-            "small_model": "openai/gpt-5.6-terra",
+            "small_model": "openai/gpt-5.6-luna",
             "lmstudio_base_url": "http://127.0.0.1:1234/v1",
         },
         "herdr": {
@@ -202,6 +202,7 @@ def test_provider_and_primary_contracts():
     assert "gpt-5.6-sol-pro" not in config["provider"]["openai"]["models"]
     assert config["agent"]["plan"]["model"] == "openai/gpt-5.6-sol"
     assert config["agent"]["plan"]["variant"] == "medium"
+    assert config["small_model"] == "openai/gpt-5.6-luna"
     assert any(
         p == {"effect": "deny", "action": "provider.use", "resource": "anthropic"}
         for p in config["experimental"]["policies"]
@@ -245,7 +246,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
     assert "claude-opus-4-8" not in text("private_dot_config/opencode/opencode.json.tmpl")
 
     expected = {
-        "explore-openai.md": ("openai/gpt-5.6-terra", "low"),
+        "explore-openai.md": ("openai/gpt-5.6-luna", "low"),
         "scout-openai.md": ("openai/gpt-5.6-terra", "medium"),
         "builder-openai.md": ("openai/gpt-5.6-terra", "medium"),
     }

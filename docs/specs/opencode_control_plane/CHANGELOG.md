@@ -4,6 +4,17 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-09 - OCP-33 Luna Routing
+
+- Routed the managed `small_model` default and read-only `explore-openai` agent
+  to GPT-5.6 Luna. Scout and Builder remain on Terra, Reviewer remains on Sol,
+  and compaction routing is unchanged.
+- Red/green routing checks and 43 affected control-plane and portability tests
+  passed with Git whitespace validation. Gate Exceptions: none. Implementation
+  Gate Commits: `b7339ea`, `1c8353a`. No managed configuration was applied.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-08 - OCP-32 Centralized Durable State
 
 - Added optional centralized OpenCode, DBSCTR, Hermes, and Herdr durable state,
