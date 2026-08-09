@@ -23,12 +23,20 @@ GATES = (
     "domain", "behavior", "spec", "contract", "test_driven_implementation",
     "refactor", "review_integrate", "release", "deploy", "operate", "maintain_retire",
 )
+STATE_ENVIRONMENT = {
+    "DBSCTR_RND_RECEIPTS", "DBSCTR_RND_STATE", "DBSCTR_STATE_ROOT",
+    "DBSCTR_WORKTREE_ROOT", "DOTFILES_AI_STATE_ROOT", "XDG_DATA_HOME", "XDG_STATE_HOME",
+}
+
+
+def isolated_env():
+    return {key: value for key, value in os.environ.items() if key not in STATE_ENVIRONMENT}
 
 
 def run(repo, *args, ok=True, env=None, input_text=None):
     result = subprocess.run(
         [sys.executable, str(SCRIPT), *args], cwd=repo, text=True, capture_output=True,
-        env=env, input=input_text,
+        env=isolated_env() if env is None else env, input=input_text,
     )
     if ok and result.returncode:
         raise AssertionError(f"{args}: {result.stderr}")
@@ -574,7 +582,7 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         handoff = json.loads(run(
             self.repo, "begin", "--cycle-id", "portable-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
@@ -705,7 +713,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--opencode-session-id", "session-structured",
             "--opencode-worktree", str(self.repo / "docs"),
             "--opencode-directory", str(self.repo / "docs"),
-            env={**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}, ok=False,
+            env={**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}, ok=False,
         )
         self.assertIn("invalid OpenCode runtime paths", result.stderr)
 
@@ -725,7 +733,7 @@ class DbsctrctlTest(unittest.TestCase):
         record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
         original = json.loads(record_path.read_text())
         self.assertEqual(original["schema_version"], 3)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
 
         converted = json.loads(run(
             self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env,
@@ -753,7 +761,7 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(Path(self.temp.name) / "outside"))
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(Path(self.temp.name) / "registry")}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(Path(self.temp.name) / "registry")}
         result = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
         self.assertIn("outside configured registry", result.stderr)
 
@@ -769,7 +777,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--worktree-root", str(registry))
         record = json.loads((self.repo / ".git/dbsctr/cycles/legacy-1.json").read_text())
         pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         pointer.unlink()
         missing = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
         self.assertIn("active pointer is missing", missing.stderr)
@@ -805,7 +813,7 @@ class DbsctrctlTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
         arguments = SimpleNamespace(cycle_id="legacy-1", rollback=False)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch.object(module, "root_dir", return_value=self.repo), \
                 mock.patch.object(module, "write_active_pointer", side_effect=OSError("interrupted")):
@@ -847,7 +855,7 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch.object(module, "root_dir", return_value=self.repo), \
                 mock.patch.object(module, "save", side_effect=OSError("before conversion")):
@@ -880,7 +888,7 @@ class DbsctrctlTest(unittest.TestCase):
         """)
         connection.commit()
         connection.close()
-        env = {**os.environ, "HOME": str(home)}
+        env = {**isolated_env(), "HOME": str(home)}
         activation = json.dumps({"schema_version": 1, "core_revision": "3.29", "overlays": {
             "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
             "build-claude": "anthropic-2026-07-26",
@@ -965,7 +973,7 @@ class DbsctrctlTest(unittest.TestCase):
             "else printf '    type = %s\\n' \"$4\" >> .dvc/config.local; fi\n"
         )
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_QUERY_LOG": str(query_log)}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_QUERY_LOG": str(query_log)}
         handoff = json.loads(run(
             linked_source, "begin", "--cycle-id", "isolated-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
@@ -1298,7 +1306,7 @@ class DbsctrctlTest(unittest.TestCase):
         outside = Path(self.temp.name) / "outside"
         outside.mkdir()
         (registry / "escape").symlink_to(outside, target_is_directory=True)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         inventory = json.loads(run(self.repo, "worktree-list", "--all", "--json", env=env).stdout)
         self.assertEqual(len(inventory["repositories"]), 2)
         self.assertNotIn(str(self.temp.name), json.dumps(inventory))
@@ -2379,7 +2387,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
         home = Path(self.temp.name) / "home"
         home.mkdir()
-        worker_env = {**os.environ, "HOME": str(home)}
+        worker_env = {**isolated_env(), "HOME": str(home)}
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         run(self.repo, "improvement-claim", "--session-id", "session-1",
@@ -2524,7 +2532,7 @@ class DbsctrctlTest(unittest.TestCase):
         fake_dvc.write_text("#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$DVC_LOG\"\nprintf 'changed data.dvc\\n'\n")
         fake_dvc.chmod(0o755)
         dvc_log = Path(self.temp.name) / "dvc.log"
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_LOG": str(dvc_log)}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_LOG": str(dvc_log)}
         result = run(self.repo, "final-push", ok=False, env=env)
         self.assertIn("changed or missing", result.stderr)
         self.assertEqual(dvc_log.read_text().splitlines(), ["<status>", "<data.dvc>"])
@@ -2556,7 +2564,7 @@ class DbsctrctlTest(unittest.TestCase):
         fake_dvc = fake_bin / "dvc"
         fake_dvc.write_text("#!/bin/sh\nexit 99\n")
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}"}
         run(self.repo, "final-push", env=env)
 
     def test_review_scan_is_read_only_and_completion_excludes_reviewed(self):
@@ -4876,7 +4884,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps(readiness), ok=False,
-            env={**os.environ, "HOME": str(readiness_home)},
+            env={**isolated_env(), "HOME": str(readiness_home)},
         )
         self.assertIn("autonomous readiness evidence is unavailable", unavailable.stderr)
         scheduler.parent.mkdir(parents=True)
@@ -4906,7 +4914,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps(readiness),
-            env={**os.environ, "HOME": str(readiness_home)},
+            env={**isolated_env(), "HOME": str(readiness_home)},
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
         self.assertEqual(autonomous["authorization"], "autonomous")
@@ -4943,7 +4951,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps({**readiness, "session_id": "session-5b",
                                              "opportunity_id": replacement["opportunity_id"]}),
-            env={**os.environ, "HOME": str(readiness_home)}, ok=False,
+            env={**isolated_env(), "HOME": str(readiness_home)}, ok=False,
         )
         self.assertIn("evidence does not match the worker", stale.stderr)
         run(self.repo, "improvement-claim", "--state-root", str(state),
@@ -5011,7 +5019,7 @@ class DbsctrctlTest(unittest.TestCase):
                 "delivery": {"branch": branch, "published_feature_head": sha},
             }))
         subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
-        env = {**os.environ, "HOME": str(Path(self.temp.name) / "home")}
+        env = {**isolated_env(), "HOME": str(Path(self.temp.name) / "home")}
         created = json.loads(run(
             self.repo, "batch-create", "--batch-id", "batch-1",
             "--github-account", "owner", "--github-repository", "owner/repo", env=env,
