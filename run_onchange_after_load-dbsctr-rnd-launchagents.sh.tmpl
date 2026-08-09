@@ -14,6 +14,9 @@ RUNNER="$HOME/.local/bin/dbsctr-rnd"
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
+{{ if .dotfiles_ai.state.root -}}
+export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
+{{ end -}}
 mkdir -p "$HOME/Library/Logs"
 
 remove_job() {

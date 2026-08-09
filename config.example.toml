@@ -3,6 +3,9 @@
 sourceDir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 
+# [data.dotfiles_ai.state]
+# root = "/Volumes/your-drive/state"
+
 [data.dotfiles_ai.opencode]
 # Vertex Claude stays off until vertex_project is set. Authenticate each
 # environment separately with an isolated ADC file; never commit these values.

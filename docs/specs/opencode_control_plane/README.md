@@ -54,6 +54,15 @@
 | Scope | Exact provider entry commands, Opus 5 high, provider-native prompts, strict provider affinity, exact telemetry identity, and report-only five-cycle evaluation |
 | Overrides | OpenAI and Bedrock billing routes never mix automatically; no account, role, email, or client label enters telemetry; unavailable Opus inference becomes an operational follow-up rather than fallback |
 
+### OCP-32 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes durable-state locations and lifecycle record compatibility |
+| Delivery intent | Draft pull request without live state migration or managed deployment |
+| Scope | Optional centralized state root, LaunchAgent environments, Herdr worktrees, OpenCode permissions, and DBSCTR schema-4 portability |
+| Overrides | Empty configuration preserves native defaults; existing SQLite stores retain their formats; live relocation requires a separately validated cutover and rollback |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -71,7 +80,7 @@ weekly scheduling, private report persistence, and operational deployment.
 |---|---|---|---|---|
 | Boundary | required: provider-affine control flowchart | Which surfaces own routing, permissions, lifecycle, and provider selection? | Overview and Contracts | Control-plane owner; ownership or permission changes |
 | Interaction | required: provider-affine control flowchart | How do Plan, Build, and bounded subagents hand work off? | Plan and Build behavior | Control-plane owner; handoff or delegation changes |
-| State | not_applicable: agent lifecycle state is runtime-owned and not specified here | - | OpenCode runtime | Control-plane owner |
+| State | required: optional centralized-state flowchart | Which durable paths move when a state root is configured, and what remains native by default? | OCP-32 behavior and contracts | Control-plane owner; state-root or persistence changes |
 | Data/trust | required: provider-affine control flowchart | Where are local, external, and provider boundaries enforced? | Permission and provider-affinity contracts | Control-plane owner; trust boundary changes |
 | Schema | not_applicable: JSON configuration and typed adapter schemas remain authoritative | - | Managed configuration and tests | Control-plane owner |
 | Dependency/deployment | required: provider-affine control flowchart | Which managed surfaces are loaded into OpenCode? | Engineering Profile and File contracts | Control-plane owner; loaded surface changes |
@@ -109,6 +118,26 @@ adapters. Validated local effects may reach the worktree or private local state;
 external or destructive effects remain permission-gated. The control-plane owner
 updates this view when routing, delegation, loaded skills, adapters, permissions,
 or provider boundaries change.
+
+```mermaid
+flowchart LR
+    accTitle: Optional centralized durable state
+    accDescr: An empty state-root setting keeps native OpenCode, DBSCTR, and Herdr locations. A configured root supplies XDG data and state paths, DBSCTR stores and worktrees, Herdr worktrees, and exact OpenCode permissions. Configuration and credentials remain local.
+    C[Machine-local chezmoi data] -->|root empty| N[Native platform defaults]
+    C -->|root configured| R[Central durable state root]
+    R -->|XDG data and state| O[OpenCode durable state]
+    R -->|DBSCTR root and registry| D[DBSCTR durable state]
+    R -->|worktree directory| H[Herdr worktrees]
+    R -->|exact and recursive allow| P[Build external-directory permission]
+    L[Local machine] -->|remain local| K[Config, credentials, caches, sockets, locks, and temporary files]
+```
+
+**Text Equivalent:** With no configured root, every component keeps its native
+location. With a root, managed LaunchAgents receive XDG and DBSCTR locations,
+Herdr receives a worktree directory, and Build receives only the root and subtree
+permissions. Configuration, credentials, caches, sockets, locks, and temporary
+files remain local. This repository change does not move live data or restart a
+running OpenCode process.
 
 ## Goals
 
@@ -543,6 +572,18 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   primaries only so managed machine-local deployment values and source-specific
   persistent state can be maintained; the personal chezmoi config and all other
   external paths remain denied.
+- `dotfiles_ai.state.root` is optional and empty by default. When set, managed
+  LaunchAgents receive `DOTFILES_AI_STATE_ROOT`, XDG data/state homes, the DBSCTR
+  state/worktree roots, and existing DBSCTR R&D file locations beneath that root.
+  Herdr receives `<root>/herdr/worktrees`; native paths remain unchanged when the
+  setting is absent or empty.
+- A configured centralized root adds exact-root and recursive-subtree OpenCode
+  external-directory allows after the broad deny for Build primaries. It does not
+  broaden Plan or bounded subagents and does not remove native DBSCTR worktree
+  access needed by legacy cycles.
+- Existing OpenCode, DBSCTR review, and R&D SQLite stores remain SQLite. This
+  change introduces no database engine, performs no live copy, and requires a
+  fresh OpenCode process after later managed deployment.
 - Workspace mounts may declare optional reference names and descriptions. A
   declared reference renders its host path on macOS and guest path in the owning
   VM; mounts without reference metadata are not advertised to OpenCode.
@@ -579,6 +620,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
+| Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 
 ## Risks
 

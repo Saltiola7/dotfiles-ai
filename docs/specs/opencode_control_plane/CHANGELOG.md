@@ -4,6 +4,22 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-08 - OCP-32 Centralized Durable State
+
+- Added optional centralized OpenCode, DBSCTR, Hermes, and Herdr durable state,
+  fail-closed drive guards, exact Build permissions, and native defaults when no
+  root is configured. Existing SQLite formats and local credentials remain
+  unchanged.
+- Portabilized five active cycle records to schema 4, copied state with online
+  SQLite backups, repaired 15 linked worktrees, and restored 39 exact sessions
+  plus three intentional auto panes. The native registry and machine config are
+  retained as timestamped rollback artifacts.
+- Affected validation passed 315 tests with one existing skip, Python compilation,
+  plist lint, Git whitespace checks, centralized environment checks, SQLite
+  `quick_check`, Hermes service validation, and 42-pane readiness. Gate
+  Exceptions: none. Implementation Gate Commits: `4fe1680..62f1010`. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-07-31 - OCP-31 Isolated Lens Workers
 
 - Added one-lens worker plans, deterministic review-session family attribution,

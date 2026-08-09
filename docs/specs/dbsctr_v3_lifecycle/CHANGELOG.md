@@ -10,6 +10,21 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-08 - V3.35-F3 Portable Cycle State
+
+- Added schema-4 root-relative worktree, source, and runtime locators with stable
+  repository identity, derived Git administration paths, schema-1 through
+  schema-3 reads, and explicit crash-safe schema-3 conversion and rollback.
+- Converted five active cycles before relocating the registry to configured
+  centralized state. Fifteen live linked worktrees were repaired; one dead
+  temporary test fixture was excluded without weakening active-cycle checks, and
+  the complete native registry remains available for rollback.
+- Affected validation passed 315 tests with one existing skip, Python compilation,
+  plist lint, Git whitespace checks, live schema-4 resolution, and centralized
+  runtime verification. Gate Exceptions: none. Implementation Gate Commits:
+  `4fe1680..62f1010`. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-07-31 - V3.35-F2 Sanitized Context Intervals
 
 - Added optional bounded context plus millisecond start/end values to sanitized

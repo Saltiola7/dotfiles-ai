@@ -131,8 +131,50 @@ def common_git_dir(root):
     return path if path.is_absolute() else root / path
 
 
-def worktree_id(root):
+def legacy_worktree_id(root):
     return hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
+
+
+def repository_identity(root):
+    shallow = git(root, "rev-parse", "--is-shallow-repository").stdout.strip()
+    if shallow != "false":
+        fail("portable worktree identity requires a complete Git history")
+    initial = git(root, "rev-list", "--max-parents=0", "HEAD").stdout.splitlines()
+    if len(initial) != 1:
+        fail("portable worktree identity requires exactly one Git root")
+    return initial[0]
+
+
+def worktree_id(root):
+    identity = f"{repository_identity(root)}\0{branch(root) or 'detached'}"
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
+
+
+def dbsctr_state_root(value=None):
+    if value:
+        return Path(value).expanduser()
+    if configured := os.environ.get("DBSCTR_STATE_ROOT"):
+        return Path(configured).expanduser()
+    if configured := os.environ.get("DOTFILES_AI_STATE_ROOT"):
+        return Path(configured).expanduser() / "dbsctr"
+    if configured := os.environ.get("XDG_STATE_HOME"):
+        return Path(configured).expanduser() / "dbsctr"
+    return Path.home() / ".local/state/dbsctr"
+
+
+def worktree_registry_root(value=None):
+    if value:
+        return Path(value).expanduser()
+    if configured := os.environ.get("DBSCTR_WORKTREE_ROOT"):
+        return Path(configured).expanduser()
+    return dbsctr_state_root() / "worktrees"
+
+
+def opencode_database(value=None):
+    if value:
+        return Path(value).expanduser()
+    data = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+    return data / "opencode/opencode.db"
 
 
 def primary_worktree(root):
@@ -148,6 +190,76 @@ def cycle_dir(root):
 
 def active_path(root):
     return cycle_dir(root) / "worktrees" / worktree_id(root) / "active"
+
+
+def legacy_active_path(root):
+    return cycle_dir(root) / "worktrees" / legacy_worktree_id(root) / "active"
+
+
+def active_pointer_id(root, path):
+    if path.absolute() == (legacy_cycle_dir(root) / "active").absolute():
+        safe_directory(legacy_cycle_dir(root), path.parent)
+    else:
+        managed_directory(root, path.parent)
+    try:
+        details = path.lstat()
+    except OSError as error:
+        fail(f"cannot inspect cycle active pointer: {error}")
+    if (stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid()
+            or path.is_symlink()):
+        fail("cycle active pointer is unsafe")
+    cycle_id = path.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cycle_id):
+        fail("cycle active pointer is unsafe")
+    return cycle_id
+
+
+def resolved_active_path(root):
+    candidates = [legacy_active_path(root), legacy_cycle_dir(root) / "active"]
+    with contextlib.suppress(RuntimeError):
+        candidates.insert(0, active_path(root))
+    for path in candidates:
+        if path.exists():
+            active_pointer_id(root, path)
+            return path
+        if path.is_symlink():
+            fail("cycle active pointer is unsafe")
+    return candidates[0]
+
+
+def safe_directory(base, path, create=False):
+    base = base.absolute()
+    path = path.absolute()
+    try:
+        relative = path.relative_to(base)
+    except ValueError:
+        fail("managed DBSCTR directory escapes its root")
+    if not base.exists():
+        if base.is_symlink():
+            fail("managed DBSCTR directory is unsafe")
+        if not create:
+            return False
+        base.mkdir()
+    details = base.lstat()
+    if stat.S_IFMT(details.st_mode) != stat.S_IFDIR or details.st_uid != os.getuid() or base.is_symlink():
+        fail("managed DBSCTR directory is unsafe")
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if not current.exists():
+            if current.is_symlink():
+                fail("managed DBSCTR directory is unsafe")
+            if not create:
+                return False
+            current.mkdir()
+        details = current.lstat()
+        if stat.S_IFMT(details.st_mode) != stat.S_IFDIR or details.st_uid != os.getuid() or current.is_symlink():
+            fail("managed DBSCTR directory is unsafe")
+    return True
+
+
+def managed_directory(root, path, create=False):
+    return safe_directory(cycle_dir(root), path, create)
 
 
 def legacy_cycle_dir(root):
@@ -194,7 +306,7 @@ def fsync_directory(path):
 
 
 def review_root(value=None):
-    return Path(value).expanduser() if value else Path.home() / ".local/state/dbsctr"
+    return dbsctr_state_root(value)
 
 
 def review_unsafe(value):
@@ -276,7 +388,7 @@ def excluded_review_family(connection, session, session_id):
 def session_for_message(database_value, message_id, require_primary=False):
     if not OPAQUE_ID.fullmatch(message_id):
         fail("invalid excluded message ID")
-    database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
+    database = opencode_database(database_value)
     if not database.is_file():
         fail("OpenCode database is missing")
     try:
@@ -321,7 +433,7 @@ def harness_activation_for_message(database_value, message_id, raw):
             or set(supplied["overlays"]) != {"build", "build-gpt", "build-claude"}
             or any(not OPAQUE_ID.fullmatch(value) for value in supplied["overlays"].values())):
         fail("invalid harness activation")
-    database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
+    database = opencode_database(database_value)
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         tables = {row[0].lower(): row[0] for row in connection.execute(
@@ -364,7 +476,7 @@ def historical_excluded_family(database_value, session_id, message_id=None):
         return set()
     if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
         fail("invalid excluded session ID")
-    database = Path(database_value).expanduser() if database_value else Path.home() / ".local/share/opencode/opencode.db"
+    database = opencode_database(database_value)
     if not database.is_file():
         fail("OpenCode database is missing")
     try:
@@ -1855,6 +1967,65 @@ def remote_for_upstream(root, upstream_name):
     return remote, upstream_name[len(remote) + 1:]
 
 
+def relative_locator(path, base, root_name):
+    try:
+        relative = path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return None
+    return {"root": root_name, "path": relative.as_posix() or "."}
+
+
+def locator_path(locator, roots, name):
+    if (not isinstance(locator, dict) or set(locator) != {"root", "path"}
+            or locator.get("root") not in roots or not isinstance(locator.get("path"), str)):
+        fail(f"invalid {name} locator")
+    relative = PurePosixPath(locator["path"])
+    if relative.is_absolute() or locator["path"] == "" or ".." in relative.parts:
+        fail(f"invalid {name} locator")
+    base = roots[locator["root"]].resolve()
+    candidate = (base / Path(*relative.parts)).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        fail(f"invalid {name} locator")
+    return candidate
+
+
+def record_worktree(root, record):
+    details = record.get("worktree", {})
+    if "locator" not in details:
+        value = details.get("path")
+        if not isinstance(value, str) or not value:
+            fail("Cycle Record contains an invalid worktree path")
+        return Path(value).expanduser().resolve()
+    return locator_path(details.get("locator"), {
+        "cycle_worktree": root,
+        "dbsctr_worktrees": worktree_registry_root(),
+    }, "cycle worktree")
+
+
+def record_source_worktree(root, record):
+    source = record.get("source")
+    if not isinstance(source, dict):
+        return None
+    if "locator" not in source:
+        value = source.get("path")
+        return Path(value).expanduser().resolve() if isinstance(value, str) and value else None
+    return locator_path(source.get("locator"), {"primary_worktree": primary_worktree(root)},
+                        "source worktree")
+
+
+def record_worktree_matches(root, record, worktree):
+    details = record.get("worktree", {})
+    expected_id = (worktree_id(worktree) if "locator" in details
+                   else legacy_worktree_id(worktree))
+    if expected_id != details.get("id") or common_git_dir(worktree).resolve() != common_git_dir(root).resolve():
+        return False
+    if "locator" not in details:
+        return git_dir(worktree).resolve() == Path(details.get("git_dir", "")).resolve()
+    return True
+
+
 def configured_upstream(root):
     current = branch(root)
     if not current:
@@ -1867,20 +2038,20 @@ def configured_upstream(root):
 
 
 def load(root):
-    active = active_path(root)
+    active = resolved_active_path(root)
     records = cycle_dir(root) / "cycles"
-    if not active.exists():
-        active = legacy_cycle_dir(root) / "active"
+    if active == legacy_cycle_dir(root) / "active":
         records = legacy_cycle_dir(root)
     if not active.exists():
         fail("no active DBSCTR cycle")
-    cycle_id = active.read_text(encoding="utf-8").strip()
+    cycle_id = active_pointer_id(root, active)
     path = records / f"{cycle_id}.json"
     if not cycle_id or not path.is_file():
         fail("active DBSCTR record is missing")
     record = json.loads(path.read_text(encoding="utf-8"))
-    if "schema_version" in record and record["schema_version"] not in (1, 2, 3):
+    if "schema_version" in record and record["schema_version"] not in (1, 2, 3, 4):
         fail(f"unsupported Cycle Record schema: {record['schema_version']}")
+    record_worktree(root, record)
     return path, record
 
 
@@ -1899,7 +2070,7 @@ def require_pushable(record):
 
 
 def is_v32(record):
-    return record.get("schema_version") in (1, 2, 3)
+    return record.get("schema_version") in (1, 2, 3, 4)
 
 
 @contextlib.contextmanager
@@ -2065,14 +2236,15 @@ def completion_artifact_check(record):
         fail("changed CHANGELOG review needs its repository path")
 
 
-def start_cycle(root, args, plan, created_by_dbsctr=False):
+def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
+                portable=True):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
         fail("context must be a simple bounded-context name")
     directory = cycle_dir(root)
     active = active_path(root)
-    if active.exists() or (legacy_cycle_dir(root) / "active").exists():
+    if active.exists() or legacy_active_path(root).exists() or (legacy_cycle_dir(root) / "active").exists():
         fail("an active DBSCTR cycle already exists")
     record_path = directory / "cycles" / f"{args.cycle_id}.json"
     if record_path.exists():
@@ -2123,8 +2295,21 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
                     "lock_id": delivery_lock_id(
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
+    schema_version = 4 if portable else 3
+    if schema_version == 4:
+        worktree_locator = worktree_locator or {"root": "cycle_worktree", "path": "."}
+        worktree_details = {"id": worktree_id(root), "locator": worktree_locator,
+                            "branch": current_branch,
+                            "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
+                            "created_by_dbsctr": created_by_dbsctr}
+    else:
+        worktree_details = {"id": legacy_worktree_id(root), "path": str(root.resolve()),
+                            "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
+                            "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
+                            "created_by_dbsctr": created_by_dbsctr}
     record = {
-        "method_revision": CURRENT_METHOD_REVISION, "schema_version": 3, "created_at": now(), "cycle_id": args.cycle_id,
+        "method_revision": CURRENT_METHOD_REVISION, "schema_version": schema_version,
+        "created_at": now(), "cycle_id": args.cycle_id,
         "context": args.context, "risk": args.risk, "delivery_intent": args.delivery_intent,
         "engineering_profile": {"path": profile_path, "blob": profile_blob},
         "applicability_plan": {"profile": profile_path, "gates": {
@@ -2135,10 +2320,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
                 "upstream": current_upstream, "dirty_paths": dirty_paths,
                 "pre_cycle_ahead_commits": pre_cycle_ahead,
                  "remote": remote_destination(root, current_upstream)},
-        "worktree": {"id": worktree_id(root), "path": str(root.resolve()),
-                     "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
-                     "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
-                     "created_by_dbsctr": created_by_dbsctr},
+        "worktree": worktree_details,
         "delivery": delivery,
         "state": "active", "commits": [], "gates": gates, "evidence": {"version": 1, "items": {}},
         "metrics": {"gate_failure_count": 0, "gate_reopen_count": 0, "remediation_round_count": 0},
@@ -2159,18 +2341,30 @@ def start_cycle(root, args, plan, created_by_dbsctr=False):
         activation_raw = getattr(args, "harness_activation_json", None)
         activation = (harness_activation_for_message(None, message_id, activation_raw)
                       if message_id is not None and activation_raw is not None else None)
-        record["runtime"] = {"opencode": {"session_ids": [session_id],
-                                              "worktree": str(runtime_worktree),
-                                              "directory": str(runtime_directory),
-                                              **({"harness_activation": activation} if activation else {})}}
+        if schema_version == 4:
+            runtime_root = root.resolve()
+            root_name = "cycle_worktree"
+            if runtime_worktree != runtime_root:
+                runtime_root = primary_worktree(root)
+                root_name = "primary_worktree"
+                if runtime_worktree != runtime_root:
+                    fail("invalid OpenCode runtime paths")
+            try:
+                runtime_directory_relative = runtime_directory.relative_to(runtime_root)
+            except ValueError:
+                fail("invalid OpenCode runtime paths")
+            runtime = {"path_root": root_name, "worktree": ".",
+                       "directory": runtime_directory_relative.as_posix() or "."}
+        else:
+            runtime = {"worktree": str(runtime_worktree), "directory": str(runtime_directory)}
+        record["runtime"] = {"opencode": {"session_ids": [session_id], **runtime,
+                                               **({"harness_activation": activation} if activation else {})}}
     elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
         fail("OpenCode runtime paths require a session ID")
+    active = cycle_dir(root) / "worktrees" / record["worktree"]["id"] / "active"
     exclusive_json(record_path, record)
     try:
-        active.parent.mkdir(parents=True, exist_ok=True)
-        with open(active.with_suffix(".tmp"), "x", encoding="utf-8") as handle:
-            handle.write(args.cycle_id + "\n")
-        os.replace(active.with_suffix(".tmp"), active)
+        write_active_pointer(root, active, args.cycle_id)
     except Exception:
         record_path.unlink(missing_ok=True)
         raise
@@ -2202,9 +2396,9 @@ def command_begin(args):
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
     if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
         fail(f"cycle branch already exists: {branch_name}")
-    common = common_git_dir(source).resolve()
-    repo_id = f"{common.parent.name}-{hashlib.sha256(str(common).encode()).hexdigest()[:12]}"
-    parent = Path(args.worktree_root).expanduser() if args.worktree_root else Path.home() / ".local/state/dbsctr/worktrees" / repo_id
+    repo_id = hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
+    registry = worktree_registry_root()
+    parent = Path(args.worktree_root).expanduser() if args.worktree_root else registry / repo_id
     worktree = parent / args.cycle_id
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
@@ -2232,7 +2426,13 @@ def command_begin(args):
                                     cwd=worktree, text=True, capture_output=True)
             if result.returncode:
                 fail(result.stderr.strip() or "cannot configure linked DVC cache type")
-        record = start_cycle(worktree, args, plan, created_by_dbsctr=True)
+        locator = relative_locator(worktree, registry, "dbsctr_worktrees")
+        portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
+        record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
+                             worktree_locator=locator, portable=portable)
+        if record["schema_version"] == 4:
+            source_record.pop("path")
+            source_record["locator"] = {"root": "primary_worktree", "path": "."}
         record["source"] = source_record
         save(cycle_dir(worktree) / "cycles" / f"{args.cycle_id}.json", record)
     except Exception:
@@ -2246,6 +2446,155 @@ def command_begin(args):
     }, sort_keys=True))
 
 
+def cycle_runtime_locator(runtime, worktree, source):
+    opencode = runtime.get("opencode") if isinstance(runtime, dict) else None
+    if not isinstance(opencode, dict):
+        return runtime
+    runtime_worktree = Path(opencode.get("worktree", "")).expanduser().resolve()
+    runtime_directory = Path(opencode.get("directory", "")).expanduser().resolve()
+    if runtime_worktree == worktree.resolve():
+        root_name, base = "cycle_worktree", worktree.resolve()
+    elif source is not None and runtime_worktree == source.resolve():
+        root_name, base = "primary_worktree", source.resolve()
+    else:
+        fail("OpenCode runtime worktree cannot be made portable")
+    try:
+        directory = runtime_directory.relative_to(base).as_posix() or "."
+    except ValueError:
+        fail("OpenCode runtime directory cannot be made portable")
+    return {**runtime, "opencode": {
+        **{key: value for key, value in opencode.items()
+           if key not in {"path_root", "worktree", "directory"}},
+        "path_root": root_name, "worktree": ".", "directory": directory,
+    }}
+
+
+def validate_active_pointer(root, pointer, cycle_id, required=False):
+    managed_directory(root, pointer.parent)
+    if pointer.exists():
+        if active_pointer_id(root, pointer) != cycle_id:
+            fail("cycle active pointer identity changed")
+        return True
+    if pointer.is_symlink():
+        fail("cycle active pointer is unsafe")
+    if required:
+        fail("cycle active pointer is missing")
+    return False
+
+
+def write_active_pointer(root, pointer, cycle_id):
+    if validate_active_pointer(root, pointer, cycle_id):
+        return
+    managed_directory(root, pointer.parent, create=True)
+    temporary = pointer.with_suffix(".tmp")
+    if temporary.exists() or temporary.is_symlink():
+        fail("cycle active pointer temporary is unsafe")
+    with temporary.open("x", encoding="utf-8") as handle:
+        handle.write(cycle_id + "\n")
+    os.replace(temporary, pointer)
+
+
+def portable_cycle_record(root, record):
+    worktree = record_worktree(root, record)
+    registry = worktree_registry_root()
+    locator = relative_locator(worktree, registry, "dbsctr_worktrees")
+    if locator is None:
+        fail("cycle worktree is outside configured registry")
+    if (not worktree.is_dir() or not record_worktree_matches(root, record, worktree)
+            or branch(worktree) != record.get("worktree", {}).get("branch")):
+        fail("cycle worktree identity changed")
+    source = record_source_worktree(root, record)
+    if source is not None and source != primary_worktree(root):
+        fail("source worktree identity changed")
+    portable = json.loads(json.dumps(record))
+    portable["schema_version"] = 4
+    portable["worktree"] = {
+        **{key: value for key, value in record["worktree"].items()
+           if key not in {"id", "path", "git_dir", "locator"}},
+        "id": worktree_id(worktree), "locator": locator,
+    }
+    if source is not None:
+        portable["source"] = {
+            **{key: value for key, value in record["source"].items() if key != "path"},
+            "locator": {"root": "primary_worktree", "path": "."},
+        }
+    if "runtime" in portable:
+        portable["runtime"] = cycle_runtime_locator(portable["runtime"], worktree, source)
+    return worktree, portable
+
+
+def command_cycle_portabilize(args):
+    root = root_dir()
+    cycle_id = improvement_id(args.cycle_id, "cycle ID")
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    backup = cycle_dir(root) / "migrations" / f"{cycle_id}.schema3.json"
+    if not path.is_file() or path.is_symlink():
+        fail("cycle record is missing")
+    with evidence_lock(root, cycle_id):
+        record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+        if record.get("cycle_id") != cycle_id or record.get("state") != "active":
+            fail("only the named active cycle can be made portable")
+        managed_directory(root, backup.parent)
+        if backup.exists() and (backup.is_symlink() or not backup.is_file()):
+            fail("schema 3 rollback is invalid")
+        legacy = (json.loads(backup.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+                  if backup.is_file() else None)
+        if legacy is not None and (legacy.get("schema_version") != 3
+                                   or legacy.get("cycle_id") != cycle_id
+                                   or legacy.get("state") != "active"):
+            fail("schema 3 rollback is invalid")
+        if args.rollback:
+            if legacy is None:
+                if record.get("schema_version") == 3:
+                    print(json.dumps({"cycle_id": cycle_id, "schema_version": 3}, sort_keys=True))
+                    return
+                fail("portable cycle has no schema 3 rollback")
+            if record.get("schema_version") == 4:
+                current_id = record["worktree"]["id"]
+            elif record.get("schema_version") == 3 and record == legacy:
+                current_id = worktree_id(record_worktree(root, legacy))
+            else:
+                fail("portable cycle rollback state is invalid")
+            old_pointer = cycle_dir(root) / "worktrees" / legacy["worktree"]["id"] / "active"
+            write_active_pointer(root, old_pointer, cycle_id)
+            if record != legacy:
+                save(path, legacy)
+            current_pointer = cycle_dir(root) / "worktrees" / current_id / "active"
+            if current_pointer != old_pointer:
+                validate_active_pointer(root, current_pointer, cycle_id)
+                current_pointer.unlink(missing_ok=True)
+            backup.unlink()
+            print(json.dumps({"cycle_id": cycle_id, "schema_version": 3}, sort_keys=True))
+            return
+        if legacy is None:
+            if record.get("schema_version") == 4:
+                print(json.dumps({"cycle_id": cycle_id, "schema_version": 4}, sort_keys=True))
+                return
+            if record.get("schema_version") != 3:
+                fail("cycle is not an unmigrated schema 3 record")
+            old_pointer = cycle_dir(root) / "worktrees" / record["worktree"]["id"] / "active"
+            validate_active_pointer(root, old_pointer, cycle_id, required=True)
+            managed_directory(root, backup.parent, create=True)
+            exclusive_json(backup, record)
+            legacy = record
+        if record.get("schema_version") == 3:
+            old_pointer = cycle_dir(root) / "worktrees" / legacy["worktree"]["id"] / "active"
+            validate_active_pointer(root, old_pointer, cycle_id, required=True)
+        worktree, portable = portable_cycle_record(root, legacy)
+        if record.get("schema_version") == 3 and record == legacy:
+            save(path, portable)
+        elif record.get("schema_version") != 4 or record != portable:
+            fail("portable cycle migration state is invalid")
+        new_pointer = cycle_dir(root) / "worktrees" / portable["worktree"]["id"] / "active"
+        write_active_pointer(root, new_pointer, cycle_id)
+        old_pointer = cycle_dir(root) / "worktrees" / legacy["worktree"]["id"] / "active"
+        if old_pointer != new_pointer:
+            if old_pointer.exists() or old_pointer.is_symlink():
+                validate_active_pointer(root, old_pointer, cycle_id)
+            old_pointer.unlink(missing_ok=True)
+    print(json.dumps({"cycle_id": cycle_id, "schema_version": 4}, sort_keys=True))
+
+
 def cleanup_cycle(root, cycle_id, immediate):
     path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
     if not path.is_file():
@@ -2255,11 +2604,9 @@ def cleanup_cycle(root, cycle_id, immediate):
         fail("only a completed cycle can be cleaned up")
     if record.get("worktree", {}).get("created_by_dbsctr") is not True:
         fail("cleanup only removes DBSCTR-created worktrees")
-    worktree = Path(record["worktree"]["path"])
-    if worktree.resolve() == root.resolve():
-        fail("run cleanup from another worktree")
-    schema3 = record.get("schema_version") == 3
-    if not worktree.is_dir() and not schema3:
+    worktree = record_worktree(root, record)
+    durable_cleanup = record.get("schema_version") in (3, 4)
+    if not worktree.is_dir() and not durable_cleanup:
         return "already removed " + str(worktree)
     cleanup = record.get("cleanup")
     if not worktree.is_dir() and (not cleanup or cleanup.get("state") not in (
@@ -2269,6 +2616,8 @@ def cleanup_cycle(root, cycle_id, immediate):
     expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
     if branch_name != expected_branch:
         fail("invalid cycle worktree branch")
+    if worktree.resolve() == root.resolve():
+        fail("run cleanup from another worktree")
     if cleanup and cleanup.get("state") in ("removing_worktree", "worktree_removed"):
         marker_branch = cleanup.get("branch")
         if marker_branch is not None and marker_branch != branch_name:
@@ -2292,9 +2641,7 @@ def cleanup_cycle(root, cycle_id, immediate):
         fail("refusing to remove a dirty cycle worktree")
     if worktree.is_dir() and branch(worktree) != record["worktree"]["branch"]:
         fail("cycle worktree branch changed")
-    if worktree.is_dir() and (worktree_id(worktree) != record["worktree"].get("id")
-                              or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
-                              or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+    if worktree.is_dir() and not record_worktree_matches(root, record, worktree):
         fail("cycle worktree identity changed")
     recorded_commits = [entry["id"] for entry in record["commits"]]
     if worktree.is_dir() and recorded_commits and git(worktree, "rev-parse", "HEAD").stdout.strip() != recorded_commits[-1]:
@@ -2318,18 +2665,18 @@ def cleanup_cycle(root, cycle_id, immediate):
         if worktree.is_dir() and git(worktree, "merge-base", "--is-ancestor", entry["id"], target, check=False).returncode:
             fail("cycle commits are not all contained in the delivery target")
     if worktree.is_dir():
-        if schema3:
+        if durable_cleanup:
             record["cleanup"] = {"state": "removing_worktree", "branch": branch_name, "started_at": now()}
             save(path, record)
         git(root, "worktree", "remove", str(worktree))
-        if schema3:
+        if durable_cleanup:
             record["cleanup"] = {"state": "worktree_removed", "branch": branch_name, "removed_at": now()}
             save(path, record)
     if branch_name and git(root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
         deleted = git(root, "branch", "-d", branch_name, check=False)
         if deleted.returncode:
             fail(deleted.stderr.strip() or "cannot delete cycle branch")
-    if schema3:
+    if durable_cleanup:
         evidence = cycle_dir(root) / "evidence" / cycle_id
         parked = evidence.with_name(evidence.name + ".cleanup")
         cleanup = record.get("cleanup")
@@ -2388,7 +2735,7 @@ def command_cycle_retire(args):
         details = record.get("worktree", {})
         if details.get("created_by_dbsctr") is not True:
             fail("retirement only removes DBSCTR-created worktrees")
-        worktree = Path(details.get("path", ""))
+        worktree = record_worktree(root, record)
         branch_name = details.get("branch")
         expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
         if branch_name != expected_branch or worktree.resolve() == root.resolve():
@@ -2412,9 +2759,7 @@ def command_cycle_retire(args):
         if worktree.is_dir():
             if status_paths(worktree):
                 fail("refusing to retire a dirty cycle worktree")
-            if (branch(worktree) != branch_name or worktree_id(worktree) != details.get("id")
-                    or git_dir(worktree).resolve() != Path(details.get("git_dir", "")).resolve()
-                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+            if branch(worktree) != branch_name or not record_worktree_matches(root, record, worktree):
                 fail("cycle retirement worktree identity changed")
             head = git(worktree, "rev-parse", "HEAD").stdout.strip()
             commits = [entry["id"] for entry in record.get("commits", [])]
@@ -2472,7 +2817,7 @@ def command_cycle_retire_worktree(args):
         details = record.get("worktree", {})
         if details.get("created_by_dbsctr") is not True:
             fail("worktree retirement requires its DBSCTR-created owner cycle")
-        worktree = Path(details.get("path", ""))
+        worktree = record_worktree(root, record)
         branch_name = details.get("branch")
         expected_branch = f"dbsctr/{record['context']}/{cycle_id}"
         if branch_name != expected_branch or worktree.resolve() == root.resolve():
@@ -2490,15 +2835,14 @@ def command_cycle_retire_worktree(args):
         if worktree.is_dir():
             if status_paths(worktree):
                 fail("refusing to retire a dirty completed worktree")
-            if (branch(worktree) != branch_name or worktree_id(worktree) != details.get("id")
-                    or git_dir(worktree).resolve() != Path(details.get("git_dir", "")).resolve()
-                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+            if branch(worktree) != branch_name or not record_worktree_matches(root, record, worktree):
                 fail("completed cycle worktree identity changed")
             related = []
             for candidate in (cycle_dir(root) / "cycles").glob("*.json"):
                 value = json.loads(candidate.read_text(encoding="utf-8"))
                 other = value.get("worktree", {})
-                if (other.get("id") == details["id"] or other.get("path") == details["path"]):
+                if (other.get("id") == details["id"]
+                        or record.get("schema_version") != 4 and other.get("path") == details.get("path")):
                     related.append(value)
             if not related or any(value.get("state") != "completed" for value in related):
                 fail("shared worktree has a non-completed cycle")
@@ -2552,8 +2896,7 @@ def path_within(path, root):
 
 
 def global_worktree_roots(registry=None):
-    registry = Path(registry or os.environ.get(
-        "DBSCTR_WORKTREE_ROOT", Path.home() / ".local/state/dbsctr/worktrees")).expanduser()
+    registry = worktree_registry_root(registry)
     if not registry.exists():
         return [], []
     if not registry.is_dir() or registry.is_symlink():
@@ -2625,7 +2968,7 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
         record = json.loads(path.read_text(encoding="utf-8"))
         if record.get("worktree", {}).get("created_by_dbsctr") is not True:
             continue
-        worktree = Path(record["worktree"]["path"])
+        worktree = record_worktree(root, record)
         blockers = []
         shared_retired = record.get("worktree_retirement", {}).get("state") == "retired"
         if record.get("state") == "retired":
@@ -2652,9 +2995,7 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
             commits = record.get("commits", [])
             if commits and git(worktree, "rev-parse", "HEAD").stdout.strip() != commits[-1]["id"]:
                 blockers.append("head_changed")
-            if (worktree_id(worktree) != record["worktree"].get("id")
-                    or git_dir(worktree).resolve() != Path(record["worktree"].get("git_dir", "")).resolve()
-                    or common_git_dir(worktree).resolve() != common_git_dir(root).resolve()):
+            if not record_worktree_matches(root, record, worktree):
                 blockers.append("identity_changed")
         elif (record.get("state") != "retired" and not shared_retired
               and record.get("cleanup", {}).get("state") not in ("worktree_removed", "evidence_parked")):
@@ -2707,11 +3048,12 @@ def command_cleanup(args):
                     cycle_id = record.get("cycle_id")
                     if cycle_id != path.stem or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cycle_id or ""):
                         raise ValueError("cycle record identity mismatch")
-                    if not path_within(Path(record["worktree"]["path"]), allowed_root):
+                    worktree = record_worktree(root, record)
+                    if not path_within(worktree, allowed_root):
                         failed.append({"cycle_id": cycle_id, "repository_id": repository_id,
                                        "error": "outside_registry"})
                         continue
-                    before = worktree_bytes(Path(record["worktree"]["path"])) or 0
+                    before = worktree_bytes(worktree) or 0
                     cleanup_cycle(root, cycle_id, args.now)
                     reclaimed += before
                     removed.append({"cycle_id": cycle_id, "repository_id": repository_id})
@@ -3213,9 +3555,7 @@ def command_inspect(args):
 
 def command_status(args):
     root = root_dir()
-    active = active_path(root)
-    if not active.exists():
-        active = legacy_cycle_dir(root) / "active"
+    active = resolved_active_path(root)
     if not active.exists() and args.json:
         print("null")
         return
@@ -3249,7 +3589,7 @@ def command_attach_runtime(args):
         if record["cycle_id"] != cycle_id:
             fail("active DBSCTR cycle changed during runtime attachment")
         require_active(record)
-        recorded_worktree = Path(record.get("worktree", {}).get("path", "")).resolve()
+        recorded_worktree = record_worktree(root, record)
         if runtime_worktree != root or runtime_worktree != recorded_worktree:
             fail("OpenCode runtime must match the recorded cycle worktree")
         opencode = record.setdefault("runtime", {}).setdefault("opencode", {})
@@ -3267,7 +3607,10 @@ def command_attach_runtime(args):
             fail("attached root sessions disagree on harness activation")
         if existing_activation is None and activation is not None:
             opencode["harness_activation"] = activation
-        opencode["worktree"] = str(runtime_worktree)
+        if record.get("schema_version") == 4:
+            opencode.update({"path_root": "cycle_worktree", "worktree": "."})
+        else:
+            opencode["worktree"] = str(runtime_worktree)
         save(path, record)
     print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,
                      separators=(",", ":")))
@@ -3566,6 +3909,14 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
     def unique(matches, quality):
         return (matches, quality) if len(matches) == 1 else ([], "ambiguous" if matches else None)
 
+    def recorded_path(record, source=False):
+        try:
+            base = resolved or root_dir()
+            return (record_source_worktree(base, record) if source
+                    else record_worktree(base, record))
+        except (OSError, RuntimeError, KeyError, TypeError, ValueError):
+            return None
+
     exact_ids = {exact_session_id} if exact_session_id is not None else set(session_ids)
     exact = [record for record in records if exact_ids.intersection(runtime_ids(record))]
     hinted = [record for record in records if record["cycle_id"] in hinted_ids]
@@ -3579,12 +3930,10 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
             [record for record in records if family_ids.intersection(runtime_ids(record))], "family"
         )
         worktrees = [record for record in records if resolved is not None
-                     and record.get("worktree", {}).get("path")
-                     and Path(record["worktree"]["path"]).resolve() == resolved]
+                     and recorded_path(record) == resolved]
         worktree, worktree_quality = unique(worktrees, "worktree")
         sources = [record for record in records if resolved is not None
-                   and isinstance(record.get("source"), dict) and record["source"].get("path")
-                   and Path(record["source"]["path"]).resolve() == resolved]
+                   and recorded_path(record, source=True) == resolved]
         source, source_quality = unique(sources, "source")
         matched, quality = next(((items, value) for items, value in (
             (family, family_quality), (worktree, worktree_quality), (source, source_quality)
@@ -3594,6 +3943,7 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
         return ([], quality) if with_quality else []
     output = []
     for record in matched:
+        cycle_worktree = recorded_path(record)
         gates = record.get("gates", {}).values()
         if any(gate.get("applicability") == "required"
                and gate.get("result") in ("failed", "unavailable")
@@ -3601,8 +3951,7 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
             state = "blocked"
         elif record.get("state") == "completed":
             state = "completed"
-        elif record.get("state") == "active" and (not record.get("worktree", {}).get("path")
-                                                   or not Path(record["worktree"]["path"]).is_dir()):
+        elif record.get("state") == "active" and (cycle_worktree is None or not cycle_worktree.is_dir()):
             state = "abandoned"
         else:
             state = "active"
@@ -3695,7 +4044,7 @@ def review_scan(args):
     snapshot = current_ms if args.snapshot is None else args.snapshot
     if not isinstance(snapshot, int) or snapshot < REVIEW_START_MS or snapshot > current_ms:
         fail("review scan snapshot must be a valid non-future millisecond cutoff")
-    database = Path(args.database).expanduser() if args.database else Path.home() / ".local/share/opencode/opencode.db"
+    database = opencode_database(args.database)
     if not database.is_file():
         fail("OpenCode database is missing")
     excluded_session_id = getattr(args, "excluded_session_id", None)
@@ -6131,7 +6480,9 @@ def improvement_readiness(value, worker_id, session_id, opportunity_id, validate
         fail("invalid autonomous readiness receipt")
     if not validate_evidence:
         return json.dumps(receipt, sort_keys=True, separators=(",", ":"))
-    path = Path.home() / ".local/state/dotfiles-ai/dbsctr-rnd.sqlite3"
+    path = Path(os.environ.get(
+        "DBSCTR_RND_STATE", Path.home() / ".local/state/dotfiles-ai/dbsctr-rnd.sqlite3"
+    )).expanduser()
     try:
         details = path.lstat()
         if (path.is_symlink() or stat.S_IFMT(details.st_mode) != stat.S_IFREG
@@ -6811,11 +7162,11 @@ def command_record_evidence(args):
     authority = evidence_text(args.authority, 128, "authority")
     argv, sanitized = list(args.program), sanitized_argv(args.program)
     path_blobs = evidence_path_blobs(root, args.path or [])
-    with evidence_lock(root, active_path(root).read_text(encoding="utf-8").strip()):
+    with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()):
         path, record = load(root)
         require_active(record)
-        if record.get("schema_version") != 3:
-            fail("record-evidence requires a schema 3 Cycle Record")
+        if record.get("schema_version") not in (3, 4):
+            fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
         if gate["applicability"] != "required":
             fail("evidence gate is not required")
@@ -6903,7 +7254,7 @@ def command_set_gate(args):
     path, record = load(root)
     require_active(record)
     gate = record["gates"][args.gate]
-    if record.get("schema_version") == 3 and args.evidence is not None:
+    if record.get("schema_version") in (3, 4) and args.evidence is not None:
         item = record["evidence"]["items"].get(args.evidence)
         if not item or item["gate"] != args.gate or item["result"] != args.result:
             fail("schema 3 evidence must be a matching stored evidence ID")
@@ -7072,7 +7423,7 @@ def command_gate_commit(args):
         complete = gate["applicability"] == "not_applicable" or gate["result"] == "passed" or "exception" in gate
         if not complete:
             fail(f"gate is not complete: {name}")
-        if record.get("schema_version") == 3 and gate["result"] in ("passed", "failed", "unavailable"):
+        if record.get("schema_version") in (3, 4) and gate["result"] in ("passed", "failed", "unavailable"):
             item = verify_envelope(root, record, name)
             if set(item.get("paths", {})) != set(args.paths):
                 fail(f"evidence paths differ from commit paths: {name}")
@@ -7098,7 +7449,7 @@ def command_gate_commit(args):
         fail("staged diff is empty")
     git(root, "commit", "-m", args.message)
     commit = git(root, "rev-parse", "HEAD").stdout.strip()
-    if record.get("schema_version") == 3:
+    if record.get("schema_version") in (3, 4):
         for name, item in schema3_items:
             if evidence_path_blobs(root, args.paths, commit=commit) != item["paths"]:
                 fail(f"committed paths differ from evidence: {name}")
@@ -7118,12 +7469,12 @@ def command_check(args):
         artifact_check(record)
 
 
-def sync_source_checkout(record, remote, remote_branch):
+def sync_source_checkout(record, remote, remote_branch, root=None):
     source = record.get("source")
     if not source:
         return {"status": "not_applicable", "reason": "no_recorded_source"}
     try:
-        checkout = Path(source["path"])
+        checkout = record_source_worktree(root or root_dir(), record)
         if not checkout.is_dir():
             return {"status": "skipped", "reason": "missing"}
         if status_paths(checkout):
@@ -7256,7 +7607,7 @@ def batch_path(root, identifier):
 
 def batch_worktree(root, identifier):
     repository = hashlib.sha256(str(common_git_dir(root).resolve()).encode()).hexdigest()[:16]
-    return Path.home() / ".local/state/dbsctr/batch-worktrees" / repository / identifier
+    return dbsctr_state_root() / "batch-worktrees" / repository / identifier
 
 
 def load_batch(root, identifier):
@@ -7453,9 +7804,7 @@ def link_improvement_pull_request(record, pull_request):
 
 
 def finish_push(root, path, record):
-    pointer = active_path(root)
-    if not pointer.exists():
-        pointer = legacy_cycle_dir(root) / "active"
+    pointer = resolved_active_path(root)
     if record["state"] == "completed":
         pointer.unlink(missing_ok=True)
         prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
@@ -7463,7 +7812,7 @@ def finish_push(root, path, record):
         return
     require_pushable(record)
     require_current_profile(root, record)
-    if record.get("schema_version") == 3:
+    if record.get("schema_version") in (3, 4):
         final_head = git(root, "rev-parse", "HEAD").stdout.strip()
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required" and gate["result"] in ("passed", "failed", "unavailable"):
@@ -7594,7 +7943,7 @@ def finish_push(root, path, record):
     save(path, record)
     source_sync = ({"status": "not_applicable", "reason": "draft_pr_delivery"}
                    if record["delivery_intent"] == "draft_pr"
-                   else sync_source_checkout(record, remote, remote_branch))
+        else sync_source_checkout(record, remote, remote_branch, root))
     record["source_sync"] = source_sync
     save(path, record)
     pointer.unlink()
@@ -8192,6 +8541,10 @@ def parser():
     begin.add_argument("--opencode-worktree")
     begin.add_argument("--harness-activation-json")
     begin.set_defaults(func=command_begin)
+    portabilize = commands.add_parser("cycle-portabilize")
+    portabilize.add_argument("--cycle-id", required=True)
+    portabilize.add_argument("--rollback", action="store_true")
+    portabilize.set_defaults(func=command_cycle_portabilize)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)

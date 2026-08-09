@@ -9,6 +9,11 @@ set -euo pipefail
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
+{{ if .dotfiles_ai.state.root -}}
+export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
+{{ else -}}
+HERMES_HOME="$HOME/.hermes"
+{{ end -}}
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
 
 pause_owned() {
@@ -30,7 +35,7 @@ exit 0
 [[ -x "$HERMES" ]] || { echo "Hermes is enabled but missing" >&2; exit 1; }
 [[ {{ .dotfiles_ai.rnd.backend | quote }} == native || {{ .dotfiles_ai.rnd.backend | quote }} == hermes ]] \
     || { echo "rnd.backend must be native or hermes" >&2; exit 1; }
-profile_home="$HOME/.hermes/profiles/$PROFILE"
+profile_home="$HERMES_HOME/profiles/$PROFILE"
 [[ -d "$profile_home" ]] || "$HERMES" profile create "$PROFILE" --description "DBSCTR context-isolated orchestration"
 mkdir -p "$profile_home/skills/dbsctr-supervisor" "$profile_home/scripts" "$state"
 chmod 700 "$profile_home" "$profile_home/scripts" "$state"

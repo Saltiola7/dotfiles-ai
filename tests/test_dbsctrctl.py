@@ -23,12 +23,20 @@ GATES = (
     "domain", "behavior", "spec", "contract", "test_driven_implementation",
     "refactor", "review_integrate", "release", "deploy", "operate", "maintain_retire",
 )
+STATE_ENVIRONMENT = {
+    "DBSCTR_RND_RECEIPTS", "DBSCTR_RND_STATE", "DBSCTR_STATE_ROOT",
+    "DBSCTR_WORKTREE_ROOT", "DOTFILES_AI_STATE_ROOT", "XDG_DATA_HOME", "XDG_STATE_HOME",
+}
+
+
+def isolated_env():
+    return {key: value for key, value in os.environ.items() if key not in STATE_ENVIRONMENT}
 
 
 def run(repo, *args, ok=True, env=None, input_text=None):
     result = subprocess.run(
         [sys.executable, str(SCRIPT), *args], cwd=repo, text=True, capture_output=True,
-        env=env, input=input_text,
+        env=isolated_env() if env is None else env, input=input_text,
     )
     if ok and result.returncode:
         raise AssertionError(f"{args}: {result.stderr}")
@@ -147,7 +155,12 @@ class DbsctrctlTest(unittest.TestCase):
         self.start()
         record = json.loads(self.record_path().read_text())
         self.assertEqual(record["method_revision"], "3.27")
-        self.assertEqual(record["schema_version"], 3)
+        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["worktree"]["locator"], {
+            "root": "cycle_worktree", "path": ".",
+        })
+        self.assertNotIn("path", record["worktree"])
+        self.assertNotIn("git_dir", record["worktree"])
         self.assertEqual(record["evidence"], {"version": 1, "items": {}})
         self.assertEqual(record["engineering_profile"]["path"], "docs/specs/test/README.md")
         self.assertRegex(record["engineering_profile"]["blob"], r"^[0-9a-f]+$")
@@ -562,6 +575,302 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
 
+    def test_schema4_managed_worktree_rebinds_to_configured_registry(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "portable-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            env=env,
+        ).stdout)
+        record_path = self.repo / ".git/dbsctr/cycles/portable-1.json"
+        record = json.loads(record_path.read_text())
+        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["worktree"]["locator"]["root"], "dbsctr_worktrees")
+        self.assertFalse(Path(record["worktree"]["locator"]["path"]).is_absolute())
+        self.assertNotIn(str(registry), json.dumps(record))
+        self.assertNotIn("git_dir", record["worktree"])
+        self.assertEqual(record["source"]["locator"], {"root": "primary_worktree", "path": "."})
+        self.assertNotIn("path", record["source"])
+
+        relocated = Path(self.temp.name) / "relocated"
+        relocated.parent.mkdir(parents=True, exist_ok=True)
+        registry.rename(relocated)
+        rebound = {**env, "DBSCTR_WORKTREE_ROOT": str(relocated)}
+        moved = relocated / Path(record["worktree"]["locator"]["path"])
+        subprocess.run(["git", "worktree", "repair", str(moved)], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.assertEqual(json.loads(run(moved, "status", "--json", env=rebound).stdout)["cycle_id"],
+                         "portable-1")
+        self.assertEqual(Path(handoff["worktree"]).name, moved.name)
+
+    def test_schema4_rejects_worktree_locator_traversal(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        record["worktree"]["locator"] = {"root": "cycle_worktree", "path": "../escape"}
+        self.record_path().write_text(json.dumps(record))
+        result = run(self.repo, "status", "--json", ok=False)
+        self.assertIn("invalid cycle worktree locator", result.stderr)
+
+    def test_status_rejects_unsafe_active_pointer(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        target = Path(self.temp.name) / "foreign-pointer"
+        target.write_text("../escape\n")
+        pointer.unlink()
+        pointer.symlink_to(target)
+        result = run(self.repo, "status", "--json", ok=False)
+        self.assertIn("active pointer is unsafe", result.stderr)
+        pointer.unlink()
+        pointer.parent.rmdir()
+        external = Path(self.temp.name) / "pointer-parent"
+        external.mkdir()
+        (external / "active").write_text("cycle-1\n")
+        pointer.parent.symlink_to(external, target_is_directory=True)
+        result = run(self.repo, "status", "--json", ok=False)
+        self.assertIn("managed DBSCTR directory is unsafe", result.stderr)
+
+    def test_schema3_cycle_record_remains_readable(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        record["schema_version"] = 3
+        record["worktree"] = {
+            "id": hashlib.sha256(str(self.repo.resolve()).encode()).hexdigest()[:16],
+            "path": str(self.repo.resolve()), "git_dir": str((self.repo / ".git").resolve()),
+            "branch": "master", "base_commit": record["git"]["head"],
+            "created_by_dbsctr": False,
+        }
+        self.record_path().write_text(json.dumps(record))
+        self.assertEqual(json.loads(run(self.repo, "status", "--json").stdout)["schema_version"], 3)
+        self.assertTrue(run(
+            self.repo, "record-evidence", "domain", "--authority", "legacy", "--",
+            sys.executable, "-c", "print('ok')",
+        ).stdout.strip())
+
+    def test_schema_less_linked_worktree_pointer_remains_readable(self):
+        self.start()
+        record = json.loads(self.record_path().read_text())
+        common_pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        common_pointer.unlink()
+        linked = Path(self.temp.name) / "linked"
+        subprocess.run(["git", "worktree", "add", "-b", "linked", str(linked), "HEAD"],
+                       cwd=self.repo, check=True, capture_output=True)
+        record.pop("schema_version")
+        record["cycle_id"] = "legacy-linked"
+        record["worktree"]["locator"] = {"root": "cycle_worktree", "path": "."}
+        git_dir_value = subprocess.run(
+            ["git", "rev-parse", "--git-dir"], cwd=linked, check=True, text=True,
+            capture_output=True,
+        ).stdout.strip()
+        linked_git = Path(git_dir_value)
+        if not linked_git.is_absolute():
+            linked_git = linked / linked_git
+        legacy = linked_git.resolve() / "dbsctr"
+        legacy.mkdir()
+        (legacy / "active").write_text("legacy-linked\n")
+        (legacy / "legacy-linked.json").write_text(json.dumps(record))
+        status = json.loads(run(linked, "status", "--json").stdout)
+        self.assertEqual(status["cycle_id"], "legacy-linked")
+
+    def test_portable_identity_rejects_incomplete_or_multiple_root_history(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_identity_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        def result(stdout):
+            return subprocess.CompletedProcess([], 0, stdout, "")
+
+        with mock.patch.object(module, "git", return_value=result("true\n")):
+            with self.assertRaisesRegex(RuntimeError, "complete Git history"):
+                module.repository_identity(self.repo)
+        with mock.patch.object(module, "git", side_effect=[
+                result("false\n"), result("a\nb\n")]):
+            with self.assertRaisesRegex(RuntimeError, "exactly one Git root"):
+                module.repository_identity(self.repo)
+        legacy = module.legacy_active_path(self.repo)
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("cycle-legacy\n")
+        with mock.patch.object(module, "active_path", side_effect=RuntimeError("incomplete history")):
+            self.assertEqual(module.resolved_active_path(self.repo), legacy)
+
+    def test_schema4_rejects_noncanonical_runtime_worktree(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        result = run(
+            self.repo, "begin", "--cycle-id", "cycle-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--opencode-session-id", "session-structured",
+            "--opencode-worktree", str(self.repo / "docs"),
+            "--opencode-directory", str(self.repo / "docs"),
+            env={**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}, ok=False,
+        )
+        self.assertIn("invalid OpenCode runtime paths", result.stderr)
+
+    def test_cycle_portabilize_is_reversible(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(registry), "--opencode-session-id", "session-legacy",
+            "--opencode-worktree", str(self.repo), "--opencode-directory", str(self.repo / "docs"),
+        ).stdout)
+        record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
+        original = json.loads(record_path.read_text())
+        self.assertEqual(original["schema_version"], 3)
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+
+        converted = json.loads(run(
+            self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env,
+        ).stdout)
+        self.assertEqual(converted, {"cycle_id": "legacy-1", "schema_version": 4})
+        portable = json.loads(record_path.read_text())
+        self.assertNotIn(original["worktree"]["path"], json.dumps(portable))
+        self.assertNotIn(original["source"]["path"], json.dumps(portable["source"]))
+        self.assertEqual(portable["runtime"]["opencode"]["path_root"], "primary_worktree")
+        self.assertEqual(json.loads(run(Path(handoff["worktree"]), "status", "--json", env=env).stdout)[
+            "schema_version"], 4)
+
+        restored = json.loads(run(
+            self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", "--rollback", env=env,
+        ).stdout)
+        self.assertEqual(restored, {"cycle_id": "legacy-1", "schema_version": 3})
+        self.assertEqual(json.loads(record_path.read_text()), original)
+
+    def test_cycle_portabilize_rejects_worktree_outside_registry(self):
+        remote = Path(self.temp.name) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(Path(self.temp.name) / "outside"))
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(Path(self.temp.name) / "registry")}
+        result = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("outside configured registry", result.stderr)
+
+    def test_cycle_portabilize_requires_owned_legacy_pointer(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(registry))
+        record = json.loads((self.repo / ".git/dbsctr/cycles/legacy-1.json").read_text())
+        pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        pointer.unlink()
+        missing = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("active pointer is missing", missing.stderr)
+        pointer.write_text("other-cycle\n")
+        foreign = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("active pointer identity changed", foreign.stderr)
+        pointer.unlink()
+        target = Path(self.temp.name) / "pointer-target"
+        target.write_text("legacy-1\n")
+        pointer.symlink_to(target)
+        unsafe = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("active pointer is unsafe", unsafe.stderr)
+        pointer.unlink()
+        pointer.write_text("legacy-1\n")
+        migrations = self.repo / ".git/dbsctr/migrations"
+        (Path(self.temp.name) / "legacy-1.schema3.json").write_text(json.dumps(record))
+        migrations.symlink_to(Path(self.temp.name), target_is_directory=True)
+        escaped = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("managed DBSCTR directory is unsafe", escaped.stderr)
+
+    def test_cycle_portabilize_recovers_interrupted_migration_and_rollback(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(registry))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_portable_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        arguments = SimpleNamespace(cycle_id="legacy-1", rollback=False)
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(module, "root_dir", return_value=self.repo), \
+                mock.patch.object(module, "write_active_pointer", side_effect=OSError("interrupted")):
+            with self.assertRaisesRegex(OSError, "interrupted"):
+                module.command_cycle_portabilize(arguments)
+        record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
+        self.assertEqual(json.loads(record_path.read_text())["schema_version"], 4)
+        run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env)
+
+        original_save = module.save
+        def interrupt_after_restore(path, value):
+            original_save(path, value)
+            if value.get("schema_version") == 3:
+                raise OSError("interrupted restore")
+
+        arguments.rollback = True
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(module, "root_dir", return_value=self.repo), \
+                mock.patch.object(module, "save", side_effect=interrupt_after_restore):
+            with self.assertRaisesRegex(OSError, "interrupted restore"):
+                module.command_cycle_portabilize(arguments)
+        self.assertEqual(json.loads(record_path.read_text())["schema_version"], 3)
+        run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", "--rollback", env=env)
+        self.assertFalse((self.repo / ".git/dbsctr/migrations/legacy-1.schema3.json").exists())
+
+    def test_cycle_portabilize_retry_revalidates_legacy_pointer(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(registry),
+        ).stdout)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_retry_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(module, "root_dir", return_value=self.repo), \
+                mock.patch.object(module, "save", side_effect=OSError("before conversion")):
+            with self.assertRaisesRegex(OSError, "before conversion"):
+                module.command_cycle_portabilize(SimpleNamespace(cycle_id="legacy-1", rollback=False))
+        record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
+        record = json.loads(record_path.read_text())
+        pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        pointer.write_text("other-cycle\n")
+        retry = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
+        self.assertIn("active pointer identity changed", retry.stderr)
+        self.assertEqual(json.loads(record_path.read_text())["schema_version"], 3)
+        stable = module.worktree_id(Path(handoff["worktree"]))
+        self.assertFalse((self.repo / ".git/dbsctr/worktrees" / stable / "active").exists())
+
     def test_attach_runtime_is_idempotent_and_worktree_bounded(self):
         self.start()
         home = Path(self.temp.name) / "attach-home"
@@ -579,7 +888,7 @@ class DbsctrctlTest(unittest.TestCase):
         """)
         connection.commit()
         connection.close()
-        env = {**os.environ, "HOME": str(home)}
+        env = {**isolated_env(), "HOME": str(home)}
         activation = json.dumps({"schema_version": 1, "core_revision": "3.29", "overlays": {
             "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
             "build-claude": "anthropic-2026-07-26",
@@ -664,7 +973,7 @@ class DbsctrctlTest(unittest.TestCase):
             "else printf '    type = %s\\n' \"$4\" >> .dvc/config.local; fi\n"
         )
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_QUERY_LOG": str(query_log)}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_QUERY_LOG": str(query_log)}
         handoff = json.loads(run(
             linked_source, "begin", "--cycle-id", "isolated-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
@@ -997,7 +1306,7 @@ class DbsctrctlTest(unittest.TestCase):
         outside = Path(self.temp.name) / "outside"
         outside.mkdir()
         (registry / "escape").symlink_to(outside, target_is_directory=True)
-        env = {**os.environ, "DBSCTR_WORKTREE_ROOT": str(registry)}
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         inventory = json.loads(run(self.repo, "worktree-list", "--all", "--json", env=env).stdout)
         self.assertEqual(len(inventory["repositories"]), 2)
         self.assertNotIn(str(self.temp.name), json.dumps(inventory))
@@ -2078,7 +2387,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
         home = Path(self.temp.name) / "home"
         home.mkdir()
-        worker_env = {**os.environ, "HOME": str(home)}
+        worker_env = {**isolated_env(), "HOME": str(home)}
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         run(self.repo, "improvement-claim", "--session-id", "session-1",
@@ -2223,7 +2532,7 @@ class DbsctrctlTest(unittest.TestCase):
         fake_dvc.write_text("#!/bin/sh\nprintf '<%s>\\n' \"$@\" > \"$DVC_LOG\"\nprintf 'changed data.dvc\\n'\n")
         fake_dvc.chmod(0o755)
         dvc_log = Path(self.temp.name) / "dvc.log"
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_LOG": str(dvc_log)}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}", "DVC_LOG": str(dvc_log)}
         result = run(self.repo, "final-push", ok=False, env=env)
         self.assertIn("changed or missing", result.stderr)
         self.assertEqual(dvc_log.read_text().splitlines(), ["<status>", "<data.dvc>"])
@@ -2255,7 +2564,7 @@ class DbsctrctlTest(unittest.TestCase):
         fake_dvc = fake_bin / "dvc"
         fake_dvc.write_text("#!/bin/sh\nexit 99\n")
         fake_dvc.chmod(0o755)
-        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        env = {**isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}"}
         run(self.repo, "final-push", env=env)
 
     def test_review_scan_is_read_only_and_completion_excludes_reviewed(self):
@@ -2814,7 +3123,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlation_rejects_ambiguous_source_checkout(self):
         self.start()
         first = json.loads(self.record_path().read_text())
-        first["worktree"]["path"] = str(Path(self.temp.name) / "removed-worktree")
+        first["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "removed-worktree"}
         first["source"] = {"path": str(self.repo)}
         first["gates"]["domain"]["result"] = "failed"
         self.record_path().write_text(json.dumps(first))
@@ -2832,7 +3141,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlates_structured_session_without_path_match(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        record["worktree"]["path"] = str(Path(self.temp.name) / "other")
+        record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "other"}
         record["source"] = {"path": str(Path(self.temp.name) / "source")}
         record["runtime"] = {"opencode": {"session_ids": ["session-linked"]}}
         self.record_path().write_text(json.dumps(record))
@@ -2859,7 +3168,7 @@ class DbsctrctlTest(unittest.TestCase):
         second = json.loads(json.dumps(first))
         second["cycle_id"] = "cycle-2"
         second["runtime"] = {"opencode": {"session_ids": ["other-root"]}}
-        second["worktree"]["path"] = str(Path(self.temp.name) / "other-worktree")
+        second["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "other-worktree"}
         second["source"] = {"path": str(self.repo)}
         (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_tiered_cycle_module", str(SCRIPT))
@@ -2905,9 +3214,9 @@ class DbsctrctlTest(unittest.TestCase):
                                      "risk": "routine", "delivery_intent": "local"}])
         self.assertEqual(quality, "worktree")
 
-        first["worktree"]["path"] = str(Path(self.temp.name) / "missing-one")
+        first["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "missing-one"}
         self.record_path().write_text(json.dumps(first))
-        second["worktree"]["path"] = str(Path(self.temp.name) / "missing-two")
+        second["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "missing-two"}
         (self.record_path().parent / "cycle-2.json").write_text(json.dumps(second))
         ambiguous, quality = module.correlated_cycles(
             str(self.repo), set(), set(), exact_session_id="unlinked", with_quality=True,
@@ -2919,7 +3228,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.start()
         record = json.loads(self.record_path().read_text())
         record["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
-        record["worktree"]["path"] = str(Path(self.temp.name) / "missing")
+        record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "missing"}
         self.record_path().write_text(json.dumps(record))
         database = Path(self.temp.name) / "recursive-family.db"
         connection = __import__("sqlite3").connect(database)
@@ -4575,7 +4884,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps(readiness), ok=False,
-            env={**os.environ, "HOME": str(readiness_home)},
+            env={**isolated_env(), "HOME": str(readiness_home)},
         )
         self.assertIn("autonomous readiness evidence is unavailable", unavailable.stderr)
         scheduler.parent.mkdir(parents=True)
@@ -4605,7 +4914,7 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "improvement-update", "--state-root", str(state),
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps(readiness),
-            env={**os.environ, "HOME": str(readiness_home)},
+            env={**isolated_env(), "HOME": str(readiness_home)},
         ).stdout)
         self.assertEqual((autonomous["priority"], autonomous["state"]), ("P3", "discovery"))
         self.assertEqual(autonomous["authorization"], "autonomous")
@@ -4642,7 +4951,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--worker-id", "worker-5", "--state", "discovery", "--autonomous",
             "--readiness-json", json.dumps({**readiness, "session_id": "session-5b",
                                              "opportunity_id": replacement["opportunity_id"]}),
-            env={**os.environ, "HOME": str(readiness_home)}, ok=False,
+            env={**isolated_env(), "HOME": str(readiness_home)}, ok=False,
         )
         self.assertIn("evidence does not match the worker", stale.stderr)
         run(self.repo, "improvement-claim", "--state-root", str(state),
@@ -4710,7 +5019,7 @@ class DbsctrctlTest(unittest.TestCase):
                 "delivery": {"branch": branch, "published_feature_head": sha},
             }))
         subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
-        env = {**os.environ, "HOME": str(Path(self.temp.name) / "home")}
+        env = {**isolated_env(), "HOME": str(Path(self.temp.name) / "home")}
         created = json.loads(run(
             self.repo, "batch-create", "--batch-id", "batch-1",
             "--github-account", "owner", "--github-repository", "owner/repo", env=env,

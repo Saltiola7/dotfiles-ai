@@ -1,4 +1,5 @@
 import json
+import plistlib
 import subprocess
 from pathlib import Path
 
@@ -123,3 +124,74 @@ def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
     assert result.returncode == 1
     assert "run 'herdr server stop', then rerun chezmoi apply" in result.stderr
     assert calls.read_text().splitlines() == ["launchctl print", "herdr status server --json"]
+
+
+def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
+    values = {"dotfiles_ai": {"state": {"root": "/Volumes/ext/state"}}}
+    base = [
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+        "--config-format", "toml", "--override-data", json.dumps(values),
+    ]
+    config = subprocess.run(
+        [*base, "cat", str(Path.home() / ".config/herdr/config.toml")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert '[worktrees]\ndirectory = "/Volumes/ext/state/herdr/worktrees"' in config
+
+    expected = {
+        "DOTFILES_AI_STATE_ROOT": "/Volumes/ext/state",
+        "XDG_DATA_HOME": "/Volumes/ext/state/xdg/data",
+        "XDG_STATE_HOME": "/Volumes/ext/state/xdg/state",
+        "DBSCTR_STATE_ROOT": "/Volumes/ext/state/dbsctr",
+        "DBSCTR_WORKTREE_ROOT": "/Volumes/ext/state/dbsctr/worktrees",
+        "DBSCTR_RND_STATE": "/Volumes/ext/state/dbsctr/rnd/dbsctr-rnd.sqlite3",
+        "DBSCTR_RND_RECEIPTS": "/Volumes/ext/state/dbsctr/rnd/receipts",
+        "HERMES_HOME": "/Volumes/ext/state/hermes",
+    }
+    for name in ("herdr-server", "dbsctr-spawner", "dbsctr-watchdog"):
+        rendered = subprocess.run(
+            [*base, "execute-template", "--file",
+             str(ROOT / f"private_Library/LaunchAgents/dev.dotfiles-ai.{name}.plist.tmpl")],
+            text=True, capture_output=True, check=True,
+        ).stdout
+        assert plistlib.loads(rendered.encode())["EnvironmentVariables"].items() >= expected.items()
+
+
+def test_native_state_does_not_render_centralized_environment() -> None:
+    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl").read_text()
+    config = (ROOT / "private_dot_config/herdr/config.toml.tmpl").read_text()
+    assert "DOTFILES_AI_STATE_ROOT" not in subprocess.run(
+        ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml", "cat",
+         str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert "[worktrees]" not in subprocess.run(
+        ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml", "cat",
+         str(Path.home() / ".config/herdr/config.toml")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert "DOTFILES_AI_STATE_ROOT" in plist and "[worktrees]" in config
+
+
+def test_centralized_state_scopes_opencode_runtime_environment() -> None:
+    values = {"dotfiles_ai": {"state": {"root": "/Volumes/ext/state"}}}
+    rendered = subprocess.run(
+        ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+         "--override-data", json.dumps(values), "cat", str(Path.home() / ".local/bin/opencode")],
+        text=True, capture_output=True, check=True,
+    ).stdout
+    assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
+    assert 'export DBSCTR_WORKTREE_ROOT="/Volumes/ext/state/dbsctr/worktrees"' in rendered
+    assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
+    assert "exec /opt/homebrew/bin/opencode" in rendered
+    assert ".dotfiles-ai-state" in rendered
+
+
+def test_centralized_state_guard_fails_closed() -> None:
+    guard = ROOT / "dot_local/bin/executable_state-root-exec"
+    result = subprocess.run(
+        ["bash", str(guard), "true"], text=True, capture_output=True,
+        env={"DOTFILES_AI_STATE_ROOT": "/definitely/missing/state"},
+    )
+    assert result.returncode == 75
+    assert "state root is unavailable" in result.stderr
