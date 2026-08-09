@@ -101,7 +101,7 @@ Adjacent contexts:
 | Final Push | One push of completed cycle commits to the feature branch plus a verified draft pull request into the Protected Base Branch. |
 | Push Readiness | Verified branch, upstream, clean worktree, passing evidence, and no unrelated pre-cycle commits included. |
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
-| Worktree Identity | Stable hash of a cycle worktree's canonical path, used to isolate its active pointer. |
+| Worktree Identity | Stable hash of repository history identity and branch, used to isolate a cycle's active pointer without encoding a machine path. |
 | Delivery Target Lock | Nonblocking local lock serializing readiness checks and delivery to one upstream target. |
 | Artifact Review | A recorded decision that README, BACKLOG, and CHANGELOG are accurate, including an explicit no-change reason where applicable. |
 | Gate Applicability | Whether a gate is `required` or `not_applicable`, with rationale. |
@@ -1849,9 +1849,29 @@ request. If the target is already integrated, reconciliation makes no change.
 | Interaction | required: protected-delivery sequence | How does evidence reach protected delivery when the target advances? | Development Kernel and Final Push contracts | Lifecycle owner; gate or delivery ordering changes |
 | State | required: state diagram | Which gate transitions and reopen paths are legal? | Gate Ledger Contract | Lifecycle owner; gate transition changes |
 | Data/trust | required: context flowchart and Text Equivalent | Which state is public, local, or external? | Artifact Lifecycle and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
-| Schema | not_applicable: Cycle Record JSON and tables are authoritative and a second schema view would duplicate them | - | Cycle Record Interface | Lifecycle owner; schema remains textual |
+| Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
 | Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
 | Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
+
+```mermaid
+flowchart LR
+    accTitle: Portable Cycle Record locator resolution
+    accDescr: New schema-4 cycle records resolve a relative locator against either the current cycle worktree or the configured DBSCTR worktree registry. Existing schema-1 through schema-3 records continue resolving their stored absolute paths. Explicit conversion retains an exact schema-3 rollback record until rollback is used.
+    R[Cycle Record] -->|Schema 4| L{Locator root}
+    L -->|cycle_worktree| C[Current cycle worktree]
+    L -->|dbsctr_worktrees| W[Configured worktree registry]
+    R -->|Schemas 1 to 3| A[Stored absolute path]
+    A -->|Explicit cycle-portabilize| B[Exact schema-3 rollback record]
+    B -->|Write schema 4| L
+    B -->|Explicit rollback| A
+```
+
+**Text Equivalent:** Schema-4 records contain a validated relative locator. A
+low-level cycle resolves `.` against its current worktree; a DBSCTR-created cycle
+resolves its path beneath `DBSCTR_WORKTREE_ROOT`. Traversal and registry escape
+fail closed. Schemas 1 through 3 retain their absolute-path read behavior. The
+explicit conversion command saves the exact schema-3 record before writing schema
+4, and explicit rollback restores that record and its active pointer.
 
 Mermaid source and Text Equivalents are maintained with this README. The
 `dbsctr_v3_lifecycle` owner reviews them whenever routing, gate state, persistence,
@@ -2022,8 +2042,9 @@ tool and provider examples and load only when useful.
   evidence, exceptions, commits, deployment, and intended Final Push target.
 - The actual Final Push result is written to the local Cycle Record and final
   response because it cannot truthfully appear in a commit made before that push.
-- Active Cycle Records stay beneath `.git/dbsctr/`; they are not portable or
-  durable authority.
+- Active Cycle Records stay beneath `.git/dbsctr/`. Schema-4 location fields are
+  portable across configured registry moves, but Cycle Records are still local
+  operational state rather than durable repository authority.
 
 ### Visual Specification Contract
 
@@ -2184,7 +2205,7 @@ Engineering Profile identity, applicability plan, Git baseline, current state,
 gates, Evidence Envelopes, Artifact Reviews, and created commits. Commands are `begin`, `start`,
 `status`, `audit`, `review-artifact`, `set-applicability`, `set-gate`,
 user-confirmed `approve-exception`, `record-dvc-push`, `record-evidence`, `raise-risk`,
-`update-plan`, `check artifacts`, `gate-commit`, `final-push`, and `cleanup`.
+`update-plan`, `cycle-portabilize`, `check artifacts`, `gate-commit`, `final-push`, and `cleanup`.
 `update-plan` rebinds a committed profile using an equal or stricter plan. It
 may recover unrecorded first-parent commits only when each changes exactly that
 Engineering Profile; every other unrecorded commit fails closed.
@@ -2215,6 +2236,26 @@ Method Revision `3.8` creates schema version `3` records with an Evidence Envelo
 collection; old records retain their original transition and evidence semantics.
 Method Revisions `3.9` through `3.27` retain schema version `3`; new records use
 the helper's single `CURRENT_METHOD_REVISION = "3.27"` constant.
+
+Schema version `4` removes persisted machine paths from new portable records.
+DBSCTR-created worktrees store a traversal-safe path relative to
+`DBSCTR_WORKTREE_ROOT`; low-level cycles store `.` relative to the current cycle
+worktree. Worktree identity derives from repository history identity and branch,
+Git administration paths are derived, source checkout identity resolves through
+Git's primary worktree, and OpenCode runtime paths are relative to the cycle or
+primary worktree. State roots resolve in order from explicit command input,
+`DBSCTR_STATE_ROOT` or `DBSCTR_WORKTREE_ROOT`, `DOTFILES_AI_STATE_ROOT`, XDG state,
+then native home-directory defaults. OpenCode data follows `XDG_DATA_HOME`.
+Traversal, registry escape, and identity drift fail closed.
+
+Schemas `1` through `3` remain readable without implicit rewriting.
+`cycle-portabilize --cycle-id ID` converts only a named active schema-3 cycle
+whose worktree is inside the configured registry and whose worktree, branch,
+source, and runtime paths can be proven. It retains an exact local schema-3
+rollback record. `--rollback` restores that record and its active pointer, then
+consumes the rollback file. Arbitrary custom worktree roots continue creating
+schema-3 records unless the root is explicitly configured, because an unnamed
+root cannot be rebound safely after relocation.
 
 Final Push acquires a nonblocking lock derived from push URL and upstream before
 readiness evaluation and holds it through push verification and completion.
@@ -2250,7 +2291,7 @@ default. Cleanup must run from another worktree and requires a completed record,
 a clean cycle worktree, and proof that every cycle commit is contained in the
 delivery target. `--now` waives only the retention delay. Failed, active, dirty,
 missing-target, or current worktrees are never removed.
-For schema-3 cycles, cleanup parks evidence with retryable state, removes it, and
+For schema-3 and schema-4 cycles, cleanup parks evidence with retryable state, removes it, and
 then removes the retained Cycle Record. Schema-less/schema-1/schema-2 cleanup
 continues retaining records.
 
