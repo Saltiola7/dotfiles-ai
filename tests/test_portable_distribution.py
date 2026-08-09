@@ -36,6 +36,7 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
+                "lima_home": "/Volumes/ext/state/lima",
                 "cpus": 4,
                 "memory_gib": 8,
                 "disk_gib": 60,
@@ -91,6 +92,11 @@ def test_local_data_renders_complete_configs() -> None:
         "location": "global",
         "googleAuthOptions": {"keyFilename": "/tmp/example-adc.json"},
     }
+
+    sandbox = json.loads(
+        chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
+    )
+    assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
 

@@ -33,6 +33,7 @@ def config(tmp_path: Path) -> dict:
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
+        "lima_home": "",
         "tailscale": {"enabled": False, "ssh": False},
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
@@ -336,6 +337,26 @@ def test_workspace_paths_are_explicit_and_non_overlapping(tmp_path: Path) -> Non
     })
     with pytest.raises(ValueError, match="reference"):
         helper.validate_config(values)
+
+
+def test_lima_home_is_optional_absolute_machine_data(tmp_path: Path, capsys) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["lima_home"] = "relative/lima"
+    with pytest.raises(ValueError, match="Lima home"):
+        helper.validate_config(values)
+
+    values["lima_home"] = str(tmp_path / "lima")
+    helper.load_config = lambda: values
+    with mock.patch.dict(os.environ, {}, clear=True):
+        helper.main(["build-workspace"], "sandbox-vm")
+        assert os.environ["LIMA_HOME"] == values["lima_home"]
+    assert capsys.readouterr().out.strip() == "workspace1"
+
+    values["lima_home"] = ""
+    with mock.patch.dict(os.environ, {"LIMA_HOME": "/inherited"}, clear=True):
+        helper.main(["build-workspace"], "sandbox-vm")
+        assert os.environ["LIMA_HOME"] == "/inherited"
 
 
 def test_workspace_aliases_are_unique_and_cannot_shadow_controller(tmp_path: Path) -> None:

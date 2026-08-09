@@ -151,6 +151,9 @@ def validate_config(value):
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
+    lima_home = value.setdefault("lima_home", "")
+    if not isinstance(lima_home, str) or lima_home and not Path(lima_home).is_absolute():
+        raise ValueError("invalid Lima home")
     if not isinstance(value.get("template"), str) or not value["template"].startswith("/"):
         raise ValueError("invalid workspace template")
     resources = value.get("resources")
@@ -941,6 +944,8 @@ def main(argv=None, invocation=None):
     config = config or load_config()
     if not config.get("enabled", True):
         raise SystemExit("OpenCode VM management is disabled")
+    if config["lima_home"]:
+        os.environ["LIMA_HOME"] = config["lima_home"]
     if args.command == "review":
         state = json.loads(args.source_state_json) if args.source_state_json else None
         filters = {key: getattr(args, key) for key in QUERY_KEYS}

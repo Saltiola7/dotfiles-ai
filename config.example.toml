@@ -82,6 +82,8 @@ keychain_service = "op-service-account-token"
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 enabled = false
 build_workspace = "workspace1"
+# Optional machine-local Lima state root. Empty keeps Lima's native default.
+lima_home = ""
 cpus = 4
 memory_gib = 8
 disk_gib = 60

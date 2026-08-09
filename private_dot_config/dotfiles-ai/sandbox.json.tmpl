@@ -4,6 +4,7 @@
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
   "build_workspace": {{ .dotfiles_ai.sandbox.build_workspace | toJson }},
+  "lima_home": {{ .dotfiles_ai.sandbox.lima_home | toJson }},
   "tailscale": {
     "enabled": {{ .dotfiles_ai.tailscale.enabled | toJson }},
     "ssh": {{ .dotfiles_ai.tailscale.ssh | toJson }}
