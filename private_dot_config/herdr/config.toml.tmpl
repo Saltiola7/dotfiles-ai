@@ -10,4 +10,7 @@ scrollback_limit_bytes = 10000000
 name = {{ .dotfiles_ai.herdr.theme | quote }}
 
 [ui]
-agent_panel_sort = {{ .dotfiles_ai.herdr.agent_panel_sort | quote }}
+agent_panel_sort = {{ .dotfiles_ai.herdr.agent_panel_sort | quote }}{{ if .dotfiles_ai.state.root }}
+[worktrees]
+directory = {{ printf "%s/herdr/worktrees" .dotfiles_ai.state.root | quote }}
+{{ end }}

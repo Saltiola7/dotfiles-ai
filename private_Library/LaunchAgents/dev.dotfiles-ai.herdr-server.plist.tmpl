@@ -17,7 +17,22 @@
         <key>LC_CTYPE</key>
         <string>en_US.UTF-8</string>
         <key>PATH</key>
-        <string>{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>{{ if .dotfiles_ai.state.root }}
+        <key>DOTFILES_AI_STATE_ROOT</key>
+        <string>{{ .dotfiles_ai.state.root | html }}</string>
+        <key>XDG_DATA_HOME</key>
+        <string>{{ printf "%s/xdg/data" .dotfiles_ai.state.root | html }}</string>
+        <key>XDG_STATE_HOME</key>
+        <string>{{ printf "%s/xdg/state" .dotfiles_ai.state.root | html }}</string>
+        <key>DBSCTR_STATE_ROOT</key>
+        <string>{{ printf "%s/dbsctr" .dotfiles_ai.state.root | html }}</string>
+        <key>DBSCTR_WORKTREE_ROOT</key>
+        <string>{{ printf "%s/dbsctr/worktrees" .dotfiles_ai.state.root | html }}</string>
+        <key>DBSCTR_RND_STATE</key>
+        <string>{{ printf "%s/dbsctr/rnd/dbsctr-rnd.sqlite3" .dotfiles_ai.state.root | html }}</string>
+        <key>DBSCTR_RND_RECEIPTS</key>
+        <string>{{ printf "%s/dbsctr/rnd/receipts" .dotfiles_ai.state.root | html }}</string>
+{{ end }}
     </dict>
     <key>LimitLoadToSessionType</key>
     <string>Aqua</string>

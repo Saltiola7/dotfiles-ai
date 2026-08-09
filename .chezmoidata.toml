@@ -1,6 +1,9 @@
 [dotfiles_ai.distribution]
 repository = "https://github.com/Saltiola7/dotfiles-ai.git"
 
+[dotfiles_ai.state]
+root = ""
+
 [dotfiles_ai.opencode]
 vertex_project = ""
 vertex_location = "global"

@@ -112,7 +112,9 @@
         "dbsctr_provider_evaluation_save": "allow",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
-          "~/.config/dotfiles-ai/**": "allow"
+{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
+          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end }}          "~/.config/dotfiles-ai/**": "allow"
         }
       }
     },
@@ -214,6 +216,9 @@
       "*": "deny",
       "~/.local/state/dbsctr/worktrees": "allow",
       "~/.local/state/dbsctr/worktrees/**": "allow",
+{{ if .dotfiles_ai.state.root }}      {{ .dotfiles_ai.state.root | toJson }}: "allow",
+      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end -}}
 {{- $first := true -}}
 {{- range $name, $reference := $references }}
       {{ if not $first }},{{ end }}{{ $reference.path | toJson }}: "allow",
@@ -224,7 +229,9 @@
     "external_directory": {
       "*": "deny",
       "~/.local/state/dbsctr/worktrees": "allow",
-      "~/.local/state/dbsctr/worktrees/**": "allow"
+      "~/.local/state/dbsctr/worktrees/**": "allow"{{ if .dotfiles_ai.state.root }},
+      {{ .dotfiles_ai.state.root | toJson }}: "allow",
+      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow"{{ end }}
     },
 {{ end -}}
     "bash": {
