@@ -516,7 +516,7 @@ def status_report(config, execute=command, lima_root=None):
         running = _parse_states(execute(["limactl", "list", "--json"]))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         running = {}
-    root = lima_root or Path.home() / ".lima"
+    root = lima_root or Path(config["lima_home"] or Path.home() / ".lima")
     workspaces = {}
     for workspace in config["workspaces"]:
         name = workspace["name"]

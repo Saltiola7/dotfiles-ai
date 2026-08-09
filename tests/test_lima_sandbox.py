@@ -812,7 +812,9 @@ def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
     def execute(_argv, **_kwargs):
         return json.dumps([{"name": "workspace1-sandbox", "status": "Running"}])
 
-    result = helper.status_report(config(tmp_path), execute=execute, lima_root=tmp_path)
+    values = config(tmp_path)
+    values["lima_home"] = str(tmp_path)
+    result = helper.status_report(values, execute=execute)
     assert result["host_free_bytes"] > 0
     assert result["workspaces"]["workspace1"]["running"] is True
     assert result["workspaces"]["workspace1"]["allocated_bytes"] > 0
