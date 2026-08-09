@@ -390,8 +390,16 @@ def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, m
     helper = load_helper()
     values = config(tmp_path)
     calls = []
+    locks = []
     monkeypatch.setattr(helper, "load_config", lambda: values)
     monkeypatch.setattr(helper, "command", lambda argv, timeout=30, input_data=None: calls.append((argv, timeout)) or "")
+    class Lock:
+        def __enter__(self):
+            locks.append("enter")
+
+        def __exit__(self, *_args):
+            locks.append("exit")
+    monkeypatch.setattr(helper, "_instance_lock", lambda root, instance: Lock())
 
     helper.main(["start", "workspace1"], invocation="sandbox-vm")
     helper.main(["stop", "workspace1"], invocation="sandbox-vm")
@@ -400,6 +408,7 @@ def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, m
         (["limactl", "start", "workspace1-sandbox"], 120),
         (["limactl", "stop", "workspace1-sandbox"], 120),
     ]
+    assert locks == ["enter", "exit", "enter", "exit"]
 
 
 def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
@@ -819,6 +828,10 @@ def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
     assert result["workspaces"]["workspace1"]["running"] is True
     assert result["workspaces"]["workspace1"]["allocated_bytes"] > 0
     assert result["workspaces"]["workspace2"]["allocated_bytes"] is None
+
+    values["lima_home"] = ""
+    with mock.patch.dict(os.environ, {"LIMA_HOME": str(tmp_path)}, clear=True):
+        assert helper.status_report(values, execute=execute)["host_free_bytes"] == result["host_free_bytes"]
 
 
 def test_general_controller_exposes_no_handoff_command() -> None:

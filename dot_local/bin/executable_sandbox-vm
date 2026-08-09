@@ -516,7 +516,7 @@ def status_report(config, execute=command, lima_root=None):
         running = _parse_states(execute(["limactl", "list", "--json"]))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         running = {}
-    root = lima_root or Path(config["lima_home"] or Path.home() / ".lima")
+    root = lima_root or Path(config["lima_home"] or os.environ.get("LIMA_HOME", "") or Path.home() / ".lima")
     workspaces = {}
     for workspace in config["workspaces"]:
         name = workspace["name"]
@@ -528,7 +528,7 @@ def status_report(config, execute=command, lima_root=None):
         }
     return {
         "schema_version": 1,
-        "host_free_bytes": shutil.disk_usage(Path.home()).free,
+        "host_free_bytes": shutil.disk_usage(root).free if root.exists() else None,
         "workspaces": workspaces,
     }
 
@@ -991,7 +991,9 @@ def main(argv=None, invocation=None):
         print(json.dumps({"workspace": args.workspace, "status": "enrolled"}, sort_keys=True))
         return
     if args.command in {"start", "stop"}:
-        command(["limactl", args.command, workspace["instance"]], timeout=120)
+        lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+        with _instance_lock(lock_root, workspace["instance"]):
+            command(["limactl", args.command, workspace["instance"]], timeout=120)
         return
     if args.command == "create":
         for mount in workspace["mounts"]:
