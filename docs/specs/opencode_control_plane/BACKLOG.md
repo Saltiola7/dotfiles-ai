@@ -5,6 +5,7 @@
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
 | OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
+| OCP-33 | Route low-impact OpenAI work to Luna | high | in_progress | - | Small-model default, OpenAI Explore model, routing contract | Provider metadata, existing provider-affine prompts and permissions | yes | Titles and read-only discovery can use the cost tier without weakening implementation or review | S | Rendered config, exact agent contract, portable defaults, affected QA |
 
 ## Completed
 
