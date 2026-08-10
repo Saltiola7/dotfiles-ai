@@ -4,7 +4,6 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| DAI-024 | Move self-hosted Atuin from Colima to rootless Podman in one selected always-on Fedora workspace | high | in_progress | DAI-013, DAI-023 | Workspace selection, private Lima forwarding, rootless Quadlet, guarded host startup, migration and rollback | Existing Atuin server contract, workspace controller, machine-local sandbox data | no | Live SQLite WAL data and the stable tailnet endpoint require ordered cold migration and rollback retention | M | Focused rendering/controller tests, Lima validation, Quadlet validation, cold restore, health, three-client sync, denied registration, restart and rollback smoke |
 | DAI-004-F1 | Record the first complete real 30-day benchmark effect | medium | pending | V3.25-1 | One immutable effect-finalized event and distribution completion evidence | Verified activation time, retained benchmark, DAI-004 analytics contract | no | Synthetic and incomplete-window evidence cannot establish the first real post-activation outcome; run only after the verified activation plus 30 days and not before 2026-08-18 | S | `dbsctr-rnd analytics --json`, deterministic benchmark replay, exactly-once effect finalization, and BACKLOG/CHANGELOG closure |
 | DAI-012-F1 | Record the first real provider-native five-cycle report | medium | pending | DAI-012 | One immutable report and operational evidence | Five unused completed cycles under one exact activated harness identity | no | The helper must wait for the normal weekly run and cannot manufacture or loosen eligibility | S | Exact five-member replay, availability/confounders, and no automatic harness mutation |
 
@@ -12,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-024 | Moved self-hosted Atuin from Colima to pinned rootless Podman in the selected always-on Fedora workspace with private forwarding, guarded external-home startup, cold restore, and retained rollback | 2026-08-09 | `8e669d5` |
 | DAI-023 | Added an opt-in absolute Lima home, serialized bounded lifecycle, effective-filesystem capacity reporting, and migration guidance without changing teammate defaults | 2026-08-09 | `4a795ea..a01c4a1` |
 | DAI-021 | Delivered six independent continuous R&D lenses, isolated review-session governance, session-bound telemetry and readiness, controlled live pass validation, and five-minute Hermes scheduling | 2026-08-02 | `560650d..1e86bc8` |
 | DAI-016-F3 | Preserved bounded process-group cleanup through release failure and exited-leader races | 2026-07-31 | `5aa248a..857e7af` |

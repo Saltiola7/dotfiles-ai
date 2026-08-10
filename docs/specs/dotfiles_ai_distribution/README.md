@@ -181,7 +181,7 @@ The completed DAI-016-F1 applicability plan is retained at
 |---|---|
 | Risk | Elevated: migrates live encrypted history service state and changes its VM, container runtime, startup, and loopback ingress |
 | Delivery intent | Deploy rootless Podman Atuin to the selected personal Fedora workspace, retain stopped Colima rollback, and deliver a draft pull request |
-| Scope | One machine-local Atuin workspace selector, private Lima forwarding, rootless Quadlet and named volume, guarded host startup, cold migration, health/sync validation, and rollback |
+| Scope | One machine-local Atuin workspace selector, private Lima forwarding, rootless Quadlet and named volume, external-home-aware guarded startup, cold migration, health/sync validation, and rollback |
 | Overrides | Shared defaults select no server; exactly one configured workspace may be selected; public endpoint and client identity remain unchanged; Colima remains installed and retained until a later explicit retirement |
 
 ## Bounded Context
@@ -337,18 +337,24 @@ feature branch with a draft pull request; the operator retains merge authority.
   host `127.0.0.1:8889` and enables the rootless Podman Atuin service.
 - Given an unknown or invalid Atuin workspace selector, when configuration is
   validated, then the controller fails before invoking Lima or Podman.
+- Given the selected Atuin workspace uses an external Lima home, when
+  configuration is validated, then that home must be contained by the configured
+  state root whose sentinel guards host startup.
 - Given the selected workspace boots, when the lingering user manager starts,
   then systemd starts pinned Atuin with closed registration and a Linux-native
   Podman named volume; no project path is mounted into the container.
-- Given the external state sentinel is unavailable, when launchd invokes guarded
-  startup, then the personal workspace is not started and no internal Lima state
-  is created.
+- Given the selected workspace is configured, when guarded login startup runs,
+  then it verifies the external-state sentinel and starts `limactl --foreground`
+  with the configured external `LIMA_HOME`.
 - Given Colima still serves production during migration, when Podman validation
   runs, then it uses host loopback port `8889`; the stable tailnet endpoint moves
   only after cold restore, health, authentication, decryption, and sync pass.
 - Given Podman cutover fails, when rollback is requested, then Tailscale Serve can
   return to Colima on host port `8888` while clients retain unsynchronized local
   records.
+- Given the selector is cleared, when managed reconciliation runs, then it stops
+  and removes the owned Quadlet definitions, unloads and removes the owned
+  LaunchAgent, removes only the exact Atuin forward, and retains the named volume.
 
 ### Canonical Backlog Refinement
 
@@ -626,8 +632,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given a protected submodule manifest is stale, a read-only overlay is absent,
   or unrestricted passwordless sudo is available, then sandbox startup fails
   closed before an auto-approved agent runs.
-- The dedicated guest agent account cannot execute `/usr/bin/sudo`; root-owned
-  provisioning remains the only privileged mutation path.
+- The dedicated guest agent account may use passwordless sudo only for Lima's
+  exact read of `/mnt/lima-cidata/param.env`; every other sudo command remains
+  denied and root-owned provisioning remains the only privileged mutation path.
 - Given the operator detaches, then VM Herdr keeps panes running. Given a clean
   VM stop and restart, then VM Herdr restores layout and resumes the exact
   OpenCode session with auto-approval still effective.
@@ -635,7 +642,8 @@ feature branch with a draft pull request; the operator retains merge authority.
   auto-approves permissions not explicitly denied. Host OpenCode behavior is
   unchanged.
 - On every guest boot, a root oneshot waits for the declared virtiofs mounts,
-  reapplies configured read-only overlays, verifies effective sudo denial, and only then
+  reapplies configured read-only overlays, verifies the one-command Lima sudo
+  grant and general sudo denial, and only then
   publishes the boot-scoped readiness marker required by OpenCode.
 - Given a workspace declares a shell alias, when chezmoi applies the host
   configuration, then that command enters the configured workspace exactly as
@@ -700,6 +708,8 @@ feature branch with a draft pull request; the operator retains merge authority.
   configured workspace name. The generated schema is version `4`; the selected
   guest alone receives `server_enabled=true` and the `8889`-to-`8888` loopback
   forward.
+- A non-empty `atuin_workspace` requires non-empty absolute `state.root` and
+  `lima_home`, with the Lima home contained by the guarded state root.
 - Shared defaults disable Lima management. Machine-local sandbox data declares
   instance names, host mount roots, protected repository and submodule manifest,
   resource ceilings, and repository-scoped identities without credentials.
@@ -712,6 +722,12 @@ feature branch with a draft pull request; the operator retains merge authority.
 - `sandbox-vm configure-atuin` owns the existing-instance migration for the
   selected workspace. It preserves prior stopped/running state around one
   noninteractive `limactl edit`, including recovery restart when editing fails.
+  It preserves unrelated port forwards, rejects a conflicting host port `8889`,
+  and removes only its exact owned rule during disable.
+- The selected workspace LaunchAgent executes `limactl start --foreground`
+  through the external-state sentinel guard and sets the configured absolute
+  `LIMA_HOME`. This narrow launcher exists because Lima's generated autostart
+  plist omits a non-default Lima home.
 - A generated workspace alias with no arguments routes to
   `sandbox-vm shell WORKSPACE herdr`; explicit alias arguments replace `herdr`.
   The controller's direct shell command remains unchanged.
@@ -728,10 +744,12 @@ feature branch with a draft pull request; the operator retains merge authority.
   to every workspace. Authentication, session, and encryption material is never
   rendered, copied between trust boundaries, or committed.
 - `[dotfiles_ai.atuin].server_enabled` is generated only for guest role selection
-  and defaults false. When true, user systemd owns `atuin.service`, Quadlet pins
+  and defaults false. When true, user systemd owns generated `atuin.service`, Quadlet pins
   `ghcr.io/atuinsh/atuin:18.17.1`, registration defaults closed, SQLite uses
   `sqlite:///config/atuin.db`, and `atuin-data.volume` remains on the Linux guest
-  filesystem. The container receives no workspace mount.
+  filesystem. The container receives no workspace mount. Quadlet content hashes
+  trigger daemon reload and service restart; disable removes only the owned unit
+  definitions and retains the data volume.
 - `[dotfiles_ai.tailscale]` contains only `enabled` and `ssh`, both defaulting to
   false. It contains no auth key, tag, peer name, account, tailnet, or secret
   reference. Existing local TOML inherits the disabled shared defaults.
@@ -742,8 +760,8 @@ feature branch with a draft pull request; the operator retains merge authority.
   `--tun=userspace-networking` with private state and socket directories. It then
   invokes `tailscale up --auth-key=file:/dev/stdin` against that socket. The key
   never appears in argv, output, templates, local TOML, service data, or
-  persistent files. SSH activation follows the local `ssh` boolean; guest
-  `sudo`, root SSH, kernel TUN, host routing, and DNS mutation remain absent.
+  persistent files. SSH activation follows the local `ssh` boolean; general
+  guest sudo, root SSH, kernel TUN, host routing, and DNS mutation remain absent.
 - Enrollment uses the existing unique Lima hostname as the peer name and the
   auth key's provider-owned tag. Public source does not model private tags or
   tailnet policy. Failed enrollment reports only a generic command failure.

@@ -11,6 +11,7 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
+            "state": {"root": "/Volumes/ext/state"},
             "opencode": {
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
@@ -98,6 +99,7 @@ def test_local_data_renders_complete_configs() -> None:
         chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
+    assert sandbox["state_root"] == "/Volumes/ext/state"
     assert sandbox["schema_version"] == 4
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
@@ -127,14 +129,6 @@ def test_local_data_renders_complete_configs() -> None:
     assert sandbox["guest"]["hermes_enabled"] is True
     assert sandbox["guest"]["rnd_backend"] == "native"
     assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
-    atuin_plist = chezmoi(
-        "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist")
-    ).stdout
-    assert "state-root-exec" in atuin_plist
-    assert "start-atuin-workspace" in atuin_plist
-    assert 'sandbox-vm" start "workspace1"' in chezmoi(
-        "cat", str(Path.home() / ".local/bin/start-atuin-workspace")
-    ).stdout
 
 
 def test_tailscale_defaults_and_local_state_stay_out_of_git() -> None:
@@ -199,8 +193,6 @@ def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
     container = (ROOT / "private_dot_config/containers/systemd/atuin.container").read_text()
     volume = (ROOT / "private_dot_config/containers/systemd/atuin-data.volume").read_text()
     installer = (ROOT / "run_onchange_after_enable-atuin-server.sh.tmpl").read_text()
-    wrapper = (ROOT / "dot_local/bin/executable_start-atuin-workspace.tmpl").read_text()
-    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist.tmpl").read_text()
 
     assert "ghcr.io/atuinsh/atuin:18.17.1" in container
     assert "ATUIN_DB_URI=sqlite:///config/atuin.db" in container
@@ -209,13 +201,22 @@ def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
     assert "Volume=atuin-data.volume:/config" in container
     assert "/workspace" not in container
     assert "VolumeName=atuin-data" in volume
-    assert "systemctl --user enable --now atuin.service" in installer
-    assert "systemctl --user disable --now atuin.service" in installer
-    assert 'sandbox-vm" start' in wrapper
+    assert "systemctl --user restart atuin.service" in installer
+    assert "systemctl --user stop atuin.service" in installer
+    assert 'include "private_dot_config/containers/systemd/atuin.container" | sha256sum' in installer
+    assert '/bin/rm -f "$HOME/.config/containers/systemd/atuin.container"' in installer
+    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist.tmpl").read_text()
     assert "state-root-exec" in plist
+    assert "LIMA_HOME" in plist
+    assert "--foreground" in plist
+    assert "start-atuin-workspace" not in plist
+    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    assert "NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env" in template
+    assert "sudo -n /usr/bin/id" in template
     loader = (ROOT / "run_onchange_after_load-atuin-workspace-launchagent.sh.tmpl").read_text()
-    assert loader.index("launchctl bootout") < loader.index("launchctl bootstrap")
-    assert loader.index("launchctl bootout") < loader.index("configure-atuin --remove")
+    assert 'configure-atuin --remove' in loader
+    assert '/bin/rm -f "$plist"' in loader
+    assert loader.index('sandbox-vm" validate') < loader.index("launchctl bootstrap")
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

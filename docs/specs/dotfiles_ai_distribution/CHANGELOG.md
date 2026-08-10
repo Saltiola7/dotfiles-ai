@@ -1,5 +1,29 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-09 - DAI-024 Rootless Podman Atuin
+
+- Added one default-empty machine-local Atuin workspace selector. The selected
+  Fedora guest alone receives a private Lima `8889`-to-`8888` forward, pinned
+  rootless Podman Quadlet, Linux-native named volume, and closed registration;
+  project paths are not mounted into the container.
+- Cold-exported the stopped Colima volume to a checksummed 8.7 MiB archive,
+  restored it into Podman, corrected imported volume-root ownership, and moved
+  the unchanged tailnet HTTPS endpoint to host loopback port `8889`. Host,
+  selected-workspace, and client-workspace sync passed with 17,169 encrypted
+  history records available to the converged clients; new registration is denied.
+- Replaced the initial generated-autostart attempt with a sentinel-guarded
+  `limactl --foreground` LaunchAgent because Lima's generated plist omits a
+  non-default `LIMA_HOME`. Both Fedora workspaces now restart cleanly with one
+  exact sudo grant for Lima's cidata parameter read while every general sudo
+  command remains denied.
+- Colima, Docker Compose, its stopped named volume, and the final cold archive
+  remain rollback assets; the Colima LaunchAgent and VM are stopped. Validation:
+  55 focused tests, Python/diff checks, both rendered Lima configurations,
+  generated Quadlet units, pinned-image health, closed registration, three-client
+  sync, both VM restart paths, external-home guarded startup, and stopped-Colima
+  health passed. Implementation Gate Commit: `8e669d5`. Release is not applicable;
+  intended Final Push is a feature branch and draft pull request to `main`.
+
 ## 2026-08-09 - DAI-023 Conditional Lima Home
 
 - Added default-empty machine-local `lima_home`; absolute opt-in values propagate

@@ -5,6 +5,7 @@
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
   "build_workspace": {{ .dotfiles_ai.sandbox.build_workspace | toJson }},
   "atuin_workspace": {{ .dotfiles_ai.sandbox.atuin_workspace | toJson }},
+  "state_root": {{ .dotfiles_ai.state.root | toJson }},
   "lima_home": {{ .dotfiles_ai.sandbox.lima_home | toJson }},
   "tailscale": {
     "enabled": {{ .dotfiles_ai.tailscale.enabled | toJson }},

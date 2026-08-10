@@ -79,10 +79,10 @@ provision:
       agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
       test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
-      printf '%s ALL=(ALL) !ALL\n' "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
+      printf '%s ALL=(ALL) !ALL\n%s ALL=(root) NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env\n' "$agent_user" "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
       chmod 0440 /etc/sudoers.d/99-opencode-sandbox
       visudo -cf /etc/sudoers.d/99-opencode-sandbox
-      chmod 0750 /usr/bin/sudo
+      chmod 4755 /usr/bin/sudo
       cat >/usr/local/libexec/opencode-sandbox-ready <<'EOF'
       #!/bin/sh
       set -eu
@@ -119,9 +119,10 @@ provision:
       agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
       test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
-      test "$(stat -c '%U:%G:%a' /usr/bin/sudo)" = root:root:750
-      if su -s /bin/sh - "$agent_user" -c 'test -x /usr/bin/sudo'; then
-        echo "sandbox user can execute sudo" >&2
+      test "$(stat -c '%U:%G:%a' /usr/bin/sudo)" = root:root:4755
+      su -s /bin/sh - "$agent_user" -c 'sudo -n /usr/bin/cat /mnt/lima-cidata/param.env >/dev/null'
+      if su -s /bin/sh - "$agent_user" -c 'sudo -n /usr/bin/id >/dev/null 2>&1'; then
+        echo "sandbox user has general sudo" >&2
         exit 1
       fi
       touch /run/opencode-sandbox-ready

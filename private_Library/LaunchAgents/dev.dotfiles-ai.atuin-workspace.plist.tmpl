@@ -1,3 +1,9 @@
+{{- $instance := "" -}}
+{{- range .dotfiles_ai.sandbox.workspaces -}}
+{{- if eq .name $.dotfiles_ai.sandbox.atuin_workspace -}}
+{{- $instance = .instance -}}
+{{- end -}}
+{{- end -}}
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -7,14 +13,19 @@
     <key>ProgramArguments</key>
     <array>
         <string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
-        <string>{{ printf "%s/.local/bin/start-atuin-workspace" .chezmoi.homeDir | html }}</string>
+        <string>/opt/homebrew/bin/limactl</string>
+        <string>start</string>
+        <string>{{ $instance | html }}</string>
+        <string>--foreground</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
         <string>{{ .chezmoi.homeDir | html }}</string>
         <key>PATH</key>
-        <string>{{ .chezmoi.homeDir | html }}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>{{ if .dotfiles_ai.state.root }}
+        <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>LIMA_HOME</key>
+        <string>{{ .dotfiles_ai.sandbox.lima_home | html }}</string>{{ if .dotfiles_ai.state.root }}
         <key>DOTFILES_AI_STATE_ROOT</key>
         <string>{{ .dotfiles_ai.state.root | html }}</string>{{ end }}
     </dict>
@@ -22,7 +33,12 @@
     <string>Aqua</string>
     <key>RunAtLoad</key>
     <true/>
-    <key>StartInterval</key>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
     <integer>60</integer>
     <key>StandardOutPath</key>
     <string>{{ printf "%s/Library/Logs/atuin-workspace.log" .chezmoi.homeDir | html }}</string>

@@ -30,8 +30,7 @@ MAX_OUTPUT = 256 * 1024
 HOST_HISTORY_TIMEOUT = 300
 WORKSPACE_HISTORY_TIMEOUT = 120
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
-ATUIN_PORT_FORWARD = '.portForwards = [{"guestPort":8888,"hostPort":8889,"guestIP":"127.0.0.1","hostIP":"127.0.0.1"}]'
-NO_PORT_FORWARDS = ".portForwards = []"
+ATUIN_PORT_FORWARD = {"guestPort": 8888, "hostPort": 8889, "guestIP": "127.0.0.1", "hostIP": "127.0.0.1"}
 TAILSCALE_INSTALL = """\
 set -eu
 test "$(loginctl show-user "$USER" -p Linger --value)" = yes
@@ -156,6 +155,9 @@ def validate_config(value):
     lima_home = value.setdefault("lima_home", "")
     if not isinstance(lima_home, str) or lima_home and not Path(lima_home).is_absolute():
         raise ValueError("invalid Lima home")
+    state_root = value.get("state_root", "")
+    if not isinstance(state_root, str) or state_root and not Path(state_root).is_absolute():
+        raise ValueError("invalid state root")
     if not isinstance(value.get("template"), str) or not value["template"].startswith("/"):
         raise ValueError("invalid workspace template")
     atuin_workspace = value.get("atuin_workspace")
@@ -269,7 +271,26 @@ def validate_config(value):
         raise ValueError("enabled sandbox requires workspaces and a build workspace")
     if atuin_workspace and atuin_workspace not in names:
         raise ValueError("invalid Atuin workspace")
+    if atuin_workspace:
+        try:
+            guarded_root = Path(state_root).resolve(strict=True)
+            guarded_lima = Path(lima_home).resolve(strict=True)
+            guarded_lima.relative_to(guarded_root)
+        except (OSError, ValueError):
+            raise ValueError("Atuin workspace requires guarded Lima home") from None
     return value
+
+
+def atuin_port_rule(forwards, remove=False):
+    if not isinstance(forwards, list) or any(not isinstance(item, dict) for item in forwards):
+        raise ValueError("invalid Lima port forwards")
+    owned = lambda item: all(item.get(key) == value for key, value in ATUIN_PORT_FORWARD.items())
+    if not remove and any(item.get("hostPort") == 8889 and not owned(item) for item in forwards):
+        raise ValueError("Atuin host port is already configured")
+    retained = [item for item in forwards if not owned(item)]
+    if not remove:
+        retained.append(ATUIN_PORT_FORWARD)
+    return ".portForwards = " + json.dumps(retained, sort_keys=True, separators=(",", ":"))
 
 
 def submodule_paths(repo):
@@ -315,17 +336,21 @@ def _parse_states(output):
     return {name: status == "running" for name, status in _parse_statuses(output).items()}
 
 
-def _parse_statuses(output):
+def _parse_rows(output):
     if not output:
-        return {}
+        return []
     try:
         value = json.loads(output)
         rows = value if isinstance(value, list) else [value]
     except json.JSONDecodeError:
         rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+    return rows
+
+
+def _parse_statuses(output):
     return {
         row["name"]: str(row.get("status", "")).lower()
-        for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)
+        for row in _parse_rows(output) if isinstance(row, dict) and isinstance(row.get("name"), str)
     }
 
 
@@ -540,13 +565,18 @@ def configure_atuin(config, remove=False, execute=command, state_path=None):
     instance = workspace["instance"]
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
     with _instance_lock(lock_root, instance):
-        running = _parse_states(execute(["limactl", "list", "--json"])).get(instance, False)
+        rows = _parse_rows(execute(["limactl", "list", "--json"]))
+        current = next((row for row in rows if row.get("name") == instance), None)
+        if current is None or not isinstance(current.get("config"), dict):
+            raise ValueError("Lima instance configuration is unavailable")
+        running = str(current.get("status", "")).lower() == "running"
         if remove:
             update_workspace(config, workspace, execute=execute)
         if running or remove:
             execute(["limactl", "stop", instance], timeout=120)
         try:
-            rule = NO_PORT_FORWARDS if remove else ATUIN_PORT_FORWARD
+            forwards = current["config"].get("portForwards", [])
+            rule = atuin_port_rule(forwards, remove=remove)
             execute(["limactl", "edit", "--yes", "--set", rule, instance], timeout=120)
         finally:
             if running:
@@ -1046,7 +1076,9 @@ def main(argv=None, invocation=None):
     if args.command in {"start", "stop"}:
         lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
         with _instance_lock(lock_root, workspace["instance"]):
-            command(["limactl", args.command, workspace["instance"]], timeout=120)
+            running = _parse_states(command(["limactl", "list", "--json"])).get(workspace["instance"], False)
+            if running != (args.command == "start"):
+                command(["limactl", args.command, workspace["instance"]], timeout=120)
         return
     if args.command == "create":
         for mount in workspace["mounts"]:

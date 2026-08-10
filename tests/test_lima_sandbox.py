@@ -27,6 +27,7 @@ def load_helper():
 
 
 def config(tmp_path: Path) -> dict:
+    (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
         "schema_version": 4,
         "enabled": True,
@@ -34,7 +35,8 @@ def config(tmp_path: Path) -> dict:
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
         "atuin_workspace": "",
-        "lima_home": "",
+        "state_root": str(tmp_path / "state"),
+        "lima_home": str(tmp_path / "state/lima"),
         "tailscale": {"enabled": False, "ssh": False},
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
@@ -146,8 +148,9 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     assert "/usr/local/libexec/opencode --auto" in template
     assert "configparser.ConfigParser" in template
     assert "opencode-real" not in template
-    assert "chmod 0750 /usr/bin/sudo" in template
-    assert "sandbox user can execute sudo" in template
+    assert "chmod 4755 /usr/bin/sudo" in template
+    assert "NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env" in template
+    assert "sandbox user has general sudo" in template
     assert "$6 ~ /\\.guest$/" in template
     assert template.count("grep -c .)\" -eq 1") == 2
     assert "opencode-sandbox-ready.service" in template
@@ -235,6 +238,20 @@ def test_atuin_server_selects_one_workspace_and_private_forward(tmp_path: Path) 
 
     values["atuin_workspace"] = "missing"
     with pytest.raises(ValueError, match="Atuin workspace"):
+        helper.validate_config(values)
+
+    values["atuin_workspace"] = "workspace1"
+    values["state_root"] = ""
+    with pytest.raises(ValueError, match="guarded Lima home"):
+        helper.validate_config(values)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = tmp_path / "state/escaped"
+    link.symlink_to(outside, target_is_directory=True)
+    values["state_root"] = str(tmp_path / "state")
+    values["lima_home"] = str(link)
+    with pytest.raises(ValueError, match="guarded Lima home"):
         helper.validate_config(values)
 
 
@@ -421,8 +438,16 @@ def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, m
     values = config(tmp_path)
     calls = []
     locks = []
+    running = False
     monkeypatch.setattr(helper, "load_config", lambda: values)
-    monkeypatch.setattr(helper, "command", lambda argv, timeout=30, input_data=None: calls.append((argv, timeout)) or "")
+    def execute(argv, timeout=30, input_data=None):
+        nonlocal running
+        calls.append((argv, timeout))
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{"name": "workspace1-sandbox", "status": "Running" if running else "Stopped"}])
+        running = argv[1] == "start"
+        return ""
+    monkeypatch.setattr(helper, "command", execute)
     class Lock:
         def __enter__(self):
             locks.append("enter")
@@ -432,13 +457,19 @@ def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, m
     monkeypatch.setattr(helper, "_instance_lock", lambda root, instance: Lock())
 
     helper.main(["start", "workspace1"], invocation="sandbox-vm")
+    helper.main(["start", "workspace1"], invocation="sandbox-vm")
+    helper.main(["stop", "workspace1"], invocation="sandbox-vm")
     helper.main(["stop", "workspace1"], invocation="sandbox-vm")
 
     assert calls == [
+        (["limactl", "list", "--json"], 30),
         (["limactl", "start", "workspace1-sandbox"], 120),
+        (["limactl", "list", "--json"], 30),
+        (["limactl", "list", "--json"], 30),
         (["limactl", "stop", "workspace1-sandbox"], 120),
+        (["limactl", "list", "--json"], 30),
     ]
-    assert locks == ["enter", "exit", "enter", "exit"]
+    assert locks == ["enter", "exit"] * 4
 
 
 def test_configure_atuin_restarts_selected_existing_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -450,7 +481,10 @@ def test_configure_atuin_restarts_selected_existing_workspace(tmp_path: Path, mo
     def execute(argv, timeout=30, input_data=None):
         calls.append((argv, timeout))
         if argv[:2] == ["limactl", "list"]:
-            return json.dumps([{"name": "workspace1-sandbox", "status": "Running"}])
+            return "\n".join(json.dumps(row) for row in [
+                {"name": "workspace1-sandbox", "status": "Running", "config": {}},
+                {"name": "workspace2-sandbox", "status": "Stopped", "config": {}},
+            ])
         return ""
 
     monkeypatch.setattr(helper, "_instance_lock", lambda *_args: mock.MagicMock())
@@ -458,7 +492,7 @@ def test_configure_atuin_restarts_selected_existing_workspace(tmp_path: Path, mo
     helper.configure_atuin(values, execute=execute, state_path=tmp_path / "atuin-workspace")
 
     assert calls[1] == (["limactl", "stop", "workspace1-sandbox"], 120)
-    assert calls[2][0][:5] == ["limactl", "edit", "--yes", "--set", helper.ATUIN_PORT_FORWARD]
+    assert calls[2][0][:5] == ["limactl", "edit", "--yes", "--set", helper.atuin_port_rule([])]
     assert calls[2][0][-1] == "workspace1-sandbox"
     assert calls[3] == (["limactl", "start", "workspace1-sandbox"], 120)
 
@@ -474,11 +508,17 @@ def test_configure_atuin_requires_old_forward_removal(tmp_path: Path) -> None:
         helper.configure_atuin(values, execute=lambda *_args, **_kwargs: "", state_path=state)
 
     calls = []
+    other = {"guestPort": 3000, "hostPort": 3000, "hostIP": "127.0.0.1"}
     def execute(argv, **_kwargs):
         calls.append(argv)
         if argv[-2:] == ["printenv", "HOME"]:
             return "/home/agent.guest"
-        return "[]"
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{
+                "name": "workspace1-sandbox", "status": "Stopped",
+                "config": {"portForwards": [other, helper.ATUIN_PORT_FORWARD | {"proto": "tcp"}]},
+            }])
+        return ""
     helper.configure_atuin(
         values,
         remove=True,
@@ -486,7 +526,8 @@ def test_configure_atuin_requires_old_forward_removal(tmp_path: Path) -> None:
         state_path=state,
     )
     edit = next(argv for argv in calls if argv[:2] == ["limactl", "edit"])
-    assert edit[4] == helper.NO_PORT_FORWARDS
+    assert edit[4] == helper.atuin_port_rule([other, helper.ATUIN_PORT_FORWARD | {"proto": "tcp"}], remove=True)
+    assert json.loads(edit[4].split("=", 1)[1]) == [other]
     assert not state.exists()
 
 

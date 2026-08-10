@@ -39,7 +39,6 @@ enable-atuin-server.sh
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}
 Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
-.local/bin/start-atuin-workspace
 {{ end }}
 
 {{ if not .dotfiles_ai.opencode.vertex_project }}
@@ -70,7 +69,6 @@ load-herdr-launchagent.sh
 load-dbsctr-rnd-launchagents.sh
 .local/bin/op-session
 .local/bin/sandbox-vm
-.local/bin/start-atuin-workspace
 .local/bin/opencode
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
