@@ -6,6 +6,7 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| V3.36-1 | Let one Build session control an active cycle without relaunching in its worktree | high | in_progress | V3.35-F3 | Runtime attachment helper, typed cycle routing, lifecycle contract | Portable cycle state, centralized worktree registry, OpenCode permissions | no | The immutable OpenCode launch root currently blocks valid resumed cycles | M | Cross-repository helper and adapter tests, rendered permissions, affected QA, live resume |
 
 ## Completed
 

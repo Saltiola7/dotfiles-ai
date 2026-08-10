@@ -4,6 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
+| OCP-34 | Route provider Build sessions to attached centralized cycle worktrees | high | in_progress | OCP-32, OCP-17 | Typed DBSCTR adapters and Build external-directory permissions | Centralized state configuration and runtime attachment contract | no | Provider-specific overrides hide valid centralized worktrees and immutable tool context cannot change roots | M | Adapter routing tests, rendered config checks, live attached status |
 | OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
 
 ## Completed
