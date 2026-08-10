@@ -1,0 +1,22 @@
+[Unit]
+Description=Atuin history server
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/atuinsh/atuin:18.17.1@sha256:b2567e0d80a5622dba8d6c5319b198a94ef5166003c2559b91a5406ac688aac7
+ContainerName=atuin-server
+Exec=start
+Environment=ATUIN_HOST=0.0.0.0
+Environment=ATUIN_PORT=8888
+Environment=ATUIN_DB_URI=sqlite:///config/atuin.db
+Environment=ATUIN_OPEN_REGISTRATION=false
+PublishPort=127.0.0.1:8888:8888
+Volume=atuin-data.volume:/config
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

@@ -9,6 +9,7 @@ memory: "{{ .dotfiles_ai.sandbox.memory_gib }}GiB"
 disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"
 mounts:
 @@MOUNTS@@
+@@PORT_FORWARDS@@
 provision:
   - mode: system
     script: |

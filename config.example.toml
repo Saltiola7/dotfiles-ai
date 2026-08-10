@@ -51,6 +51,7 @@ project_profiles = false # true only for a personal multi-project catalog
 [data.dotfiles_ai.atuin]
 # Non-secret HTTPS service URL; login and encryption keys remain inside each VM.
 sync_address = "https://api.atuin.sh"
+server_enabled = false # generated true only inside the selected server workspace
 
 [data.dotfiles_ai.tailscale]
 # Enrollment keys and private tailnet identity never belong in this file.
@@ -82,6 +83,7 @@ keychain_service = "op-service-account-token"
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 enabled = false
 build_workspace = "workspace1"
+atuin_workspace = "" # optional always-on workspace for rootless Atuin
 # Optional machine-local Lima state root. Empty keeps Lima's native default.
 lima_home = ""
 cpus = 4

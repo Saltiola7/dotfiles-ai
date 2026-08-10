@@ -29,6 +29,14 @@ inherited `LIMA_HOME`, then falls back to `~/.lima`:
 lima_home = "/Volumes/external/state/lima"
 ```
 
+Set `atuin_workspace` to exactly one configured personal workspace only when it
+should host the rootless Atuin service. Empty is the portable default:
+
+```toml
+[data.dotfiles_ai.sandbox]
+atuin_workspace = "workspace1"
+```
+
 Optional direct tailnet access is global and defaults off:
 
 > [!WARNING]
@@ -56,6 +64,7 @@ sandbox-vm start workspace1
 sandbox-vm stop workspace1
 sandbox-vm shell workspace1
 sandbox-vm status
+sandbox-vm configure-atuin
 sandbox-vm update workspace1
 workspace1sh
 ```
@@ -102,6 +111,9 @@ controller. `create` validates declared paths, creates the configured instance,
 and starts it.
 `start` and `stop` serialize with temporary federated-review transitions for the
 same configured instance and use a 120-second command bound.
+`configure-atuin` stops a running selected workspace, applies its exact private
+Lima port forward with native `limactl edit`, and restores the prior running
+state. Use the cold migration and rollback procedure in `docs/ATUIN_PODMAN.md`.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.

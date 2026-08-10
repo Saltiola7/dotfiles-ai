@@ -1,0 +1,11 @@
+#!/bin/sh
+{{ if ne .chezmoi.os "linux" -}}
+exit 0
+{{ end -}}
+set -eu
+systemctl --user daemon-reload
+{{ if .dotfiles_ai.atuin.server_enabled -}}
+systemctl --user enable --now atuin.service
+{{ else -}}
+systemctl --user disable --now atuin.service >/dev/null 2>&1 || true
+{{ end -}}

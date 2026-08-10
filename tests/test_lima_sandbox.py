@@ -28,11 +28,12 @@ def load_helper():
 
 def config(tmp_path: Path) -> dict:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
+        "atuin_workspace": "",
         "lima_home": "",
         "tailscale": {"enabled": False, "ssh": False},
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
@@ -166,6 +167,7 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
+    assert parsed["data"]["dotfiles_ai"]["atuin"]["server_enabled"] is False
     assert parsed["data"]["dotfiles_ai"]["hermes"] == {
         "enabled": True, "executable": "~/.local/bin/hermes", "profile": "workspace1",
         "provider": "openai-codex", "backlog_roots": ["/workspace/projects/project-a"],
@@ -208,6 +210,34 @@ def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> Non
         helper.validate_config(values)
 
 
+def test_atuin_server_selects_one_workspace_and_private_forward(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["atuin_workspace"] = "workspace1"
+    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    template = (template.replace("{{ .dotfiles_ai.sandbox.cpus }}", "4")
+                .replace("{{ .dotfiles_ai.sandbox.memory_gib }}", "8")
+                .replace("{{ .dotfiles_ai.sandbox.disk_gib }}", "60"))
+
+    helper.validate_config(values)
+    personal = helper.render_workspace(values, values["workspaces"][0], template)
+    client = helper.render_workspace(values, values["workspaces"][1], template)
+    personal_config = tomllib.loads(helper.guest_config(values, values["workspaces"][0]))
+    client_config = tomllib.loads(helper.guest_config(values, values["workspaces"][1]))
+
+    assert 'hostIP: "127.0.0.1"' in personal
+    assert 'guestIP: "127.0.0.1"' in personal
+    assert "hostPort: 8889" in personal
+    assert "guestPort: 8888" in personal
+    assert "hostPort: 8889" not in client
+    assert personal_config["data"]["dotfiles_ai"]["atuin"]["server_enabled"] is True
+    assert client_config["data"]["dotfiles_ai"]["atuin"]["server_enabled"] is False
+
+    values["atuin_workspace"] = "missing"
+    with pytest.raises(ValueError, match="Atuin workspace"):
+        helper.validate_config(values)
+
+
 def test_tailscale_config_is_exact_and_default_off(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
@@ -218,7 +248,7 @@ def test_tailscale_config_is_exact_and_default_off(tmp_path: Path) -> None:
         helper.validate_config(values)
 
 
-def test_legacy_schema_three_config_inherits_disabled_tailscale(tmp_path: Path) -> None:
+def test_missing_tailscale_config_inherits_disabled_defaults(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
     del values["tailscale"]
@@ -409,6 +439,55 @@ def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, m
         (["limactl", "stop", "workspace1-sandbox"], 120),
     ]
     assert locks == ["enter", "exit", "enter", "exit"]
+
+
+def test_configure_atuin_restarts_selected_existing_workspace(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["atuin_workspace"] = "workspace1"
+    calls = []
+
+    def execute(argv, timeout=30, input_data=None):
+        calls.append((argv, timeout))
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{"name": "workspace1-sandbox", "status": "Running"}])
+        return ""
+
+    monkeypatch.setattr(helper, "_instance_lock", lambda *_args: mock.MagicMock())
+
+    helper.configure_atuin(values, execute=execute, state_path=tmp_path / "atuin-workspace")
+
+    assert calls[1] == (["limactl", "stop", "workspace1-sandbox"], 120)
+    assert calls[2][0][:5] == ["limactl", "edit", "--yes", "--set", helper.ATUIN_PORT_FORWARD]
+    assert calls[2][0][-1] == "workspace1-sandbox"
+    assert calls[3] == (["limactl", "start", "workspace1-sandbox"], 120)
+
+
+def test_configure_atuin_requires_old_forward_removal(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["atuin_workspace"] = "workspace2"
+    state = tmp_path / "atuin-workspace"
+    state.write_text("workspace1\n")
+
+    with pytest.raises(ValueError, match="remove the prior"):
+        helper.configure_atuin(values, execute=lambda *_args, **_kwargs: "", state_path=state)
+
+    calls = []
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "[]"
+    helper.configure_atuin(
+        values,
+        remove=True,
+        execute=execute,
+        state_path=state,
+    )
+    edit = next(argv for argv in calls if argv[:2] == ["limactl", "edit"])
+    assert edit[4] == helper.NO_PORT_FORWARDS
+    assert not state.exists()
 
 
 def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:
