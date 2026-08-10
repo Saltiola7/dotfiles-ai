@@ -4,6 +4,18 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-10 - OCP-34 Cross-Checkout Cycle Routing
+
+- Added registry-bounded `dbsctr_attach` targeting and session-scoped routing for
+  subsequent cycle tools, removing the requirement to relaunch OpenCode in an
+  active cycle worktree.
+- Provider Build agents inherit centralized-state paths from generated global
+  permissions. Targeted deployment passed with an empty managed diff; fresh
+  OpenCode resolution includes centralized worktree access. Current processes
+  require one normal restart to load the new tool schema. Implementation Gate
+  Commits: `fae3b76`, `22d548b`. Intended Final Push: feature branch and draft
+  pull request into protected `main`.
+
 ## 2026-08-09 - OCP-33 Luna Routing
 
 - Routed the managed `small_model` default and read-only `explore-openai` agent

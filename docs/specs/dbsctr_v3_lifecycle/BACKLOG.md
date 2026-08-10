@@ -6,12 +6,12 @@ Discovery readiness: complete.
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| V3.36-1 | Let one Build session control an active cycle without relaunching in its worktree | high | in_progress | V3.35-F3 | Runtime attachment helper, typed cycle routing, lifecycle contract | Portable cycle state, centralized worktree registry, OpenCode permissions | no | The immutable OpenCode launch root currently blocks valid resumed cycles | M | Cross-repository helper and adapter tests, rendered permissions, affected QA, live resume |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| V3.36-1 | Enabled validated Build sessions to attach and route cycle tools across repositories within the configured DBSCTR registry | 2026-08-10 | `fae3b76`, `22d548b` |
 | V3.35-F3 | Added schema-4 portable cycle locators with explicit reversible conversion and validated registry relocation | 2026-08-08 | `4fe1680..62f1010` |
 | V3.35-F2 | Added backward-compatible sanitized cycle context intervals and retained multiple exact runtime matches for timestamp attribution. | 2026-07-31 | `0315f15` |
 | V3.35-F1 | Remove the final stale minor-version label from the active Discovery handoff and activate the corrected prompt | 2026-07-30 | `9914f12` |

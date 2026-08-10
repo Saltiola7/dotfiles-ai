@@ -4,13 +4,13 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-34 | Route provider Build sessions to attached centralized cycle worktrees | high | in_progress | OCP-32, OCP-17 | Typed DBSCTR adapters and Build external-directory permissions | Centralized state configuration and runtime attachment contract | no | Provider-specific overrides hide valid centralized worktrees and immutable tool context cannot change roots | M | Adapter routing tests, rendered config checks, live attached status |
 | OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
 
 ## Completed
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-34 | Added session-scoped cycle routing and inherited centralized worktree permissions for provider Build primaries | 2026-08-10 | `fae3b76`, `22d548b` |
 | OCP-33 | Routed title generation and read-only OpenAI exploration to Luna while retaining Terra implementation and Sol review tiers | 2026-08-09 | `b7339ea`, `1c8353a` |
 | OCP-32 | Added configurable centralized durable state, fail-closed runtime routing, portable cycle records, and reversible live migration | 2026-08-08 | `4fe1680..62f1010` |
 | OCP-30 | Add source ACLI read guardrails for writing skills without live deployment | 2026-07-28 | `761d01e`, `6904ff6`, `4b00081` |
