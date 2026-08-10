@@ -29,6 +29,14 @@ inherited `LIMA_HOME`, then falls back to `~/.lima`:
 lima_home = "/Volumes/external/state/lima"
 ```
 
+Set `atuin_workspace` to exactly one configured personal workspace only when it
+should host the rootless Atuin service. Empty is the portable default:
+
+```toml
+[data.dotfiles_ai.sandbox]
+atuin_workspace = "workspace1"
+```
+
 Optional direct tailnet access is global and defaults off:
 
 > [!WARNING]
@@ -56,6 +64,7 @@ sandbox-vm start workspace1
 sandbox-vm stop workspace1
 sandbox-vm shell workspace1
 sandbox-vm status
+sandbox-vm configure-atuin
 sandbox-vm update workspace1
 workspace1sh
 ```
@@ -71,8 +80,9 @@ Enrollment verifies and installs the pinned static arm64 client, enables a
 rootless userspace systemd user service, and enables Tailscale SSH only when the
 local `ssh` setting is true. Lima 2.1.4 enables lingering for its configured
 guest user; enrollment verifies that contract before installation, so the user
-manager keeps the daemon available without a login session. Guest `sudo`, root SSH, kernel TUN, host
-routing, and DNS changes remain unavailable. Disabling the setting later prevents
+manager keeps the daemon available without a login session. General guest sudo,
+root SSH, kernel TUN, host routing, and DNS changes remain unavailable. Lima's
+exact read of its non-secret cidata parameters is the sole sudo grant. Disabling the setting later prevents
 new enrollment; it intentionally does not disconnect, uninstall, or delete an
 existing peer.
 
@@ -102,6 +112,10 @@ controller. `create` validates declared paths, creates the configured instance,
 and starts it.
 `start` and `stop` serialize with temporary federated-review transitions for the
 same configured instance and use a 120-second command bound.
+`configure-atuin` stops a running selected workspace, applies its exact private
+Lima port forward with native `limactl edit`, and restores the prior running
+state. It preserves unrelated forwards and rejects host-port conflicts. Use the
+cold migration and rollback procedure in `docs/ATUIN_PODMAN.md`.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.
@@ -111,7 +125,8 @@ startup remains outside the sandbox. Restart OpenCode after an update because it
 does not reload its theme while running.
 
 Every guest keeps isolated OpenCode, Herdr, credentials, and session storage.
-The guest account cannot execute `sudo`. A boot-time verifier waits for every
+The guest account can use sudo only for Lima's exact cidata parameter read; all
+other commands remain denied. A boot-time verifier waits for every
 virtiofs mount, verifies the configured read/write mode, confirms a protected
 Git manifest has not changed, reapplies read-only overlays, and only then marks
 OpenCode ready.

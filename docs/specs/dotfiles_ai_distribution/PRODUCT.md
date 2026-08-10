@@ -48,6 +48,9 @@ target files.
     pull-request review without granting Hermes authority over `main`.
 14. An operator can inspect bounded local Herdr pane history for the prior 30 days
     without publishing terminal content or weakening filesystem ownership checks.
+15. An operator may select one personal Fedora workspace to remain available for
+    rootless services while client-specific containers stay inside their client
+    workspaces; project files never need to enter the service container.
 
 ## Visual Evidence
 
@@ -71,6 +74,7 @@ flowchart LR
     P[Public repository] -->|Add private local values| C[Machine-local configuration]
     C -->|Preview and apply| W[Managed host and workspaces]
     W -->|Optional opt-in| A[Isolated automation profiles]
+    W -->|Optional personal service role| S[Rootless personal services]
     A -->|Ready noncritical work| I[Isolated implementation cycle]
     A -->|Critical or uncertain| U[Operator approval]
     U -->|Explicit proceed| I
@@ -83,7 +87,9 @@ values are supplied. Applying them creates managed host and workspace
 environments; automation remains optional and isolated. Evidence-ready
 noncritical Discovery may proceed automatically, while critical or uncertain
 work waits for the operator. Delivery ends at a draft pull request for human
-review. Secrets and machine identity never enter the public repository.
+review. One personal workspace may separately host rootless services without
+mounting project files into those containers. Secrets and machine identity never
+enter the public repository.
 The product owner updates this view when a core journey, privacy boundary, or
 approval outcome changes.
 

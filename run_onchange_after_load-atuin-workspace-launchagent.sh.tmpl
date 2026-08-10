@@ -1,0 +1,19 @@
+#!/bin/sh
+# plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist.tmpl" | sha256sum }}
+{{ if ne .chezmoi.os "darwin" -}}
+exit 0
+{{ end -}}
+set -eu
+label=dev.dotfiles-ai.atuin-workspace
+domain="gui/$(id -u)"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+if launchctl print "$domain/$label" >/dev/null 2>&1; then
+    launchctl bootout "$domain/$label"
+fi
+{{ if .dotfiles_ai.sandbox.atuin_workspace -}}
+"$HOME/.local/bin/sandbox-vm" validate {{ .dotfiles_ai.sandbox.atuin_workspace | quote }}
+launchctl bootstrap "$domain" "$plist"
+{{ else -}}
+"$HOME/.local/bin/sandbox-vm" configure-atuin --remove
+/bin/rm -f "$plist"
+{{ end -}}

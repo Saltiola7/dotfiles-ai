@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-024 | Moved self-hosted Atuin from Colima to pinned rootless Podman in the selected always-on Fedora workspace with private forwarding, guarded external-home startup, cold restore, and retained rollback | 2026-08-09 | `8e669d5` |
 | DAI-023 | Added an opt-in absolute Lima home, serialized bounded lifecycle, effective-filesystem capacity reporting, and migration guidance without changing teammate defaults | 2026-08-09 | `4a795ea..a01c4a1` |
 | DAI-021 | Delivered six independent continuous R&D lenses, isolated review-session governance, session-bound telemetry and readiness, controlled live pass validation, and five-minute Hermes scheduling | 2026-08-02 | `560650d..1e86bc8` |
 | DAI-016-F3 | Preserved bounded process-group cleanup through release failure and exited-leader races | 2026-07-31 | `5aa248a..857e7af` |

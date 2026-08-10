@@ -1,0 +1,15 @@
+#!/bin/sh
+# container hash: {{ include "private_dot_config/containers/systemd/atuin.container" | sha256sum }}
+# volume hash: {{ include "private_dot_config/containers/systemd/atuin-data.volume" | sha256sum }}
+{{ if ne .chezmoi.os "linux" -}}
+exit 0
+{{ end -}}
+set -eu
+{{ if .dotfiles_ai.atuin.server_enabled -}}
+systemctl --user daemon-reload
+systemctl --user restart atuin.service
+{{ else -}}
+systemctl --user stop atuin.service >/dev/null 2>&1 || true
+/bin/rm -f "$HOME/.config/containers/systemd/atuin.container" "$HOME/.config/containers/systemd/atuin-data.volume"
+systemctl --user daemon-reload
+{{ end -}}

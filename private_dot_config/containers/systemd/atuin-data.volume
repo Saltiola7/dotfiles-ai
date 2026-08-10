@@ -1,0 +1,5 @@
+[Unit]
+Description=Atuin server data
+
+[Volume]
+VolumeName=atuin-data

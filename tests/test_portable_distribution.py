@@ -11,6 +11,7 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
+            "state": {"root": "/Volumes/ext/state"},
             "opencode": {
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
@@ -31,11 +32,12 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
                 "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
                 "project_profiles": False,
             },
-            "atuin": {"sync_address": "https://atuin.example.com"},
+            "atuin": {"sync_address": "https://atuin.example.com", "server_enabled": False},
             "tailscale": {"enabled": False, "ssh": False},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
+                "atuin_workspace": "workspace1",
                 "lima_home": "/Volumes/ext/state/lima",
                 "cpus": 4,
                 "memory_gib": 8,
@@ -97,6 +99,9 @@ def test_local_data_renders_complete_configs() -> None:
         chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
+    assert sandbox["state_root"] == "/Volumes/ext/state"
+    assert sandbox["schema_version"] == 4
+    assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
 
@@ -184,6 +189,36 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
 
 
+def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
+    container = (ROOT / "private_dot_config/containers/systemd/atuin.container").read_text()
+    volume = (ROOT / "private_dot_config/containers/systemd/atuin-data.volume").read_text()
+    installer = (ROOT / "run_onchange_after_enable-atuin-server.sh.tmpl").read_text()
+
+    assert "ghcr.io/atuinsh/atuin:18.17.1" in container
+    assert "ATUIN_DB_URI=sqlite:///config/atuin.db" in container
+    assert "ATUIN_OPEN_REGISTRATION=false" in container
+    assert "PublishPort=127.0.0.1:8888:8888" in container
+    assert "Volume=atuin-data.volume:/config" in container
+    assert "/workspace" not in container
+    assert "VolumeName=atuin-data" in volume
+    assert "systemctl --user restart atuin.service" in installer
+    assert "systemctl --user stop atuin.service" in installer
+    assert 'include "private_dot_config/containers/systemd/atuin.container" | sha256sum' in installer
+    assert '/bin/rm -f "$HOME/.config/containers/systemd/atuin.container"' in installer
+    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist.tmpl").read_text()
+    assert "state-root-exec" in plist
+    assert "LIMA_HOME" in plist
+    assert "--foreground" in plist
+    assert "start-atuin-workspace" not in plist
+    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    assert "NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env" in template
+    assert "sudo -n /usr/bin/id" in template
+    loader = (ROOT / "run_onchange_after_load-atuin-workspace-launchagent.sh.tmpl").read_text()
+    assert 'configure-atuin --remove' in loader
+    assert '/bin/rm -f "$plist"' in loader
+    assert loader.index('sandbox-vm" validate') < loader.index("launchctl bootstrap")
+
+
 def test_onepassword_helper_is_opt_in_and_localized() -> None:
     disabled = chezmoi("managed").stdout.splitlines()
     assert ".local/bin/op-session" not in disabled
@@ -261,8 +296,9 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 3
+    assert registry["schema_version"] == 4
     assert registry["build_workspace"] == "workspace1"
+    assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]
     assert [workspace["shell_alias"] for workspace in registry["workspaces"]] == ["workspace1sh", "workspace2sh"]
     assert registry["workspaces"][1]["mounts"][0]["writable"] is False
@@ -270,6 +306,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
     assert 'disk: "60GiB"' in template
     assert "@@MOUNTS@@" in template
     assert "@@WORKSPACE_JSON@@" in template
+    assert "@@PORT_FORWARDS@@" in template
 
 
 def test_shell_alias_reconciler_refuses_unmanaged_command(tmp_path: Path) -> None:

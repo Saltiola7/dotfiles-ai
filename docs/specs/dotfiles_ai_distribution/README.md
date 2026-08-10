@@ -175,6 +175,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Sandbox configuration rendering, controller environment, validation, deployment, and rollback |
 | Overrides | Empty shared default preserves native Lima behavior; configured homes must be absolute and are inherited by every controller-owned Lima command |
 
+### DAI-024 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: migrates live encrypted history service state and changes its VM, container runtime, startup, and loopback ingress |
+| Delivery intent | Deploy rootless Podman Atuin to the selected personal Fedora workspace, retain stopped Colima rollback, and deliver a draft pull request |
+| Scope | One machine-local Atuin workspace selector, private Lima forwarding, rootless Quadlet and named volume, external-home-aware guarded startup, cold migration, health/sync validation, and rollback |
+| Overrides | Shared defaults select no server; exactly one configured workspace may be selected; public endpoint and client identity remain unchanged; Colima remains installed and retained until a later explicit retirement |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -194,31 +203,35 @@ OpenCode control-plane behavior, and shell authentication.
 | Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
 
-V3.35 and DAI-023 change no represented trust topology or handoff. DAI-023 only
-selects the host-side storage root for existing Lima instances. The two existing
-views and Text Equivalents remain current.
+DAI-024 adds the optional personal Atuin service and host loopback ingress shown
+below. It does not change approval or delivery handoff, so the existing sequence
+and its Text Equivalent remain current.
 
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai host and workspace trust boundaries
-    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, credentials, and local history. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
+    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, credentials, and local history. One selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
     subgraph H[macOS host trust boundary]
         HH[Host Hermes]
         HO[Host OpenCode]
         HR[Host Herdr]
         HL[Host private ledger]
+        TS[Tailscale HTTPS and loopback forward]
     end
     subgraph V[Fedora workspace trust boundary]
         VH[Workspace Hermes]
         VO[Workspace OpenCode]
         VR[Workspace Herdr]
         VC[Workspace credentials and history]
+        AS[Optional rootless Podman Atuin]
     end
     HH -->|Schedule and refine| HO
     HR -->|Present sessions| HO
     VH -->|Schedule and refine| VO
     VR -->|Present sessions| VO
     VC -->|Sanitized bounded evidence| HL
+    VC -->|Encrypted Atuin records| TS
+    TS -->|Host loopback only| AS
     HO -->|Explicit approved handoff| VO
     HO -->|Gate evidence and feature commits| G[DBSCTR and Git authority]
     VO -->|Gate evidence and feature commits| G
@@ -229,7 +242,10 @@ OpenCode, Herdr, credentials, history, and private state. Herdr presents session
 but does not own lifecycle state. Only bounded sanitized evidence crosses from a
 workspace to host review; only an explicitly approved implementation handoff
 crosses from host to workspace. Both OpenCode runtimes produce feature-branch
-evidence governed by DBSCTR and Git.
+evidence governed by DBSCTR and Git. One machine-local workspace may additionally
+host rootless Podman Atuin. Every client sends encrypted records through the
+unchanged tailnet HTTPS endpoint; macOS forwards only from loopback, and the Atuin
+container receives no project filesystem mount.
 
 ```mermaid
 sequenceDiagram
@@ -310,6 +326,35 @@ feature branch with a draft pull request; the operator retains merge authority.
   then every `limactl` subprocess receives that path through `LIMA_HOME`.
 - Given a relative or non-string Lima home, when sandbox configuration is
   validated, then the controller fails before invoking Lima.
+
+### Optional Personal Atuin Service
+
+- Given shared defaults select no Atuin workspace, when configuration renders,
+  then no workspace receives server configuration, no dedicated port forward or
+  host startup service exists, and existing client behavior remains unchanged.
+- Given one configured workspace is selected, when its Lima configuration and
+  guest profile render, then only that workspace forwards guest port `8888` to
+  host `127.0.0.1:8889` and enables the rootless Podman Atuin service.
+- Given an unknown or invalid Atuin workspace selector, when configuration is
+  validated, then the controller fails before invoking Lima or Podman.
+- Given the selected Atuin workspace uses an external Lima home, when
+  configuration is validated, then that home must be contained by the configured
+  state root whose sentinel guards host startup.
+- Given the selected workspace boots, when the lingering user manager starts,
+  then systemd starts pinned Atuin with closed registration and a Linux-native
+  Podman named volume; no project path is mounted into the container.
+- Given the selected workspace is configured, when guarded login startup runs,
+  then it verifies the external-state sentinel and starts `limactl --foreground`
+  with the configured external `LIMA_HOME`.
+- Given Colima still serves production during migration, when Podman validation
+  runs, then it uses host loopback port `8889`; the stable tailnet endpoint moves
+  only after cold restore, health, authentication, decryption, and sync pass.
+- Given Podman cutover fails, when rollback is requested, then Tailscale Serve can
+  return to Colima on host port `8888` while clients retain unsynchronized local
+  records.
+- Given the selector is cleared, when managed reconciliation runs, then it stops
+  and removes the owned Quadlet definitions, unloads and removes the owned
+  LaunchAgent, removes only the exact Atuin forward, and retains the named volume.
 
 ### Canonical Backlog Refinement
 
@@ -587,8 +632,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given a protected submodule manifest is stale, a read-only overlay is absent,
   or unrestricted passwordless sudo is available, then sandbox startup fails
   closed before an auto-approved agent runs.
-- The dedicated guest agent account cannot execute `/usr/bin/sudo`; root-owned
-  provisioning remains the only privileged mutation path.
+- The dedicated guest agent account may use passwordless sudo only for Lima's
+  exact read of `/mnt/lima-cidata/param.env`; every other sudo command remains
+  denied and root-owned provisioning remains the only privileged mutation path.
 - Given the operator detaches, then VM Herdr keeps panes running. Given a clean
   VM stop and restart, then VM Herdr restores layout and resumes the exact
   OpenCode session with auto-approval still effective.
@@ -596,7 +642,8 @@ feature branch with a draft pull request; the operator retains merge authority.
   auto-approves permissions not explicitly denied. Host OpenCode behavior is
   unchanged.
 - On every guest boot, a root oneshot waits for the declared virtiofs mounts,
-  reapplies configured read-only overlays, verifies effective sudo denial, and only then
+  reapplies configured read-only overlays, verifies the one-command Lima sudo
+  grant and general sudo denial, and only then
   publishes the boot-scoped readiness marker required by OpenCode.
 - Given a workspace declares a shell alias, when chezmoi applies the host
   configuration, then that command enters the configured workspace exactly as
@@ -650,12 +697,19 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
 - `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, optional
+  `atuin_workspace`, optional
   absolute `lima_home`, resource
   ceilings, and an ordered `workspaces` list. Each workspace contains a unique
   `name`, unique `instance`, optional unique `shell_alias`, `federate`, and one or more mount mappings with
   `host`, `guest`, `writable`, `protect_git_submodules`, and optional reference
   metadata plus an optional relative reference subpath. Shared workspaces are
   empty and management is disabled.
+- `atuin_workspace` defaults to empty and otherwise must equal exactly one
+  configured workspace name. The generated schema is version `4`; the selected
+  guest alone receives `server_enabled=true` and the `8889`-to-`8888` loopback
+  forward.
+- A non-empty `atuin_workspace` requires non-empty absolute `state.root` and
+  `lima_home`, with the Lima home contained by the guarded state root.
 - Shared defaults disable Lima management. Machine-local sandbox data declares
   instance names, host mount roots, protected repository and submodule manifest,
   resource ceilings, and repository-scoped identities without credentials.
@@ -665,6 +719,15 @@ feature branch with a draft pull request; the operator retains merge authority.
 - `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
+- `sandbox-vm configure-atuin` owns the existing-instance migration for the
+  selected workspace. It preserves prior stopped/running state around one
+  noninteractive `limactl edit`, including recovery restart when editing fails.
+  It preserves unrelated port forwards, rejects a conflicting host port `8889`,
+  and removes only its exact owned rule during disable.
+- The selected workspace LaunchAgent executes `limactl start --foreground`
+  through the external-state sentinel guard and sets the configured absolute
+  `LIMA_HOME`. This narrow launcher exists because Lima's generated autostart
+  plist omits a non-default Lima home.
 - A generated workspace alias with no arguments routes to
   `sandbox-vm shell WORKSPACE herdr`; explicit alias arguments replace `herdr`.
   The controller's direct shell command remains unchanged.
@@ -680,6 +743,13 @@ feature branch with a draft pull request; the operator retains merge authority.
 - `[dotfiles_ai.atuin].sync_address` is a machine-local HTTPS base URL propagated
   to every workspace. Authentication, session, and encryption material is never
   rendered, copied between trust boundaries, or committed.
+- `[dotfiles_ai.atuin].server_enabled` is generated only for guest role selection
+  and defaults false. When true, user systemd owns generated `atuin.service`, Quadlet pins
+  `ghcr.io/atuinsh/atuin:18.17.1`, registration defaults closed, SQLite uses
+  `sqlite:///config/atuin.db`, and `atuin-data.volume` remains on the Linux guest
+  filesystem. The container receives no workspace mount. Quadlet content hashes
+  trigger daemon reload and service restart; disable removes only the owned unit
+  definitions and retains the data volume.
 - `[dotfiles_ai.tailscale]` contains only `enabled` and `ssh`, both defaulting to
   false. It contains no auth key, tag, peer name, account, tailnet, or secret
   reference. Existing local TOML inherits the disabled shared defaults.
@@ -690,8 +760,8 @@ feature branch with a draft pull request; the operator retains merge authority.
   `--tun=userspace-networking` with private state and socket directories. It then
   invokes `tailscale up --auth-key=file:/dev/stdin` against that socket. The key
   never appears in argv, output, templates, local TOML, service data, or
-  persistent files. SSH activation follows the local `ssh` boolean; guest
-  `sudo`, root SSH, kernel TUN, host routing, and DNS mutation remain absent.
+  persistent files. SSH activation follows the local `ssh` boolean; general
+  guest sudo, root SSH, kernel TUN, host routing, and DNS mutation remain absent.
 - Enrollment uses the existing unique Lima hostname as the peer name and the
   auth key's provider-owned tag. Public source does not model private tags or
   tailnet policy. Failed enrollment reports only a generic command failure.
@@ -845,6 +915,14 @@ feature branch with a draft pull request; the operator retains merge authority.
 | Tailscale probes | Disabled rendering, bounded stdin, client/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
 ## Risks And Maintenance
+
+- Atuin cutover is cold because SQLite WAL cannot be copied safely while active.
+  Retain a checksummed stopped-volume backup and the stopped Colima profile until
+  Podman restart, three-client sync, denied registration, and isolated restore
+  pass. Never run both stores as writable production authorities.
+- The selected Atuin workspace is intentionally always-on. Colima remains an
+  installed rollback dependency until a later explicit retirement verifies no
+  host Docker consumers remain.
 
 - Current-user OpenCode workers are not sandboxed; explicit policy and OS
   permissions remain the security boundary.

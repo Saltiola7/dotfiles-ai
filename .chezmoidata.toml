@@ -30,6 +30,7 @@ project_profiles = false
 
 [dotfiles_ai.atuin]
 sync_address = "https://api.atuin.sh"
+server_enabled = false
 
 [dotfiles_ai.tailscale]
 enabled = false
@@ -55,6 +56,7 @@ keychain_service = "op-service-account-token"
 [dotfiles_ai.sandbox]
 enabled = false
 build_workspace = ""
+atuin_workspace = ""
 lima_home = ""
 workspaces = []
 cpus = 4

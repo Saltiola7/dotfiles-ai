@@ -29,6 +29,16 @@ graphify-out/
 install-starship.sh
 install-atuin.sh
 install-bash-preexec.sh
+.config/containers/
+enable-atuin-server.sh
+{{ end }}
+
+{{ if not .dotfiles_ai.atuin.server_enabled }}
+.config/containers/
+{{ end }}
+
+{{ if not .dotfiles_ai.sandbox.atuin_workspace }}
+Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 {{ end }}
 
 {{ if not .dotfiles_ai.opencode.vertex_project }}
@@ -62,5 +72,6 @@ load-dbsctr-rnd-launchagents.sh
 .local/bin/opencode
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
+load-atuin-workspace-launchagent.sh
 .config/dotfiles-ai/
 {{ end }}
