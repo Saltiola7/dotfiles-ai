@@ -569,10 +569,11 @@ ledger.
 - And no transcript, timing, path, or newest-session heuristic determines the owner
 
 **Scenario: Attach a resumed Build runtime**
-- Given a validated Build primary resumes an active cycle in its recorded worktree
-- When it invokes the authorized typed runtime attachment
+- Given a validated Build primary resumes an active cycle from any checkout
+- When it invokes the authorized typed runtime attachment with that cycle's worktree
 - Then the current opaque OpenCode session ID is added idempotently to that Cycle Record
-- But Plan, subagents, mismatched worktrees, completed cycles, and malformed identities cannot attach
+- And subsequent cycle-scoped typed tools use that target for the current session
+- But Plan, subagents, worktrees outside the configured DBSCTR registry, completed cycles, and malformed identities cannot attach
 
 ### Feature: V3.19 Private SQLite Improvement Ledger
 
@@ -2724,12 +2725,18 @@ module routing without changing Cycle Record schema or public commands.
   private family from the live database; the digest cannot become a reviewed ID,
   archive field, or Cycle Record identity.
 - `dbsctrctl attach-runtime` accepts the current opaque OpenCode session ID and
-  runtime paths only for the active cycle's recorded worktree. It serializes the
-  Cycle Record update, is idempotent, rejects completed or mismatched cycles,
-  and stores no transcript, prompt, tool payload, credential, or external ID.
+  runtime paths from a validated Build primary controlling the active cycle.
+  The typed adapter canonicalizes the separately supplied cycle worktree and
+  requires an exact Git top-level beneath the configured DBSCTR registry before
+  invoking the helper there. The helper serializes the Cycle Record update, is
+  idempotent, rejects completed cycles, and does not persist an unrelated launch
+  path, transcript, prompt, tool payload, credential, or external ID.
 - The typed `dbsctr_attach` adapter requests its dedicated permission. Native
   Build primaries receive standing authorization; Plan and subagents remain
-  denied. Reading status never mutates runtime metadata.
+  denied. A successful attachment records one in-process target for that session;
+  status, phase spans, execution validation/benchmarking, audit/inspection, and
+  reconciliation use it while runtime health continues to describe the actual
+  OpenCode launch context. Reading status never mutates runtime metadata.
 
 ### Sanitized Context Interval Contract
 

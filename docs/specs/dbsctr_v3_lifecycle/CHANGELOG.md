@@ -10,6 +10,22 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-10 - V3.36 Cross-Checkout Cycle Resume
+
+- Added an explicit registry-bounded cycle target to typed runtime attachment and
+  routed subsequent cycle status, phase, execution, audit, inspection, and
+  reconciliation tools through the session-scoped target. The helper accepts a
+  validated primary launched from another repository without persisting that
+  unrelated path; Plan, subagents, inactive cycles, and outside-registry targets
+  remain blocked.
+- Provider-specific Build primaries now inherit generated centralized-state
+  permissions instead of replacing them with native-only paths. Affected QA
+  passed 153 helper tests with one existing skip, 34 control-plane tests, Python
+  compilation, a Bun runtime bundle, empty managed diff, fresh OpenCode config
+  resolution, and live canonicalization of `PODCAST-001`. Gate Exceptions: none.
+  Implementation Gate Commits: `fae3b76`, `22d548b`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-08 - V3.35-F3 Portable Cycle State
 
 - Added schema-4 root-relative worktree, source, and runtime locators with stable

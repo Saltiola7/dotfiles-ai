@@ -1,25 +1,28 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, cycleStatus, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
-  description: "Read authoritative DBSCTR cycle status for the current worktree.",
+  description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
   args: {},
   async execute(_args, context) {
-    return await cycleStatus(context.worktree)
+    return await cycleStatus(cycleTarget(context.sessionID, context.worktree))
   },
 })
 
 export const attach = tool({
-  description: "Attach the current validated Build runtime to the active DBSCTR cycle.",
-  args: {},
-  async execute(_args, context) {
+  description: "Attach the current validated Build runtime to an active DBSCTR cycle worktree without relaunching OpenCode.",
+  args: { worktree: tool.schema.string().optional() },
+  async execute(args, context) {
     await context.ask({ permission: "dbsctr_attach", patterns: ["*"], always: [] })
-    return await attachRuntime(context.worktree, {
+    const target = await boundedCycleWorktree(context.worktree, args.worktree)
+    const result = await attachRuntime(target, {
       sessionID: context.sessionID,
       messageID: context.messageID,
       directory: context.directory,
       worktree: context.worktree,
     })
+    rememberCycleTarget(context.sessionID, target)
+    return result
   },
 })
 
@@ -53,7 +56,7 @@ export const phase_span = tool({
       spanID: args.spanId, event: args.event, parentSpanID: args.parentSpanId,
       phase: args.phase, operation: args.operation, dependencies: args.dependencies,
       ownershipPaths: args.ownershipPaths, attribution: args.attribution, result: args.result,
-    }, context.worktree)
+    }, cycleTarget(context.sessionID, context.worktree))
   },
 })
 
@@ -71,7 +74,7 @@ export const execution_dag = tool({
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_execution_dag", patterns: ["*"], always: [] })
-    return await validateExecutionDag(args.nodes, args.completed, args.mode, context.worktree)
+    return await validateExecutionDag(args.nodes, args.completed, args.mode, cycleTarget(context.sessionID, context.worktree))
   },
 })
 
@@ -84,7 +87,7 @@ export const execution_benchmark = tool({
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_execution_benchmark", patterns: ["*"], always: [] })
-    return await recordExecutionBenchmark(args.fixture, context.worktree)
+    return await recordExecutionBenchmark(args.fixture, cycleTarget(context.sessionID, context.worktree))
   },
 })
 
@@ -92,7 +95,7 @@ export const audit = tool({
   description: "Inventory DBSCTR lifecycle artifacts at a fixed Git commit without changing files.",
   args: { commit: tool.schema.string().optional().default("HEAD") },
   async execute(args, context) {
-    return await lifecycleAudit(context.worktree, args.commit)
+    return await lifecycleAudit(cycleTarget(context.sessionID, context.worktree), args.commit)
   },
 })
 
@@ -109,7 +112,7 @@ export const inspect = tool({
     excerpt: tool.schema.number().int().optional(),
   },
   async execute(args, context) {
-    return await fixedCommitInspect(args, context.worktree)
+    return await fixedCommitInspect(args, cycleTarget(context.sessionID, context.worktree))
   },
 })
 
@@ -447,6 +450,6 @@ export const reconcile = tool({
     worktree: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    return JSON.stringify(await reconcileTarget(args.mode, context.worktree, args.worktree))
+    return JSON.stringify(await reconcileTarget(args.mode, cycleTarget(context.sessionID, context.worktree), args.worktree))
   },
 })

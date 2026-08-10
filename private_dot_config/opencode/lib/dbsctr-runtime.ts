@@ -13,6 +13,7 @@ const evaluationPages = new Map<string, { source_id: string, capture_id: string,
 const evaluationReceipts = new Map<string, any>()
 const lensPages = new Map<string, Map<number, any>>()
 const lensCaptureScopes = new Map<string, "only" | "exclude">()
+const cycleTargets = new Map<string, string>()
 
 function discardEvaluationReceipt(manifestDigest: string) {
   const receipt = evaluationReceipts.get(manifestDigest)
@@ -181,12 +182,33 @@ export async function cycleStatus(cwd: string) {
   return await run(["dbsctrctl", "status", "--json"], cwd)
 }
 
+export function cycleTarget(sessionID: string, cwd: string) {
+  return cycleTargets.get(sessionID) ?? cwd
+}
+
+export function rememberCycleTarget(sessionID: string, worktree: string) {
+  cycleTargets.set(sessionID, worktree)
+}
+
+export async function boundedCycleWorktree(cwd: string, worktree?: string,
+  worktreeRoot = process.env.DBSCTR_WORKTREE_ROOT ?? join(homedir(), ".local/state/dbsctr/worktrees")) {
+  if (worktree === undefined) return cwd
+  const [target, registry] = await Promise.all([realpath(worktree), realpath(worktreeRoot)])
+  const path = relative(registry, target)
+  if (path === "" || path.startsWith(`..${sep}`) || isAbsolute(path))
+    throw new Error("cycle worktree must be inside the authorized DBSCTR worktree root")
+  const top = await realpath(await run(["git", "rev-parse", "--show-toplevel"], target))
+  if (top !== target) throw new Error("cycle worktree must be a Git worktree root")
+  return target
+}
+
 export async function attachRuntime(cwd: string, runtime: {
   sessionID: string
   messageID: string
   directory: string
   worktree: string
-}) {
+}, cycleWorktree?: string, worktreeRoot?: string) {
+  const target = await boundedCycleWorktree(cwd, cycleWorktree, worktreeRoot)
   return await run([
     "dbsctrctl", "attach-runtime",
     "--opencode-session-id", runtime.sessionID,
@@ -194,7 +216,7 @@ export async function attachRuntime(cwd: string, runtime: {
     "--opencode-directory", runtime.directory,
     "--opencode-worktree", runtime.worktree,
     "--harness-activation-json", JSON.stringify(harnessActivation),
-  ], cwd)
+  ], target)
 }
 
 export async function phaseSpan(args: {
@@ -1090,7 +1112,7 @@ export async function beginCycle(args: {
 }
 
 async function boundedReconciliationWorktree(cwd: string, worktree?: string,
-  worktreeRoot = join(homedir(), ".local/state/dbsctr/worktrees")) {
+  worktreeRoot = process.env.DBSCTR_WORKTREE_ROOT ?? join(homedir(), ".local/state/dbsctr/worktrees")) {
   if (worktree === undefined) return cwd
   const [current, candidate, root] = await Promise.all([
     realpath(cwd), realpath(worktree), realpath(worktreeRoot),

@@ -417,9 +417,13 @@ OCP-17 runtime health and OCP-18 compact analytics are current after deployment.
 The typed adapters preserve the helper's authoritative history, telemetry, and
 benchmark contracts.
 
-Given a validated Build primary attaches its current runtime, the typed control
-plane persists only the helper-validated runtime identity and returns normalized
-Herdr health as advisory operational metadata. Health is one of `healthy`,
+Given a validated Build primary attaches its current runtime to an active cycle,
+the typed control plane accepts an explicit cycle worktree, canonicalizes it
+beneath `DBSCTR_WORKTREE_ROOT`, and keeps it as that session's cycle-tool target.
+The helper persists only validated runtime identity; an unrelated OpenCode launch
+path is not added to the Cycle Record. Subsequent cycle-scoped typed operations
+route to the target without requiring an OpenCode relaunch. Herdr health remains
+advisory metadata for the actual launch context and is one of `healthy`,
 `missing`, `ambiguous`, or `unavailable`; malformed Herdr output fails closed and
 never changes a Cycle Record, gate result, or improvement state.
 
@@ -487,11 +491,11 @@ Git push retain their existing permission boundaries. Optional Herdr launch
 remains explicit through `launch=true` and never becomes lifecycle authority.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
-OpenCode allows external-directory access only beneath
-`~/.local/state/dbsctr/worktrees/**` without another prompt. Only native Build,
-`build-gpt`, and `build-claude` receive that allow rule. Plan and every subagent deny
-external-directory access; Builder agents remain confined to the worktree where
-they were launched.
+OpenCode allows external-directory access beneath the native worktree root and,
+when configured, the exact centralized state root. Provider-specific Build
+primaries inherit those generated global paths rather than replacing them with a
+native-only rule. Plan and every subagent retain their existing restrictions;
+Builder agents remain confined to the worktree where they were launched.
 
 Given a Build primary deploys the standalone AI dotfiles source, it may read and
 edit only the machine-local `~/.config/dotfiles-ai/**` config and persistent

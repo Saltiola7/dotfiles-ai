@@ -10,6 +10,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| OCP-34 | Added session-scoped cycle routing and inherited centralized worktree permissions for provider Build primaries | 2026-08-10 | `fae3b76`, `22d548b` |
 | OCP-33 | Routed title generation and read-only OpenAI exploration to Luna while retaining Terra implementation and Sol review tiers | 2026-08-09 | `b7339ea`, `1c8353a` |
 | OCP-32 | Added configurable centralized durable state, fail-closed runtime routing, portable cycle records, and reversible live migration | 2026-08-08 | `4fe1680..62f1010` |
 | OCP-30 | Add source ACLI read guardrails for writing skills without live deployment | 2026-07-28 | `761d01e`, `6904ff6`, `4b00081` |

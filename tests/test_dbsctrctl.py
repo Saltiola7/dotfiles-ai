@@ -871,7 +871,7 @@ class DbsctrctlTest(unittest.TestCase):
         stable = module.worktree_id(Path(handoff["worktree"]))
         self.assertFalse((self.repo / ".git/dbsctr/worktrees" / stable / "active").exists())
 
-    def test_attach_runtime_is_idempotent_and_worktree_bounded(self):
+    def test_attach_runtime_is_idempotent_for_cross_repository_primary(self):
         self.start()
         home = Path(self.temp.name) / "attach-home"
         database = home / ".local/share/opencode/opencode.db"
@@ -916,10 +916,12 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("does not own", mismatch.stderr)
         other = Path(self.temp.name) / "other"
         other.mkdir()
-        wrong = run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
-                    "--opencode-directory", str(other),
-                    "--opencode-worktree", str(other), env=env, ok=False)
-        self.assertIn("recorded cycle worktree", wrong.stderr)
+        subprocess.run(["git", "init"], cwd=other, check=True, capture_output=True)
+        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
+            "--opencode-directory", str(other), "--opencode-worktree", str(other), env=env)
+        cross_record = json.loads(self.record_path().read_text())
+        self.assertEqual(cross_record["runtime"]["opencode"]["session_ids"], ["session-resumed"])
+        self.assertNotEqual(cross_record["runtime"]["opencode"].get("worktree"), str(other))
 
         record["state"] = "completed"
         self.record_path().write_text(json.dumps(record))
