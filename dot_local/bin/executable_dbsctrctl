@@ -3590,8 +3590,9 @@ def command_attach_runtime(args):
             fail("active DBSCTR cycle changed during runtime attachment")
         require_active(record)
         recorded_worktree = record_worktree(root, record)
-        if runtime_worktree != root or runtime_worktree != recorded_worktree:
-            fail("OpenCode runtime must match the recorded cycle worktree")
+        if root != recorded_worktree:
+            fail("active cycle worktree identity changed")
+        source_worktree = record_source_worktree(root, record)
         opencode = record.setdefault("runtime", {}).setdefault("opencode", {})
         session_ids = opencode.setdefault("session_ids", [])
         if (not isinstance(session_ids, list) or len(session_ids) > REVIEW_MAX_LIMIT
@@ -3607,9 +3608,11 @@ def command_attach_runtime(args):
             fail("attached root sessions disagree on harness activation")
         if existing_activation is None and activation is not None:
             opencode["harness_activation"] = activation
-        if record.get("schema_version") == 4:
+        if record.get("schema_version") == 4 and runtime_worktree == root:
             opencode.update({"path_root": "cycle_worktree", "worktree": "."})
-        else:
+        elif record.get("schema_version") == 4 and runtime_worktree == source_worktree:
+            opencode.update({"path_root": "primary_worktree", "worktree": "."})
+        elif record.get("schema_version") != 4 and runtime_worktree in {root, source_worktree}:
             opencode["worktree"] = str(runtime_worktree)
         save(path, record)
     print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,

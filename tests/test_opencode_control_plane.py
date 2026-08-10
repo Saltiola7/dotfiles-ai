@@ -353,8 +353,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_phase_span: allow" in body
             assert "dbsctr_execution_benchmark: allow" in body
             assert "dbsctr_execution_dag: allow" in body
-            assert f"external_directory:\n    {worktrees}: allow" in body
-            assert f"    {local_config}: allow" in body
+            assert "external_directory:" not in body
         else:
             assert "mode: subagent" in body
             assert "dbsctr_begin: allow" not in body
@@ -476,6 +475,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     tools = (OC / "tools/dbsctr.ts").read_text()
     assert 'export const status = tool({' in tools
     assert 'export const attach = tool({' in tools
+    assert "worktree: tool.schema.string().optional()" in tools
+    assert "rememberCycleTarget(context.sessionID, target)" in tools
+    assert tools.count("cycleTarget(context.sessionID, context.worktree)") >= 6
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const audit = tool({' in tools
@@ -495,7 +497,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const phase_span = tool({' in tools
     assert 'export const execution_dag = tool({' in tools
     assert 'export const reconcile = tool({' in tools
-    assert "reconcileTarget(args.mode, context.worktree, args.worktree)" in tools
+    assert "reconcileTarget(args.mode, cycleTarget(context.sessionID, context.worktree), args.worktree)" in tools
     assert 'export const execution_benchmark = tool({' in tools
     assert "snapshot: tool.schema.number().int().min(0).optional()" in tools
     assert "snapshot: tool.schema.number().int().min(0)," in tools
@@ -1004,23 +1006,55 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
     bin_dir.mkdir()
     log = tmp_path / "attach.log"
     helper = bin_dir / "dbsctrctl"
-    helper.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@" > "$ATTACH_LOG"\nprintf "{}\\n"\n')
+    helper.write_text('#!/bin/sh\nprintf "<pwd=%s>\\n" "$PWD" > "$ATTACH_LOG"\nprintf "<%s>\\n" "$@" >> "$ATTACH_LOG"\nprintf "{}\\n"\n')
     helper.chmod(0o755)
+    registry = tmp_path / "registry"
+    target = registry / "repo" / "cycle"
+    target.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=target, check=True, capture_output=True)
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ attachRuntime }} from {json.dumps(str(runtime))};'
-        'await attachRuntime(process.cwd(),{sessionID:"session-resumed",messageID:"message-resumed",directory:process.cwd(),worktree:process.cwd()});'
+        f'await attachRuntime(process.cwd(),{{sessionID:"session-resumed",messageID:"message-resumed",directory:process.cwd(),worktree:process.cwd()}},{json.dumps(str(target))},{json.dumps(str(registry))});'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
                    env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATTACH_LOG": str(log)},
                    text=True, capture_output=True, check=True)
     assert log.read_text().splitlines() == [
+        f"<pwd={target}>",
         "<attach-runtime>", "<--opencode-session-id>", "<session-resumed>",
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
         '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
+
+
+def test_dbsctr_attach_rejects_target_outside_registry(tmp_path):
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    subprocess.run(["git", "init"], cwd=outside, check=True, capture_output=True)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ attachRuntime }} from {json.dumps(str(runtime))};'
+        f'await attachRuntime(process.cwd(),{{sessionID:"session-resumed",messageID:"message-resumed",directory:process.cwd(),worktree:process.cwd()}},{json.dumps(str(outside))},{json.dumps(str(registry))});'
+    )
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, text=True, capture_output=True)
+    assert result.returncode != 0
+    assert "authorized DBSCTR worktree root" in result.stderr
+
+
+def test_dbsctr_cycle_target_is_session_scoped(tmp_path):
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ cycleTarget, rememberCycleTarget }} from {json.dumps(str(runtime))};'
+        'rememberCycleTarget("session-a","/cycle-a");'
+        'console.log(JSON.stringify([cycleTarget("session-a","/source"),cycleTarget("session-b","/source")]));'
+    )
+    result = subprocess.run(["bun", "-e", script], cwd=ROOT, text=True, capture_output=True, check=True)
+    assert json.loads(result.stdout) == ["/cycle-a", "/source"]
 
 
 def test_provider_evaluation_receipt_is_single_use(tmp_path):

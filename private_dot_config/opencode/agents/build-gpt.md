@@ -11,9 +11,6 @@ permission:
   dbsctr_phase_span: allow
   dbsctr_execution_benchmark: allow
   dbsctr_execution_dag: allow
-  external_directory:
-    ~/.local/state/dbsctr/worktrees/**: allow
-    ~/.config/dotfiles-ai/**: allow
   task:
     "*": deny
     explore-openai: allow
