@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-11 - DAI-025 Hosted Vertex Reauthentication
+
+- Replaced gcloud's localhost OAuth callback with hosted authorization-code entry,
+  preventing stale browser tabs from consuming the callback before Google returns.
+- Passed the configured account positionally so gcloud validates the returned
+  identity, and rejected noncanonical ADC filenames that gcloud cannot renew.
+- Preserved isolated `CLOUDSDK_CONFIG`, ambient credential removal, quota-project
+  repair, and access-token proof. Focused rendering, isolation, blank-account,
+  canonical-path, shell-syntax, and zero-drift deployment checks passed; 12
+  portability tests passed. Deployed only the managed helper locally. Existing ADC
+  remains expired until the operator completes hosted reauthentication.
+- Implementation Gate Commit: `badf3fe`. Release is not applicable; intended Final
+  Push is the feature branch and draft pull request into protected `main`.
+
 ## 2026-08-09 - DAI-024 Rootless Podman Atuin
 
 - Added one default-empty machine-local Atuin workspace selector. The selected

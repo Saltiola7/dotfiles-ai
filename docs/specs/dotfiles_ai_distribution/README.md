@@ -184,6 +184,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | One machine-local Atuin workspace selector, private Lima forwarding, rootless Quadlet and named volume, external-home-aware guarded startup, cold migration, health/sync validation, and rollback |
 | Overrides | Shared defaults select no server; exactly one configured workspace may be selected; public endpoint and client identity remain unchanged; Colima remains installed and retained until a later explicit retirement |
 
+### DAI-025 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes interactive renewal of organization-controlled Vertex user credentials |
+| Delivery intent | Deploy the corrected helper locally and deliver a draft pull request |
+| Scope | Hosted OAuth callback, configured-account validation, isolated ADC, regression coverage, and local verification |
+| Overrides | Reauthentication requires one authorization-code copy/paste; no localhost callback or automatic browser launch is permitted |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -316,6 +325,19 @@ feature branch with a draft pull request; the operator retains merge authority.
   authenticate separately inside their own VM trust boundary.
 - Hermes updates are manual. `hermes update --backup` and post-update health
   verification are operator-owned maintenance, not a scheduled job.
+
+### Isolated Vertex Reauthentication
+
+- Given an expired isolated Vertex ADC, when `vertex-reauth` starts interactive
+  renewal, then gcloud uses its hosted authorization-code flow and never opens or
+  binds a localhost OAuth callback.
+- Given a configured Vertex account, when renewal succeeds, then gcloud validates
+  the returned identity against that positional account before replacing ADC.
+- Given ambient gcloud profiles or credential override variables, when renewal,
+  quota-project repair, or credential checks run, then every gcloud invocation
+  uses only the configured isolated directory with those overrides removed.
+- Given `vertex-reauth --check`, when ADC can or cannot mint an access token, then
+  the helper reports valid or reauthentication-required without opening a browser.
 
 ### Optional Lima State Root
 
@@ -696,6 +718,16 @@ feature branch with a draft pull request; the operator retains merge authority.
 ## Interfaces And Contracts
 
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
+- `vertex-reauth` derives its isolated `CLOUDSDK_CONFIG` from configured
+  canonical `application_default_credentials.json`, rejects any other basename,
+  removes ambient credential and active-profile overrides, and invokes gcloud's
+  hosted authorization flow with
+  `gcloud auth application-default login [ACCOUNT] --no-launch-browser`. A
+  non-empty account is positional and therefore validated by gcloud; blank
+  account retains interactive identity choice.
+- Successful renewal restores configured quota project and proves the new ADC can
+  mint an access token. Login or token failure remains nonzero; quota-project
+  repair failure remains a warning because token usability is authoritative.
 - `[dotfiles_ai.sandbox]` contains `enabled`, `build_workspace`, optional
   `atuin_workspace`, optional
   absolute `lima_home`, resource

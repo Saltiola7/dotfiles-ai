@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-025 | Replaced localhost Vertex OAuth callbacks with hosted code entry, fixed positional account validation, and rejected noncanonical ADC paths | 2026-08-11 | `badf3fe` |
 | DAI-024 | Moved self-hosted Atuin from Colima to pinned rootless Podman in the selected always-on Fedora workspace with private forwarding, guarded external-home startup, cold restore, and retained rollback | 2026-08-09 | `8e669d5` |
 | DAI-023 | Added an opt-in absolute Lima home, serialized bounded lifecycle, effective-filesystem capacity reporting, and migration guidance without changing teammate defaults | 2026-08-09 | `4a795ea..a01c4a1` |
 | DAI-021 | Delivered six independent continuous R&D lenses, isolated review-session governance, session-bound telemetry and readiness, controlled live pass validation, and five-minute Hermes scheduling | 2026-08-02 | `560650d..1e86bc8` |

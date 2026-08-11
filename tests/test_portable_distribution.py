@@ -7,7 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def data(onepassword: bool = False, vertex: bool = True) -> dict:
+def data(
+    onepassword: bool = False,
+    vertex: bool = True,
+    vertex_account: str = "user@example.com",
+    vertex_credentials: str = "/tmp/application_default_credentials.json",
+) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
@@ -15,8 +20,8 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
             "opencode": {
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
-                "vertex_credentials": "/tmp/example-adc.json",
-                "vertex_account": "user@example.com",
+                "vertex_credentials": vertex_credentials,
+                "vertex_account": vertex_account,
                 "default_model": "openai/gpt-5.6-sol",
                 "small_model": "openai/gpt-5.6-terra",
                 "lmstudio_base_url": "http://localhost:1234/v1",
@@ -71,13 +76,18 @@ def data(onepassword: bool = False, vertex: bool = True) -> dict:
 
 
 def chezmoi(
-    *args: str, onepassword: bool = False, vertex: bool = True
+    *args: str,
+    onepassword: bool = False,
+    vertex: bool = True,
+    vertex_account: str = "user@example.com",
+    vertex_credentials: str = "/tmp/application_default_credentials.json",
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
-            json.dumps(data(onepassword, vertex)), *args,
+            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials)),
+            *args,
         ],
         text=True,
         capture_output=True,
@@ -92,7 +102,9 @@ def test_local_data_renders_complete_configs() -> None:
     assert config["provider"]["google-vertex-anthropic"]["options"] == {
         "project": "example-project",
         "location": "global",
-        "googleAuthOptions": {"keyFilename": "/tmp/example-adc.json"},
+        "googleAuthOptions": {
+            "keyFilename": "/tmp/application_default_credentials.json"
+        },
     }
 
     sandbox = json.loads(
@@ -238,7 +250,7 @@ def test_vertex_reauth_helper_is_gated_and_localized() -> None:
     assert ".local/bin/vertex-reauth" in chezmoi("managed").stdout.splitlines()
 
     helper = chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout
-    assert 'ADC="/tmp/example-adc.json"' in helper
+    assert 'ADC="/tmp/application_default_credentials.json"' in helper
     assert 'PROJECT="example-project"' in helper
     assert 'ACCOUNT="user@example.com"' in helper
     # Every gcloud call must route through the isolating wrapper, never bare.
@@ -281,14 +293,41 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     assert "GOOGLE_APPLICATION_CREDENTIALS=<unset>" in recorded
     assert "OVERRIDE=<unset>" in recorded
     assert "ACTIVE_CONFIG=<unset>" in recorded
-    assert "auth application-default login --account=user@example.com" in recorded
+    assert (
+        "auth application-default login user@example.com --no-launch-browser"
+        in recorded
+    )
     assert "auth application-default set-quota-project example-project" in recorded
+
+    script.write_text(
+        chezmoi(
+            "cat",
+            str(Path.home() / ".local/bin/vertex-reauth"),
+            vertex_account="",
+        ).stdout
+    )
+    log.write_text("")
+    subprocess.run([str(script)], check=True, capture_output=True, text=True, env=env)
+    assert "ARGV: auth application-default login --no-launch-browser\n" in log.read_text()
 
     check = subprocess.run(
         [str(script), "--check"], capture_output=True, text=True, env=env
     )
     assert check.returncode == 0
     assert "credentials valid" in check.stdout
+
+    script.write_text(
+        chezmoi(
+            "cat",
+            str(Path.home() / ".local/bin/vertex-reauth"),
+            vertex_credentials="/tmp/custom.json",
+        ).stdout
+    )
+    invalid = subprocess.run(
+        [str(script)], capture_output=True, text=True, env=env
+    )
+    assert invalid.returncode == 2
+    assert "must end with application_default_credentials.json" in invalid.stderr
 
 
 def test_dynamic_workspace_registry_and_template_render() -> None:
