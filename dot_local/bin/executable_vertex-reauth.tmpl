@@ -18,7 +18,8 @@
 #
 # An organisation session-control policy expires the reauth proof token, after
 # which the route fails with `invalid_rapt`. The browser step IS the security
-# control and cannot be automated away; this only makes re-running it correct.
+# control and cannot be automated away. The hosted flow avoids gcloud's local
+# callback server, which can consume a stale browser request before OAuth returns.
 
 set -euo pipefail
 
@@ -27,6 +28,10 @@ PROJECT={{ .dotfiles_ai.opencode.vertex_project | quote }}
 ACCOUNT={{ .dotfiles_ai.opencode.vertex_account | quote }}
 
 [ -n "$ADC" ] || { echo "vertex-reauth: vertex_credentials is not configured" >&2; exit 2; }
+[ "${ADC##*/}" = "application_default_credentials.json" ] || {
+  echo "vertex-reauth: vertex_credentials must end with application_default_credentials.json" >&2
+  exit 2
+}
 
 # ADC always sits at $CLOUDSDK_CONFIG/application_default_credentials.json, so
 # the isolated config directory is simply its parent.
@@ -55,9 +60,9 @@ fi
 # ponytail: two branches rather than an array, because macOS bash 3.2 treats an
 # empty "${array[@]}" as an unbound variable under set -u.
 if [ -n "$ACCOUNT" ]; then
-  gc auth application-default login --account="$ACCOUNT"
+  gc auth application-default login "$ACCOUNT" --no-launch-browser
 else
-  gc auth application-default login
+  gc auth application-default login --no-launch-browser
 fi
 
 # A fresh login can drop the quota project that Vertex bills and quotas against.

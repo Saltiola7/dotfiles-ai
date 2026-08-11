@@ -19,7 +19,7 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 # session-control policy expire and must be renewed interactively.
 vertex_project = ""
 vertex_location = "global"
-# Explicit credential file; it outranks any ambient GOOGLE_APPLICATION_CREDENTIALS.
+# Canonical application_default_credentials.json file; it outranks ambient credentials.
 # Its parent directory is the isolated CLOUDSDK_CONFIG that vertex-reauth targets.
 vertex_credentials = ""
 # Pins the browser login to one identity, so a multi-account picker cannot
