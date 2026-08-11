@@ -32,6 +32,9 @@ ACCOUNT={{ .dotfiles_ai.opencode.vertex_account | quote }}
   echo "vertex-reauth: vertex_credentials must end with application_default_credentials.json" >&2
   exit 2
 }
+case "$ACCOUNT" in
+  -*) echo "vertex-reauth: invalid vertex_account" >&2; exit 2 ;;
+esac
 
 # ADC always sits at $CLOUDSDK_CONFIG/application_default_credentials.json, so
 # the isolated config directory is simply its parent.
@@ -46,23 +49,25 @@ gc() {
       gcloud "$@"
 }
 
-# --check reports staleness without opening a browser, so a caller can tell
-# "reauth is due" apart from "configuration is broken".
-if [ "${1:-}" = "--check" ]; then
-  if gc auth application-default print-access-token >/dev/null 2>&1; then
-    echo "vertex-reauth: credentials valid"
-    exit 0
-  fi
-  echo "vertex-reauth: reauth required — run vertex-reauth" >&2
-  exit 1
-fi
+[ "$#" -le 1 ] || { echo "usage: vertex-reauth [--check|--browser]" >&2; exit 2; }
+case "${1:-}" in
+  --check)
+    if gc auth application-default print-access-token >/dev/null 2>&1; then
+      echo "vertex-reauth: credentials valid"
+      exit 0
+    fi
+    echo "vertex-reauth: reauth required — run vertex-reauth" >&2
+    exit 1
+    ;;
+  --browser) set -- ;;
+  "") set -- --no-launch-browser ;;
+  *) echo "usage: vertex-reauth [--check|--browser]" >&2; exit 2 ;;
+esac
 
-# ponytail: two branches rather than an array, because macOS bash 3.2 treats an
-# empty "${array[@]}" as an unbound variable under set -u.
 if [ -n "$ACCOUNT" ]; then
-  gc auth application-default login "$ACCOUNT" --no-launch-browser
+  gc auth application-default login "$ACCOUNT" "$@"
 else
-  gc auth application-default login --no-launch-browser
+  gc auth application-default login "$@"
 fi
 
 # A fresh login can drop the quota project that Vertex bills and quotas against.

@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-11 - DAI-026 Dual Vertex Reauthentication
+
+- Added `vertex-reauth-browser` for automatic local-browser callback without code
+  paste while retaining `vertex-reauth` as hosted code-entry fallback.
+- Both commands share isolated ADC, positional account validation, canonical-path
+  guard, quota-project repair, and token proof. Unknown modes, extra arguments,
+  and flag-like configured accounts fail before gcloud runs.
+- Twelve portability tests, rendered wrapper execution, shell syntax, and focused
+  review passed. Implementation Gate Commit: `be0748d`. Release is not applicable;
+  intended Final Push is a feature branch and draft pull request into `main`.
+
 ## 2026-08-11 - DAI-025 Hosted Vertex Reauthentication
 
 - Replaced gcloud's localhost OAuth callback with hosted authorization-code entry,

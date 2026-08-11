@@ -246,8 +246,13 @@ def test_onepassword_helper_is_opt_in_and_localized() -> None:
 
 
 def test_vertex_reauth_helper_is_gated_and_localized() -> None:
-    assert ".local/bin/vertex-reauth" not in chezmoi("managed", vertex=False).stdout.splitlines()
-    assert ".local/bin/vertex-reauth" in chezmoi("managed").stdout.splitlines()
+    disabled = chezmoi("managed", vertex=False).stdout.splitlines()
+    assert ".local/bin/vertex-reauth" not in disabled
+    assert ".local/bin/vertex-reauth-browser" not in disabled
+
+    enabled = chezmoi("managed").stdout.splitlines()
+    assert ".local/bin/vertex-reauth" in enabled
+    assert ".local/bin/vertex-reauth-browser" in enabled
 
     helper = chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout
     assert 'ADC="/tmp/application_default_credentials.json"' in helper
@@ -255,6 +260,11 @@ def test_vertex_reauth_helper_is_gated_and_localized() -> None:
     assert 'ACCOUNT="user@example.com"' in helper
     # Every gcloud call must route through the isolating wrapper, never bare.
     assert "\ngcloud " not in helper
+
+    browser = chezmoi(
+        "cat", str(Path.home() / ".local/bin/vertex-reauth-browser")
+    ).stdout
+    assert "exec vertex-reauth --browser" in browser
 
 
 def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) -> None:
@@ -310,6 +320,41 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     subprocess.run([str(script)], check=True, capture_output=True, text=True, env=env)
     assert "ARGV: auth application-default login --no-launch-browser\n" in log.read_text()
 
+    script.write_text(chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout)
+    log.write_text("")
+    subprocess.run(
+        [str(script), "--browser"], check=True, capture_output=True, text=True, env=env
+    )
+    assert "ARGV: auth application-default login user@example.com\n" in log.read_text()
+
+    wrapper = tmp_path / "vertex-reauth-browser"
+    wrapper.write_text(
+        chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth-browser")).stdout
+    )
+    wrapper.chmod(0o755)
+    log.write_text("")
+    subprocess.run([str(wrapper)], check=True, capture_output=True, text=True, env=env)
+    assert "ARGV: auth application-default login user@example.com\n" in log.read_text()
+
+    invalid_args = subprocess.run(
+        [str(script), "--browser", "extra"], capture_output=True, text=True, env=env
+    )
+    assert invalid_args.returncode == 2
+
+    script.write_text(
+        chezmoi(
+            "cat",
+            str(Path.home() / ".local/bin/vertex-reauth"),
+            vertex_account="--quiet",
+        ).stdout
+    )
+    invalid_account = subprocess.run(
+        [str(script)], capture_output=True, text=True, env=env
+    )
+    assert invalid_account.returncode == 2
+    assert "invalid vertex_account" in invalid_account.stderr
+
+    script.write_text(chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout)
     check = subprocess.run(
         [str(script), "--check"], capture_output=True, text=True, env=env
     )
