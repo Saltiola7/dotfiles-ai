@@ -48,6 +48,7 @@ Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 .config/opencode/agents/builder-vertex.md
 .config/opencode/commands/dbsctr-claude.md
 .local/bin/vertex-reauth
+.local/bin/vertex-reauth-browser
 {{ end }}
 {{ if not .dotfiles_ai.onepassword.enabled }}
 .local/bin/op-session

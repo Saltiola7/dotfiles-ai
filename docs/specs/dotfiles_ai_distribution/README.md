@@ -338,6 +338,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   uses only the configured isolated directory with those overrides removed.
 - Given `vertex-reauth --check`, when ADC can or cannot mint an access token, then
   the helper reports valid or reauthentication-required without opening a browser.
+- Given an operator prefers automatic callback, when `vertex-reauth-browser` runs,
+  then it preserves the same isolation and account validation while using gcloud's
+  local browser callback without verification-code copy/paste.
 
 ### Optional Lima State Root
 
@@ -725,6 +728,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   `gcloud auth application-default login [ACCOUNT] --no-launch-browser`. A
   non-empty account is positional and therefore validated by gcloud; blank
   account retains interactive identity choice.
+- `vertex-reauth-browser` delegates only to `vertex-reauth --browser`; this omits
+  `--no-launch-browser` and therefore uses gcloud's automatic local callback. The
+  hosted `vertex-reauth` command remains the fallback when browser tab state
+  interferes with localhost.
 - Successful renewal restores configured quota project and proves the new ADC can
   mint an access token. Login or token failure remains nonzero; quota-project
   repair failure remains a warning because token usability is authoritative.
