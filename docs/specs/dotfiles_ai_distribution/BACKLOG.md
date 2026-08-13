@@ -11,6 +11,7 @@
 
 | id | outcome | completed | commit |
 |---|---|---|---|
+| DAI-027 | Forced both Vertex renewal modes past gcloud's stale account cache with explicit default scopes while preserving profile isolation | 2026-08-12 | `e6d2da3` |
 | DAI-026 | Added automatic browser Vertex renewal beside hosted code-entry fallback with shared isolation and fail-closed mode validation | 2026-08-11 | `be0748d` |
 | DAI-025 | Replaced localhost Vertex OAuth callbacks with hosted code entry, fixed positional account validation, and rejected noncanonical ADC paths | 2026-08-11 | `badf3fe` |
 | DAI-024 | Moved self-hosted Atuin from Colima to pinned rootless Podman in the selected always-on Fedora workspace with private forwarding, guarded external-home startup, cold restore, and retained rollback | 2026-08-09 | `8e669d5` |

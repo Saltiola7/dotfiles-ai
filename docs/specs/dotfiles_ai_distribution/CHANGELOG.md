@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-12 - DAI-027 Forced Vertex ADC Renewal
+
+- Passed gcloud's explicit default scopes in both hosted and browser modes, which
+  disables its stale account-only cache shortcut while retaining positional
+  account validation.
+- Kept the dedicated Vertex `CLOUDSDK_CONFIG`, ambient override removal, quota
+  project repair, and token proof unchanged; normal gcloud profiles remain outside
+  the helper boundary.
+- Twelve portability tests and independent review passed. Implementation Gate
+  Commit: `e6d2da3`. Release is not applicable; intended Final Push is a feature
+  branch and draft pull request into `main`.
+
 ## 2026-08-11 - DAI-026 Dual Vertex Reauthentication
 
 - Added `vertex-reauth-browser` for automatic local-browser callback without code

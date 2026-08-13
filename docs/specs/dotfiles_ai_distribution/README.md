@@ -341,6 +341,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given an operator prefers automatic callback, when `vertex-reauth-browser` runs,
   then it preserves the same isolation and account validation while using gcloud's
   local browser callback without verification-code copy/paste.
+- Given stale ADC still names the configured account, when either interactive
+  renewal command runs, then explicit default scopes bypass gcloud's account-only
+  cache and force a fresh OAuth exchange.
 
 ### Optional Lima State Root
 
@@ -732,6 +735,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   `--no-launch-browser` and therefore uses gcloud's automatic local callback. The
   hosted `vertex-reauth` command remains the fallback when browser tab state
   interferes with localhost.
+- Both interactive modes pass gcloud's explicit default scope set (`openid`, user
+  email, Cloud Platform, and Cloud SQL login). This preserves account validation
+  while disabling gcloud's stale account-only credential cache shortcut.
 - Successful renewal restores configured quota project and proves the new ADC can
   mint an access token. Login or token failure remains nonzero; quota-project
   repair failure remains a warning because token usability is authoritative.
