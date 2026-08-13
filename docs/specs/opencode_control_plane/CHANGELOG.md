@@ -4,6 +4,20 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-13 - OCP-35 Exact Session Recovery
+
+- Restored 39 pre-failure OpenCode sessions into their persisted Herdr panes
+  without interrupting three emergency sessions, then captured all 42 exact
+  active session identities for restart recovery.
+- Added atomic minute-level active-session capture, fail-closed SQLite and pane
+  validation, exact managed-wrapper resume, duplicate prevention, bounded Herdr
+  calls, and launchd owner shutdown forwarding.
+- Affected validation passed 44 tests, Python and Bash syntax checks, plist lint,
+  Git whitespace checks, exact 42-entry live preflight, and idempotent no-op
+  recovery. Gate Exceptions: none. A deliberate second Herdr restart was not run
+  because it would terminate the active delivery session. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-10 - OCP-34 Cross-Checkout Cycle Routing
 
 - Added registry-bounded `dbsctr_attach` targeting and session-scoped routing for
