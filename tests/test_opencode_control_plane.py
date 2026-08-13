@@ -312,6 +312,8 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     config = rendered_config()
     worktrees = "~/.local/state/dbsctr/worktrees/**"
     local_config = "~/.config/dotfiles-ai/**"
+    personal_chezmoi = "~/.local/share/chezmoi"
+    personal_chezmoi_tree = "~/.local/share/chezmoi/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["dbsctr_reconcile"] == "deny"
@@ -333,13 +335,16 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
-        "external_directory": {worktrees: "allow", local_config: "allow"},
+        "external_directory": {
+            worktrees: "allow", local_config: "allow",
+            personal_chezmoi: "allow", personal_chezmoi_tree: "allow",
+        },
     }
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
     assert rendered_config(data=centralized)["agent"]["build"]["permission"]["external_directory"] == {
         worktrees: "allow", "/Volumes/ext/state": "allow", "/Volumes/ext/state/**": "allow",
-        local_config: "allow",
+        local_config: "allow", personal_chezmoi: "allow", personal_chezmoi_tree: "allow",
     }
 
     build_primaries = {"build-gpt.md", "build-claude.md"}
