@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+import json
+import os
+import re
+import shlex
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERDR = os.environ.get("HERDR_BIN", "herdr")
+
+def run(*args: str) -> dict:
+    return json.loads(subprocess.run((HERDR, *args), check=True, capture_output=True, text=True, timeout=10).stdout)
+
+
+def pane_session(pane: str) -> str | None:
+    processes = run("pane", "process-info", "--pane", pane)["result"]["process_info"]["foreground_processes"]
+    for process in processes:
+        argv = process.get("argv", [])
+        if len(argv) >= 2 and argv[-2] == "--session":
+            return argv[-1]
+    return None
+
+
+def capture(manifest: Path) -> int:
+    sessions = []
+    panes = run("pane", "list")["result"]["panes"]
+    for pane in panes:
+        pane_id = pane.get("pane_id")
+        if not isinstance(pane_id, str):
+            continue
+        process = run("pane", "process-info", "--pane", pane_id)["result"]["process_info"]
+        for foreground in process["foreground_processes"]:
+            argv, directory = foreground.get("argv", []), foreground.get("cwd")
+            if len(argv) >= 2 and argv[-2] == "--session" and isinstance(directory, str):
+                sessions.append({"pane_id": pane_id, "directory": directory, "session_id": argv[-1]})
+                break
+    temporary = manifest.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"schema_version": 1, "sessions": sessions}, indent=2) + "\n")
+    temporary.replace(manifest)
+    return 0
+
+
+def main() -> int:
+    check = sys.argv[1:] == ["--check"]
+    capturing = sys.argv[1:] == ["--capture"]
+    watching = sys.argv[1:] == ["--watch"]
+    if sys.argv[1:] not in ([], ["--check"], ["--capture"], ["--watch"]):
+        raise ValueError("usage: herdr-opencode-restore [--check|--capture|--watch]")
+    root_value = os.environ.get("DOTFILES_AI_STATE_ROOT")
+    if not root_value:
+        return 0
+    root = Path(root_value)
+    manifest = root / "herdr/opencode-sessions.json"
+    if capturing:
+        return capture(manifest)
+    if watching:
+        while True:
+            time.sleep(60)
+            capture(manifest)
+    database = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode/opencode.db"
+    opencode = Path.home() / ".local/bin/opencode"
+    if not root or not manifest.is_file() or not database.is_file() or not opencode.is_file():
+        return 0
+
+    document = json.loads(manifest.read_text())
+    if document.get("schema_version") != 1 or not isinstance(document.get("sessions"), list):
+        raise ValueError("invalid OpenCode recovery manifest")
+
+    entries = document["sessions"]
+    required = {"pane_id", "directory", "session_id"}
+    if any(set(entry) != required or not all(isinstance(entry[key], str) and entry[key] for key in required)
+           for entry in entries):
+        raise ValueError("invalid OpenCode recovery entry")
+    if any(not re.fullmatch(r"ses_[A-Za-z0-9]+", entry["session_id"])
+           or not re.fullmatch(r"[A-Za-z0-9]+:[A-Za-z0-9]+", entry["pane_id"]) for entry in entries):
+        raise ValueError("unsafe OpenCode recovery entry")
+    if len({entry["pane_id"] for entry in entries}) != len(entries) or len({entry["session_id"] for entry in entries}) != len(entries):
+        raise ValueError("duplicate OpenCode recovery entry")
+
+    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+        known = {row[0] for row in connection.execute(
+            f"SELECT id FROM session WHERE id IN ({','.join('?' for _ in entries)})",
+            [entry["session_id"] for entry in entries],
+        )} if entries else set()
+
+    agents = run("agent", "list")["result"]["agents"]
+    running = {agent.get("agent_session", {}).get("value") for agent in agents}
+    failures = []
+    for entry in entries:
+        session, pane, directory = entry["session_id"], entry["pane_id"], Path(entry["directory"])
+        try:
+            if session not in known or not directory.is_dir():
+                raise RuntimeError("session or directory unavailable")
+            current = run("pane", "get", pane)["result"]["pane"]
+            active_session = pane_session(pane)
+            if active_session == session:
+                continue
+            if session in running:
+                raise RuntimeError("session is running in another pane")
+            if current.get("agent") or active_session:
+                raise RuntimeError("pane is occupied")
+            if check:
+                continue
+            command = "exec " + shlex.join([str(opencode), "--session", session])
+            subprocess.run(
+                [HERDR, "pane", "run", pane, command],
+                cwd=directory, check=True, capture_output=True, text=True, timeout=10,
+            )
+            for _ in range(300):
+                if pane_session(pane) == session:
+                    break
+                time.sleep(0.1)
+            else:
+                raise RuntimeError("restored session identity mismatch")
+        except subprocess.CalledProcessError as error:
+            failures.append(f"{pane} {session}: {(error.stderr or str(error)).strip()}")
+        except Exception as error:
+            failures.append(f"{pane} {session}: {error}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        return 1
+    if check:
+        print(f"validated {len(entries)} OpenCode recovery sessions")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

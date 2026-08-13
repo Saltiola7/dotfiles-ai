@@ -1,6 +1,9 @@
 import json
+import os
 import plistlib
+import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -195,3 +198,81 @@ def test_centralized_state_guard_fails_closed() -> None:
     )
     assert result.returncode == 75
     assert "state root is unavailable" in result.stderr
+
+
+def test_herdr_owner_recovers_exact_sessions_after_server_start() -> None:
+    owner = (ROOT / "dot_local/bin/executable_herdr-server-owner.tmpl").read_text()
+
+    assert '"$HERDR" server' in owner
+    assert '"$HOME/.local/bin/herdr-opencode-restore"' in owner
+
+
+def test_session_restore_uses_manifest_database_and_managed_wrapper() -> None:
+    restore = (ROOT / "dot_local/bin/executable_herdr-opencode-restore").read_text()
+
+    assert 'opencode-sessions.json' in restore
+    assert 'opencode.db' in restore
+    assert 'Path.home() / ".local/bin/opencode"' in restore
+    assert '"pane", "run"' in restore
+    assert '"--session"' in restore
+    assert '"--check"' in restore
+    assert '"--capture"' in restore
+    assert '"--watch"' in restore
+    assert "shlex.join" in restore
+
+
+def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> None:
+    state = tmp_path / "state"
+    data = state / "xdg/data/opencode"
+    directory = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    for path in (data, state / "herdr", directory, bin_dir):
+        path.mkdir(parents=True)
+    database = data / "opencode.db"
+    connection = sqlite3.connect(database)
+    connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
+    connection.executemany("INSERT INTO session VALUES (?)", [("ses_running",), ("ses_restore",)])
+    connection.commit()
+    connection.close()
+    (state / "herdr/opencode-sessions.json").write_text(json.dumps({
+        "schema_version": 1,
+        "sessions": [
+            {"pane_id": "w1:p1", "directory": str(directory), "session_id": "ses_running"},
+            {"pane_id": "w1:p2", "directory": str(directory), "session_id": "ses_restore"},
+        ],
+    }))
+    home = tmp_path / "home"
+    wrapper = home / ".local/bin/opencode"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.touch()
+    herdr = bin_dir / "herdr"
+    herdr.write_text(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "$*" >> "$CALLS"\n'
+        'case "$1 $2" in\n'
+        '  "agent list") printf \'{"result":{"agents":[{"agent_session":{"value":"ses_running"}}]}}\\n\' ;;\n'
+        '  "pane get") printf \'{"result":{"pane":{}}}\\n\' ;;\n'
+        '  "pane run") touch "$STARTED" ;;\n'
+        '  "pane process-info") if [ "$4" = w1:p1 ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_running"]}]}}}\\n\'; elif [ -f "$STARTED" ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_restore"]}]}}}\\n\'; else printf \'{"result":{"process_info":{"foreground_processes":[]}}}\\n\'; fi ;;\n'
+        'esac\n'
+    )
+    herdr.chmod(0o755)
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "dot_local/bin/executable_herdr-opencode-restore")],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "HOME": str(home),
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "CALLS": str(tmp_path / "calls"),
+            "STARTED": str(tmp_path / "started"),
+            "DOTFILES_AI_STATE_ROOT": str(state),
+            "XDG_DATA_HOME": str(state / "xdg/data"),
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "calls").read_text()
+    assert "ses_running" not in calls
+    assert f"pane run w1:p2 exec {wrapper} --session ses_restore" in calls
