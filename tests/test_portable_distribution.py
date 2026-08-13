@@ -304,7 +304,10 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     assert "OVERRIDE=<unset>" in recorded
     assert "ACTIVE_CONFIG=<unset>" in recorded
     assert (
-        "auth application-default login user@example.com --no-launch-browser"
+        "auth application-default login user@example.com --no-launch-browser "
+        "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,"
+        "https://www.googleapis.com/auth/cloud-platform,"
+        "https://www.googleapis.com/auth/sqlservice.login"
         in recorded
     )
     assert "auth application-default set-quota-project example-project" in recorded
@@ -318,14 +321,26 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     )
     log.write_text("")
     subprocess.run([str(script)], check=True, capture_output=True, text=True, env=env)
-    assert "ARGV: auth application-default login --no-launch-browser\n" in log.read_text()
+    assert (
+        "ARGV: auth application-default login --no-launch-browser "
+        "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,"
+        "https://www.googleapis.com/auth/cloud-platform,"
+        "https://www.googleapis.com/auth/sqlservice.login\n"
+        in log.read_text()
+    )
 
     script.write_text(chezmoi("cat", str(Path.home() / ".local/bin/vertex-reauth")).stdout)
     log.write_text("")
     subprocess.run(
         [str(script), "--browser"], check=True, capture_output=True, text=True, env=env
     )
-    assert "ARGV: auth application-default login user@example.com\n" in log.read_text()
+    assert (
+        "ARGV: auth application-default login user@example.com "
+        "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,"
+        "https://www.googleapis.com/auth/cloud-platform,"
+        "https://www.googleapis.com/auth/sqlservice.login\n"
+        in log.read_text()
+    )
 
     wrapper = tmp_path / "vertex-reauth-browser"
     wrapper.write_text(
@@ -334,7 +349,13 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     wrapper.chmod(0o755)
     log.write_text("")
     subprocess.run([str(wrapper)], check=True, capture_output=True, text=True, env=env)
-    assert "ARGV: auth application-default login user@example.com\n" in log.read_text()
+    assert (
+        "ARGV: auth application-default login user@example.com "
+        "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,"
+        "https://www.googleapis.com/auth/cloud-platform,"
+        "https://www.googleapis.com/auth/sqlservice.login\n"
+        in log.read_text()
+    )
 
     invalid_args = subprocess.run(
         [str(script), "--browser", "extra"], capture_output=True, text=True, env=env

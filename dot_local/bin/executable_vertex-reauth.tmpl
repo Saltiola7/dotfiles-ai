@@ -26,6 +26,7 @@ set -euo pipefail
 ADC={{ .dotfiles_ai.opencode.vertex_credentials | quote }}
 PROJECT={{ .dotfiles_ai.opencode.vertex_project | quote }}
 ACCOUNT={{ .dotfiles_ai.opencode.vertex_account | quote }}
+SCOPES=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/sqlservice.login
 
 [ -n "$ADC" ] || { echo "vertex-reauth: vertex_credentials is not configured" >&2; exit 2; }
 [ "${ADC##*/}" = "application_default_credentials.json" ] || {
@@ -65,9 +66,9 @@ case "${1:-}" in
 esac
 
 if [ -n "$ACCOUNT" ]; then
-  gc auth application-default login "$ACCOUNT" "$@"
+  gc auth application-default login "$ACCOUNT" "$@" --scopes="$SCOPES"
 else
-  gc auth application-default login "$@"
+  gc auth application-default login "$@" --scopes="$SCOPES"
 fi
 
 # A fresh login can drop the quota project that Vertex bills and quotas against.
