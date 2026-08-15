@@ -814,8 +814,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Every managed guest has rootless Podman. New guests receive the Fedora `podman`
   package during Lima provisioning; existing guests must already satisfy that
   capability before update proceeds. User-owned installers pin Docker Compose v2
-  and the 1Password CLI by version and checksum. Podman selects the exact Compose
-  provider path rather than provider discovery order.
+  and the 1Password CLI by version and checksum and enable the rootless Podman
+  user socket. Podman selects the exact Compose provider path rather than provider
+  discovery order.
 - Guest `docker` is a compatibility shim over Podman, not Docker Engine. Compose
   dispatch uses the pinned provider; other arguments preserve boundaries and pass
   directly to Podman. Removing the shim and provider restores native Podman only
