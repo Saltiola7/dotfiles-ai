@@ -1,0 +1,42 @@
+#!/bin/sh
+# compose: 2.40.3; op: 2.39.0; gcloud: 580.0.0
+set -eu
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+curl -fsSL --retry 3 --retry-all-errors \
+  https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-aarch64 \
+  -o "$tmpdir/docker-compose"
+printf '%s  %s\n' d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137 "$tmpdir/docker-compose" | sha256sum -c -
+install -d -m 0755 "$HOME/.docker/cli-plugins"
+install -m 0755 "$tmpdir/docker-compose" "$HOME/.docker/cli-plugins/.docker-compose.new"
+mv -f "$HOME/.docker/cli-plugins/.docker-compose.new" "$HOME/.docker/cli-plugins/docker-compose"
+
+curl -fsSL --retry 3 --retry-all-errors \
+  https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_arm64_v2.39.0.zip \
+  -o "$tmpdir/op.zip"
+printf '%s  %s\n' 829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0 "$tmpdir/op.zip" | sha256sum -c -
+python3 -m zipfile -e "$tmpdir/op.zip" "$tmpdir/op"
+install -d -m 0755 "$HOME/.local/bin"
+install -m 0755 "$tmpdir/op/op" "$HOME/.local/bin/.op.new"
+mv -f "$HOME/.local/bin/.op.new" "$HOME/.local/bin/op"
+
+curl -fsSL --retry 3 --retry-all-errors \
+  https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-arm.tar.gz \
+  -o "$tmpdir/gcloud.tgz"
+printf '%s  %s\n' 7ff98b84935b36948f8f0c76d1b14157b72448c442604f567231db768012b444 "$tmpdir/gcloud.tgz" | sha256sum -c -
+tar -xzf "$tmpdir/gcloud.tgz" -C "$tmpdir"
+install -d -m 0755 "$HOME/.local/share"
+destination="$HOME/.local/share/google-cloud-sdk-580.0.0"
+rm -rf "$destination.new"
+mv "$tmpdir/google-cloud-sdk" "$destination.new"
+"$destination.new/bin/gcloud" version --format=json >/dev/null
+rm -rf "$destination.old"
+if [ -e "$destination" ]; then mv "$destination" "$destination.old"; fi
+if ! mv "$destination.new" "$destination"; then
+  if [ -e "$destination.old" ]; then mv "$destination.old" "$destination"; fi
+  exit 1
+fi
+rm -rf "$destination.old"
+ln -sfn "$destination/bin/gcloud" "$HOME/.local/bin/gcloud"

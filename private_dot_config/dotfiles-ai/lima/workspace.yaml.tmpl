@@ -14,7 +14,7 @@ provision:
   - mode: system
     script: |
       set -eu
-      dnf install -y ca-certificates curl git gh jq python3 ripgrep tar gzip util-linux uv
+      dnf install -y ca-certificates curl git gh jq podman python3 ripgrep tar gzip util-linux uv
       install -d -m 0755 /usr/local/libexec /etc/opencode-sandbox
       cat >/etc/opencode-sandbox/workspace.json <<'JSON'
       @@WORKSPACE_JSON@@
@@ -151,7 +151,7 @@ provision:
       source="$HOME/.local/share/chezmoi-dotfiles-ai"
       if test -d "$source/.git"; then git -C "$source" pull --ff-only; else git clone @@SOURCE@@ "$source"; fi
       mkdir -p "$HOME/.config/dotfiles-ai"
-      cat >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<'EOF'
+      sed "s|__GUEST_HOME__|$HOME|g" >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<'EOF'
       @@GUEST_CONFIG@@
       EOF
       chezmoi -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply

@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = compose ]; then
+    shift
+    PODMAN_COMPOSE_PROVIDER="$HOME/.docker/cli-plugins/docker-compose"
+    export PODMAN_COMPOSE_PROVIDER
+    exec podman compose "$@"
+fi
+exec podman "$@"

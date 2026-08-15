@@ -112,7 +112,7 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 4
+    assert sandbox["schema_version"] == 5
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
@@ -169,6 +169,8 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "install-starship.sh" not in host
     assert "install-atuin.sh" not in host
     assert "install-bash-preexec.sh" not in host
+    assert "install-guest-development-tools.sh" not in host
+    assert ".local/bin/docker" not in host
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(starship init bash)"') == 1
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(atuin init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
@@ -184,6 +186,8 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "install-starship.sh" in ignore
     assert "install-atuin.sh" in ignore
     assert "install-bash-preexec.sh" in ignore
+    assert "install-guest-development-tools.sh" in ignore
+    assert ".local/bin/docker" in ignore
     assert "reconcile-sandbox-shell-aliases.sh" in ignore
     assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
     installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
@@ -199,6 +203,20 @@ def test_portable_terminal_config_is_guest_only() -> None:
     bashrc = (ROOT / "dot_bashrc").read_text()
     assert 'source "$HOME/.local/share/bash-preexec/bash-preexec.sh"' in bashrc
     assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
+
+
+def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
+    installer = (ROOT / "run_onchange_after_install-guest-development-tools.sh.tmpl").read_text()
+    shim = (ROOT / "dot_local/bin/executable_docker").read_text()
+
+    assert "docker-compose-linux-aarch64" in installer
+    assert "d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137" in installer
+    assert "op_linux_arm64_v2.39.0.zip" in installer
+    assert "829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0" in installer
+    assert "google-cloud-cli-580.0.0-linux-arm.tar.gz" in installer
+    assert "7ff98b84935b36948f8f0c76d1b14157b72448c442604f567231db768012b444" in installer
+    assert 'PODMAN_COMPOSE_PROVIDER="$HOME/.docker/cli-plugins/docker-compose"' in shim
+    assert 'exec podman compose "$@"' in shim
 
 
 def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
@@ -401,7 +419,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 4
+    assert registry["schema_version"] == 5
     assert registry["build_workspace"] == "workspace1"
     assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]

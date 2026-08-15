@@ -29,7 +29,7 @@ def load_helper():
 def config(tmp_path: Path) -> dict:
     (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
@@ -38,12 +38,18 @@ def config(tmp_path: Path) -> dict:
         "state_root": str(tmp_path / "state"),
         "lima_home": str(tmp_path / "state/lima"),
         "tailscale": {"enabled": False, "ssh": False},
+        "onepassword": {
+            "enabled": True, "account": "example", "user_uuid": "USERUUID",
+            "keychain_service": "op-service-account-token",
+        },
         "resources": {"cpus": 4, "memory_gib": 8, "disk_gib": 60},
         "guest": {
             "default_model": "provider/model",
             "small_model": "provider/small", "theme": "catppuccin",
             "atuin_sync_address": "https://atuin.example.com", "hermes_enabled": True,
             "rnd_backend": "native",
+            "vertex_project": "vertex-project", "vertex_location": "global",
+            "vertex_account": "developer@example.com",
         },
         "workspaces": [
             {
@@ -144,6 +150,7 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     assert 'vmType: "vz"' in template
     assert 'arch: "aarch64"' in template
     assert 'disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"' in template
+    assert "dnf install -y" in template and "podman" in template
     assert "opencode-linux-arm64.tar.gz" in template
     assert "/usr/local/libexec/opencode --auto" in template
     assert "configparser.ConfigParser" in template
@@ -177,6 +184,15 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
         "project_profiles": True,
     }
     assert parsed["data"]["dotfiles_ai"]["rnd"]["backend"] == "native"
+    assert parsed["data"]["dotfiles_ai"]["onepassword"] == {
+        "enabled": True, "account": "example", "user_uuid": "USERUUID",
+        "keychain_service": "op-service-account-token",
+    }
+    assert parsed["data"]["dotfiles_ai"]["opencode"]["vertex_project"] == "vertex-project"
+    assert parsed["data"]["dotfiles_ai"]["opencode"]["vertex_account"] == "developer@example.com"
+    assert parsed["data"]["dotfiles_ai"]["opencode"]["vertex_credentials"].endswith(
+        "/.config/dotfiles-ai/gcloud-vertex/application_default_credentials.json"
+    )
 
     values["workspaces"][0]["hermes_backlog_roots"] = ["/outside"]
     with pytest.raises(ValueError, match="Hermes backlog roots"):
@@ -196,12 +212,28 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
 
     helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
-    assert [call[0][4] for call in calls[1:]] == ["sh", "git", "chezmoi"]
-    rendered = tomllib.loads(calls[1][1]["input_data"].decode())
+    assert calls[1][0][-4:] == ["podman", "info", "--format", "{{.Host.Security.Rootless}}"]
+    assert [call[0][4] for call in calls[2:]] == ["sh", "git", "chezmoi"]
+    rendered = tomllib.loads(calls[2][1]["input_data"].decode().replace("__GUEST_HOME__", "/home/agent.guest"))
     assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
-    assert calls[2][0][-2:] == ["pull", "--ff-only"]
-    assert calls[3][0][-1] == "apply"
+    assert calls[3][0][-2:] == ["pull", "--ff-only"]
+    assert calls[4][0][-1] == "apply"
+
+
+def test_schema_four_is_normalized_for_ordered_host_migration(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["schema_version"] = 4
+    del values["onepassword"]
+    for key in ("vertex_project", "vertex_location", "vertex_account"):
+        del values["guest"][key]
+
+    helper.validate_config(values)
+
+    assert values["schema_version"] == 5
+    assert values["onepassword"]["enabled"] is False
+    assert values["guest"]["vertex_location"] == "global"
 
 
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
@@ -424,13 +456,35 @@ def test_alias_invocation_enters_workspace_and_preserves_arguments(tmp_path: Pat
     values = config(tmp_path)
     invoked = []
     monkeypatch.setattr(helper, "load_config", lambda: values)
+    monkeypatch.setattr(helper, "service_token", lambda *_args, **_kwargs: "ops_test")
     monkeypatch.setattr(helper.os, "execvpe", lambda file, argv, env: invoked.append((file, argv, env)))
 
     helper.main(["--", "pwd"], invocation="workspace1sh")
 
     assert invoked[0][0:2] == (
-        "limactl", ["limactl", "shell", "workspace1-sandbox", "pwd"])
+        "limactl", ["limactl", "shell", "--preserve-env", "workspace1-sandbox", "pwd"])
     assert invoked[0][2]["TERM"] == os.environ.get("LIMA_TERM", "xterm-256color")
+    assert invoked[0][2]["OP_SERVICE_ACCOUNT_TOKEN"] == "ops_test"
+    assert "AWS_SECRET_ACCESS_KEY" not in invoked[0][2]
+
+
+def test_service_token_is_validated_without_entering_argv(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return "ops_test" if argv[0] == "/usr/bin/security" else ""
+
+    assert helper.service_token(values, execute=execute) == "ops_test"
+    assert calls[0][0] == [
+        "/usr/bin/security", "find-generic-password", "-s",
+        "op-service-account-token", "-a", "example", "-w",
+    ]
+    assert calls[1][0] == ["op", "vault", "list"]
+    assert calls[1][1]["environment"]["OP_SERVICE_ACCOUNT_TOKEN"] == "ops_test"
+    assert all("ops_test" not in argv for argv, _ in calls)
 
 
 def test_controller_starts_and_stops_only_configured_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -981,7 +1035,7 @@ def test_submodule_manifest_is_stable_and_relative(tmp_path: Path) -> None:
 def test_controller_shell_resolves_workspace_instances() -> None:
     body = SCRIPT.read_text()
     assert 'os.environ.get("LIMA_TERM", "xterm-256color")' in body
-    assert '["limactl", "shell", workspace["instance"]' in body
+    assert '["limactl", "shell", *preserve, workspace["instance"]' in body
     assert 'alias_args = sys.argv[1:] if argv is None else argv' in body
     assert 'argv = ["shell", matches[0], *(alias_args or ["herdr"])]' in body
     assert not (ROOT / "dot_local/bin/executable_lmsh").exists()
