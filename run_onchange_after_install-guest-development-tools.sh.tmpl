@@ -2,6 +2,8 @@
 # compose: 2.40.3; op: 2.39.0; gcloud: 580.0.0
 set -eu
 
+systemctl --user enable --now podman.socket
+
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -25,7 +27,7 @@ mv -f "$HOME/.local/bin/.op.new" "$HOME/.local/bin/op"
 curl -fsSL --retry 3 --retry-all-errors \
   https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-arm.tar.gz \
   -o "$tmpdir/gcloud.tgz"
-printf '%s  %s\n' 7ff98b84935b36948f8f0c76d1b14157b72448c442604f567231db768012b444 "$tmpdir/gcloud.tgz" | sha256sum -c -
+printf '%s  %s\n' a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71 "$tmpdir/gcloud.tgz" | sha256sum -c -
 tar -xzf "$tmpdir/gcloud.tgz" -C "$tmpdir"
 install -d -m 0755 "$HOME/.local/share"
 destination="$HOME/.local/share/google-cloud-sdk-580.0.0"

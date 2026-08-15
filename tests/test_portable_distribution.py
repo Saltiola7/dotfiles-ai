@@ -210,11 +210,12 @@ def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
     shim = (ROOT / "dot_local/bin/executable_docker").read_text()
 
     assert "docker-compose-linux-aarch64" in installer
+    assert "systemctl --user enable --now podman.socket" in installer
     assert "d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137" in installer
     assert "op_linux_arm64_v2.39.0.zip" in installer
     assert "829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0" in installer
     assert "google-cloud-cli-580.0.0-linux-arm.tar.gz" in installer
-    assert "7ff98b84935b36948f8f0c76d1b14157b72448c442604f567231db768012b444" in installer
+    assert "a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71" in installer
     assert 'PODMAN_COMPOSE_PROVIDER="$HOME/.docker/cli-plugins/docker-compose"' in shim
     assert 'exec podman compose "$@"' in shim
 
