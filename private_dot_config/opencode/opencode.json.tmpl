@@ -115,6 +115,7 @@
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
+        "1password_*": "ask",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
 {{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
@@ -216,6 +217,7 @@
     "dbsctr_improvement_claim": "deny",
     "dbsctr_improvement_update": "deny",
     "context7_*": "deny",
+    "1password_*": "deny",
 {{ if gt (len $references) 0 -}}
     "external_directory": {
       "*": "deny",

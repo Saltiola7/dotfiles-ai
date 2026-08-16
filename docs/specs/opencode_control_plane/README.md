@@ -495,9 +495,11 @@ project source or authoritative upstream documentation and reports uncertainty.
 ### Approved 1Password Environment operations
 
 Given OpenCode runs on the managed macOS host and the official desktop MCP is
-enabled, when an agent invokes a `1password_*` Environment tool, then OpenCode
-starts exactly `/usr/local/bin/1password-mcp` and the 1Password desktop app owns
-authentication, Environment selection, approval, and lock expiry.
+enabled, when the primary Build agent invokes a `1password_*` Environment tool,
+then OpenCode asks for tool permission, starts exactly
+`/usr/local/bin/1password-mcp`, and the 1Password desktop app owns authentication,
+Environment selection, approval, and lock expiry. All other agents inherit a
+global deny for these tools.
 
 Given the same source renders in a Fedora Lima guest, when OpenCode loads its
 configuration, then no 1Password MCP entry exists because the desktop application
@@ -661,8 +663,8 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   backed when available.
 - The `1password` MCP is local and macOS-only. Its command is the absolute array
   `["/usr/local/bin/1password-mcp"]`, preventing a same-named third-party PATH
-  executable from shadowing the desktop-bundled server. The desktop app must have
-  Labs MCP Server and MCP client integration enabled.
+  executable from shadowing the desktop launcher selected by 1Password setup. The
+  desktop app must have Labs MCP Server and MCP client integration enabled.
 - Official 1Password MCP capability is limited to Environments: authenticate,
   create/rename/list Environments, list/append variables, and manage local env-file
   mappings. It neither returns secret values nor creates, copies, or grants access

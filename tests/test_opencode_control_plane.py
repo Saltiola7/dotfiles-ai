@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -234,7 +235,8 @@ def test_context7_is_remote_optional_key_and_scout_only():
 
 
 def test_official_1password_mcp_is_host_only_and_path_pinned():
-    onepassword = rendered_config()["mcp"]["1password"]
+    config = rendered_config()
+    onepassword = config["mcp"]["1password"]
 
     assert onepassword == {
         "type": "local",
@@ -244,6 +246,18 @@ def test_official_1password_mcp_is_host_only_and_path_pinned():
     template = text("private_dot_config/opencode/opencode.json.tmpl")
     assert '{{ if eq .chezmoi.os "darwin" }}' in template
     assert "@rui.branco/1password-mcp" not in template
+    guest_branch = re.sub(
+        r'\{\{ if eq \.chezmoi\.os "darwin" \}\}.*?\{\{ end \}\}',
+        "",
+        template,
+        flags=re.DOTALL,
+    )
+    assert '"1password"' not in guest_branch
+    assert config["permission"]["1password_*"] == "deny"
+    assert config["agent"]["build"]["permission"]["1password_*"] == "ask"
+    for name, body in config["agent"].items():
+        if name != "build":
+            assert "1password_*" not in body.get("permission", {})
 
 
 def test_oauth_incompatible_pro_agents_are_absent():
@@ -346,6 +360,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
+        "1password_*": "ask",
         "external_directory": {worktrees: "allow", local_config: "allow"},
     }
     centralized = json.loads(json.dumps(DATA))
