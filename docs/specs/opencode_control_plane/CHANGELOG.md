@@ -4,6 +4,28 @@ Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.
 
+## 2026-08-15 - OCP-36 Official 1Password MCP
+
+- Added the desktop-bundled 1Password MCP to managed macOS OpenCode config using
+  the pinned absolute command `/usr/local/bin/1password-mcp`; Fedora guests remain
+  excluded because they lack the desktop approval boundary.
+- Documented the Environment-only capability and security boundary: desktop
+  approval remains authoritative, secret values are not returned, and Password
+  Manager vault/item or service-account administration remains outside this MCP.
+- Independent review restricted all `1password_*` tools globally and added the
+  sole primary Build override as `ask`; guest-branch exclusion is covered by a
+  focused template test. The command claim is limited to absolute launcher-path
+  pinning because macOS denied direct provenance inspection of the root-owned
+  link.
+- Deployed only the MCP object to the live config, preserving unmerged OCP-35
+  permissions. A fresh OpenCode process resolved the exact command and reported
+  both `context7` and `1password` connected; 47 affected tests passed. A fresh
+  read-only Environment probe discovered the official documentation, completed
+  desktop authentication, and listed Environments successfully; none currently
+  exist. No secret values were requested and no mutation occurred. The current
+  interactive process requires one normal restart to load the added tool schema.
+  Implementation Gate Commits: `ca24f64`, `e24d12d`, `9e7178a`, `5aeebf4`.
+
 ## 2026-08-10 - OCP-34 Cross-Checkout Cycle Routing
 
 - Added registry-bounded `dbsctr_attach` targeting and session-scoped routing for
