@@ -81,6 +81,15 @@
 | Scope | Persisted active-session manifest, exact wrapper launch, duplicate prevention, and fail-closed startup recovery |
 | Overrides | Existing panes and sessions remain authoritative; recovery never creates substitute sessions or reconstructs layouts |
 
+### OCP-36 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: exposes 1Password Environment operations to host OpenCode through the desktop application's approval boundary |
+| Delivery intent | Deploy the official host-local 1Password MCP configuration and deliver a draft pull request |
+| Scope | Absolute executable selection, macOS-only rendering, Environment capability boundary, focused tests, resolved configuration, fresh MCP connection, and restart guidance |
+| Overrides | The MCP never manages Password Manager vaults/items or service-account access, never returns Environment secret values, and does not replace existing `op` CLI workflows |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -111,7 +120,7 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects.
+    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
@@ -126,6 +135,7 @@ flowchart TD
     S --> T[Typed local adapters]
     T -->|Local validated effects| W[Worktree and private local state]
     T -->|Permission required| E[External or destructive boundary]
+    B -->|Desktop approval required| M[Official 1Password Environment MCP]
 ```
 
 **Text Equivalent:** Thin commands select a native or provider-affine primary.
@@ -135,7 +145,9 @@ Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
 lifecycle skills and typed local adapters. Validated local effects may reach the
 worktree or private local state; external or destructive effects remain
-permission-gated. The control-plane owner updates this view when routing,
+permission-gated. Host Build may request official 1Password Environment
+operations, but the desktop app retains approval and the MCP never returns secret
+values or manages Password Manager vaults. The control-plane owner updates this view when routing,
 delegation, loaded skills, adapters, permissions, or provider boundaries change.
 
 ```mermaid
@@ -174,10 +186,12 @@ running OpenCode process.
   weakening executable validation or provider isolation.
 - Use Luna for low-impact, high-volume OpenAI work without weakening source
   verification, implementation, or review tiers.
+- Expose official 1Password Environment workflows on the managed macOS host while
+  retaining desktop approval and secret non-disclosure.
 
 ## Non-goals
 
-- No new orchestration framework, review agent, MCP server, or benchmark suite.
+- No new orchestration framework, review agent, custom MCP server, or benchmark suite.
 - No Graphify package changes.
 - No removal of Bedrock Claude or raw LM Studio.
 - No changes to V1 `dbsctr` or `discovery`.
@@ -487,6 +501,24 @@ Git, rendered source, agent prompts, logs, or tool arguments.
 Context7 results are research hints. Scout verifies material claims against
 project source or authoritative upstream documentation and reports uncertainty.
 
+### Approved 1Password Environment operations
+
+Given OpenCode runs on the managed macOS host and the official desktop MCP is
+enabled, when the primary Build agent invokes a `1password_*` Environment tool,
+then OpenCode asks for tool permission, starts exactly
+`/usr/local/bin/1password-mcp`, and the 1Password desktop app owns authentication,
+Environment selection, approval, and lock expiry. All other agents inherit a
+global deny for these tools.
+
+Given the same source renders in a Fedora Lima guest, when OpenCode loads its
+configuration, then no 1Password MCP entry exists because the desktop application
+and its local authorization boundary are absent.
+
+Given an agent needs Password Manager vault items, service-account access grants,
+or plaintext Environment values, when it considers this MCP, then it reports the
+capability mismatch and uses a separately approved `op` CLI or operator workflow.
+The MCP never claims to retrieve Environment secret values.
+
 ### Standing typed cycle begin
 
 Given Build invokes `dbsctr_begin` with an applicability plan, when OpenCode
@@ -658,6 +690,15 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.
+- The `1password` MCP is local and macOS-only. Its command is the absolute array
+  `["/usr/local/bin/1password-mcp"]`, preventing a same-named third-party PATH
+  executable from shadowing the desktop launcher selected by 1Password setup. The
+  desktop app must have Labs MCP Server and MCP client integration enabled.
+- Official 1Password MCP capability is limited to Environments: authenticate,
+  create/rename/list Environments, list/append variables, and manage local env-file
+  mappings. It neither returns secret values nor creates, copies, or grants access
+  to Password Manager vaults/items. Existing Keychain service-token and `op run`
+  contracts remain separate.
 - ACLI permissions allow direct auth-status, work-item view, and comment-list
   reads; bounded JQL search asks, and unbounded/browser/filter forms are denied.
   Prompt contracts further restrict fields, limits, consent, and privacy.
@@ -676,7 +717,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Chezmoi | Deployment and removals | dry-run, apply, status | Required |
 | Graphify | Skill, hooks, query | version, hook status, targeted query | Required |
 | Package/service inventory | Removed runtime | npm, pipx, launchctl, path checks | Required |
-| MCP runtime | Context7 connection, anonymous fallback, optional authenticated request, and role isolation | `opencode mcp list` plus fresh Scout/non-Scout probes | Required |
+| MCP runtime | Context7 connection and role isolation; host-only official 1Password connection, absolute executable, Environment boundary, and guest absence | `opencode mcp list`, rendered host/guest config, plus fresh probes | Required |
 | Typed begin | Prompt-free Build dispatch, helper-worktree access, and denied Plan dispatch | Focused tool/config tests plus fresh Build probe | Required |
 | ACLI boundary | Key-scoped read allowlist, ask-gated JQL, Plan parity, wrapper/mutation denial, and bounded prompt contract | Writing and control-plane tests plus rendered config | Required when changed |
 | Provider entry | Exact command, primary, model, effort, same-provider retry, unsupported-model failure, and provider-local task permissions | Focused config tests plus fresh GPT probe | Required after implementation |
@@ -688,6 +729,9 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 ## Risks
 
 - Bash patterns are guardrails, not an OS sandbox.
+- A same-user host agent may request 1Password Environment mutations. The desktop
+  app's explicit approval and lock state remain the authorization boundary; review
+  prompts before approving writes and disable the MCP integration to revoke access.
 - ACLI allow patterns cannot validate every flag or same-user shell indirection;
   direct read-only skill commands and least-privileged Jira credentials remain
   necessary controls.
