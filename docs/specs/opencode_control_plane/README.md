@@ -72,6 +72,15 @@
 | Scope | Route `small_model` and `explore-openai` to GPT-5.6 Luna while retaining Terra for Scout and Builder and Sol for primary review |
 | Overrides | Luna remains bounded to disposable titles and read-only source discovery; primary verification and same-provider failure recovery remain authoritative |
 
+### OCP-35 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: restarts interactive agents from durable external state |
+| Delivery intent | Deploy exact-session recovery to the managed Herdr server |
+| Scope | Persisted active-session manifest, exact wrapper launch, duplicate prevention, and fail-closed startup recovery |
+| Overrides | Existing panes and sessions remain authoritative; recovery never creates substitute sessions or reconstructs layouts |
+
 ### OCP-36 Cycle Overrides
 
 | Field | Value |
@@ -550,6 +559,18 @@ Given Herdr restores a VM pane after restart, OpenCode resumes the exact session
 under the same always-auto VM policy even though Herdr's native resume argv omits
 the original `--auto` flag. Host OpenCode permissions remain unchanged.
 
+Given the managed host Herdr server restarts, when a persisted active-session
+manifest names an existing empty pane, existing directory, and exact session in
+the configured OpenCode database, then recovery launches
+`~/.local/bin/opencode --session SESSION` in that pane. Sessions already running
+are skipped. Missing state, invalid manifest entries, missing directories,
+unknown sessions, occupied panes, launch failures, or identity mismatches are
+reported and never create substitute sessions. Herdr's persisted layout remains
+authoritative; recovery does not create, close, or rearrange panes.
+While Herdr runs, its owner snapshots exact foreground OpenCode pane, directory,
+and session argv atomically once per minute. A restart therefore restores the
+latest observed active set, including sessions opened after deployment.
+
 Native Task subagents remain child sessions in their owning OpenCode server and
 filesystem. The control plane does not claim per-subagent VM isolation; host and
 VM OpenCode servers are separate runtimes.
@@ -596,6 +617,14 @@ session. Plan, read-only agents, and Builder subagents deny handoff. Native Buil
 and provider-affine Build primaries may invoke it only after explicit proceed.
 
 ## Contracts
+
+- Host restart recovery reads only schema-versioned entries containing exact
+  `pane_id`, `directory`, and `session_id` values. It validates session identity
+  against the configured SQLite database and invokes the absolute managed
+  OpenCode wrapper so external XDG state does not depend on pane `PATH`.
+- Recovery accepts only canonical Herdr pane and OpenCode session identifiers,
+  shell-quotes the validated wrapper argv, bounds Herdr API calls, and replaces
+  captures atomically.
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
   the current schema/runtime parser.
