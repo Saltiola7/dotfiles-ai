@@ -34,3 +34,7 @@ items, grant vault access, or administer service accounts. Continue to use the
 separately approved `op` CLI/operator workflow for those tasks. Fedora Lima
 guests intentionally receive no MCP entry because they lack the desktop approval
 boundary.
+
+The 2026-08-15 deployment authenticated through the desktop app and completed a
+read-only Environment listing. The empty result is valid: no Environments existed
+in the selected account at deployment time.

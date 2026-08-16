@@ -20,12 +20,11 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Deployed only the MCP object to the live config, preserving unmerged OCP-35
   permissions. A fresh OpenCode process resolved the exact command and reported
   both `context7` and `1password` connected; 47 affected tests passed. A fresh
-  read-only Environment probe discovered the official documentation and
-  authentication tool, but desktop approval timed out twice. No secret values
-  were requested and no mutation occurred. The current interactive process
-  requires one normal restart to load the added tool schema. Delivery remains
-  blocked on successful desktop authentication approval. Implementation Gate
-  Commits: `ca24f64`, `e24d12d`, `9e7178a`.
+  read-only Environment probe discovered the official documentation, completed
+  desktop authentication, and listed Environments successfully; none currently
+  exist. No secret values were requested and no mutation occurred. The current
+  interactive process requires one normal restart to load the added tool schema.
+  Implementation Gate Commits: `ca24f64`, `e24d12d`, `9e7178a`, `5aeebf4`.
 
 ## 2026-08-10 - OCP-34 Cross-Checkout Cycle Routing
 

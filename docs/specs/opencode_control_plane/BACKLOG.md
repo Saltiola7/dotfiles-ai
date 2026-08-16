@@ -4,7 +4,7 @@
 
 | id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| OCP-36 | Integrate the official 1Password Environment MCP | high | blocked | OCP-16 | Host OpenCode MCP config, Environment boundary, tests, deployment and restart evidence | Desktop-bundled `1password-mcp`, existing managed config and MCP validation | no | Configuration, security contract, live desktop authorization, and deployment must remain one coherent change | S | Source, deployment, 47 focused tests, resolved config, and MCP connection pass; fresh Environment probe awaits desktop authentication approval after two timeouts |
+| OCP-36 | Integrate the official 1Password Environment MCP | high | done | OCP-16 | Host OpenCode MCP config, Environment boundary, tests, deployment and restart evidence | Desktop-bundled `1password-mcp`, existing managed config and MCP validation | no | Configuration, security contract, live desktop authorization, and deployment must remain one coherent change | S | Source, deployment, 47 focused tests, resolved config, MCP connection, desktop authentication, and read-only Environment listing pass; no Environments currently exist |
 | OCP-31 | Expose isolated lens attribution and autonomous readiness | high | in_progress | DAI-021 | Worker command, typed autonomous transition, federation candidate classification, lens-audit skill | Improvement ledger, federated history, DBSCTR delivery | no | Continuous workers need one-lens scope and deterministic review-session exclusion | M | Command contract, adapter validation, transition tests, parser and affected QA |
 
 ## Completed
