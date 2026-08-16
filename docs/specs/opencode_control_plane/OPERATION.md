@@ -1,5 +1,17 @@
 # OpenCode Control Plane Operation
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | not_applicable: the README trust-flow visual and Text Equivalent own the host, guest, and desktop authorization boundaries | Does this runbook change a trust boundary? | `README.md` | Control-plane owner; boundary change |
+| Interaction | not_applicable: commands and expected textual results below fully define operation | Can an operator execute and verify the workflow? | This runbook | Control-plane owner; command change |
+| State | not_applicable: no persistent state model is introduced | Is new lifecycle state created? | This runbook | Control-plane owner; state change |
+| Data/trust | not_applicable: the README trust-flow visual and Text Equivalent remain canonical | Can secret values leave 1Password? | `README.md` | Control-plane owner; trust change |
+| Schema | not_applicable: no schema is defined | Does operation alter a schema? | `README.md` | Control-plane owner; schema change |
+| Dependency/deployment | not_applicable: the absolute launcher path and connection check below are the complete deployment evidence | Can the deployed server be identified? | This runbook | Control-plane owner; launcher change |
+| Quantitative | not_applicable: this binary connected/not-connected operation has no decision-relevant quantitative data | Would a metric change an operator decision? | This runbook | Control-plane owner; SLO addition |
+
 ## Official 1Password MCP
 
 The managed macOS config pins the desktop-installed launcher by absolute path:
