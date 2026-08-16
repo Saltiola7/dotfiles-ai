@@ -233,6 +233,19 @@ def test_context7_is_remote_optional_key_and_scout_only():
             assert "context7_*: allow" not in body
 
 
+def test_official_1password_mcp_is_host_only_and_path_pinned():
+    onepassword = rendered_config()["mcp"]["1password"]
+
+    assert onepassword == {
+        "type": "local",
+        "command": ["/usr/local/bin/1password-mcp"],
+        "enabled": True,
+    }
+    template = text("private_dot_config/opencode/opencode.json.tmpl")
+    assert '{{ if eq .chezmoi.os "darwin" }}' in template
+    assert "@rui.branco/1password-mcp" not in template
+
+
 def test_oauth_incompatible_pro_agents_are_absent():
     for name in ("plan-gpt-pro.md", "plan-gpt-pro-max.md", "build-gpt-pro.md"):
         assert not (OC / "agents" / name).exists()

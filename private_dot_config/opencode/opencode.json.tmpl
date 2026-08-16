@@ -96,7 +96,12 @@
       "url": "https://mcp.context7.com/mcp",
       "enabled": true,
       "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" }
-    }
+    }{{ if eq .chezmoi.os "darwin" }},
+    "1password": {
+      "type": "local",
+      "command": ["/usr/local/bin/1password-mcp"],
+      "enabled": true
+    }{{ end }}
   },
   "agent": {
     "build": {
