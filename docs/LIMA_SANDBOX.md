@@ -162,6 +162,14 @@ accepted risk `DAI-028-AR1`; review it before token rotation, vault-scope growth
 or guest auto-approval changes. Compose does not implicitly map the token into a
 container.
 
+Service-account vault access is immutable. To change scope, create a replacement
+account, save its one-time token in 1Password, then update the existing Keychain
+entry without printing the token. Keep automation vaults read-only unless writes
+are required; the configured development vault may be read/write by explicit
+operator decision. Confirm both host and guest identities with `op vault list`
+before retiring the prior account; never paste a token into logs, arguments,
+source, or chat.
+
 Guests install `op`, so project commands may use `op run` normally. Vertex uses
 the separate guest-private ADC at
 `~/.config/dotfiles-ai/gcloud-vertex/application_default_credentials.json`.

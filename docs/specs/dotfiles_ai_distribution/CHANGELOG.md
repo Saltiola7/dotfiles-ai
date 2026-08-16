@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-16 - DAI-028 Lima Podman Development Runtime
+
+- Made rootless Podman the managed runtime in both Lima workspaces, with pinned
+  Docker Compose v2.40.3, a `docker` compatibility shim, enabled user sockets,
+  1Password CLI 2.39.0, and Google Cloud SDK 580.0.0. Colima remains stopped as
+  an explicit compatibility fallback.
+- Forwarded the Keychain-backed service-account token only in workspace-shell
+  memory. The replacement immutable account has `Automation` read access and
+  operator-approved development-vault read/write access. Host and guest probes see
+  both vaults; all 14 locally migrated development-project references resolve
+  without exposing values. Their owning repository remains dirty and the migration
+  is external drift pending separate delivery. Whole-template `op run` remains
+  blocked by existing backlog `DBX-1`, because the configured Databricks item has
+  not been provisioned.
+- Authenticated guest-private Vertex ADC, pinned its configured quota project,
+  proved token minting, and received `vertex-ok` from
+  `google-vertex-anthropic/claude-opus-5@default`. The live guest provider object
+  was reconciled without replacing other OpenCode settings; the managed template
+  already owns the same object for source convergence.
+- The enterprise Compose stack remains healthy after 42 hours with `db`, `redis`,
+  `web`, `vite`, and `prefect` running. Containers receive neither the service
+  token nor ambient Vertex ADC. OCP-35 and OCP-36 prerequisites merged through
+  PRs #25 and #24 before DAI reconciliation. Implementation Gate Commits:
+  `747f214`, `6797a49`, `990378e`, `c03ca4b`.
+- Independent review added a fail-closed rootless check before update mutates a
+  guest; an engine reporting `false` now aborts before config, Git, or chezmoi.
+
 ## 2026-08-12 - DAI-027 Forced Vertex ADC Renewal
 
 - Passed gcloud's explicit default scopes in both hosted and browser modes, which

@@ -1046,12 +1046,15 @@ feature branch with a draft pull request; the operator retains merge authority.
 - VM agents may use unrestricted network egress and every credential supplied to
   that VM. Repository-scoped credentials are the normal remote-write boundary.
 - Accepted risk `DAI-028-AR1`: every configured workspace shell receives the
-  existing Keychain-backed 1Password service-account token, whose vault scope is
-  broader than one repository. Any same-user process in an auto-approved guest
-  can use it while the shell lives. The operator owns and approved this exception;
+  Keychain-backed 1Password service-account token, whose immutable scope includes
+  one read-only automation vault and one read/write development vault. Any same-user
+  process in an auto-approved guest can read either vault and alter development
+  items while the shell lives. On 2026-08-16 the operator explicitly accepted
+  write flexibility because read exposure already dominates confidentiality risk;
+  the operator owns this integrity-risk decision.
   memory-only forwarding, no argv or disk persistence, bounded validation, and no
   implicit container mapping are compensating controls. Review before service-
-  account rotation, vault-scope expansion, or guest auto-approval changes.
+  account replacement, vault-scope expansion, or guest auto-approval changes.
 - Accepted risk `DAI-007-AR1`: a configured workspace provider credential can
   write every repository authorized by that provider account rather than only
   its intended mounted repository. The operator owns and approved this exception;

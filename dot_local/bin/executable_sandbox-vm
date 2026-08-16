@@ -506,7 +506,9 @@ def update_workspace(config, workspace, execute=command):
     home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
     if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
         raise RuntimeError("invalid guest home")
-    execute(["limactl", "shell", instance, "--", "podman", "info", "--format", "{{.Host.Security.Rootless}}"], timeout=120)
+    rootless = execute(["limactl", "shell", instance, "--", "podman", "info", "--format", "{{.Host.Security.Rootless}}"], timeout=120)
+    if rootless.strip() != "true":
+        raise RuntimeError("workspace requires rootless Podman")
     execute(
         ["limactl", "shell", instance, "--", "sh", "-ceu", """
 install -d -m 0700 "$HOME/.config/dotfiles-ai"

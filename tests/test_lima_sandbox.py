@@ -208,7 +208,9 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
 
     def execute(argv, **kwargs):
         calls.append((argv, kwargs))
-        return "/home/agent.guest" if argv[-2:] == ["printenv", "HOME"] else ""
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "true" if "podman" in argv else ""
 
     helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
@@ -219,6 +221,21 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
     assert calls[3][0][-2:] == ["pull", "--ff-only"]
     assert calls[4][0][-1] == "apply"
+
+
+def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        return "/home/agent.guest" if argv[-2:] == ["printenv", "HOME"] else "false"
+
+    with pytest.raises(RuntimeError, match="rootless Podman"):
+        helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    assert len(calls) == 2
 
 
 def test_schema_four_is_normalized_for_ordered_host_migration(tmp_path: Path) -> None:
@@ -572,6 +589,8 @@ def test_configure_atuin_requires_old_forward_removal(tmp_path: Path) -> None:
                 "name": "workspace1-sandbox", "status": "Stopped",
                 "config": {"portForwards": [other, helper.ATUIN_PORT_FORWARD | {"proto": "tcp"}]},
             }])
+        if "podman" in argv:
+            return "true"
         return ""
     helper.configure_atuin(
         values,
