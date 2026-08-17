@@ -373,9 +373,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ### Post-merge runtime closure
 
-- Given DAI-028 source is merged, when both managed workspaces update, then each
-  source checkout resolves the merge commit, Podman reports rootless `true`, and
-  the pinned Compose and 1Password tools remain available.
+- Given DAI-028 source is merged, when DAI-owned targets apply in both managed
+  workspaces, then each source checkout resolves the merge commit, Podman reports
+  rootless `true`, and the pinned Compose and 1Password tools remain available.
 - Given the development workspace has a renewed isolated ADC and rendered Vertex
   provider, when OpenCode invokes the configured Claude route, then it returns a
   successful model response without host ADC or container credential mapping.
