@@ -1079,6 +1079,11 @@ feature branch with a draft pull request; the operator retains merge authority.
   memory-only forwarding, no argv or disk persistence, bounded validation, and no
   implicit container mapping are compensating controls. Review before service-
   account replacement, vault-scope expansion, or guest auto-approval changes.
+- Accepted migration overlap `DAI-028-AR2`: the replaced automation-only service
+  account remains active temporarily so in-flight cycles and shells holding its
+  token are not interrupted. New shells use the replacement Keychain token. The
+  operator owns this overlap and must revoke the old account after active-cycle
+  migration, or sooner if its token is exposed; do not extend its vault scope.
 - Accepted risk `DAI-007-AR1`: a configured workspace provider credential can
   write every repository authorized by that provider account rather than only
   its intended mounted repository. The operator owns and approved this exception;

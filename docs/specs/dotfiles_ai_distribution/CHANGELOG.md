@@ -36,6 +36,10 @@
 - The private project's 14 reference changes resolve through the replacement
   service account but remain uncommitted external drift. Existing `DBX-1` still
   prevents whole-template `op run`; neither item is claimed as DAI source delivery.
+- New shells use the replacement Keychain token. The prior automation-only service
+  account remains active by operator decision to avoid interrupting in-flight
+  cycles and shells; `DAI-028-AR2` requires revocation after their migration and
+  prohibits expanding the old account's scope.
 
 ## 2026-08-12 - DAI-027 Forced Vertex ADC Renewal
 
