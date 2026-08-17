@@ -69,6 +69,22 @@ sandbox-vm update workspace1
 workspace1sh
 ```
 
+Every managed guest uses rootless Podman with checksum-pinned Docker Compose v2.
+The guest-only `docker` command routes `docker compose` to that provider over the
+Podman engine, so existing project Make targets keep their normal interface.
+Verify after create or update:
+
+```sh
+workspace1sh -- podman info --format '{{.Host.Security.Rootless}}'
+workspace1sh -- docker compose version
+```
+
+`sandbox-vm update` requires an existing guest to already provide rootless
+Podman before it changes guest files. The current managed Fedora workspaces meet
+that precondition. A legacy guest without Podman must be recreated from the
+current rendered template; the restricted guest account cannot mutate system
+packages.
+
 Enroll one workspace with a one-off, pre-authorized, tagged key supplied only on
 stdin:
 
@@ -137,7 +153,35 @@ Raw databases, paths, transcripts, and credentials do not cross the boundary.
 
 ## Credentials
 
-Authenticate separately inside each workspace and prefer repository-scoped
+When 1Password integration is enabled, every workspace shell receives the
+configured macOS Keychain service-account token through Lima environment
+forwarding. The controller validates it first and forwards a minimal environment;
+the token never enters arguments, templates, TOML, logs, or guest disk. Same-user
+guest processes can use its full vault authority while the shell lives. This is
+accepted risk `DAI-028-AR1`; review it before token rotation, vault-scope growth,
+or guest auto-approval changes. Compose does not implicitly map the token into a
+container.
+
+Service-account vault access is immutable. To change scope, create a replacement
+account, save its one-time token in 1Password, then update the existing Keychain
+entry without printing the token. Keep automation vaults read-only unless writes
+are required; the configured development vault may be read/write by explicit
+operator decision. Confirm both host and guest identities with `op vault list`
+before retiring the prior account; never paste a token into logs, arguments,
+source, or chat.
+
+Guests install `op`, so project commands may use `op run` normally. Vertex uses
+the separate guest-private ADC at
+`~/.config/dotfiles-ai/gcloud-vertex/application_default_credentials.json`.
+Renew it through the hosted flow:
+
+```sh
+workspace1sh -- vertex-reauth
+workspace1sh -- vertex-reauth --check
+```
+
+The ADC persists only on the Lima disk. Host ADC and service-account credential
+files are neither mounted nor copied. Prefer repository-scoped provider
 credentials. A broader provider credential remains accepted risk `DAI-007-AR1`
 until 2026-08-18 or its next rotation, whichever comes first.
 
@@ -156,3 +200,7 @@ Before changing `lima_home`, stop every managed instance and copy the complete
 Lima home with sparse-disk preservation. Validate each disk and start instances
 from the new home before removing the old tree. Roll back by stopping instances,
 restoring the prior `lima_home`, and restarting from the retained source copy.
+
+To verify Colima compatibility, first stop the guest project stack, start Colima,
+and run the unchanged `docker compose` project command on macOS. Never start the
+retained Colima Atuin service while the Lima Podman Atuin service is authoritative.

@@ -193,6 +193,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Hosted OAuth callback, configured-account validation, isolated ADC, regression coverage, and local verification |
 | Overrides | Reauthentication requires one authorization-code copy/paste; no localhost callback or automatic browser launch is permitted |
 
+### DAI-028 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: forwards a reusable 1Password bearer token into auto-approved guest-user environments and changes every managed guest container runtime |
+| Delivery intent | Deploy Podman development tooling, in-memory 1Password access, and isolated Vertex renewal to both configured Lima workspaces |
+| Scope | Rootless Podman, pinned Docker Compose v2 provider, guest `docker` compatibility shim, Keychain-to-guest token forwarding, guest 1Password CLI, guest-local Vertex ADC, tests, migration, health, and rollback |
+| Overrides | Colima remains a stopped compatibility fallback; guests receive the existing service-account scope by explicit operator decision; containers receive neither the service token nor Vertex ADC unless a project maps them explicitly |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -219,12 +228,13 @@ and its Text Equivalent remain current.
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai host and workspace trust boundaries
-    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, credentials, and local history. One selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
+    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, private state, and local history. The host may forward its Keychain-backed 1Password service token into a workspace shell only in memory. Every workspace runs rootless Podman with a Docker Compose compatibility provider, and one selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
     subgraph H[macOS host trust boundary]
         HH[Host Hermes]
         HO[Host OpenCode]
         HR[Host Herdr]
         HL[Host private ledger]
+        KC[Keychain service token]
         TS[Tailscale HTTPS and loopback forward]
     end
     subgraph V[Fedora workspace trust boundary]
@@ -232,6 +242,7 @@ flowchart LR
         VO[Workspace OpenCode]
         VR[Workspace Herdr]
         VC[Workspace credentials and history]
+        PD[Rootless Podman and Compose]
         AS[Optional rootless Podman Atuin]
     end
     HH -->|Schedule and refine| HO
@@ -240,6 +251,8 @@ flowchart LR
     VR -->|Present sessions| VO
     VC -->|Sanitized bounded evidence| HL
     VC -->|Encrypted Atuin records| TS
+    KC -->|Selected environment variable, memory only| VC
+    VC -->|Explicit project variables only| PD
     TS -->|Host loopback only| AS
     HO -->|Explicit approved handoff| VO
     HO -->|Gate evidence and feature commits| G[DBSCTR and Git authority]
@@ -247,11 +260,15 @@ flowchart LR
 ```
 
 **Text Equivalent:** Host and workspace profiles have independent Hermes,
-OpenCode, Herdr, credentials, history, and private state. Herdr presents sessions
+OpenCode, Herdr, history, and private state. Herdr presents sessions
 but does not own lifecycle state. Only bounded sanitized evidence crosses from a
 workspace to host review; only an explicitly approved implementation handoff
 crosses from host to workspace. Both OpenCode runtimes produce feature-branch
-evidence governed by DBSCTR and Git. One machine-local workspace may additionally
+evidence governed by DBSCTR and Git. The host may forward its Keychain-backed
+1Password service token to a workspace shell as one environment value without
+writing it to guest storage. Every workspace runs rootless Podman with a pinned
+Docker Compose provider; containers receive only project variables explicitly
+mapped by Compose. One machine-local workspace may additionally
 host rootless Podman Atuin. Every client sends encrypted records through the
 unchanged tailnet HTTPS endpoint; macOS forwards only from loopback, and the Atuin
 container receives no project filesystem mount.
@@ -699,6 +716,36 @@ feature branch with a draft pull request; the operator retains merge authority.
   so the personal chezmoi source retains sole ownership of host terminal files
   and Atuin configuration.
 
+### Guest Container Development And Credentials
+
+- Given a new managed Fedora workspace, when Lima provisions it, then rootless
+  Podman is installed explicitly and the guest user receives a checksum-pinned
+  Docker Compose v2 provider plus a `docker` compatibility command.
+- Given an existing workspace, when `sandbox-vm update WORKSPACE` reapplies the
+  source, then the same user-owned Compose provider, compatibility command,
+  1Password CLI, and configured Vertex helpers are installed idempotently without
+  recreating the VM or changing its named volumes.
+- Given a guest invokes `docker compose`, when the compatibility command routes
+  it, then Docker Compose v2 targets the rootless Podman engine and existing
+  project Make targets retain their Colima-compatible command surface.
+- Given the host Keychain contains the configured service-account token, when a
+  workspace shell or generated alias starts, then the controller validates and
+  forwards only `OP_SERVICE_ACCOUNT_TOKEN` in process memory. It never writes the
+  token to TOML, rendered config, argv, logs, host temporary files, or guest disk.
+- Given the Keychain token is missing or invalid, when a workspace shell starts,
+  then entry fails before Lima receives a credential and reports only actionable
+  non-secret authentication guidance.
+- Given a workspace shell has the token, when guest `op run` resolves project
+  values, then only variables named by the project's Compose configuration enter
+  containers; `OP_SERVICE_ACCOUNT_TOKEN` is never implicitly mapped.
+- Given Vertex is configured on the host, when guest configuration renders, then
+  it uses the same non-secret project, location, and account with a canonical ADC
+  path on guest-private storage. `vertex-reauth` uses hosted code entry and proves
+  the renewed token without relying on host credentials or mounted files.
+- Given Colima compatibility is checked, when the Podman project stack is stopped,
+  then the unchanged project command surface may run against Colima. Colima never
+  becomes the Atuin authority while the Podman Atuin service is active.
+
 ### Federated Host R&D
 
 - Given host R&D reviews history, then it scans the host database locally and
@@ -764,6 +811,28 @@ feature branch with a draft pull request; the operator retains merge authority.
 - `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
   and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
   host-to-VM operations; unknown instances and undeclared paths fail closed.
+- Every managed guest has rootless Podman. New guests receive the Fedora `podman`
+  package during Lima provisioning; existing guests must already satisfy that
+  capability before update proceeds. User-owned installers pin Docker Compose v2
+  and the 1Password CLI by version and checksum and enable the rootless Podman
+  user socket. Podman selects the exact Compose provider path rather than provider
+  discovery order.
+- Guest `docker` is a compatibility shim over Podman, not Docker Engine. Compose
+  dispatch uses the pinned provider; other arguments preserve boundaries and pass
+  directly to Podman. Removing the shim and provider restores native Podman only
+  without deleting images, containers, or named volumes.
+- Generated sandbox schema version `5` contains the non-secret 1Password account
+  and Keychain selectors plus guest Vertex project, location, and account. It
+  contains no bearer token, resolved secret, ADC content, or host credential path.
+- Workspace shell entry reads the service token from macOS Keychain and validates
+  it with bounded 1Password CLI access before invoking `limactl --preserve-env`.
+  The controller constructs a minimal forwarding environment and the token never
+  enters command arguments. The token remains readable to same-user guest
+  processes for that shell lifetime by accepted design.
+- Guest Vertex ADC is always
+  `~/.config/dotfiles-ai/gcloud-vertex/application_default_credentials.json`.
+  It remains on the private Lima disk and is never rendered, mounted, copied, or
+  committed. Hosted reauthentication is authoritative in guests.
 - `sandbox-vm configure-atuin` owns the existing-instance migration for the
   selected workspace. It preserves prior stopped/running state around one
   noninteractive `limactl edit`, including recovery restart when editing fails.
@@ -956,6 +1025,7 @@ feature branch with a draft pull request; the operator retains merge authority.
 | `chezmoi data/cat/apply --dry-run` | Enabled/disabled local data and rendered targets |
 | `opencode debug config/agent` | Exact primary IDs, models, permissions, and provider-local routes |
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
+| Guest runtime probes | Rootless Podman, exact Compose provider, Docker shim, bounded Keychain forwarding, 1Password denial/success, Vertex hosted reauthentication, and absence of implicit container credentials |
 | Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
 | Tailscale probes | Disabled rendering, bounded stdin, client/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
@@ -975,6 +1045,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   deletion or corruption by VM agents. Unmounted host paths remain inaccessible.
 - VM agents may use unrestricted network egress and every credential supplied to
   that VM. Repository-scoped credentials are the normal remote-write boundary.
+- Accepted risk `DAI-028-AR1`: every configured workspace shell receives the
+  Keychain-backed 1Password service-account token, whose immutable scope includes
+  one read-only automation vault and one read/write development vault. Any same-user
+  process in an auto-approved guest can read either vault and alter development
+  items while the shell lives. On 2026-08-16 the operator explicitly accepted
+  write flexibility because read exposure already dominates confidentiality risk;
+  the operator owns this integrity-risk decision.
+  memory-only forwarding, no argv or disk persistence, bounded validation, and no
+  implicit container mapping are compensating controls. Review before service-
+  account replacement, vault-scope expansion, or guest auto-approval changes.
 - Accepted risk `DAI-007-AR1`: a configured workspace provider credential can
   write every repository authorized by that provider account rather than only
   its intended mounted repository. The operator owns and approved this exception;

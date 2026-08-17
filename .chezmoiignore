@@ -31,6 +31,8 @@ install-atuin.sh
 install-bash-preexec.sh
 .config/containers/
 enable-atuin-server.sh
+install-guest-development-tools.sh
+.local/bin/docker
 {{ end }}
 
 {{ if not .dotfiles_ai.atuin.server_enabled }}
@@ -68,7 +70,6 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 Library/
 load-herdr-launchagent.sh
 load-dbsctr-rnd-launchagents.sh
-.local/bin/op-session
 .local/bin/sandbox-vm
 .local/bin/opencode
 .config/dotfiles-ai/sandbox-shell-aliases

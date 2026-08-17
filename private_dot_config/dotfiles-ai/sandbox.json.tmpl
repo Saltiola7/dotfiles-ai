@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
@@ -10,6 +10,12 @@
   "tailscale": {
     "enabled": {{ .dotfiles_ai.tailscale.enabled | toJson }},
     "ssh": {{ .dotfiles_ai.tailscale.ssh | toJson }}
+  },
+  "onepassword": {
+    "enabled": {{ .dotfiles_ai.onepassword.enabled | toJson }},
+    "account": {{ .dotfiles_ai.onepassword.account | toJson }},
+    "user_uuid": {{ .dotfiles_ai.onepassword.user_uuid | toJson }},
+    "keychain_service": {{ .dotfiles_ai.onepassword.keychain_service | toJson }}
   },
   "resources": {
     "cpus": {{ .dotfiles_ai.sandbox.cpus }},
@@ -22,7 +28,10 @@
     "theme": {{ .dotfiles_ai.opencode.theme | toJson }},
     "atuin_sync_address": {{ .dotfiles_ai.atuin.sync_address | toJson }},
     "hermes_enabled": {{ .dotfiles_ai.hermes.enabled | toJson }},
-    "rnd_backend": {{ .dotfiles_ai.rnd.backend | toJson }}
+    "rnd_backend": {{ .dotfiles_ai.rnd.backend | toJson }},
+    "vertex_project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
+    "vertex_location": {{ .dotfiles_ai.opencode.vertex_location | toJson }},
+    "vertex_account": {{ .dotfiles_ai.opencode.vertex_account | toJson }}
   },
   "workspaces": [
 {{- range $index, $workspace := .dotfiles_ai.sandbox.workspaces }}{{ if $index }},{{ end }}

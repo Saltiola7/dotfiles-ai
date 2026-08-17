@@ -81,9 +81,10 @@ LEGACY_AVAILABILITY_KEYS = LEGACY_TELEMETRY_KEYS - {"availability", "attribution
 PHASE_KEYS = {"schema_version", "cycle_id", "status", "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"}
 
 
-def command(argv, timeout=30, input_data=None):
+def command(argv, timeout=30, input_data=None, environment=None):
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_data is not None else None,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                               env=environment)
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
     selector.register(process.stderr, selectors.EVENT_READ)
@@ -147,8 +148,19 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") != 4:
+    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5}:
         raise ValueError("invalid sandbox config")
+    if value["schema_version"] == 4:
+        value["schema_version"] = 5
+        value.setdefault("onepassword", {
+            "enabled": False, "account": "", "user_uuid": "",
+            "keychain_service": "op-service-account-token",
+        })
+        guest = value.get("guest")
+        if isinstance(guest, dict):
+            guest.setdefault("vertex_project", "")
+            guest.setdefault("vertex_location", "global")
+            guest.setdefault("vertex_account", "")
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
@@ -172,13 +184,21 @@ def validate_config(value):
     if (not isinstance(tailscale, dict) or set(tailscale) != {"enabled", "ssh"}
             or any(not isinstance(tailscale[name], bool) for name in tailscale)):
         raise ValueError("invalid Tailscale settings")
+    onepassword = value.get("onepassword")
+    if (not isinstance(onepassword, dict)
+            or set(onepassword) != {"enabled", "account", "user_uuid", "keychain_service"}
+            or not isinstance(onepassword["enabled"], bool)
+            or any(not isinstance(onepassword[name], str) for name in ("account", "user_uuid", "keychain_service"))
+            or onepassword["enabled"] and not all(onepassword[name] for name in ("account", "user_uuid", "keychain_service"))):
+        raise ValueError("invalid 1Password settings")
     guest = value.get("guest")
     if isinstance(guest, dict):
         guest.setdefault("hermes_enabled", False)
         guest.setdefault("rnd_backend", "native")
     if not isinstance(guest, dict) or set(guest) != {
             "default_model", "small_model", "theme",
-            "atuin_sync_address", "hermes_enabled", "rnd_backend"} or any(
+            "atuin_sync_address", "hermes_enabled", "rnd_backend",
+            "vertex_project", "vertex_location", "vertex_account"} or any(
             not isinstance(guest[name], str) for name in guest if name != "hermes_enabled") \
             or not isinstance(guest["hermes_enabled"], bool) \
             or guest["rnd_backend"] not in {"native", "hermes"}:
@@ -400,6 +420,7 @@ def guest_config(config, workspace):
     quote = json.dumps
     guest = config["guest"]
     resources = config["resources"]
+    onepassword = config["onepassword"]
     backlog_roots = workspace.get("hermes_backlog_roots") or [
         mount["guest"] for mount in workspace["mounts"]
         if mount["writable"] and not mount["protect_git_submodules"]
@@ -409,10 +430,10 @@ def guest_config(config, workspace):
         'persistentState = "~/.config/dotfiles-ai/chezmoi.boltdb"',
         "",
         "[data.dotfiles_ai.opencode]",
-        # Guests have no Vertex credentials, so the Claude route stays off there.
-        'vertex_project = ""',
-        'vertex_location = "global"',
-        'vertex_credentials = ""',
+        f"vertex_project = {quote(guest['vertex_project'])}",
+        f"vertex_location = {quote(guest['vertex_location'])}",
+        'vertex_credentials = "__GUEST_HOME__/.config/dotfiles-ai/gcloud-vertex/application_default_credentials.json"',
+        f"vertex_account = {quote(guest['vertex_account'])}",
         f"default_model = {quote(guest['default_model'])}",
         f"small_model = {quote(guest['small_model'])}",
         'lmstudio_base_url = "http://host.lima.internal:1234/v1"',
@@ -447,10 +468,10 @@ def guest_config(config, workspace):
         'github_repository = ""',
         "",
         "[data.dotfiles_ai.onepassword]",
-        "enabled = false",
-        'account = ""',
-        'user_uuid = ""',
-        'keychain_service = "op-service-account-token"',
+        f"enabled = {'true' if onepassword['enabled'] else 'false'}",
+        f"account = {quote(onepassword['account'])}",
+        f"user_uuid = {quote(onepassword['user_uuid'])}",
+        f"keychain_service = {quote(onepassword['keychain_service'])}",
         "",
         "[data.dotfiles_ai.sandbox]",
         "enabled = false",
@@ -485,12 +506,15 @@ def update_workspace(config, workspace, execute=command):
     home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
     if not home.startswith("/home/") or not ID.fullmatch(Path(home).name):
         raise RuntimeError("invalid guest home")
+    rootless = execute(["limactl", "shell", instance, "--", "podman", "info", "--format", "{{.Host.Security.Rootless}}"], timeout=120)
+    if rootless.strip() != "true":
+        raise RuntimeError("workspace requires rootless Podman")
     execute(
         ["limactl", "shell", instance, "--", "sh", "-ceu", """
 install -d -m 0700 "$HOME/.config/dotfiles-ai"
 tmp=$(mktemp "$HOME/.config/dotfiles-ai/.chezmoi.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
-cat >"$tmp"
+sed "s|__GUEST_HOME__|$HOME|g" >"$tmp"
 chmod 0600 "$tmp"
 mv -f "$tmp" "$HOME/.config/dotfiles-ai/chezmoi.toml"
 trap - EXIT
@@ -502,6 +526,32 @@ trap - EXIT
     execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
     execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
              f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+
+
+def service_token(config, execute=command):
+    settings = config["onepassword"]
+    if not settings["enabled"]:
+        return None
+    token = execute([
+        "/usr/bin/security", "find-generic-password", "-s", settings["keychain_service"],
+        "-a", settings["account"], "-w",
+    ], timeout=10)
+    if not token or len(token) > 4096 or re.search(r"[\x00-\x20\x7f]", token):
+        raise RuntimeError("1Password service token is unavailable")
+    validation_env = {**os.environ, "OP_SERVICE_ACCOUNT_TOKEN": token}
+    execute(["op", "vault", "list"], timeout=10, environment=validation_env)
+    return token
+
+
+def shell_environment(config):
+    names = ("HOME", "PATH", "USER", "LOGNAME", "SHELL", "TMPDIR", "LIMA_HOME")
+    environment = {name: os.environ[name] for name in names if name in os.environ}
+    environment["TERM"] = os.environ.get("LIMA_TERM", "xterm-256color")
+    token = service_token(config)
+    if token:
+        environment["OP_SERVICE_ACCOUNT_TOKEN"] = token
+        environment["LIMA_SHELLENV_ALLOW"] = "OP_SERVICE_ACCOUNT_TOKEN"
+    return environment
 
 
 def render_workspace(config, workspace, template=None):
@@ -1066,8 +1116,9 @@ def main(argv=None, invocation=None):
         return
     if args.command == "shell":
         shell_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        environment = {**os.environ, "TERM": os.environ.get("LIMA_TERM", "xterm-256color")}
-        os.execvpe("limactl", ["limactl", "shell", workspace["instance"], *shell_args], environment)
+        environment = shell_environment(config)
+        preserve = ["--preserve-env"] if "OP_SERVICE_ACCOUNT_TOKEN" in environment else []
+        os.execvpe("limactl", ["limactl", "shell", *preserve, workspace["instance"], *shell_args], environment)
         return
     if args.command == "tailscale-enroll":
         tailscale_enroll(config, workspace, sys.stdin.buffer)
