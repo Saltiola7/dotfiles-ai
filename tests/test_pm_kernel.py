@@ -21,6 +21,8 @@ def backlog(root, active="", completed=""):
         "|---|---|---|---|---|---|---|---|---|---|---|\n" + active +
         "\n## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n" + completed
     )
+    subprocess.run(["git", "add", str(path.relative_to(root))], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", "backlog"], cwd=root, check=True, capture_output=True)
     return path
 
 
@@ -83,19 +85,36 @@ def test_migration_refuses_all_outputs_before_destination_conflict(tmp_path):
 
 
 def test_jira_rollup_requires_exact_preview_confirmation(tmp_path):
+    init_git(tmp_path)
+    backlog(tmp_path, "| EX-1 | First | high | pending | - | code | docs | no | Needed | S | pytest |\n"
+                      "| EX-2 | Second | high | pending | EX-1 | code | docs | no | Needed | S | pytest |\n")
+    migrated = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)
+    for ticket in migrated["tickets"]:
+        path = tmp_path / ticket["path"]
+        path.write_text(path.read_text().replace('state: "intake"', 'state: "ready"'))
+    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                            text=True, capture_output=True).stdout.strip()
+    members = []
+    for ticket in migrated["tickets"]:
+        blob = subprocess.run(["git", "rev-parse", f"HEAD:{ticket['path']}"], cwd=tmp_path,
+                              check=True, text=True, capture_output=True).stdout.strip()
+        members.append({"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob})
     manifest = tmp_path / "jira.json"
     manifest.write_text(json.dumps({
         "project": "TEST", "issue_type": "Story", "summary": "One sprint outcome",
-        "description": "Complete standalone context", "source_tickets": ["EX-1", "EX-2"],
+        "description": "Complete standalone context", "source_tickets": members,
     }))
-    preview = subprocess.run(["python3", str(PMCTL), "jira", "preview", "--manifest", str(manifest), "--json"],
+    preview = subprocess.run(["python3", str(PMCTL), "jira", "preview", "--root", str(tmp_path),
+                              "--manifest", str(manifest), "--json"],
                              check=True, text=True, capture_output=True)
     digest = json.loads(preview.stdout)["preview_digest"]
-    denied = subprocess.run(["python3", str(PMCTL), "jira", "publish", "--manifest", str(manifest),
+    denied = subprocess.run(["python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path), "--manifest", str(manifest),
                              "--preview-digest", digest, "--confirm", "wrong", "--json"],
                             text=True, capture_output=True)
     assert denied.returncode == 1
-    accepted = subprocess.run(["python3", str(PMCTL), "jira", "publish", "--manifest", str(manifest),
+    accepted = subprocess.run(["python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path), "--manifest", str(manifest),
                                "--preview-digest", digest, "--confirm", digest, "--json"],
                               check=True, text=True, capture_output=True)
     assert json.loads(accepted.stdout)["result"] == "simulated"
@@ -106,7 +125,10 @@ def test_projection_rejects_secrets_and_uses_psql_stdin(tmp_path):
     envelope = tmp_path / "envelope.json"
     envelope.write_text(json.dumps({"schema_version": 1, "source_id": "cycle-1",
                                     "source_authority": "dbsctr", "availability": "available",
-                                    "state": "completed"}))
+                                    "payload": {"cycle_id": "cycle-1", "context": "example",
+                                                "state": "completed", "risk": "routine",
+                                                "delivery_intent": "local", "method_revision": "3.27",
+                                                "schema_version": 4, "gates": {}}}))
     psql = tmp_path / "psql"
     capture = tmp_path / "sql"
     psql.write_text(f"#!/bin/sh\ncat > {capture}\n")
@@ -118,11 +140,32 @@ def test_projection_rejects_secrets_and_uses_psql_stdin(tmp_path):
     assert "ON CONFLICT DO NOTHING" in capture.read_text()
     envelope.write_text(json.dumps({"schema_version": 1, "source_id": "cycle-1",
                                     "source_authority": "dbsctr", "availability": "available",
-                                    "token": "private"}))
+                                    "payload": {"token": "private"}}))
     denied = subprocess.run(["python3", str(PMCTL), "project", "--source", "cycle_record",
                              "--input", str(envelope), "--psql", str(psql), "--json"],
                             text=True, capture_output=True)
     assert denied.returncode == 1
+
+
+def test_ticket_projection_requires_committed_tree_and_records_revisions(tmp_path):
+    init_git(tmp_path)
+    backlog(tmp_path, "| EX-1 | Refine | high | pending | - | code | docs | no | Needed | S | pytest |\n")
+    migrated = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)
+    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
+    psql = tmp_path / "psql"
+    capture = tmp_path / "ticket-sql"
+    psql.write_text(f"#!/bin/sh\ncat > {capture}\n")
+    psql.chmod(0o755)
+    projected = subprocess.run(["python3", str(PMCTL), "project-tickets", "--root", str(tmp_path),
+                                "--psql", str(psql), "--json"], check=True, text=True, capture_output=True)
+    assert json.loads(projected.stdout)["projected"] == 1
+    assert "context.ticket_revisions" in capture.read_text()
+    ticket = tmp_path / migrated["tickets"][0]["path"]
+    ticket.write_text(ticket.read_text().replace('title: "Refine"', 'title: "Dirty"'))
+    denied = subprocess.run(["python3", str(PMCTL), "project-tickets", "--root", str(tmp_path),
+                             "--psql", str(psql), "--json"], text=True, capture_output=True)
+    assert denied.returncode == 1 and "clean committed ticket tree" in denied.stderr
 
 
 def test_sprint_review_preserves_every_issue_once_and_goals(tmp_path):
@@ -143,3 +186,13 @@ def test_sprint_review_preserves_every_issue_once_and_goals(tmp_path):
     assert report.count("- [T-1]") == 1 and report.count("- [T-2]") == 1
     assert "Goal supplied" in report and "## Product Goal\n\nNot provided" in report
     assert "report_type=sprint_review" in result["path"] and "snapshot_date=" in result["path"]
+
+
+def test_sprint_review_rejects_non_done_work(tmp_path):
+    issues = tmp_path / "issues.json"
+    issues.write_text(json.dumps([{"key": "T-1", "summary": "Still open", "status": "In Progress",
+                                   "parent": "", "description": "Not complete", "url": ""}]))
+    denied = subprocess.run(["python3", str(PMCTL), "sprint-review", "--input", str(issues),
+                             "--title", "Sprint", "--output-root", str(tmp_path / "reports"), "--json"],
+                            text=True, capture_output=True)
+    assert denied.returncode == 1

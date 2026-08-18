@@ -261,7 +261,9 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert ".dotfiles_ai.pm_kernel.postgres_enabled" in ignore
     assert "postgres_image must be an exact PostgreSQL 19 image digest" in container
     assert "PublishPort=127.0.0.1:55432:5432" in container
-    assert "HealthCmd=pg_isready" in container
+    assert "HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health" in container
+    assert "ExecStartPost=%h/.local/bin/pm-postgres-migrate" in container
+    assert "docker-entrypoint-initdb.d/001-pm-kernel.sql" in container
     assert "CREATE PROPERTY GRAPH IF NOT EXISTS context.context_graph" in schema
     assert "context.source_envelopes" in schema
 

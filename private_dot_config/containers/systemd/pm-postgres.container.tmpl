@@ -1,5 +1,5 @@
 {{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
-{{- if not .dotfiles_ai.pm_kernel.postgres_image -}}
+{{- if not (regexMatch "^postgres:19beta[0-9]+@sha256:[0-9a-f]{64}$" .dotfiles_ai.pm_kernel.postgres_image) -}}
 {{ fail "dotfiles_ai.pm_kernel.postgres_image must be an exact PostgreSQL 19 image digest" }}
 {{- end -}}
 [Unit]
@@ -15,7 +15,9 @@ Environment=POSTGRES_USER=pm_kernel
 EnvironmentFile=%h/.config/pm-kernel/postgres.env
 PublishPort=127.0.0.1:55432:5432
 Volume=pm-postgres-data.volume:/var/lib/postgresql
-HealthCmd=pg_isready -U pm_kernel -d pm_kernel
+Volume=%h/.local/share/pm-kernel/schema.sql:/docker-entrypoint-initdb.d/001-pm-kernel.sql:ro
+Volume=%h/.local/share/pm-kernel/health.sh:/usr/local/bin/pm-kernel-health:ro
+HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health
 HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=5
@@ -23,6 +25,7 @@ HealthRetries=5
 [Service]
 Restart=on-failure
 TimeoutStartSec=120
+ExecStartPost=%h/.local/bin/pm-postgres-migrate
 
 [Install]
 WantedBy=default.target

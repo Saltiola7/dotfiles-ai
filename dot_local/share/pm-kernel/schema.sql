@@ -2,6 +2,11 @@ BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS context;
 
+CREATE TABLE IF NOT EXISTS context.schema_migrations (
+    version integer PRIMARY KEY,
+    applied_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS context.tickets (
     id text PRIMARY KEY,
     context text NOT NULL,
@@ -21,6 +26,22 @@ CREATE TABLE IF NOT EXISTS context.ticket_relations (
     relation_type text NOT NULL,
     metadata jsonb NOT NULL DEFAULT '{}',
     PRIMARY KEY (source_id, target_id, relation_type)
+);
+
+CREATE TABLE IF NOT EXISTS context.ticket_revisions (
+    ticket_id text NOT NULL,
+    source_commit text NOT NULL,
+    source_blob text NOT NULL,
+    payload jsonb NOT NULL,
+    projected_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticket_id, source_blob)
+);
+
+CREATE TABLE IF NOT EXISTS context.projection_checkpoints (
+    projection text PRIMARY KEY,
+    source_identity text NOT NULL,
+    item_count integer NOT NULL,
+    projected_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS context.jira_publications (
@@ -76,5 +97,7 @@ CREATE PROPERTY GRAPH IF NOT EXISTS context.context_graph
         DESTINATION KEY (target_id) REFERENCES context.tickets (id)
         LABEL depends_on PROPERTIES (metadata)
     );
+
+INSERT INTO context.schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
 
 COMMIT;

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,46 @@ from pathlib import Path
 
 STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review", "done", "cancelled"}
 POINTS = {None, 0.5, 1, 2, 3, 5, 8}
+KINDS = {"story", "bug", "task", "spike", "epic"}
+ENVELOPE_SOURCES = {"cycle_record", "review_report", "history_capture", "history_telemetry",
+                    "benchmark", "provider_evaluation", "phase_profile", "execution_dag", "improvement"}
+ENVELOPE_PAYLOAD_FIELDS = {
+    "cycle_record": {"cycle_id", "context", "state", "risk", "delivery_intent", "method_revision", "schema_version", "gates", "metrics", "created_at", "completed_at"},
+    "review_report": {"report_id", "decision", "findings", "scorecards", "trends", "proposals", "caveats", "created_at"},
+    "history_capture": {"capture_id", "manifest_digest", "members", "metrics", "created_at"},
+    "history_telemetry": {"cycle_id", "context", "state", "risk", "metrics", "availability", "created_at"},
+    "benchmark": {"benchmark_id", "result", "metrics", "availability", "created_at"},
+    "provider_evaluation": {"report_id", "manifest_digest", "rubric", "harness_identity", "members", "findings", "recommendations", "created_at"},
+    "phase_profile": {"cycle_id", "phase_profile", "availability", "created_at"},
+    "execution_dag": {"cycle_id", "nodes", "result", "created_at"},
+    "improvement": {"worker_id", "opportunity_id", "priority", "state", "summary", "created_at", "completed_at"},
+}
+ENVELOPE_REQUIRED_FIELDS = {
+    "cycle_record": {"cycle_id": str, "context": str, "state": str, "risk": str, "delivery_intent": str, "method_revision": str, "schema_version": int, "gates": dict},
+    "review_report": {"report_id": str, "decision": str, "findings": list},
+    "history_capture": {"capture_id": str, "manifest_digest": str, "members": list},
+    "history_telemetry": {"cycle_id": str, "metrics": dict, "availability": str},
+    "benchmark": {"benchmark_id": str, "result": str, "metrics": dict},
+    "provider_evaluation": {"report_id": str, "manifest_digest": str, "rubric": dict, "members": list, "findings": list, "recommendations": list},
+    "phase_profile": {"cycle_id": str, "phase_profile": dict, "availability": str},
+    "execution_dag": {"cycle_id": str, "nodes": list, "result": str},
+    "improvement": {"worker_id": str, "opportunity_id": str, "priority": str, "state": str, "summary": str},
+}
+ENVELOPE_FIELD_TYPES = {
+    "cycle_id": str, "context": str, "state": str, "risk": str, "delivery_intent": str,
+    "method_revision": str, "schema_version": int, "gates": dict, "metrics": dict,
+    "created_at": str, "completed_at": str, "report_id": str, "decision": str,
+    "findings": list, "scorecards": list, "trends": list, "proposals": list, "caveats": list,
+    "capture_id": str, "manifest_digest": str, "members": list, "availability": str,
+    "benchmark_id": str, "result": str, "rubric": dict, "harness_identity": dict,
+    "recommendations": list, "phase_profile": dict, "nodes": list, "worker_id": str,
+    "opportunity_id": str, "priority": str, "summary": str,
+}
+GATE_NAMES = {"domain", "behavior", "spec", "contract", "test_driven_implementation", "refactor",
+              "review_integrate", "release", "deploy", "operate", "maintain_retire"}
+METRIC_NAMES = {"elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count",
+                "tool_call_count", "tool_error_count", "token_total", "cost_total", "session_count",
+                "member_count", "source_count", "page_count"}
 REQUIRED = {
     "schema_version", "id", "slug", "context", "title", "kind", "state", "priority",
     "points", "depends_on", "relations", "owns", "reads", "parallel_safe", "validation",
@@ -123,8 +165,20 @@ def validate_ticket(root, path):
     for field in ("depends_on", "relations", "owns", "reads", "validation", "commits", "jira_publications"):
         if not isinstance(values.get(field), list) or any(not isinstance(item, str) for item in values.get(field, [])):
             findings.append({"code": "invalid_ticket_schema", "path": relative, "field": field})
-    if type(values.get("parallel_safe")) is not bool or not values.get("title") or not values.get("priority"):
+    if (type(values.get("parallel_safe")) is not bool or not values.get("title") or not values.get("priority")
+            or values.get("kind") not in KINDS or values.get("migration") is not None
+            and not isinstance(values.get("migration"), str)):
         findings.append({"code": "invalid_ticket_schema", "path": relative})
+    for field in ("created", "updated"):
+        try:
+            date.fromisoformat(str(values.get(field)))
+        except ValueError:
+            findings.append({"code": "invalid_ticket_date", "path": relative, "field": field})
+    if values.get("completed") is not None:
+        try:
+            date.fromisoformat(str(values["completed"]))
+        except ValueError:
+            findings.append({"code": "invalid_ticket_date", "path": relative, "field": "completed"})
     if values.get("state") == "done" and (not values.get("completed") or not values.get("commits")):
         findings.append({"code": "invalid_ticket_completion", "path": relative})
     if values.get("state") != "done" and values.get("completed") is not None:
@@ -153,6 +207,25 @@ def inventory(root):
         for dependency in record.get("depends_on", []):
             if dependency == record["id"] or dependency not in ids:
                 findings.append({"code": "invalid_ticket_dependency", "path": record["path"], "id": dependency})
+        for relation in record.get("relations", []):
+            match = re.fullmatch(r"([a-z][a-z0-9_]*):([A-Za-z][A-Za-z0-9.-]*)", relation)
+            if not match or match.group(2) == record["id"] or match.group(2) not in ids:
+                findings.append({"code": "invalid_ticket_relation", "path": record["path"], "relation": relation})
+    graph = {record["id"]: record.get("depends_on", []) for record in records}
+    visiting, visited = set(), set()
+    def walk(item_id):
+        if item_id in visiting:
+            return True
+        if item_id in visited:
+            return False
+        visiting.add(item_id)
+        cycle = any(dependency in graph and walk(dependency) for dependency in graph[item_id])
+        visiting.remove(item_id)
+        visited.add(item_id)
+        return cycle
+    for record in records:
+        if walk(record["id"]):
+            findings.append({"code": "cyclic_ticket_dependency", "path": record["path"]})
     findings.sort(key=lambda item: (item["path"], item["code"], item.get("field", "")))
     records.sort(key=lambda item: (item["context"], item["id"]))
     return records, findings
@@ -213,7 +286,7 @@ def yaml_value(value):
     return json.dumps(str(value), ensure_ascii=True)
 
 
-def render_ticket(context, section, line, values, source, source_commit):
+def render_ticket(context, section, line, values, source, source_commit, source_date):
     item_id = canonical_id(values["id"])
     title = values["title"] if section == "Active" else values["outcome"]
     slug = slugify(title)
@@ -233,7 +306,7 @@ def render_ticket(context, section, line, values, source, source_commit):
         "kind": "task", "state": state, "priority": priority, "points": None,
         "depends_on": dependencies, "relations": [], "owns": owns, "reads": reads,
         "parallel_safe": str(values.get("parallel_safe", "no")).lower() in {"yes", "true"},
-        "validation": validation, "created": completed or str(date.today()), "updated": str(date.today()),
+        "validation": validation, "created": completed or source_date, "updated": source_date,
         "completed": completed, "commits": commits, "jira_publications": [], "migration": migration,
     }
     lines = ["---"]
@@ -258,10 +331,12 @@ def render_ticket(context, section, line, values, source, source_commit):
 
 
 def migration_manifest(root):
-    try:
-        source_commit = os.popen(f"git -C {json.dumps(str(root))} rev-parse HEAD").read().strip()
-    except OSError:
-        source_commit = "unavailable"
+    dirty = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--", "docs/specs"],
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if dirty.returncode or any(line.endswith("BACKLOG.md") for line in dirty.stdout.splitlines()):
+        fail("legacy backlogs must match the committed source tree")
+    source_commit = git_output(root, "rev-parse", "HEAD")
+    source_date = git_output(root, "show", "-s", "--format=%cs", source_commit)
     outputs, ids = [], set()
     for backlog in sorted((root / "docs/specs").glob("*/BACKLOG.md")):
         context = backlog.parent.name
@@ -272,7 +347,7 @@ def migration_manifest(root):
                 if item_id in ids:
                     fail(f"duplicate normalized backlog ID: {item_id}")
                 ids.add(item_id)
-                path, content = render_ticket(context, section, line, values, source, source_commit)
+                path, content = render_ticket(context, section, line, values, source, source_commit, source_date)
                 outputs.append({"id": item_id, "legacy_id": values["id"], "source": source, "section": section.lower(), "line": line,
                                 "path": path, "digest": hashlib.sha256(content.encode()).hexdigest(), "content": content})
     outputs.sort(key=lambda item: item["path"])
@@ -280,6 +355,28 @@ def migration_manifest(root):
 
 
 def apply_migration(root, outputs):
+    lock_path = Path(git_output(root, "rev-parse", "--git-path", "pmctl-migration.lock"))
+    if not lock_path.is_absolute():
+        lock_path = root / lock_path
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return apply_migration_locked(root, outputs)
+
+
+def ticket_tree_digest(tickets):
+    digest = hashlib.sha256()
+    if not tickets.exists():
+        return digest.hexdigest()
+    for path in sorted(tickets.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            digest.update(path.relative_to(tickets).as_posix().encode())
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def apply_migration_locked(root, outputs):
     conflicts = []
     for output in outputs:
         target = root / output["path"]
@@ -287,26 +384,57 @@ def apply_migration(root, outputs):
             conflicts.append(output["path"])
     if conflicts:
         fail(f"migration destination conflict: {conflicts[0]}")
-    with tempfile.TemporaryDirectory(dir=root) as temporary:
-        staging = Path(temporary)
+    tickets = root / "docs/tickets"
+    starting_digest = ticket_tree_digest(tickets)
+    staging = root / ".pmctl-tickets-staging"
+    backup = root / ".pmctl-tickets-backup"
+    marker = root / ".pmctl-ticket-migration"
+    if marker.exists():
+        if backup.exists() and not tickets.exists():
+            os.replace(backup, tickets)
+        shutil.rmtree(staging, ignore_errors=True)
+        marker.unlink()
+    if staging.exists() or backup.exists():
+        fail("stale migration staging requires operator review")
+    staging_root = staging / "root"
+    staged_tickets = staging_root / "docs/tickets"
+    if tickets.exists():
+        shutil.copytree(tickets, staged_tickets)
+    else:
+        staged_tickets.mkdir(parents=True)
+    try:
         for output in outputs:
-            target = staging / output["path"]
+            target = staging_root / output["path"]
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(output["content"])
-            values, findings = validate_ticket(staging, target)
+            values, findings = validate_ticket(staging_root, target)
             if values is None or findings:
                 fail(f"generated ticket is invalid: {output['path']} {findings}")
-        for output in outputs:
-            source = staging / output["path"]
-            target = root / output["path"]
-            if not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(source, target)
+        _records, findings = inventory(staging_root)
+        if findings:
+            fail(f"staged ticket inventory is invalid: {findings[0]}")
+        if ticket_tree_digest(tickets) != starting_digest:
+            fail("canonical ticket tree changed during migration")
+        marker.write_text(json.dumps({"schema_version": 1, "source": str(tickets), "backup": str(backup)}))
+        if tickets.exists():
+            os.replace(tickets, backup)
+            if ticket_tree_digest(backup) != starting_digest:
+                os.replace(backup, tickets)
+                fail("canonical ticket tree changed before migration promotion")
+        os.replace(staged_tickets, tickets)
+        marker.unlink()
+        shutil.rmtree(backup, ignore_errors=True)
+    except Exception:
+        if backup.exists() and not tickets.exists():
+            os.replace(backup, tickets)
+        raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def safe_envelope(value):
-    forbidden = re.compile(r"(?:password|secret|token|credential|authorization|cookie|transcript|prompt|command_arguments?)", re.I)
-    unsafe = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S+)", re.I)
+    forbidden = re.compile(r"(?:password|secret|token|credential|authorization|cookie|transcript|prompt|command_arguments?|api[_-]?key|private[_-]?key)", re.I)
+    unsafe = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S+|(?:^|\s)/(?:Users|home|Volumes|var)/|\b[^\s@]+@[^\s@]+\.[^\s@]+)", re.I)
     def visit(item):
         if isinstance(item, dict):
             if any(forbidden.search(str(key)) for key in item):
@@ -319,9 +447,82 @@ def safe_envelope(value):
         elif isinstance(item, str) and unsafe.search(item):
             fail("envelope contains unsafe content")
     visit(value)
-    required = {"schema_version", "source_id", "source_authority", "availability"}
-    if not isinstance(value, dict) or not required <= set(value) or type(value["schema_version"]) is not int:
+    required = {"schema_version", "source_id", "source_authority", "availability", "payload"}
+    if (not isinstance(value, dict) or set(value) != required or type(value["schema_version"]) is not int
+            or value["source_authority"] != "dbsctr" or value["availability"] not in {"available", "unavailable"}
+            or not isinstance(value["source_id"], str) or not 1 <= len(value["source_id"].encode()) <= 256
+            or not isinstance(value["payload"], dict)):
         fail("envelope contract is incomplete")
+
+
+def validate_envelope_contract(source, value):
+    if value["schema_version"] != 1:
+        fail("unsupported sanitized envelope schema version")
+    payload = value["payload"]
+    required = ENVELOPE_REQUIRED_FIELDS[source]
+    if set(payload) - ENVELOPE_PAYLOAD_FIELDS[source] or not set(required) <= set(payload):
+        fail("envelope payload does not match its versioned source contract")
+    for key, expected in required.items():
+        if type(payload[key]) is not expected:
+            fail("envelope payload has an invalid field type")
+    for key, item in payload.items():
+        expected = ENVELOPE_FIELD_TYPES[key]
+        if type(item) is not expected:
+            fail("envelope payload has an invalid optional field type")
+        validate_envelope_field(key, item)
+
+
+def validate_envelope_field(key, value):
+    if key == "gates":
+        if set(value) - GATE_NAMES:
+            fail("envelope gates contain an unknown gate")
+        allowed = {"applicability": str, "result": str, "reason": str, "evidence": str,
+                   "exception": dict, "owner": str}
+        for gate in value.values():
+            if not isinstance(gate, dict) or set(gate) - set(allowed):
+                fail("envelope gate contract is invalid")
+            for field, item in gate.items():
+                if type(item) is not allowed[field]:
+                    fail("envelope gate field type is invalid")
+            exception = gate.get("exception")
+            if exception is not None and (set(exception) - {"disposition", "rationale", "owner", "approved_at", "expires_at"}
+                                          or any(not isinstance(item, str) for item in exception.values())):
+                fail("envelope gate exception is invalid")
+    elif key == "metrics":
+        if set(value) - METRIC_NAMES or any(type(item) not in {int, float} or item < 0 for item in value.values()):
+            fail("envelope metrics contract is invalid")
+    elif key == "rubric":
+        if set(value) != {"name", "version", "digest"} or any(not isinstance(item, str) for item in value.values()):
+            fail("envelope rubric contract is invalid")
+    elif key == "harness_identity":
+        allowed = {"provider_id", "model_id", "agent_id", "role", "core_revision", "overlay_revision"}
+        if set(value) != allowed or any(not isinstance(item, str) for item in value.values()):
+            fail("envelope harness identity is invalid")
+    elif key == "members":
+        allowed = {"id", "source_id", "cycle_id", "session_id", "digest", "position"}
+        if len(value) > 500 or any(not isinstance(item, dict) or not set(item) <= allowed
+                                   or any(type(child) not in {str, int} for child in item.values()) for item in value):
+            fail("envelope members contract is invalid")
+    elif key == "nodes":
+        allowed = {"id", "depends_on", "operation", "result"}
+        if len(value) > 500 or any(not isinstance(item, dict) or set(item) != allowed
+                                   or not isinstance(item["id"], str) or not isinstance(item["operation"], str)
+                                   or not isinstance(item["result"], str) or not isinstance(item["depends_on"], list)
+                                   or any(not isinstance(child, str) for child in item["depends_on"]) for item in value):
+            fail("envelope DAG node contract is invalid")
+    elif key == "phase_profile":
+        allowed = {"availability", "elapsed_ms", "critical_path", "phase_count", "result"}
+        if (set(value) - allowed
+                or any(field != "critical_path" and type(item) not in {str, int}
+                       for field, item in value.items())
+                or not isinstance(value.get("critical_path", []), list)
+                or any(not isinstance(item, str) for item in value.get("critical_path", []))):
+            fail("envelope phase profile is invalid")
+    elif isinstance(value, list):
+        if len(value) > 500 or any(not isinstance(item, str) or not item or len(item.encode()) > 2048 for item in value):
+            fail("envelope prose list is invalid")
+    elif isinstance(value, str) and (not value or len(value.encode()) > 2048):
+        fail("envelope scalar is invalid")
 
 
 def project_envelope(args):
@@ -329,7 +530,10 @@ def project_envelope(args):
     if len(raw) > 1024 * 1024:
         fail("envelope exceeds 1 MiB")
     value = json.loads(raw)
+    if args.source not in ENVELOPE_SOURCES:
+        fail("unsupported sanitized envelope source")
     safe_envelope(value)
+    validate_envelope_contract(args.source, value)
     digest = hashlib.sha256(raw).hexdigest()
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
     sql = (
@@ -356,13 +560,19 @@ def git_output(root, *arguments):
 
 def project_tickets(args):
     root = args.root.resolve()
+    if git_output(root, "status", "--porcelain", "--", "docs/tickets"):
+        fail("ticket projection requires a clean committed ticket tree")
     records, findings = inventory(root)
     if findings:
         fail("canonical ticket validation failed")
     commit = git_output(root, "rev-parse", "HEAD")
     statements = ["BEGIN;"]
+    identities = []
     for record in records:
         blob = git_output(root, "rev-parse", f"HEAD:{record['path']}")
+        if git_output(root, "hash-object", record["path"]) != blob:
+            fail("ticket content does not match its committed blob")
+        identities.append((record["path"], blob))
         payload = json.dumps({key: value for key, value in record.items() if key != "path"},
                              sort_keys=True, separators=(",", ":"))
         statements.append(
@@ -374,13 +584,34 @@ def project_tickets(args):
             "state=EXCLUDED.state,priority=EXCLUDED.priority,points=EXCLUDED.points,source_commit=EXCLUDED.source_commit,"
             "source_blob=EXCLUDED.source_blob,payload=EXCLUDED.payload,projected_at=now();"
         )
+        statements.append(
+            "INSERT INTO context.ticket_revisions (ticket_id,source_commit,source_blob,payload) VALUES "
+            f"({sql_literal(record['id'])},{sql_literal(commit)},{sql_literal(blob)},{sql_literal(payload)}::jsonb) "
+            "ON CONFLICT DO NOTHING;"
+        )
         statements.append(f"DELETE FROM context.ticket_relations WHERE source_id={sql_literal(record['id'])};")
         for dependency in record["depends_on"]:
             statements.append(
                 "INSERT INTO context.ticket_relations (source_id,target_id,relation_type) VALUES "
                 f"({sql_literal(record['id'])},{sql_literal(dependency)},'depends_on');"
             )
+        for relation in record["relations"]:
+            relation_type, target = relation.split(":", 1)
+            statements.append(
+                "INSERT INTO context.ticket_relations (source_id,target_id,relation_type) VALUES "
+                f"({sql_literal(record['id'])},{sql_literal(target)},{sql_literal(relation_type)});"
+            )
+    identifiers = ",".join(sql_literal(record["id"]) for record in records)
+    statements.append(f"DELETE FROM context.tickets WHERE id NOT IN ({identifiers});" if identifiers
+                      else "DELETE FROM context.tickets;")
+    statements.append(
+        "INSERT INTO context.projection_checkpoints (projection,source_identity,item_count) VALUES "
+        f"('tickets',{sql_literal(commit)},{len(records)}) ON CONFLICT (projection) DO UPDATE SET "
+        "source_identity=EXCLUDED.source_identity,item_count=EXCLUDED.item_count,projected_at=now();"
+    )
     statements.append("COMMIT;")
+    if any(git_output(root, "hash-object", path) != blob for path, blob in identities):
+        fail("ticket tree changed during projection")
     completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"], input="\n".join(statements) + "\n",
                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     if completed.returncode:
@@ -392,7 +623,7 @@ def sql_literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def jira_preview(manifest_path):
+def jira_preview(root, manifest_path):
     raw = manifest_path.read_bytes()
     if len(raw) > 256 * 1024:
         fail("Jira manifest is oversized")
@@ -400,8 +631,27 @@ def jira_preview(manifest_path):
     required = {"project", "issue_type", "summary", "description", "source_tickets"}
     if (not isinstance(value, dict) or set(value) != required or not value["project"]
             or not value["summary"] or not value["description"] or not isinstance(value["source_tickets"], list)
-            or not value["source_tickets"] or len(set(value["source_tickets"])) != len(value["source_tickets"])):
+            or not value["source_tickets"]):
         fail("Jira manifest is invalid")
+    identities = set()
+    for member in value["source_tickets"]:
+        if (not isinstance(member, dict) or set(member) != {"id", "path", "commit", "blob"}
+                or not str(member["path"]).startswith("docs/tickets/context=") or member["id"] in identities):
+            fail("Jira source ticket identity is invalid")
+        identities.add(member["id"])
+        actual = git_output(root, "rev-parse", f"{member['commit']}:{member['path']}")
+        if actual != member["blob"]:
+            fail("Jira source ticket revision changed")
+        committed = git_output(root, "show", f"{member['commit']}:{member['path']}")
+        parsed, _body = frontmatter(committed)
+        if parsed.get("id") != member["id"]:
+            fail("Jira source ticket identity is invalid")
+        if parsed.get("state") not in {"ready", "committed", "in_progress", "review", "done"}:
+            fail("Jira source ticket is not ready for publication")
+        for section in ("Outcome", "Context", "Acceptance Criteria", "Evidence"):
+            match = re.search(rf"^## {re.escape(section)}\n\n(.+?)(?=\n\n## |\Z)", _body, re.MULTILINE | re.DOTALL)
+            if not match or not match.group(1).strip() or match.group(1).strip().lower() == "pending":
+                fail("Jira source ticket lacks publication evidence")
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return value, hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -412,9 +662,10 @@ def sprint_review(args):
         fail("Sprint Review input exceeds 1 MiB")
     issues = json.loads(raw)
     required = {"key", "summary", "status", "parent", "description", "url"}
+    done = set(args.done_status)
     if (not isinstance(issues, list) or len(issues) > 200
             or any(not isinstance(issue, dict) or set(issue) != required or not issue["key"] or not issue["summary"]
-                   for issue in issues)
+                   or issue["status"] not in done for issue in issues)
             or len({issue["key"] for issue in issues}) != len(issues)):
         fail("Sprint Review issue snapshot is invalid")
     grouped = {}
@@ -431,8 +682,8 @@ def sprint_review(args):
             detail = issue["description"].strip() or issue["summary"]
             lines.extend([f"- {link}: {issue['summary']}. {detail}", ""])
     lines.extend(["## What Changed In The Environment", "",
-                  "Nothing noted beyond the selected work items.", "", "## What's Next", "",
-                  "To be determined at planning.", "", "## Velocity / Capacity Note", "",
+                  "Not provided.", "", "## What's Next", "",
+                  "Not provided.", "", "## Velocity / Capacity Note", "",
                   f"{len(issues)} Done work item(s) selected. Point and capacity interpretation remains a live review topic.", "",
                   "## Provenance", "", f"Source snapshot SHA-256: `{hashlib.sha256(raw).hexdigest()}`", ""])
     generated = datetime.now(timezone.utc)
@@ -469,9 +720,11 @@ def main():
     jira = commands.add_parser("jira").add_subparsers(dest="jira_command", required=True)
     preview = jira.add_parser("preview")
     preview.add_argument("--manifest", required=True, type=Path)
+    preview.add_argument("--root", type=Path, default=Path.cwd())
     preview.add_argument("--json", action="store_true")
     publish = jira.add_parser("publish")
     publish.add_argument("--manifest", required=True, type=Path)
+    publish.add_argument("--root", type=Path, default=Path.cwd())
     publish.add_argument("--preview-digest", required=True)
     publish.add_argument("--confirm", required=True)
     publish.add_argument("--adapter", choices=("fake",), default="fake")
@@ -481,6 +734,7 @@ def main():
     review.add_argument("--title", required=True)
     review.add_argument("--sprint-goal", default="")
     review.add_argument("--product-goal", default="")
+    review.add_argument("--done-status", action="append", default=["Done"])
     review.add_argument("--output-root", type=Path, default=Path("data/interim/reports"))
     review.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -503,7 +757,7 @@ def main():
     elif args.command == "project-tickets":
         result = project_tickets(args)
     elif args.command == "jira":
-        manifest, digest = jira_preview(args.manifest)
+        manifest, digest = jira_preview(args.root.resolve(), args.manifest)
         result = {"schema_version": 1, "payload": manifest, "preview_digest": digest, "written": False}
         if args.jira_command == "publish":
             if args.preview_digest != digest or args.confirm != digest:
