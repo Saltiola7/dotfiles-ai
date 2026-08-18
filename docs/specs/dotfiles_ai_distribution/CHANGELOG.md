@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-18 - PM Kernel Projection Support
+
+- Migrated distribution work records to canonical tickets, switched Hermes
+  refinement to deployed `pmctl`, and added default-off PostgreSQL 19 rootless
+  Podman configuration with schema-aware migration and health checks.
+
 ## 2026-08-16 - DAI-028 Lima Podman Development Runtime
 
 - Made rootless Podman the managed runtime in both Lima workspaces, with pinned

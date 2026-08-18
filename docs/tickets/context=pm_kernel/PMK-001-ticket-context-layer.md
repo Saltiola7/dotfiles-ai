@@ -5,7 +5,7 @@ slug: ticket-context-layer
 context: pm_kernel
 title: Build the canonical ticket context layer and PM kernel
 kind: epic
-state: in_progress
+state: done
 priority: high
 points: 8
 depends_on: []
@@ -22,8 +22,11 @@ validation:
   - uv run --group test pytest
 created: 2026-08-18
 updated: 2026-08-18
-completed: null
-commits: []
+completed: 2026-08-18
+commits:
+  - "31d6c0c"
+  - "7a43c51"
+  - "b872a08"
 jira_publications: []
 migration: null
 ---
@@ -57,7 +60,12 @@ Sprint Review report contract; optional PostgreSQL 19 service and projection.
 
 ## Evidence
 
-Pending implementation and gate evidence.
+Migration produced 143 traceable legacy tickets plus this PM cycle ticket. The
+complete suite passed 339 tests with one expected skip before review remediation;
+focused final evidence passed 23 PM/distribution tests. Deployed source identity,
+chezmoi idempotence, OpenCode command resolution, 144-ticket validation, and the
+typed fixed-commit audit passed with zero findings. Independent review ended with
+no material findings.
 
 ## Risks
 
@@ -66,4 +74,6 @@ external writes, and PostgreSQL beta incompatibility.
 
 ## Review
 
-Pending.
+Accepted. Jira remains fake-only until a machine-local project mapping and
+explicit publication confirmation are supplied. PostgreSQL remains disabled
+until an exact PostgreSQL 19 beta image digest and workspace are configured.

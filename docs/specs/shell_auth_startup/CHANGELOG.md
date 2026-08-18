@@ -1,5 +1,10 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-18 - Canonical Ticket Migration
+
+- Migrated completed shell-auth work records to independently validated PM
+  Kernel tickets with original row provenance.
+
 ## 2026-07-30 - V3.35 Documentation Reconciliation
 
 - Added the missing Engineering Profile and completed AUTH-011 Gate Ledger,

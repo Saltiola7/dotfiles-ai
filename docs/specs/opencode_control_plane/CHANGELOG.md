@@ -1,5 +1,11 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-18 - PM Kernel Commands
+
+- Migrated control-plane work records to canonical tickets and deployed
+  provider-neutral `/pm-kernel`, `/backlog-migration`, and `/sprint-review`
+  commands without granting live Jira mutation.
+
 Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.

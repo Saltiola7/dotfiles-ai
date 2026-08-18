@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-18 - PMK-001 Ticket Authority Migration
+
+- Replaced `BACKLOG.md` authority with independently validated PM Kernel tickets,
+  updated Discovery and fixed-commit audit, and retained the legacy Cycle Record
+  artifact-review key only for state compatibility.
+- Migrated all rows with committed source provenance and deployed the new helper.
+  Typed audit reports seven contexts, 144 tickets, and zero findings. Full QA
+  passed 339 tests with one expected skip before review remediation; independent
+  review ended clean. Gate Exceptions: none. Gate Commits: `31d6c0c`, `7a43c51`,
+  `b872a08`. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
 - `update-plan` and `raise-risk` now recover first-parent lineage only for
   commits changing exactly the committed Engineering Profile; other unrecorded
   commits remain reconciliation blockers.

@@ -440,17 +440,17 @@ continue to work and remain authoritative if the service is unavailable.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Work-context language, ownership, authority, and trust boundaries | required | pending | This specification | - | Primary |
-| Behavior | Ticket, migration, review, Jira, report, and disabled-service scenarios | required | pending | Focused behavior tests | - | Primary |
-| Spec | Paths, YAML, CLI, configuration, SQL, adapter, and report interfaces | required | pending | This specification and generated tickets | - | Primary |
-| Contract | Identity, provenance, approval, privacy, migration, and recovery invariants | required | pending | Contract and security tests | - | Primary |
-| Test-driven implementation | Failing fixtures followed by affected passing tests | required | pending | Pytest evidence | - | Primary |
-| Refactor | Remove BACKLOG authority and duplicate parsers | required | pending | Diff review and affected QA | - | Primary |
-| Review/Integrate | Migration and downstream consumer coherence | required | pending | Independent review and union QA | - | Primary |
+| Domain | Work-context language, ownership, authority, and trust boundaries | required | passed | This specification; `31d6c0c` | - | Primary |
+| Behavior | Ticket, migration, review, Jira, report, and disabled-service scenarios | required | passed | Focused behavior tests | - | Primary |
+| Spec | Paths, YAML, CLI, configuration, SQL, adapter, and report interfaces | required | passed | This specification and generated tickets | - | Primary |
+| Contract | Identity, provenance, approval, privacy, migration, and recovery invariants | required | passed | Contract and security tests | - | Primary |
+| Test-driven implementation | Failing fixtures followed by affected passing tests | required | passed | 339 passed, 1 expected skip; focused final 23 passed | - | Primary |
+| Refactor | Remove BACKLOG authority and duplicate parsers | required | passed | `7a43c51` and fixed-commit audit | - | Primary |
+| Review/Integrate | Migration and downstream consumer coherence | required | passed | `b872a08`; independent review ended clean | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No package or image publication requested | - | User |
-| Deploy | Apply managed skills, CLI, config, and optional service definitions | required | pending | Chezmoi dry-run/apply and identity | - | Primary |
-| Operate | Verify disabled behavior and enabled PostgreSQL health when configured | required | pending | Runtime smokes | - | Primary |
-| Maintain/Retire | Retire BACKLOG readers and define beta upgrade/restore | required | pending | Migration and removal tests | - | Primary |
+| Deploy | Apply managed skills, CLI, config, and optional service definitions | required | passed | Targeted chezmoi apply, source identity, and empty diff | - | Primary |
+| Operate | Verify disabled behavior and enabled PostgreSQL health when configured | required | passed | Default-off state, command resolution, deployed ticket smoke | - | Primary |
+| Maintain/Retire | Retire BACKLOG readers and define beta upgrade/restore | required | passed | 144-ticket validation and zero-finding typed audit | - | Primary |
 
 ## Decisions And Risks
 
