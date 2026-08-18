@@ -185,6 +185,25 @@ files are neither mounted nor copied. Prefer repository-scoped provider
 credentials. A broader provider credential remains accepted risk `DAI-007-AR1`
 until 2026-08-18 or its next rotation, whichever comes first.
 
+## Post-Merge Verification
+
+After a source merge and workspace update, verify each configured workspace
+without printing credential values:
+
+```sh
+sandbox-vm shell workspace1 -- podman info --format '{{.Host.Security.Rootless}}'
+sandbox-vm shell workspace1 -- docker compose version
+sandbox-vm shell workspace1 -- op vault list
+sandbox-vm shell workspace1 -- vertex-reauth --check
+```
+
+The Podman result must be exactly `true`. Confirm the guest source checkout is at
+the intended merge commit and inspect project containers to prove neither
+`OP_SERVICE_ACCOUNT_TOKEN` nor ADC override variables were mapped. A later
+unrelated chezmoi hook can fail after managed runtime targets apply; record that
+hook separately, verify the DAI-owned files and probes directly, and do not claim
+the full update command succeeded.
+
 ## Recovery And Retirement
 
 Inspect `sandbox-vm status`, then use the configured instance name with native

@@ -26,6 +26,20 @@
   `747f214`, `6797a49`, `990378e`, `c03ca4b`.
 - Independent review added a fail-closed rootless check before update mutates a
   guest; an engine reporting `false` now aborts before config, Git, or chezmoi.
+- PR #26 merged the reviewed source as `9056a17`; Python 3.12, 3.13, and 3.14 CI
+  passed. Both guest source checkouts converged to that commit and retained
+  rootless Podman, Compose v2.40.3, 1Password CLI 2.39.0, and the rendered Vertex
+  provider. The development guest completed its
+  managed update; the personal guest applied DAI targets but its full command
+  later failed in an unrelated Hermes catalog hook whose configured backlog root
+  is unavailable. Sixty focused closure tests pass.
+- The private project's 14 reference changes resolve through the replacement
+  service account but remain uncommitted external drift. Existing `DBX-1` still
+  prevents whole-template `op run`; neither item is claimed as DAI source delivery.
+- New shells use the replacement Keychain token. The prior automation-only service
+  account remains active by operator decision to avoid interrupting in-flight
+  cycles and shells; `DAI-028-AR2` requires revocation after their migration and
+  prohibits expanding the old account's scope.
 
 ## 2026-08-12 - DAI-027 Forced Vertex ADC Renewal
 

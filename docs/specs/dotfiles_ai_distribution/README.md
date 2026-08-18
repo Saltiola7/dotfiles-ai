@@ -202,6 +202,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Rootless Podman, pinned Docker Compose v2 provider, guest `docker` compatibility shim, Keychain-to-guest token forwarding, guest 1Password CLI, guest-local Vertex ADC, tests, migration, health, and rollback |
 | Overrides | Colima remains a stopped compatibility fallback; guests receive the existing service-account scope by explicit operator decision; containers receive neither the service token nor Vertex ADC unless a project maps them explicitly |
 
+### DAI-028-F1 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: closes a deployed reusable-credential and guest-runtime change after its legacy cycle could not adopt protected-base reconciliation |
+| Delivery intent | Bind post-merge deployment, operation, maintenance, and residual-drift evidence in a draft pull request |
+| Scope | Merged-source convergence, rootless runtime checks, service-account vault visibility, isolated Vertex response, enterprise stack continuity, and truthful residual blockers |
+| Overrides | The runtime may close while the private project reference migration remains undelivered in its owning repository and an unrelated personal-workspace Hermes catalog hook remains blocked |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -361,6 +370,21 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given stale ADC still names the configured account, when either interactive
   renewal command runs, then explicit default scopes bypass gcloud's account-only
   cache and force a fresh OAuth exchange.
+
+### Post-merge runtime closure
+
+- Given DAI-028 source is merged, when DAI-owned targets apply in both managed
+  workspaces, then each source checkout resolves the merge commit, Podman reports
+  rootless `true`, and the pinned Compose and 1Password tools remain available.
+- Given the development workspace has a renewed isolated ADC and rendered Vertex
+  provider, when OpenCode invokes the configured Claude route, then it returns a
+  successful model response without host ADC or container credential mapping.
+- Given a later unrelated chezmoi hook fails after managed runtime targets apply,
+  when closure evaluates DAI-028, then it records that hook separately rather than
+  claiming the full update command succeeded or rolling back converged targets.
+- Given private project references are changed outside this repository, when the
+  owning repository remains dirty, then closure records external drift and does
+  not claim durable delivery of those references.
 
 ### Optional Lima State Root
 
@@ -1055,6 +1079,11 @@ feature branch with a draft pull request; the operator retains merge authority.
   memory-only forwarding, no argv or disk persistence, bounded validation, and no
   implicit container mapping are compensating controls. Review before service-
   account replacement, vault-scope expansion, or guest auto-approval changes.
+- Accepted migration overlap `DAI-028-AR2`: the replaced automation-only service
+  account remains active temporarily so in-flight cycles and shells holding its
+  token are not interrupted. New shells use the replacement Keychain token. The
+  operator owns this overlap and must revoke the old account after active-cycle
+  migration, or sooner if its token is exposed; do not extend its vault scope.
 - Accepted risk `DAI-007-AR1`: a configured workspace provider credential can
   write every repository authorized by that provider account rather than only
   its intended mounted repository. The operator owns and approved this exception;
