@@ -1027,6 +1027,10 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
         "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |\n\n"
         "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
     )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "backlog"], cwd=repo, check=True, capture_output=True)
     source = render("dot_local/bin/executable_dbsctr-rnd.tmpl",
                     values(review_workdir=str(repo), roots=[str(root)]))
     namespace = {"__name__": "dbsctr_rnd_backlogs"}
@@ -1257,6 +1261,10 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "| X-1 | Exercise launch | high | pending | - | runner | sessions | no | regression | S | e2e |\n\n"
         "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
     )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "backlog"], cwd=repository, check=True, capture_output=True)
     subprocess.run(["python3", str(ROOT / "dot_local/bin/executable_pmctl"),
                     "migrate-backlogs", "--root", str(repository), "--apply", "--json"],
                    check=True, capture_output=True, text=True)
