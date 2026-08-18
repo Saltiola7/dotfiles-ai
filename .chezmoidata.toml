@@ -53,6 +53,14 @@ account = ""
 user_uuid = ""
 keychain_service = "op-service-account-token"
 
+[dotfiles_ai.pm_kernel]
+enabled = false
+workspace = ""
+postgres_enabled = false
+postgres_image = ""
+jira_adapter = "fake"
+jira_project = ""
+
 [dotfiles_ai.sandbox]
 enabled = false
 build_workspace = ""

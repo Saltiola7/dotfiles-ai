@@ -1,0 +1,29 @@
+{{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
+{{- if not .dotfiles_ai.pm_kernel.postgres_image -}}
+{{ fail "dotfiles_ai.pm_kernel.postgres_image must be an exact PostgreSQL 19 image digest" }}
+{{- end -}}
+[Unit]
+Description=PM Kernel PostgreSQL 19 projection
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ .dotfiles_ai.pm_kernel.postgres_image }}
+ContainerName=pm-postgres
+Environment=POSTGRES_DB=pm_kernel
+Environment=POSTGRES_USER=pm_kernel
+EnvironmentFile=%h/.config/pm-kernel/postgres.env
+PublishPort=127.0.0.1:55432:5432
+Volume=pm-postgres-data.volume:/var/lib/postgresql
+HealthCmd=pg_isready -U pm_kernel -d pm_kernel
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
+{{- end }}

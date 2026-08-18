@@ -1450,7 +1450,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("new name.txt", result["dirty_overlay_excluded"])
         self.assertEqual((self.repo / ".git/index").stat().st_mtime_ns, index_mtime)
         findings = {(item["code"], item["path"]) for item in result["findings"]}
-        self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/BACKLOG.md"), findings)
+        self.assertIn(("missing_context_ticket", "docs/tickets/context=incomplete"), findings)
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/CHANGELOG.md"), findings)
         self.assertIn(("stale_graph", "graphify-out/GRAPH_REPORT.md"), findings)
 
@@ -1468,9 +1468,12 @@ class DbsctrctlTest(unittest.TestCase):
             "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
             f"| CAN-1 | Shipped | 2026-01-01 | `{base[:7]}` |\n"
         )
+        ticket = self.repo / "docs/tickets/context=canonical/CAN-1-shipped.md"
+        ticket.parent.mkdir(parents=True)
+        ticket.write_text("---\nid: CAN-1\n---\n")
         replacement_path = self.repo / "replacement-backlog.md"
         replacement_path.write_text("# Replaced\n")
-        subprocess.run(["git", "add", "docs/specs/canonical", "replacement-backlog.md"],
+        subprocess.run(["git", "add", "docs/specs/canonical", "docs/tickets", "replacement-backlog.md"],
                        cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "canonical backlog"], cwd=self.repo, check=True,
                        capture_output=True)
@@ -1510,17 +1513,7 @@ class DbsctrctlTest(unittest.TestCase):
 
         result = json.loads(run(self.repo, "audit", "--commit", audited, "--json").stdout)
         findings = [item for item in result["findings"] if item.get("context") == "broken"]
-        self.assertEqual([
-            ("duplicate_backlog_id", "active", 7, "SAME"),
-            ("invalid_active_status", "active", 7, "SAME"),
-            ("duplicate_backlog_id", "active", 8, "SAME"),
-            ("duplicate_backlog_id", "active", 9, "SAME"),
-            ("invalid_backlog_schema", "active", 9, "SAME"),
-            ("duplicate_backlog_id", "completed", 15, "SAME"),
-            ("invalid_completed_commit", "completed", 15, "SAME"),
-            ("invalid_completed_date", "completed", 15, "SAME"),
-        ], [(item["code"], item["section"], item["line"], item.get("item_id"))
-            for item in findings])
+        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
 
     def test_audit_assigns_missing_sections_to_document_line_one(self):
         context = self.repo / "docs/specs/missing_sections"
@@ -1535,10 +1528,7 @@ class DbsctrctlTest(unittest.TestCase):
         result = json.loads(run(self.repo, "audit", "--json").stdout)
         findings = [item for item in result["findings"]
                     if item.get("context") == "missing_sections"]
-        self.assertEqual([
-            ("invalid_backlog_schema", "active", 1),
-            ("invalid_backlog_schema", "completed", 1),
-        ], [(item["code"], item["section"], item["line"]) for item in findings])
+        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
 
     def test_audit_flags_unverifiable_graph_metadata(self):
         graph = self.repo / "graphify-out"

@@ -9,7 +9,7 @@ trigger: /discovery
 ## Outcome
 
 Reach implementation readiness, then create or update
-`docs/specs/{bounded_context}/README.md`, `BACKLOG.md`, and `CHANGELOG.md` so
+`docs/specs/{bounded_context}/README.md`, `docs/tickets/context={bounded_context}/*.md`, and `CHANGELOG.md` so
 DBSCTR can proceed without repeating discovery.
 
 Readiness means no unresolved question can materially change scope, behavior,
@@ -124,11 +124,12 @@ separate Gate Applicability (`required` or reasoned `not_applicable`), Gate
 Result, and optional user-approved Gate Exception (`deferred` or
 `accepted_risk` with rationale, owner, and expiry/review condition).
 
-`BACKLOG.md` contains one active table with `id`, `title`, `priority`, `status`,
-`depends_on`, `owns`, `reads`, `parallel_safe`, `reason`, `effort`, and
-`validation`. Ownership and dependencies prevent concurrent collisions.
-
-Completed work moves to a concise Completed section with date and commit.
+Each executable or completed work item has one canonical ticket under
+`docs/tickets/context=<bounded_context>/<id>-<frozen-slug>.md`. YAML frontmatter
+follows the PM Kernel schema; the Markdown body retains outcome, context, scope,
+acceptance, evidence, risks, and review. Ownership and dependencies prevent
+concurrent collisions. Completed work remains independently readable with date
+and commit evidence instead of moving into a table.
 
 `CHANGELOG.md` records one compact entry per completed cycle with outcome,
 evidence, Gate Exceptions, commits, deployment, and intended Final Push target.

@@ -1,0 +1,4 @@
+{{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled }}
+[Volume]
+VolumeName=pm-postgres-data
+{{- end }}

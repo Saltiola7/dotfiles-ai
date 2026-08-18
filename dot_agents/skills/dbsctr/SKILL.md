@@ -154,10 +154,10 @@ V3.1 records continue under their legacy transition rules.
 
 ## Artifact Lifecycle
 
-Every cycle reviews README, BACKLOG, and CHANGELOG. README holds stable truth and
+Every cycle reviews README, affected canonical tickets, and CHANGELOG. README holds stable truth and
 changes only when durable domain, behavior, interface, contract, Engineering
-Profile, or validation truth changes. BACKLOG has one live cycle item and moves
-completed work to a concise Completed section. CHANGELOG gets one compact entry
+Profile, or validation truth changes. One ticket owns the live cycle and retains
+its completion evidence. CHANGELOG gets one compact entry
 at completion with outcome, validation, exceptions, commits, deployment, and
 intended Final Push target. The Cycle Record and final response capture the
 actual push result. Record each review with `dbsctrctl review-artifact`; validate with

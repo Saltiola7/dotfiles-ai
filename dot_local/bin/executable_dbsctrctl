@@ -3101,25 +3101,30 @@ def command_audit(args):
     for name in files:
         parts = PurePosixPath(name).parts
         if len(parts) == 4 and parts[:2] == ("docs", "specs") and parts[3] in (
-            "README.md", "BACKLOG.md", "CHANGELOG.md"
+            "README.md", "CHANGELOG.md"
         ):
             contexts.setdefault(parts[2], set()).add(parts[3])
-    expected = {"README.md", "BACKLOG.md", "CHANGELOG.md"}
+    expected = {"README.md", "CHANGELOG.md"}
+    ticket_counts = {}
+    for name in files:
+        parts = PurePosixPath(name).parts
+        if len(parts) == 4 and parts[:2] == ("docs", "tickets") and parts[2].startswith("context=") and name.endswith(".md"):
+            ticket_counts[parts[2].removeprefix("context=")] = ticket_counts.get(parts[2].removeprefix("context="), 0) + 1
     findings = []
     inventory = []
     for context in sorted(contexts):
         present = contexts[context]
         missing = sorted(expected - present)
-        inventory.append({"context": context, "present": sorted(present), "missing": missing})
+        inventory.append({"context": context, "present": sorted(present), "missing": missing,
+                          "tickets": ticket_counts.get(context, 0)})
         for artifact in missing:
             findings.append({
                 "code": "missing_lifecycle_artifact", "severity": "medium", "context": context,
                 "path": f"docs/specs/{context}/{artifact}",
             })
-        if "BACKLOG.md" in present:
-            path = f"docs/specs/{context}/BACKLOG.md"
-            backlog = inspect_git(root, "show", f"{commit}:{path}").stdout
-            findings.extend(backlog_findings(root, commit, context, path, backlog))
+        if ticket_counts.get(context, 0) == 0:
+            findings.append({"code": "missing_context_ticket", "severity": "medium", "context": context,
+                             "path": f"docs/tickets/context={context}"})
     graph_path = "graphify-out/GRAPH_REPORT.md"
     graph = {"present": graph_path in files, "built_from": None, "stale": None}
     if graph["present"]:
@@ -3883,12 +3888,15 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
                     common = worktree / common
                 record_dirs.append(common.resolve() / "dbsctr/cycles")
                 resolved = Path(top_result.stdout.strip()).resolve()
-        try:
-            current_records = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
-            if current_records not in record_dirs:
-                record_dirs.append(current_records)
-        except RuntimeError:
-            pass
+        local_records = any(directory_path.is_dir() and next(directory_path.glob("*.json"), None)
+                            for directory_path in record_dirs)
+        if not local_records:
+            try:
+                current_records = common_git_dir(root_dir()).resolve() / "dbsctr/cycles"
+                if current_records not in record_dirs:
+                    record_dirs.append(current_records)
+            except RuntimeError:
+                pass
         records = []
         paths = sorted({path for directory_path in record_dirs if directory_path.is_dir()
                         for path in directory_path.glob("*.json")})

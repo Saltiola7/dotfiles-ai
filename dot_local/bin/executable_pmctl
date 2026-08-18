@@ -1,0 +1,525 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review", "done", "cancelled"}
+POINTS = {None, 0.5, 1, 2, 3, 5, 8}
+REQUIRED = {
+    "schema_version", "id", "slug", "context", "title", "kind", "state", "priority",
+    "points", "depends_on", "relations", "owns", "reads", "parallel_safe", "validation",
+    "created", "updated", "completed", "commits", "jira_publications", "migration",
+}
+ACTIVE_COLUMNS = ("id", "title", "priority", "status", "depends_on", "owns", "reads",
+                  "parallel_safe", "reason", "effort", "validation")
+COMPLETED_COLUMNS = ("id", "outcome", "completed", "commit")
+
+
+def fail(message):
+    raise RuntimeError(message)
+
+
+def scalar(value):
+    value = value.strip()
+    if value in {"null", "~"}:
+        return None
+    if value in {"true", "false"}:
+        return value == "true"
+    if value == "[]":
+        return []
+    if value.startswith(('"', "'")):
+        try:
+            return json.loads(value) if value.startswith('"') else value[1:-1].replace("''", "'")
+        except (ValueError, json.JSONDecodeError) as error:
+            fail(f"invalid quoted scalar: {error}")
+    if re.fullmatch(r"-?(?:0|[1-9]\d*)(?:\.\d+)?", value):
+        return float(value) if "." in value else int(value)
+    if not value or value.startswith(("{", "[", "&", "*", "!", "|", ">")):
+        fail("unsupported YAML scalar")
+    return value
+
+
+def frontmatter(text):
+    lines = text.splitlines()
+    if not lines or lines[0] != "---":
+        fail("ticket frontmatter is missing")
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        fail("ticket frontmatter is unterminated")
+    values, index = {}, 1
+    while index < end:
+        line = lines[index]
+        if not line or line.startswith((" ", "\t", "#")) or ":" not in line:
+            fail("unsupported YAML structure")
+        key, raw = line.split(":", 1)
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", key) or key in values:
+            fail("duplicate or invalid YAML key")
+        raw = raw.strip()
+        if raw:
+            values[key] = scalar(raw)
+            index += 1
+            continue
+        items = []
+        index += 1
+        while index < end and lines[index].startswith("  - "):
+            items.append(scalar(lines[index][4:]))
+            index += 1
+        if not items:
+            fail("empty block collection is unsupported; use []")
+        values[key] = items
+    return values, "\n".join(lines[end + 1:]).lstrip("\n")
+
+
+def ticket_paths(root):
+    tickets = root / "docs/tickets"
+    if not tickets.exists():
+        return []
+    if tickets.is_symlink():
+        fail("ticket root cannot be a symlink")
+    paths = []
+    for context in tickets.glob("context=*"):
+        if context.is_symlink():
+            fail("ticket path cannot be a symlink")
+        if not context.is_dir():
+            continue
+        for path in context.glob("*.md"):
+            if path.is_symlink():
+                fail("ticket path cannot be a symlink")
+            if path.is_file() and path.resolve().is_relative_to(tickets.resolve()):
+                paths.append(path)
+    return sorted(paths)
+
+
+def validate_ticket(root, path):
+    relative = path.relative_to(root).as_posix()
+    try:
+        values, body = frontmatter(path.read_text())
+    except (OSError, UnicodeError, RuntimeError) as error:
+        return None, [{"code": "invalid_ticket_yaml", "path": relative, "detail": str(error)}]
+    findings = []
+    if set(values) != REQUIRED:
+        findings.append({"code": "invalid_ticket_schema", "path": relative})
+    context_dir = path.parent.name
+    context = context_dir.removeprefix("context=") if context_dir.startswith("context=") else ""
+    expected = f"{values.get('id', '')}-{values.get('slug', '')}.md"
+    if values.get("context") != context or path.name != expected:
+        findings.append({"code": "invalid_ticket_identity", "path": relative})
+    if values.get("schema_version") != 1 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*", str(values.get("id", ""))):
+        findings.append({"code": "invalid_ticket_identity", "path": relative})
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(values.get("slug", ""))):
+        findings.append({"code": "invalid_ticket_identity", "path": relative})
+    if values.get("state") not in STATES:
+        findings.append({"code": "invalid_ticket_state", "path": relative})
+    if values.get("points") not in POINTS:
+        findings.append({"code": "invalid_ticket_points", "path": relative})
+    for field in ("depends_on", "relations", "owns", "reads", "validation", "commits", "jira_publications"):
+        if not isinstance(values.get(field), list) or any(not isinstance(item, str) for item in values.get(field, [])):
+            findings.append({"code": "invalid_ticket_schema", "path": relative, "field": field})
+    if type(values.get("parallel_safe")) is not bool or not values.get("title") or not values.get("priority"):
+        findings.append({"code": "invalid_ticket_schema", "path": relative})
+    if values.get("state") == "done" and (not values.get("completed") or not values.get("commits")):
+        findings.append({"code": "invalid_ticket_completion", "path": relative})
+    if values.get("state") != "done" and values.get("completed") is not None:
+        findings.append({"code": "invalid_ticket_completion", "path": relative})
+    for heading in ("Outcome", "Context", "Scope", "Acceptance Criteria", "Evidence", "Risks", "Review"):
+        if f"## {heading}" not in body:
+            findings.append({"code": "invalid_ticket_body", "path": relative, "section": heading})
+    return values, findings
+
+
+def inventory(root):
+    records, findings, identifiers = [], [], {}
+    for path in ticket_paths(root):
+        values, current = validate_ticket(root, path)
+        findings.extend(current)
+        if values is None:
+            continue
+        relative = path.relative_to(root).as_posix()
+        records.append({**values, "path": relative})
+        identifiers.setdefault(values.get("id"), []).append(relative)
+    ids = set(identifiers)
+    for item_id, paths in identifiers.items():
+        if len(paths) > 1:
+            findings.extend({"code": "duplicate_ticket_id", "path": path, "id": item_id} for path in paths)
+    for record in records:
+        for dependency in record.get("depends_on", []):
+            if dependency == record["id"] or dependency not in ids:
+                findings.append({"code": "invalid_ticket_dependency", "path": record["path"], "id": dependency})
+    findings.sort(key=lambda item: (item["path"], item["code"], item.get("field", "")))
+    records.sort(key=lambda item: (item["context"], item["id"]))
+    return records, findings
+
+
+def cells(line):
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(cell.strip().replace("\\|", "|") for cell in re.split(r"(?<!\\)\|", stripped[1:-1]))
+
+
+def table_rows(path, section, columns):
+    lines = path.read_text().splitlines()
+    try:
+        start = lines.index(f"## {section}")
+    except ValueError:
+        fail(f"{path}: missing {section} section")
+    indexes = [index for index in range(start + 1, len(lines)) if lines[index].strip()]
+    if len(indexes) < 2 or cells(lines[indexes[0]]) != columns:
+        fail(f"{path}: invalid {section} header")
+    separator = cells(lines[indexes[1]])
+    if separator is None or len(separator) != len(columns) or any(not re.fullmatch(r":?-{3,}:?", item) for item in separator):
+        fail(f"{path}: invalid {section} separator")
+    rows = []
+    for index in indexes[2:]:
+        if lines[index].startswith("## "):
+            break
+        row = cells(lines[index])
+        if row is None or len(row) != len(columns):
+            fail(f"{path}:{index + 1}: invalid {section} row")
+        rows.append((index + 1, dict(zip(columns, row))))
+    return rows
+
+
+def slugify(value):
+    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return value[:72].rstrip("-") or "work-item"
+
+
+def canonical_id(value):
+    normalized = value.replace("–", "-").replace("—", "-")
+    normalized = re.sub(r"[^A-Za-z0-9.-]+", "-", normalized).strip("-.")
+    if not normalized or not normalized[0].isalpha():
+        fail(f"backlog ID cannot be normalized safely: {value}")
+    return normalized
+
+
+def yaml_value(value):
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=True)
+
+
+def render_ticket(context, section, line, values, source, source_commit):
+    item_id = canonical_id(values["id"])
+    title = values["title"] if section == "Active" else values["outcome"]
+    slug = slugify(title)
+    status = values.get("status")
+    state = ({"pending": "intake", "in_progress": "in_progress", "active": "in_progress",
+              "blocked": "blocked", "cancelled": "cancelled", "done": "review"}.get(status, "done"))
+    dependencies = [] if values.get("depends_on", "-") in {None, "", "-"} else [canonical_id(item.strip()) for item in values["depends_on"].split(",")]
+    commits = [] if section == "Active" else [values["commit"]]
+    completed = None if section == "Active" else values["completed"]
+    priority = values.get("priority", "historical")
+    owns = [] if values.get("owns", "-") in {None, "", "-"} else [values["owns"]]
+    reads = [] if values.get("reads", "-") in {None, "", "-"} else [values["reads"]]
+    validation = [] if values.get("validation", "-") in {None, "", "-"} else [values["validation"]]
+    migration = f"{source}:{line}:{hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()}"
+    fields = {
+        "schema_version": 1, "id": item_id, "slug": slug, "context": context, "title": title,
+        "kind": "task", "state": state, "priority": priority, "points": None,
+        "depends_on": dependencies, "relations": [], "owns": owns, "reads": reads,
+        "parallel_safe": str(values.get("parallel_safe", "no")).lower() in {"yes", "true"},
+        "validation": validation, "created": completed or str(date.today()), "updated": str(date.today()),
+        "completed": completed, "commits": commits, "jira_publications": [], "migration": migration,
+    }
+    lines = ["---"]
+    for key, value in fields.items():
+        if isinstance(value, list):
+            if value:
+                lines.append(f"{key}:")
+                lines.extend(f"  - {yaml_value(item)}" for item in value)
+            else:
+                lines.append(f"{key}: []")
+        else:
+            lines.append(f"{key}: {yaml_value(value)}")
+    lines.extend(["---", "", "## Outcome", "", title, "", "## Context", "",
+                  f"Migrated from `{source}` {section} row {line} at `{source_commit}`.", "",
+                  "## Scope", "", values.get("reason", "Historical completed work."), "",
+                  "## Acceptance Criteria", "", values.get("validation", "Completion evidence retained from the legacy backlog."), "",
+                  "## Evidence", "", "```json", json.dumps(values, sort_keys=True, ensure_ascii=True), "```", "",
+                  "## Risks", "", "Legacy values are preserved without inferred semantics.", "", "## Review", "",
+                  "Migrated deterministically; further refinement remains explicit.", ""])
+    relative = f"docs/tickets/context={context}/{item_id}-{slug}.md"
+    return relative, "\n".join(lines)
+
+
+def migration_manifest(root):
+    try:
+        source_commit = os.popen(f"git -C {json.dumps(str(root))} rev-parse HEAD").read().strip()
+    except OSError:
+        source_commit = "unavailable"
+    outputs, ids = [], set()
+    for backlog in sorted((root / "docs/specs").glob("*/BACKLOG.md")):
+        context = backlog.parent.name
+        source = backlog.relative_to(root).as_posix()
+        for section, columns in (("Active", ACTIVE_COLUMNS), ("Completed", COMPLETED_COLUMNS)):
+            for line, values in table_rows(backlog, section, columns):
+                item_id = canonical_id(values["id"])
+                if item_id in ids:
+                    fail(f"duplicate normalized backlog ID: {item_id}")
+                ids.add(item_id)
+                path, content = render_ticket(context, section, line, values, source, source_commit)
+                outputs.append({"id": item_id, "legacy_id": values["id"], "source": source, "section": section.lower(), "line": line,
+                                "path": path, "digest": hashlib.sha256(content.encode()).hexdigest(), "content": content})
+    outputs.sort(key=lambda item: item["path"])
+    return source_commit, outputs
+
+
+def apply_migration(root, outputs):
+    conflicts = []
+    for output in outputs:
+        target = root / output["path"]
+        if target.exists() and target.read_text() != output["content"]:
+            conflicts.append(output["path"])
+    if conflicts:
+        fail(f"migration destination conflict: {conflicts[0]}")
+    with tempfile.TemporaryDirectory(dir=root) as temporary:
+        staging = Path(temporary)
+        for output in outputs:
+            target = staging / output["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(output["content"])
+            values, findings = validate_ticket(staging, target)
+            if values is None or findings:
+                fail(f"generated ticket is invalid: {output['path']} {findings}")
+        for output in outputs:
+            source = staging / output["path"]
+            target = root / output["path"]
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source, target)
+
+
+def safe_envelope(value):
+    forbidden = re.compile(r"(?:password|secret|token|credential|authorization|cookie|transcript|prompt|command_arguments?)", re.I)
+    unsafe = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S+)", re.I)
+    def visit(item):
+        if isinstance(item, dict):
+            if any(forbidden.search(str(key)) for key in item):
+                fail("envelope contains a forbidden field")
+            for child in item.values():
+                visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+        elif isinstance(item, str) and unsafe.search(item):
+            fail("envelope contains unsafe content")
+    visit(value)
+    required = {"schema_version", "source_id", "source_authority", "availability"}
+    if not isinstance(value, dict) or not required <= set(value) or type(value["schema_version"]) is not int:
+        fail("envelope contract is incomplete")
+
+
+def project_envelope(args):
+    raw = args.input.read_bytes()
+    if len(raw) > 1024 * 1024:
+        fail("envelope exceeds 1 MiB")
+    value = json.loads(raw)
+    safe_envelope(value)
+    digest = hashlib.sha256(raw).hexdigest()
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    sql = (
+        "INSERT INTO context.source_envelopes "
+        "(source_type,source_id,schema_version,source_digest,source_authority,availability,payload) VALUES "
+        f"({sql_literal(args.source)},{sql_literal(value['source_id'])},{value['schema_version']},"
+        f"{sql_literal(digest)},{sql_literal(value['source_authority'])},{sql_literal(value['availability'])},"
+        f"{sql_literal(payload)}::jsonb) ON CONFLICT DO NOTHING;\n"
+    )
+    completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"], input=sql, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if completed.returncode:
+        fail("PostgreSQL projection failed")
+    return {"schema_version": 1, "source_type": args.source, "source_id": value["source_id"], "digest": digest}
+
+
+def git_output(root, *arguments):
+    completed = subprocess.run(["git", "-C", str(root), *arguments], text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if completed.returncode:
+        fail("Git ticket identity is unavailable")
+    return completed.stdout.strip()
+
+
+def project_tickets(args):
+    root = args.root.resolve()
+    records, findings = inventory(root)
+    if findings:
+        fail("canonical ticket validation failed")
+    commit = git_output(root, "rev-parse", "HEAD")
+    statements = ["BEGIN;"]
+    for record in records:
+        blob = git_output(root, "rev-parse", f"HEAD:{record['path']}")
+        payload = json.dumps({key: value for key, value in record.items() if key != "path"},
+                             sort_keys=True, separators=(",", ":"))
+        statements.append(
+            "INSERT INTO context.tickets (id,context,title,state,priority,points,source_commit,source_blob,payload) VALUES "
+            f"({sql_literal(record['id'])},{sql_literal(record['context'])},{sql_literal(record['title'])},"
+            f"{sql_literal(record['state'])},{sql_literal(record['priority'])},"
+            f"{'NULL' if record['points'] is None else record['points']},{sql_literal(commit)},{sql_literal(blob)},"
+            f"{sql_literal(payload)}::jsonb) ON CONFLICT (id) DO UPDATE SET context=EXCLUDED.context,title=EXCLUDED.title,"
+            "state=EXCLUDED.state,priority=EXCLUDED.priority,points=EXCLUDED.points,source_commit=EXCLUDED.source_commit,"
+            "source_blob=EXCLUDED.source_blob,payload=EXCLUDED.payload,projected_at=now();"
+        )
+        statements.append(f"DELETE FROM context.ticket_relations WHERE source_id={sql_literal(record['id'])};")
+        for dependency in record["depends_on"]:
+            statements.append(
+                "INSERT INTO context.ticket_relations (source_id,target_id,relation_type) VALUES "
+                f"({sql_literal(record['id'])},{sql_literal(dependency)},'depends_on');"
+            )
+    statements.append("COMMIT;")
+    completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"], input="\n".join(statements) + "\n",
+                               text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if completed.returncode:
+        fail("PostgreSQL ticket projection failed")
+    return {"schema_version": 1, "commit": commit, "projected": len(records)}
+
+
+def sql_literal(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def jira_preview(manifest_path):
+    raw = manifest_path.read_bytes()
+    if len(raw) > 256 * 1024:
+        fail("Jira manifest is oversized")
+    value = json.loads(raw)
+    required = {"project", "issue_type", "summary", "description", "source_tickets"}
+    if (not isinstance(value, dict) or set(value) != required or not value["project"]
+            or not value["summary"] or not value["description"] or not isinstance(value["source_tickets"], list)
+            or not value["source_tickets"] or len(set(value["source_tickets"])) != len(value["source_tickets"])):
+        fail("Jira manifest is invalid")
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return value, hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def sprint_review(args):
+    raw = args.input.read_bytes()
+    if len(raw) > 1024 * 1024:
+        fail("Sprint Review input exceeds 1 MiB")
+    issues = json.loads(raw)
+    required = {"key", "summary", "status", "parent", "description", "url"}
+    if (not isinstance(issues, list) or len(issues) > 200
+            or any(not isinstance(issue, dict) or set(issue) != required or not issue["key"] or not issue["summary"]
+                   for issue in issues)
+            or len({issue["key"] for issue in issues}) != len(issues)):
+        fail("Sprint Review issue snapshot is invalid")
+    grouped = {}
+    for issue in issues:
+        grouped.setdefault(issue["parent"] or "No Parent", []).append(issue)
+    lines = [f"# {args.title}", "", "## Sprint Goal", "", args.sprint_goal or "Not provided", "",
+             "## Product Goal", "", args.product_goal or "Not provided", "", "## What Was Done", ""]
+    if not issues:
+        lines.extend(["No Done work items were selected.", ""])
+    for parent in sorted(grouped, key=lambda item: (item == "No Parent", item)):
+        lines.extend([f"### {parent}", ""])
+        for issue in sorted(grouped[parent], key=lambda item: item["key"]):
+            link = f"[{issue['key']}]({issue['url']})" if issue["url"] else issue["key"]
+            detail = issue["description"].strip() or issue["summary"]
+            lines.extend([f"- {link}: {issue['summary']}. {detail}", ""])
+    lines.extend(["## What Changed In The Environment", "",
+                  "Nothing noted beyond the selected work items.", "", "## What's Next", "",
+                  "To be determined at planning.", "", "## Velocity / Capacity Note", "",
+                  f"{len(issues)} Done work item(s) selected. Point and capacity interpretation remains a live review topic.", "",
+                  "## Provenance", "", f"Source snapshot SHA-256: `{hashlib.sha256(raw).hexdigest()}`", ""])
+    generated = datetime.now(timezone.utc)
+    output = (args.output_root / "report_type=sprint_review" /
+              f"snapshot_date={generated.date().isoformat()}" /
+              f"sprint_review_{slugify(args.title)}_{generated.strftime('%H%M%S')}.md")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines))
+    return {"schema_version": 1, "issues": len(issues), "path": str(output),
+            "source_digest": hashlib.sha256(raw).hexdigest()}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    tickets = commands.add_parser("tickets").add_subparsers(dest="tickets_command", required=True)
+    for name in ("list", "check"):
+        command = tickets.add_parser(name)
+        command.add_argument("--root", type=Path, default=Path.cwd())
+        command.add_argument("--json", action="store_true")
+    migrate = commands.add_parser("migrate-backlogs")
+    migrate.add_argument("--root", type=Path, default=Path.cwd())
+    migrate.add_argument("--apply", action="store_true")
+    migrate.add_argument("--json", action="store_true")
+    project = commands.add_parser("project")
+    project.add_argument("--source", required=True)
+    project.add_argument("--input", required=True, type=Path)
+    project.add_argument("--psql", default="psql")
+    project.add_argument("--json", action="store_true")
+    project_tickets_parser = commands.add_parser("project-tickets")
+    project_tickets_parser.add_argument("--root", type=Path, default=Path.cwd())
+    project_tickets_parser.add_argument("--psql", default="psql")
+    project_tickets_parser.add_argument("--json", action="store_true")
+    jira = commands.add_parser("jira").add_subparsers(dest="jira_command", required=True)
+    preview = jira.add_parser("preview")
+    preview.add_argument("--manifest", required=True, type=Path)
+    preview.add_argument("--json", action="store_true")
+    publish = jira.add_parser("publish")
+    publish.add_argument("--manifest", required=True, type=Path)
+    publish.add_argument("--preview-digest", required=True)
+    publish.add_argument("--confirm", required=True)
+    publish.add_argument("--adapter", choices=("fake",), default="fake")
+    publish.add_argument("--json", action="store_true")
+    review = commands.add_parser("sprint-review")
+    review.add_argument("--input", required=True, type=Path)
+    review.add_argument("--title", required=True)
+    review.add_argument("--sprint-goal", default="")
+    review.add_argument("--product-goal", default="")
+    review.add_argument("--output-root", type=Path, default=Path("data/interim/reports"))
+    review.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    if args.command == "tickets":
+        root = args.root.resolve()
+        records, findings = inventory(root)
+        result = {"schema_version": 1, "tickets": records, "findings": findings}
+        if args.tickets_command == "check" and findings:
+            print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+            return 1
+    elif args.command == "migrate-backlogs":
+        root = args.root.resolve()
+        source_commit, outputs = migration_manifest(root)
+        if args.apply:
+            apply_migration(root, outputs)
+        result = {"schema_version": 1, "source_commit": source_commit, "applied": args.apply,
+                  "tickets": [{key: value for key, value in item.items() if key != "content"} for item in outputs]}
+    elif args.command == "project":
+        result = project_envelope(args)
+    elif args.command == "project-tickets":
+        result = project_tickets(args)
+    elif args.command == "jira":
+        manifest, digest = jira_preview(args.manifest)
+        result = {"schema_version": 1, "payload": manifest, "preview_digest": digest, "written": False}
+        if args.jira_command == "publish":
+            if args.preview_digest != digest or args.confirm != digest:
+                fail("Jira confirmation does not match the current preview")
+            result = {"schema_version": 1, "adapter": "fake", "preview_digest": digest,
+                      "source_tickets": manifest["source_tickets"], "written": False,
+                      "result": "simulated"}
+    else:
+        result = sprint_review(args)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, UnicodeError, RuntimeError) as error:
+        print(f"pmctl: {error}", file=sys.stderr)
+        sys.exit(1)

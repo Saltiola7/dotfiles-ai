@@ -1,7 +1,7 @@
 # DBSCTR Lifecycle Roadmap
 
 **Approved:** 2026-07-12; extended through V3.10 on 2026-07-12
-**Authority:** `README.md` owns current contracts; `BACKLOG.md` owns executable work.
+**Authority:** `README.md` owns current contracts; canonical context tickets own executable work.
 
 ## Decisions
 
