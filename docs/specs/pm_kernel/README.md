@@ -3,7 +3,7 @@ title: PM Kernel
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-18
-last_updated: 2026-08-18
+last_updated: 2026-08-19
 ---
 
 # PM Kernel
