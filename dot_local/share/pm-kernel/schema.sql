@@ -89,12 +89,14 @@ SELECT source_id, target_id, metadata
 FROM context.ticket_relations
 WHERE relation_type = 'depends_on';
 
-CREATE PROPERTY GRAPH IF NOT EXISTS context.context_graph
-    VERTEX TABLES (context.tickets KEY (id) LABEL ticket PROPERTIES (id, context, title, state, priority, points))
+DROP PROPERTY GRAPH IF EXISTS context.context_graph;
+
+CREATE PROPERTY GRAPH context.context_graph
+    VERTEX TABLES (context.tickets AS tickets KEY (id) LABEL ticket PROPERTIES (id, context, title, state, priority, points))
     EDGE TABLES (
         context.depends_on_edges KEY (source_id, target_id)
-        SOURCE KEY (source_id) REFERENCES context.tickets (id)
-        DESTINATION KEY (target_id) REFERENCES context.tickets (id)
+        SOURCE KEY (source_id) REFERENCES tickets (id)
+        DESTINATION KEY (target_id) REFERENCES tickets (id)
         LABEL depends_on PROPERTIES (metadata)
     );
 

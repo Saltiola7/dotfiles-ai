@@ -3,7 +3,7 @@ title: PM Kernel
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-18
-last_updated: 2026-08-18
+last_updated: 2026-08-19
 ---
 
 # PM Kernel
@@ -139,6 +139,12 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 - Then Git ticket workflows remain available
 - And no PostgreSQL process, network listener, credential, or state is created
 
+**Scenario: Reapply the PostgreSQL schema safely**
+- Given the pinned PostgreSQL 19 schema already exists
+- When migration runs again
+- Then it recreates the read-only property graph definition using supported SQL
+- And preserves the authoritative relational ticket data
+
 ### Refinement and review
 
 **Scenario: Pull only ready work**
@@ -257,7 +263,8 @@ types, fields, point values, statuses, and adapter settings remain machine-local
 
 ### PostgreSQL projection
 
-PostgreSQL 19 is pinned by exact prerelease and image digest when enabled. Tables
+PostgreSQL 19 Beta 3 is pinned by its canonical Docker Hub name and exact image
+digest when enabled. Tables
 cover contexts, tickets, ticket revisions, typed relations, publication manifests,
 publication members, Jira events, leases, source envelopes, and projection
 checkpoints. Canonical rows retain source commit/blob and digest. Generic JSONB is
