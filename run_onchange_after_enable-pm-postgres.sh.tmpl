@@ -5,7 +5,7 @@ exit 0
 set -eu
 {{ if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
 systemctl --user daemon-reload
-systemctl --user enable --now pm-postgres.service
+systemctl --user start pm-postgres.service
 for _ in $(seq 1 60); do
     systemctl --user is-active --quiet pm-postgres.service &&
         podman healthcheck run pm-postgres >/dev/null 2>&1 && exit 0
@@ -14,9 +14,8 @@ done
 echo "pm-postgres: service did not become healthy" >&2
 exit 1
 {{ else -}}
-if systemctl --user is-enabled --quiet pm-postgres.service >/dev/null 2>&1 ||
-   systemctl --user is-active --quiet pm-postgres.service >/dev/null 2>&1; then
-    systemctl --user disable --now pm-postgres.service
+if systemctl --user is-active --quiet pm-postgres.service >/dev/null 2>&1; then
+    systemctl --user stop pm-postgres.service
 fi
 rm -f "$HOME/.config/containers/systemd/pm-postgres.container" \
       "$HOME/.config/containers/systemd/pm-postgres-data.volume"

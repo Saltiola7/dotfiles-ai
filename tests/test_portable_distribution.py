@@ -289,6 +289,8 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert "HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health" in container
     assert "ExecStartPost=%h/.local/bin/pm-postgres-migrate" in container
     assert "docker-entrypoint-initdb.d/001-pm-kernel.sql" in container
+    assert "001-pm-kernel.sql:ro,Z" in container
+    assert "pm-kernel-health:ro,Z" in container
     assert "Secret=pm-postgres-password" in container
     assert "POSTGRES_PASSWORD_FILE=/run/secrets/pm-postgres-password" in container
     assert "EnvironmentFile=" not in container
@@ -322,7 +324,9 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert "configure-pm-postgres --remove" in loader
     assert loader.index("provision-pm-postgres") < loader.index('sandbox-vm" update')
     assert loader.index('sandbox-vm" update') < loader.index("configure-pm-postgres")
-    assert "disable --now pm-postgres.service" in guest_loader
+    assert "systemctl --user start pm-postgres.service" in guest_loader
+    assert "systemctl --user stop pm-postgres.service" in guest_loader
+    assert "enable --now pm-postgres.service" not in guest_loader
     assert "podman secret rm pm-postgres-password" in guest_loader
     assert "podman volume rm" not in guest_loader
     assert "StartCalendarInterval" in plist and "pm-postgres-backup" in plist
