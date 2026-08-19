@@ -1,11 +1,18 @@
 #!/bin/sh
+# container hash: {{ include "private_dot_config/containers/systemd/pm-postgres.container.tmpl" | sha256sum }}
+# schema hash: {{ include "dot_local/share/pm-kernel/schema.sql" | sha256sum }}
+# health hash: {{ include "dot_local/share/pm-kernel/health.sh" | sha256sum }}
 {{ if eq .chezmoi.os "darwin" -}}
 exit 0
 {{ end -}}
 set -eu
 {{ if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
 systemctl --user daemon-reload
-systemctl --user start pm-postgres.service
+if systemctl --user is-active --quiet pm-postgres.service; then
+    systemctl --user restart pm-postgres.service
+else
+    systemctl --user start pm-postgres.service
+fi
 for _ in $(seq 1 60); do
     systemctl --user is-active --quiet pm-postgres.service &&
         podman healthcheck run pm-postgres >/dev/null 2>&1 && exit 0

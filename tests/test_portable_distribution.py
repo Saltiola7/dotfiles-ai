@@ -325,8 +325,10 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert loader.index("provision-pm-postgres") < loader.index('sandbox-vm" update')
     assert loader.index('sandbox-vm" update') < loader.index("configure-pm-postgres")
     assert "systemctl --user start pm-postgres.service" in guest_loader
+    assert "systemctl --user restart pm-postgres.service" in guest_loader
     assert "systemctl --user stop pm-postgres.service" in guest_loader
     assert "enable --now pm-postgres.service" not in guest_loader
+    assert "container hash:" in guest_loader and "schema hash:" in guest_loader and "health hash:" in guest_loader
     assert "podman secret rm pm-postgres-password" in guest_loader
     assert "podman volume rm" not in guest_loader
     assert "StartCalendarInterval" in plist and "pm-postgres-backup" in plist
