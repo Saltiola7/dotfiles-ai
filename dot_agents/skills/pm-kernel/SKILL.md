@@ -19,7 +19,8 @@ rebuildable cache.
    acceptance, priority, and estimate before `ready`.
 4. For Jira wording, load `jira-ticket` and refine a complete standalone issue.
 5. A Jira write requires an exact payload preview and explicit confirmation bound
-   to its digest. Never publish automatically or assume one-to-one mapping.
+   to its digest. An unknown adapter outcome must be reconciled before another
+   explicitly confirmed attempt. Never publish automatically or assume one-to-one mapping.
 6. Review completion from implementation, validation, acceptance, deployment,
    rollback, and follow-up evidence. Missing evidence blocks `done`.
 
