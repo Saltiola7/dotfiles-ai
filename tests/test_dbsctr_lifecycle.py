@@ -197,7 +197,7 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
         assert term in spec
         assert term in dbsctr
     assert "Git common directory" in dbsctr
-    assert "README" in dbsctr and "BACKLOG" in dbsctr and "CHANGELOG" in dbsctr
+    assert "README" in dbsctr and "canonical tickets" in dbsctr and "CHANGELOG" in dbsctr
     assert "no unresolved question can materially change" in discovery
     assert "95%" not in discovery
     assert "structured" in qa.lower() and "Gate Result" in qa
@@ -205,11 +205,11 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
 
 def test_v31_templates_match_artifact_and_gate_contracts():
     spec_template = text("docs/specs/_template_spec.md")
-    backlog_template = text("docs/specs/_template_backlog.md")
+    ticket_template = text("docs/tickets/_template.md")
     changelog_template = text("docs/specs/_template_changelog.md")
     assert "Applicability | Result" in spec_template
     assert "Artifact Review" in spec_template
-    assert "parallel_safe" in backlog_template
+    assert "parallel_safe" in ticket_template
     assert "Gate commits" in changelog_template
 
 
@@ -218,7 +218,7 @@ def test_v334_normative_specs_require_accessible_visual_evidence():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     discovery = text(SKILLS / "discovery/SKILL.md")
     template = text("docs/specs/_template_spec.md")
-    excluded = {"BACKLOG.md", "CHANGELOG.md", "ROADMAP.md", "_template_backlog.md", "_template_changelog.md"}
+    excluded = {"CHANGELOG.md", "ROADMAP.md", "_template_changelog.md"}
     specs = sorted(path for path in (ROOT / "docs/specs").rglob("*.md") if path.name not in excluded)
 
     for term in ("Visual Evidence Plan", "Text Equivalent", "quantitative", "not_applicable"):

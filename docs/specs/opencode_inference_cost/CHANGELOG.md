@@ -1,5 +1,10 @@
 # Changelog - OpenCode Inference Cost Reporting
 
+## 2026-08-18 - Canonical Ticket Migration
+
+- Migrated active and completed inference-cost work records to independently
+  validated PM Kernel tickets with original row provenance.
+
 ## 2026-07-31 - Message-level context attribution (v0.3)
 
 **Outcome:** Replaced lossy session-grain model and context attribution with

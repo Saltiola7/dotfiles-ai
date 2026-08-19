@@ -1,5 +1,10 @@
 # Writing Skills Changelog
 
+## 2026-08-18 - PM Kernel Integration
+
+- Migrated writing-skill work records to canonical tickets and made PM Kernel
+  explicitly load `jira-ticket` when refining an approval-gated Jira rollup.
+
 Historical `Intended Final Push` values record the policy at the time. Current
 delivery requires a feature branch and verified draft pull request into protected
 `main`.

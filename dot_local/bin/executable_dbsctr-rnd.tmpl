@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 
 DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
+PMCTL = os.environ.get("PMCTL", {{ printf "%s/.local/bin/pmctl" .chezmoi.homeDir | quote }})
 HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
 GH = os.environ.get("GH", "gh")
 OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
@@ -45,9 +46,7 @@ LENS_VERSION = 1
 MONTH_SECONDS = 30 * 86400
 RESERVATION_LEASE_SECONDS = 15 * 60
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
-BACKLOG_COLUMNS = ("id", "title", "priority", "status", "depends_on", "owns", "reads",
-                   "parallel_safe", "reason", "effort", "validation")
-BACKLOG_STATUSES = {"pending", "in_progress", "blocked", "cancelled"}
+ACTIVE_TICKET_STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review"}
 
 
 def command(argv, *, parse=True, env=None):
@@ -55,6 +54,8 @@ def command(argv, *, parse=True, env=None):
         result = subprocess.run(argv, check=True, text=True, capture_output=True, env=env, timeout=COMMAND_TIMEOUT)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"{argv[0]} timed out") from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"{Path(argv[0]).name} failed") from error
     if not parse:
         return result.stdout
     try:
@@ -1274,14 +1275,6 @@ def reset_schedule():
     print('{"status":"reset"}')
 
 
-def backlog_cells(line):
-    line = line.strip()
-    if not line.startswith("|") or not line.endswith("|"):
-        return None
-    return tuple(cell.strip().replace("\\|", "|")
-                 for cell in re.split(r"(?<!\\)\|", line[1:-1]))
-
-
 def canonical_backlogs(repository_filter=None):
     repositories = []
     for configured in BACKLOG_ROOTS:
@@ -1302,65 +1295,28 @@ def canonical_backlogs(repository_filter=None):
             repositories.append((hashlib.sha256(common.encode()).hexdigest()[:16], repository))
     if len(repositories) > 128:
         raise RuntimeError("backlog repository limit exceeded")
-    entries, input_bytes = [], 0
+    entries = []
     for repository_id, repository in sorted(set(repositories)):
-        specs = repository / "docs/specs"
-        if not specs.is_dir() or specs.is_symlink():
+        if not (repository / "docs/tickets").is_dir():
             continue
-        contexts = sorted(specs.iterdir())
-        if len(contexts) > 128:
-            raise RuntimeError("backlog context limit exceeded")
-        for context in contexts:
-            backlog = context / "BACKLOG.md"
-            if context.is_symlink() or backlog.is_symlink():
-                raise RuntimeError("backlog symlink is unsafe")
-            if (not backlog.is_file() or backlog.resolve().parent != context.resolve()
-                    or context.resolve().parent != specs.resolve()):
+        payload = command([PMCTL, "tickets", "list", "--root", str(repository), "--json"])
+        if payload.get("findings"):
+            raise RuntimeError("canonical ticket validation failed")
+        for ticket in payload.get("tickets", []):
+            if ticket.get("state") not in ACTIVE_TICKET_STATES:
                 continue
-            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-            descriptor = os.open(backlog, flags)
-            try:
-                details = os.fstat(descriptor)
-                if not stat.S_ISREG(details.st_mode) or details.st_size > 256 * 1024:
-                    raise RuntimeError("backlog file is oversized or unsafe")
-                input_bytes += details.st_size
-                if input_bytes > 1024 * 1024:
-                    raise RuntimeError("backlog input limit exceeded")
-                with os.fdopen(descriptor, encoding="utf-8") as stream:
-                    descriptor = -1
-                    lines = stream.read().splitlines()
-            finally:
-                if descriptor >= 0:
-                    os.close(descriptor)
-            try:
-                active = lines.index("## Active")
-            except ValueError as error:
-                raise RuntimeError("canonical backlog Active section is missing") from error
-            header = next((index for index in range(active + 1, len(lines)) if lines[index].strip()), None)
-            if header is None or backlog_cells(lines[header]) != BACKLOG_COLUMNS:
-                raise RuntimeError("canonical backlog Active header is invalid")
-            separator = backlog_cells(lines[header + 1]) if header + 1 < len(lines) else None
-            if (separator is None or len(separator) != len(BACKLOG_COLUMNS)
-                    or any(not re.fullmatch(r":?-{3,}:?", cell) for cell in separator)):
-                raise RuntimeError("canonical backlog Active separator is invalid")
-            index = header + 2
-            seen_ids = set()
-            while index < len(lines) and lines[index].strip() and not lines[index].startswith("## "):
-                cells = backlog_cells(lines[index])
-                if cells is None or len(cells) != len(BACKLOG_COLUMNS) or not cells[0]:
-                    raise RuntimeError("canonical backlog row is invalid")
-                values = dict(zip(BACKLOG_COLUMNS, cells))
-                if values["status"] not in BACKLOG_STATUSES:
-                    raise RuntimeError("canonical backlog status is invalid")
-                if values["id"] in seen_ids:
-                    raise RuntimeError("canonical backlog ID is duplicated")
-                seen_ids.add(values["id"])
-                identity = hashlib.sha256(
-                    f"{repository_id}\0{context.name}\0{values['id']}".encode()).hexdigest()
-                entries.append({"context": context.name, "idempotency_key": identity,
-                                "repository_id": repository_id,
-                                "repository": str(repository), **values})
-                index += 1
+            identity = hashlib.sha256(
+                f"{repository_id}\0{ticket['context']}\0{ticket['id']}".encode()).hexdigest()
+            entries.append({"context": ticket["context"], "idempotency_key": identity,
+                            "repository_id": repository_id, "repository": str(repository),
+                            "id": ticket["id"], "title": ticket["title"],
+                            "priority": ticket["priority"], "status": ticket["state"],
+                            "depends_on": ", ".join(ticket["depends_on"]) or "-",
+                            "owns": ", ".join(ticket["owns"]) or "-",
+                            "reads": ", ".join(ticket["reads"]) or "-",
+                            "parallel_safe": "yes" if ticket["parallel_safe"] else "no",
+                            "reason": ticket["path"], "effort": ticket["points"],
+                            "validation": ", ".join(ticket["validation"])})
     if repository_filter is not None:
         entries = [item for item in entries if item["repository_id"] == repository_filter]
     payload = {"backlogs": entries, "schema_version": 1}

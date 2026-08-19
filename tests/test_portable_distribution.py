@@ -3,6 +3,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -12,6 +14,7 @@ def data(
     vertex: bool = True,
     vertex_account: str = "user@example.com",
     vertex_credentials: str = "/tmp/application_default_credentials.json",
+    pm_image: str = "",
 ) -> dict:
     return {
         "dotfiles_ai": {
@@ -71,6 +74,14 @@ def data(
                 "user_uuid": "LOCALUUID",
                 "keychain_service": "local-service",
             },
+            "pm_kernel": {
+                "enabled": bool(pm_image),
+                "workspace": "workspace1" if pm_image else "",
+                "postgres_enabled": bool(pm_image),
+                "postgres_image": pm_image,
+                "jira_adapter": "fake",
+                "jira_project": "",
+            },
         }
     }
 
@@ -81,14 +92,17 @@ def chezmoi(
     vertex: bool = True,
     vertex_account: str = "user@example.com",
     vertex_credentials: str = "/tmp/application_default_credentials.json",
+    pm_image: str = "",
+    template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
-            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials)),
+            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials, pm_image)),
             *args,
         ],
+        input=template,
         text=True,
         capture_output=True,
         check=True,
@@ -248,6 +262,43 @@ def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
     assert 'configure-atuin --remove' in loader
     assert '/bin/rm -f "$plist"' in loader
     assert loader.index('sandbox-vm" validate') < loader.index("launchctl bootstrap")
+
+
+def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
+    data = (ROOT / ".chezmoidata.toml").read_text()
+    ignore = (ROOT / ".chezmoiignore").read_text()
+    container = (ROOT / "private_dot_config/containers/systemd/pm-postgres.container.tmpl").read_text()
+    schema = (ROOT / "dot_local/share/pm-kernel/schema.sql").read_text()
+
+    assert "[dotfiles_ai.pm_kernel]" in data
+    assert "postgres_enabled = false" in data
+    assert ".dotfiles_ai.pm_kernel.postgres_enabled" in ignore
+    assert "docker" in container
+    assert "library/postgres:19beta3" in container
+    assert "postgres_image must be an exact PostgreSQL 19 image digest" in container
+    assert "PublishPort=127.0.0.1:55432:5432" in container
+    assert "HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health" in container
+    assert "ExecStartPost=%h/.local/bin/pm-postgres-migrate" in container
+    assert "docker-entrypoint-initdb.d/001-pm-kernel.sql" in container
+    assert "DROP PROPERTY GRAPH IF EXISTS context.context_graph" in schema
+    assert "CREATE PROPERTY GRAPH context.context_graph" in schema
+    assert "CREATE PROPERTY GRAPH IF NOT EXISTS" not in schema
+    assert "REFERENCES tickets (id)" in schema
+    assert "SOURCE KEY (source_id) REFERENCES context.tickets" not in schema
+    assert "DESTINATION KEY (target_id) REFERENCES context.tickets" not in schema
+    assert "context.source_envelopes" in schema
+
+    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
+    rendered = chezmoi("execute-template", pm_image=image, template=container).stdout
+    assert f"Image={image}" in rendered
+    for invalid in (
+        "postgres:19beta3@sha256:" + "a" * 64,
+        "docker.io/library/postgres:19beta4@sha256:" + "a" * 64,
+        "docker.io/library/postgres:19beta3",
+        "docker.io/library/postgres:19beta3@sha256:invalid",
+    ):
+        with pytest.raises(subprocess.CalledProcessError):
+            chezmoi("execute-template", pm_image=invalid, template=container)
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

@@ -1027,10 +1027,17 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
         "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |\n\n"
         "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
     )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "backlog"], cwd=repo, check=True, capture_output=True)
     source = render("dot_local/bin/executable_dbsctr-rnd.tmpl",
                     values(review_workdir=str(repo), roots=[str(root)]))
     namespace = {"__name__": "dbsctr_rnd_backlogs"}
     exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
+    namespace["PMCTL"] = str(ROOT / "dot_local/bin/executable_pmctl")
+    subprocess.run(["python3", namespace["PMCTL"], "migrate-backlogs", "--root", str(repo),
+                    "--apply", "--json"], check=True, capture_output=True, text=True)
     discovered = namespace["canonical_backlogs"]()
     assert len(discovered["backlogs"]) == 1
     assert discovered["backlogs"][0]["id"] == "X-1"
@@ -1040,31 +1047,24 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
     assert repository["profile"].startswith("project-")
     assert len(repository["profile"]) <= 64
 
-    valid = (context / "BACKLOG.md").read_text()
-    (context / "BACKLOG.md").write_text(valid.replace("|---|---|", "|--|---|", 1))
+    ticket = next((repo / "docs/tickets/context=example").glob("*.md"))
+    valid = ticket.read_text()
+    ticket.write_text(valid.replace("state: \"intake\"", "state: \"unknown\""))
     try:
         namespace["canonical_backlogs"]()
     except RuntimeError as error:
-        assert "separator" in str(error)
+        assert "failed" in str(error)
     else:
-        raise AssertionError("malformed backlog separator was accepted")
-    row = "| X-1 | Refine \\| work | high | pending | - | code | docs | no | needed | S | test |"
-    (context / "BACKLOG.md").write_text(valid.replace(row, row + "\n" + row))
-    try:
-        namespace["canonical_backlogs"]()
-    except RuntimeError as error:
-        assert "duplicated" in str(error)
-    else:
-        raise AssertionError("duplicate backlog ID was accepted")
-    (context / "BACKLOG.md").write_text(valid)
+        raise AssertionError("malformed ticket was accepted")
+    ticket.write_text(valid)
 
     outside = tmp_path / "outside"
     outside.mkdir()
-    (repo / "docs/specs/escape").symlink_to(outside, target_is_directory=True)
+    (repo / "docs/tickets/context=escape").symlink_to(outside, target_is_directory=True)
     try:
         namespace["canonical_backlogs"]()
     except RuntimeError as error:
-        assert "symlink" in str(error)
+        assert "failed" in str(error)
     else:
         raise AssertionError("backlog symlink escape was accepted")
 
@@ -1258,8 +1258,16 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "# Backlog\n\n## Active\n\n"
         "| id | title | priority | status | depends_on | owns | reads | parallel_safe | reason | effort | validation |\n"
         "|---|---|---|---|---|---|---|---|---|---|---|\n"
-        "| X-1 | Exercise launch | high | pending | - | runner | sessions | no | regression | S | e2e |\n"
+        "| X-1 | Exercise launch | high | pending | - | runner | sessions | no | regression | S | e2e |\n\n"
+        "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
     )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "backlog"], cwd=repository, check=True, capture_output=True)
+    subprocess.run(["python3", str(ROOT / "dot_local/bin/executable_pmctl"),
+                    "migrate-backlogs", "--root", str(repository), "--apply", "--json"],
+                   check=True, capture_output=True, text=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     command_log = tmp_path / "commands.log"
@@ -1309,6 +1317,7 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "DBSCTRCTL": str(dbsctrctl),
         "DBSCTR_RND_STATE": str(state),
         "OPENCODE_BIN": str(opencode),
+        "PMCTL": str(ROOT / "dot_local/bin/executable_pmctl"),
         "PID_FILE": str(pid_file),
         "SESSION_MARKER": str(session_marker),
     }

@@ -103,7 +103,7 @@ Adjacent contexts:
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
 | Worktree Identity | Stable hash of repository history identity and branch, used to isolate a cycle's active pointer without encoding a machine path. |
 | Delivery Target Lock | Nonblocking local lock serializing readiness checks and delivery to one upstream target. |
-| Artifact Review | A recorded decision that README, BACKLOG, and CHANGELOG are accurate, including an explicit no-change reason where applicable. |
+| Artifact Review | A recorded decision that README, affected canonical tickets, and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key. |
 | Gate Applicability | Whether a gate is `required` or `not_applicable`, with rationale. |
 | Gate Result | `pending`, `passed`, `failed`, `unavailable`, or `not_run`; separate from applicability. |
 | Gate Exception | A user-approved `deferred` or `accepted_risk` disposition with owner and review condition. |
@@ -427,7 +427,7 @@ ledger.
 **Scenario: Review every lifecycle artifact without meaningless edits**
 - Given a Lifecycle Cycle is active
 - When its Artifact Review runs
-- Then README, BACKLOG, and CHANGELOG are each marked reviewed
+- Then README, affected canonical tickets, and CHANGELOG are each marked reviewed
 - And README changes only when durable domain, behavior, interface, contract,
   profile, or validation truth changed
 
@@ -643,7 +643,7 @@ ledger.
 - Then qualifying routine and elevated operations may activate concurrent mode
 - Otherwise the profiler ships while real-cycle phase concurrency remains disabled
 
-### Feature: V3.25 Backlog Integrity
+### Feature: V3.25 Backlog Integrity (Historical, Superseded By PM Kernel)
 
 **Scenario: Audit canonical lifecycle backlogs**
 - Given a fixed Git commit contains one or more lifecycle artifact triplets
@@ -886,7 +886,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 - Explicit phase spans and execution DAGs are diagnostic optimization tools, not
   mandatory evidence for ordinary cycles. Existing helper safety contracts remain
   authoritative when either tool is used.
-- README, BACKLOG, and CHANGELOG remain universally reviewed; they change only
+- README, affected canonical tickets, and CHANGELOG remain universally reviewed; they change only
   when durable truth, executable work, or completed evidence changes.
 
 ### Decisions And Risks
@@ -1476,7 +1476,11 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Operate | Inventory live retained worktrees without mutation | required | passed | Deployed read-only inventory across repositories | - | Primary |
 | Maintain/Retire | Batch old completed worktrees while retaining explicit approval | required | passed | 50 completed worktrees removed; guarded failures retained | - | Primary |
 
-### V3.25 Backlog Integrity Contract
+### V3.25 Backlog Integrity Contract (Historical)
+
+This table contract was retired by PM Kernel. Canonical work now lives in
+`docs/tickets/context=<context>/*.md`; migration provenance preserves every
+historical table row and fixed-commit identity.
 
 - Every current `docs/specs/*/BACKLOG.md` uses the canonical Active table columns
   `id`, `title`, `priority`, `status`, `depends_on`, `owns`, `reads`,
@@ -2034,7 +2038,10 @@ tool and provider examples and load only when useful.
 
 - Every cycle has one BACKLOG item before implementation and updates its state as
   work progresses.
-- README, BACKLOG, and CHANGELOG each receive an Artifact Review before completion.
+- README, affected canonical tickets, and CHANGELOG each receive an Artifact Review before completion.
+- Cycle Record schema compatibility retains the internal `BACKLOG` artifact-review
+  key until an explicit state migration; it records the ticket review and does not
+  make a deleted table authoritative.
 - Applicable Product Intent is reviewed when affected; it is not a fourth
   universal lifecycle artifact and does not alter the helper's fixed reviews.
 - README changes only when durable truth changes; a no-change review is valid.
@@ -2311,7 +2318,7 @@ registry, and worktrees; those runtime files are not templated by chezmoi.
 
 Method Revision `3.6` adds a report-only Lifecycle Reconciliation Audit. The
 typed `dbsctr_audit` tool or `dbsctrctl audit --commit REF --json` resolves one Git commit,
-inventories bounded-context README/BACKLOG/CHANGELOG triplets, checks
+inventories bounded-context README/CHANGELOG pairs and canonical context tickets, checks
 recorded Graphify freshness, and reports the current dirty overlay as excluded.
 It reads committed blobs, never the overlay, and performs no mutation.
 

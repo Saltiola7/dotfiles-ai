@@ -154,9 +154,11 @@ profile health verification.
 | [`opencode_control_plane`](docs/specs/opencode_control_plane/) | Providers, agents, prompts, permissions, skills, and routing |
 | [`shell_auth_startup`](docs/specs/shell_auth_startup/) | Shell, 1Password, Keychain, and Herdr startup boundaries |
 | [`writing_skills`](docs/specs/writing_skills/) | Jira and Pyramid writing behavior and evidence contracts |
+| [`pm_kernel`](docs/specs/pm_kernel/) | Canonical tickets, refinement/review gates, Jira rollups, and optional PostgreSQL projection |
 
-Within each context, `README.md` owns durable truth, `BACKLOG.md` owns active and
-completed work, and `CHANGELOG.md` owns completed cycle evidence. Historical V2
+Within each context, `README.md` owns durable truth, files beneath
+`docs/tickets/context=<context>/` own active and completed work, and `CHANGELOG.md`
+owns completed cycle evidence. Historical V2
 source is retained under [`docs/_archive/`](docs/_archive/) and is not deployed or
 current guidance. Public lifecycle entry points are `/discovery`, `/dbsctr`, and
 `/qa`; Method Revision 3.27 is current.

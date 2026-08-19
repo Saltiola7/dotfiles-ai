@@ -36,7 +36,12 @@ install-guest-development-tools.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.atuin.server_enabled }}
-.config/containers/
+.config/containers/systemd/atuin.container
+.config/containers/systemd/atuin-data.volume
+{{ end }}
+{{ if not (and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled) }}
+.config/containers/systemd/pm-postgres.container
+.config/containers/systemd/pm-postgres-data.volume
 {{ end }}
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}
