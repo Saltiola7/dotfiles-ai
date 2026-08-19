@@ -1,7 +1,7 @@
 {
   "profile": "docs/specs/pm_kernel/README.md",
   "gates": {
-    "domain": {"applicability": "not_applicable", "reason": "The PM Kernel domain and ownership boundaries are unchanged."},
+    "domain": {"applicability": "required"},
     "behavior": {"applicability": "required"},
     "spec": {"applicability": "required"},
     "contract": {"applicability": "required"},
