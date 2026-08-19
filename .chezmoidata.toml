@@ -58,8 +58,11 @@ enabled = false
 workspace = ""
 postgres_enabled = false
 postgres_image = ""
+postgres_password_ref = ""
+postgres_backup_dir = ""
 jira_adapter = "fake"
 jira_project = ""
+jira_issue_types = []
 
 [dotfiles_ai.sandbox]
 enabled = false

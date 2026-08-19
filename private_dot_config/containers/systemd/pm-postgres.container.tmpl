@@ -12,11 +12,12 @@ Image={{ .dotfiles_ai.pm_kernel.postgres_image }}
 ContainerName=pm-postgres
 Environment=POSTGRES_DB=pm_kernel
 Environment=POSTGRES_USER=pm_kernel
-EnvironmentFile=%h/.config/pm-kernel/postgres.env
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/pm-postgres-password
+Secret=pm-postgres-password,type=mount
 PublishPort=127.0.0.1:55432:5432
 Volume=pm-postgres-data.volume:/var/lib/postgresql
-Volume=%h/.local/share/pm-kernel/schema.sql:/docker-entrypoint-initdb.d/001-pm-kernel.sql:ro
-Volume=%h/.local/share/pm-kernel/health.sh:/usr/local/bin/pm-kernel-health:ro
+Volume=%h/.local/share/pm-kernel/schema.sql:/docker-entrypoint-initdb.d/001-pm-kernel.sql:ro,Z
+Volume=%h/.local/share/pm-kernel/health.sh:/usr/local/bin/pm-kernel-health:ro,Z
 HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health
 HealthInterval=30s
 HealthTimeout=5s

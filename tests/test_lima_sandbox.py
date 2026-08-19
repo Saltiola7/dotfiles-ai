@@ -29,12 +29,16 @@ def load_helper():
 def config(tmp_path: Path) -> dict:
     (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
-        "schema_version": 5,
+        "schema_version": 6,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
         "build_workspace": "workspace1",
         "atuin_workspace": "",
+        "pm_kernel": {
+            "enabled": False, "workspace": "", "postgres_enabled": False,
+            "postgres_image": "",
+        },
         "state_root": str(tmp_path / "state"),
         "lima_home": str(tmp_path / "state/lima"),
         "tailscale": {"enabled": False, "ssh": False},
@@ -238,7 +242,7 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
     assert len(calls) == 2
 
 
-def test_schema_four_is_normalized_for_ordered_host_migration(tmp_path: Path) -> None:
+def test_old_schema_is_normalized_for_ordered_host_migration(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
     values["schema_version"] = 4
@@ -248,9 +252,10 @@ def test_schema_four_is_normalized_for_ordered_host_migration(tmp_path: Path) ->
 
     helper.validate_config(values)
 
-    assert values["schema_version"] == 5
+    assert values["schema_version"] == 6
     assert values["onepassword"]["enabled"] is False
     assert values["guest"]["vertex_location"] == "global"
+    assert values["pm_kernel"]["enabled"] is False
 
 
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
@@ -602,6 +607,80 @@ def test_configure_atuin_requires_old_forward_removal(tmp_path: Path) -> None:
     assert edit[4] == helper.atuin_port_rule([other, helper.ATUIN_PORT_FORWARD | {"proto": "tcp"}], remove=True)
     assert json.loads(edit[4].split("=", 1)[1]) == [other]
     assert not state.exists()
+
+
+def test_pm_postgres_selects_workspace_forward_and_guest_service(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
+    values["pm_kernel"] = {
+        "enabled": True, "workspace": "workspace1", "postgres_enabled": True,
+        "postgres_image": image,
+    }
+    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    template = (template.replace("{{ .dotfiles_ai.sandbox.cpus }}", "4")
+                .replace("{{ .dotfiles_ai.sandbox.memory_gib }}", "8")
+                .replace("{{ .dotfiles_ai.sandbox.disk_gib }}", "60"))
+
+    helper.validate_config(values)
+    selected = helper.render_workspace(values, values["workspaces"][0], template)
+    other = helper.render_workspace(values, values["workspaces"][1], template)
+    guest = tomllib.loads(helper.guest_config(values, values["workspaces"][0]))
+
+    assert "hostPort: 55432" not in selected
+    assert "hostPort: 55432" not in other
+    assert guest["data"]["dotfiles_ai"]["pm_kernel"] == {
+        "enabled": True, "workspace": "", "postgres_enabled": True,
+        "postgres_image": image, "postgres_password_ref": "", "postgres_backup_dir": "",
+        "jira_adapter": "fake", "jira_project": "", "jira_issue_types": [],
+    }
+
+
+def test_configure_and_provision_pm_postgres_are_private(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["pm_kernel"].update({"enabled": True, "workspace": "workspace1", "postgres_enabled": True,
+                                "postgres_image": "docker.io/library/postgres:19beta3@sha256:" + "a" * 64})
+    calls = []
+
+    def execute(argv, timeout=30, input_data=None):
+        calls.append((argv, timeout, input_data))
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{"name": "workspace1-sandbox", "status": "Running", "config": {}}])
+        return ""
+
+    monkeypatch.setattr(helper, "_instance_lock", lambda *_args: mock.MagicMock())
+    helper.configure_pm_postgres(values, execute=execute, state_path=tmp_path / "pm-workspace")
+    assert calls[2][0][:5] == ["limactl", "edit", "--yes", "--set", helper.pm_postgres_port_rule([])]
+
+    calls.clear()
+    password = b"a-private-password-with-32-bytes"
+    helper.provision_pm_postgres(values, io.BytesIO(password + b"\n"), execute=execute)
+    assert calls == [([
+        "limactl", "shell", "workspace1-sandbox", "--", "podman", "secret", "create",
+        "--replace", "pm-postgres-password", "-",
+    ], 120, password)]
+
+
+def test_pm_postgres_does_not_adopt_unowned_forward(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    values["pm_kernel"].update({"enabled": True, "workspace": "workspace1", "postgres_enabled": True,
+                                "postgres_image": "docker.io/library/postgres:19beta3@sha256:" + "a" * 64})
+    monkeypatch.setattr(helper, "_instance_lock", lambda *_args: mock.MagicMock())
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([{"name": "workspace1-sandbox", "status": "Running",
+                                "config": {"portForwards": [helper.PM_POSTGRES_PORT_FORWARD]}}])
+        return ""
+
+    with pytest.raises(ValueError, match="no ownership state"):
+        helper.configure_pm_postgres(values, execute=execute, state_path=tmp_path / "missing-state")
+    values["pm_kernel"]["workspace"] = ""
+    with pytest.raises(ValueError, match="ownership state is unavailable"):
+        helper.configure_pm_postgres(values, remove=True, execute=execute,
+                                     state_path=tmp_path / "missing-state")
 
 
 def rendered_workspace(tmp_path: Path) -> tuple[str, Path]:

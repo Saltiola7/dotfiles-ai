@@ -15,11 +15,13 @@ def data(
     vertex_account: str = "user@example.com",
     vertex_credentials: str = "/tmp/application_default_credentials.json",
     pm_image: str = "",
+    pm_backup_dir: str = "/Volumes/ext/state/pm-kernel/backups",
+    state_root: str = "/Volumes/ext/state",
 ) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
-            "state": {"root": "/Volumes/ext/state"},
+            "state": {"root": state_root},
             "opencode": {
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
@@ -79,8 +81,11 @@ def data(
                 "workspace": "workspace1" if pm_image else "",
                 "postgres_enabled": bool(pm_image),
                 "postgres_image": pm_image,
+                "postgres_password_ref": "op://Private/PM Kernel/password" if pm_image else "",
+                "postgres_backup_dir": pm_backup_dir if pm_image else "",
                 "jira_adapter": "fake",
                 "jira_project": "",
+                "jira_issue_types": [],
             },
         }
     }
@@ -93,13 +98,16 @@ def chezmoi(
     vertex_account: str = "user@example.com",
     vertex_credentials: str = "/tmp/application_default_credentials.json",
     pm_image: str = "",
+    pm_backup_dir: str = "/Volumes/ext/state/pm-kernel/backups",
+    state_root: str = "/Volumes/ext/state",
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
-            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials, pm_image)),
+            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
+                            pm_image, pm_backup_dir, state_root)),
             *args,
         ],
         input=template,
@@ -126,7 +134,7 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 5
+    assert sandbox["schema_version"] == 6
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
@@ -273,6 +281,7 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert "[dotfiles_ai.pm_kernel]" in data
     assert "postgres_enabled = false" in data
     assert ".dotfiles_ai.pm_kernel.postgres_enabled" in ignore
+    assert "enable-pm-postgres.sh" not in ignore
     assert "docker" in container
     assert "library/postgres:19beta3" in container
     assert "postgres_image must be an exact PostgreSQL 19 image digest" in container
@@ -280,6 +289,11 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert "HealthCmd=/bin/sh /usr/local/bin/pm-kernel-health" in container
     assert "ExecStartPost=%h/.local/bin/pm-postgres-migrate" in container
     assert "docker-entrypoint-initdb.d/001-pm-kernel.sql" in container
+    assert "001-pm-kernel.sql:ro,Z" in container
+    assert "pm-kernel-health:ro,Z" in container
+    assert "Secret=pm-postgres-password" in container
+    assert "POSTGRES_PASSWORD_FILE=/run/secrets/pm-postgres-password" in container
+    assert "EnvironmentFile=" not in container
     assert "DROP PROPERTY GRAPH IF EXISTS context.context_graph" in schema
     assert "CREATE PROPERTY GRAPH context.context_graph" in schema
     assert "CREATE PROPERTY GRAPH IF NOT EXISTS" not in schema
@@ -299,6 +313,78 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     ):
         with pytest.raises(subprocess.CalledProcessError):
             chezmoi("execute-template", pm_image=invalid, template=container)
+
+    psql = (ROOT / "dot_local/bin/executable_pm-psql.tmpl").read_text()
+    backup = (ROOT / "dot_local/bin/executable_pm-postgres-backup.tmpl").read_text()
+    loader = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
+    guest_loader = (ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()
+    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist.tmpl").read_text()
+    assert "op read" in psql and "127.0.0.1" in psql and "55432" in psql
+    assert "pg_dump" in backup and "pg_restore" in backup and "retain=7" in backup
+    assert "configure-pm-postgres --remove" in loader
+    assert loader.index("provision-pm-postgres") < loader.index('sandbox-vm" update')
+    assert loader.index('sandbox-vm" update') < loader.index("configure-pm-postgres")
+    assert "systemctl --user start pm-postgres.service" in guest_loader
+    assert "systemctl --user restart pm-postgres.service" in guest_loader
+    assert "systemctl --user stop pm-postgres.service" in guest_loader
+    assert "enable --now pm-postgres.service" not in guest_loader
+    assert "container hash:" in guest_loader and "schema hash:" in guest_loader and "health hash:" in guest_loader
+    assert "podman secret rm pm-postgres-password" in guest_loader
+    assert "podman volume rm" not in guest_loader
+    assert "StartCalendarInterval" in plist and "pm-postgres-backup" in plist
+    sandbox_template = (ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()
+    with pytest.raises(subprocess.CalledProcessError):
+        chezmoi("execute-template", onepassword=True, pm_image=image,
+                pm_backup_dir="/Volumes/ext/state-foreign/backups", template=sandbox_template)
+    with pytest.raises(subprocess.CalledProcessError):
+        chezmoi("execute-template", onepassword=True, pm_image=image,
+                pm_backup_dir="/Volumes/ext/state/../outside", template=sandbox_template)
+
+
+def test_pm_postgres_backup_verifies_restore_retains_seven_and_preserves_collisions(tmp_path) -> None:
+    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
+    source = (ROOT / "dot_local/bin/executable_pm-postgres-backup.tmpl").read_text()
+    rendered = chezmoi("execute-template", onepassword=True, pm_image=image,
+                       pm_backup_dir=str(tmp_path / "backups"), state_root=str(tmp_path),
+                       template=source).stdout
+    script = tmp_path / "pm-postgres-backup"
+    script.write_text(rendered)
+    script.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log = tmp_path / "sandbox.log"
+    sandbox = fake_bin / "sandbox-vm"
+    sandbox.write_text(f"""#!/bin/sh
+printf '%s\\n' "$*" >> {log}
+case "$*" in
+  *createdb*) test -z "$FAIL_CREATE" ;;
+  *'pg_dump '*) printf 'private-dump' ;;
+  *'pg_restore --list'*) cat >/dev/null ;;
+  *'pg_restore '*) cat >/dev/null ;;
+  *' psql '*) printf '1\\n' ;;
+esac
+""")
+    sandbox.chmod(0o755)
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    for day in range(1, 9):
+        (backups / f"pm-kernel-202601{day:02d}T000000Z.dump").write_text("old")
+        (backups / f"pm-kernel-202601{day:02d}T000000Z.dump.sha256").write_text("sum")
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "FAIL_CREATE": ""}
+    subprocess.run([str(script)], check=True, text=True, capture_output=True, env=env)
+    assert len(list(backups.glob("pm-kernel-*.dump"))) == 7
+    assert json.loads((backups / "last-verified.json").read_text())["restore_verified"] is True
+
+    collision_dir = tmp_path / "collision"
+    collision_source = chezmoi("execute-template", onepassword=True, pm_image=image,
+                               pm_backup_dir=str(collision_dir), state_root=str(tmp_path),
+                               template=source).stdout
+    script.write_text(collision_source)
+    log.write_text("")
+    failed = subprocess.run([str(script)], text=True, capture_output=True,
+                            env={**env, "FAIL_CREATE": "1"})
+    assert failed.returncode == 1
+    assert "dropdb" not in log.read_text()
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:
@@ -471,7 +557,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 5
+    assert registry["schema_version"] == 6
     assert registry["build_workspace"] == "workspace1"
     assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+. "$HOME/.local/bin/op-session"
+password=$(op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }})
+test -n "$password" || { echo "pm-psql: PostgreSQL password is unavailable" >&2; exit 1; }
+PGPASSWORD=$password exec /opt/homebrew/opt/libpq/bin/psql \
+  -h 127.0.0.1 -p 55432 -U pm_kernel -d pm_kernel "$@"

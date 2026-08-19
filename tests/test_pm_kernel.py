@@ -1,4 +1,8 @@
+import hashlib
+import importlib.machinery
+import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -10,6 +14,24 @@ PMCTL = ROOT / "dot_local/bin/executable_pmctl"
 def run(root, *args, check=True):
     return subprocess.run(["python3", str(PMCTL), *args, "--root", str(root), "--json"],
                           text=True, capture_output=True, check=check)
+
+
+def test_jira_adf_text_preserves_structure():
+    loader = importlib.machinery.SourceFileLoader("pmctl_module", str(PMCTL))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    adf = {"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "First"}]},
+        {"type": "bulletList", "content": [
+            {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second"}]}]},
+            {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Third"}]}]},
+        ]},
+        {"type": "paragraph", "content": [
+            {"type": "text", "text": "Line"}, {"type": "hardBreak"}, {"type": "text", "text": "break"},
+        ]},
+    ]}
+    assert module.jira_description_text(adf) == "First\n\n- Second\n- Third\n\nLine\nbreak"
 
 
 def backlog(root, active="", completed=""):
@@ -103,6 +125,7 @@ def test_jira_rollup_requires_exact_preview_confirmation(tmp_path):
         members.append({"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob})
     manifest = tmp_path / "jira.json"
     manifest.write_text(json.dumps({
+        "publication_id": "test-rollup", "target": {"mode": "create"},
         "project": "TEST", "issue_type": "Story", "summary": "One sprint outcome",
         "description": "Complete standalone context", "source_tickets": members,
     }))
@@ -119,6 +142,146 @@ def test_jira_rollup_requires_exact_preview_confirmation(tmp_path):
                               check=True, text=True, capture_output=True)
     assert json.loads(accepted.stdout)["result"] == "simulated"
     assert json.loads(accepted.stdout)["written"] is False
+
+    acli = tmp_path / "acli"
+    log = tmp_path / "acli.log"
+    description = tmp_path / "description.log"
+    label = "pmk-" + hashlib.sha256(b"test-rollup").hexdigest()[:16]
+    acli.write_text("""#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+with pathlib.Path(os.environ["ACLI_LOG"]).open("a") as stream:
+    stream.write(json.dumps(args) + "\\n")
+if "search" in args:
+    print("[]")
+elif "create" in args:
+    path = args[args.index("--description-file") + 1]
+    pathlib.Path(os.environ["ACLI_DESCRIPTION"]).write_text(pathlib.Path(path).read_text())
+    if os.environ.get("ACLI_FAIL"):
+        print("not-json")
+    else:
+        print(json.dumps({"key": "TEST-1"}))
+elif "edit" in args:
+    print(json.dumps({"key": "TEST-1"}))
+elif "view" in args:
+    fields = {
+        "project": {"key": "TEST"}, "issuetype": {"name": "Story"},
+        "summary": "One sprint outcome", "description": "Complete standalone context",
+        "labels": [os.environ["ACLI_LABEL"]]
+    }
+    if os.environ.get("ACLI_OMIT"):
+        fields.pop("description")
+    print(json.dumps({"key": "TEST-1", "fields": fields}))
+else:
+    raise SystemExit(2)
+""")
+    acli.chmod(0o755)
+    env = {**os.environ, "ACLI_LOG": str(log), "ACLI_DESCRIPTION": str(description), "ACLI_LABEL": label}
+    live = subprocess.run([
+        "python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", digest, "--confirm", digest,
+        "--adapter", "acli", "--project", "TEST", "--issue-type", "Story",
+        "--acli", str(acli), "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ], check=True, text=True, capture_output=True, env=env)
+    assert json.loads(live.stdout)["jira_key"] == "TEST-1"
+    assert description.read_text() == "Complete standalone context"
+    assert "Complete standalone context" not in log.read_text()
+    receipt = json.loads((tmp_path / "receipts/test-rollup.json").read_text())
+    assert receipt["status"] == "succeeded" and receipt["jira_key"] == "TEST-1"
+
+    payload = json.loads(manifest.read_text())
+    payload["target"] = {"mode": "update", "key": "TEST-1"}
+    manifest.write_text(json.dumps(payload))
+    update_digest = json.loads(subprocess.run([
+        "python3", str(PMCTL), "jira", "preview", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--json",
+    ], check=True, text=True, capture_output=True).stdout)["preview_digest"]
+    updated = subprocess.run([
+        "python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", update_digest, "--confirm", update_digest,
+        "--adapter", "acli", "--project", "TEST", "--issue-type", "Story",
+        "--acli", str(acli), "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ], check=True, text=True, capture_output=True, env=env)
+    assert json.loads(updated.stdout)["jira_key"] == "TEST-1"
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert any("edit" in call for call in calls)
+    assert not any(argument.startswith(("--customfield", "--sprint", "--points"))
+                   for call in calls for argument in call)
+    edit_count = sum("edit" in call for call in calls)
+    repeated = subprocess.run([
+        "python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", update_digest, "--confirm", update_digest,
+        "--adapter", "acli", "--project", "TEST", "--issue-type", "Story",
+        "--acli", str(acli), "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ], text=True, capture_output=True, env=env)
+    assert repeated.returncode == 1
+    assert sum("edit" in json.loads(line) for line in log.read_text().splitlines()) == edit_count
+
+    payload["publication_id"] = "missing-field-rollup"
+    payload["target"] = {"mode": "create"}
+    manifest.write_text(json.dumps(payload))
+    missing_digest = json.loads(subprocess.run([
+        "python3", str(PMCTL), "jira", "preview", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--json",
+    ], check=True, text=True, capture_output=True).stdout)["preview_digest"]
+    missing_env = {**env, "ACLI_OMIT": "1",
+                   "ACLI_LABEL": "pmk-" + hashlib.sha256(b"missing-field-rollup").hexdigest()[:16]}
+    missing = subprocess.run([
+        "python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", missing_digest, "--confirm", missing_digest,
+        "--adapter", "acli", "--project", "TEST", "--issue-type", "Story",
+        "--acli", str(acli), "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ], text=True, capture_output=True, env=missing_env)
+    assert missing.returncode == 1
+    assert json.loads((tmp_path / "receipts/missing-field-rollup.json").read_text())["status"] == "unknown"
+
+
+def test_jira_acli_unknown_result_blocks_retry(tmp_path):
+    init_git(tmp_path)
+    backlog(tmp_path, "| EX-1 | First | high | pending | - | code | docs | no | Needed | S | pytest |\n")
+    ticket = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)["tickets"][0]
+    path = tmp_path / ticket["path"]
+    path.write_text(path.read_text().replace('state: "intake"', 'state: "ready"'))
+    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                            text=True, capture_output=True).stdout.strip()
+    blob = subprocess.run(["git", "rev-parse", f"HEAD:{ticket['path']}"], cwd=tmp_path,
+                          check=True, text=True, capture_output=True).stdout.strip()
+    manifest = tmp_path / "jira.json"
+    manifest.write_text(json.dumps({
+        "publication_id": "unknown-rollup", "target": {"mode": "create"},
+        "project": "TEST", "issue_type": "Story", "summary": "Unknown outcome",
+        "description": "Complete context", "source_tickets": [
+            {"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob},
+        ],
+    }))
+    digest = json.loads(subprocess.run([
+        "python3", str(PMCTL), "jira", "preview", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--json",
+    ], check=True, text=True, capture_output=True).stdout)["preview_digest"]
+    acli = tmp_path / "acli"
+    log = tmp_path / "log"
+    acli.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {log}\ncase \"$*\" in *search*) printf '[]\\n';; *create*) printf 'not-json\\n';; esac\n")
+    acli.chmod(0o755)
+    command = [
+        "python3", str(PMCTL), "jira", "publish", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", digest, "--confirm", digest,
+        "--adapter", "acli", "--project", "TEST", "--issue-type", "Story",
+        "--acli", str(acli), "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ]
+    assert subprocess.run(command, text=True, capture_output=True).returncode == 1
+    first = log.read_text().count("create")
+    assert json.loads((tmp_path / "receipts/unknown-rollup.json").read_text())["status"] == "unknown"
+    assert subprocess.run(command, text=True, capture_output=True).returncode == 1
+    assert log.read_text().count("create") == first
+    reconciled = subprocess.run([
+        "python3", str(PMCTL), "jira", "reconcile", "--root", str(tmp_path),
+        "--manifest", str(manifest), "--preview-digest", digest, "--project", "TEST",
+        "--issue-type", "Story", "--acli", str(acli),
+        "--receipt-root", str(tmp_path / "receipts"), "--json",
+    ], check=True, text=True, capture_output=True)
+    assert json.loads(reconciled.stdout)["result"] == "not_found"
 
 
 def test_projection_rejects_secrets_and_uses_psql_stdin(tmp_path):

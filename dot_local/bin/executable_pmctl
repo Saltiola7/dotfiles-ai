@@ -628,9 +628,24 @@ def jira_preview(root, manifest_path):
     if len(raw) > 256 * 1024:
         fail("Jira manifest is oversized")
     value = json.loads(raw)
-    required = {"project", "issue_type", "summary", "description", "source_tickets"}
-    if (not isinstance(value, dict) or set(value) != required or not value["project"]
-            or not value["summary"] or not value["description"] or not isinstance(value["source_tickets"], list)
+    required = {"publication_id", "target", "project", "issue_type", "summary", "description", "source_tickets"}
+    publication_id = value.get("publication_id", "") if isinstance(value, dict) else ""
+    target = value.get("target") if isinstance(value, dict) else None
+    project = value.get("project", "") if isinstance(value, dict) else ""
+    issue_type = value.get("issue_type", "") if isinstance(value, dict) else ""
+    valid_target = (isinstance(target, dict) and (
+        set(target) == {"mode"} and target.get("mode") == "create"
+        or set(target) == {"mode", "key"} and target.get("mode") == "update"
+        and re.fullmatch(r"[A-Z][A-Z0-9_]{0,15}-[1-9][0-9]*", str(target.get("key", "")))
+    ))
+    if (not isinstance(value, dict) or set(value) != required
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", publication_id)
+            or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,15}", project)
+            or not isinstance(issue_type, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]{0,63}", issue_type)
+            or not valid_target or target.get("mode") == "update" and not target["key"].startswith(project + "-")
+            or not isinstance(value["summary"], str) or not value["summary"] or len(value["summary"].encode()) > 255
+            or not isinstance(value["description"], str) or not value["description"]
+            or len(value["description"].encode()) > 64 * 1024 or not isinstance(value["source_tickets"], list)
             or not value["source_tickets"]):
         fail("Jira manifest is invalid")
     identities = set()
@@ -652,8 +667,224 @@ def jira_preview(root, manifest_path):
             match = re.search(rf"^## {re.escape(section)}\n\n(.+?)(?=\n\n## |\Z)", _body, re.MULTILINE | re.DOTALL)
             if not match or not match.group(1).strip() or match.group(1).strip().lower() == "pending":
                 fail("Jira source ticket lacks publication evidence")
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    return value, hashlib.sha256(canonical.encode()).hexdigest()
+    payload = {**value, "label": "pmk-" + hashlib.sha256(publication_id.encode()).hexdigest()[:16]}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return payload, hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def jira_acli(options, *arguments):
+    completed = subprocess.run([options.acli, "jira", "workitem", *arguments], text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if len(completed.stdout.encode()) > 1024 * 1024 or len(completed.stderr.encode()) > 1024 * 1024:
+        fail("ACLI output is oversized")
+    if completed.returncode:
+        fail("ACLI command failed")
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        fail("ACLI returned invalid JSON")
+
+
+def jira_issue(value):
+    if not isinstance(value, dict) or not isinstance(value.get("key"), str):
+        fail("ACLI issue result is invalid")
+    fields = value.get("fields") or {}
+    if not isinstance(fields, dict):
+        fail("ACLI issue result is invalid")
+    project = fields.get("project") or {}
+    issue_type = fields.get("issuetype") or {}
+    labels = fields.get("labels") or []
+    return {
+        "key": value["key"],
+        "project": project.get("key") if isinstance(project, dict) else None,
+        "issue_type": issue_type.get("name") if isinstance(issue_type, dict) else None,
+        "summary": fields.get("summary"),
+        "description": fields.get("description"),
+        "labels": labels if isinstance(labels, list) and all(isinstance(item, str) for item in labels) else [],
+    }
+
+
+def jira_view(args, key):
+    return jira_issue(jira_acli(args, "view", key, "--fields", "project,issuetype,summary,description,labels", "--json"))
+
+
+def jira_search(args, manifest):
+    value = jira_acli(args, "search", "--jql",
+                      f'project = "{manifest["project"]}" AND labels = "{manifest["label"]}"',
+                      "--fields", "key,project,issuetype,summary,description,labels", "--limit", "2", "--json")
+    rows = value if isinstance(value, list) else value.get("issues", []) if isinstance(value, dict) else None
+    if not isinstance(rows, list) or len(rows) > 2:
+        fail("ACLI search result is invalid")
+    return [jira_issue(row) for row in rows]
+
+
+def jira_description_text(value):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        kind = value.get("type")
+        if kind == "text" and isinstance(value.get("text"), str):
+            return value["text"]
+        if kind == "hardBreak":
+            return "\n"
+        content = value.get("content", [])
+        if kind in {"doc", "blockquote"}:
+            return "\n\n".join(filter(None, (jira_description_text(item).strip() for item in content)))
+        if kind in {"paragraph", "heading", "listItem"}:
+            return "".join(jira_description_text(item) for item in content)
+        if kind == "bulletList":
+            return "\n".join(f"- {jira_description_text(item).strip()}" for item in content)
+        if kind == "orderedList":
+            return "\n".join(f"{index}. {jira_description_text(item).strip()}"
+                             for index, item in enumerate(content, 1))
+        return "".join(jira_description_text(item) for item in content)
+    if isinstance(value, list):
+        return "".join(jira_description_text(item) for item in value)
+    return ""
+
+
+def jira_matches(issue, manifest):
+    if (issue["key"].split("-", 1)[0] != manifest["project"] or issue["project"] != manifest["project"]
+            or issue["issue_type"] != manifest["issue_type"] or manifest["label"] not in issue["labels"]
+            or issue["summary"] != manifest["summary"]):
+        return False
+    actual = jira_description_text(issue["description"]).replace("\r\n", "\n").strip()
+    expected = manifest["description"].replace("\r\n", "\n").strip()
+    return actual == expected
+
+
+def jira_receipt_path(args, publication_id):
+    root = args.receipt_root.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    return root / f"{publication_id}.json"
+
+
+def jira_read_receipt(args, publication_id):
+    path = jira_receipt_path(args, publication_id)
+    if not path.exists():
+        return None
+    if path.is_symlink() or path.stat().st_size > 16 * 1024:
+        fail("Jira receipt is invalid")
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict) or value.get("publication_id") != publication_id:
+        fail("Jira receipt is invalid")
+    return value
+
+
+def jira_write_receipt(args, value):
+    path = jira_receipt_path(args, value["publication_id"])
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        stream = os.fdopen(descriptor, "w")
+        descriptor = -1
+        with stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+        os.replace(temporary, path)
+    except Exception:
+        if descriptor >= 0:
+            os.close(descriptor)
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def jira_success_receipt(manifest, digest, key):
+    return {
+        "schema_version": 1, "publication_id": manifest["publication_id"], "status": "succeeded",
+        "operation": manifest["target"]["mode"], "jira_key": key, "preview_digest": digest,
+        "source_tickets": [member["id"] for member in manifest["source_tickets"]],
+    }
+
+
+def jira_validate_mapping(args, manifest):
+    if (not args.project or manifest["project"] != args.project
+            or not args.issue_type or manifest["issue_type"] not in args.issue_type):
+        fail("Jira project mapping is invalid")
+
+
+def jira_publish_acli(args, manifest, digest):
+    jira_validate_mapping(args, manifest)
+    receipt = jira_read_receipt(args, manifest["publication_id"])
+    target = manifest["target"]
+    if receipt and receipt.get("status") in {"pending", "unknown"}:
+        fail("Jira publication outcome is unknown; reconcile before retry")
+    if receipt and receipt.get("status") == "succeeded":
+        if receipt.get("preview_digest") == digest:
+            fail("Jira publication already succeeded")
+        if target["mode"] == "create" or receipt.get("jira_key") != target.get("key"):
+            fail("Jira publication identity already succeeded")
+    existing_labels = [manifest["label"]]
+    if target["mode"] == "create":
+        if jira_search(args, manifest):
+            fail("Jira publication identity already exists")
+    else:
+        before = jira_view(args, target["key"])
+        if not jira_matches(before, {**manifest, "summary": before["summary"], "description": before["description"]}):
+            fail("Jira update target does not match publication identity")
+        existing_labels = sorted(set(before["labels"] + [manifest["label"]]))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            temporary = stream.name
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(manifest["description"])
+        if target["mode"] == "create":
+            command = ["create", "--project", manifest["project"], "--type", manifest["issue_type"],
+                       "--summary", manifest["summary"], "--description-file", temporary,
+                       "--label", manifest["label"], "--json"]
+        else:
+            command = ["edit", "--key", target["key"], "--summary", manifest["summary"],
+                       "--description-file", temporary, "--labels", ",".join(existing_labels), "--yes", "--json"]
+        jira_write_receipt(args, {
+            "schema_version": 1, "publication_id": manifest["publication_id"], "status": "pending",
+            "operation": target["mode"], "jira_key": target.get("key"), "preview_digest": digest,
+        })
+        try:
+            result = jira_acli(args, *command)
+            key = result.get("key") if isinstance(result, dict) else None
+            if not isinstance(key, str):
+                fail("ACLI mutation result is invalid")
+            after = jira_view(args, key)
+            if key != (target.get("key") or key) or not jira_matches(after, manifest):
+                fail("Jira mutation could not be verified")
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            jira_write_receipt(args, {
+                "schema_version": 1, "publication_id": manifest["publication_id"], "status": "unknown",
+                "operation": target["mode"], "jira_key": target.get("key"), "preview_digest": digest,
+            })
+            raise RuntimeError("Jira publication outcome is unknown; reconcile before retry") from None
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
+    jira_write_receipt(args, jira_success_receipt(manifest, digest, key))
+    return {"schema_version": 1, "adapter": "acli", "preview_digest": digest,
+            "source_tickets": manifest["source_tickets"], "written": True,
+            "result": "succeeded", "jira_key": key}
+
+
+def jira_reconcile(args, manifest, digest):
+    jira_validate_mapping(args, manifest)
+    receipt = jira_read_receipt(args, manifest["publication_id"])
+    if (not receipt or receipt.get("status") not in {"pending", "unknown"}
+            or receipt.get("preview_digest") != digest):
+        fail("Jira publication has no matching unknown outcome")
+    if manifest["target"]["mode"] == "create":
+        matches = jira_search(args, manifest)
+        if not matches:
+            receipt["status"] = "not_found"
+            jira_write_receipt(args, receipt)
+            return {"schema_version": 1, "result": "not_found", "written": False}
+        if len(matches) != 1:
+            return {"schema_version": 1, "result": "ambiguous", "written": False}
+        issue = jira_view(args, matches[0]["key"])
+    else:
+        issue = jira_view(args, manifest["target"]["key"])
+    if not jira_matches(issue, manifest):
+        return {"schema_version": 1, "result": "ambiguous", "written": False}
+    jira_write_receipt(args, jira_success_receipt(manifest, digest, issue["key"]))
+    return {"schema_version": 1, "result": "resolved", "written": False, "jira_key": issue["key"]}
 
 
 def sprint_review(args):
@@ -727,8 +958,21 @@ def main():
     publish.add_argument("--root", type=Path, default=Path.cwd())
     publish.add_argument("--preview-digest", required=True)
     publish.add_argument("--confirm", required=True)
-    publish.add_argument("--adapter", choices=("fake",), default="fake")
+    publish.add_argument("--adapter", choices=("fake", "acli"), default="fake")
+    publish.add_argument("--project", default="")
+    publish.add_argument("--issue-type", action="append", default=[])
+    publish.add_argument("--acli", default="acli")
+    publish.add_argument("--receipt-root", type=Path, default=Path("~/.local/state/pm-kernel/jira"))
     publish.add_argument("--json", action="store_true")
+    reconcile = jira.add_parser("reconcile")
+    reconcile.add_argument("--manifest", required=True, type=Path)
+    reconcile.add_argument("--root", type=Path, default=Path.cwd())
+    reconcile.add_argument("--preview-digest", required=True)
+    reconcile.add_argument("--project", required=True)
+    reconcile.add_argument("--issue-type", action="append", required=True)
+    reconcile.add_argument("--acli", default="acli")
+    reconcile.add_argument("--receipt-root", type=Path, default=Path("~/.local/state/pm-kernel/jira"))
+    reconcile.add_argument("--json", action="store_true")
     review = commands.add_parser("sprint-review")
     review.add_argument("--input", required=True, type=Path)
     review.add_argument("--title", required=True)
@@ -762,9 +1006,16 @@ def main():
         if args.jira_command == "publish":
             if args.preview_digest != digest or args.confirm != digest:
                 fail("Jira confirmation does not match the current preview")
-            result = {"schema_version": 1, "adapter": "fake", "preview_digest": digest,
-                      "source_tickets": manifest["source_tickets"], "written": False,
-                      "result": "simulated"}
+            if args.adapter == "fake":
+                result = {"schema_version": 1, "adapter": "fake", "preview_digest": digest,
+                          "source_tickets": manifest["source_tickets"], "written": False,
+                          "result": "simulated"}
+            else:
+                result = jira_publish_acli(args, manifest, digest)
+        elif args.jira_command == "reconcile":
+            if args.preview_digest != digest:
+                fail("Jira reconciliation does not match the current preview")
+            result = jira_reconcile(args, manifest, digest)
     else:
         result = sprint_review(args)
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
@@ -774,6 +1025,6 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (OSError, UnicodeError, RuntimeError) as error:
+    except (OSError, UnicodeError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"pmctl: {error}", file=sys.stderr)
         sys.exit(1)

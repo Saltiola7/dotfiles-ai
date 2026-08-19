@@ -1,5 +1,21 @@
 # PM Kernel Changelog
 
+## 2026-08-19 - PMK-002 Private Adapter Activation
+
+- Added owned host-loopback PostgreSQL forwarding, stdin-only Podman secret
+  provisioning, 1Password-backed host access, verified seven-generation weekly
+  backups, and retained-volume disable behavior.
+- Added strict ACLI create/update previews, deterministic publication labels,
+  private pending/unknown/success receipts, bounded reconciliation, and
+  machine-local project/type wrappers. No live Jira mutation was performed.
+- Affected QA passed 116 tests and canonical ticket validation. The pinned ARM64
+  PG19 Beta 3 service is healthy; relational and graph projections contain all
+  146 tickets; host listening is loopback-only; a real dump and scratch restore
+  passed; and the weekly LaunchAgent is loaded. Independent review ended clean.
+  Gate Commits: `998214e`, `79bd60c`, `0d5a3fc`, `5eadd94`. Gate Exceptions:
+  none. The local OpenCode permission target retained unrelated drift and was not
+  overwritten. Intended Final Push: feature branch and draft PR into `main`.
+
 ## 2026-08-19 - PMK-001-F1 PostgreSQL 19 Repair
 
 - Corrected the PostgreSQL 19 Beta 3 property-graph migration to use supported

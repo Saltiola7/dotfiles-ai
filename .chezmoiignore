@@ -42,6 +42,12 @@ install-guest-development-tools.sh
 {{ if not (and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled) }}
 .config/containers/systemd/pm-postgres.container
 .config/containers/systemd/pm-postgres-data.volume
+.local/bin/pm-psql
+.local/bin/pm-postgres-backup
+Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
+{{ end }}
+{{ if ne .dotfiles_ai.pm_kernel.jira_adapter "acli" }}
+.local/bin/pm-jira
 {{ end }}
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}
@@ -80,5 +86,9 @@ load-dbsctr-rnd-launchagents.sh
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
 load-atuin-workspace-launchagent.sh
+configure-pm-postgres.sh
+.local/bin/pm-psql
+.local/bin/pm-postgres-backup
+.local/bin/pm-jira
 .config/dotfiles-ai/
 {{ end }}

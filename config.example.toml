@@ -81,6 +81,19 @@ account = ""
 user_uuid = ""
 keychain_service = "op-service-account-token"
 
+[data.dotfiles_ai.pm_kernel]
+# Optional PostgreSQL runs only in the selected Lima workspace. The 1Password
+# reference and external backup path remain machine-local host configuration.
+enabled = false
+workspace = ""
+postgres_enabled = false
+postgres_image = ""
+postgres_password_ref = ""
+postgres_backup_dir = ""
+jira_adapter = "fake"
+jira_project = ""
+jira_issue_types = []
+
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 # Every managed Fedora guest uses rootless Podman, pinned Docker Compose v2, and

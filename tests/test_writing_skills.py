@@ -106,6 +106,13 @@ def test_writing_commands_are_thin_and_provider_neutral():
 
 def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
     config = rendered_config()
+    global_bash = config["permission"]["bash"]
+    for command in (
+        "pmctl jira publish*", "*/pmctl jira publish*",
+        "pmctl jira reconcile*", "*/pmctl jira reconcile*",
+        "pm-jira*", "*/pm-jira*",
+    ):
+        assert global_bash[command] == "ask"
     for bash in (config["permission"]["bash"], config["agent"]["plan"]["permission"]["bash"]):
         for command in (
             "acli jira auth status*",

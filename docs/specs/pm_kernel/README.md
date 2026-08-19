@@ -134,7 +134,7 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 - Then it emits a deterministic finding and does not project or publish the ticket
 
 **Scenario: Keep database absence non-blocking**
-- Given PM Kernel or PostgreSQL is disabled
+- Given PM Kernel or PostgreSQL has never been enabled
 - When an agent reads or updates local work
 - Then Git ticket workflows remain available
 - And no PostgreSQL process, network listener, credential, or state is created
@@ -144,6 +144,14 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 - When migration runs again
 - Then it recreates the read-only property graph definition using supported SQL
 - And preserves the authoritative relational ticket data
+
+**Scenario: Activate and disable PostgreSQL safely**
+- Given the operator enables PostgreSQL for one configured workspace
+- When host configuration is applied
+- Then the password is provisioned over stdin before guest apply, service health,
+  and owned host-loopback forwarding
+- And disabling stops and removes the service, secret, forward, and backup schedule
+  while retaining the named data volume for explicit recovery or retirement
 
 ### Refinement and review
 
@@ -179,8 +187,9 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 **Scenario: Fail safely after an uncertain write**
 - Given Jira returns an ambiguous timeout or adapter response
 - When publication cannot prove whether creation occurred
-- Then PM Kernel records an unknown outcome and blocks automatic retry
-- And the operator reconciles Jira before another write
+- Then PM Kernel writes a private `unknown` receipt and blocks automatic retry
+- And bounded marker search or direct target inspection must resolve the receipt
+  before another exactly confirmed write
 
 ### Sprint review
 
@@ -240,6 +249,7 @@ The Markdown body contains `Outcome`, `Context`, `Scope`, `Acceptance Criteria`,
 | `pmctl project --source TYPE --input FILE --json` | Project a validated sanitized envelope when PostgreSQL is enabled. |
 | `pmctl jira preview --manifest FILE --json` | Render exact external payload without writing. |
 | `pmctl jira publish --manifest FILE --preview-digest DIGEST --confirm DIGEST --json` | Invoke configured adapter after exact confirmation. |
+| `pmctl jira reconcile --manifest FILE --preview-digest DIGEST ... --json` | Resolve one private unknown adapter receipt without mutating Jira. |
 | `pmctl sprint-review --jql JQL ...` | Generate a private factual report after bounded Jira-read approval. |
 
 Agents use the skill and CLI. Direct `psql` is operator/debug access only. A
@@ -254,12 +264,17 @@ enabled = false
 workspace = ""
 postgres_enabled = false
 postgres_image = ""
+postgres_password_ref = ""
+postgres_backup_dir = ""
 jira_adapter = "fake"
 jira_project = ""
+jira_issue_types = []
 ```
 
-Defaults create no service and permit no Jira mutation. Project-specific issue
-types, fields, point values, statuses, and adapter settings remain machine-local.
+Defaults create no service and permit no Jira mutation. The PostgreSQL password
+reference, external backup directory, Jira project, allowed issue types, and
+adapter invocation remain machine-local. Portable source defines no client custom
+fields, sprint assignment, or point mapping.
 
 ### PostgreSQL projection
 
@@ -269,6 +284,13 @@ cover contexts, tickets, ticket revisions, typed relations, publication manifest
 publication members, Jira events, leases, source envelopes, and projection
 checkpoints. Canonical rows retain source commit/blob and digest. Generic JSONB is
 preserved beside typed query columns so projection never silently loses fields.
+The rootless container binds guest loopback `55432`; one owned Lima rule forwards
+host `127.0.0.1:55432` to that guest loopback address. A host client resolves the
+password from 1Password at runtime, while the guest receives only a Podman secret
+provisioned over stdin. Weekly custom-format dumps leave the guest failure domain,
+retain seven generations, and restore into an isolated scratch database before a
+dump is accepted. Disablement removes runtime access but deliberately retains the
+named volume until an explicit retirement decision.
 
 SQL/PGQ uses typed edge tables or filtered typed views because one generic
 polymorphic edge declaration cannot bind arbitrary heterogeneous endpoints.
@@ -285,6 +307,9 @@ remain authoritative for the cache.
   other states except migrated evidence explicitly marked unresolved.
 - Dependencies name existing ticket IDs and contain no self-cycle.
 - Publication always has an exact preview; confirmation binds the payload digest.
+- Each live publication has a stable opaque identity and deterministic Jira label.
+  Create refuses an existing label; update requires an explicit key with matching
+  project, issue type, and label.
 - External Jira mutation is never covered by ordinary local-write authority.
 - ACLI and Atlassian MCP adapters implement one bounded payload/result contract;
   adapter selection cannot broaden permission.
@@ -316,8 +341,9 @@ consumer tests pass. Re-running the same migration produces the same files.
 
 - Jira content and generated reports are private; no public research receives
   ticket text, identifiers, paths, or project configuration.
-- Database credentials are resolved at runtime and never rendered into source,
-  command arguments, logs, or reports.
+- Database credentials are resolved from 1Password at runtime and enter the guest
+  only through stdin-backed Podman secret provisioning. They are never rendered
+  into source, command arguments, logs, backups, or reports.
 - The rootless Podman service binds only to the configured private workspace or
   host loopback and uses a persistent named volume with health checks.
 - Backup and restore are explicit operator operations. Failed restore validation
@@ -413,37 +439,50 @@ sequenceDiagram
         J-->>P: Key and bounded result
         P->>G: Record publication evidence
     else changed, invalid, or ambiguous
-        P-->>O: Block without automatic retry
+        P->>P: Persist private unknown receipt
+        P-->>O: Block pending bounded reconciliation
     end
 ```
 
 **Text Equivalent:** The operator selects exact committed Local Ticket revisions.
 PM Kernel validates them and produces one complete Jira rollup payload plus a
 digest. Only confirmation of that exact digest permits the configured adapter to
-write. Source drift, invalid mapping, or an ambiguous Jira response blocks retry.
-On proven success, Git records the Jira key and publication provenance.
+write. Source drift or invalid mapping blocks the write. An ambiguous response
+creates a private receipt and blocks retries until bounded reconciliation proves
+success or absence. On proven success, PM Kernel records the Jira key and source
+provenance without making Jira authoritative.
 
 ```mermaid
 flowchart TB
     accTitle: Optional PostgreSQL deployment
     accDescr: Default configuration creates no service. When explicitly enabled for one configured workspace, rootless Podman runs pinned PostgreSQL 19 with private connectivity, persistent storage, health checks, and backup and restore operations while Git remains authoritative.
     D{pm_kernel and postgres enabled?}
-    D -->|No| N[No container, port, credential, or volume]
+    D -->|Never enabled| N[No container, port, credential, or volume]
+    D -->|Disabled after use| RV[Runtime removed; recovery volume retained]
     D -->|Yes| W[Configured personal/shared workspace]
     W --> Q[Rootless Podman Quadlet]
     Q --> P[(Pinned PostgreSQL 19)]
+    C[Host pmctl and pm-psql] -->|127.0.0.1:55432 only| L[Owned Lima forward]
+    L --> P
+    O[1Password reference] -->|stdin provision| S[Podman secret]
+    S --> P
     P --> V[(Persistent named volume)]
-    P --> H[Private health and projection checks]
-    V --> B[Explicit backup and verified restore]
+    P --> K[Private health and projection checks]
+    V --> B[Seven external weekly dumps]
+    B --> R[Scratch restore verification]
 ```
 
-**Text Equivalent:** With either feature flag disabled, deployment creates no
-PostgreSQL resources. When both are enabled for one configured workspace,
-rootless Podman runs an exact PostgreSQL 19 image with private connectivity,
-persistent storage, readiness checks, and explicit backup/restore. Git tickets
-continue to work and remain authoritative if the service is unavailable.
+**Text Equivalent:** A fresh installation with either feature flag disabled
+creates no PostgreSQL resources. Disabling a previously active installation
+removes its runtime, secret, forward, and schedule but retains the recovery
+volume. When both flags are enabled for one configured workspace,
+rootless Podman runs an exact PostgreSQL 19 image. Host access is limited to one
+owned loopback forward; 1Password provisions a guest Podman secret through stdin.
+The named volume has readiness checks and seven external weekly dumps, each
+accepted only after scratch restore verification. Git tickets continue to work
+and remain authoritative if the service is unavailable.
 
-## Gate Ledger
+## PMK-001 Gate Ledger (Historical)
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
@@ -459,6 +498,17 @@ continue to work and remain authoritative if the service is unavailable.
 | Operate | Verify disabled behavior and enabled PostgreSQL health when configured | required | passed | Default-off state, command resolution, deployed ticket smoke | - | Primary |
 | Maintain/Retire | Retire BACKLOG readers and define beta upgrade/restore | required | passed | 144-ticket validation and zero-finding typed audit | - | Primary |
 
+## PMK-002 Activation Gate Ledger
+
+| Gate | Applicability | Result | Current evidence |
+|---|---|---|---|
+| Domain through Contract | required | passed | Activation specification, canonical ticket, and review remediation |
+| Test-driven implementation | required | passed | 116 affected tests, canonical ticket check, and three runtime-driven regression fixes |
+| Refactor and Review/Integrate | required | passed | Independent review ended clean after four remediation rounds |
+| Release | not_applicable | not_run | No versioned artifact publication |
+| Deploy and Operate | required | passed | Healthy PG19 Beta 3, loopback-only forward, 146-ticket relational/graph projection, loaded weekly schedule |
+| Maintain/Retire | required | passed | Real custom-format backup and scratch restore passed; seven-generation and retained-volume policy active |
+
 ## Decisions And Risks
 
 - PostgreSQL 19 Beta 3 is current as of discovery and is explicitly not production
@@ -466,12 +516,13 @@ continue to work and remain authoritative if the service is unavailable.
   them behind an optional cache boundary, exact image pin, backup, and restore.
 - PG19 property graphs are read-only views over relational sources. Typed edge
   views are required for heterogeneous endpoints.
-- The current runtime exposes no discoverable Atlassian MCP server. Portable fake
-  and ACLI contracts proceed; live project activation waits for machine-local
-  configuration and adapter availability.
+- The current runtime exposes no discoverable Atlassian MCP server. The bounded
+  ACLI adapter is active independently; an existing Atlassian MCP may continue
+  iterative reads without broadening mutation authority.
 - Local ticket count and Jira sprint capacity intentionally differ. Jira rollups
   are ad hoc standalone narratives, not automatic mirrors.
 
-Unresolved implementation decisions: exact PostgreSQL 19 image digest and live
-Jira project field mapping are deployment-time machine-local inputs. Their absence
-must leave the optional features disabled and does not change portable behavior.
+The PostgreSQL image digest, 1Password item reference, external backup path, Jira
+project, and allowed issue types are deployment-time machine-local inputs. Their
+absence leaves the optional features disabled and does not change portable
+behavior.
