@@ -5,7 +5,7 @@ slug: activate-postgresql-and-jira-adapters
 context: pm_kernel
 title: Activate PostgreSQL and Jira adapters
 kind: story
-state: in_progress
+state: done
 priority: high
 points: 8
 depends_on:
@@ -26,8 +26,12 @@ validation:
   - Jira preview and read-only reconciliation smoke
 created: 2026-08-19
 updated: 2026-08-19
-completed: null
-commits: []
+completed: 2026-08-19
+commits:
+  - "998214e"
+  - "79bd60c"
+  - "0d5a3fc"
+  - "5eadd94"
 jira_publications: []
 migration: null
 ---
@@ -62,8 +66,13 @@ evidence.
 
 ## Evidence
 
-Affected implementation validation passes 116 tests and canonical ticket checks.
-Deployment, runtime recovery, and final review evidence remain pending.
+Affected validation passed 116 tests and canonical ticket checks. PostgreSQL 19
+Beta 3 is healthy in the selected rootless guest, host access listens only on
+`127.0.0.1:55432`, and relational plus `GRAPH_TABLE` counts match all 146
+projected tickets. A real custom-format backup passed isolated scratch restore,
+and its weekly seven-generation LaunchAgent is loaded. Jira authentication,
+project/type/ADF reads, and exact preview passed with `written:false`; no Jira
+mutation was performed. Independent review ended clean after remediation.
 
 ## Risks
 
@@ -72,4 +81,6 @@ external writes, duplicate Jira mutation, and host-forward ownership drift.
 
 ## Review
 
-Pending.
+Accepted. The OpenCode permission source is ready, but its local target retained
+unrelated user drift and was not overwritten; reconcile that target before the
+next full chezmoi apply. Live Jira create/update remains separately approval-gated.

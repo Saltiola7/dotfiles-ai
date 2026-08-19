@@ -502,12 +502,12 @@ and remain authoritative if the service is unavailable.
 
 | Gate | Applicability | Result | Current evidence |
 |---|---|---|---|
-| Domain through Contract | required | pending | Activation specification and review remediation |
-| Test-driven implementation | required | pending | 116 affected tests and canonical ticket check pass |
-| Refactor and Review/Integrate | required | pending | Independent review awaits deployed evidence |
+| Domain through Contract | required | passed | Activation specification, canonical ticket, and review remediation |
+| Test-driven implementation | required | passed | 116 affected tests, canonical ticket check, and three runtime-driven regression fixes |
+| Refactor and Review/Integrate | required | passed | Independent review ended clean after four remediation rounds |
 | Release | not_applicable | not_run | No versioned artifact publication |
-| Deploy and Operate | required | pending | Target personal workspace not yet changed |
-| Maintain/Retire | required | pending | Seven-dump retention and retained-volume policy specified |
+| Deploy and Operate | required | passed | Healthy PG19 Beta 3, loopback-only forward, 146-ticket relational/graph projection, loaded weekly schedule |
+| Maintain/Retire | required | passed | Real custom-format backup and scratch restore passed; seven-generation and retained-volume policy active |
 
 ## Decisions And Risks
 
