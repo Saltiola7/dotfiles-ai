@@ -1,5 +1,5 @@
 {{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
-{{- if not (regexMatch "^postgres:19beta[0-9]+@sha256:[0-9a-f]{64}$" .dotfiles_ai.pm_kernel.postgres_image) -}}
+{{- if not (regexMatch "^docker\\.io/library/postgres:19beta3@sha256:[0-9a-f]{64}$" .dotfiles_ai.pm_kernel.postgres_image) -}}
 {{ fail "dotfiles_ai.pm_kernel.postgres_image must be an exact PostgreSQL 19 image digest" }}
 {{- end -}}
 [Unit]
