@@ -1,0 +1,26 @@
+#!/bin/sh
+# plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist.tmpl" | sha256sum }}
+{{ if ne .chezmoi.os "darwin" -}}
+exit 0
+{{ end -}}
+set -eu
+label=dev.dotfiles-ai.pm-postgres-backup
+domain="gui/$(id -u)"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+if launchctl print "$domain/$label" >/dev/null 2>&1; then
+    launchctl bootout "$domain/$label"
+fi
+{{ if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
+"$HOME/.local/bin/sandbox-vm" validate {{ .dotfiles_ai.pm_kernel.workspace | quote }}
+. "$HOME/.local/bin/op-session"
+op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }} | \
+    "$HOME/.local/bin/sandbox-vm" provision-pm-postgres
+"$HOME/.local/bin/sandbox-vm" update {{ .dotfiles_ai.pm_kernel.workspace | quote }}
+"$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
+    systemctl --user is-active --quiet pm-postgres.service
+"$HOME/.local/bin/sandbox-vm" configure-pm-postgres
+launchctl bootstrap "$domain" "$plist"
+{{ else -}}
+"$HOME/.local/bin/sandbox-vm" configure-pm-postgres --remove
+/bin/rm -f "$plist"
+{{ end -}}

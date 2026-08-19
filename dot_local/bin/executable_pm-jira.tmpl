@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+action=${1:-}
+test -n "$action" || { echo "usage: pm-jira publish|reconcile ..." >&2; exit 2; }
+shift
+case "$action" in
+  publish)
+    exec "$HOME/.local/bin/pmctl" jira publish --adapter acli \
+      --project {{ .dotfiles_ai.pm_kernel.jira_project | quote }} \
+{{- range .dotfiles_ai.pm_kernel.jira_issue_types }}
+      --issue-type {{ . | quote }} \
+{{- end }}
+      "$@"
+    ;;
+  reconcile)
+    exec "$HOME/.local/bin/pmctl" jira reconcile \
+      --project {{ .dotfiles_ai.pm_kernel.jira_project | quote }} \
+{{- range .dotfiles_ai.pm_kernel.jira_issue_types }}
+      --issue-type {{ . | quote }} \
+{{- end }}
+      "$@"
+    ;;
+  *)
+    echo "usage: pm-jira publish|reconcile ..." >&2
+    exit 2
+    ;;
+esac

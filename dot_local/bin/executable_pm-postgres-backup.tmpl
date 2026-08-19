@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+umask 077
+
+workspace={{ .dotfiles_ai.pm_kernel.workspace | quote }}
+state_root={{ .dotfiles_ai.state.root | quote }}
+backup_dir={{ .dotfiles_ai.pm_kernel.postgres_backup_dir | quote }}
+retain=7
+test -d "$state_root" || { echo "pm-postgres-backup: state root is unavailable" >&2; exit 1; }
+install -d -m 0700 "$backup_dir"
+resolved_root=$(cd "$state_root" && pwd -P)
+resolved_backup=$(cd "$backup_dir" && pwd -P)
+case "$resolved_backup/" in
+  "$resolved_root/"*) ;;
+  *) echo "pm-postgres-backup: backup directory escaped state root" >&2; exit 1 ;;
+esac
+lock="$backup_dir/.backup.lock"
+mkdir "$lock" 2>/dev/null || { echo "pm-postgres-backup: backup already running" >&2; exit 1; }
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+final="$backup_dir/pm-kernel-$stamp.dump"
+tmp="$backup_dir/.pm-kernel-$stamp.tmp"
+restore_db=""
+cleanup() {
+  rm -f "$tmp"
+  if [ -n "$restore_db" ]; then
+    sandbox-vm shell "$workspace" -- podman exec pm-postgres \
+      dropdb --if-exists -U pm_kernel "$restore_db" >/dev/null 2>&1 || :
+  fi
+  rmdir "$lock"
+}
+trap cleanup EXIT HUP INT TERM
+test ! -e "$final" || { echo "pm-postgres-backup: backup already exists" >&2; exit 1; }
+
+sandbox-vm shell "$workspace" -- podman exec pm-postgres \
+  pg_dump -U pm_kernel -d pm_kernel --format=custom >"$tmp"
+sandbox-vm shell "$workspace" -- podman exec -i pm-postgres \
+  pg_restore --list <"$tmp" >/dev/null
+candidate="pm_restore_$(date -u +%Y%m%d%H%M%S)_$$"
+sandbox-vm shell "$workspace" -- podman exec pm-postgres \
+  createdb -U pm_kernel "$candidate"
+restore_db="$candidate"
+sandbox-vm shell "$workspace" -- podman exec -i pm-postgres \
+  pg_restore -U pm_kernel -d "$restore_db" --exit-on-error <"$tmp" >/dev/null
+test "$(sandbox-vm shell "$workspace" -- podman exec pm-postgres \
+  psql -X -v ON_ERROR_STOP=1 -At -U pm_kernel -d "$restore_db" \
+  -c 'SELECT 1 FROM context.schema_migrations WHERE version=1')" = 1
+sandbox-vm shell "$workspace" -- podman exec pm-postgres \
+  dropdb -U pm_kernel "$restore_db"
+restore_db=""
+
+mv "$tmp" "$final"
+shasum -a 256 "$final" >"$final.sha256"
+set -- "$backup_dir"/pm-kernel-*.dump
+if [ -e "$1" ]; then
+  while [ "$#" -gt "$retain" ]; do
+    rm -f "$1" "$1.sha256"
+    shift
+  done
+fi
+printf '{"backup":"%s","restore_verified":true,"retained":%s}\n' \
+  "$(basename "$final")" "$retain" >"$backup_dir/last-verified.json"
+trap - EXIT HUP INT TERM
+rmdir "$lock"
+printf '%s\n' "$final"

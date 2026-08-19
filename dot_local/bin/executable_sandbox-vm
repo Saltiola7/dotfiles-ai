@@ -31,6 +31,7 @@ HOST_HISTORY_TIMEOUT = 300
 WORKSPACE_HISTORY_TIMEOUT = 120
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 ATUIN_PORT_FORWARD = {"guestPort": 8888, "hostPort": 8889, "guestIP": "127.0.0.1", "hostIP": "127.0.0.1"}
+PM_POSTGRES_PORT_FORWARD = {"guestPort": 55432, "hostPort": 55432, "guestIP": "127.0.0.1", "hostIP": "127.0.0.1"}
 TAILSCALE_INSTALL = """\
 set -eu
 test "$(loginctl show-user "$USER" -p Linger --value)" = yes
@@ -148,7 +149,7 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5}:
+    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6}:
         raise ValueError("invalid sandbox config")
     if value["schema_version"] == 4:
         value["schema_version"] = 5
@@ -161,6 +162,11 @@ def validate_config(value):
             guest.setdefault("vertex_project", "")
             guest.setdefault("vertex_location", "global")
             guest.setdefault("vertex_account", "")
+    if value["schema_version"] == 5:
+        value["schema_version"] = 6
+        value.setdefault("pm_kernel", {
+            "enabled": False, "workspace": "", "postgres_enabled": False, "postgres_image": "",
+        })
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
@@ -175,6 +181,18 @@ def validate_config(value):
     atuin_workspace = value.get("atuin_workspace")
     if not isinstance(atuin_workspace, str) or atuin_workspace and not ID.fullmatch(atuin_workspace):
         raise ValueError("invalid Atuin workspace")
+    pm_kernel = value.get("pm_kernel")
+    if (not isinstance(pm_kernel, dict)
+            or set(pm_kernel) != {"enabled", "workspace", "postgres_enabled", "postgres_image"}
+            or not isinstance(pm_kernel["enabled"], bool)
+            or not isinstance(pm_kernel["postgres_enabled"], bool)
+            or not isinstance(pm_kernel["workspace"], str)
+            or not isinstance(pm_kernel["postgres_image"], str)
+            or pm_kernel["workspace"] and not ID.fullmatch(pm_kernel["workspace"])
+            or pm_kernel["postgres_enabled"] and (not pm_kernel["enabled"] or not pm_kernel["workspace"]
+                or not re.fullmatch(r"docker\.io/library/postgres:19beta3@sha256:[0-9a-f]{64}",
+                                    pm_kernel["postgres_image"]))):
+        raise ValueError("invalid PM Kernel settings")
     resources = value.get("resources")
     if not isinstance(resources, dict) or set(resources) != {"cpus", "memory_gib", "disk_gib"} or any(
             not isinstance(resources[name], int) or isinstance(resources[name], bool) or resources[name] <= 0
@@ -291,13 +309,15 @@ def validate_config(value):
         raise ValueError("enabled sandbox requires workspaces and a build workspace")
     if atuin_workspace and atuin_workspace not in names:
         raise ValueError("invalid Atuin workspace")
-    if atuin_workspace:
+    if pm_kernel["workspace"] and pm_kernel["workspace"] not in names:
+        raise ValueError("invalid PM Kernel workspace")
+    if atuin_workspace or pm_kernel["workspace"]:
         try:
             guarded_root = Path(state_root).resolve(strict=True)
             guarded_lima = Path(lima_home).resolve(strict=True)
             guarded_lima.relative_to(guarded_root)
         except (OSError, ValueError):
-            raise ValueError("Atuin workspace requires guarded Lima home") from None
+            raise ValueError("selected service workspace requires guarded Lima home") from None
     return value
 
 
@@ -310,6 +330,18 @@ def atuin_port_rule(forwards, remove=False):
     retained = [item for item in forwards if not owned(item)]
     if not remove:
         retained.append(ATUIN_PORT_FORWARD)
+    return ".portForwards = " + json.dumps(retained, sort_keys=True, separators=(",", ":"))
+
+
+def pm_postgres_port_rule(forwards, remove=False):
+    if not isinstance(forwards, list) or any(not isinstance(item, dict) for item in forwards):
+        raise ValueError("invalid Lima port forwards")
+    owned = lambda item: all(item.get(key) == value for key, value in PM_POSTGRES_PORT_FORWARD.items())
+    if not remove and any(item.get("hostPort") == 55432 and not owned(item) for item in forwards):
+        raise ValueError("PM PostgreSQL host port is already configured")
+    retained = [item for item in forwards if not owned(item)]
+    if not remove:
+        retained.append(PM_POSTGRES_PORT_FORWARD)
     return ".portForwards = " + json.dumps(retained, sort_keys=True, separators=(",", ":"))
 
 
@@ -421,6 +453,8 @@ def guest_config(config, workspace):
     guest = config["guest"]
     resources = config["resources"]
     onepassword = config["onepassword"]
+    pm_kernel = config["pm_kernel"]
+    pm_enabled = pm_kernel["enabled"] and workspace["name"] == pm_kernel["workspace"]
     backlog_roots = workspace.get("hermes_backlog_roots") or [
         mount["guest"] for mount in workspace["mounts"]
         if mount["writable"] and not mount["protect_git_submodules"]
@@ -472,6 +506,17 @@ def guest_config(config, workspace):
         f"account = {quote(onepassword['account'])}",
         f"user_uuid = {quote(onepassword['user_uuid'])}",
         f"keychain_service = {quote(onepassword['keychain_service'])}",
+        "",
+        "[data.dotfiles_ai.pm_kernel]",
+        f"enabled = {'true' if pm_enabled else 'false'}",
+        'workspace = ""',
+        f"postgres_enabled = {'true' if pm_enabled and pm_kernel['postgres_enabled'] else 'false'}",
+        f"postgres_image = {quote(pm_kernel['postgres_image'] if pm_enabled else '')}",
+        'postgres_password_ref = ""',
+        'postgres_backup_dir = ""',
+        'jira_adapter = "fake"',
+        'jira_project = ""',
+        'jira_issue_types = []',
         "",
         "[data.dotfiles_ai.sandbox]",
         "enabled = false",
@@ -563,18 +608,25 @@ def render_workspace(config, workspace, template=None):
             f"    mountPoint: {json.dumps(mount['guest'])}",
             f"    writable: {'true' if mount['writable'] else 'false'}",
         ])
+    forwards = []
+    if workspace["name"] == config["atuin_workspace"]:
+        forwards.append(ATUIN_PORT_FORWARD)
+    port_forwards = []
+    if forwards:
+        port_forwards.append("portForwards:")
+        for forward in forwards:
+            port_forwards.extend([
+                f"- guestPort: {forward['guestPort']}",
+                f"  hostPort: {forward['hostPort']}",
+                f"  guestIP: {json.dumps(forward['guestIP'])}",
+                f"  hostIP: {json.dumps(forward['hostIP'])}",
+            ])
     values = {
         "@@MOUNTS@@": "\n".join(mounts),
         "@@WORKSPACE_JSON@@": json.dumps({"mounts": workspace["mounts"]}, sort_keys=True, separators=(",", ":")),
         "@@SOURCE@@": config["source"],
         "@@GUEST_CONFIG@@": guest_config(config, workspace).rstrip().replace("\n", "\n      "),
-        "@@PORT_FORWARDS@@": "\n".join([
-            "portForwards:",
-            "- guestPort: 8888",
-            "  hostPort: 8889",
-            '  guestIP: "127.0.0.1"',
-            '  hostIP: "127.0.0.1"',
-        ]) if workspace["name"] == config["atuin_workspace"] else "",
+        "@@PORT_FORWARDS@@": "\n".join(port_forwards),
     }
     for marker, replacement in values.items():
         template = template.replace(marker, replacement)
@@ -635,6 +687,66 @@ def configure_atuin(config, remove=False, execute=command, state_path=None):
         state_path.unlink(missing_ok=True)
     else:
         state_path.write_text(selected + "\n")
+
+
+def configure_pm_postgres(config, remove=False, execute=command, state_path=None):
+    state_path = state_path or Path(config["template"]).parent / ".pm-postgres-workspace"
+    previous = state_path.read_text().strip() if state_path.exists() else ""
+    if remove and not previous:
+        rows = _parse_rows(execute(["limactl", "list", "--json"]))
+        if any(all(item.get(key) == value for key, value in PM_POSTGRES_PORT_FORWARD.items())
+               for row in rows if isinstance(row, dict) and isinstance(row.get("config"), dict)
+               for item in row["config"].get("portForwards", []) if isinstance(item, dict)):
+            raise ValueError("PM PostgreSQL forward ownership state is unavailable")
+        return
+    selected = previous if remove else config["pm_kernel"]["workspace"]
+    if previous and not remove and previous != selected:
+        raise ValueError("remove the prior PM PostgreSQL workspace before selecting another")
+    workspace = workspace_map(config).get(selected)
+    if workspace is None or not remove and not config["pm_kernel"]["postgres_enabled"]:
+        raise ValueError("PM PostgreSQL workspace is not configured")
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        rows = _parse_rows(execute(["limactl", "list", "--json"]))
+        current = next((row for row in rows if row.get("name") == instance), None)
+        if current is None or not isinstance(current.get("config"), dict):
+            raise ValueError("Lima instance configuration is unavailable")
+        running = str(current.get("status", "")).lower() == "running"
+        if remove:
+            update_workspace(config, workspace, execute=execute)
+        if running or remove:
+            execute(["limactl", "stop", instance], timeout=120)
+        try:
+            forwards = current["config"].get("portForwards", [])
+            if (not remove and not previous and any(
+                    all(item.get(key) == value for key, value in PM_POSTGRES_PORT_FORWARD.items())
+                    for item in forwards if isinstance(item, dict))):
+                raise ValueError("existing PM PostgreSQL forward has no ownership state")
+            rule = pm_postgres_port_rule(forwards, remove=remove)
+            execute(["limactl", "edit", "--yes", "--set", rule, instance], timeout=120)
+        finally:
+            if running:
+                execute(["limactl", "start", instance], timeout=120)
+    if remove:
+        state_path.unlink(missing_ok=True)
+    else:
+        state_path.write_text(selected + "\n")
+
+
+def provision_pm_postgres(config, stream, execute=command):
+    pm_kernel = config["pm_kernel"]
+    workspace = workspace_map(config).get(pm_kernel["workspace"])
+    if workspace is None or not pm_kernel["enabled"] or not pm_kernel["postgres_enabled"]:
+        raise ValueError("PM PostgreSQL workspace is not configured")
+    raw = stream.read(1025)
+    password = raw.rstrip(b"\r\n")
+    if len(raw) > 1024 or len(password) < 24 or re.search(rb"[\x00-\x20\x7f]", password):
+        raise ValueError("invalid PM PostgreSQL password")
+    execute([
+        "limactl", "shell", workspace["instance"], "--", "podman", "secret", "create",
+        "--replace", "pm-postgres-password", "-",
+    ], timeout=120, input_data=password)
 
 
 def status_report(config, execute=command, lima_root=None):
@@ -1068,6 +1180,9 @@ def main(argv=None, invocation=None):
     commands.add_parser("build-workspace")
     atuin = commands.add_parser("configure-atuin")
     atuin.add_argument("--remove", action="store_true")
+    pm_postgres = commands.add_parser("configure-pm-postgres")
+    pm_postgres.add_argument("--remove", action="store_true")
+    commands.add_parser("provision-pm-postgres")
     args = parser.parse_args(argv)
     config = config or load_config()
     if not config.get("enabled", True):
@@ -1095,6 +1210,15 @@ def main(argv=None, invocation=None):
         configure_atuin(config, remove=args.remove)
         status = "removed" if args.remove else "configured"
         print(json.dumps({"workspace": config["atuin_workspace"], "status": status}, sort_keys=True))
+        return
+    if args.command == "configure-pm-postgres":
+        configure_pm_postgres(config, remove=args.remove)
+        status = "removed" if args.remove else "configured"
+        print(json.dumps({"workspace": config["pm_kernel"]["workspace"], "status": status}, sort_keys=True))
+        return
+    if args.command == "provision-pm-postgres":
+        provision_pm_postgres(config, sys.stdin.buffer)
+        print(json.dumps({"workspace": config["pm_kernel"]["workspace"], "status": "provisioned"}, sort_keys=True))
         return
     try:
         workspace = workspace_map(config)[args.workspace]

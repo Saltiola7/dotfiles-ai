@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.dotfiles-ai.pm-postgres-backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
+        <string>{{ printf "%s/.local/bin/pm-postgres-backup" .chezmoi.homeDir | html }}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ .chezmoi.homeDir | html }}</string>
+        <key>PATH</key>
+        <string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+        <key>LIMA_HOME</key>
+        <string>{{ .dotfiles_ai.sandbox.lima_home | html }}</string>
+        <key>DOTFILES_AI_STATE_ROOT</key>
+        <string>{{ .dotfiles_ai.state.root | html }}</string>
+    </dict>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>15</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{ printf "%s/Library/Logs/pm-postgres-backup.log" .chezmoi.homeDir | html }}</string>
+    <key>StandardErrorPath</key>
+    <string>{{ printf "%s/Library/Logs/pm-postgres-backup.log" .chezmoi.homeDir | html }}</string>
+</dict>
+</plist>
