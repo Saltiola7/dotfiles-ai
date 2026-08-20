@@ -102,6 +102,12 @@ model_root = "/Volumes/your-drive/lmstudio"
 embedding_port = 11435
 embedding_dimensions = 4096
 embedding_context_tokens = 4096
+postgres_enabled = false
+
+[data.dotfiles_ai.knowledge_store.projects.dotfiles_ai]
+repository = "/absolute/path/to/dotfiles-ai"
+remote = "https://github.com/your-account/dotfiles-ai"
+postgres_password_ref = "op://Private/DBSCTR Knowledge/password"
 
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.

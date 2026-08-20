@@ -29,7 +29,7 @@ def load_helper():
 def config(tmp_path: Path) -> dict:
     (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
@@ -37,7 +37,7 @@ def config(tmp_path: Path) -> dict:
         "atuin_workspace": "",
         "pm_kernel": {
             "enabled": False, "workspace": "", "postgres_enabled": False,
-            "postgres_image": "",
+            "postgres_image": "", "knowledge_postgres_enabled": False,
         },
         "state_root": str(tmp_path / "state"),
         "lima_home": str(tmp_path / "state/lima"),
@@ -252,10 +252,11 @@ def test_old_schema_is_normalized_for_ordered_host_migration(tmp_path: Path) -> 
 
     helper.validate_config(values)
 
-    assert values["schema_version"] == 6
+    assert values["schema_version"] == 7
     assert values["onepassword"]["enabled"] is False
     assert values["guest"]["vertex_location"] == "global"
     assert values["pm_kernel"]["enabled"] is False
+    assert values["pm_kernel"]["knowledge_postgres_enabled"] is False
 
 
 def test_guest_config_rejects_insecure_atuin_sync_address(tmp_path: Path) -> None:
@@ -615,7 +616,7 @@ def test_pm_postgres_selects_workspace_forward_and_guest_service(tmp_path: Path)
     image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
     values["pm_kernel"] = {
         "enabled": True, "workspace": "workspace1", "postgres_enabled": True,
-        "postgres_image": image,
+        "postgres_image": image, "knowledge_postgres_enabled": True,
     }
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
     template = (template.replace("{{ .dotfiles_ai.sandbox.cpus }}", "4")
@@ -633,6 +634,9 @@ def test_pm_postgres_selects_workspace_forward_and_guest_service(tmp_path: Path)
         "enabled": True, "workspace": "", "postgres_enabled": True,
         "postgres_image": image, "postgres_password_ref": "", "postgres_backup_dir": "",
         "jira_adapter": "fake", "jira_project": "", "jira_issue_types": [],
+    }
+    assert guest["data"]["dotfiles_ai"]["knowledge_store"] == {
+        "enabled": True, "postgres_enabled": True,
     }
 
 

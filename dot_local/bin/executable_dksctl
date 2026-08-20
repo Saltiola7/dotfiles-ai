@@ -1,0 +1,1023 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import math
+import os
+import posixpath
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+HEADING_RE = re.compile(rb"^(#{1,6})[ \t]+(.+?)[ \t]*$")
+PROJECT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
+
+
+def canonical_json(value) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def digest_json(value) -> str:
+    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
+
+
+def normalize_remote(value: str) -> str:
+    if re.fullmatch(r"git@[^:]+:.+", value):
+        host, path = value[4:].split(":", 1)
+        value = f"https://{host.lower()}/{path}"
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError("unsupported repository remote")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("unsafe repository remote")
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    if not path or path == "/" or ".." in path.split("/"):
+        raise ValueError("invalid repository remote")
+    return f"https://{parsed.hostname.lower()}{path}"
+
+
+def run_git(repository: Path, *args: str, binary: bool = False):
+    environment = {**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"}
+    completed = subprocess.run(["git", *args], cwd=repository, check=True,
+                               capture_output=True, text=not binary, env=environment)
+    return completed.stdout
+
+
+def validate_markdown(data: bytes) -> str:
+    if data.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("Markdown BOM is not supported")
+    try:
+        return data.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise ValueError("Markdown is not valid UTF-8") from error
+
+
+def accepted_path(path: str) -> bool:
+    parts = path.split("/")
+    return (path.endswith(".md") and
+            (path.startswith("docs/specs/") or path.startswith("docs/tickets/")) and
+            "_archive" not in parts)
+
+
+def git_documents(repository: Path, commit: str, expected_remote: str):
+    repository = repository.resolve(strict=True)
+    if not COMMIT_RE.fullmatch(commit):
+        raise ValueError("commit must be a lowercase 40-hex SHA-1")
+    if run_git(repository, "rev-parse", "--show-object-format").strip() != "sha1":
+        raise ValueError("repository object format must be sha1")
+    actual_remote = normalize_remote(run_git(repository, "remote", "get-url", "origin").strip())
+    if actual_remote != normalize_remote(expected_remote):
+        raise ValueError("repository remote mismatch")
+    if run_git(repository, "cat-file", "-t", commit).strip() != "commit":
+        raise ValueError("revision is not a commit")
+    tree = run_git(repository, "ls-tree", "-rz", "--full-tree", "-r", commit, "--",
+                   "docs/specs", "docs/tickets", binary=True)
+    documents = []
+    for row in tree.split(b"\0"):
+        if not row:
+            continue
+        metadata, raw_path = row.split(b"\t", 1)
+        mode, kind, raw_oid = metadata.split(b" ", 2)
+        path = raw_path.decode("utf-8", errors="strict")
+        if not accepted_path(path):
+            continue
+        if mode not in {b"100644", b"100755"} or kind != b"blob":
+            raise ValueError(f"unsupported Git mode for {path}")
+        oid = raw_oid.decode()
+        data = run_git(repository, "cat-file", "blob", oid, binary=True)
+        validate_markdown(data)
+        documents.append({"path": path, "blob_id": oid, "data": data})
+    return sorted(documents, key=lambda item: item["path"].encode())
+
+
+def source_lines(data: bytes):
+    position = 0
+    while position < len(data):
+        start = position
+        while position < len(data) and data[position] not in (10, 13):
+            position += 1
+        payload_end = position
+        if position < len(data):
+            if data[position] == 13 and position + 1 < len(data) and data[position + 1] == 10:
+                position += 2
+            else:
+                position += 1
+        yield start, payload_end, position, data[start:payload_end]
+
+
+def fence_open(payload: bytes):
+    stripped = payload.lstrip(b" ")
+    if len(payload) - len(stripped) > 3 or not stripped:
+        return None
+    marker = stripped[:1]
+    if marker not in (b"`", b"~"):
+        return None
+    count = len(stripped) - len(stripped.lstrip(marker))
+    return (marker, count) if count >= 3 else None
+
+
+def fence_close(payload: bytes, fence) -> bool:
+    marker, minimum = fence
+    stripped = payload.lstrip(b" ")
+    if len(payload) - len(stripped) > 3:
+        return False
+    count = len(stripped) - len(stripped.lstrip(marker))
+    return count >= minimum and not stripped[count:].strip(b" \t")
+
+
+def markdown_headings(data: bytes):
+    lines = list(source_lines(data))
+    headings = []
+    fence = None
+    heading_path = []
+    for start, _, end, payload in lines:
+        if fence:
+            if fence_close(payload, fence):
+                fence = None
+            continue
+        opener = fence_open(payload)
+        if opener:
+            fence = opener
+            continue
+        match = HEADING_RE.fullmatch(payload)
+        if match:
+            level = len(match.group(1))
+            text = match.group(2).decode("utf-8")
+            heading_path = heading_path[:level - 1] + [text]
+            headings.append((start, end, list(heading_path)))
+    return headings
+
+
+def markdown_sections(data: bytes):
+    headings = markdown_headings(data)
+    sections = []
+    body_start = 0
+    current_path = []
+    for heading_start, heading_end, path in headings:
+        if heading_start > body_start:
+            sections.append((body_start, heading_start, current_path))
+        body_start = heading_end
+        current_path = path
+    if body_start < len(data):
+        sections.append((body_start, len(data), current_path))
+    return sections
+
+
+def paragraph_ranges(data: bytes, start: int, end: int):
+    ranges = []
+    paragraph_start = None
+    paragraph_end = None
+    for line_start, _, line_end, payload in source_lines(data[start:end]):
+        absolute_start, absolute_end = start + line_start, start + line_end
+        blank = not payload.strip(b" \t")
+        if blank:
+            if paragraph_start is not None:
+                ranges.append((paragraph_start, paragraph_end))
+                paragraph_start = paragraph_end = None
+        else:
+            paragraph_start = absolute_start if paragraph_start is None else paragraph_start
+            paragraph_end = absolute_end
+    if paragraph_start is not None:
+        ranges.append((paragraph_start, paragraph_end))
+    return ranges
+
+
+def embedding_text(heading_path, body: bytes) -> str:
+    return f"Heading: {' > '.join(heading_path)}\n\n{body.decode('utf-8')}"
+
+
+def candidate_boundaries(data: bytes, start: int, end: int):
+    sentence = []
+    whitespace = []
+    for match in re.finditer(rb"[.!?][ \t\r\n]+", data[start:end]):
+        sentence.append(start + match.end())
+    for match in re.finditer(rb"[ \t\r\n]+", data[start:end]):
+        whitespace.append(start + match.end())
+    codepoints = []
+    position = start
+    while position < end:
+        byte = data[position]
+        width = 1 if byte < 0x80 else 2 if byte < 0xE0 else 3 if byte < 0xF0 else 4
+        position += width
+        codepoints.append(position)
+    return sentence, whitespace, codepoints
+
+
+def split_to_fit(data: bytes, start: int, end: int, heading_path, token_count, token_limit: int):
+    result = []
+    position = start
+    while position < end:
+        if token_count(embedding_text(heading_path, data[position:end])) <= token_limit:
+            result.append((position, end))
+            break
+        groups = candidate_boundaries(data, position, end)
+        chosen = None
+        for boundaries in groups:
+            fitting = [boundary for boundary in boundaries if boundary > position and
+                       token_count(embedding_text(heading_path, data[position:boundary])) <= token_limit]
+            if fitting:
+                chosen = max(fitting)
+                break
+        if chosen is None:
+            raise ValueError("heading context leaves no room for one UTF-8 code point")
+        result.append((position, chosen))
+        position = chosen
+    return result
+
+
+def chunk_markdown(data: bytes, token_count, token_limit: int = 1024):
+    validate_markdown(data)
+    chunks = []
+    ordinal = 0
+    for section_start, section_end, heading_path in markdown_sections(data):
+        if token_count(embedding_text(heading_path, b"")) >= token_limit:
+            raise ValueError("heading context exceeds token limit")
+        units = []
+        for start, end in paragraph_ranges(data, section_start, section_end):
+            units.extend(split_to_fit(data, start, end, heading_path, token_count, token_limit))
+        packed = []
+        for start, end in units:
+            if packed and token_count(embedding_text(heading_path, data[packed[-1][0]:end])) <= token_limit:
+                packed[-1] = (packed[-1][0], end)
+            else:
+                packed.append((start, end))
+        content_id = hashlib.sha256(data).hexdigest()
+        for start, end in packed:
+            body_bytes = data[start:end]
+            body_sha = hashlib.sha256(body_bytes).hexdigest()
+            identity = {
+                "body_sha256": body_sha,
+                "chunker": "dks-markdown-v1",
+                "content_id": content_id,
+                "end_byte": end,
+                "heading_path": heading_path,
+                "ordinal": ordinal,
+                "start_byte": start,
+            }
+            text = embedding_text(heading_path, body_bytes)
+            chunks.append({
+                "body": body_bytes.decode("utf-8"),
+                "body_bytes": body_bytes,
+                "body_sha256": body_sha,
+                "chunk_id": digest_json(identity),
+                "content_id": content_id,
+                "embedding_text": text,
+                "embedding_tokens": token_count(text),
+                "end_byte": end,
+                "heading_path": list(heading_path),
+                "ordinal": ordinal,
+                "start_byte": start,
+            })
+            ordinal += 1
+    return chunks
+
+
+def node_id(project_id: str, kind: str, stable_key: str) -> str:
+    return digest_json({"kind": kind, "project_id": project_id, "stable_key": stable_key})
+
+
+def edge_id(project_id: str, revision_id: str, edge_type: str, source_node_id: str,
+            target_node_id: str, start_byte: int, end_byte: int) -> str:
+    return digest_json({
+        "edge_type": edge_type, "end_byte": end_byte, "project_id": project_id,
+        "revision_id": revision_id, "source_node_id": source_node_id,
+        "start_byte": start_byte, "target_node_id": target_node_id,
+    })
+
+
+def resolve_project_link(source_path: str, link: str):
+    parsed = urllib.parse.urlsplit(link)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.path.startswith("/"):
+        raise ValueError("external or absolute link")
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(source_path),
+                                               urllib.parse.unquote(parsed.path)))
+    if target == ".." or target.startswith("../"):
+        raise ValueError("link escapes project")
+    return target, urllib.parse.unquote(parsed.fragment) or None
+
+
+def ticket_metadata_ranges(value):
+    data = value.encode() if isinstance(value, str) else value
+    lines = list(source_lines(data))
+    if not lines or lines[0][3] != b"---":
+        return {}, {}
+    metadata = {}
+    ranges = {}
+    key = None
+    for start, _, end, payload in lines[1:]:
+        if payload == b"---":
+            return metadata, ranges
+        line = payload.decode("utf-8")
+        if re.fullmatch(r"[a-z_]+:.*", line):
+            key, value = line.split(":", 1)
+            value = value.strip().strip('"')
+            metadata[key] = value if value else []
+            if value:
+                ranges[(key, value)] = (start, end)
+        elif key and isinstance(metadata.get(key), list) and re.fullmatch(r"\s+-\s+.+", line):
+            item = re.sub(r"^\s+-\s+", "", line).strip().strip('"')
+            metadata[key].append(item)
+            ranges[(key, item)] = (start, end)
+    return {}, {}
+
+
+def ticket_metadata(value):
+    return ticket_metadata_ranges(value)[0]
+
+
+def build_graph(project_id: str, revision_id: str, documents, chunks):
+    nodes = {}
+    edges = {}
+    paths = {document["path"] for document in documents}
+    headings = {}
+    heading_occurrences = {}
+
+    def add_node(kind, stable_key, path=None, heading_path=None):
+        identity = node_id(project_id, kind, stable_key)
+        nodes[identity] = {
+            "node_id": identity, "kind": kind, "stable_key": stable_key,
+            "path": path, "heading_path": heading_path,
+        }
+        return identity
+
+    def add_edge(edge_type, source, target, start, end):
+        identity = edge_id(project_id, revision_id, edge_type, source, target, start, end)
+        edges[identity] = {
+            "edge_id": identity, "edge_type": edge_type, "source_node_id": source,
+            "target_node_id": target, "start_byte": start, "end_byte": end,
+        }
+
+    path_nodes = {path: add_node("path", path, path=path) for path in sorted(paths)}
+    ticket_nodes = {}
+    for document in documents:
+        if not document["path"].startswith("docs/tickets/"):
+            continue
+        metadata = ticket_metadata(validate_markdown(document["data"]))
+        ticket_id = metadata.get("id")
+        if isinstance(ticket_id, str) and ticket_id:
+            ticket_nodes[ticket_id] = add_node("ticket", ticket_id, path=document["path"])
+
+    for document in documents:
+        path = document["path"]
+        for start, end, heading_path in markdown_headings(document["data"]):
+            stable_key = f"{path}#{' > '.join(heading_path)}@{start}"
+            heading_node = add_node("heading", stable_key, path=path, heading_path=heading_path)
+            headings.setdefault((path, heading_path[-1]), []).append(heading_node)
+            heading_occurrences.setdefault((path, tuple(heading_path)), []).append((end, heading_node))
+
+    for chunk in chunks:
+        path = chunk["path"]
+        chunk_node = add_node("chunk", chunk["chunk_id"], path=path,
+                              heading_path=chunk["heading_path"])
+        if chunk["heading_path"]:
+            occurrences = [item for item in heading_occurrences[(path, tuple(chunk["heading_path"]))]
+                           if item[0] <= chunk["start_byte"]]
+            heading_node = max(occurrences)[1]
+            source = heading_node
+        else:
+            source = path_nodes[path]
+        add_edge("contains", source, chunk_node, chunk["start_byte"], chunk["end_byte"])
+
+    for document in documents:
+        metadata, ranges = ticket_metadata_ranges(document["data"])
+        source = ticket_nodes.get(metadata.get("id"))
+        if not source:
+            continue
+        for dependency in metadata.get("depends_on", []) if isinstance(metadata.get("depends_on"), list) else []:
+            target = ticket_nodes.get(dependency) or add_node("ticket", dependency)
+            add_edge("depends_on", source, target, *ranges[("depends_on", dependency)])
+        for edge_type in ("owns", "reads"):
+            values = metadata.get(edge_type, [])
+            for value in values if isinstance(values, list) else []:
+                normalized = posixpath.normpath(value)
+                if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+                    raise ValueError("ticket path escapes project")
+                target = path_nodes.get(normalized) or add_node("path", normalized, path=normalized)
+                add_edge(edge_type, source, target, *ranges[(edge_type, value)])
+
+    link_pattern = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+    for chunk in chunks:
+        source = node_id(project_id, "chunk", chunk["chunk_id"])
+        for match in link_pattern.finditer(chunk["body"]):
+            link = match.group(1).strip()
+            parsed = urllib.parse.urlsplit(link)
+            if parsed.scheme or parsed.netloc or link.startswith("/"):
+                continue
+            target_path, fragment = resolve_project_link(chunk["path"], link)
+            if target_path not in paths:
+                continue
+            if fragment:
+                matches = headings.get((target_path, fragment), [])
+                if len(matches) != 1:
+                    raise ValueError("Markdown heading link is not unique")
+                target = matches[0]
+            else:
+                target = path_nodes[target_path]
+            start = chunk["start_byte"] + len(chunk["body"][:match.start()].encode())
+            end = chunk["start_byte"] + len(chunk["body"][:match.end()].encode())
+            add_edge("links_to", source, target, start, end)
+    return sorted(nodes.values(), key=lambda item: item["node_id"]), \
+        sorted(edges.values(), key=lambda item: item["edge_id"])
+
+
+def rrf(channels, limit: int = 20, k: int = 60):
+    scores = {}
+    ranks = {}
+    for channel, identities in sorted(channels.items()):
+        for rank, identity in enumerate(identities, 1):
+            scores[identity] = scores.get(identity, 0.0) + 1.0 / (k + rank)
+            ranks.setdefault(identity, {})[channel] = rank
+    ordered = sorted(scores, key=lambda identity: (-scores[identity], identity))[:limit]
+    return [{"id": identity, "score": scores[identity], "ranks": ranks[identity]}
+            for identity in ordered]
+
+
+def sql_literal(value) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("non-finite SQL number")
+        return str(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def load_config(path: str):
+    try:
+        data = json.loads(Path(path).expanduser().read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("knowledge configuration unavailable") from error
+    if not isinstance(data.get("projects"), dict):
+        raise ValueError("knowledge projects unavailable")
+    return data
+
+
+def selected_project(config, project_id: str):
+    if not PROJECT_RE.fullmatch(project_id):
+        raise ValueError("invalid project")
+    try:
+        project = config["projects"][project_id]
+    except KeyError as error:
+        raise ValueError("unknown project") from error
+    if not isinstance(project, dict):
+        raise ValueError("invalid project configuration")
+    return project
+
+
+def run_psql(config, project_id: str, sql: str):
+    executable = str(Path(config.get("psql", "~/.local/bin/dks-psql")).expanduser())
+    completed = subprocess.run([executable, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"],
+                               input=f"SET dks.project_id = {sql_literal(project_id)};\n{sql}\n",
+                               text=True, capture_output=True)
+    if completed.returncode:
+        raise RuntimeError("knowledge database operation failed")
+    return completed.stdout.splitlines()
+
+
+class PsqlSession:
+    def __init__(self, config):
+        executable = str(Path(config.get("psql", "~/.local/bin/dks-psql")).expanduser())
+        self.process = subprocess.Popen(
+            [executable, "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, bufsize=1,
+        )
+
+    def execute(self, sql: str):
+        marker = "dks_" + secrets.token_hex(12)
+        try:
+            self.process.stdin.write(sql + f"\n\\echo {marker}\n")
+            self.process.stdin.flush()
+        except (BrokenPipeError, AttributeError) as error:
+            raise RuntimeError("knowledge database session failed") from error
+        lines = []
+        while True:
+            line = self.process.stdout.readline()
+            if not line:
+                raise RuntimeError("knowledge database operation failed")
+            value = line.rstrip("\n")
+            if value == marker:
+                return lines
+            lines.append(value)
+
+    def close(self):
+        if self.process.poll() is None:
+            try:
+                self.process.stdin.write("\\quit\n")
+                self.process.stdin.flush()
+                self.process.wait(timeout=5)
+            except Exception:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def api_request(config, path: str, payload):
+    embedding = config.get("embedding", {})
+    key_path = Path(embedding.get("api_key_file", "")).expanduser()
+    try:
+        key_stat = key_path.lstat()
+        if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.getuid() or \
+                stat.S_IMODE(key_stat.st_mode) != 0o600:
+            raise OSError("unsafe credential file")
+        key = key_path.read_text().strip()
+    except OSError as error:
+        raise RuntimeError("embedding credential unavailable") from error
+    if not re.fullmatch(r"[0-9a-f]{64}", key):
+        raise RuntimeError("embedding credential invalid")
+    base_url = embedding.get("url", "http://127.0.0.1:11435")
+    parsed = urllib.parse.urlsplit(base_url)
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.port is None or \
+            parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise RuntimeError("embedding endpoint is not approved loopback")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{parsed.port}" + path,
+        data=json.dumps(payload, separators=(",", ":")).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *_args, **_kwargs):
+                return None
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+            return json.load(response)
+    except Exception as error:
+        raise RuntimeError("embedding request failed") from error
+
+
+def token_counter(config):
+    def count(text: str):
+        body = api_request(config, "/tokenize", {"content": text})
+        tokens = body.get("tokens")
+        if not isinstance(tokens, list):
+            raise RuntimeError("tokenization response invalid")
+        return len(tokens)
+    return count
+
+
+def embed(config, texts):
+    if not texts:
+        return []
+    body = api_request(config, "/v1/embeddings", {
+        "model": config.get("embedding", {}).get("model"), "input": texts,
+    })
+    if body.get("model") != config.get("embedding", {}).get("model"):
+        raise RuntimeError("embedding response model mismatch")
+    rows = body.get("data", [])
+    if not isinstance(rows, list) or any(not isinstance(item, dict) or type(item.get("index")) is not int
+                                         for item in rows) or \
+            sorted(item["index"] for item in rows) != list(range(len(texts))):
+        raise RuntimeError("embedding response indexes invalid")
+    vectors = [item.get("embedding") for item in sorted(rows, key=lambda item: item["index"])]
+    if len(vectors) != len(texts):
+        raise RuntimeError("embedding count mismatch")
+    for vector in vectors:
+        validate_vector(vector)
+    return vectors
+
+
+def validate_vector(vector):
+    if not isinstance(vector, list) or len(vector) != 4096 or \
+            not all(isinstance(value, (int, float)) and math.isfinite(value) for value in vector):
+        raise RuntimeError("embedding vector invalid")
+    norm = math.sqrt(sum(value * value for value in vector))
+    if abs(norm - 1.0) > 1e-3:
+        raise RuntimeError("embedding vector is not normalized")
+
+
+def validate_embedding_config(config):
+    embedding = config.get("embedding", {})
+    manifest_path = Path(embedding.get("manifest_file", "")).expanduser()
+    try:
+        manifest_stat = manifest_path.lstat()
+        if not stat.S_ISREG(manifest_stat.st_mode) or manifest_stat.st_uid != os.getuid() or \
+                stat.S_IMODE(manifest_stat.st_mode) & 0o022:
+            raise OSError("unsafe manifest file")
+        raw = manifest_path.read_bytes()
+        manifest = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("embedding manifest unavailable") from error
+    parsed = urllib.parse.urlsplit(embedding.get("url", ""))
+    valid = (
+        hashlib.sha256(raw).hexdigest() == embedding.get("manifest_sha256")
+        and manifest.get("embedding_space_id") == embedding.get("space_id")
+        and manifest.get("contract", {}).get("dimensions") == 4096
+        and manifest.get("contract", {}).get("normalization") == "l2"
+        and manifest.get("service", {}).get("host") == "127.0.0.1"
+        and manifest.get("service", {}).get("port") == parsed.port
+        and embedding.get("model") == "qwen3-embedding-8b-q4km"
+    )
+    if not valid:
+        raise RuntimeError("embedding manifest identity mismatch")
+
+
+def command_status(args, config, project):
+    lines = run_psql(config, args.project, """
+SELECT json_build_object(
+  'project', p.project_id,
+  'active_revision', p.active_revision_id,
+  'active_run', p.active_run_id,
+  'embedding_space', p.active_embedding_space_id,
+  'migration', (SELECT max(version) FROM dks.schema_migrations),
+  'last_run', (SELECT json_build_object('run_id', r.run_id, 'revision', r.revision_id, 'state', r.state, 'finished_at', r.finished_at)
+               FROM dks.sync_runs r WHERE r.project_id=p.project_id ORDER BY r.created_at DESC, r.run_id DESC LIMIT 1),
+  'records', (SELECT count(*) FROM dks.source_records r WHERE r.project_id=p.project_id AND r.revision_id=p.active_revision_id),
+  'chunks', (SELECT count(*) FROM dks.revision_chunks c WHERE c.project_id=p.project_id AND c.revision_id=p.active_revision_id)
+)::text FROM dks.projects p WHERE p.project_id=current_setting('dks.project_id');
+""")
+    return json.loads(lines[-1]) if lines else {"project": args.project, "active_revision": None}
+
+
+def graph_channel(project_id, seed_ids, edges, nodes, chunks):
+    node_by_id = {item["node_id"]: item for item in nodes}
+    chunks_by_path = {}
+    for chunk in chunks:
+        chunks_by_path.setdefault(chunk["path"], []).append(chunk)
+    for values in chunks_by_path.values():
+        values.sort(key=lambda item: item["ordinal"])
+    seed_nodes = {node_id(project_id, "chunk", chunk_id): rank
+                  for rank, chunk_id in enumerate(seed_ids, 1)}
+    candidates = []
+    for edge in sorted(edges, key=lambda item: item["edge_id"]):
+        adjacent = None
+        seed_rank = seed_nodes.get(edge["source_node_id"])
+        if seed_rank is not None:
+            adjacent = edge["target_node_id"]
+        else:
+            seed_rank = seed_nodes.get(edge["target_node_id"])
+            if seed_rank is not None:
+                adjacent = edge["source_node_id"]
+        if adjacent is None:
+            continue
+        node = node_by_id.get(adjacent)
+        if not node:
+            continue
+        mapped = []
+        if node["kind"] == "chunk":
+            mapped = [node["stable_key"]]
+        elif node.get("path"):
+            for chunk in chunks_by_path.get(node["path"], []):
+                if node["kind"] != "heading" or chunk["heading_path"][:len(node["heading_path"])] == node["heading_path"]:
+                    mapped.append(chunk["chunk_id"])
+        for chunk_id in mapped:
+            candidates.append((seed_rank, edge["edge_type"], edge["edge_id"], chunk_id))
+    seen = set()
+    ordered = []
+    for *_, chunk_id in sorted(candidates):
+        if chunk_id not in seen:
+            seen.add(chunk_id)
+            ordered.append(chunk_id)
+        if len(ordered) == 20:
+            break
+    return ordered
+
+
+def command_query(args, config, project):
+    validate_embedding_config(config)
+    vector = embed(config, [f"Instruct: Retrieve authoritative DBSCTR engineering evidence\nQuery:{args.text}"])[0]
+    vector_sql = "[" + ",".join(format(float(value), ".9g") for value in vector) + "]"
+    revision_filter = (sql_literal(args.commit) if args.commit else
+                       "(SELECT active_revision_id FROM dks.projects WHERE project_id=current_setting('dks.project_id'))")
+    sql = f"""
+WITH scoped_chunks AS (
+  SELECT DISTINCT ON (c.chunk_id) rc.project_id, rc.revision_id, rc.path, sr.blob_id,
+         c.chunk_id, c.content_id, c.ordinal, c.start_byte, c.end_byte, c.heading_path,
+         c.body_sha256, c.search_tsv, e.value
+  FROM dks.revision_chunks rc
+  JOIN dks.knowledge_chunks c USING (project_id, chunk_id)
+  JOIN dks.source_records sr USING (project_id, revision_id, path)
+  JOIN dks.embeddings e USING (project_id, chunk_id)
+  JOIN dks.projects p USING (project_id)
+  WHERE rc.revision_id={revision_filter} AND e.embedding_space_id=p.active_embedding_space_id
+  ORDER BY c.chunk_id, rc.path
+), candidates AS (
+  SELECT 'lexical' AS channel, c.chunk_id,
+         ts_rank_cd(c.search_tsv, websearch_to_tsquery('english', {sql_literal(args.text)}), 32)::double precision AS score
+  FROM scoped_chunks c
+  WHERE c.search_tsv @@ websearch_to_tsquery('english', {sql_literal(args.text)})
+  UNION ALL
+  SELECT 'vector', c.chunk_id, -(c.value <#> {sql_literal(vector_sql)}::vector(4096))
+  FROM scoped_chunks c
+), ranked AS (
+  SELECT *, row_number() OVER (PARTITION BY channel ORDER BY score DESC, chunk_id ASC) AS rank
+  FROM candidates
+)
+SELECT json_build_object('kind','candidate','channel',channel,'chunk_id',chunk_id,'score',score,'rank',rank)::text
+FROM ranked WHERE rank <= 20
+UNION ALL
+SELECT json_build_object('kind','chunk','chunk_id',c.chunk_id,'path',c.path,'ordinal',c.ordinal,
+  'heading_path',c.heading_path,'start_byte',c.start_byte,'end_byte',c.end_byte,'content_id',c.content_id,
+  'body_sha256',c.body_sha256,'blob_id',c.blob_id,'commit',c.revision_id)::text
+FROM scoped_chunks c
+UNION ALL
+SELECT json_build_object('kind','node','node_id',node_id,'node_kind',kind,'stable_key',stable_key,'path',path,'heading_path',heading_path)::text
+FROM dks.graph_nodes WHERE revision_id={revision_filter}
+UNION ALL
+SELECT json_build_object('kind','edge','edge_id',edge_id,'edge_type',edge_type,'source_node_id',source_node_id,'target_node_id',target_node_id)::text
+FROM GRAPH_TABLE (
+  dks.knowledge_graph MATCH (source)-[edge]->(target)
+  COLUMNS (source.revision_id AS revision_id, source.node_id AS source_node_id,
+           edge.edge_id AS edge_id, edge.edge_type AS edge_type, target.node_id AS target_node_id)
+) graph_rows WHERE revision_id={revision_filter};
+"""
+    rows = [json.loads(line) for line in run_psql(config, args.project, sql)]
+    channel_rows = [row for row in rows if row["kind"] == "candidate"]
+    channels = {
+        name: [row["chunk_id"] for row in sorted(channel_rows, key=lambda item: item["rank"])
+               if row["channel"] == name]
+        for name in ("lexical", "vector")
+    }
+    seeds = [item["id"] for item in rrf(channels, limit=10)]
+    chunks = [row for row in rows if row["kind"] == "chunk"]
+    channels["graph"] = graph_channel(
+        args.project,
+        seeds,
+        [row for row in rows if row["kind"] == "edge"],
+        [{"node_id": row["node_id"], "kind": row["node_kind"], "stable_key": row["stable_key"],
+          "path": row.get("path"), "heading_path": row.get("heading_path")} for row in rows if row["kind"] == "node"],
+        chunks,
+    )
+    metadata = {row["chunk_id"]: row for row in chunks}
+    results = []
+    for fused in rrf(channels, limit=args.limit):
+        if fused["id"] not in metadata:
+            continue
+        citation = {key: value for key, value in metadata[fused["id"]].items()
+                    if key not in {"kind", "heading_path", "ordinal"}}
+        fused["score_terms"] = {name: 1.0 / (60 + rank) for name, rank in fused["ranks"].items()}
+        results.append({**citation, **fused})
+    return {"project": args.project, "revision": args.commit or (results[0]["commit"] if results else None),
+            "results": results}
+
+
+def projection_payload_sql(revision: str):
+    return f"""
+SELECT json_build_object(
+  'records', (SELECT coalesce(jsonb_agg(jsonb_build_array(path,blob_id,content_id) ORDER BY path), '[]') FROM dks.source_records WHERE revision_id={sql_literal(revision)}),
+  'chunks', (SELECT coalesce(jsonb_agg(jsonb_build_array(path,chunk_id) ORDER BY path,chunk_id), '[]') FROM dks.revision_chunks WHERE revision_id={sql_literal(revision)}),
+  'embeddings', (SELECT coalesce(jsonb_agg(jsonb_build_array(e.embedding_id,e.value_sha256) ORDER BY e.embedding_id), '[]') FROM dks.embeddings e JOIN dks.revision_chunks r USING(project_id,chunk_id) WHERE r.revision_id={sql_literal(revision)}),
+  'nodes', (SELECT coalesce(jsonb_agg(node_id ORDER BY node_id), '[]') FROM dks.graph_nodes WHERE revision_id={sql_literal(revision)}),
+  'edges', (SELECT coalesce(jsonb_agg(edge_id ORDER BY edge_id), '[]') FROM dks.graph_edges WHERE revision_id={sql_literal(revision)})
+)::text;
+"""
+
+
+def projection_identity(config, project_id: str, revision: str):
+    lines = run_psql(config, project_id, projection_payload_sql(revision))
+    return digest_json(json.loads(lines[-1])) if lines else None
+
+
+def projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, edges):
+    records = sorted([document["path"], document["blob_id"],
+                      hashlib.sha256(document["data"]).hexdigest()] for document in documents)
+    chunk_rows = sorted([chunk["path"], chunk["chunk_id"]] for chunk in chunks)
+    embedding_rows = []
+    for chunk in chunks:
+        embedding_id = digest_json({"chunk_id": chunk["chunk_id"], "embedding_space_id": embedding_space})
+        embedding_rows.append([embedding_id, vector_hashes[embedding_id]])
+    return {
+        "records": records,
+        "chunks": chunk_rows,
+        "embeddings": sorted(embedding_rows),
+        "nodes": sorted(node["node_id"] for node in nodes),
+        "edges": sorted(edge["edge_id"] for edge in edges),
+    }
+
+
+def sync_statements(project_id, commit, run_id, embedding_space, manifest_sha,
+                    documents, chunks, vectors, nodes, edges):
+    statements = ["BEGIN;"]
+    statements.append(
+        "INSERT INTO dks.embedding_spaces(project_id,embedding_space_id,manifest_sha256,dimensions) "
+        f"VALUES ({sql_literal(project_id)},{sql_literal(embedding_space)},{sql_literal(manifest_sha)},4096) "
+        "ON CONFLICT DO NOTHING;")
+    statements.append(
+        "DO $space$ BEGIN IF NOT EXISTS (SELECT 1 FROM dks.embedding_spaces "
+        f"WHERE project_id={sql_literal(project_id)} AND embedding_space_id={sql_literal(embedding_space)} "
+        f"AND manifest_sha256={sql_literal(manifest_sha)} AND dimensions=4096) "
+        "THEN RAISE EXCEPTION 'embedding space identity mismatch'; END IF; END $space$;")
+    statements.append(
+        "INSERT INTO dks.source_revisions(project_id,revision_id) "
+        f"VALUES ({sql_literal(project_id)},{sql_literal(commit)}) ON CONFLICT DO NOTHING;")
+    statements.append(
+        "INSERT INTO dks.sync_runs(project_id,run_id,revision_id,state,expected_records,expected_chunks,expected_embeddings,expected_nodes,expected_edges) "
+        f"VALUES ({sql_literal(project_id)},{sql_literal(run_id)},{sql_literal(commit)},'staging',"
+        f"{len(documents)},{len(chunks)},{len(chunks)},{len(nodes)},{len(edges)});")
+    statements.extend([
+        f"DELETE FROM dks.graph_edges WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)};",
+        f"DELETE FROM dks.revision_chunks WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)};",
+        f"DELETE FROM dks.graph_nodes WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)};",
+        f"DELETE FROM dks.source_records WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)};",
+    ])
+    for document in documents:
+        body = validate_markdown(document["data"])
+        content_id = hashlib.sha256(document["data"]).hexdigest()
+        statements.append(
+            "INSERT INTO dks.content_objects(project_id,content_id,body) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(content_id)},{sql_literal(body)}) ON CONFLICT DO NOTHING;")
+        statements.append(
+            "INSERT INTO dks.source_records(project_id,revision_id,path,blob_id,content_id) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(commit)},{sql_literal(document['path'])},"
+            f"{sql_literal(document['blob_id'])},{sql_literal(content_id)}) ON CONFLICT DO NOTHING;")
+    for chunk in chunks:
+        heading_json = canonical_json(chunk["heading_path"])
+        statements.append(
+            "INSERT INTO dks.knowledge_chunks(project_id,chunk_id,content_id,chunker_version,ordinal,start_byte,end_byte,heading_path,heading_text,body,body_sha256,token_count) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(chunk['chunk_id'])},{sql_literal(chunk['content_id'])},'dks-markdown-v1',"
+            f"{chunk['ordinal']},{chunk['start_byte']},{chunk['end_byte']},{sql_literal(heading_json)}::jsonb,"
+            f"{sql_literal(' > '.join(chunk['heading_path']))},{sql_literal(chunk['body'])},{sql_literal(chunk['body_sha256'])},{chunk['embedding_tokens']}) ON CONFLICT DO NOTHING;")
+        embedding_id = digest_json({"chunk_id": chunk["chunk_id"], "embedding_space_id": embedding_space})
+        vector_value = "[" + ",".join(format(float(value), ".9g") for value in vectors[embedding_id]) + "]"
+        vector_sha = hashlib.sha256(vector_value.encode()).hexdigest()
+        statements.append(
+            "INSERT INTO dks.embeddings(project_id,embedding_id,chunk_id,embedding_space_id,value,value_sha256) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(embedding_id)},{sql_literal(chunk['chunk_id'])},"
+            f"{sql_literal(embedding_space)},{sql_literal(vector_value)}::vector(4096),{sql_literal(vector_sha)}) ON CONFLICT DO NOTHING;")
+        statements.append(
+            "INSERT INTO dks.revision_chunks(project_id,run_id,revision_id,path,chunk_id) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(run_id)},{sql_literal(commit)},"
+            f"{sql_literal(chunk['path'])},{sql_literal(chunk['chunk_id'])}) ON CONFLICT DO NOTHING;")
+    for node in nodes:
+        heading = canonical_json(node.get("heading_path")) if node.get("heading_path") is not None else None
+        statements.append(
+            "INSERT INTO dks.graph_nodes(project_id,node_id,revision_id,kind,stable_key,path,heading_path) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(node['node_id'])},{sql_literal(commit)},"
+            f"{sql_literal(node['kind'])},{sql_literal(node['stable_key'])},{sql_literal(node.get('path'))},"
+            f"{sql_literal(heading)}::jsonb) ON CONFLICT DO NOTHING;")
+    for edge in edges:
+        statements.append(
+            "INSERT INTO dks.graph_edges(project_id,edge_id,run_id,revision_id,edge_type,source_node_id,target_node_id,source_start_byte,source_end_byte) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(edge['edge_id'])},{sql_literal(run_id)},{sql_literal(commit)},"
+            f"{sql_literal(edge['edge_type'])},{sql_literal(edge['source_node_id'])},{sql_literal(edge['target_node_id'])},"
+            f"{edge['start_byte']},{edge['end_byte']}) ON CONFLICT DO NOTHING;")
+    statements.extend([
+        f"UPDATE dks.sync_runs SET state='ready' WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)};",
+        "DO $validate$ DECLARE run_row dks.sync_runs%ROWTYPE; actual_records integer; actual_chunks integer; actual_embeddings integer; actual_nodes integer; actual_edges integer; BEGIN "
+        f"SELECT * INTO STRICT run_row FROM dks.sync_runs WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)} AND state='ready'; "
+        f"SELECT count(*) INTO actual_records FROM dks.source_records WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)}; "
+        f"SELECT count(*) INTO actual_chunks FROM dks.revision_chunks WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)}; "
+        f"SELECT count(*) INTO actual_embeddings FROM dks.revision_chunks rc JOIN dks.embeddings e USING(project_id,chunk_id) WHERE rc.project_id={sql_literal(project_id)} AND rc.run_id={sql_literal(run_id)} AND e.embedding_space_id={sql_literal(embedding_space)}; "
+        f"SELECT count(*) INTO actual_nodes FROM dks.graph_nodes WHERE project_id={sql_literal(project_id)} AND revision_id={sql_literal(commit)}; "
+        f"SELECT count(*) INTO actual_edges FROM dks.graph_edges WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)}; "
+        "IF actual_records<>run_row.expected_records OR actual_chunks<>run_row.expected_chunks OR actual_embeddings<>run_row.expected_embeddings OR actual_nodes<>run_row.expected_nodes OR actual_edges<>run_row.expected_edges THEN RAISE EXCEPTION 'projection completeness mismatch'; END IF; END $validate$;",
+        f"UPDATE dks.sync_runs SET state='retained', finished_at=now() WHERE project_id={sql_literal(project_id)} AND state='active';",
+        f"UPDATE dks.projects SET active_revision_id={sql_literal(commit)}, active_run_id={sql_literal(run_id)}, active_embedding_space_id={sql_literal(embedding_space)}, updated_at=now() WHERE project_id={sql_literal(project_id)};",
+        f"UPDATE dks.sync_runs SET state='active', finished_at=now() WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)};",
+        "COMMIT;",
+    ])
+    return statements
+
+
+def command_sync(args, config, project):
+    embedding_space = config.get("embedding", {}).get("space_id")
+    manifest_sha = config.get("embedding", {}).get("manifest_sha256")
+    if not embedding_space or not SHA256_RE.fullmatch(str(manifest_sha or "")):
+        raise ValueError("embedding space configuration invalid")
+    repository = Path(project.get("repository", "")).expanduser()
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        locked = session.execute(
+            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project)}, 0));")
+        if not locked or locked[-1] != "t":
+            raise RuntimeError("project sync already running")
+        validate_embedding_config(config)
+        rebuild_payload = None
+        if getattr(args, "rebuild", False):
+            rows = session.execute(projection_payload_sql(args.commit))
+            if not rows:
+                raise ValueError("revision is not available for rebuild comparison")
+            rebuild_payload = json.loads(rows[-1])
+            rebuild_payload = {key: sorted(values) for key, values in rebuild_payload.items()}
+        session.execute("""
+DELETE FROM dks.graph_edges WHERE run_id IN (SELECT run_id FROM dks.sync_runs WHERE state IN ('staging','ready'));
+DELETE FROM dks.revision_chunks WHERE run_id IN (SELECT run_id FROM dks.sync_runs WHERE state IN ('staging','ready'));
+UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('staging','ready');
+""")
+        documents = git_documents(repository, args.commit, project.get("remote", ""))
+        count = token_counter(config)
+        chunks = []
+        for document in documents:
+            for chunk in chunk_markdown(document["data"], count):
+                chunk.update(path=document["path"], blob_id=document["blob_id"])
+                chunks.append(chunk)
+        nodes, edges = build_graph(args.project, args.commit, documents, chunks)
+        embedding_ids = {
+            chunk["chunk_id"]: digest_json({"chunk_id": chunk["chunk_id"],
+                                             "embedding_space_id": embedding_space})
+            for chunk in chunks
+        }
+        embedding_chunks = {identity: chunk_id for chunk_id, identity in embedding_ids.items()}
+        existing = {}
+        vector_hashes = {}
+        if embedding_ids:
+            values = ",".join(sql_literal(value) for value in embedding_ids.values())
+            for line in session.execute(
+                    f"SELECT json_build_object('id',embedding_id,'chunk',chunk_id,'space',embedding_space_id,'value',value::text,'sha',value_sha256)::text FROM dks.embeddings WHERE embedding_id IN ({values});"):
+                row = json.loads(line)
+                expected_chunk = embedding_chunks.get(row["id"])
+                if row["chunk"] != expected_chunk or row["space"] != embedding_space:
+                    raise RuntimeError("stored embedding association mismatch")
+                vector = [float(value) for value in row["value"].strip("[]").split(",")]
+                validate_vector(vector)
+                if not SHA256_RE.fullmatch(row["sha"] or ""):
+                    raise RuntimeError("stored embedding identity mismatch")
+                existing[row["id"]] = vector
+                vector_hashes[row["id"]] = row["sha"]
+        vectors = {}
+        missing = [chunk for chunk in chunks if embedding_ids[chunk["chunk_id"]] not in existing]
+        for offset in range(0, len(missing), 8):
+            batch = missing[offset:offset + 8]
+            for chunk, vector in zip(batch, embed(config, [item["embedding_text"] for item in batch])):
+                identity = embedding_ids[chunk["chunk_id"]]
+                vectors[identity] = vector
+                value = "[" + ",".join(format(float(item), ".9g") for item in vector) + "]"
+                vector_hashes[identity] = hashlib.sha256(value.encode()).hexdigest()
+        vectors.update(existing)
+        if rebuild_payload is not None:
+            projected = projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, edges)
+            mismatches = sorted(key for key in projected
+                                if digest_json(projected[key]) != digest_json(rebuild_payload[key]))
+            if mismatches:
+                raise RuntimeError("rebuild identity mismatch: " + ",".join(mismatches))
+        run_id = secrets.token_hex(16)
+        statements = sync_statements(args.project, args.commit, run_id, embedding_space,
+                                     manifest_sha, documents, chunks, vectors, nodes, edges)
+        session.execute("\n".join(statements))
+        session.execute(f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project)}, 0));")
+    return {"project": args.project, "revision": args.commit, "run_id": run_id,
+            "records": len(documents), "chunks": len(chunks), "nodes": len(nodes),
+            "edges": len(edges), "state": "active"}
+
+
+def command_rebuild(args, config, project):
+    args.rebuild = True
+    result = command_sync(args, config, project)
+    result["projection_identity"] = projection_identity(config, args.project, args.commit)
+    result["rebuild_verified"] = True
+    return result
+
+
+def exact_commit(value: str):
+    if not COMMIT_RE.fullmatch(value):
+        raise argparse.ArgumentTypeError("commit must be lowercase 40-hex")
+    return value
+
+
+def parser():
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--config", default=os.environ.get(
+        "DKS_CONFIG", "~/.config/dotfiles-ai/knowledge/projects.json"))
+    common.add_argument("--project", required=True)
+    root = argparse.ArgumentParser(prog="dksctl")
+    commands = root.add_subparsers(dest="command", required=True)
+    sync = commands.add_parser("sync", parents=[common])
+    sync.add_argument("--commit", required=True)
+    rebuild = commands.add_parser("rebuild", parents=[common])
+    rebuild.add_argument("--commit", required=True)
+    query = commands.add_parser("query", parents=[common])
+    query.add_argument("--text", required=True)
+    query.add_argument("--commit", type=exact_commit)
+    query.add_argument("--limit", type=int, choices=range(1, 101), default=20)
+    commands.add_parser("status", parents=[common])
+    return root
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    try:
+        config = load_config(args.config)
+        project = selected_project(config, args.project)
+        if args.command == "sync":
+            result = command_sync(args, config, project)
+        elif args.command == "rebuild":
+            result = command_rebuild(args, config, project)
+        elif args.command == "query":
+            result = command_query(args, config, project)
+        else:
+            result = command_status(args, config, project)
+        print(canonical_json(result))
+    except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"dksctl: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

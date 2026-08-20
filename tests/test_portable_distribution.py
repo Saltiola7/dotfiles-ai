@@ -134,7 +134,8 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 6
+    assert sandbox["schema_version"] == 7
+    assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
@@ -590,7 +591,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 6
+    assert registry["schema_version"] == 7
     assert registry["build_workspace"] == "workspace1"
     assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled }}
+{{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" }}
+. "$HOME/.local/bin/op-session"
+password=$(op read {{ $project.postgres_password_ref | quote }})
+test -n "$password" || { echo "dks-psql: PostgreSQL password is unavailable" >&2; exit 1; }
+PGPASSWORD=$password exec /opt/homebrew/opt/libpq/bin/psql \
+  -h 127.0.0.1 -p 55432 -U dks_dotfiles_ai -d dbsctr_knowledge "$@"
+{{- else }}
+echo "dks-psql: knowledge PostgreSQL is disabled" >&2
+exit 1
+{{- end }}

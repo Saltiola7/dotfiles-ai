@@ -1,0 +1,21 @@
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled -}}
+{
+  "schema_version": 1,
+  "psql": {{ printf "%s/.local/bin/dks-psql" .chezmoi.homeDir | toJson }},
+  "embedding": {
+    "url": {{ printf "http://127.0.0.1:%v" .dotfiles_ai.knowledge_store.embedding_port | toJson }},
+    "api_key_file": {{ printf "%s/dbsctr/knowledge/private/embedding-api-key" .dotfiles_ai.state.root | toJson }},
+    "manifest_file": {{ printf "%s/.config/dotfiles-ai/knowledge/embedding-space.json" .chezmoi.homeDir | toJson }},
+    "model": "qwen3-embedding-8b-q4km",
+    "space_id": "qwen3e8b-q4km-llamacpp-b10505-native4096-v1",
+    "manifest_sha256": {{ includeTemplate "private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl" . | sha256sum | toJson }}
+  },
+  "projects": {
+{{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" }}
+    "dotfiles-ai": {
+      "repository": {{ $project.repository | toJson }},
+      "remote": {{ $project.remote | toJson }}
+    }
+  }
+}
+{{- end }}

@@ -55,6 +55,12 @@ Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 .config/dotfiles-ai/knowledge/embedding-space.json
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
 {{ end }}
+{{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled) }}
+.local/bin/dksctl
+.local/bin/dks-psql
+.config/dotfiles-ai/knowledge/projects.json
+.local/share/dbsctr-knowledge/
+{{ end }}
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}
 Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
@@ -93,6 +99,11 @@ load-dbsctr-rnd-launchagents.sh
 reconcile-sandbox-shell-aliases.sh
 load-atuin-workspace-launchagent.sh
 configure-pm-postgres.sh
+.local/bin/dksctl
+.local/bin/dks-psql
+.local/bin/dks-postgres-migrate
+.local/bin/pm-postgres-baseline
+.local/share/dbsctr-knowledge/
 .local/bin/dbsctr-embedding
 .local/bin/dbsctr-embedding-runtime-verify
 .config/dotfiles-ai/knowledge/
@@ -103,4 +114,10 @@ load-dbsctr-embedding.sh
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
 .config/dotfiles-ai/
+{{ end }}
+
+{{ if eq .chezmoi.os "darwin" }}
+.local/bin/pm-postgres-image-build
+.local/bin/pm-postgres-image-verify
+.local/share/pm-kernel/Containerfile.pgvector
 {{ end }}

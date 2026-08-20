@@ -149,7 +149,7 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6}:
+    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6, 7}:
         raise ValueError("invalid sandbox config")
     if value["schema_version"] == 4:
         value["schema_version"] = 5
@@ -167,6 +167,9 @@ def validate_config(value):
         value.setdefault("pm_kernel", {
             "enabled": False, "workspace": "", "postgres_enabled": False, "postgres_image": "",
         })
+    if value["schema_version"] == 6:
+        value["schema_version"] = 7
+        value.setdefault("pm_kernel", {}).setdefault("knowledge_postgres_enabled", False)
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
@@ -183,9 +186,11 @@ def validate_config(value):
         raise ValueError("invalid Atuin workspace")
     pm_kernel = value.get("pm_kernel")
     if (not isinstance(pm_kernel, dict)
-            or set(pm_kernel) != {"enabled", "workspace", "postgres_enabled", "postgres_image"}
+            or set(pm_kernel) != {"enabled", "workspace", "postgres_enabled", "postgres_image",
+                                  "knowledge_postgres_enabled"}
             or not isinstance(pm_kernel["enabled"], bool)
             or not isinstance(pm_kernel["postgres_enabled"], bool)
+            or not isinstance(pm_kernel["knowledge_postgres_enabled"], bool)
             or not isinstance(pm_kernel["workspace"], str)
             or not isinstance(pm_kernel["postgres_image"], str)
             or pm_kernel["workspace"] and not ID.fullmatch(pm_kernel["workspace"])
@@ -517,6 +522,10 @@ def guest_config(config, workspace):
         'jira_adapter = "fake"',
         'jira_project = ""',
         'jira_issue_types = []',
+        "",
+        "[data.dotfiles_ai.knowledge_store]",
+        f"enabled = {'true' if pm_enabled and pm_kernel['knowledge_postgres_enabled'] else 'false'}",
+        f"postgres_enabled = {'true' if pm_enabled and pm_kernel['knowledge_postgres_enabled'] else 'false'}",
         "",
         "[data.dotfiles_ai.sandbox]",
         "enabled = false",
