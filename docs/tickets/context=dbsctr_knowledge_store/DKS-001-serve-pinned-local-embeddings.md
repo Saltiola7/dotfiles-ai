@@ -5,18 +5,23 @@ slug: serve-pinned-local-embeddings
 context: dbsctr_knowledge_store
 title: Serve pinned local embeddings
 kind: task
-state: ready
+state: in_progress
 priority: high
 points: 5
 depends_on: []
 relations: []
 owns:
+  - .chezmoidata.toml
+  - .chezmoiignore
+  - config.example.toml
   - docs/specs/dbsctr_knowledge_store
   - docs/tickets/context=dbsctr_knowledge_store
+  - private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl
   - private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist.tmpl
   - run_onchange_after_install-dbsctr-embedding.sh.tmpl
   - run_onchange_after_load-dbsctr-embedding.sh.tmpl
-  - dot_local/bin/executable_dbsctr-embedding
+  - dot_local/bin/executable_dbsctr-embedding.tmpl
+  - dot_local/bin/executable_dbsctr-embedding-runtime-verify
   - tests/test_dbsctr_knowledge_store.py
 reads:
   - machine-local durable state root
@@ -69,7 +74,7 @@ corpus, alter PostgreSQL, create vectors, or deploy reranking.
   atomic installation; production startup performs no network access.
 - The service starts only from exact local paths, binds `127.0.0.1`, requires its
   private API key, disables the web UI, and exposes bounded readiness/metrics.
-- Qwen responses contain 4000 finite approximately unit-normal vectors; repeated
+- Qwen responses contain 4096 finite approximately unit-normal vectors; repeated
   input is deterministic, instruction changes query output, and a fixed relevant
   document scores above an irrelevant document.
 - launchd restart returns the same runtime, model, and embedding-space identity.
@@ -79,8 +84,8 @@ corpus, alter PostgreSQL, create vectors, or deploy reranking.
 ## Evidence
 
 Official source identities and digests are recorded in the bounded-context
-specification. Runtime, deployment, operation, and quality evidence remain
-pending implementation.
+specification. Focused red/green implementation tests pass. Runtime, deployment,
+operation, and live semantic evidence remain pending.
 
 ## Risks
 

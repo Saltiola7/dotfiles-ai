@@ -173,7 +173,7 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 enabled = false
 model_root = ""
 embedding_port = 11435
-embedding_dimensions = 4000
+embedding_dimensions = 4096
 embedding_context_tokens = 4096
 ```
 
@@ -195,15 +195,15 @@ DKS-001 pins:
 | Runtime archive SHA-256 | `d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176` |
 | Pooling | Last valid token |
 | Normalization | L2 |
-| Output dimension | 4000 |
+| Native output dimension | 4096 |
 | Operational input ceiling | 4096 tokens |
-| Query format | `Instruct: <versioned task>\nQuery:<query>` |
+| Query format | `Instruct: Retrieve authoritative DBSCTR engineering evidence\nQuery:<query>` (`dks-query-v1`) |
 | Document format | Deterministic chunk text without query instruction |
 
-The dimension is 4000 because pgvector supports indexed `halfvec` through 4000
-dimensions, while the model's full 4096 output cannot use that standard ANN
-index. Actual vector storage begins only after a later quality cycle validates
-the MRL reduction.
+llama.cpp `b10505` exposes the model's native 4096 dimensions and no output-
+dimension request parameter. Actual vector storage begins only after a later
+quality cycle validates explicit client-side MRL truncation and renormalization
+to 4000 dimensions, the maximum indexed `halfvec` size supported by pgvector.
 
 ### Planned synchronization
 
@@ -237,12 +237,16 @@ object rather than produce duplicate chunks and vectors.
 The service runs as the logged-in user under launchd, requires the mounted
 external model and state volumes, and exposes only a loopback endpoint. A private
 API key file is generated locally with mode `0600`; the value is never rendered
-by chezmoi or committed. Health checks send fixed public fixture text only.
+by chezmoi or committed. Disablement unloads the listener before removing managed
+entry points and retains the private key with immutable rollback assets. A fresh
+disabled installation creates none of them. Health checks send fixed public
+fixture text only.
 
 Runtime and model upgrades create new immutable directories and manifests. The
-loader validates the candidate, starts it, verifies semantic readiness, and keeps
-the prior embedding-space assets available for rollback. It does not delete
-models, vectors, or runtime versions automatically.
+loader validates the candidate, starts it, verifies semantic readiness, and
+unloads a rejected candidate while keeping prior embedding-space assets available
+for explicit rollback. It does not delete models, vectors, or runtime versions
+automatically.
 
 ## Validation Strategy
 
