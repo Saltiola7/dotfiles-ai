@@ -133,9 +133,10 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - Then it binds only to host loopback
 - And readiness identifies the expected runtime, model, dimensions, pooling, and normalization
 
-**Scenario: Fail closed on missing external state**
+**Scenario: Fail closed on invalid external state**
 
-- Given the external volume, runtime, model, manifest, or API credential is absent or changed
+- Given the external volume, runtime, model, or manifest is absent or changed
+- Or the API credential is absent, redirected, malformed, or exposed by permissions
 - When launchd starts or restarts the service
 - Then the process exits without downloading, selecting another model, or binding a port
 - And the prior projection remains readable without a substitute embedding space
@@ -220,6 +221,10 @@ object rather than produce duplicate chunks and vectors.
 - Production startup uses local immutable paths only. It never uses `-hf`,
   `latest`, model galleries, or runtime downloads.
 - Runtime archive, model file, and manifest digests must pass before launch.
+- The loader verifies the complete runtime tree before bootstrap. On automatic
+  launchd restarts, an external-volume native hasher rechecks the archive,
+  server, and model while macOS validates the signed runtime libraries; this
+  avoids macOS System Policy blocking interpreter reads from removable volumes.
 - The external model volume is a launch precondition and failure never falls back
   to another disk or model.
 - Query and document formats differ and are versioned.
@@ -248,6 +253,12 @@ unloads a rejected candidate while keeping prior embedding-space assets availabl
 for explicit rollback. It does not delete models, vectors, or runtime versions
 automatically.
 
+Integrity checks detect missing and accidentally corrupted assets; network
+authentication protects the loopback endpoint from other callers. They do not
+defend against compromise of the logged-in account, which necessarily owns the
+managed wrapper, LaunchAgent, helper, key, runtime, and model. Account compromise
+requires reinstalling exact artifacts and rotating the API key before recovery.
+
 ## Validation Strategy
 
 - Render enabled and disabled configurations and reject unsafe paths, ports,
@@ -257,6 +268,8 @@ automatically.
 - Prove loopback-only binding and API-key rejection.
 - Verify dimension, finite values, unit norm, determinism, instructed-query
   change, and relevant-over-irrelevant similarity.
+- Treat repeated Metal embeddings as stable when cosine similarity is at least
+  `0.9999`; exact element equality is not portable across GPU executions.
 - Restart the LaunchAgent and prove the same immutable model identity recovers.
 - Run affected distribution, PM, control-plane, and knowledge-store tests.
 
@@ -320,17 +333,17 @@ exact repair before readiness can return.
 
 | Gate | Applicability | Result | Planned evidence |
 |---|---|---|---|
-| Domain | required | pending | Bounded context, authority, language, trust boundaries, and ownership |
-| Behavior | required | pending | Runtime identity, failure, semantic, update, and retrieval scenarios |
-| Spec | required | pending | Config, artifact identities, service topology, and synchronization interface |
-| Contract | required | pending | Loopback, digest, privacy, failure, compatibility, and rollback invariants |
-| Test-driven implementation | required | pending | Red/green rendering, installer, wrapper, service, and semantic checks |
-| Refactor | required | pending | Minimal shared configuration and removal of stale PM database ownership claims |
-| Review/Integrate | required | pending | Independent security/runtime review and upstream reconciliation |
+| Domain | required | passed | Bounded context, authority, language, trust boundaries, and ownership |
+| Behavior | required | passed | Runtime identity, failure, semantic, update, and retrieval scenarios |
+| Spec | required | passed | Config, artifact identities, service topology, and synchronization interface |
+| Contract | required | passed | Loopback, digest, privacy, failure, compatibility, and rollback invariants |
+| Test-driven implementation | required | passed | Red/green rendering, installer, wrapper, service, and semantic checks |
+| Refactor | required | passed | Minimal configuration, read-only runtime, and bounded launchd recovery |
+| Review/Integrate | required | passed | Independent security/runtime review and upstream reconciliation |
 | Release | not_applicable | not_run | No repository package or public artifact is published |
-| Deploy | required | pending | Scoped chezmoi preview/apply and exact artifact installation |
-| Operate | required | pending | LaunchAgent recovery, listener, readiness, metrics, and semantic smoke |
-| Maintain/Retire | required | pending | Version pin, update/rollback, retained assets, and removal procedure |
+| Deploy | required | passed | Scoped chezmoi apply and exact artifact installation |
+| Operate | required | passed | LaunchAgent recovery, loopback listener, auth, metrics, and semantic smoke |
+| Maintain/Retire | required | passed | Pinned read-only assets, retained rollback data, and tested unload procedure |
 
 ## Decisions And Risks
 

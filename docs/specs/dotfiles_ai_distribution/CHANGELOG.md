@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-19 - Pinned Local Embedding Service
+
+- Added and deployed a default-off, loopback-only Qwen3 Embedding 8B service
+  backed by exact read-only llama.cpp/model artifacts, private API access,
+  semantic readiness, metrics, and launchd restart recovery. Fifty-three affected
+  tests and independent post-deployment review passed; release is not applicable.
+
 ## 2026-08-18 - PM Kernel Projection Support
 
 - Migrated distribution work records to canonical tickets, switched Hermes

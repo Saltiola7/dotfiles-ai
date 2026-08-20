@@ -8,18 +8,23 @@ port={{ .dotfiles_ai.knowledge_store.embedding_port }}
 dimensions={{ .dotfiles_ai.knowledge_store.embedding_dimensions }}
 context_tokens={{ .dotfiles_ai.knowledge_store.embedding_context_tokens }}
 runtime="$state_root/dbsctr/knowledge/runtime/llama.cpp/b10505"
+runtime_archive="$state_root/dbsctr/knowledge/downloads/llama-b10505-bin-macos-arm64.tar.gz"
 server="$runtime/llama-server"
 model="$model_root/dbsctr/qwen3-embedding-8b/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/Qwen3-Embedding-8B-Q4_K_M.gguf"
 api_key="$state_root/dbsctr/knowledge/private/embedding-api-key"
+private_dir="$state_root/dbsctr/knowledge/private"
+launch_hasher="$private_dir/launch-sha256"
 manifest="$HOME/.config/dotfiles-ai/knowledge/embedding-space.json"
+archive_sha=d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176
 server_sha=d0878274b8d6bd3c8ea26a78eb66cd1ffd943d007c62b9dff31c8aa99922d713
 model_sha=3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85
 tree_sha=4b57ab72f3854e2ddb0331b7fd038d15ef63cf713a2a8b4a38112212448cd3aa
 
 verify_file() {
-    local path=$1 expected=$2
+    local path=$1 expected=$2 actual
     [[ -f "$path" ]] || { echo "dbsctr-embedding: missing artifact" >&2; return 1; }
-    [[ "$(/usr/bin/shasum -a 256 "$path" | /usr/bin/cut -d' ' -f1)" == "$expected" ]] || {
+    actual=$("$launch_hasher" dgst -sha256 -r "$path") || return 1
+    [[ "${actual%% *}" == "$expected" ]] || {
         echo "dbsctr-embedding: artifact digest mismatch" >&2
         return 1
     }
@@ -28,13 +33,22 @@ verify_file() {
 verify() {
     [[ -f "$state_root/.dotfiles-ai-state" ]] || { echo "dbsctr-embedding: state root unavailable" >&2; return 1; }
     [[ -d "$model_root" ]] || { echo "dbsctr-embedding: model root unavailable" >&2; return 1; }
+    [[ ! -L "$launch_hasher" && -x "$launch_hasher" ]] || { echo "dbsctr-embedding: native hasher unavailable" >&2; return 1; }
+    verify_file "$runtime_archive" "$archive_sha"
     verify_file "$server" "$server_sha"
-    "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" "$tree_sha"
+    # macOS blocks interpreter reads from external volumes in background jobs.
+    [[ -n ${XPC_SERVICE_NAME:-} ]] || "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" "$tree_sha"
     verify_file "$model" "$model_sha"
-    [[ -s "$api_key" && "$(/usr/bin/stat -f %Lp "$api_key")" == 600 ]] || {
+    [[ ! -L "$api_key" && -f "$api_key" && -s "$api_key" \
+        && "$(/usr/bin/stat -f %Lp "$api_key")" == 600 \
+        && "$(/usr/bin/stat -f %u "$api_key")" == "$(/usr/bin/id -u)" \
+        && "$(/usr/bin/stat -f %Lp "$private_dir")" == 700 \
+        && "$(/usr/bin/stat -f %u "$private_dir")" == "$(/usr/bin/id -u)" ]] || {
         echo "dbsctr-embedding: private API key unavailable" >&2
         return 1
     }
+    key=$("$launch_hasher" base64 -A -in "$api_key" | "$launch_hasher" base64 -d -A)
+    [[ $key =~ ^[0-9a-f]{64}$ ]] || { echo "dbsctr-embedding: invalid API key" >&2; return 1; }
     /usr/bin/python3 - "$manifest" "$dimensions" "$context_tokens" "$model_root" "$port" <<'PY'
 import json
 import sys
@@ -136,8 +150,8 @@ norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors
 if any(abs(norm - 1.0) > 1e-3 for norm in norms):
     raise SystemExit("embedding is not unit normalized")
 dot = lambda left, right: sum(a * b for a, b in zip(left, right))
-if max(abs(a - b) for a, b in zip(vectors[0], vectors[1])) > 1e-5:
-    raise SystemExit("repeated embedding is not deterministic")
+if dot(vectors[0], vectors[1]) < 0.9999:
+    raise SystemExit("repeated embedding is not stable")
 if dot(vectors[0], vectors[2]) <= dot(vectors[0], vectors[3]):
     raise SystemExit("relevance ordering failed")
 if dot(vectors[0], vectors[4]) > 0.999999:

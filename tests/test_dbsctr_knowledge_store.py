@@ -64,11 +64,15 @@ def test_installer_pins_runtime_and_model_and_installs_atomically() -> None:
     assert 'mktemp "${destination}.part.XXXXXX"' in source
     assert "shasum -a 256 -c" in source
     assert 'mv -f "$temporary" "$destination"' in source
+    assert "download() (" in source
     assert "openssl rand -hex 32" in source
     assert 'chmod 0600 "$api_key"' in source
     assert "umask 077" in source
     assert "dbsctr-embedding-runtime-verify\" archive" in source
     assert "safe_mkdir" in source
+    assert "/usr/bin/openssl" in rendered and "--identifier dev.dotfiles-ai.launch-sha256" in rendered
+    assert "/usr/bin/codesign --verify --strict" in rendered
+    assert 'chmod -R u=rX,go=rX "$runtime"' in rendered
     assert "/Volumes/ext/lmstudio" in rendered
     assert 'model="$model_root/dbsctr/qwen3-embedding-8b' in rendered
     assert "-hf" not in rendered
@@ -90,6 +94,11 @@ def test_wrapper_fails_closed_and_uses_explicit_embedding_semantics() -> None:
     assert "--log-disable" in rendered and "--no-cache-prompt" in rendered
     assert "--parallel 1" in rendered
     assert "curl" not in rendered.split('serve)')[1].split(';;', 1)[0]
+    assert "launch-sha256" in rendered and "XPC_SERVICE_NAME" in rendered
+    assert "runtime_archive" in rendered and "/usr/bin/shasum" not in rendered
+    assert "dot(vectors[0], vectors[1]) < 0.9999" in rendered
+    assert '! -L "$api_key"' in rendered and "^[0-9a-f]{64}$" in rendered
+    assert 'base64 -A -in "$api_key"' in rendered
     assert "4096" in rendered
 
 
@@ -127,6 +136,7 @@ def test_loader_bootstraps_only_after_install_and_removes_only_owned_targets() -
     disabled = render("run_onchange_after_load-dbsctr-embedding.sh.tmpl", enabled=False)
 
     assert enabled.index('"$wrapper" verify') < enabled.index("launchctl bootstrap")
+    assert enabled.index('prior service did not unload') < enabled.index("launchctl bootstrap")
     assert enabled.index("launchctl bootstrap") < enabled.index('"$wrapper" check')
     assert "dev.dotfiles-ai.dbsctr-embedding" in disabled
     assert 'launchctl bootout "$domain/$label"' in disabled

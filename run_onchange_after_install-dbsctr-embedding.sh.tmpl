@@ -74,10 +74,11 @@ runtime="$runtime_parent/b10505"
 model="$model_root/dbsctr/qwen3-embedding-8b/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/Qwen3-Embedding-8B-Q4_K_M.gguf"
 private_dir="$state_root/dbsctr/knowledge/private"
 api_key="$private_dir/embedding-api-key"
+launch_hasher="$private_dir/launch-sha256"
 /bin/chmod 0700 "$private_dir"
-[[ ! -L "$runtime" && ! -L "$model" && ! -L "$api_key" ]] || { echo "install-dbsctr-embedding: managed artifact must not be a symlink" >&2; exit 1; }
+[[ ! -L "$runtime" && ! -L "$model" && ! -L "$api_key" && ! -L "$launch_hasher" ]] || { echo "install-dbsctr-embedding: managed artifact must not be a symlink" >&2; exit 1; }
 
-download() {
+download() (
     local url=$1 expected=$2 size=$3 destination=$4 temporary
     if [[ -e "$destination" ]]; then
         [[ ! -L "$destination" && -f "$destination" ]] || { echo "install-dbsctr-embedding: destination is not a regular file" >&2; return 1; }
@@ -93,7 +94,7 @@ download() {
     /bin/chmod 0444 "$temporary"
     /bin/mv -f "$temporary" "$destination"
     trap - EXIT
-}
+)
 
 runtime_archive="$downloads/llama-b10505-bin-macos-arm64.tar.gz"
 download "$runtime_url" "$runtime_sha" 11087492 "$runtime_archive"
@@ -111,8 +112,21 @@ if [[ ! -d "$runtime" ]]; then
 fi
 printf '%s  %s\n' "$server_sha" "$runtime/llama-server" | /usr/bin/shasum -a 256 -c - >/dev/null
 "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" "$tree_sha"
+/bin/chmod -R u=rX,go=rX "$runtime"
 
 download "$model_url" "$model_sha" "$model_size" "$model"
+if [[ ! -e "$launch_hasher" ]] \
+    || ! /usr/bin/codesign --verify --strict "$launch_hasher" \
+    || ! /usr/bin/codesign -dv --verbose=4 "$launch_hasher" 2>&1 | /usr/bin/grep -x 'Identifier=dev.dotfiles-ai.launch-sha256' >/dev/null; then
+    temporary=$(/usr/bin/mktemp "$private_dir/.launch-sha256.part.XXXXXX")
+    trap '/bin/rm -f "$temporary"' EXIT
+    /bin/cp /usr/bin/openssl "$temporary"
+    /usr/bin/codesign --force --identifier dev.dotfiles-ai.launch-sha256 --sign - "$temporary"
+    /bin/chmod 0555 "$temporary"
+    /bin/mv -f "$temporary" "$launch_hasher"
+    trap - EXIT
+fi
+[[ ! -L "$launch_hasher" && -x "$launch_hasher" ]] || { echo "install-dbsctr-embedding: native hasher unavailable" >&2; exit 1; }
 if [[ ! -e "$api_key" ]]; then
     umask 077
     temporary=$(/usr/bin/mktemp "$private_dir/.embedding-api-key.part.XXXXXX")
@@ -123,6 +137,6 @@ if [[ ! -e "$api_key" ]]; then
     /bin/mv -f "$temporary" "$api_key"
     trap - EXIT
 fi
-[[ ! -L "$api_key" && -f "$api_key" && -s "$api_key" ]] || { echo "install-dbsctr-embedding: API key unavailable" >&2; exit 1; }
+[[ ! -L "$api_key" && -f "$api_key" && -s "$api_key" && "$(<"$api_key")" =~ ^[0-9a-f]{64}$ ]] || { echo "install-dbsctr-embedding: API key unavailable" >&2; exit 1; }
 /bin/chmod 0600 "$api_key"
 {{ end -}}

@@ -5,7 +5,7 @@ slug: serve-pinned-local-embeddings
 context: dbsctr_knowledge_store
 title: Serve pinned local embeddings
 kind: task
-state: in_progress
+state: done
 priority: high
 points: 5
 depends_on: []
@@ -39,8 +39,11 @@ validation:
   - LaunchAgent restart recovery with unchanged embedding-space identity
 created: 2026-08-19
 updated: 2026-08-19
-completed: null
-commits: []
+completed: 2026-08-19
+commits:
+  - "ea8ee02"
+  - "ca542e4"
+  - "ab602f0"
 jira_publications: []
 migration: null
 ---
@@ -75,7 +78,8 @@ corpus, alter PostgreSQL, create vectors, or deploy reranking.
 - The service starts only from exact local paths, binds `127.0.0.1`, requires its
   private API key, disables the web UI, and exposes bounded readiness/metrics.
 - Qwen responses contain 4096 finite approximately unit-normal vectors; repeated
-  input is deterministic, instruction changes query output, and a fixed relevant
+  input has at least `0.9999` cosine stability, instruction changes query output,
+  and a fixed relevant
   document scores above an irrelevant document.
 - launchd restart returns the same runtime, model, and embedding-space identity.
 - Removal unloads only the owned LaunchAgent and retains immutable model/runtime
@@ -84,8 +88,19 @@ corpus, alter PostgreSQL, create vectors, or deploy reranking.
 ## Evidence
 
 Official source identities and digests are recorded in the bounded-context
-specification. Focused red/green implementation tests pass. Runtime, deployment,
-operation, and live semantic evidence remain pending.
+specification. The scoped chezmoi deployment installed the exact 11,087,492-byte
+runtime archive and 4,676,804,928-byte model, generated a mode-`0600` API key,
+and loaded `dev.dotfiles-ai.dbsctr-embedding`. Live evidence confirms:
+
+- `llama-server` listens only on `127.0.0.1:11435`; unauthenticated embedding
+  requests return HTTP 401, while health and authenticated metrics return 200.
+- The public fixture returns 4096 finite unit-normal vectors, repeated-input
+  cosine above `0.9999`, instruction-sensitive output, and correct relevance
+  ordering.
+- A forced launchd restart changed the process ID while preserving manifest
+  SHA-256 `5a37fee8f978aa425cc8e7ed295289cfafdade8d47e566c884e2cba3704cecb9`.
+- Focused knowledge-store and portable-distribution tests pass on the deployed
+  implementation.
 
 ## Risks
 
@@ -95,5 +110,6 @@ Qwen 8B quality and throughput remain hypotheses until a later corpus bakeoff.
 
 ## Review
 
-Discovery is implementation-ready. No unresolved question changes DKS-001 scope,
-security, interface, deployment, or validation.
+Independent post-deployment review found no remaining actionable correctness,
+security, or lifecycle issue after remediation. Same-user account compromise is
+outside the integrity threat model and requires reinstall plus key rotation.
