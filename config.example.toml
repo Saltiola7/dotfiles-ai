@@ -94,6 +94,15 @@ jira_adapter = "fake"
 jira_project = ""
 jira_issue_types = []
 
+[data.dotfiles_ai.knowledge_store]
+# Optional host-local embedding service. Model and runtime artifacts remain
+# machine-local and are installed only after exact digest verification.
+enabled = false
+model_root = "/Volumes/your-drive/lmstudio"
+embedding_port = 11435
+embedding_dimensions = 4096
+embedding_context_tokens = 4096
+
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 # Every managed Fedora guest uses rootless Podman, pinned Docker Compose v2, and

@@ -1,0 +1,35 @@
+{{- if .dotfiles_ai.knowledge_store.enabled -}}
+{
+  "schema_version": 1,
+  "embedding_space_id": "qwen3e8b-q4km-llamacpp-b10505-native4096-v1",
+  "runtime": {
+    "name": "llama.cpp",
+    "version": "b10505",
+    "archive_sha256": "d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176",
+    "server_sha256": "d0878274b8d6bd3c8ea26a78eb66cd1ffd943d007c62b9dff31c8aa99922d713",
+    "tree_sha256": "4b57ab72f3854e2ddb0331b7fd038d15ef63cf713a2a8b4a38112212448cd3aa"
+  },
+  "model": {
+    "repository": "Qwen/Qwen3-Embedding-8B-GGUF",
+    "revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab",
+    "file": "Qwen3-Embedding-8B-Q4_K_M.gguf",
+    "sha256": "3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85"
+  },
+  "contract": {
+    "pooling": "last",
+    "normalization": "l2",
+    "dimensions": {{ .dotfiles_ai.knowledge_store.embedding_dimensions }},
+    "context_tokens": {{ .dotfiles_ai.knowledge_store.embedding_context_tokens }}
+  },
+  "query": {
+    "template_version": "dks-query-v1",
+    "instruction": "Retrieve authoritative DBSCTR engineering evidence",
+    "format": "Instruct: {instruction}\nQuery:{query}"
+  },
+  "service": {
+    "host": "127.0.0.1",
+    "port": {{ .dotfiles_ai.knowledge_store.embedding_port }},
+    "model_root": {{ .dotfiles_ai.knowledge_store.model_root | toJson }}
+  }
+}
+{{- end }}

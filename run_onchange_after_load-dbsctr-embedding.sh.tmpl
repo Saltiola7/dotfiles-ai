@@ -1,0 +1,67 @@
+#!/bin/bash
+# plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist.tmpl" | sha256sum }}
+# wrapper: {{ include "dot_local/bin/executable_dbsctr-embedding.tmpl" | sha256sum }}
+# manifest: {{ include "private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl" | sha256sum }}
+# enabled: {{ .dotfiles_ai.knowledge_store.enabled }}
+
+set -euo pipefail
+[[ "$(uname)" == Darwin ]] || exit 0
+
+domain="gui/$(id -u)"
+label=dev.dotfiles-ai.dbsctr-embedding
+plist="$HOME/Library/LaunchAgents/$label.plist"
+wrapper="$HOME/.local/bin/dbsctr-embedding"
+manifest="$HOME/.config/dotfiles-ai/knowledge/embedding-space.json"
+port={{ .dotfiles_ai.knowledge_store.embedding_port }}
+
+{{ if not .dotfiles_ai.knowledge_store.enabled -}}
+if /bin/launchctl print "$domain/$label" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+    for _ in {1..50}; do
+        /bin/launchctl print "$domain/$label" >/dev/null 2>&1 || break
+        /bin/sleep 0.1
+    done
+    /bin/launchctl print "$domain/$label" >/dev/null 2>&1 && { echo "load-dbsctr-embedding: service did not unload" >&2; exit 1; }
+fi
+plist_label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist" 2>/dev/null || true)
+if [[ "$plist_label" == "$label" ]]; then /bin/rm -f "$plist"; fi
+/bin/rm -f "$wrapper" "$HOME/.local/bin/dbsctr-embedding-runtime-verify" "$manifest"
+exit 0
+{{ end -}}
+
+[[ -x "$wrapper" && -f "$plist" && -f "$manifest" ]] || { echo "load-dbsctr-embedding: managed targets unavailable" >&2; exit 1; }
+/bin/mkdir -p "$HOME/Library/Logs"
+/usr/bin/plutil -lint "$plist" >/dev/null
+"$wrapper" verify
+/bin/launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+for _ in {1..50}; do
+    /bin/launchctl print "$domain/$label" >/dev/null 2>&1 || break
+    /bin/sleep 0.1
+done
+/bin/launchctl print "$domain/$label" >/dev/null 2>&1 && { echo "load-dbsctr-embedding: prior service did not unload" >&2; exit 1; }
+/bin/launchctl bootstrap "$domain" "$plist"
+candidate_loaded=true
+cleanup_candidate() {
+    if [[ $candidate_loaded == true ]]; then
+        /bin/launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+    fi
+}
+cleanup_signal() {
+    cleanup_candidate
+    exit 1
+}
+trap cleanup_candidate ERR
+trap cleanup_signal INT TERM
+for _ in {1..60}; do
+    if /usr/bin/curl -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+        "$wrapper" check >/dev/null
+        candidate_loaded=false
+        trap - ERR INT TERM
+        exit 0
+    fi
+    /bin/sleep 2
+done
+cleanup_candidate
+candidate_loaded=false
+echo "load-dbsctr-embedding: service did not become semantically ready" >&2
+exit 1

@@ -1,0 +1,171 @@
+#!/bin/bash
+
+set -euo pipefail
+
+state_root={{ .dotfiles_ai.state.root | quote }}
+model_root={{ .dotfiles_ai.knowledge_store.model_root | quote }}
+port={{ .dotfiles_ai.knowledge_store.embedding_port }}
+dimensions={{ .dotfiles_ai.knowledge_store.embedding_dimensions }}
+context_tokens={{ .dotfiles_ai.knowledge_store.embedding_context_tokens }}
+runtime="$state_root/dbsctr/knowledge/runtime/llama.cpp/b10505"
+runtime_archive="$state_root/dbsctr/knowledge/downloads/llama-b10505-bin-macos-arm64.tar.gz"
+server="$runtime/llama-server"
+model="$model_root/dbsctr/qwen3-embedding-8b/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/Qwen3-Embedding-8B-Q4_K_M.gguf"
+api_key="$state_root/dbsctr/knowledge/private/embedding-api-key"
+private_dir="$state_root/dbsctr/knowledge/private"
+launch_hasher="$private_dir/launch-sha256"
+manifest="$HOME/.config/dotfiles-ai/knowledge/embedding-space.json"
+archive_sha=d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176
+server_sha=d0878274b8d6bd3c8ea26a78eb66cd1ffd943d007c62b9dff31c8aa99922d713
+model_sha=3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85
+tree_sha=4b57ab72f3854e2ddb0331b7fd038d15ef63cf713a2a8b4a38112212448cd3aa
+
+verify_file() {
+    local path=$1 expected=$2 actual
+    [[ -f "$path" ]] || { echo "dbsctr-embedding: missing artifact" >&2; return 1; }
+    actual=$("$launch_hasher" dgst -sha256 -r "$path") || return 1
+    [[ "${actual%% *}" == "$expected" ]] || {
+        echo "dbsctr-embedding: artifact digest mismatch" >&2
+        return 1
+    }
+}
+
+verify() {
+    [[ -f "$state_root/.dotfiles-ai-state" ]] || { echo "dbsctr-embedding: state root unavailable" >&2; return 1; }
+    [[ -d "$model_root" ]] || { echo "dbsctr-embedding: model root unavailable" >&2; return 1; }
+    [[ ! -L "$launch_hasher" && -x "$launch_hasher" ]] || { echo "dbsctr-embedding: native hasher unavailable" >&2; return 1; }
+    verify_file "$runtime_archive" "$archive_sha"
+    verify_file "$server" "$server_sha"
+    # macOS blocks interpreter reads from external volumes in background jobs.
+    [[ -n ${XPC_SERVICE_NAME:-} ]] || "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" "$tree_sha"
+    verify_file "$model" "$model_sha"
+    [[ ! -L "$api_key" && -f "$api_key" && -s "$api_key" \
+        && "$(/usr/bin/stat -f %Lp "$api_key")" == 600 \
+        && "$(/usr/bin/stat -f %u "$api_key")" == "$(/usr/bin/id -u)" \
+        && "$(/usr/bin/stat -f %Lp "$private_dir")" == 700 \
+        && "$(/usr/bin/stat -f %u "$private_dir")" == "$(/usr/bin/id -u)" ]] || {
+        echo "dbsctr-embedding: private API key unavailable" >&2
+        return 1
+    }
+    key=$("$launch_hasher" base64 -A -in "$api_key" | "$launch_hasher" base64 -d -A)
+    [[ $key =~ ^[0-9a-f]{64}$ ]] || { echo "dbsctr-embedding: invalid API key" >&2; return 1; }
+    /usr/bin/python3 - "$manifest" "$dimensions" "$context_tokens" "$model_root" "$port" <<'PY'
+import json
+import sys
+
+path, dimensions, context, model_root, port = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
+try:
+    data = json.load(open(path, encoding="utf-8"))
+    valid = (
+        data["embedding_space_id"] == "qwen3e8b-q4km-llamacpp-b10505-native4096-v1"
+        and data == {
+            "schema_version": 1,
+            "embedding_space_id": "qwen3e8b-q4km-llamacpp-b10505-native4096-v1",
+            "runtime": {
+                "name": "llama.cpp",
+                "version": "b10505",
+                "archive_sha256": "d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176",
+                "server_sha256": "d0878274b8d6bd3c8ea26a78eb66cd1ffd943d007c62b9dff31c8aa99922d713",
+                "tree_sha256": "4b57ab72f3854e2ddb0331b7fd038d15ef63cf713a2a8b4a38112212448cd3aa",
+            },
+            "model": {
+                "repository": "Qwen/Qwen3-Embedding-8B-GGUF",
+                "revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab",
+                "file": "Qwen3-Embedding-8B-Q4_K_M.gguf",
+                "sha256": "3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85",
+            },
+            "contract": {"pooling": "last", "normalization": "l2", "dimensions": dimensions, "context_tokens": context},
+            "query": {
+                "template_version": "dks-query-v1",
+                "instruction": "Retrieve authoritative DBSCTR engineering evidence",
+                "format": "Instruct: {instruction}\nQuery:{query}",
+            },
+            "service": {"host": "127.0.0.1", "port": port, "model_root": model_root},
+        }
+    )
+except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    valid = False
+if not valid:
+    raise SystemExit("dbsctr-embedding: manifest mismatch")
+PY
+}
+
+case ${1:-serve} in
+    verify)
+        verify
+        ;;
+    serve)
+        verify
+        export DYLD_LIBRARY_PATH="$runtime"
+        exec "$server" \
+            --model "$model" \
+            --alias qwen3-embedding-8b-q4km \
+            --embedding \
+            --pooling last \
+            --embd-normalize 2 \
+            --ctx-size "$context_tokens" \
+            --batch-size "$context_tokens" \
+            --ubatch-size 1024 \
+            --parallel 1 \
+            --host 127.0.0.1 \
+            --port "$port" \
+            --api-key-file "$api_key" \
+            --offline \
+            --metrics \
+            --no-webui \
+            --no-cache-prompt \
+            --log-disable
+        ;;
+    check)
+        verify
+        exec /usr/bin/python3 - "$port" "$api_key" "$dimensions" <<'PY'
+import json
+import math
+import sys
+import urllib.request
+
+port, key_path, dimensions = sys.argv[1], sys.argv[2], int(sys.argv[3])
+key = open(key_path, encoding="utf-8").read().strip()
+query = "Instruct: Retrieve authoritative DBSCTR engineering evidence\nQuery:How does DBSCTR preserve source authority?"
+plain_query = "How does DBSCTR preserve source authority?"
+relevant = "DBSCTR keeps Git and SQLite as source authorities while PostgreSQL remains a rebuildable cache."
+irrelevant = "Bananas grow in warm climates and are harvested as fruit."
+payload = json.dumps({
+    "model": "qwen3-embedding-8b-q4km",
+    "input": [query, query, relevant, irrelevant, plain_query],
+}).encode()
+request = urllib.request.Request(
+    f"http://127.0.0.1:{port}/v1/embeddings",
+    data=payload,
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+)
+with urllib.request.urlopen(request, timeout=120) as response:
+    body = json.load(response)
+vectors = [item["embedding"] for item in sorted(body["data"], key=lambda item: item["index"])]
+if len(vectors) != 5 or any(len(vector) != dimensions for vector in vectors):
+    raise SystemExit("invalid embedding dimensions")
+if any(not all(math.isfinite(value) for value in vector) for vector in vectors):
+    raise SystemExit("non-finite embedding")
+norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors]
+if any(abs(norm - 1.0) > 1e-3 for norm in norms):
+    raise SystemExit("embedding is not unit normalized")
+dot = lambda left, right: sum(a * b for a, b in zip(left, right))
+if dot(vectors[0], vectors[1]) < 0.9999:
+    raise SystemExit("repeated embedding is not stable")
+if dot(vectors[0], vectors[2]) <= dot(vectors[0], vectors[3]):
+    raise SystemExit("relevance ordering failed")
+if dot(vectors[0], vectors[4]) > 0.999999:
+    raise SystemExit("query instruction had no effect")
+print(json.dumps({
+    "dimensions": dimensions,
+    "model": "qwen3-embedding-8b-q4km",
+    "normalized": True,
+    "relevance": "passed",
+}, separators=(",", ":")))
+PY
+        ;;
+    *)
+        echo "usage: dbsctr-embedding [serve|verify|check]" >&2
+        exit 2
+        ;;
+esac

@@ -49,6 +49,12 @@ Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 {{ if ne .dotfiles_ai.pm_kernel.jira_adapter "acli" }}
 .local/bin/pm-jira
 {{ end }}
+{{ if not .dotfiles_ai.knowledge_store.enabled }}
+.local/bin/dbsctr-embedding
+.local/bin/dbsctr-embedding-runtime-verify
+.config/dotfiles-ai/knowledge/embedding-space.json
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
+{{ end }}
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}
 Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
@@ -87,6 +93,12 @@ load-dbsctr-rnd-launchagents.sh
 reconcile-sandbox-shell-aliases.sh
 load-atuin-workspace-launchagent.sh
 configure-pm-postgres.sh
+.local/bin/dbsctr-embedding
+.local/bin/dbsctr-embedding-runtime-verify
+.config/dotfiles-ai/knowledge/
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
+install-dbsctr-embedding.sh
+load-dbsctr-embedding.sh
 .local/bin/pm-psql
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
