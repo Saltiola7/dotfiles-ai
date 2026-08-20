@@ -19,9 +19,17 @@ owns:
   - docs/tickets/context=dbsctr_knowledge_store
   - dot_agents/skills/dbsctr/SKILL.md
   - dot_agents/skills/discovery/SKILL.md
+  - dot_local/bin/executable_dks-postgres-migrate.tmpl
+  - dot_local/bin/executable_dks-psql.tmpl
   - dot_local/bin/executable_dksctl
+  - dot_local/bin/executable_pm-postgres-baseline.tmpl
+  - dot_local/bin/executable_pm-postgres-image-build
+  - dot_local/bin/executable_pm-postgres-image-verify
   - dot_local/share/dbsctr-knowledge
+  - dot_local/share/pm-kernel/Containerfile.pgvector
   - private_dot_config/containers/systemd/pm-postgres.container.tmpl
+  - private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl
+  - private_dot_config/dotfiles-ai/sandbox.json.tmpl
   - run_onchange_after_configure-pm-postgres.sh.tmpl
   - run_onchange_after_enable-pm-postgres.sh.tmpl
   - tests/test_dbsctr_knowledge_store.py
@@ -58,6 +66,13 @@ migration: null
 An exact dotfiles-ai Git commit is rebuildably projected into a client-isolated,
 project-scoped PostgreSQL lexical, native-vector, and deterministic SQL/PGQ graph
 index, and `dksctl` returns transparent fused results with exact citations.
+
+## Context
+
+DKS-001 provides a pinned, private loopback embedding service, while the PM
+Kernel already runs PostgreSQL 19 Beta 3 in the personal sandbox. DKS-002 adds a
+separate rebuildable knowledge database without changing Git authority or PM
+data, and must migrate the shared image only after verified backup and restore.
 
 ## Scope
 
@@ -104,8 +119,16 @@ source authority into PostgreSQL.
 
 ## Evidence
 
-Discovery is implementation-ready. Runtime, migration, projection, retrieval,
-deployment, and recovery evidence remain pending.
+The pinned PostgreSQL 19 Beta 3 plus pgvector 0.8.6 image built on target arm64.
+A fresh disposable database accepted the schema twice; forced-RLS checks denied
+unset and mismatched project scopes, and the exact generated `dksctl` query SQL
+returned FTS, exact-vector, cited chunk, node, and `GRAPH_TABLE` edge rows. The
+affected suite passed 289 tests with one expected skip before final embedding
+provenance checks; the focused suite then passed 29 tests. Independent review
+closed all implementation blockers. Current PM compatibility evidence records
+the exact approved base, PostgreSQL 19, migration 1, 147 tickets, one Jira
+publication, and nine source envelopes. Live backup/restore, image activation,
+projection, restart, and recovery evidence remain pending.
 
 The `owns` list is this serialized cycle's writable scope, not durable domain
 ownership. Distribution owns the image build and Quadlet activation; PM owns the
@@ -119,3 +142,9 @@ owns a pinned local derivative and must preserve PM recovery before migration.
 Exact 4096-dimensional scans are intentionally bounded to one small corpus; ANN
 requires a later measured representation change. Same-account compromise remains
 outside the local integrity boundary and requires credential rotation and rebuild.
+
+## Review
+
+Implementation review is accepted with no remaining code blocker. Deployment is
+paused until desktop 1Password authorizes creation of the dedicated project
+credential; the read-only Automation service account cannot create that item.
