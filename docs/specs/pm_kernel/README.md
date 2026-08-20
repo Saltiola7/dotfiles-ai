@@ -202,6 +202,10 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 - Then every selected item appears exactly once, grouped by parent when available
 - And missing goals, outcomes, links, metrics, and next steps are never invented
 
+Prepared snapshots may supply parent identity. The bounded ACLI search adapter
+cannot request that field in the installed CLI version, so those live results
+truthfully use `No Parent` rather than inferring hierarchy.
+
 **Scenario: Keep Jira reports private**
 - Given a report may contain private Jira content
 - When it is persisted
@@ -563,10 +567,10 @@ and remain authoritative if the service is unavailable.
 |---|---|---|---|
 | Domain through Contract | required | passed | PMK-003 ticket, bounded JQL/canary contracts, and projection authority review |
 | Test-driven implementation | required | passed | 120 affected tests and canonical ticket validation |
-| Refactor and Review/Integrate | required | pending | Independent findings remediated; sanitized replay integration pending |
+| Refactor and Review/Integrate | required | passed | Independent findings remediated and sanitized replay integrated |
 | Release | not_applicable | not_run | No versioned artifact publication or PostgreSQL image change |
-| Deploy and Operate | required | pending | Sanitized replay exact-head projection pending |
-| Maintain/Retire | required | pending | Closure evidence pending |
+| Deploy and Operate | required | passed | Scoped OpenCode convergence, generated-Quadlet restart recovery, exact-head projection, approved canary, and private report |
+| Maintain/Retire | required | passed | Verified backup/restore plus official prerelease-to-GA migration and rollback procedure |
 
 ## Decisions And Risks
 

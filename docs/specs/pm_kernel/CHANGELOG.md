@@ -1,5 +1,22 @@
 # PM Kernel Changelog
 
+## 2026-08-19 - PMK-003 Operational Workflow Proof
+
+- Changed OpenCode configuration to a private semantic chezmoi merge that retains
+  machine-local values while enforcing approval gates for Jira and Sprint Review.
+- Added ticket-body projection, explicit unavailable envelopes, successful-receipt
+  publication projection, bounded completion-status JQL reports, private atomic
+  report output, and concurrent Jira publication locking.
+- Affected QA passed 120 tests and canonical ticket validation. A verified backup
+  preceded a workspace restart; the generated Quadlet recovered healthy on host
+  loopback only; 147 canonical tickets, bodies, current revisions, and graph
+  vertices reconcile; and nine availability envelopes were projected. One
+  separately confirmed ACLI-test-only canary and one separately confirmed private
+  Sprint Review completed. Jira identity remains private; Git stores only an opaque
+  publication ID. PostgreSQL 19 Beta 3 remains pinned. Gate Exceptions: none.
+  Gate Commit: `9471ddd`. Intended Final Push: feature branch and draft PR into
+  `main`.
+
 ## 2026-08-19 - PMK-002 Private Adapter Activation
 
 - Added owned host-loopback PostgreSQL forwarding, stdin-only Podman secret

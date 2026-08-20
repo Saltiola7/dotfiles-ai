@@ -5,7 +5,7 @@ slug: prove-operational-pm-workflows
 context: pm_kernel
 title: Prove operational PM workflows
 kind: epic
-state: ready
+state: done
 priority: high
 points: 8
 depends_on:
@@ -37,8 +37,9 @@ validation:
   - approved bounded JQL produces one private factual Sprint Review report
 created: 2026-08-19
 updated: 2026-08-19
-completed: null
-commits: []
+completed: 2026-08-19
+commits:
+  - "9471ddd"
 jira_publications:
   - "pmk-003-private-workflows"
 migration: null
@@ -137,6 +138,5 @@ untrusted report content, and prerelease database incompatibility.
 
 ## Review
 
-Ready for sanitized replay closure. External writes and reads used exact
-user-confirmed digests; private deployment identities remain outside portable
-source. No PostgreSQL image changed.
+Accepted. External writes and reads used exact user-confirmed digests; private
+deployment identities remain outside portable source. No PostgreSQL image changed.
