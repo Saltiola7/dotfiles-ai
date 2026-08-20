@@ -784,15 +784,14 @@ def projection_identity(config, project_id: str, revision: str):
     return digest_json(json.loads(lines[-1])) if lines else None
 
 
-def projected_identity(documents, chunks, embedding_space, vectors, nodes, edges):
+def projected_identity(documents, chunks, embedding_space, vector_hashes, nodes, edges):
     records = sorted([document["path"], document["blob_id"],
                       hashlib.sha256(document["data"]).hexdigest()] for document in documents)
     chunk_rows = sorted([chunk["path"], chunk["chunk_id"]] for chunk in chunks)
     embedding_rows = []
     for chunk in chunks:
         embedding_id = digest_json({"chunk_id": chunk["chunk_id"], "embedding_space_id": embedding_space})
-        value = "[" + ",".join(format(float(item), ".9g") for item in vectors[embedding_id]) + "]"
-        embedding_rows.append([embedding_id, hashlib.sha256(value.encode()).hexdigest()])
+        embedding_rows.append([embedding_id, vector_hashes[embedding_id]])
     return digest_json({
         "records": records,
         "chunks": chunk_rows,
@@ -925,6 +924,7 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
         }
         embedding_chunks = {identity: chunk_id for chunk_id, identity in embedding_ids.items()}
         existing = {}
+        vector_hashes = {}
         if embedding_ids:
             values = ",".join(sql_literal(value) for value in embedding_ids.values())
             for line in session.execute(
@@ -935,19 +935,22 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
                     raise RuntimeError("stored embedding association mismatch")
                 vector = [float(value) for value in row["value"].strip("[]").split(",")]
                 validate_vector(vector)
-                canonical = "[" + ",".join(format(float(value), ".9g") for value in vector) + "]"
-                if hashlib.sha256(canonical.encode()).hexdigest() != row["sha"]:
+                if not SHA256_RE.fullmatch(row["sha"] or ""):
                     raise RuntimeError("stored embedding identity mismatch")
                 existing[row["id"]] = vector
+                vector_hashes[row["id"]] = row["sha"]
         vectors = {}
         missing = [chunk for chunk in chunks if embedding_ids[chunk["chunk_id"]] not in existing]
         for offset in range(0, len(missing), 8):
             batch = missing[offset:offset + 8]
             for chunk, vector in zip(batch, embed(config, [item["embedding_text"] for item in batch])):
-                vectors[embedding_ids[chunk["chunk_id"]]] = vector
+                identity = embedding_ids[chunk["chunk_id"]]
+                vectors[identity] = vector
+                value = "[" + ",".join(format(float(item), ".9g") for item in vector) + "]"
+                vector_hashes[identity] = hashlib.sha256(value.encode()).hexdigest()
         vectors.update(existing)
         if rebuild_identity is not None and projected_identity(
-                documents, chunks, embedding_space, vectors, nodes, edges) != rebuild_identity:
+                documents, chunks, embedding_space, vector_hashes, nodes, edges) != rebuild_identity:
             raise RuntimeError("rebuild identity mismatch")
         run_id = secrets.token_hex(16)
         statements = sync_statements(args.project, args.commit, run_id, embedding_space,

@@ -492,6 +492,7 @@ def test_dks_sync_locks_before_sources_and_validates_complete_graph_activation()
     assert "GRAPH_TABLE" in source
     assert "embedding space identity mismatch" in source
     assert "stored embedding identity mismatch" in source
+    assert "vector_hashes[row[\"id\"]] = row[\"sha\"]" in source
     assert "build_graph" in source and 'channels["graph"]' in source
     assert "command_rebuild" in source and "rebuild identity mismatch" in source
     assert source.index("projected_identity(") < source.index("sync_statements(", source.index("def command_sync"))
