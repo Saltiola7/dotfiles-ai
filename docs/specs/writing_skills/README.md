@@ -64,7 +64,7 @@ command mechanics, global permissions, provider routing, and deployment.
 | `dot_agents/skills/pyramid/SKILL.md` | Explicit Pyramid workflow |
 | `dot_agents/skills/pyramid/references/method.md` | Original structural reasoning guide |
 | `private_dot_config/opencode/commands/*.md` | Thin `/jira-ticket`, `/jira-completion`, and `/pyramid` wrappers |
-| `private_dot_config/opencode/opencode.json.tmpl` | Global ACLI command guardrails, owned by `opencode_control_plane` |
+| `.chezmoitemplates/opencode.json.tmpl` and `private_dot_config/opencode/modify_private_opencode.json` | Global ACLI command guardrails merged without deleting machine-local values, owned by `opencode_control_plane` |
 | `tests/test_writing_skills.py` | Focused static and rendered contracts |
 
 ## Architecture

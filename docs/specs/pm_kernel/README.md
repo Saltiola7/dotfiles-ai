@@ -21,10 +21,12 @@ last_updated: 2026-08-19
 | Delivery | Feature branch and draft pull request; local deployment only after affected gates pass |
 | Authorities | `pytest`, Git fixed-commit inspection, chezmoi dry-run/apply, and configured runtime smokes |
 
-Current cycle overrides: elevated risk because the change migrates durable work
-records, replaces lifecycle consumers, adds an external Jira write boundary, and
-introduces an optional database service. Delivery intent is a draft pull request
-with local deployment and operation evidence.
+Current cycle overrides: PMK-003 is elevated risk because it reconciles local
+OpenCode policy, restarts the personal workspace, exercises one separately
+confirmed Jira mutation, and closes projection/reporting gaps against private
+data. Delivery intent is a draft pull request with local deployment, recovery,
+and operation evidence. PostgreSQL 19 Beta 3 remains pinned; no database version
+change is in scope until a newer official release is independently approved.
 
 ## Overview
 
@@ -200,12 +202,43 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 - Then every selected item appears exactly once, grouped by parent when available
 - And missing goals, outcomes, links, metrics, and next steps are never invented
 
+Prepared snapshots may supply parent identity. The bounded ACLI search adapter
+cannot request that field in the installed CLI version, so those live results
+truthfully use `No Parent` rather than inferring hierarchy.
+
 **Scenario: Keep Jira reports private**
 - Given a report may contain private Jira content
 - When it is persisted
 - Then it is written beneath
   `data/interim/reports/report_type=sprint_review/snapshot_date=<date>/`
 - And the Git-ignored report records selection and generation provenance
+
+**Scenario: Read one bounded Sprint Review selection**
+- Given the operator has approved an exact project-scoped JQL expression
+- When PM Kernel reads Done Jira work for a Sprint Review
+- Then ACLI returns at most the configured bound and no mutation-capable command runs
+- And the report records the JQL digest, selected issue keys, and source snapshot digest
+
+### Operational proof
+
+**Scenario: Converge without overwriting local OpenCode policy**
+- Given the managed OpenCode target contains unrelated machine-local values and mode
+- When PM Kernel permissions are deployed
+- Then the PM commands become approval-gated without deleting those unrelated values
+- And a scoped post-apply diff proves the intended merge and private file mode
+
+**Scenario: Recover across a workspace restart**
+- Given a verified logical backup and a clean committed ticket tree
+- When the personal workspace and PostgreSQL service stop and restart
+- Then the retained volume, loopback-only access, schema, and ticket projection recover
+- And the projection checkpoint advances to the exact committed ticket source identity
+
+**Scenario: Defer an unavailable PostgreSQL upgrade safely**
+- Given Beta 3 remains the current PostgreSQL 19 prerelease
+- When upgrade readiness is reviewed
+- Then the exact running pin remains unchanged
+- And the recorded procedure requires logical backup, scratch restore, migration checks,
+  rollback preservation, and renewed approval for any later prerelease or GA image
 
 ### Migration
 
@@ -246,11 +279,13 @@ The Markdown body contains `Outcome`, `Context`, `Scope`, `Acceptance Criteria`,
 | `pmctl tickets list --root ROOT --json` | Read validated current ticket files. |
 | `pmctl tickets check --root ROOT --json` | Report deterministic schema, identity, relation, and completion findings. |
 | `pmctl migrate-backlogs --root ROOT [--apply] --json` | Preview or atomically apply legacy migration. |
-| `pmctl project --source TYPE --input FILE --json` | Project a validated sanitized envelope when PostgreSQL is enabled. |
+| `pmctl project --source TYPE --input FILE --json` | Project an available validated envelope or an explicit bounded unavailable reason. |
+| `pmctl project-tickets --root ROOT --psql COMMAND --json` | Project the exact clean committed ticket tree, including Markdown evidence bodies. |
 | `pmctl jira preview --manifest FILE --json` | Render exact external payload without writing. |
 | `pmctl jira publish --manifest FILE --preview-digest DIGEST --confirm DIGEST --json` | Invoke configured adapter after exact confirmation. |
 | `pmctl jira reconcile --manifest FILE --preview-digest DIGEST ... --json` | Resolve one private unknown adapter receipt without mutating Jira. |
-| `pmctl sprint-review --jql JQL ...` | Generate a private factual report after bounded Jira-read approval. |
+| `pmctl jira project-receipt --manifest FILE --preview-digest DIGEST --psql COMMAND --json` | Project one exact successful private receipt without Jira or Git mutation. |
+| `pmctl sprint-review --jql JQL --confirm-jql-digest DIGEST --project KEY ...` | Read one approved bounded Jira selection and generate a private factual report. |
 
 Agents use the skill and CLI. Direct `psql` is operator/debug access only. A
 future MCP may wrap the same CLI contracts if multiple clients require typed
@@ -276,6 +311,11 @@ reference, external backup directory, Jira project, allowed issue types, and
 adapter invocation remain machine-local. Portable source defines no client custom
 fields, sprint assignment, or point mapping.
 
+The OpenCode target is a private chezmoi modify source. Managed policy overwrites
+its owned keys while unrelated machine-local providers, references, permissions,
+and other JSON keys survive repeated apply. An absent target receives the complete
+managed configuration.
+
 ### PostgreSQL projection
 
 PostgreSQL 19 Beta 3 is pinned by its canonical Docker Hub name and exact image
@@ -283,7 +323,8 @@ digest when enabled. Tables
 cover contexts, tickets, ticket revisions, typed relations, publication manifests,
 publication members, Jira events, leases, source envelopes, and projection
 checkpoints. Canonical rows retain source commit/blob and digest. Generic JSONB is
-preserved beside typed query columns so projection never silently loses fields.
+preserved beside typed query columns, including the canonical Markdown evidence
+body, so projection never silently loses ticket context or fields.
 The rootless container binds guest loopback `55432`; one owned Lima rule forwards
 host `127.0.0.1:55432` to that guest loopback address. A host client resolves the
 password from 1Password at runtime, while the guest receives only a Podman secret
@@ -321,6 +362,17 @@ remain authoritative for the cache.
   tickets and retained sanitized sources.
 - PostgreSQL beta upgrades require backup, restore proof, schema migration, and
   rollback evidence before replacing the running service.
+
+### PostgreSQL 19 prerelease upgrade procedure
+
+PostgreSQL's [Beta information](https://www.postgresql.org/developer/beta/) and
+[upgrade documentation](https://www.postgresql.org/docs/19/upgrading.html) treat
+prerelease transitions as major-version-style migrations. Before any later exact
+image is approved, create and checksum a logical dump, restore it with target
+tooling into an isolated scratch cluster, run schema and application projection
+checks, and retain the untouched old volume/cluster for rollback. Physical/WAL
+reuse and in-place binary replacement are prohibited. Only after those checks and
+separate exact-image approval may the configured Beta 3 pin change.
 
 ## Migration And Recovery
 
@@ -509,11 +561,25 @@ and remain authoritative if the service is unavailable.
 | Deploy and Operate | required | passed | Healthy PG19 Beta 3, loopback-only forward, 146-ticket relational/graph projection, loaded weekly schedule |
 | Maintain/Retire | required | passed | Real custom-format backup and scratch restore passed; seven-generation and retained-volume policy active |
 
+## PMK-003 Operational Proof Gate Ledger
+
+| Gate | Applicability | Result | Planned evidence |
+|---|---|---|---|
+| Domain through Contract | required | passed | PMK-003 ticket, bounded JQL/canary contracts, and projection authority review |
+| Test-driven implementation | required | passed | 120 affected tests and canonical ticket validation |
+| Refactor and Review/Integrate | required | passed | Independent findings remediated and sanitized replay integrated |
+| Release | not_applicable | not_run | No versioned artifact publication or PostgreSQL image change |
+| Deploy and Operate | required | passed | Scoped OpenCode convergence, generated-Quadlet restart recovery, exact-head projection, approved canary, and private report |
+| Maintain/Retire | required | passed | Verified backup/restore plus official prerelease-to-GA migration and rollback procedure |
+
 ## Decisions And Risks
 
 - PostgreSQL 19 Beta 3 is current as of discovery and is explicitly not production
   stable. Operational use accepts incompatible prerelease upgrades but contains
   them behind an optional cache boundary, exact image pin, backup, and restore.
+- Official PostgreSQL guidance treats prerelease transitions like major upgrades.
+  Logical dump/restore or `pg_upgrade` is required; physical/WAL compatibility and
+  binary replacement are not assumed between Beta 3 and a later prerelease or GA.
 - PG19 property graphs are read-only views over relational sources. Typed edge
   views are required for heterogeneous endpoints.
 - The current runtime exposes no discoverable Atlassian MCP server. The bounded

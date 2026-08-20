@@ -110,7 +110,11 @@ def test_acli_permissions_allow_direct_bounded_reads_and_deny_other_forms():
     for command in (
         "pmctl jira publish*", "*/pmctl jira publish*",
         "pmctl jira reconcile*", "*/pmctl jira reconcile*",
+        "pmctl sprint-review*", "*/pmctl sprint-review*",
+        "env *pmctl sprint-review*", "command *pmctl sprint-review*",
         "pm-jira*", "*/pm-jira*",
+        "*pmctl jira publish*", "*pmctl jira reconcile*",
+        "*pmctl sprint-review*", "*pm-jira*",
     ):
         assert global_bash[command] == "ask"
     for bash in (config["permission"]["bash"], config["agent"]["plan"]["permission"]["bash"]):

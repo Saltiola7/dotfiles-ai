@@ -21,13 +21,14 @@ parallel_safe: false
 validation:
   - uv run --group test pytest
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 completed: 2026-08-18
 commits:
   - "31d6c0c"
   - "7a43c51"
   - "b872a08"
-jira_publications: []
+jira_publications:
+  - "pmk-003-private-workflows"
 migration: null
 ---
 

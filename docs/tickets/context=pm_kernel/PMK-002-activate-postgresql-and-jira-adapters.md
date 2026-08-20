@@ -32,7 +32,8 @@ commits:
   - "79bd60c"
   - "0d5a3fc"
   - "5eadd94"
-jira_publications: []
+jira_publications:
+  - "pmk-003-private-workflows"
 migration: null
 ---
 
