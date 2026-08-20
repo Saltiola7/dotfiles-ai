@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import hashlib
+import os
+import posixpath
+import sys
+import tarfile
+from pathlib import Path
+
+
+def tree_digest(root: Path) -> str:
+    root = root.resolve(strict=True)
+    rows: list[tuple[str, str, str]] = []
+    for directory, names, files in os.walk(root, followlinks=False):
+        base = Path(directory)
+        for name in sorted(names + files):
+            path = base / name
+            relative = path.relative_to(root).as_posix()
+            if path.is_symlink():
+                target = os.readlink(path)
+                if not target or "/" in target or target in {".", ".."}:
+                    raise ValueError("unsafe runtime link")
+                path.resolve(strict=True).relative_to(root)
+                rows.append((relative, "L", target))
+            elif path.is_file():
+                digest = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(block)
+                rows.append((relative, "F", digest.hexdigest()))
+            elif not path.is_dir():
+                raise ValueError("unsafe runtime member")
+    digest = hashlib.sha256()
+    for relative, kind, value in sorted(rows):
+        digest.update(relative.encode() + b"\0" + kind.encode() + b"\0" + value.encode() + b"\n")
+    return digest.hexdigest()
+
+
+def archive_digest(path: Path) -> str:
+    rows: list[tuple[str, str, str]] = []
+    with tarfile.open(path, "r:gz") as archive:
+        for member in archive:
+            normalized = posixpath.normpath(member.name)
+            parts = normalized.split("/")
+            if normalized.startswith("/") or ".." in parts or parts[0] != "llama-b10505" or member.islnk():
+                raise ValueError("unsafe runtime archive")
+            relative = normalized.removeprefix("llama-b10505/")
+            if normalized == "llama-b10505" and member.isdir():
+                continue
+            if member.issym():
+                target = member.linkname
+                if not target or "/" in target or target in {".", ".."}:
+                    raise ValueError("unsafe runtime archive")
+                rows.append((relative, "L", target))
+            elif member.isfile():
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError("invalid runtime archive")
+                digest = hashlib.sha256()
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+                rows.append((relative, "F", digest.hexdigest()))
+            elif not member.isdir():
+                raise ValueError("unsafe runtime archive")
+    digest = hashlib.sha256()
+    for relative, kind, value in sorted(rows):
+        digest.update(relative.encode() + b"\0" + kind.encode() + b"\0" + value.encode() + b"\n")
+    return digest.hexdigest()
+
+
+if len(sys.argv) != 4 or sys.argv[1] not in {"archive", "tree"}:
+    raise SystemExit("usage: dbsctr-embedding-runtime-verify MODE PATH EXPECTED_SHA256")
+try:
+    actual = archive_digest(Path(sys.argv[2])) if sys.argv[1] == "archive" else tree_digest(Path(sys.argv[2]))
+except (OSError, tarfile.TarError, ValueError):
+    raise SystemExit("dbsctr-embedding-runtime-verify: invalid runtime artifact") from None
+if actual != sys.argv[3]:
+    raise SystemExit("dbsctr-embedding-runtime-verify: runtime digest mismatch")

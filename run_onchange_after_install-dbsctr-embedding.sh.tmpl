@@ -1,0 +1,128 @@
+#!/bin/bash
+# enabled: {{ .dotfiles_ai.knowledge_store.enabled }}
+# runtime: llama.cpp b10505 d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176
+# model: Qwen3-Embedding-8B Q4_K_M 3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85
+
+set -euo pipefail
+[[ "$(uname)" == Darwin ]] || exit 0
+
+{{ if not .dotfiles_ai.knowledge_store.enabled -}}
+exit 0
+{{ else -}}
+{{ if not (hasPrefix "/" .dotfiles_ai.knowledge_store.model_root) -}}
+{{ fail "dotfiles_ai.knowledge_store.model_root must be absolute" }}
+{{ end -}}
+{{ if regexMatch "(^|/)[.][.](/|$)" .dotfiles_ai.knowledge_store.model_root -}}
+{{ fail "dotfiles_ai.knowledge_store.model_root must not contain dot-dot" }}
+{{ end -}}
+{{ if not (hasPrefix "/" .dotfiles_ai.state.root) -}}
+{{ fail "dotfiles_ai.state.root must be absolute" }}
+{{ end -}}
+{{ if regexMatch "(^|/)[.][.](/|$)" .dotfiles_ai.state.root -}}
+{{ fail "dotfiles_ai.state.root must not contain dot-dot" }}
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.knowledge_store.embedding_port | int) 1024) (gt (.dotfiles_ai.knowledge_store.embedding_port | int) 65535) -}}
+{{ fail "dotfiles_ai.knowledge_store.embedding_port must be between 1024 and 65535" }}
+{{ end -}}
+{{ if ne (.dotfiles_ai.knowledge_store.embedding_dimensions | int) 4096 -}}
+{{ fail "dotfiles_ai.knowledge_store.embedding_dimensions must be 4096 for DKS-001" }}
+{{ end -}}
+{{ if ne (.dotfiles_ai.knowledge_store.embedding_context_tokens | int) 4096 -}}
+{{ fail "dotfiles_ai.knowledge_store.embedding_context_tokens must be 4096 for DKS-001" }}
+{{ end -}}
+
+state_root={{ .dotfiles_ai.state.root | quote }}
+model_root={{ .dotfiles_ai.knowledge_store.model_root | quote }}
+runtime_url=https://github.com/ggml-org/llama.cpp/releases/download/b10505/llama-b10505-bin-macos-arm64.tar.gz
+runtime_sha=d3383ae8c2a435a2ded122b243e971ca96b9bee6fde29a3b9889e85c8cf19176
+server_sha=d0878274b8d6bd3c8ea26a78eb66cd1ffd943d007c62b9dff31c8aa99922d713
+tree_sha=4b57ab72f3854e2ddb0331b7fd038d15ef63cf713a2a8b4a38112212448cd3aa
+model_url=https://huggingface.co/Qwen/Qwen3-Embedding-8B-GGUF/resolve/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/Qwen3-Embedding-8B-Q4_K_M.gguf
+model_sha=3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85
+model_size=4676804928
+
+[[ -f "$state_root/.dotfiles-ai-state" ]] || { echo "install-dbsctr-embedding: state root unavailable" >&2; exit 1; }
+[[ -d "$model_root" ]] || { echo "install-dbsctr-embedding: model root unavailable" >&2; exit 1; }
+state_root=$(cd "$state_root" && pwd -P)
+model_root=$(cd "$model_root" && pwd -P)
+/usr/bin/python3 - "$state_root" "$model_root" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+def safe_mkdir(root: str, relative: str, mode: int = 0o755) -> None:
+    current = Path(root)
+    for component in Path(relative).parts:
+        current /= component
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            current.mkdir(mode=mode)
+            info = current.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise SystemExit("install-dbsctr-embedding: unsafe managed directory")
+
+safe_mkdir(sys.argv[1], "dbsctr/knowledge/downloads")
+safe_mkdir(sys.argv[1], "dbsctr/knowledge/runtime/llama.cpp")
+safe_mkdir(sys.argv[1], "dbsctr/knowledge/private", 0o700)
+safe_mkdir(sys.argv[2], "dbsctr/qwen3-embedding-8b/69d0e58a13e463cd99a9b83e3f5fee7c10265fab")
+PY
+downloads="$state_root/dbsctr/knowledge/downloads"
+runtime_parent="$state_root/dbsctr/knowledge/runtime/llama.cpp"
+runtime="$runtime_parent/b10505"
+model="$model_root/dbsctr/qwen3-embedding-8b/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/Qwen3-Embedding-8B-Q4_K_M.gguf"
+private_dir="$state_root/dbsctr/knowledge/private"
+api_key="$private_dir/embedding-api-key"
+/bin/chmod 0700 "$private_dir"
+[[ ! -L "$runtime" && ! -L "$model" && ! -L "$api_key" ]] || { echo "install-dbsctr-embedding: managed artifact must not be a symlink" >&2; exit 1; }
+
+download() {
+    local url=$1 expected=$2 size=$3 destination=$4 temporary
+    if [[ -e "$destination" ]]; then
+        [[ ! -L "$destination" && -f "$destination" ]] || { echo "install-dbsctr-embedding: destination is not a regular file" >&2; return 1; }
+        [[ "$(/usr/bin/stat -f %z "$destination")" == "$size" ]] || { echo "install-dbsctr-embedding: existing artifact size mismatch" >&2; return 1; }
+        printf '%s  %s\n' "$expected" "$destination" | /usr/bin/shasum -a 256 -c - >/dev/null
+        return
+    fi
+    temporary=$(/usr/bin/mktemp "${destination}.part.XXXXXX")
+    trap '/bin/rm -f "$temporary"' EXIT
+    /usr/bin/curl -fL --retry 3 --retry-all-errors --connect-timeout 30 "$url" -o "$temporary"
+    [[ "$(/usr/bin/stat -f %z "$temporary")" == "$size" ]] || { echo "install-dbsctr-embedding: downloaded artifact size mismatch" >&2; return 1; }
+    printf '%s  %s\n' "$expected" "$temporary" | /usr/bin/shasum -a 256 -c - >/dev/null
+    /bin/chmod 0444 "$temporary"
+    /bin/mv -f "$temporary" "$destination"
+    trap - EXIT
+}
+
+runtime_archive="$downloads/llama-b10505-bin-macos-arm64.tar.gz"
+download "$runtime_url" "$runtime_sha" 11087492 "$runtime_archive"
+"$HOME/.local/bin/dbsctr-embedding-runtime-verify" archive "$runtime_archive" "$tree_sha"
+if [[ ! -d "$runtime" ]]; then
+    stage=$(/usr/bin/mktemp -d "$runtime_parent/.b10505.part.XXXXXX")
+    trap '/bin/rm -rf "$stage"' EXIT
+    /usr/bin/tar -xzf "$runtime_archive" -C "$stage"
+    printf '%s  %s\n' "$server_sha" "$stage/llama-b10505/llama-server" | /usr/bin/shasum -a 256 -c - >/dev/null
+    "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$stage/llama-b10505" "$tree_sha"
+    /bin/chmod -R u=rwX,go=rX "$stage/llama-b10505"
+    /bin/mv "$stage/llama-b10505" "$runtime"
+    /bin/rmdir "$stage"
+    trap - EXIT
+fi
+printf '%s  %s\n' "$server_sha" "$runtime/llama-server" | /usr/bin/shasum -a 256 -c - >/dev/null
+"$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" "$tree_sha"
+
+download "$model_url" "$model_sha" "$model_size" "$model"
+if [[ ! -e "$api_key" ]]; then
+    umask 077
+    temporary=$(/usr/bin/mktemp "$private_dir/.embedding-api-key.part.XXXXXX")
+    trap '/bin/rm -f "$temporary"' EXIT
+    /usr/bin/openssl rand -hex 32 >"$temporary"
+    [[ -s "$temporary" ]] || { echo "install-dbsctr-embedding: generated API key unavailable" >&2; exit 1; }
+    /bin/chmod 0600 "$temporary"
+    /bin/mv -f "$temporary" "$api_key"
+    trap - EXIT
+fi
+[[ ! -L "$api_key" && -f "$api_key" && -s "$api_key" ]] || { echo "install-dbsctr-embedding: API key unavailable" >&2; exit 1; }
+/bin/chmod 0600 "$api_key"
+{{ end -}}

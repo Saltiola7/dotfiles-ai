@@ -64,6 +64,13 @@ jira_adapter = "fake"
 jira_project = ""
 jira_issue_types = []
 
+[dotfiles_ai.knowledge_store]
+enabled = false
+model_root = ""
+embedding_port = 11435
+embedding_dimensions = 4096
+embedding_context_tokens = 4096
+
 [dotfiles_ai.sandbox]
 enabled = false
 build_workspace = ""
