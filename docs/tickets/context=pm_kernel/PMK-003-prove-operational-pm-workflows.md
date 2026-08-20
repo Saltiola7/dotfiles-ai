@@ -40,6 +40,8 @@ updated: 2026-08-19
 completed: 2026-08-19
 commits:
   - "9471ddd"
+  - "0c18524"
+  - "a2fc4f4"
 jira_publications:
   - "pmk-003-private-workflows"
 migration: null
@@ -99,7 +101,8 @@ PostgreSQL prerelease/GA migration procedure without changing the Beta 3 pin.
   requires logical backup, scratch restore, migration check, rollback-preserved
   old cluster, application SQL tests, and a later exact-image approval.
 - Affected tests, canonical ticket validation, deployment/operation evidence,
-  independent review, and draft-PR delivery pass.
+  independent review, and draft-PR delivery readiness pass. Actual draft-PR
+  delivery follows gate closure.
 
 ## Parallel Execution
 

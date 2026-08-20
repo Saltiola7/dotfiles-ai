@@ -14,8 +14,8 @@
   separately confirmed ACLI-test-only canary and one separately confirmed private
   Sprint Review completed. Jira identity remains private; Git stores only an opaque
   publication ID. PostgreSQL 19 Beta 3 remains pinned. Gate Exceptions: none.
-  Gate Commit: `9471ddd`. Intended Final Push: feature branch and draft PR into
-  `main`.
+  Pre-final Gate Commits: `9471ddd`, `0c18524`, `a2fc4f4`. Intended Final Push:
+  feature branch and draft PR into `main`.
 
 ## 2026-08-19 - PMK-002 Private Adapter Activation
 
