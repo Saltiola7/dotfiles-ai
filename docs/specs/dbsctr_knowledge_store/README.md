@@ -690,19 +690,19 @@ failed or abandoned and never change active retrieval.
 
 ### DKS-002
 
-| Gate | Applicability | Result | Planned evidence |
+| Gate | Applicability | Result | Evidence |
 |---|---|---|---|
-| Domain | required | pending | Client/database/project boundaries, source authority, revisions, chunks, vectors, edges, and retrieval terms |
-| Behavior | required | pending | Exact sync, deduplication, failed activation, scoped hybrid query, rebuild, and image migration scenarios |
-| Spec | required | pending | Pinned image, config, schema, CLI, chunker, graph, and RRF interfaces |
-| Contract | required | pending | Isolation, atomicity, provenance, deterministic ranking, secret, rollback, and compatibility invariants |
-| Test-driven implementation | required | pending | Red/green image, migration, projector, query, recovery, and live fixture checks |
-| Refactor | required | pending | Reuse PM deployment/backup patterns and keep one dependency-free projector CLI |
-| Review/Integrate | required | pending | Independent data/security/runtime review and upstream reconciliation |
+| Domain | required | passed | Client/database/project boundaries, source authority, revisions, chunks, vectors, edges, and retrieval terms |
+| Behavior | required | passed | Exact sync, deduplication, failed activation, scoped hybrid query, rebuild, and image migration scenarios |
+| Spec | required | passed | Pinned image, config, schema, CLI, chunker, graph, and RRF interfaces |
+| Contract | required | passed | Isolation, atomicity, provenance, deterministic ranking, secret, rollback, and compatibility invariants |
+| Test-driven implementation | required | passed | Red/green image, migration, projector, query, recovery, and live fixture checks |
+| Refactor | required | passed | Reused PM deployment/backup patterns and retained one dependency-free projector CLI |
+| Review/Integrate | required | passed | Independent data/security/runtime reviews closed all ship blockers |
 | Release | not_applicable | not_run | No public package or registry image is published |
-| Deploy | required | pending | PM backup/restore, local image migration, role/database creation, schema, and exact projection |
-| Operate | required | pending | PM and DKS health, scoped query smoke, metrics/counts, restart, and rebuild |
-| Maintain/Retire | required | pending | Image/extension upgrades, rebuild recovery, credential rotation, project removal, and retained revisions |
+| Deploy | required | passed | Verified PM backup/restore, immutable image migration, dedicated role/database/schema, and exact projection |
+| Operate | required | passed | PM and DKS health, scoped query, counts, failed activation, restart, and rebuild identity |
+| Maintain/Retire | required | passed | Pinned identities, rebuild recovery, credential boundary, access removal, and retained revisions |
 
 ## Decisions And Risks
 

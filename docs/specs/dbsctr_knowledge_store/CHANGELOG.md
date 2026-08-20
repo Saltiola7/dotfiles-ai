@@ -50,5 +50,7 @@
   image verification, same-base PM migration guards, baseline comparison,
   dedicated database/role provisioning, and explicit access removal.
 - Validated the image and rerunnable schema on target arm64, adversarial RLS,
-  generated CLI SQL including `GRAPH_TABLE`, and affected tests. Live migration
-  and projection remain paused pending dedicated 1Password credential creation.
+  generated CLI SQL including `GRAPH_TABLE`, and affected tests. Deployed after
+  verified PM backup/scratch restore; PM state survived image activation, and the
+  exact-commit projection, hybrid query, rebuild identity, failed activation,
+  project isolation, and PostgreSQL/embedding restart recovery passed.

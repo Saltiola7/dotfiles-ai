@@ -5,7 +5,7 @@ slug: project-git-hybrid-retrieval
 context: dbsctr_knowledge_store
 title: Project Git knowledge into hybrid retrieval
 kind: epic
-state: ready
+state: done
 priority: high
 points: 8
 depends_on:
@@ -55,9 +55,18 @@ validation:
   - project-scoped FTS, vector, SQL/PGQ, fixed-RRF, and citation checks
   - PostgreSQL and embedding restart recovery with unchanged active identities
 created: 2026-08-19
-updated: 2026-08-19
-completed: null
-commits: []
+updated: 2026-08-20
+completed: 2026-08-20
+commits:
+  - 42516fe
+  - 3e38764
+  - 27433a9
+  - ac8d02d
+  - 34b5236
+  - 89d8209
+  - cbb9e2b
+  - 1ea42d7
+  - 5a98e79
 jira_publications: []
 migration: null
 ---
@@ -124,12 +133,16 @@ The pinned PostgreSQL 19 Beta 3 plus pgvector 0.8.6 image built on target arm64.
 A fresh disposable database accepted the schema twice; forced-RLS checks denied
 unset and mismatched project scopes, and the exact generated `dksctl` query SQL
 returned FTS, exact-vector, cited chunk, node, and `GRAPH_TABLE` edge rows. The
-affected suite passed 289 tests with one expected skip before final embedding
-provenance checks; the focused suite then passed 29 tests. Independent review
-closed all implementation blockers. Current PM compatibility evidence records
-the exact approved base, PostgreSQL 19, migration 1, 147 tickets, one Jira
-publication, and nine source envelopes. Live backup/restore, image activation,
-projection, restart, and recovery evidence remain pending.
+affected suite passed 291 tests with one expected skip; focused remediation
+reached 30 passing tests. Independent
+review closed all implementation blockers. A verified logical backup restored in
+scratch before activation. The running immutable image reports pgvector `0.8.6`;
+PM retained PostgreSQL 19, migration 1, 147 tickets, one Jira publication, and
+nine source envelopes. The dedicated database projected 176 records into 1,777
+chunks, 3,828 nodes, and 1,877 edges. Unset/mismatched RLS scopes return zero and
+an unauthorized write fails. Failed sync preserves the active revision, rebuild
+reproduces projection identity, cited hybrid query returns all three channels,
+and PostgreSQL plus embedding restarts retain active identities and health.
 
 The `owns` list is this serialized cycle's writable scope, not durable domain
 ownership. Distribution owns the image build and Quadlet activation; PM owns the
@@ -146,6 +159,7 @@ outside the local integrity boundary and requires credential rotation and rebuil
 
 ## Review
 
-Implementation review is accepted with no remaining code blocker. Deployment is
-paused until desktop 1Password authorizes creation of the dedicated project
-credential; the read-only Automation service account cannot create that item.
+Accepted. The dedicated 1Password credential, least-privilege project role,
+backup/restore, shared-image migration, projection, retrieval, rebuild, and
+restart recovery are deployed and verified. PostgreSQL remains pinned to Beta 3;
+future GA migration requires a separately reviewed backup/restore cycle.
