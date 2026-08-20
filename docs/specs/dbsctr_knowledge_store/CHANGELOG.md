@@ -25,3 +25,18 @@
   rollback and disabling unloads only the owned service.
 - Gate commits before final lifecycle review: `ea8ee02`, `ca542e4`, and
   `ab602f0`.
+
+## 2026-08-19 - DKS-002 Discovery
+
+- Scoped the first corpus to exact-commit dotfiles-ai specs and tickets in a
+  project namespace inside a separate knowledge database per client VM.
+- Selected pinned pgvector `0.8.6` on PostgreSQL 19 Beta 3, native
+  `vector(4096)` exact search, English FTS, deterministic SQL/PGQ edges, and fixed
+  reciprocal-rank fusion behind a JSON `dksctl` CLI.
+- Required PM backup/scratch restore before the shared image migration, atomic
+  revision activation, retained immutable revisions, dedicated 1Password
+  credentials, and rebuild-based recovery. OpenCode ingestion, ANN, inferred
+  graph edges, reranking, and automatic sync remain deferred.
+- Kept canonical tickets as work authority and prohibited reintroducing
+  per-context `BACKLOG.md`; stale deployed lifecycle skill wording is part of the
+  DKS-002 serialized update while legacy migration fixtures remain historical.
