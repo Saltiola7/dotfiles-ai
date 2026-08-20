@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-20 - DKS-003 Knowledge Export Discovery
+
+- Defined a lifecycle-owned, read-only canonical JSON Lines export for governed
+  cycles/evidence, reviews/history/captures/telemetry, benchmarks/execution,
+  provider evaluations, and improvement claims.
+- Bound each family to its own immutable snapshot/page identities and explicit
+  availability instead of claiming one cross-database transaction.
+- Added subtype-owned retention, monotonic privacy sequences, tombstone precedence,
+  bounded deterministic replay, and strict reuse of existing sanitization.
+- Kept raw OpenCode data, direct SQLite/WAL access, private arguments/content,
+  projection writes, and inferred unavailable evidence outside the interface.
+
 ## 2026-08-18 - PMK-001 Ticket Authority Migration
 
 - Replaced `BACKLOG.md` authority with independently validated PM Kernel tickets,

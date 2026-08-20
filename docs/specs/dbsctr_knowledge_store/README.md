@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-19
+last_updated: 2026-08-20
 ---
 
 # DBSCTR Knowledge Store
@@ -39,6 +39,16 @@ last_updated: 2026-08-19
 | Scope | dotfiles-ai `docs/specs` and `docs/tickets`; PostgreSQL FTS, pgvector exact search, deterministic SQL/PGQ graph, fixed RRF, and `dksctl` JSON CLI |
 | Isolation | One client VM and knowledge database per trust domain; mandatory project scope within each database |
 | Non-goals | OpenCode SQLite, other repositories, automatic sync, ANN indexes, MRL truncation, inferred graph edges, reranking, or canonical database writes |
+
+### DKS-003 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: projects all governed private DBSCTR evidence, expands the Git corpus to code/config, adds two local model services, and may change active retrieval ranking |
+| Delivery intent | Deploy one complete sanitized projection and activate only quality/latency winners, then deliver a draft pull request |
+| Scope | Typed DBSCTR evidence export; exact Git code/config projection; pinned offline Graphify code graph; Nomic code embeddings; Qwen reranking; frozen benchmark; atomic activation, expiry, tombstone, rebuild, and rollback |
+| Isolation | Source authorities export bounded sanitized envelopes; Graphify receives an immutable materialized corpus with no credentials or network; model services and PostgreSQL remain loopback/client-local |
+| Non-goals | Raw OpenCode transcripts, direct SQLite/WAL access, hosted inference, Graphify semantic document extraction or graph-database push, ANN, PostgreSQL-canonical writes, and replacing Qwen general embeddings without measured evidence |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -104,6 +114,9 @@ Adjacent contexts:
 | Projection | Rebuildable PostgreSQL representation of source records, chunks, vectors, or graph relationships. |
 | Asserted Edge | Deterministic source relationship or model-derived relationship with explicit provenance and confidence. |
 | Retrieval Citation | Source identity, revision, range, and digest returned with a result. |
+| Source Envelope | Versioned sanitized record emitted by its owning typed authority with stable identity, revision, retention, and deletion provenance. |
+| Reranker | Versioned local pair scorer that reorders an already retrieved candidate set without changing source authority or candidate recall. |
+| Derived Graph | Non-authoritative graph artifact whose extractor, input snapshot, provenance, and digest are recorded and independently validated before projection. |
 
 ## Domain Model
 
@@ -188,6 +201,39 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - Then it receives a new embedding-space identity and separate vectors
 - And activation never overwrites the previous rollback space
 
+### Governed evidence and expanded corpus
+
+**Scenario: Project governed DBSCTR evidence through typed authority**
+
+- Given cycles and evidence, reviews and history, captures and telemetry,
+  benchmarks, provider evaluations, execution records, and improvement claims
+- When the lifecycle owner exports one bounded sanitized snapshot
+- Then DKS imports only versioned envelopes with stable identity and provenance
+- And it never reads the live OpenCode database, review ledger, WAL, or SHM
+
+**Scenario: Reconcile retention and forgetting**
+
+- Given an authority expires or forgets one source subtype or emits a tombstone
+- When DKS observes an authority privacy sequence greater than its imported sequence
+- Then the identity is denied from every query before projection reconciliation
+- And active, retained, staged, cached, benchmark, and rollback derivatives are
+  purged without retaining forgotten text or permitting rebuild resurrection
+
+**Scenario: Project exact code and configuration evidence**
+
+- Given one exact Git commit and a bounded source-profile allowlist
+- When DKS projects code and configuration
+- Then it reads regular UTF-8 Git blobs rather than worktree or generated files
+- And deterministic non-overlapping chunks preserve exact byte citations
+
+**Scenario: Import an isolated Graphify code graph**
+
+- Given a pinned Graphify code-only run over the same immutable corpus snapshot
+- When DKS validates its `graph.json`
+- Then every imported node and edge resolves to an accepted exact source revision
+- And unknown shape, dangling identity, unsupported confidence, or missing provenance
+  rejects the import without replacing the active graph
+
 ### Retrieval and graph
 
 **Scenario: Return evidence rather than inferred authority**
@@ -212,6 +258,15 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - Then fixed reciprocal-rank fusion produces one deterministic order
 - And each result reports channel ranks, fused score, commit, path, byte range,
   blob digest, content digest, and chunk identity
+
+**Scenario: Activate measured code retrieval and reranking**
+
+- Given frozen public fixtures and private local judgments compare the active
+  baseline with candidate code vectors and pair reranking
+- When a candidate passes every quality, privacy, identity, resource, and latency gate
+- Then one atomic activation records all channel, model, runtime, template, and
+  benchmark identities while preserving the prior rollback configuration
+- And an unavailable, timed-out, or invalid reranker returns the unchanged fixed-RRF order
 
 ## Interfaces
 
@@ -395,6 +450,154 @@ channel. Final score is the same formula over lexical, vector, and graph ranks;
 ties use chunk ID. Missing channels contribute zero. The JSON response reports
 each rank and score term.
 
+### DKS-003 governed projection and retrieval
+
+Lifecycle-owned `dbsctrctl knowledge-export` is the only private-lifecycle source adapter. It
+emits canonical JSON envelopes for Cycle Records and sanitized evidence, review
+history and captures, telemetry, longitudinal and execution benchmarks, provider
+evaluations, phase/execution activation, and improvement claims. Each envelope
+contains source kind, schema version, stable record ID, immutable revision or
+snapshot/cursor digest, retention state, content digest, and sanitized text. The
+exporter is bounded and deterministic for one declared snapshot. Its lifecycle
+contract owns per-family schema, pagination, availability, bounds, snapshot
+consistency, monotonic privacy sequence and digest, retention state, and tombstones. Raw prompts,
+messages, tool payloads, commands, errors, credentials, URLs, email addresses,
+machine paths, and unsupported attribution are excluded. SQLite remains the
+authority and is never mounted or queried by PostgreSQL or `dksctl`.
+
+The importer activates one complete mixed-source snapshot. Retention is
+authority-provided per subtype: transient federated captures currently expire
+after 24 hours; detailed operational review reports currently expire after 90
+days; ordinary history captures, historical reports/evidence, cycles, provider
+evaluations, phase/execution records, and claims remain until their owning
+authority explicitly expires or forgets them. DKS never derives retention from
+age alone. Before normal projection, a separate monotonic privacy transaction
+installs deny identities when the authority sequence is greater than the imported
+sequence. Every query first compares `dbsctrctl knowledge-privacy-status` and
+fails closed on any mismatch; a lower authority sequence is rollback/corruption.
+Reconciliation then purges every active,
+retained, staged, cached, benchmark, and rollback derivative. DKS projection data
+is excluded from backups and recovered by authority replay; only deletion identity,
+sequence, and digest remain after forgetting. A failed content activation preserves the
+prior snapshot minus denied records.
+
+Git code/config uses `dks-source-v1`: strict UTF-8 regular blobs selected by the
+committed default-deny `DKS-003.source-profile.json`. Selection uses byte-exact
+POSIX paths: a path must match one listed root boundary, exact root file, or root
+prefix/suffix pair; match one listed suffix or exact extensionless path; and have
+no byte-equal excluded component, basename, or suffix. Exclusion wins. Symlinks,
+submodules, and non-regular Git modes are rejected. Any selection change requires
+a new source-controlled profile ID and golden added/removed-path fixture; there
+are no semantic generated/state/secret heuristics outside the manifest. Chunks
+greedily pack complete physical lines
+to the 1024-token ceiling, prefer blank then language-neutral declaration
+boundaries, split an oversized line only at UTF-8 code-point boundaries, never
+overlap, and embed `path` plus source kind as versioned context. Markdown keeps
+`dks-markdown-v1` and existing identities unchanged.
+
+Graphify is pinned to `graphifyy` `0.9.48` at commit
+`b2cd36267456c166788c95be6e68574064a92a42`. It runs code-only, offline, without
+database credentials over the immutable accepted corpus. DKS treats
+`graph.json` as untrusted derived input, records its SHA-256, extractor/config
+identity, repository and source snapshot, validates its node-link shape and
+provenance, and maps locations to overlapping exact-byte chunks. Graphify IDs
+are namespaced derivative keys, never source identities. Complete snapshot
+replacement handles deletion. Semantic document extraction and direct
+Neo4j/FalkorDB/PostgreSQL Graphify adapters are prohibited.
+
+The general Qwen3 Embedding 8B space remains active for all text. The separate
+code candidate is official `nomic-ai/nomic-embed-code-GGUF` revision
+`ff2ddedde976ea623178981f18e36af33c0c2a94`, file
+`nomic-embed-code.Q4_K_M.gguf`, SHA-256
+`4354a73ee9ff5d811efe552a515dfd518667ff25fdfc4ee9e10af3f617f96eec`.
+It uses llama.cpp `0e1d9185c5fe82e905d1f5ae6b2e5dcd607a8dfd`, last-token
+pooling, L2 normalization, native 3584 dimensions, raw code documents, and
+query prefix `Represent this query for searching relevant code: `. It is a
+separate exact-vector channel and cannot replace the general space.
+
+The reranker candidate is official `Qwen/Qwen3-Reranker-4B` revision
+`22e683669bc0f0bd69640a1354a6d0aebcfeede5`, served from pinned safetensors and
+tokenizer files by a loopback-only Transformers MPS scorer. llama.cpp `/rerank`
+and third-party GGUFs are excluded because they do not implement or prove the
+official decoder `yes`/`no` final-logit contract. The scorer uses the official
+system/pair template, fixed DBSCTR retrieval instruction, 8192-token operational
+limit, longest-first truncation, and binary softmax relevance probability.
+`DKS-003.models.json` pins safetensor shard and tokenizer hashes/sizes, exact
+instruction/template bytes and digest, the complete revision-file allowlist,
+no-remote-code identity, Python 3.12.11, torch 2.9.1, Transformers 5.5.0,
+tokenizers 0.22.2, safetensors 0.7.0, and macOS arm64 hash-complete wheel lock
+`56e0c1450f0de69984e879e88d2466f12d68794783ec1fbc7484f89f442eb555`.
+The resolver used Python 3.12.0 metadata for the pinned `cp312` ABI because the
+requested patch interpreter was unavailable; deployment requires 3.12.11 and
+must prove the same lock installs unchanged. Direct single-device MPS loading omits Accelerate. Contract gate locally hashes
+ordinary Git files at the pinned revision; any changed artifact rejects readiness.
+
+Ranking policy `dks-quality-v2` first builds an exact-evidence channel capped at
+20, then forms a deduplicated top-50 union from exact, lexical, general-vector,
+eligible code-vector, and graph channels using fixed `k=60` RRF. Exact parsing
+recognizes only lowercase 40-hex Git revisions,
+lowercase 64-hex source/content/chunk/digest IDs, canonical POSIX paths enclosed
+in backticks, and ASCII version tokens matching
+`v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?`. Tokens require ASCII
+non-identifier boundaries; malformed tokens are ordinary text. Within the
+already RLS-scoped active or explicitly selected revision, exact candidates sort
+first by distinct query-token matches, canonical metadata before body match,
+body-match count, then chunk ID. This defines exact rank before RRF. Multiple or
+conflicting tokens form that
+deterministic union; another project's or unselected revision's identifiers add
+no candidate. ASCII token boundaries reject adjacent bytes in
+`[0-9A-Za-z._/+:-]`; backtick paths require exactly one opening/closing backtick,
+no newline, absolute root, empty/dot/dot-dot component, or percent encoding.
+Malformed spans are skipped left-to-right without consuming later valid tokens.
+After union deduplication, exact-channel chunks are pinned first in exact rank;
+the reranker scores only remaining chunks, which follow by score descending then
+pre-rerank RRF rank and chunk ID. The first 10 form output.
+Timeout, malformed score, model mismatch, or service unavailability returns the
+same pre-rerank RRF candidate order and adds fallback provenance. The v2 default
+and maximum result count are 10; `--limit` accepts 1 through 10. Explicit rollback
+policy `dks-rrf-v1` preserves the DKS-002 1-through-20 contract. JSON reports all source, channel,
+Graphify, embedding, reranker, template, truncation, score, and fallback
+provenance.
+
+The frozen benchmark stores non-sensitive fixtures, manifest, and judgment schema in Git;
+private query text and judgments remain local under typed private authority and
+only sanitized aggregate evidence enters Git. Activation requires at least 5%
+relative nDCG@10 improvement overall (or five absolute percentage points when
+baseline is zero), a stratified 95% bootstrap confidence interval above zero, no
+source/use-case stratum worse by more than two absolute points, unchanged exact-
+evidence citation correctness, candidate Recall@50 no worse than baseline,
+deterministic rank agreement for identical frozen vectors, p95 end-to-end warm
+latency at or below 30 seconds, peak combined process/Metal memory no greater
+than 56 GiB, normal macOS memory-pressure state, and no swap growth on the 64-GB
+target. The set contains at least 100 graded 0-3 queries, at least 20 per declared
+stratum, judgments through depth 50, and stable chunk-ID tie breaking. Timing uses
+concurrency one, three warmups, then five runs per query and records hardware SKU,
+OS, power/thermal state, p50/p95/p99, and run manifest. Depths 20, 50, and 100 are
+measured. Activation order is baseline, Nomic code channel versus baseline, then
+Qwen reranking versus the winning channel set; the full 2x2 matrix is reported.
+Code vectors and reranking activate independently and atomically; each failed
+gate keeps its current baseline. Prior service assets and ranking policy are
+retained for tested rollback, but forgotten private vectors are never rollback assets.
+Queries and strata are authored before candidate generation. The assessor sees a
+deduplicated, randomly ordered depth-50 pool with system, model, channel, score,
+and rank hidden. Twenty percent of pairs are blindly repeated; weighted agreement
+must have quadratic-weighted Cohen's kappa at least 0.70 before disagreements are
+adjudicated and labels freeze. nDCG uses gains `2^grade - 1` and `log2(rank + 1)`;
+Recall treats grades 1-3 as relevant. The 95% interval is the deterministic
+percentile interval from 10,000 query-level bootstrap replicates sampled with
+replacement inside each stratum while preserving stratum sizes. Draw index is
+`uint64_be(SHA256(manifest_sha256_bytes || uint64_be(replicate) ||
+uint32_be(stratum_utf8_length) || stratum_utf8 || uint64_be(draw))[0:8]) mod
+stratum_size`; no runtime RNG is used. Each replicate statistic is the arithmetic
+mean per-query nDCG@10 candidate-minus-baseline delta. Sorted ascending, the
+zero-based elements 249 and 9749 are the 2.5% and 97.5% bounds.
+Prompts, chunkers, candidates, metrics, thresholds, and activation order freeze
+before unblinding. The immutable manifest binds query/judgment digests,
+assessor-protocol version, corpus/source revisions, randomization seed, candidate
+systems, and split. No item may train or tune a candidate. Any query, label,
+corpus, candidate, prompt, threshold, or protocol mutation creates a new
+benchmark version and invalidates prior activation evidence.
+
 English lexical storage requires non-null body text and is
 `setweight(to_tsvector('english', coalesce(heading_text, '')), 'A') ||
 setweight(to_tsvector('english', body), 'B')`. Query SQL uses
@@ -462,6 +665,14 @@ before storage; identity comparison is separate from floating-point tolerance.
 - Runtime logs and metrics never contain prompt, document, vector, credential, or
   source-path content.
 - Source authorities remain readable when the embedding runtime is unavailable.
+- Every private source enters through its owner's typed sanitized exporter;
+  direct lifecycle/OpenCode SQLite access and retention beyond authority are prohibited.
+- Candidate model weights must be Apache-2.0; runtime and transitive licenses,
+  artifact digests, and offline startup behavior require recorded inventory and approval.
+- Reranking can reorder only retrieved candidates, cannot hide pinned exact
+  evidence, and must fail back to identical baseline RRF candidate ordering.
+- Imported Graphify facts remain derived, confidence-labelled, versioned, and
+  citation-resolvable; inferred edges cannot silently enter default retrieval.
 - Client databases never share a PostgreSQL VM, volume, credential, backup, or
   query. Every table and CLI query is project-scoped inside its client database.
 - Git commit and blob identities are verified before projection; dirty worktree
@@ -704,6 +915,22 @@ failed or abandoned and never change active retrieval.
 | Operate | required | passed | PM and DKS health, scoped query, counts, failed activation, restart, and rebuild identity |
 | Maintain/Retire | required | passed | Pinned identities, rebuild recovery, credential boundary, access removal, and retained revisions |
 
+### DKS-003
+
+| Gate | Applicability | Result | Planned evidence |
+|---|---|---|---|
+| Domain | required | planned | Typed authorities, mixed revisions, retention, model spaces, ranking, graph provenance, and ownership boundaries |
+| Behavior | required | planned | Full projection, forgetting, exact code sync, Graphify rejection, benchmark activation, fallback, and rollback scenarios |
+| Spec | required | planned | Export envelopes, schema migration, chunker, pinned artifacts/services, query JSON, benchmark, and activation interfaces |
+| Contract | required | planned | Sanitization, isolation, citations, deletion, license, model identity, quality, latency, fallback, and atomicity invariants |
+| Test-driven implementation | required | planned | Red/green exporter, migration, chunker, graph importer, model clients, ranking, expiry, rebuild, and live checks |
+| Refactor | required | planned | Preserve DKS-002 paths; reuse one projector, immutable runtime verification, RLS, and activation pattern |
+| Review/Integrate | required | planned | Independent lifecycle, privacy, data, ML, retrieval, and deployment review plus upstream reconciliation |
+| Release | not_applicable | planned | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | planned | Scoped schema/config/services, complete source projection, benchmark winners, and preserved rollback assets |
+| Operate | required | planned | Runtime identities, source counts, expiry/tombstones, p95 latency, memory, fallback, restart, and cited query probes |
+| Maintain/Retire | required | planned | Pinned upgrades, rebuild identity, source forgetting, model rollback, Graphify compatibility, and access removal |
+
 ## Decisions And Risks
 
 - PostgreSQL remains a rebuildable cache in the first knowledge-store phases.
@@ -719,3 +946,11 @@ failed or abandoned and never change active retrieval.
   so DKS owns the pinned local derivative and migration proof.
 - Exact 4096-dimensional search is intentionally unindexed for the first bounded
   corpus. ANN requires measured need and a separately versioned representation.
+- DKS-003 intentionally combines source expansion and measured model activation
+  at operator direction. Gate increments must preserve an independently usable
+  sanitized baseline before either candidate model can activate.
+- Graphify `0.9.x` has no published stable artifact-schema promise. Its importer
+  therefore rejects unknown shape, pins a golden fixture, and requires an
+  explicit compatibility gate for every upgrade.
+- Moving JSON/SQLite source authority into PostgreSQL remains a separate future
+  critical migration with writes, audit, export, conflict, backup, and recovery contracts.
