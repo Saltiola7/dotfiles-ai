@@ -54,3 +54,23 @@
   verified PM backup/scratch restore; PM state survived image activation, and the
   exact-commit projection, hybrid query, rebuild identity, failed activation,
   project isolation, and PostgreSQL/embedding restart recovery passed.
+
+## 2026-08-20 - DKS-003 Discovery
+
+- Scoped one combined elevated cycle to project all governed sanitized DBSCTR
+  evidence, exact Git code/config, and a pinned offline Graphify code graph while
+  keeping Git and typed private ledgers authoritative.
+- Required lifecycle-owned typed bounded export, subtype-specific authority
+  retention, monotonic privacy-sequence denial and tombstone purging,
+  deterministic cited source chunking, untrusted Graphify artifact
+  validation, and atomic mixed-source activation without direct SQLite access.
+- Selected the existing Qwen3 8B general space plus a separately gated official
+  Nomic Embed Code Q4_K_M 3584-dimensional channel, and selected the official
+  Qwen3-Reranker-4B safetensors model behind an exact local MPS scoring contract.
+- Fixed reranking at a deduplicated top-50 candidate union to top-10 results,
+  required identical RRF candidate-order fallback, and set quality gates of at least 5%
+  relative nDCG@10 improvement with a positive stratified confidence interval,
+  bounded stratum regression, unchanged exact
+  citations/Recall@50, and warm end-to-end p95 latency no greater than 30 seconds.
+- Deferred Graphify semantic document extraction, graph-database push, ANN,
+  hosted inference, and any move of canonical JSON/SQLite authority to PostgreSQL.

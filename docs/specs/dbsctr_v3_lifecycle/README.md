@@ -2810,6 +2810,70 @@ module routing without changing Cycle Record schema or public commands.
   backup retention, migration compatibility, and recoverability; malformed
   ledger or legacy state fails closed.
 
+### DKS-003 Knowledge Export Contract
+
+`dbsctrctl knowledge-export` is the lifecycle-owned, read-only bridge from
+governed private state to a rebuildable knowledge projection. It emits a
+canonical UTF-8 JSON Lines stream to stdout; it never accepts a destination path,
+writes projection state, or changes reviewed/forgotten status. The consumer
+closes stdin, captures stdout through a mode-`0600` bounded pipe or temporary
+file, and removes any temporary bytes after one successful or failed import.
+
+- The first record is a manifest with export schema, method revision, source
+  availability, per-family snapshot/ceiling/cursor/database/exclusion digests,
+  one unsigned 64-bit monotonic `privacy_sequence` plus opaque privacy digest,
+  bounds, generated-at interval, and manifest digest. The private lifecycle
+  ledger increments the sequence transactionally whenever an exported family
+  adds or removes an expiry/tombstone; sequence exhaustion fails closed.
+- Families are `cycle`, `gate_evidence`, `review`, `history_report`,
+  `history_capture`, `telemetry`, `benchmark`, `execution`,
+  `provider_evaluation`, and `improvement`. Each family owns its payload schema,
+  stable record identity, immutable revision digest, retention state, and typed
+  source citation. Unsupported capability is explicit and emits no inferred data.
+- The exporter takes each family boundary under its owning read lock or immutable
+  snapshot API. There is no false cross-database transaction: the manifest binds
+  the ordered per-family boundaries and start/end interval. Mutation beyond a
+  captured boundary is excluded; invalidated boundaries abort the export.
+- Every page is bounded by the existing owning interface ceilings. The manifest
+  declares page count and ordered page digests; a terminal digest covers all
+  canonical records. Missing, duplicate, reordered, truncated, or over-limit
+  pages invalidate the complete export.
+- `dbsctrctl knowledge-privacy-status` returns only the current sequence and
+  digest. A DKS query whose imported sequence differs fails closed; a greater
+  sequence installs deny identities before content activation, while a lower
+  sequence is rollback/corruption and rejects import. A privacy record precedes
+  normal content records and contains only opaque stable identities,
+  tombstone/expiry reason, authority subtype, sequence, and digest.
+- Privacy ordering is `status A -> export A -> status A -> transactional deny
+  commit A -> content reconcile -> activation -> status A`; a changed status at
+  either check aborts or invalidates queries until rerun. Every lifecycle privacy
+  writer takes an exclusive private-ledger privacy lock. `dbsctrctl
+  knowledge-privacy-guard -- PROGRAM...` takes its shared counterpart, verifies
+  the imported sequence/digest, executes the query argument vector without a
+  shell, and holds the lock through result completion. Thus a tombstone cannot
+  race between status validation and cited text return.
+- Explicit forget takes precedence over archived/history membership. The export
+  never re-emits forgotten text or a content digest that could verify a low-
+  entropy secret.
+- Retention is emitted by the owning subtype. Transient federated captures use
+  their implemented 24-hour expiry; detailed operational reviews use their
+  implemented 90-day expiry; ordinary history captures, historical reports and
+  evidence, Cycle Records/evidence, provider reports, execution records, and
+  improvement claims have no inferred age expiry and remain until the owner
+  explicitly expires or forgets them.
+- Payloads reuse existing sanitizers and explicit allowlists. Raw OpenCode rows,
+  prompts, messages, tool payloads, command arguments, raw errors, credentials,
+  URLs, email addresses, machine paths, and unsupported attribution are never
+  exported. A family that cannot satisfy this contract reports unavailable.
+- Deterministic replay at the same bound produces byte-identical records and
+  terminal digest. Contract tests cover every family, unavailable capability,
+  concurrent mutation, page corruption, bounds, sanitization, retention subtype,
+  tombstone precedence, and forgotten-content non-resurrection.
+
+This interface belongs to `dbsctr_v3_lifecycle`; consumers may validate and
+project it but cannot reinterpret sanitization, retention, availability, or
+privacy sequence/digest.
+
 ## Validation Strategy
 
 | Concern | Authority | Scope | Availability | Baseline |

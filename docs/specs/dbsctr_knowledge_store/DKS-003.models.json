@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "models": {
+    "code_embedding": {
+      "model_id": "nomic-ai/nomic-embed-code-GGUF",
+      "revision": "ff2ddedde976ea623178981f18e36af33c0c2a94",
+      "file": "nomic-embed-code.Q4_K_M.gguf",
+      "bytes": 4376511808,
+      "sha256": "4354a73ee9ff5d811efe552a515dfd518667ff25fdfc4ee9e10af3f617f96eec",
+      "license": "Apache-2.0",
+      "dimensions": 3584,
+      "context_tokens": 32768,
+      "pooling": "last",
+      "normalization": "l2",
+      "runtime": "llama.cpp@0e1d9185c5fe82e905d1f5ae6b2e5dcd607a8dfd"
+    },
+    "reranker": {
+      "model_id": "Qwen/Qwen3-Reranker-4B",
+      "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
+      "license": "Apache-2.0",
+      "architecture": "Qwen3ForCausalLM",
+      "backend": "mps",
+      "operational_context_tokens": 8192,
+      "trust_remote_code": false,
+      "instruction": "Retrieve authoritative DBSCTR engineering evidence that answers the query",
+      "template": "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {document}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "template_sha256": "c121f3f58991533a6cf1dd73429dc22a4bf0072b65b87b5ccfed274c7b55dde9",
+      "files": [
+        {"path": "model-00001-of-00002.safetensors", "bytes": 4058781760, "sha256": "cf2e87cbf71fa628961532232e04dd6c19702a0a057f5e2aff95ea1aca4fd488"},
+        {"path": "model-00002-of-00002.safetensors", "bytes": 3984833200, "sha256": "78946d22b7f6456ea7a5358dbdf3982de36c5bac1f166a5fd58e18e31db8048a"},
+        {"path": "tokenizer.json", "bytes": 11422654, "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"}
+      ],
+      "required_revision_files": ["chat_template.jinja", "config.json", "generation_config.json", "merges.txt", "model.safetensors.index.json", "special_tokens_map.json", "tokenizer_config.json", "vocab.json"],
+      "runtime": {
+        "python": "3.12.11",
+        "lock_resolution_python": "3.12.0",
+        "python_abi": "cp312",
+        "torch": "2.9.1",
+        "transformers": "5.5.0",
+        "tokenizers": "0.22.2",
+        "safetensors": "0.7.0",
+        "accelerate": null,
+        "lock_platform": "aarch64-apple-darwin",
+        "requirements": "DKS-003.reranker-requirements.in",
+        "requirements_sha256": "7fde0a425c7e39bb40f64e32d01ea6915936992de24d5b254a51bb3769680d6e",
+        "lock": "DKS-003.reranker-macos-arm64-py312.lock",
+        "lock_sha256": "56e0c1450f0de69984e879e88d2466f12d68794783ec1fbc7484f89f442eb555"
+      }
+    }
+  },
+  "graphify": {
+    "package": "graphifyy==0.9.48",
+    "revision": "b2cd36267456c166788c95be6e68574064a92a42",
+    "license": "Apache-2.0",
+    "mode": "code-only"
+  }
+}
