@@ -564,6 +564,31 @@ def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
     assert "127.0.0.1" in psql and "dbsctr_knowledge" in psql
 
 
+def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
+    values = {
+        "chezmoi": {"homeDir": "/Users/test"},
+        "dotfiles_ai": {
+            "state": {"root": "/Volumes/state"},
+            "knowledge_store": {
+                "enabled": True, "postgres_enabled": True,
+                "embedding_port": 11435, "embedding_dimensions": 4096,
+                "embedding_context_tokens": 4096, "model_root": "/models",
+                "projects": {"dotfiles_ai": {
+                    "repository": "/repo", "remote": "https://github.com/example/repo",
+                }},
+            },
+        },
+    }
+    command = ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+               "--override-data", json.dumps(values), "execute-template"]
+    project = json.loads(subprocess.run(command, input=(ROOT / "private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl").read_text(),
+                                        text=True, capture_output=True, check=True).stdout)
+    manifest = subprocess.run(command, input=(ROOT / "private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl").read_text(),
+                              text=True, capture_output=True, check=True).stdout.encode()
+    assert set(project["projects"]) == {"dotfiles-ai"}
+    assert project["embedding"]["manifest_sha256"] == hashlib.sha256(manifest).hexdigest()
+
+
 def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:
     discovery = (ROOT / "dot_agents/skills/discovery/SKILL.md").read_text()
     dbsctr = (ROOT / "dot_agents/skills/dbsctr/SKILL.md").read_text()

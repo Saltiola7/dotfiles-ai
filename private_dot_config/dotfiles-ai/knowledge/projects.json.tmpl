@@ -8,15 +8,14 @@
     "manifest_file": {{ printf "%s/.config/dotfiles-ai/knowledge/embedding-space.json" .chezmoi.homeDir | toJson }},
     "model": "qwen3-embedding-8b-q4km",
     "space_id": "qwen3e8b-q4km-llamacpp-b10505-native4096-v1",
-    "manifest_sha256": {{ include "private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl" | sha256sum | toJson }}
+    "manifest_sha256": {{ includeTemplate "private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl" . | sha256sum | toJson }}
   },
   "projects": {
-{{- range $index, $project := .dotfiles_ai.knowledge_store.projects }}{{ if $index }},{{ end }}
-    {{ $index | toJson }}: {
+{{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" }}
+    "dotfiles-ai": {
       "repository": {{ $project.repository | toJson }},
       "remote": {{ $project.remote | toJson }}
     }
-{{- end }}
   }
 }
 {{- end }}
