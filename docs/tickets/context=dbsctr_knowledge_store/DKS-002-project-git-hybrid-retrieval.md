@@ -22,6 +22,7 @@ owns:
   - dot_local/bin/executable_dks-postgres-migrate.tmpl
   - dot_local/bin/executable_dks-psql.tmpl
   - dot_local/bin/executable_dksctl
+  - dot_local/bin/executable_sandbox-vm
   - dot_local/bin/executable_pm-postgres-baseline.tmpl
   - dot_local/bin/executable_pm-postgres-image-build
   - dot_local/bin/executable_pm-postgres-image-verify
