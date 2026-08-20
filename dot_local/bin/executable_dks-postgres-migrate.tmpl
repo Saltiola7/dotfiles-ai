@@ -43,7 +43,7 @@ ON CONFLICT (role_name) DO UPDATE SET project_id=EXCLUDED.project_id;
 GRANT CONNECT ON DATABASE dbsctr_knowledge TO dks_dotfiles_ai;
 REVOKE CONNECT, TEMPORARY ON DATABASE dbsctr_knowledge FROM PUBLIC;
 GRANT USAGE ON SCHEMA dks TO dks_dotfiles_ai;
-GRANT SELECT ON dks.projects, dks.embedding_spaces,
+GRANT SELECT ON dks.schema_migrations, dks.projects, dks.embedding_spaces,
     dks.source_revisions, dks.sync_runs, dks.content_objects, dks.source_records,
     dks.knowledge_chunks, dks.embeddings, dks.revision_chunks, dks.graph_nodes,
     dks.graph_edges TO dks_dotfiles_ai;

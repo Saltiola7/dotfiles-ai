@@ -542,6 +542,7 @@ def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> Non
     assert "DELETE ON dks.source_records" in migrator
     assert "DELETE ON dks.projects" not in migrator
     assert "SELECT ON PROPERTY GRAPH" in migrator
+    assert "SELECT ON dks.schema_migrations" in migrator
     assert "same-base compatible" in baseline
 
 
