@@ -784,7 +784,7 @@ def projection_identity(config, project_id: str, revision: str):
     return digest_json(json.loads(lines[-1])) if lines else None
 
 
-def projected_identity(documents, chunks, embedding_space, vector_hashes, nodes, edges):
+def projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, edges):
     records = sorted([document["path"], document["blob_id"],
                       hashlib.sha256(document["data"]).hexdigest()] for document in documents)
     chunk_rows = sorted([chunk["path"], chunk["chunk_id"]] for chunk in chunks)
@@ -792,13 +792,13 @@ def projected_identity(documents, chunks, embedding_space, vector_hashes, nodes,
     for chunk in chunks:
         embedding_id = digest_json({"chunk_id": chunk["chunk_id"], "embedding_space_id": embedding_space})
         embedding_rows.append([embedding_id, vector_hashes[embedding_id]])
-    return digest_json({
+    return {
         "records": records,
         "chunks": chunk_rows,
         "embeddings": sorted(embedding_rows),
         "nodes": sorted(node["node_id"] for node in nodes),
         "edges": sorted(edge["edge_id"] for edge in edges),
-    })
+    }
 
 
 def sync_statements(project_id, commit, run_id, embedding_space, manifest_sha,
@@ -898,12 +898,13 @@ def command_sync(args, config, project):
         if not locked or locked[-1] != "t":
             raise RuntimeError("project sync already running")
         validate_embedding_config(config)
-        rebuild_identity = None
+        rebuild_payload = None
         if getattr(args, "rebuild", False):
             rows = session.execute(projection_payload_sql(args.commit))
             if not rows:
                 raise ValueError("revision is not available for rebuild comparison")
-            rebuild_identity = digest_json(json.loads(rows[-1]))
+            rebuild_payload = json.loads(rows[-1])
+            rebuild_payload = {key: sorted(values) for key, values in rebuild_payload.items()}
         session.execute("""
 DELETE FROM dks.graph_edges WHERE run_id IN (SELECT run_id FROM dks.sync_runs WHERE state IN ('staging','ready'));
 DELETE FROM dks.revision_chunks WHERE run_id IN (SELECT run_id FROM dks.sync_runs WHERE state IN ('staging','ready'));
@@ -949,9 +950,12 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
                 value = "[" + ",".join(format(float(item), ".9g") for item in vector) + "]"
                 vector_hashes[identity] = hashlib.sha256(value.encode()).hexdigest()
         vectors.update(existing)
-        if rebuild_identity is not None and projected_identity(
-                documents, chunks, embedding_space, vector_hashes, nodes, edges) != rebuild_identity:
-            raise RuntimeError("rebuild identity mismatch")
+        if rebuild_payload is not None:
+            projected = projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, edges)
+            mismatches = sorted(key for key in projected
+                                if digest_json(projected[key]) != digest_json(rebuild_payload[key]))
+            if mismatches:
+                raise RuntimeError("rebuild identity mismatch: " + ",".join(mismatches))
         run_id = secrets.token_hex(16)
         statements = sync_statements(args.project, args.commit, run_id, embedding_space,
                                      manifest_sha, documents, chunks, vectors, nodes, edges)

@@ -495,7 +495,9 @@ def test_dks_sync_locks_before_sources_and_validates_complete_graph_activation()
     assert "vector_hashes[row[\"id\"]] = row[\"sha\"]" in source
     assert "build_graph" in source and 'channels["graph"]' in source
     assert "command_rebuild" in source and "rebuild identity mismatch" in source
-    assert source.index("projected_identity(") < source.index("sync_statements(", source.index("def command_sync"))
+    assert "{key: sorted(values) for key, values in rebuild_payload.items()}" in source
+    command = source.index("def command_sync")
+    assert source.index("projected = projected_payload", command) < source.index("sync_statements(", command)
 
 
 def test_dksctl_cli_rejects_unscoped_or_unbounded_queries(tmp_path: Path) -> None:
