@@ -481,6 +481,7 @@ def test_dks_embedding_manifest_binds_space_model_endpoint_and_hash(tmp_path: Pa
 
 def test_dks_sync_locks_before_sources_and_validates_complete_graph_activation() -> None:
     source = DKSCTL.read_text()
+    assert '"-qAt"' in source
     assert source.index("pg_try_advisory_lock") < source.index("documents = git_documents", source.index("def command_sync"))
     assert "expected_nodes" in source and "len(nodes)" in source
     assert "expected_edges" in source and "len(edges)" in source

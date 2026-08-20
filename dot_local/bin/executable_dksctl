@@ -478,7 +478,7 @@ def selected_project(config, project_id: str):
 
 def run_psql(config, project_id: str, sql: str):
     executable = str(Path(config.get("psql", "~/.local/bin/dks-psql")).expanduser())
-    completed = subprocess.run([executable, "-X", "-v", "ON_ERROR_STOP=1", "-At"],
+    completed = subprocess.run([executable, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"],
                                input=f"SET dks.project_id = {sql_literal(project_id)};\n{sql}\n",
                                text=True, capture_output=True)
     if completed.returncode:
