@@ -607,6 +607,8 @@ exact repair before readiness can return.
 
 ```mermaid
 erDiagram
+    accTitle: DKS project revision and derivative schema
+    accDescr: A project activates one retained Git revision whose source records link through deduplicated content and chunks to versioned embeddings and revision-bound graph edges.
     PROJECT ||--o{ SOURCE_REVISION : retains
     PROJECT ||--o{ SYNC_RUN : executes
     PROJECT ||--o| SOURCE_REVISION : activates
