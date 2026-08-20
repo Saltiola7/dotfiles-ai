@@ -1,0 +1,19 @@
+FROM docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40 AS build
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential postgresql-server-dev-19=19~beta3-1.pgdg13+1 \
+ && rm -rf /var/lib/apt/lists/*
+COPY pgvector.tar.gz /tmp/pgvector.tar.gz
+RUN printf '%s  %s\n' d076a3098010905fd60256649327809651f6288327db6413f0938305f62ea299 /tmp/pgvector.tar.gz | sha256sum -c - \
+ && mkdir /tmp/pgvector \
+ && tar -xzf /tmp/pgvector.tar.gz --strip-components=1 -C /tmp/pgvector \
+ && cd /tmp/pgvector \
+ && make OPTFLAGS="" \
+ && make DESTDIR=/opt/pgvector install
+
+FROM docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40
+COPY --from=build /opt/pgvector/ /
+LABEL dev.dotfiles-ai.postgres.base="docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40" \
+      dev.dotfiles-ai.pgvector.version="0.8.6" \
+      dev.dotfiles-ai.pgvector.commit="8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c" \
+      dev.dotfiles-ai.pgvector.source-sha256="d076a3098010905fd60256649327809651f6288327db6413f0938305f62ea299"

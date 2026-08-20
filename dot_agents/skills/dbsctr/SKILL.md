@@ -127,7 +127,7 @@ managed config or skills when applicable.
 ### 6. Refactor
 
 With affected behavior passing, remove duplication and stale notes, simplify,
-align names with Domain language, update docs/backlog/changelog, and preserve
+align names with Domain language, update docs/tickets/changelog, and preserve
 contracts and evidence. Finish with only intended worktree changes.
 
 ## Gate Ledger

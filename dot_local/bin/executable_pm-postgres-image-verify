@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+tag=localhost/dotfiles-ai/postgres-pgvector:19beta3-0.8.6
+manifest="$HOME/.local/state/dotfiles-ai/pm-postgres-image.json"
+test -f "$manifest" && test ! -L "$manifest" && test "$(stat -c %a "$manifest")" = 600 || {
+    echo "pm-postgres-image-verify: image manifest unavailable" >&2
+    exit 1
+}
+expected=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_id"])' "$manifest")
+actual=$(podman image inspect "$tag" --format '{{.Id}}')
+test -n "$expected" && test "$actual" = "$expected" || {
+    echo "pm-postgres-image-verify: local image identity mismatch" >&2
+    exit 1
+}
+test "$(podman image inspect "$tag" --format '{{ index .Labels "dev.dotfiles-ai.pgvector.version" }}')" = 0.8.6

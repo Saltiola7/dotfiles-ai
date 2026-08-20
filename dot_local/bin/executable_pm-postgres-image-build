@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+tag=localhost/dotfiles-ai/postgres-pgvector:19beta3-0.8.6
+base=docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40
+commit=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
+source_sha=d076a3098010905fd60256649327809651f6288327db6413f0938305f62ea299
+source_url="https://github.com/pgvector/pgvector/archive/$commit.tar.gz"
+containerfile="$HOME/.local/share/pm-kernel/Containerfile.pgvector"
+cache="$HOME/.cache/dotfiles-ai/pgvector"
+archive="$cache/pgvector-$commit.tar.gz"
+manifest="$HOME/.local/state/dotfiles-ai/pm-postgres-image.json"
+
+valid_image() {
+    test "$(podman image inspect "$tag" --format '{{ index .Labels "dev.dotfiles-ai.postgres.base" }}' 2>/dev/null)" = "$base" &&
+    test "$(podman image inspect "$tag" --format '{{ index .Labels "dev.dotfiles-ai.pgvector.commit" }}' 2>/dev/null)" = "$commit" &&
+    test "$(podman image inspect "$tag" --format '{{ index .Labels "dev.dotfiles-ai.pgvector.source-sha256" }}' 2>/dev/null)" = "$source_sha"
+}
+
+if ! valid_image; then
+    install -d -m 0700 "$cache"
+    if test -e "$archive"; then
+        test ! -L "$archive" && test -f "$archive" || { echo "pm-postgres-image-build: unsafe archive" >&2; exit 1; }
+    else
+        tmp=$(mktemp "$cache/.pgvector.part.XXXXXX")
+        trap 'rm -f "$tmp"' EXIT HUP INT TERM
+        curl -fL --retry 3 --retry-all-errors --connect-timeout 30 "$source_url" -o "$tmp"
+        printf '%s  %s\n' "$source_sha" "$tmp" | sha256sum -c - >/dev/null
+        chmod 0444 "$tmp"
+        mv "$tmp" "$archive"
+        trap - EXIT HUP INT TERM
+    fi
+    printf '%s  %s\n' "$source_sha" "$archive" | sha256sum -c - >/dev/null
+    context=$(mktemp -d "$cache/.build.XXXXXX")
+    trap 'rm -rf "$context"' EXIT HUP INT TERM
+    cp "$containerfile" "$context/Containerfile"
+    cp "$archive" "$context/pgvector.tar.gz"
+    podman build --pull=never --tag "$tag" "$context"
+    valid_image || { echo "pm-postgres-image-build: built image identity mismatch" >&2; exit 1; }
+fi
+
+install -d -m 0700 "$(dirname "$manifest")"
+image_id=$(podman image inspect "$tag" --format '{{.Id}}')
+created=$(podman image inspect "$tag" --format '{{.Created}}')
+tmp=$(mktemp "$(dirname "$manifest")/.pm-postgres-image.part.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+printf '{"base":"%s","created":"%s","image":"%s","image_id":"%s","pgvector_commit":"%s","pgvector_version":"0.8.6","source_sha256":"%s"}\n' \
+    "$base" "$created" "$tag" "$image_id" "$commit" "$source_sha" >"$tmp"
+chmod 0600 "$tmp"
+mv "$tmp" "$manifest"
+trap - EXIT HUP INT TERM
+printf '%s\n' "$image_id"

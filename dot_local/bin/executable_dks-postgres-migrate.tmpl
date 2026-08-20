@@ -1,0 +1,87 @@
+#!/bin/sh
+set -eu
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled }}
+{{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" }}
+. "$HOME/.local/bin/op-session"
+pm_password=$(op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }})
+dks_password=$(op read {{ $project.postgres_password_ref | quote }})
+test -n "$pm_password" && test -n "$dks_password" || {
+    echo "dks-postgres-migrate: PostgreSQL credential unavailable" >&2
+    exit 1
+}
+psql=/opt/homebrew/opt/libpq/bin/psql
+export PGPASSWORD=$pm_password DKS_PASSWORD=$dks_password
+
+"$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d postgres <<'SQL'
+\getenv dks_password DKS_PASSWORD
+SELECT 'CREATE ROLE dks_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE'
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dks_owner') \gexec
+SELECT format('CREATE ROLE dks_dotfiles_ai LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', :'dks_password')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dks_dotfiles_ai') \gexec
+ALTER ROLE dks_dotfiles_ai LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'dks_password';
+SQL
+
+"$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d postgres <<'SQL'
+SELECT 'CREATE DATABASE dbsctr_knowledge OWNER dks_owner'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dbsctr_knowledge') \gexec
+SQL
+
+"$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
+    -c 'CREATE EXTENSION IF NOT EXISTS vector'
+{
+    printf 'SET ROLE dks_owner;\n'
+    cat "$HOME/.local/share/dbsctr-knowledge/schema.sql"
+} | "$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge
+
+"$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge <<'SQL'
+INSERT INTO dks.projects(project_id, repository_remote)
+VALUES ('dotfiles-ai', 'https://github.com/Saltiola7/dotfiles-ai')
+ON CONFLICT (project_id) DO UPDATE SET repository_remote=EXCLUDED.repository_remote;
+INSERT INTO dks.project_roles(role_name, project_id)
+VALUES ('dks_dotfiles_ai', 'dotfiles-ai')
+ON CONFLICT (role_name) DO UPDATE SET project_id=EXCLUDED.project_id;
+GRANT CONNECT ON DATABASE dbsctr_knowledge TO dks_dotfiles_ai;
+REVOKE CONNECT, TEMPORARY ON DATABASE dbsctr_knowledge FROM PUBLIC;
+GRANT USAGE ON SCHEMA dks TO dks_dotfiles_ai;
+GRANT SELECT ON dks.projects, dks.embedding_spaces,
+    dks.source_revisions, dks.sync_runs, dks.content_objects, dks.source_records,
+    dks.knowledge_chunks, dks.embeddings, dks.revision_chunks, dks.graph_nodes,
+    dks.graph_edges TO dks_dotfiles_ai;
+GRANT INSERT ON dks.embedding_spaces, dks.source_revisions, dks.sync_runs,
+    dks.content_objects, dks.source_records, dks.knowledge_chunks, dks.embeddings,
+    dks.revision_chunks, dks.graph_nodes, dks.graph_edges TO dks_dotfiles_ai;
+GRANT UPDATE ON dks.projects, dks.sync_runs TO dks_dotfiles_ai;
+GRANT DELETE ON dks.source_records, dks.revision_chunks, dks.graph_nodes,
+    dks.graph_edges TO dks_dotfiles_ai;
+GRANT SELECT ON dks.active_chunks, dks.active_graph_nodes, dks.active_graph_edges,
+    dks.one_hop_graph TO dks_dotfiles_ai;
+GRANT SELECT ON PROPERTY GRAPH dks.knowledge_graph TO dks_dotfiles_ai;
+GRANT EXECUTE ON FUNCTION dks.authorized_project(), dks.project_allowed(text),
+    dks.lexical_candidates(text, integer), dks.vector_candidates(vector, integer)
+    TO dks_dotfiles_ai;
+SQL
+
+test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
+    -c "SELECT extversion FROM pg_extension WHERE extname='vector'")" = 0.8.6
+test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
+    -c 'SELECT 1 FROM dks.schema_migrations WHERE version=1')" = 1
+unset DKS_PASSWORD PGPASSWORD dks_password pm_password
+{{- else }}
+{{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled }}
+. "$HOME/.local/bin/op-session"
+pm_password=$(op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }})
+test -n "$pm_password" || { echo "dks-postgres-migrate: PM credential unavailable" >&2; exit 1; }
+PGPASSWORD=$pm_password /opt/homebrew/opt/libpq/bin/psql -X -v ON_ERROR_STOP=1 \
+    -h 127.0.0.1 -p 55432 -U pm_kernel -d postgres <<'SQL'
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE usename='dks_dotfiles_ai' AND pid <> pg_backend_pid();
+SELECT 'REVOKE CONNECT ON DATABASE dbsctr_knowledge FROM dks_dotfiles_ai'
+WHERE EXISTS (SELECT FROM pg_database WHERE datname='dbsctr_knowledge')
+  AND EXISTS (SELECT FROM pg_roles WHERE rolname='dks_dotfiles_ai') \gexec
+SELECT 'ALTER ROLE dks_dotfiles_ai NOLOGIN'
+WHERE EXISTS (SELECT FROM pg_roles WHERE rolname='dks_dotfiles_ai') \gexec
+SQL
+{{- else }}
+exit 0
+{{- end }}
+{{- end }}

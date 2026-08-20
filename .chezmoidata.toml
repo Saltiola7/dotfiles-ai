@@ -70,6 +70,9 @@ model_root = ""
 embedding_port = 11435
 embedding_dimensions = 4096
 embedding_context_tokens = 4096
+postgres_enabled = false
+
+[dotfiles_ai.knowledge_store.projects]
 
 [dotfiles_ai.sandbox]
 enabled = false

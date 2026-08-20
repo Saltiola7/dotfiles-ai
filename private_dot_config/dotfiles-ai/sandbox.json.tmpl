@@ -3,6 +3,12 @@
 {{ fail "enabled PM PostgreSQL requires 1Password, workspace, password reference, and absolute backup directory" }}
 {{- end -}}
 {{- end -}}
+{{- if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+{{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" -}}
+{{- if or (not .dotfiles_ai.knowledge_store.enabled) (not .dotfiles_ai.pm_kernel.enabled) (not .dotfiles_ai.pm_kernel.postgres_enabled) (not .dotfiles_ai.onepassword.enabled) (not $project.repository) (not (hasPrefix "https://" $project.remote)) (not (hasPrefix "op://" $project.postgres_password_ref)) -}}
+{{ fail "enabled knowledge PostgreSQL requires embedding, PM PostgreSQL, 1Password, and a configured dotfiles-ai project" }}
+{{- end -}}
+{{- end -}}
 {{- if and (eq .dotfiles_ai.pm_kernel.jira_adapter "acli") (or (not .dotfiles_ai.pm_kernel.jira_project) (not .dotfiles_ai.pm_kernel.jira_issue_types)) -}}
 {{ fail "ACLI Jira requires a project and allowed issue types" }}
 {{- end -}}

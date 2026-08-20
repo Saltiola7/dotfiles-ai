@@ -15,6 +15,18 @@ fi
 . "$HOME/.local/bin/op-session"
 op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }} | \
     "$HOME/.local/bin/sandbox-vm" provision-pm-postgres
+{{ if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+baseline=
+if "$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
+    systemctl --user is-active --quiet pm-postgres.service; then
+    baseline=$("$HOME/.local/bin/pm-postgres-baseline")
+    "$HOME/.local/bin/pm-postgres-backup" >/dev/null
+elif "$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
+    podman volume exists pm-postgres-data; then
+    echo "pm-postgres: existing inactive volume cannot be migrated without verified backup" >&2
+    exit 1
+fi
+{{ end -}}
 "$HOME/.local/bin/sandbox-vm" update {{ .dotfiles_ai.pm_kernel.workspace | quote }}
 "$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
     systemctl --user is-active --quiet pm-postgres.service
@@ -32,6 +44,15 @@ if [ -z "$healthy" ]; then
     echo "pm-postgres: service did not recover after Lima reconfiguration" >&2
     exit 1
 fi
+"$HOME/.local/bin/dks-postgres-migrate"
+{{ if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+if [ -n "$baseline" ]; then
+    "$HOME/.local/bin/pm-postgres-baseline" --compare "$baseline" >/dev/null
+fi
+{{ else -}}
+/bin/rm -f "$HOME/.local/bin/dksctl" "$HOME/.local/bin/dks-psql" \
+    "$HOME/.config/dotfiles-ai/knowledge/projects.json"
+{{ end -}}
 launchctl bootstrap "$domain" "$plist"
 {{ else -}}
 "$HOME/.local/bin/sandbox-vm" configure-pm-postgres --remove

@@ -40,3 +40,15 @@
 - Kept canonical tickets as work authority and prohibited reintroducing
   per-context `BACKLOG.md`; stale deployed lifecycle skill wording is part of the
   DKS-002 serialized update while legacy migration fixtures remain historical.
+
+## 2026-08-20 - DKS-002 Implementation
+
+- Added exact-commit Git Markdown projection, byte-stable chunking, embedding
+  provenance checks, project-forced RLS, English FTS, exact `vector(4096)` search,
+  SQL/PGQ one-hop retrieval, deterministic fixed RRF, and cited JSON commands.
+- Added a pinned PostgreSQL 19 Beta 3 plus pgvector 0.8.6 derivative, immutable
+  image verification, same-base PM migration guards, baseline comparison,
+  dedicated database/role provisioning, and explicit access removal.
+- Validated the image and rerunnable schema on target arm64, adversarial RLS,
+  generated CLI SQL including `GRAPH_TABLE`, and affected tests. Live migration
+  and projection remain paused pending dedicated 1Password credential creation.

@@ -87,7 +87,7 @@ validation; delivery intent; and parallel ownership.
 
 ## Artifacts
 
-Every cycle reviews README, BACKLOG, and CHANGELOG. `README.md` contains stable
+Every cycle reviews README, affected canonical tickets, and CHANGELOG. `README.md` contains stable
 bounded-context truth and changes only when durable domain, behavior, interface,
 contract, profile, or validation truth changes. It contains:
 
