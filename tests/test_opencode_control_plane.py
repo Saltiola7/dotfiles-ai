@@ -95,14 +95,47 @@ def rendered_config(env: dict[str, str] | None = None, data: dict | None = None)
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data", json.dumps(data or DATA),
-            "cat", str(Path.home() / ".config/opencode/opencode.json"),
+            "execute-template",
         ],
+        input=text(".chezmoitemplates/opencode.json.tmpl"),
         text=True,
         capture_output=True,
         check=True,
         env={**os.environ, **(env or {})},
     )
     return json.loads(result.stdout)
+
+
+def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
+    target = tmp_path / ".config/opencode/opencode.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({
+        "provider": {"machine-local": {"options": {"endpoint": "local"}}},
+        "references": {"machine-local": {"path": "/local", "description": "Local"}},
+        "permission": {
+            "external_directory": {"/local": "allow"},
+            "bash": {"machine-local *": "allow"},
+        },
+    }))
+    target.chmod(0o644)
+    command = [
+        "chezmoi", "-S", str(ROOT), "-D", str(tmp_path), "--config", "/dev/null",
+        "--config-format", "toml", "--override-data", json.dumps(DATA),
+        "--cache", str(tmp_path / "cache"), "--persistent-state", str(tmp_path / "state"),
+    ]
+    applied = subprocess.run([*command, "apply", str(target)], text=True, capture_output=True)
+    assert applied.returncode == 0, applied.stderr
+    merged = json.loads(target.read_text())
+    assert merged["provider"]["machine-local"]["options"]["endpoint"] == "local"
+    assert merged["references"]["machine-local"]["path"] == "/local"
+    assert merged["permission"]["external_directory"]["/local"] == "allow"
+    assert merged["permission"]["bash"]["machine-local *"] == "allow"
+    assert merged["permission"]["bash"]["pmctl jira publish*"] == "ask"
+    assert merged["permission"]["bash"]["pmctl sprint-review*"] == "ask"
+    assert merged["permission"]["bash"]["acli *"] == "deny"
+    assert target.stat().st_mode & 0o777 == 0o600
+    diff = subprocess.run([*command, "diff", str(target)], text=True, capture_output=True)
+    assert diff.returncode == 0 and not diff.stdout
 
 
 def test_optional_local_repository_reference():
@@ -222,7 +255,7 @@ def test_context7_is_remote_optional_key_and_scout_only():
 
     authenticated = rendered_config({"CONTEXT7_API_KEY": "test-context7-key"})
     assert authenticated["mcp"]["context7"] == context7
-    assert "test-context7-key" not in text("private_dot_config/opencode/opencode.json.tmpl")
+    assert "test-context7-key" not in text(".chezmoitemplates/opencode.json.tmpl")
     assert authenticated["permission"]["context7_*"] == "deny"
 
     scouts = {"scout-openai.md", "scout-vertex.md", "scout.md"}
@@ -243,7 +276,7 @@ def test_official_1password_mcp_is_host_only_and_path_pinned():
         "command": ["/usr/local/bin/1password-mcp"],
         "enabled": True,
     }
-    template = text("private_dot_config/opencode/opencode.json.tmpl")
+    template = text(".chezmoitemplates/opencode.json.tmpl")
     assert '{{ if eq .chezmoi.os "darwin" }}' in template
     assert "@rui.branco/1password-mcp" not in template
     guest_branch = re.sub(
@@ -270,7 +303,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
     claude = (OC / "agents/build-claude.md").read_text()
     assert "model: google-vertex-anthropic/claude-opus-5@default" in claude
     assert "variant: high" in claude
-    assert "claude-opus-4-8" not in text("private_dot_config/opencode/opencode.json.tmpl")
+    assert "claude-opus-4-8" not in text(".chezmoitemplates/opencode.json.tmpl")
 
     expected = {
         "explore-openai.md": ("openai/gpt-5.6-luna", "low"),

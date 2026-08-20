@@ -1,0 +1,7 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $managed := includeTemplate "opencode.json.tmpl" . | fromJson -}}
+{{- if eq (trim .chezmoi.stdin) "" -}}
+{{ $managed | toPrettyJson }}
+{{- else -}}
+{{ mergeOverwrite (fromJson .chezmoi.stdin) $managed | toPrettyJson }}
+{{- end -}}

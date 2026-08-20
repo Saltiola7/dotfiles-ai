@@ -324,10 +324,11 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     assert "configure-pm-postgres --remove" in loader
     assert loader.index("provision-pm-postgres") < loader.index('sandbox-vm" update')
     assert loader.index('sandbox-vm" update') < loader.index("configure-pm-postgres")
+    assert loader.index("configure-pm-postgres") < loader.rindex("podman healthcheck run pm-postgres")
+    assert "service did not recover after Lima reconfiguration" in loader
     assert "systemctl --user start pm-postgres.service" in guest_loader
     assert "systemctl --user restart pm-postgres.service" in guest_loader
     assert "systemctl --user stop pm-postgres.service" in guest_loader
-    assert "enable --now pm-postgres.service" not in guest_loader
     assert "container hash:" in guest_loader and "schema hash:" in guest_loader and "health hash:" in guest_loader
     assert "podman secret rm pm-postgres-password" in guest_loader
     assert "podman volume rm" not in guest_loader
@@ -385,6 +386,38 @@ esac
                             env={**env, "FAIL_CREATE": "1"})
     assert failed.returncode == 1
     assert "dropdb" not in log.read_text()
+
+
+def test_pm_postgres_configure_fails_when_service_does_not_recover(tmp_path) -> None:
+    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
+    source = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
+    rendered = chezmoi("execute-template", onepassword=True, pm_image=image,
+                       pm_backup_dir=str(tmp_path / "backups"), state_root=str(tmp_path),
+                       template=source).stdout
+    script = tmp_path / "configure"
+    script.write_text(rendered)
+    script.chmod(0o755)
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    (local_bin / "op-session").write_text("op() { printf 'a-secure-password-with-24-chars'; }\n")
+    sandbox = local_bin / "sandbox-vm"
+    sandbox.write_text("#!/bin/sh\ncase \"$*\" in *'sh -c'*) exit 1;; *) exit 0;; esac\n")
+    sandbox.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name, body in {
+        "launchctl": "#!/bin/sh\nexit 1\n",
+        "seq": "#!/bin/sh\nprintf '1\\n'\n",
+        "sleep": "#!/bin/sh\nexit 0\n",
+    }.items():
+        path = fake_bin / name
+        path.write_text(body)
+        path.chmod(0o755)
+    failed = subprocess.run([str(script)], text=True, capture_output=True,
+                            env={**os.environ, "HOME": str(tmp_path),
+                                 "PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert failed.returncode == 1
+    assert "did not recover after Lima reconfiguration" in failed.stderr
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:

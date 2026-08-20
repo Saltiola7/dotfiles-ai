@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -186,7 +187,7 @@ def validate_ticket(root, path):
     for heading in ("Outcome", "Context", "Scope", "Acceptance Criteria", "Evidence", "Risks", "Review"):
         if f"## {heading}" not in body:
             findings.append({"code": "invalid_ticket_body", "path": relative, "section": heading})
-    return values, findings
+    return {**values, "body": body}, findings
 
 
 def inventory(root):
@@ -459,6 +460,11 @@ def validate_envelope_contract(source, value):
     if value["schema_version"] != 1:
         fail("unsupported sanitized envelope schema version")
     payload = value["payload"]
+    if value["availability"] == "unavailable":
+        if (set(payload) != {"reason"} or not isinstance(payload["reason"], str)
+                or not 1 <= len(payload["reason"].encode()) <= 2048):
+            fail("unavailable envelope must contain one bounded reason")
+        return
     required = ENVELOPE_REQUIRED_FIELDS[source]
     if set(payload) - ENVELOPE_PAYLOAD_FIELDS[source] or not set(required) <= set(payload):
         fail("envelope payload does not match its versioned source contract")
@@ -547,7 +553,8 @@ def project_envelope(args):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     if completed.returncode:
         fail("PostgreSQL projection failed")
-    return {"schema_version": 1, "source_type": args.source, "source_id": value["source_id"], "digest": digest}
+    return {"schema_version": 1, "source_type": args.source, "source_id": value["source_id"],
+            "availability": value["availability"], "digest": digest}
 
 
 def git_output(root, *arguments):
@@ -694,9 +701,10 @@ def jira_issue(value):
     project = fields.get("project") or {}
     issue_type = fields.get("issuetype") or {}
     labels = fields.get("labels") or []
+    key_project = value["key"].split("-", 1)[0] if "-" in value["key"] else None
     return {
         "key": value["key"],
-        "project": project.get("key") if isinstance(project, dict) else None,
+        "project": project.get("key") if isinstance(project, dict) and project.get("key") else key_project,
         "issue_type": issue_type.get("name") if isinstance(issue_type, dict) else None,
         "summary": fields.get("summary"),
         "description": fields.get("description"),
@@ -711,7 +719,7 @@ def jira_view(args, key):
 def jira_search(args, manifest):
     value = jira_acli(args, "search", "--jql",
                       f'project = "{manifest["project"]}" AND labels = "{manifest["label"]}"',
-                      "--fields", "key,project,issuetype,summary,description,labels", "--limit", "2", "--json")
+                      "--fields", "key,issuetype,summary,description,labels", "--limit", "2", "--json")
     rows = value if isinstance(value, list) else value.get("issues", []) if isinstance(value, dict) else None
     if not isinstance(rows, list) or len(rows) > 2:
         fail("ACLI search result is invalid")
@@ -754,7 +762,7 @@ def jira_matches(issue, manifest):
 
 
 def jira_receipt_path(args, publication_id):
-    root = args.receipt_root.expanduser().resolve()
+    root = Path.home() / ".local/state/pm-kernel/jira"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
     return root / f"{publication_id}.json"
@@ -806,6 +814,15 @@ def jira_validate_mapping(args, manifest):
 
 def jira_publish_acli(args, manifest, digest):
     jira_validate_mapping(args, manifest)
+    lock_path = jira_receipt_path(args, manifest["publication_id"]).with_suffix(".lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w") as lock:
+        os.fchmod(lock.fileno(), 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return jira_publish_acli_locked(args, manifest, digest)
+
+
+def jira_publish_acli_locked(args, manifest, digest):
     receipt = jira_read_receipt(args, manifest["publication_id"])
     target = manifest["target"]
     if receipt and receipt.get("status") in {"pending", "unknown"}:
@@ -887,44 +904,206 @@ def jira_reconcile(args, manifest, digest):
     return {"schema_version": 1, "result": "resolved", "written": False, "jira_key": issue["key"]}
 
 
+def jira_project_receipt(args, manifest, digest):
+    receipt = jira_read_receipt(args, manifest["publication_id"])
+    expected = {"schema_version", "publication_id", "status", "operation", "jira_key",
+                "preview_digest", "source_tickets"}
+    source_ids = [member["id"] for member in manifest["source_tickets"]]
+    if (not isinstance(receipt, dict) or set(receipt) != expected or receipt.get("schema_version") != 1
+            or receipt.get("status") != "succeeded" or receipt.get("operation") != manifest["target"]["mode"]
+            or receipt.get("preview_digest") != digest or receipt.get("source_tickets") != source_ids
+            or not re.fullmatch(rf"{re.escape(manifest['project'])}-[1-9][0-9]*", str(receipt.get("jira_key", "")))):
+        fail("Jira publication has no matching successful receipt")
+    payload = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+    statements = [
+        "BEGIN;",
+        "DO $$ BEGIN IF EXISTS (SELECT 1 FROM context.jira_publications "
+        f"WHERE publication_id={sql_literal(manifest['publication_id'])} AND "
+        f"(preview_digest IS DISTINCT FROM {sql_literal(digest)} OR "
+        f"jira_key IS DISTINCT FROM {sql_literal(receipt['jira_key'])})) "
+        "THEN RAISE EXCEPTION 'Jira publication identity conflict'; END IF; END $$;",
+        "INSERT INTO context.jira_publications "
+        "(publication_id,jira_key,preview_digest,adapter,outcome,payload) VALUES "
+        f"({sql_literal(manifest['publication_id'])},{sql_literal(receipt['jira_key'])},"
+        f"{sql_literal(digest)},'acli','succeeded',{sql_literal(payload)}::jsonb) "
+        "ON CONFLICT (publication_id) DO UPDATE SET outcome=EXCLUDED.outcome,payload=EXCLUDED.payload;",
+        f"DELETE FROM context.jira_publication_members WHERE publication_id={sql_literal(manifest['publication_id'])};",
+    ]
+    for member in manifest["source_tickets"]:
+        statements.append(
+            "INSERT INTO context.jira_publication_members (publication_id,ticket_id,source_blob) VALUES "
+            f"({sql_literal(manifest['publication_id'])},{sql_literal(member['id'])},{sql_literal(member['blob'])});"
+        )
+    statements.append("COMMIT;")
+    completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"],
+                               input="\n".join(statements) + "\n", text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if completed.returncode:
+        fail("Jira publication projection failed")
+    reference = manifest["publication_id"]
+    return {"schema_version": 1, "publication_id": manifest["publication_id"],
+            "jira_key": receipt["jira_key"], "preview_digest": digest,
+            "references": [{"ticket_id": ticket_id, "reference": reference} for ticket_id in source_ids],
+            "written": False}
+
+
+def sprint_review_snapshot(args):
+    jql = args.jql
+    digest = hashlib.sha256(jql.encode()).hexdigest()
+    normalized = " ".join(jql.split())
+    simple = re.fullmatch(
+        r'project\s*=\s*"?([A-Z][A-Z0-9_]{0,15})"?\s+AND\s+'
+        r'status\s*=\s*"?([A-Za-z][A-Za-z0-9 ]{0,63})"?', normalized, re.I)
+    sprint = re.fullmatch(
+        r'project\s*=\s*"?([A-Z][A-Z0-9_]{0,15})"?\s+AND\s+'
+        r'status\s*=\s*"?([A-Za-z][A-Za-z0-9 ]{0,63})"?\s+AND\s+'
+        r'"(cf\[[1-9][0-9]*\])"\s*=\s*([1-9][0-9]*)\s+AND\s+'
+        r'"(cf\[[1-9][0-9]*\])"\s+NOT\s+IN\s+openSprints\(\)\s+AND\s+'
+        r'"(cf\[[1-9][0-9]*\])"\s+NOT\s+IN\s+futureSprints\(\)\s+'
+        r'ORDER\s+BY\s+created\s+DESC', normalized, re.I)
+    match = simple or sprint
+    status_name = match.group(2) if match else ""
+    fields_match = not sprint or sprint.group(3) == sprint.group(5) == sprint.group(6)
+    done_statuses = args.done_status or ["Done"]
+    if (digest != args.confirm_jql_digest or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,15}", args.project or "")
+            or not match or match.group(1) != args.project or not fields_match
+            or done_statuses != [status_name]):
+        fail("Sprint Review JQL is not an exact bounded project selection")
+    value = jira_acli(args, "search", "--jql", jql,
+                      "--fields", "key,summary,status,description", "--limit", "200", "--json")
+    rows = value if isinstance(value, list) else value.get("issues", []) if isinstance(value, dict) else None
+    if not isinstance(rows, list) or len(rows) > 200:
+        fail("ACLI Sprint Review result is invalid")
+    issues = []
+    for row in rows:
+        fields = row.get("fields") if isinstance(row, dict) else None
+        status = fields.get("status") if isinstance(fields, dict) else None
+        parent = fields.get("parent") if isinstance(fields, dict) else None
+        if (not isinstance(row.get("key") if isinstance(row, dict) else None, str)
+                or not re.fullmatch(rf"{re.escape(args.project)}-[1-9][0-9]*", row["key"])
+                or not isinstance(fields.get("summary") if isinstance(fields, dict) else None, str)
+                or not isinstance(status, dict) or not isinstance(status.get("name"), str)
+                or parent is not None and (not isinstance(parent, dict) or not isinstance(parent.get("key"), str))):
+            fail("ACLI Sprint Review issue is invalid")
+        issues.append({"key": row["key"], "summary": fields["summary"], "status": status["name"],
+                       "parent": parent["key"] if parent else "",
+                       "description": jira_description_text(fields.get("description")), "url": ""})
+    raw = json.dumps(issues, sort_keys=True, separators=(",", ":")).encode()
+    return raw, {"jql_digest": digest, "project": args.project,
+                 "issue_keys": sorted(issue["key"] for issue in issues)}
+
+
+def markdown_text(value):
+    value = str(value).replace("\r", " ").replace("\n", " ")
+    return re.sub(r"([\\`*_[\]()<>{}#!|])", r"\\\1", value).strip()
+
+
+def private_report_directory(root, generated):
+    root = root.expanduser().absolute()
+    directory = root / "report_type=sprint_review" / f"snapshot_date={generated.date().isoformat()}"
+    current = Path(directory.anchor)
+    create_from = len(directory.parts)
+    for index, part in enumerate(directory.parts[1:], 1):
+        current /= part
+        try:
+            os.lstat(current)
+        except FileNotFoundError:
+            create_from = index
+            break
+    private_from = min(len(root.parts), create_from)
+    descriptor = os.open(directory.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for index, part in enumerate(directory.parts[1:], 1):
+            if index >= create_from:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            if index >= private_from:
+                os.fchmod(descriptor, 0o700)
+        return directory, descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 def sprint_review(args):
-    raw = args.input.read_bytes()
+    provenance = {}
+    if bool(args.input) == bool(args.jql):
+        fail("Sprint Review requires exactly one input snapshot or bounded JQL")
+    if args.input:
+        raw = args.input.read_bytes()
+    elif args.jql:
+        raw, provenance = sprint_review_snapshot(args)
     if len(raw) > 1024 * 1024:
         fail("Sprint Review input exceeds 1 MiB")
     issues = json.loads(raw)
     required = {"key", "summary", "status", "parent", "description", "url"}
-    done = set(args.done_status)
+    done = set(args.done_status or ["Done"])
     if (not isinstance(issues, list) or len(issues) > 200
-            or any(not isinstance(issue, dict) or set(issue) != required or not issue["key"] or not issue["summary"]
-                   or issue["status"] not in done for issue in issues)
+            or any(not isinstance(issue, dict) or set(issue) != required
+                   or any(type(issue[field]) is not str for field in required)
+                   or not issue["key"] or not issue["summary"] or issue["status"] not in done for issue in issues)
             or len({issue["key"] for issue in issues}) != len(issues)):
         fail("Sprint Review issue snapshot is invalid")
     grouped = {}
     for issue in issues:
         grouped.setdefault(issue["parent"] or "No Parent", []).append(issue)
-    lines = [f"# {args.title}", "", "## Sprint Goal", "", args.sprint_goal or "Not provided", "",
-             "## Product Goal", "", args.product_goal or "Not provided", "", "## What Was Done", ""]
+    lines = [f"# {markdown_text(args.title)}", "", "## Sprint Goal", "",
+             markdown_text(args.sprint_goal) or "Not provided", "", "## Product Goal", "",
+             markdown_text(args.product_goal) or "Not provided", "", "## What Was Done", ""]
     if not issues:
         lines.extend(["No Done work items were selected.", ""])
     for parent in sorted(grouped, key=lambda item: (item == "No Parent", item)):
-        lines.extend([f"### {parent}", ""])
+        lines.extend([f"### {markdown_text(parent)}", ""])
         for issue in sorted(grouped[parent], key=lambda item: item["key"]):
-            link = f"[{issue['key']}]({issue['url']})" if issue["url"] else issue["key"]
-            detail = issue["description"].strip() or issue["summary"]
-            lines.extend([f"- {link}: {issue['summary']}. {detail}", ""])
+            if issue["url"] and not re.fullmatch(r"https://[A-Za-z0-9./_?&=%#:+~-]+", issue["url"]):
+                fail("Sprint Review issue URL is invalid")
+            key = markdown_text(issue["key"])
+            link = f"[{key}]({issue['url']})" if issue["url"] else key
+            summary = markdown_text(issue["summary"])
+            detail = markdown_text(issue["description"].strip() or issue["summary"])
+            lines.extend([f"- {link}: {summary}. {detail}", ""])
     lines.extend(["## What Changed In The Environment", "",
                   "Not provided.", "", "## What's Next", "",
                   "Not provided.", "", "## Velocity / Capacity Note", "",
                   f"{len(issues)} Done work item(s) selected. Point and capacity interpretation remains a live review topic.", "",
-                  "## Provenance", "", f"Source snapshot SHA-256: `{hashlib.sha256(raw).hexdigest()}`", ""])
+                  "## Provenance", "", f"Source snapshot SHA-256: `{hashlib.sha256(raw).hexdigest()}`"])
+    if provenance:
+        lines.extend([f"JQL SHA-256: `{provenance['jql_digest']}`",
+                      f"Project: `{provenance['project']}`",
+                      "Issue keys: " + ", ".join(provenance["issue_keys"])])
+    lines.append("")
     generated = datetime.now(timezone.utc)
-    output = (args.output_root / "report_type=sprint_review" /
-              f"snapshot_date={generated.date().isoformat()}" /
-              f"sprint_review_{slugify(args.title)}_{generated.strftime('%H%M%S')}.md")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("\n".join(lines))
+    directory, directory_descriptor = private_report_directory(args.output_root, generated)
+    source_digest = hashlib.sha256(raw).hexdigest()
+    filename = f"sprint_review_{slugify(args.title)}_{source_digest[:16]}_{generated.strftime('%H%M%S%f')}.md"
+    output = directory / filename
+    temporary = f".{filename}.{secrets.token_hex(8)}"
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+                         0o600, dir_fd=directory_descriptor)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            descriptor = -1
+            stream.write("\n".join(lines))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, filename, src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor, follow_symlinks=False)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            pass
+        os.close(directory_descriptor)
     return {"schema_version": 1, "issues": len(issues), "path": str(output),
-            "source_digest": hashlib.sha256(raw).hexdigest()}
+            "source_digest": source_digest, **provenance}
 
 
 def main():
@@ -962,7 +1141,6 @@ def main():
     publish.add_argument("--project", default="")
     publish.add_argument("--issue-type", action="append", default=[])
     publish.add_argument("--acli", default="acli")
-    publish.add_argument("--receipt-root", type=Path, default=Path("~/.local/state/pm-kernel/jira"))
     publish.add_argument("--json", action="store_true")
     reconcile = jira.add_parser("reconcile")
     reconcile.add_argument("--manifest", required=True, type=Path)
@@ -971,14 +1149,23 @@ def main():
     reconcile.add_argument("--project", required=True)
     reconcile.add_argument("--issue-type", action="append", required=True)
     reconcile.add_argument("--acli", default="acli")
-    reconcile.add_argument("--receipt-root", type=Path, default=Path("~/.local/state/pm-kernel/jira"))
     reconcile.add_argument("--json", action="store_true")
+    project_receipt = jira.add_parser("project-receipt")
+    project_receipt.add_argument("--manifest", required=True, type=Path)
+    project_receipt.add_argument("--root", type=Path, default=Path.cwd())
+    project_receipt.add_argument("--preview-digest", required=True)
+    project_receipt.add_argument("--psql", default="psql")
+    project_receipt.add_argument("--json", action="store_true")
     review = commands.add_parser("sprint-review")
-    review.add_argument("--input", required=True, type=Path)
+    review.add_argument("--input", type=Path)
+    review.add_argument("--jql")
+    review.add_argument("--confirm-jql-digest", default="")
+    review.add_argument("--project", default="")
+    review.add_argument("--acli", default="acli")
     review.add_argument("--title", required=True)
     review.add_argument("--sprint-goal", default="")
     review.add_argument("--product-goal", default="")
-    review.add_argument("--done-status", action="append", default=["Done"])
+    review.add_argument("--done-status", action="append")
     review.add_argument("--output-root", type=Path, default=Path("data/interim/reports"))
     review.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -1016,6 +1203,10 @@ def main():
             if args.preview_digest != digest:
                 fail("Jira reconciliation does not match the current preview")
             result = jira_reconcile(args, manifest, digest)
+        elif args.jira_command == "project-receipt":
+            if args.preview_digest != digest:
+                fail("Jira receipt projection does not match the current preview")
+            result = jira_project_receipt(args, manifest, digest)
     else:
         result = sprint_review(args)
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

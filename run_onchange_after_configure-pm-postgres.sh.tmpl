@@ -19,6 +19,19 @@ op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }} | \
 "$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
     systemctl --user is-active --quiet pm-postgres.service
 "$HOME/.local/bin/sandbox-vm" configure-pm-postgres
+healthy=
+for _ in $(seq 1 60); do
+    if "$HOME/.local/bin/sandbox-vm" shell {{ .dotfiles_ai.pm_kernel.workspace | quote }} -- \
+        sh -c 'systemctl --user is-active --quiet pm-postgres.service && podman healthcheck run pm-postgres >/dev/null 2>&1'; then
+        healthy=1
+        break
+    fi
+    sleep 1
+done
+if [ -z "$healthy" ]; then
+    echo "pm-postgres: service did not recover after Lima reconfiguration" >&2
+    exit 1
+fi
 launchctl bootstrap "$domain" "$plist"
 {{ else -}}
 "$HOME/.local/bin/sandbox-vm" configure-pm-postgres --remove

@@ -1,0 +1,407 @@
+{{- $references := dict -}}
+{{- range .dotfiles_ai.sandbox.workspaces -}}
+  {{- range .mounts -}}
+    {{- if ne .reference_name "" -}}
+      {{- $path := .host -}}
+      {{- if eq $.chezmoi.os "linux" }}{{ $path = .guest }}{{ end -}}
+      {{- if ne .reference_subpath "" }}{{ $path = joinPath $path .reference_subpath }}{{ end -}}
+      {{- $_ := set $references .reference_name (dict "path" $path "description" .reference_description) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "openai": {
+      "options": {
+        "headerTimeout": 300000,
+        "timeout": 600000,
+        "chunkTimeout": 300000
+      },
+      "models": {
+        "gpt-5.6-sol": {
+          "variants": {
+            "medium": { "reasoningEffort": "medium" }
+          }
+        },
+        "gpt-5.6-terra": {
+          "variants": {
+            "medium": { "reasoningEffort": "medium" }
+          }
+        }
+      }
+    },
+{{ if .dotfiles_ai.opencode.vertex_project -}}
+    "google-vertex-anthropic": {
+      "options": {
+        "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
+        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if .dotfiles_ai.opencode.vertex_credentials }},
+        "googleAuthOptions": {
+          "keyFilename": {{ .dotfiles_ai.opencode.vertex_credentials | toJson }}
+        }{{ end }}
+      }
+    },
+{{ end -}}
+    "google": {},
+    "moonshotai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Moonshot (Kimi)",
+      "options": {
+        "baseURL": "https://api.moonshot.ai/v1",
+        "apiKey": "{env:MOONSHOT_API_KEY}"
+      },
+      "models": {
+        "kimi-k2-turbo-preview": {
+          "name": "Kimi K2 Turbo (preview)",
+          "limit": { "context": 256000, "output": 8192 }
+        },
+        "moonshot-v1-32k": {
+          "name": "Moonshot v1 32k",
+          "limit": { "context": 32000, "output": 4096 }
+        }
+      }
+    },
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LM Studio (local)",
+      "options": {
+        "baseURL": {{ .dotfiles_ai.opencode.lmstudio_base_url | toJson }}
+      },
+      "models": {
+        "mistralai/devstral-small-2-2512": {
+          "name": "Devstral Small 2 (MLX 4bit, local)",
+          "limit": { "context": 65536, "output": 8192 }
+        },
+        "qwen/qwen3.6-35b-a3b": {
+          "name": "Qwen3.6 35B A3B (MLX 4bit, local)",
+          "limit": { "context": 32768, "output": 16384 }
+        }
+      }
+    }
+  },
+{{ if gt (len $references) 0 -}}
+  "references": {
+{{- $first := true -}}
+{{- range $name, $reference := $references }}
+    {{ if not $first }},{{ end }}{{ $name | toJson }}: {
+      "path": {{ $reference.path | toJson }},
+      "description": {{ $reference.description | toJson }}
+    }{{ $first = false -}}
+{{- end }}
+  },
+{{ end -}}
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" }
+    }{{ if eq .chezmoi.os "darwin" }},
+    "1password": {
+      "type": "local",
+      "command": ["/usr/local/bin/1password-mcp"],
+      "enabled": true
+    }{{ end }}
+  },
+  "agent": {
+    "build": {
+      "permission": {
+        "dbsctr_begin": "allow",
+        "dbsctr_attach": "allow",
+        "dbsctr_reconcile": "allow",
+        "dbsctr_phase_span": "allow",
+        "dbsctr_execution_benchmark": "allow",
+        "dbsctr_execution_dag": "allow",
+        "dbsctr_improvement_claim": "allow",
+        "dbsctr_improvement_update": "allow",
+        "dbsctr_provider_evaluation_save": "allow",
+        "1password_*": "ask",
+        "external_directory": {
+          "~/.local/state/dbsctr/worktrees/**": "allow",
+{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
+          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end }}          "~/.config/dotfiles-ai/**": "allow",
+          "~/.local/share/chezmoi": "allow",
+          "~/.local/share/chezmoi/**": "allow"
+        }
+      }
+    },
+    "plan": {
+      "model": {{ .dotfiles_ai.opencode.default_model | toJson }},
+      "variant": "medium",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "dbsctrctl attach-runtime*": "deny",
+          "*/dbsctrctl attach-runtime*": "deny",
+          "env *dbsctrctl attach-runtime*": "deny",
+          "command *dbsctrctl attach-runtime*": "deny",
+          "dbsctrctl phase-span*": "deny",
+          "*/dbsctrctl phase-span*": "deny",
+          "env *dbsctrctl phase-span*": "deny",
+          "command *dbsctrctl phase-span*": "deny",
+          "dbsctrctl execution-benchmark*": "deny",
+          "*/dbsctrctl execution-benchmark*": "deny",
+          "env *dbsctrctl execution-benchmark*": "deny",
+          "command *dbsctrctl execution-benchmark*": "deny",
+          "dbsctrctl execution-dag*": "deny",
+          "*/dbsctrctl execution-dag*": "deny",
+          "env *dbsctrctl execution-dag*": "deny",
+          "command *dbsctrctl execution-dag*": "deny",
+          "dbsctrctl reconcile-target*": "deny",
+          "*/dbsctrctl reconcile-target*": "deny",
+          "env *dbsctrctl reconcile-target*": "deny",
+          "command *dbsctrctl reconcile-target*": "deny",
+          "acli *": "deny",
+          "*/acli *": "deny",
+          "env *acli *": "deny",
+          "command *acli *": "deny",
+          "acli jira auth status*": "allow",
+          "acli jira workitem view *": "allow",
+          "acli jira workitem search *": "ask",
+          "acli jira workitem comment list *": "allow",
+          "acli *&*": "deny",
+          "acli *;*": "deny",
+          "acli *|*": "deny",
+          "acli *>*": "deny",
+          "acli *<*": "deny",
+          "acli *$(*": "deny",
+          "acli *`*": "deny",
+          "acli *\n*": "deny",
+          "acli jira workitem search *--paginate*": "deny",
+          "acli jira workitem search *--web*": "deny",
+          "acli jira workitem search -w*": "deny",
+          "acli jira workitem search * -w*": "deny",
+          "acli jira workitem search *--filter*": "deny"
+        },
+        "dbsctr_begin": "deny",
+        "dbsctr_attach": "deny",
+        "dbsctr_reconcile": "deny",
+        "dbsctr_phase_span": "deny",
+        "dbsctr_execution_benchmark": "deny",
+        "dbsctr_execution_dag": "deny",
+        "dbsctr_vm_handoff": "deny",
+        "task": {
+          "*": "deny",
+          "explore-openai": "allow",
+          "scout-openai": "allow"
+        }
+      }
+    }
+  },
+  "default_agent": "plan",
+  "model": {{ .dotfiles_ai.opencode.default_model | toJson }},
+  "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
+  "plugin": ["@dietrichgebert/ponytail@4.8.4"],
+  "permission": {
+    "dbsctr_status": "allow",
+    "dbsctr_begin": "deny",
+    "dbsctr_attach": "deny",
+    "dbsctr_reconcile": "deny",
+    "dbsctr_phase_span": "deny",
+    "dbsctr_execution_benchmark": "deny",
+    "dbsctr_execution_dag": "deny",
+    "dbsctr_audit": "allow",
+    "dbsctr_inspect": "allow",
+    "dbsctr_review": "allow",
+    "dbsctr_review_complete": "ask",
+    "dbsctr_review_history": "allow",
+    "dbsctr_review_history_save": "allow",
+    "dbsctr_review_federated": "allow",
+    "dbsctr_vm_handoff": "ask",
+    "dbsctr_history_capture": "allow",
+    "dbsctr_history_telemetry": "allow",
+    "dbsctr_benchmark": "allow",
+    "dbsctr_provider_evaluation": "allow",
+    "dbsctr_provider_evaluation_save": "deny",
+    "dbsctr_improvement_status": "allow",
+    "dbsctr_improvement_claim": "deny",
+    "dbsctr_improvement_update": "deny",
+    "context7_*": "deny",
+    "1password_*": "deny",
+{{ if gt (len $references) 0 -}}
+    "external_directory": {
+      "*": "deny",
+      "~/.local/state/dbsctr/worktrees": "allow",
+      "~/.local/state/dbsctr/worktrees/**": "allow",
+{{ if .dotfiles_ai.state.root }}      {{ .dotfiles_ai.state.root | toJson }}: "allow",
+      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end -}}
+{{- $first := true -}}
+{{- range $name, $reference := $references }}
+      {{ if not $first }},{{ end }}{{ $reference.path | toJson }}: "allow",
+      {{ printf "%s/**" $reference.path | toJson }}: "allow"{{ $first = false -}}
+{{- end }}
+    },
+{{ else -}}
+    "external_directory": {
+      "*": "deny",
+      "~/.local/state/dbsctr/worktrees": "allow",
+      "~/.local/state/dbsctr/worktrees/**": "allow"{{ if .dotfiles_ai.state.root }},
+      {{ .dotfiles_ai.state.root | toJson }}: "allow",
+      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow"{{ end }}
+    },
+{{ end -}}
+    "bash": {
+      "*": "allow",
+      "rm *": "ask",
+      "git commit *": "ask",
+      "git push *": "ask",
+      "git push --force*": "deny",
+      "git push -f*": "deny",
+      "git *push*--force*": "deny",
+      "git push *+*": "deny",
+      "git commit --no-verify*": "deny",
+      "git commit -n*": "deny",
+      "git *commit*--no-verify*": "deny",
+      "dbsctrctl gate-commit*": "allow",
+      "dbsctrctl final-push*": "allow",
+      "dbsctrctl approve-exception*": "ask",
+      "dbsctrctl record-dvc-push*": "ask",
+      "dbsctrctl record-evidence*": "ask",
+      "dbsctrctl attach-runtime*": "deny",
+      "*/dbsctrctl attach-runtime*": "deny",
+      "env *dbsctrctl attach-runtime*": "deny",
+      "command *dbsctrctl attach-runtime*": "deny",
+      "dbsctrctl reconcile-target*": "deny",
+      "*/dbsctrctl reconcile-target*": "deny",
+      "env *dbsctrctl reconcile-target*": "deny",
+      "command *dbsctrctl reconcile-target*": "deny",
+      "dbsctrctl phase-span*": "deny",
+      "*/dbsctrctl phase-span*": "deny",
+      "env *dbsctrctl phase-span*": "deny",
+      "command *dbsctrctl phase-span*": "deny",
+      "dbsctrctl execution-benchmark*": "deny",
+      "*/dbsctrctl execution-benchmark*": "deny",
+      "env *dbsctrctl execution-benchmark*": "deny",
+      "command *dbsctrctl execution-benchmark*": "deny",
+      "dbsctrctl execution-dag*": "deny",
+      "*/dbsctrctl execution-dag*": "deny",
+      "env *dbsctrctl execution-dag*": "deny",
+      "command *dbsctrctl execution-dag*": "deny",
+      "dbsctrctl review-complete*": "ask",
+      "*/dbsctrctl review-complete*": "ask",
+      "env *dbsctrctl review-complete*": "ask",
+      "command *dbsctrctl review-complete*": "ask",
+      "dbsctrctl review-history*": "allow",
+      "*/dbsctrctl review-history*": "allow",
+      "env *dbsctrctl review-history*": "allow",
+      "command *dbsctrctl review-history*": "allow",
+      "dbsctrctl review-history-save*": "ask",
+      "*/dbsctrctl review-history-save*": "ask",
+      "env *dbsctrctl review-history-save*": "ask",
+      "command *dbsctrctl review-history-save*": "ask",
+      "dbsctrctl review-migrate*": "ask",
+      "*/dbsctrctl review-migrate*": "ask",
+      "env *dbsctrctl review-migrate*": "ask",
+      "command *dbsctrctl review-migrate*": "ask",
+      "dbsctrctl review-backup*": "ask",
+      "*/dbsctrctl review-backup*": "ask",
+      "env *dbsctrctl review-backup*": "ask",
+      "command *dbsctrctl review-backup*": "ask",
+      "dbsctrctl review-restore*": "ask",
+      "*/dbsctrctl review-restore*": "ask",
+      "env *dbsctrctl review-restore*": "ask",
+      "command *dbsctrctl review-restore*": "ask",
+      "dbsctrctl review-prune*": "ask",
+      "*/dbsctrctl review-prune*": "ask",
+      "env *dbsctrctl review-prune*": "ask",
+      "command *dbsctrctl review-prune*": "ask",
+      "dbsctrctl review-forget*": "ask",
+      "*/dbsctrctl review-forget*": "ask",
+      "env *dbsctrctl review-forget*": "ask",
+      "command *dbsctrctl review-forget*": "ask",
+      "dbsctrctl improvement-claim*": "ask",
+      "*/dbsctrctl improvement-claim*": "ask",
+      "env *dbsctrctl improvement-claim*": "ask",
+      "command *dbsctrctl improvement-claim*": "ask",
+      "dbsctrctl improvement-update*": "ask",
+      "*/dbsctrctl improvement-update*": "ask",
+      "env *dbsctrctl improvement-update*": "ask",
+      "command *dbsctrctl improvement-update*": "ask",
+      "dbsctrctl improvement-recover*": "ask",
+      "*/dbsctrctl improvement-recover*": "ask",
+      "env *dbsctrctl improvement-recover*": "ask",
+      "command *dbsctrctl improvement-recover*": "ask",
+      "dbsctrctl improvement-forget*": "ask",
+      "*/dbsctrctl improvement-forget*": "ask",
+      "env *dbsctrctl improvement-forget*": "ask",
+      "command *dbsctrctl improvement-forget*": "ask",
+      "*dbsctrctl improvement-forget*": "ask",
+      "dbsctrctl provider-evaluation-save*": "ask",
+      "*/dbsctrctl provider-evaluation-save*": "ask",
+      "dbsctrctl provider-evaluation-forget*": "ask",
+      "*/dbsctrctl provider-evaluation-forget*": "ask",
+      "dbsctrctl cleanup*": "ask",
+      "dbsctrctl cycle-retire*": "ask",
+      "*/dbsctrctl cycle-retire*": "ask",
+      "*dbsctrctl cycle-retire*": "ask",
+      "herdr server stop*": "ask",
+      "herdr config reset-keys*": "ask",
+      "herdr worktree remove*": "ask",
+      "herdr workspace close*": "ask",
+      "herdr pane close*": "ask",
+      "herdr tab close*": "ask",
+      "herdr session stop*": "ask",
+      "herdr session delete*": "ask",
+      "sandbox-vm create*": "ask",
+      "sandbox-vm update*": "ask",
+      "sandbox-vm configure-pm-postgres*": "ask",
+      "sandbox-vm provision-pm-postgres*": "ask",
+      "*limactl *": "deny",
+      "git reset --hard*": "ask",
+      "git clean *": "ask",
+      "gh *": "ask",
+      "gh issue list *": "allow",
+      "gh pr list *": "allow",
+      "aws *": "ask",
+      "npm install*": "ask",
+      "npm publish*": "ask",
+      "dvc push*": "ask",
+      "chezmoi apply*": "ask",
+      "launchctl bootstrap*": "ask",
+      "launchctl bootout*": "ask",
+      "pmctl jira publish*": "ask",
+      "*/pmctl jira publish*": "ask",
+      "pmctl jira reconcile*": "ask",
+      "*/pmctl jira reconcile*": "ask",
+      "pmctl sprint-review*": "ask",
+      "*/pmctl sprint-review*": "ask",
+      "env *pmctl sprint-review*": "ask",
+      "command *pmctl sprint-review*": "ask",
+      "pm-jira*": "ask",
+      "*/pm-jira*": "ask",
+      "*pmctl jira publish*": "ask",
+      "*pmctl jira reconcile*": "ask",
+      "*pmctl sprint-review*": "ask",
+      "*pm-jira*": "ask",
+      "acli *": "deny",
+      "*/acli *": "deny",
+      "env *acli *": "deny",
+      "command *acli *": "deny",
+      "acli jira auth status*": "allow",
+      "acli jira workitem view *": "allow",
+      "acli jira workitem search *": "ask",
+      "acli jira workitem comment list *": "allow",
+      "acli *&*": "deny",
+      "acli *;*": "deny",
+      "acli *|*": "deny",
+      "acli *>*": "deny",
+      "acli *<*": "deny",
+      "acli *$(*": "deny",
+      "acli *`*": "deny",
+      "acli *\n*": "deny",
+      "acli jira workitem search *--paginate*": "deny",
+      "acli jira workitem search *--web*": "deny",
+      "acli jira workitem search -w*": "deny",
+      "acli jira workitem search * -w*": "deny",
+      "acli jira workitem search *--filter*": "deny"
+    }
+  },
+  "experimental": {
+    "policies": [
+      { "effect": "deny", "action": "provider.use", "resource": "anthropic" }
+    ]
+  }
+}
