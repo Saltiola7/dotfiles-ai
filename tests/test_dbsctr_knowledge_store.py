@@ -1,5 +1,7 @@
 import hashlib
 import io
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
 import tarfile
@@ -9,6 +11,20 @@ import pytest
 
 
 ROOT = Path(__file__).parents[1]
+DKSCTL = ROOT / "dot_local/bin/executable_dksctl"
+
+
+def load_dksctl():
+    loader = importlib.machinery.SourceFileLoader("dksctl_module", str(DKSCTL))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, check=True, text=True,
+                          capture_output=True).stdout.strip()
 
 
 def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/lmstudio") -> str:
@@ -267,3 +283,291 @@ def test_enabled_render_rejects_unsafe_model_roots(model_root: str, message: str
     with pytest.raises(subprocess.CalledProcessError) as error:
         render("run_onchange_after_install-dbsctr-embedding.sh.tmpl", model_root=model_root)
     assert message in error.value.stderr
+
+
+def test_dks002_schema_is_scoped_exact_and_rerunnable() -> None:
+    schema = (ROOT / "dot_local/share/dbsctr-knowledge/schema.sql").read_text()
+
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in schema
+    assert "vector(4096)" in schema
+    assert "USING hnsw" not in schema.lower() and "USING ivfflat" not in schema.lower()
+    assert "FORCE ROW LEVEL SECURITY" in schema
+    assert "current_setting('dks.project_id'" in schema
+    assert "session_user" in schema and "project_roles" in schema
+    assert "CREATE PROPERTY GRAPH" in schema and "GRAPH_TABLE" in schema
+    assert "websearch_to_tsquery('english'" in schema
+    assert "to_tsvector('english'" in schema
+    assert "<#>" in schema
+    assert "schema_migrations" in schema and "VALUES (1)" in schema
+    assert "active_embedding_space_id" in schema
+    assert "projects_active_revision_fk" in schema and "projects_active_run_fk" in schema
+    assert "DROP VIEW IF EXISTS dks.one_hop_graph" in schema
+    assert "security_invoker=true" in schema
+    assert "SELECT rc.project_id, rc.revision_id, rc.path, r.blob_id" in schema
+    assert "SELECT rc.project_id, rc.revision_id, rc.path, c.*" not in schema
+
+
+def test_dksctl_normalizes_only_supported_repository_remotes() -> None:
+    dks = load_dksctl()
+
+    assert dks.normalize_remote("https://GitHub.com/Saltiola7/dotfiles-ai.git") == \
+        "https://github.com/Saltiola7/dotfiles-ai"
+    assert dks.normalize_remote("git@github.com:Saltiola7/dotfiles-ai.git") == \
+        "https://github.com/Saltiola7/dotfiles-ai"
+    with pytest.raises(ValueError):
+        dks.normalize_remote("file:///tmp/repository")
+
+
+def test_dksctl_reads_exact_git_blobs_not_dirty_worktree(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    git(tmp_path, "init")
+    git(tmp_path, "config", "user.email", "test@example.com")
+    git(tmp_path, "config", "user.name", "Test")
+    git(tmp_path, "remote", "add", "origin", "git@github.com:Saltiola7/dotfiles-ai.git")
+    (tmp_path / "docs/specs/example").mkdir(parents=True)
+    (tmp_path / "docs/tickets/context=example").mkdir(parents=True)
+    (tmp_path / "docs/specs/_archive").mkdir(parents=True)
+    (tmp_path / "docs/specs/example/README.md").write_bytes(b"# Spec\n\nBody\n")
+    (tmp_path / "docs/tickets/context=example/EX-1.md").write_bytes(b"# Ticket\r\n\r\nWork\r\n")
+    (tmp_path / "docs/specs/_archive/old.md").write_text("old\n")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-m", "fixture")
+    commit = git(tmp_path, "rev-parse", "HEAD")
+
+    clean = dks.git_documents(tmp_path, commit, "https://github.com/Saltiola7/dotfiles-ai")
+    (tmp_path / "docs/specs/example/README.md").write_text("dirty\n")
+    dirty = dks.git_documents(tmp_path, commit, "https://github.com/Saltiola7/dotfiles-ai")
+
+    assert clean == dirty
+    assert [item["path"] for item in clean] == [
+        "docs/specs/example/README.md",
+        "docs/tickets/context=example/EX-1.md",
+    ]
+    assert clean[0]["data"] == b"# Spec\n\nBody\n"
+    source = DKSCTL.read_text()
+    assert '"GIT_NO_REPLACE_OBJECTS": "1"' in source
+    assert '"ls-tree", "-rz", "--full-tree", "-r"' in source
+
+
+def test_dksctl_rejects_unsupported_git_modes_and_text(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    git(tmp_path, "init")
+    git(tmp_path, "config", "user.email", "test@example.com")
+    git(tmp_path, "config", "user.name", "Test")
+    git(tmp_path, "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai")
+    (tmp_path / "docs/specs/example").mkdir(parents=True)
+    (tmp_path / "docs/specs/example/link.md").symlink_to("target.md")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-m", "symlink")
+    with pytest.raises(ValueError, match="mode"):
+        dks.git_documents(tmp_path, git(tmp_path, "rev-parse", "HEAD"),
+                          "https://github.com/Saltiola7/dotfiles-ai")
+
+    with pytest.raises(ValueError, match="UTF-8|BOM"):
+        dks.validate_markdown(b"\xef\xbb\xbf# bad\n")
+    with pytest.raises(ValueError, match="UTF-8|BOM"):
+        dks.validate_markdown(b"\xff")
+
+
+def test_dks_markdown_v1_preserves_ranges_fences_and_line_endings() -> None:
+    dks = load_dksctl()
+    source = (
+        b"preamble\r\n\r\n# One\r\n\r\nFirst sentence. Second sentence!\r\n\r\n"
+        b"```\r\n# not heading\r\n```\r\n\r\n## Two\r\n\r\nLast\r\n"
+    )
+    chunks = dks.chunk_markdown(source, lambda value: len(value.encode()), token_limit=64)
+
+    assert chunks
+    assert all(chunk["embedding_tokens"] <= 64 for chunk in chunks)
+    assert all(source[chunk["start_byte"]:chunk["end_byte"]] == chunk["body_bytes"]
+               for chunk in chunks)
+    assert all(left["end_byte"] <= right["start_byte"] for left, right in zip(chunks, chunks[1:]))
+    assert any("# not heading" in chunk["body"] for chunk in chunks)
+    assert chunks[-1]["heading_path"] == ["One", "Two"]
+    assert chunks == dks.chunk_markdown(source, lambda value: len(value.encode()), token_limit=64)
+
+
+def test_dks_markdown_rejects_heading_context_over_budget() -> None:
+    dks = load_dksctl()
+    with pytest.raises(ValueError, match="heading"):
+        dks.chunk_markdown(b"# Very long heading\n\nbody\n", lambda value: len(value), token_limit=8)
+
+
+def test_dks_graph_identity_link_resolution_and_rrf_are_stable() -> None:
+    dks = load_dksctl()
+    node = dks.node_id("dotfiles-ai", "path", "docs/specs/a.md")
+    edge = dks.edge_id("dotfiles-ai", "a" * 40, "links_to", node, node, 5, 12)
+    assert node == dks.node_id("dotfiles-ai", "path", "docs/specs/a.md")
+    assert edge == dks.edge_id("dotfiles-ai", "a" * 40, "links_to", node, node, 5, 12)
+    assert dks.resolve_project_link("docs/specs/a.md", "../tickets/T-1.md#Outcome") == \
+        ("docs/tickets/T-1.md", "Outcome")
+    with pytest.raises(ValueError):
+        dks.resolve_project_link("docs/specs/a.md", "../../../outside.md")
+
+    ranked = dks.rrf({"lexical": ["b", "a"], "vector": ["a", "c"], "graph": ["c"]}, limit=3)
+    assert [item["id"] for item in ranked] == ["a", "c", "b"]
+    assert ranked[0]["ranks"] == {"lexical": 2, "vector": 1}
+
+    data = b"---\nid: EX-1\ndepends_on:\n  - EX-0\nowns:\n  - docs/specs/a.md\n---\n# Outcome\n\n[Spec](../../specs/a.md)\n"
+    documents = [{"path": "docs/tickets/context=example/EX-1.md", "blob_id": "a" * 40, "data": data},
+                 {"path": "docs/specs/a.md", "blob_id": "b" * 40, "data": b"# Spec\n\nBody\n"}]
+    chunks = []
+    for document in documents:
+        for chunk in dks.chunk_markdown(document["data"], lambda value: len(value), 1024):
+            chunk.update(path=document["path"], blob_id=document["blob_id"])
+            chunks.append(chunk)
+    nodes, edges = dks.build_graph("dotfiles-ai", "c" * 40, documents, chunks)
+    assert {edge["edge_type"] for edge in edges} >= {"contains", "depends_on", "owns", "links_to"}
+    assert {node["kind"] for node in nodes} >= {"chunk", "heading", "path", "ticket"}
+    assert all(edge["end_byte"] > edge["start_byte"] for edge in edges
+               if edge["edge_type"] in {"depends_on", "owns"})
+
+
+def test_dks_heading_identity_is_per_occurrence_not_per_chunk() -> None:
+    dks = load_dksctl()
+    target = b"# Same\n\none two three four five six seven eight nine ten\n"
+    source = b"# Link\n\n[target](a.md#Same)\n"
+    documents = [{"path": "docs/specs/a.md", "blob_id": "a" * 40, "data": target},
+                 {"path": "docs/specs/b.md", "blob_id": "b" * 40, "data": source}]
+    chunks = []
+    for document in documents:
+        for chunk in dks.chunk_markdown(document["data"], lambda value: len(value), 24):
+            chunk.update(path=document["path"], blob_id=document["blob_id"])
+            chunks.append(chunk)
+    nodes, _ = dks.build_graph("dotfiles-ai", "c" * 40, documents, chunks)
+    assert len([node for node in nodes if node["kind"] == "heading" and node["path"] == "docs/specs/a.md"]) == 1
+
+    documents[0]["data"] = b"# Same\n\none\n\n# Same\n\ntwo\n"
+    chunks = []
+    for document in documents:
+        for chunk in dks.chunk_markdown(document["data"], lambda value: len(value), 64):
+            chunk.update(path=document["path"], blob_id=document["blob_id"])
+            chunks.append(chunk)
+    with pytest.raises(ValueError, match="not unique"):
+        dks.build_graph("dotfiles-ai", "c" * 40, documents, chunks)
+
+
+def test_dks_embedding_response_indexes_and_reused_vectors_are_validated(monkeypatch) -> None:
+    dks = load_dksctl()
+    vector = [1.0] + [0.0] * 4095
+    monkeypatch.setattr(dks, "api_request", lambda *_: {
+        "model": "qwen3-embedding-8b-q4km",
+        "data": [{"index": 0, "embedding": vector}, {"index": 0, "embedding": vector}],
+    })
+    with pytest.raises(RuntimeError, match="indexes"):
+        dks.embed({"embedding": {"model": "qwen3-embedding-8b-q4km"}}, ["one", "two"])
+    with pytest.raises(RuntimeError, match="normalized"):
+        dks.validate_vector([0.0] * 4096)
+
+
+def test_dks_embedding_manifest_binds_space_model_endpoint_and_hash(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    raw = render("private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl").encode()
+    manifest = tmp_path / "embedding-space.json"
+    manifest.write_bytes(raw)
+    manifest.chmod(0o600)
+    config = {"embedding": {
+        "url": "http://127.0.0.1:11435",
+        "manifest_file": str(manifest),
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "space_id": "qwen3e8b-q4km-llamacpp-b10505-native4096-v1",
+        "model": "qwen3-embedding-8b-q4km",
+    }}
+    dks.validate_embedding_config(config)
+    config["embedding"]["manifest_sha256"] = "0" * 64
+    with pytest.raises(RuntimeError, match="identity"):
+        dks.validate_embedding_config(config)
+
+
+def test_dks_sync_locks_before_sources_and_validates_complete_graph_activation() -> None:
+    source = DKSCTL.read_text()
+    assert source.index("pg_try_advisory_lock") < source.index("documents = git_documents", source.index("def command_sync"))
+    assert "expected_nodes" in source and "len(nodes)" in source
+    assert "expected_edges" in source and "len(edges)" in source
+    assert "projection completeness mismatch" in source
+    assert "DELETE FROM dks.revision_chunks" in source
+    assert "active_embedding_space_id" in source
+    assert "DISTINCT ON (c.chunk_id)" in source
+    assert "GRAPH_TABLE" in source
+    assert "embedding space identity mismatch" in source
+    assert "stored embedding identity mismatch" in source
+    assert "build_graph" in source and 'channels["graph"]' in source
+    assert "command_rebuild" in source and "rebuild identity mismatch" in source
+    assert source.index("projected_identity(") < source.index("sync_statements(", source.index("def command_sync"))
+
+
+def test_dksctl_cli_rejects_unscoped_or_unbounded_queries(tmp_path: Path) -> None:
+    config = tmp_path / "projects.json"
+    config.write_text(json.dumps({"projects": {}}))
+    missing = subprocess.run(["python3", str(DKSCTL), "query", "--config", str(config),
+                              "--text", "query"], text=True, capture_output=True)
+    assert missing.returncode == 2
+    assert "project" in missing.stderr.lower()
+    assert "query" not in missing.stdout
+
+
+def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> None:
+    containerfile = (ROOT / "dot_local/share/pm-kernel/Containerfile.pgvector").read_text()
+    builder = (ROOT / "dot_local/bin/executable_pm-postgres-image-build").read_text()
+    container = (ROOT / "private_dot_config/containers/systemd/pm-postgres.container.tmpl").read_text()
+    guest_loader = (ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()
+    host_loader = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
+    migrator = (ROOT / "dot_local/bin/executable_dks-postgres-migrate.tmpl").read_text()
+    verifier = (ROOT / "dot_local/bin/executable_pm-postgres-image-verify").read_text()
+    baseline = (ROOT / "dot_local/bin/executable_pm-postgres-baseline.tmpl").read_text()
+
+    base_digest = "bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40"
+    source_digest = "d076a3098010905fd60256649327809651f6288327db6413f0938305f62ea299"
+    assert base_digest in containerfile and base_digest in builder
+    assert "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c" in builder
+    assert source_digest in builder
+    assert "postgresql-server-dev-19=19~beta3-1.pgdg13+1" in containerfile
+    assert "make OPTFLAGS=\"\"" in containerfile
+    assert "localhost/dotfiles-ai/postgres-pgvector:19beta3-0.8.6" in container
+    assert "pm-postgres-image-build" in guest_loader
+    assert "pm-postgres-image-verify" in guest_loader and "ExecStartPre" in container
+    assert "image_id" in verifier and "0.8.6" in verifier
+    assert "schema_migration" in baseline and "pm_state_preserved" in baseline
+    assert host_loader.index("pm-postgres-backup") < host_loader.index('sandbox-vm" update')
+    assert host_loader.index('baseline=$("$HOME/.local/bin/pm-postgres-baseline")') < \
+        host_loader.index('"$HOME/.local/bin/pm-postgres-backup"')
+    assert "existing inactive volume" in host_loader
+    assert host_loader.index('sandbox-vm" update') < host_loader.index("dks-postgres-migrate")
+    assert "\\getenv dks_password DKS_PASSWORD" in migrator
+    assert "CREATE DATABASE dbsctr_knowledge" in migrator
+    assert "dks_dotfiles_ai" in migrator
+    assert "CREATEDB" in migrator and "CREATEROLE" in migrator
+    assert "schema.sql" in migrator and "project_roles" in migrator
+    assert "NOLOGIN" in migrator and "pg_terminate_backend" in migrator
+    assert "DELETE ON dks.source_records" in migrator
+    assert "DELETE ON dks.projects" not in migrator
+    assert "SELECT ON PROPERTY GRAPH" in migrator
+    assert "same-base compatible" in baseline
+
+
+def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    ignore = (ROOT / ".chezmoiignore").read_text()
+    project = (ROOT / "private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl").read_text()
+    psql = (ROOT / "dot_local/bin/executable_dks-psql.tmpl").read_text()
+
+    assert "postgres_enabled = false" in defaults
+    assert "[dotfiles_ai.knowledge_store.projects]" in defaults
+    assert "[data.dotfiles_ai.knowledge_store.projects.dotfiles_ai]" in example
+    assert "postgres_password_ref" in example and "remote" in example
+    assert "projects.json" in ignore and ".dotfiles_ai.knowledge_store.postgres_enabled" in ignore
+    assert "embedding-api-key" in project and "embedding-space.json" in project
+    assert '"manifest_file"' in project and '"model"' in project
+    assert "postgres_password_ref" not in project
+    assert "op read" in psql and "DBSCTR_KNOWLEDGE_PASSWORD" not in psql
+    assert "127.0.0.1" in psql and "dbsctr_knowledge" in psql
+
+
+def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:
+    discovery = (ROOT / "dot_agents/skills/discovery/SKILL.md").read_text()
+    dbsctr = (ROOT / "dot_agents/skills/dbsctr/SKILL.md").read_text()
+    assert "Every cycle reviews README, BACKLOG, and CHANGELOG" not in discovery
+    assert "Every cycle reviews README, affected canonical tickets, and CHANGELOG" in discovery
+    assert "update docs/backlog/changelog" not in dbsctr
+    assert not list((ROOT / "docs/specs").glob("*/BACKLOG.md"))
