@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import hmac
+import importlib.metadata
+import json
+import math
+import os
+import stat
+import sys
+import threading
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+MODEL_ID = "qwen3-reranker-4b"
+REVISION = "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+INSTRUCTION = "Retrieve authoritative DBSCTR engineering evidence that answers the query"
+TEMPLATE = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {document}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
+FILES = {
+    "model-00001-of-00002.safetensors": (4058781760, "cf2e87cbf71fa628961532232e04dd6c19702a0a057f5e2aff95ea1aca4fd488"),
+    "model-00002-of-00002.safetensors": (3984833200, "78946d22b7f6456ea7a5358dbdf3982de36c5bac1f166a5fd58e18e31db8048a"),
+    "tokenizer.json": (11422654, "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"),
+    "chat_template.jinja": (741, "6f682162495ec5b39fd9005c01b6aa2a74669379fe967039f1e2cbbe8752369d"),
+    "config.json": (727, "38bff5eac700032a185745e4076eccad7aa453473cafc2a27de412cdb7b79e19"),
+    "generation_config.json": (214, "81051cd3f6e77013827148d0b8a6ead93f8ac390d5ab805f849199f0af6a08db"),
+    "merges.txt": (1671853, "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"),
+    "model.safetensors.index.json": (32819, "18a783f197360068da36d2ff9ecffce0121542a87598fd1fef3079ead1c3cc08"),
+    "special_tokens_map.json": (613, "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"),
+    "tokenizer_config.json": (9706, "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"),
+    "vocab.json": (2776833, "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"),
+}
+ARTIFACT_ROOT = Path({{ printf "%s/dbsctr" .dotfiles_ai.knowledge_store.quality_model_root | quote }})
+MODEL = ARTIFACT_ROOT / "qwen3-reranker-4b" / REVISION
+KEY = Path.home() / ".config/dotfiles-ai/private/reranker-api-key"
+MANIFEST = Path.home() / ".config/dotfiles-ai/knowledge/reranker-space.json"
+PORT = {{ .dotfiles_ai.knowledge_store.reranker_port }}
+LOCK = threading.Lock()
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def verify():
+    if sys.version_info[:3] != (3, 12, 11):
+        raise RuntimeError("reranker Python identity mismatch")
+    for package, version in {"torch":"2.9.1", "transformers":"5.5.0", "tokenizers":"0.22.2", "safetensors":"0.7.0"}.items():
+        if importlib.metadata.version(package) != version:
+            raise RuntimeError("reranker package identity mismatch")
+    for name, (size, expected) in FILES.items():
+        path = MODEL / name
+        details = path.lstat()
+        if not stat.S_ISREG(details.st_mode) or details.st_size != size or digest(path) != expected:
+            raise RuntimeError("reranker model identity mismatch")
+    details = KEY.lstat()
+    key = KEY.read_text().strip()
+    if (not stat.S_ISREG(details.st_mode) or stat.S_IMODE(details.st_mode) != 0o600
+            or details.st_uid != os.getuid() or not all(char in "0123456789abcdef" for char in key)
+            or len(key) != 64):
+        raise RuntimeError("reranker credential unavailable")
+    manifest = json.loads(MANIFEST.read_text())
+    if (manifest.get("reranker_id") != "qwen3-reranker-4b-mps-22e68366-v1"
+            or manifest.get("model", {}).get("revision") != REVISION
+            or manifest.get("contract", {}).get("template_sha256")
+            != hashlib.sha256(TEMPLATE.encode()).hexdigest()
+            or manifest.get("service") != {"host":"127.0.0.1", "port":PORT,
+                                            "artifact_root":str(ARTIFACT_ROOT)}):
+        raise RuntimeError("reranker manifest identity mismatch")
+    return key
+
+
+def load_model():
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("reranker MPS unavailable")
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL, local_files_only=True, trust_remote_code=False, padding_side="left")
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL, local_files_only=True, trust_remote_code=False, dtype=torch.float16).to("mps").eval()
+    no_id, yes_id = (tokenizer.convert_tokens_to_ids(value) for value in ("no", "yes"))
+    if no_id == tokenizer.unk_token_id or yes_id == tokenizer.unk_token_id:
+        raise RuntimeError("reranker score tokens unavailable")
+    return torch, tokenizer, model, no_id, yes_id
+
+
+def prompt_ids(tokenizer, query, document):
+    before_query, rest = TEMPLATE.format(instruction=INSTRUCTION, query="{query}", document="{document}").split("{query}")
+    between, after = rest.split("{document}")
+    fixed = tokenizer.encode(before_query, add_special_tokens=False)
+    middle = tokenizer.encode(between, add_special_tokens=False)
+    suffix = tokenizer.encode(after, add_special_tokens=False)
+    query_ids = tokenizer.encode(query, add_special_tokens=False)
+    document_ids = tokenizer.encode(document, add_special_tokens=False)
+    budget = 8192 - len(fixed) - len(middle) - len(suffix)
+    if budget < 2:
+        raise RuntimeError("reranker template exceeds context")
+    while len(query_ids) + len(document_ids) > budget:
+        (document_ids if len(document_ids) >= len(query_ids) else query_ids).pop()
+    return fixed + query_ids + middle + document_ids + suffix
+
+
+def score(state, query, documents):
+    torch, tokenizer, model, no_id, yes_id = state
+    scores = []
+    with LOCK, torch.inference_mode():
+        for offset in range(0, len(documents), 8):
+            rows = [prompt_ids(tokenizer, query, document) for document in documents[offset:offset + 8]]
+            batch = tokenizer.pad({"input_ids": rows}, padding=True, return_tensors="pt").to("mps")
+            logits = model(**batch).logits[:, -1, [no_id, yes_id]]
+            scores.extend(torch.softmax(logits, dim=1)[:, 1].float().cpu().tolist())
+    if len(scores) != len(documents) or any(not math.isfinite(item) or not 0 <= item <= 1 for item in scores):
+        raise RuntimeError("reranker score invalid")
+    return scores
+
+
+def serve():
+    key = verify()
+    state = load_model()
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+        def send_json(self, status, value):
+            body = json.dumps(value, separators=(",", ":")).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def do_GET(self):
+            self.send_json(200, {"ready":True,"model":MODEL_ID,"revision":REVISION}) \
+                if self.path == "/health" else self.send_json(404, {"error":"not found"})
+        def do_POST(self):
+            if self.path != "/rerank":
+                self.send_json(404, {"error":"not found"}); return
+            if not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {key}"):
+                self.send_json(401, {"error":"unauthorized"}); return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 1 <= length <= 16 * 1024 * 1024:
+                    raise ValueError
+                value = json.loads(self.rfile.read(length))
+                if (not isinstance(value, dict) or set(value) != {"model","query","documents"}
+                        or value["model"] != MODEL_ID or not isinstance(value["query"], str)
+                        or not 1 <= len(value["query"].encode()) <= 65536
+                        or not isinstance(value["documents"], list)
+                        or not 1 <= len(value["documents"]) <= 50
+                        or any(not isinstance(item, str) or not item or len(item.encode()) > 2 * 1024 * 1024
+                               for item in value["documents"])):
+                    raise ValueError
+                scores = score(state, value["query"], value["documents"])
+                self.send_json(200, {"model":MODEL_ID,"revision":REVISION,"scores":scores,
+                                     "template_sha256":hashlib.sha256(TEMPLATE.encode()).hexdigest(),
+                                     "truncation":"longest_first"})
+            except (ValueError, json.JSONDecodeError):
+                self.send_json(400, {"error":"invalid request"})
+            except Exception:
+                self.send_json(500, {"error":"scoring failed"})
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+
+def check():
+    key = verify()
+    payload = json.dumps({"model":MODEL_ID,"query":"How is a privacy sequence validated?",
+                          "documents":["Reject a lower privacy sequence before activation.",
+                                       "Bananas are yellow."]}).encode()
+    request = urllib.request.Request(f"http://127.0.0.1:{PORT}/rerank", data=payload,
+        headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"})
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+            return None
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+        value = json.load(response)
+    if (value.get("model") != MODEL_ID or len(value.get("scores", [])) != 2
+            or value["scores"][0] <= value["scores"][1]):
+        raise RuntimeError("reranker semantic readiness failed")
+    print(json.dumps({"model":MODEL_ID,"relevance":"passed"},sort_keys=True))
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("action", nargs="?", choices=("serve","verify","check"), default="serve")
+action = parser.parse_args().action
+if action == "verify":
+    verify()
+elif action == "check":
+    check()
+else:
+    serve()

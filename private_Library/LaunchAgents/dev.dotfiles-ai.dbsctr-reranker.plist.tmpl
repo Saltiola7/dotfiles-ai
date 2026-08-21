@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>dev.dotfiles-ai.dbsctr-reranker</string>
+<key>ProgramArguments</key><array>
+<string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
+<string>{{ printf "%s/dbsctr/reranker-venv/bin/python" .dotfiles_ai.knowledge_store.quality_model_root | html }}</string>
+<string>{{ printf "%s/.local/bin/dbsctr-reranker" .chezmoi.homeDir | html }}</string>
+<string>serve</string></array>
+<key>EnvironmentVariables</key><dict>
+<key>HOME</key><string>{{ .chezmoi.homeDir | html }}</string>
+<key>PATH</key><string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+<key>PYTHONNOUSERSITE</key><string>1</string>
+<key>HF_HUB_OFFLINE</key><string>1</string>
+<key>TRANSFORMERS_OFFLINE</key><string>1</string>
+<key>TOKENIZERS_PARALLELISM</key><string>false</string></dict>
+<key>LimitLoadToSessionType</key><string>Aqua</string>
+<key>ProcessType</key><string>Interactive</string>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>30</integer>
+<key>StandardOutPath</key><string>{{ printf "%s/Library/Logs/dbsctr-reranker.log" .chezmoi.homeDir | html }}</string>
+<key>StandardErrorPath</key><string>{{ printf "%s/Library/Logs/dbsctr-reranker.err.log" .chezmoi.homeDir | html }}</string>
+</dict></plist>

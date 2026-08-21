@@ -580,6 +580,8 @@ def ledger_connection(root, write=False, path=None):
                 fail("private review ledger foreign-key check failed")
             ensure_improvement_schema(connection)
         ledger_integrity(connection)
+        if write:
+            ensure_knowledge_privacy_schema(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
         if "connection" in locals():
@@ -643,8 +645,19 @@ def ledger_schema(connection):
             text TEXT NOT NULL,
             PRIMARY KEY (scope, report_id, category, position)
         ) WITHOUT ROWID;
+        CREATE TABLE knowledge_privacy_tombstones (
+            family TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            PRIMARY KEY (family, item_id)
+        ) WITHOUT ROWID;
     """)
     connection.execute("INSERT INTO ledger_meta VALUES ('schema_version', ?)", (str(REVIEW_LEDGER_SCHEMA),))
+    empty = hashlib.sha256(ledger_payload(
+        {"schema_version": 1, "tombstones": []}).encode()).hexdigest()
+    connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_sequence', '0')")
+    connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_digest', ?)", (empty,))
 
 
 def ledger_integrity(connection):
@@ -657,7 +670,7 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
@@ -667,8 +680,27 @@ def ledger_semantic_integrity(connection):
             or "benchmark_schema" in meta and meta["benchmark_schema"] != str(BENCHMARK_SCHEMA)
             or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)
             or "provider_evaluation_schema" in meta
-            and meta["provider_evaluation_schema"] != str(PROVIDER_EVALUATION_SCHEMA)):
+            and meta["provider_evaluation_schema"] != str(PROVIDER_EVALUATION_SCHEMA)
+            or "knowledge_privacy_sequence" in meta
+            and (not meta["knowledge_privacy_sequence"].isdigit()
+                 or not 0 <= int(meta["knowledge_privacy_sequence"]) < 2**64)
+            or "knowledge_privacy_digest" in meta
+            and not re.fullmatch(r"[0-9a-f]{64}", meta["knowledge_privacy_digest"])):
         fail("private review ledger metadata is invalid")
+    privacy_table = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='knowledge_privacy_tombstones'").fetchone() is not None
+    privacy_meta = {"knowledge_privacy_sequence", "knowledge_privacy_digest"}.intersection(meta)
+    if privacy_table != (privacy_meta == {"knowledge_privacy_sequence", "knowledge_privacy_digest"}):
+        fail("private review ledger privacy schema is incomplete")
+    if privacy_table:
+        for family, item_id, reason, timestamp in knowledge_privacy_rows(connection):
+            if (not OPAQUE_ID.fullmatch(family) or not OPAQUE_ID.fullmatch(item_id)
+                    or not OPAQUE_ID.fullmatch(reason) or not isinstance(timestamp, int)
+                    or timestamp < REVIEW_START_MS):
+                fail("private review ledger contains an invalid privacy tombstone")
+        if meta["knowledge_privacy_digest"] != knowledge_privacy_digest(connection):
+            fail("private review ledger privacy digest mismatch")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
     for kind, item_id, timestamp in connection.execute(
@@ -1506,12 +1538,19 @@ def load_execution_activation(root):
             json.loads(row[0], object_pairs_hook=no_duplicate_keys))["activated"]
 
 
-def delete_capture_benchmarks(connection, capture_ids):
+def delete_capture_benchmarks(connection, capture_ids, timestamp):
     if connection.execute("SELECT value FROM ledger_meta WHERE key='benchmark_schema'").fetchone() is not None:
-        connection.executemany(
-            "DELETE FROM benchmark_effects WHERE baseline_capture_id=? OR observation_capture_id=?",
-            ((capture_id, capture_id) for capture_id in capture_ids),
-        )
+        placeholders = ",".join("?" for _ in capture_ids)
+        benchmark_ids = [row[0] for row in connection.execute(
+            f"SELECT benchmark_id FROM benchmark_effects WHERE baseline_capture_id IN ({placeholders}) "
+            f"OR observation_capture_id IN ({placeholders})", (*capture_ids, *capture_ids))]
+        connection.executemany("DELETE FROM benchmark_effects WHERE benchmark_id=?",
+                               ((benchmark_id,) for benchmark_id in benchmark_ids))
+        for benchmark_id in benchmark_ids:
+            record_knowledge_privacy_tombstone(
+                connection, "benchmark", benchmark_id, "forgotten", timestamp)
+        return benchmark_ids
+    return []
 
 
 def legacy_review_exists(root):
@@ -1557,6 +1596,78 @@ def ensure_ledger_for_write(root):
 
 def ledger_payload(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def knowledge_privacy_rows(connection):
+    if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_privacy_tombstones'").fetchone() is None:
+        return []
+    return [list(row) for row in connection.execute(
+        "SELECT family,item_id,reason,timestamp FROM knowledge_privacy_tombstones "
+        "ORDER BY family,item_id")]
+
+
+def knowledge_privacy_digest(connection):
+    return hashlib.sha256(ledger_payload(
+        {"schema_version": 1, "tombstones": knowledge_privacy_rows(connection)}).encode()).hexdigest()
+
+
+def ensure_knowledge_privacy_schema(connection):
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_privacy_tombstones'").fetchone()
+    values = dict(connection.execute(
+        "SELECT key,value FROM ledger_meta WHERE key IN "
+        "('knowledge_privacy_sequence','knowledge_privacy_digest')"))
+    if exists and set(values) == {"knowledge_privacy_sequence", "knowledge_privacy_digest"}:
+        return
+    if exists or values:
+        fail("knowledge privacy schema is incomplete")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute("""CREATE TABLE knowledge_privacy_tombstones (
+            family TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            PRIMARY KEY (family, item_id)
+        ) WITHOUT ROWID""")
+        connection.execute(
+            "INSERT INTO knowledge_privacy_tombstones "
+            "SELECT 'telemetry',item_id,'forgotten',timestamp FROM review_tombstones "
+            "WHERE kind='forgotten_session'")
+        count = connection.execute(
+            "SELECT count(*) FROM knowledge_privacy_tombstones").fetchone()[0]
+        connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_sequence', ?)",
+                           (str(count),))
+        connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_digest', ?)",
+                           (knowledge_privacy_digest(connection),))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def record_knowledge_privacy_tombstone(connection, family, item_id, reason, timestamp):
+    if (not OPAQUE_ID.fullmatch(family) or not OPAQUE_ID.fullmatch(item_id)
+            or not OPAQUE_ID.fullmatch(reason) or not isinstance(timestamp, int)
+            or timestamp < REVIEW_START_MS):
+        fail("invalid knowledge privacy tombstone")
+    changed = connection.execute(
+        "INSERT INTO knowledge_privacy_tombstones VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(family,item_id) DO NOTHING",
+        (family, item_id, reason, timestamp),
+    ).rowcount
+    if not changed:
+        return False
+    row = connection.execute(
+        "SELECT value FROM ledger_meta WHERE key='knowledge_privacy_sequence'").fetchone()
+    if row is None or not row[0].isdigit() or int(row[0]) >= 2**64 - 1:
+        fail("knowledge privacy sequence is invalid or exhausted")
+    connection.execute("UPDATE ledger_meta SET value=? WHERE key='knowledge_privacy_sequence'",
+                       (str(int(row[0]) + 1),))
+    connection.execute("UPDATE ledger_meta SET value=? WHERE key='knowledge_privacy_digest'",
+                       (knowledge_privacy_digest(connection),))
+    return True
 
 
 def ledger_entries(connection, scope, report_id, report):
@@ -3816,6 +3927,8 @@ def prune_review_reports(root, connection=None):
                                 connection=connection)
             connection.execute("DELETE FROM ledger_entries WHERE scope='operational' AND report_id=?", (report_id,))
             connection.execute("DELETE FROM review_reports WHERE report_id=?", (report_id,))
+            record_knowledge_privacy_tombstone(
+                connection, "review", report_id, "expired", max(timestamp, REVIEW_START_MS))
         if owned:
             connection.commit()
             connection.close()
@@ -5283,6 +5396,9 @@ def command_history_capture_delete(args):
             load_history_capture(connection, args.capture_id)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("DELETE FROM history_captures WHERE capture_id=?", (args.capture_id,))
+            record_knowledge_privacy_tombstone(
+                connection, "history_capture", args.capture_id, "deleted",
+                int(time.time() * 1000))
             connection.commit()
         except Exception:
             connection.rollback()
@@ -5297,7 +5413,251 @@ def command_review_privacy_epoch(args):
     identity = {"schema_version": 1, "forgotten_sessions": sorted(index["forgotten_sessions"].items())}
     print(json.dumps({"schema_version": 1,
                       "privacy_epoch_digest": hashlib.sha256(ledger_payload(identity).encode()).hexdigest()},
-                     sort_keys=True, separators=(",", ":")))
+                      sort_keys=True, separators=(",", ":")))
+
+
+def knowledge_privacy_status(root):
+    digest = hashlib.sha256(ledger_payload(
+        {"schema_version": 1, "tombstones": []}).encode()).hexdigest()
+    sequence = 0
+    if ledger_exists(root):
+        connection = ledger_connection(root)
+        try:
+            values = dict(connection.execute(
+                "SELECT key,value FROM ledger_meta WHERE key IN "
+                "('knowledge_privacy_sequence','knowledge_privacy_digest')"))
+        finally:
+            connection.close()
+        if "knowledge_privacy_sequence" in values:
+            if (set(values) != {"knowledge_privacy_sequence", "knowledge_privacy_digest"}
+                    or not values["knowledge_privacy_sequence"].isdigit()
+                    or not 0 <= int(values["knowledge_privacy_sequence"]) < 2**64
+                    or not re.fullmatch(r"[0-9a-f]{64}", values["knowledge_privacy_digest"])):
+                fail("knowledge privacy state is invalid")
+            sequence = int(values["knowledge_privacy_sequence"])
+            digest = values["knowledge_privacy_digest"]
+    return {"schema_version": 1, "privacy_sequence": sequence, "privacy_digest": digest}
+
+
+def command_knowledge_privacy_status(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        value = knowledge_privacy_status(root)
+    print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
+def command_knowledge_privacy_guard(args):
+    if not 0 <= args.expected_sequence < 2**64:
+        fail("invalid expected privacy sequence")
+    if not re.fullmatch(r"[0-9a-f]{64}", args.expected_digest):
+        fail("invalid expected privacy digest")
+    program = list(args.program)
+    if program and program[0] == "--":
+        program.pop(0)
+    if not program:
+        fail("privacy guard requires a program")
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        current = knowledge_privacy_status(root)
+        if (current["privacy_sequence"] != args.expected_sequence
+                or current["privacy_digest"] != args.expected_digest):
+            fail("knowledge privacy status mismatch")
+        result = subprocess.run(program, stdin=subprocess.DEVNULL)
+    raise SystemExit(result.returncode)
+
+
+def knowledge_high_entropy_text(value, field=None):
+    free_text = {"caveats", "confounders", "context", "decision", "findings", "notes",
+                 "proposals", "reason", "recommendations", "scorecards", "summary", "title",
+                 "trends"}
+    if isinstance(value, dict):
+        return any(knowledge_high_entropy_text(item, key) for key, item in value.items())
+    if isinstance(value, list):
+        return any(knowledge_high_entropy_text(item, field) for item in value)
+    return field in free_text and isinstance(value, str) and HIGH_ENTROPY.search(value)
+
+
+def knowledge_record(family, source_id, payload, retention="retained"):
+    text = json.dumps(payload, ensure_ascii=False)
+    if (SECRET_VALUE.search(text) or knowledge_high_entropy_text(payload)
+            or re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", text)
+            or re.search(r"\b(?:https?|ftp)://", text, re.I)
+            or re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text)):
+        fail("knowledge export contains unsafe content")
+    text = ledger_payload(payload)
+    return {
+        "type": "record", "schema_version": 1, "family": family,
+        "record_id": hashlib.sha256(f"{family}\0{source_id}".encode()).hexdigest(),
+        "revision": hashlib.sha256(text.encode()).hexdigest(),
+        "retention": retention, "text": text,
+    }
+
+
+def knowledge_ledger_records(root):
+    if not ledger_exists(root):
+        return []
+    connection = ledger_connection(root)
+    records = []
+    try:
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        for report_id, reviewed_at, payload in connection.execute(
+                "SELECT report_id,reviewed_at,payload FROM review_reports ORDER BY report_id"):
+            report = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+            records.append(knowledge_record("review", report_id, {
+                "report_id": report_id, "reviewed_at": reviewed_at,
+                "decision": report.get("decision"), "notes": report.get("notes"),
+                "findings": report.get("findings", []), "scorecards": report.get("scorecards", []),
+                "trends": report.get("trends", []), "proposals": report.get("proposals", []),
+                "caveats": report.get("caveats", []),
+            }, retention="expires"))
+        for report_id, kind, payload in connection.execute(
+                "SELECT report_id,kind,payload FROM history_reports ORDER BY report_id"):
+            records.append(knowledge_record(
+                "history_report", report_id,
+                {"kind": kind, "report": json.loads(payload, object_pairs_hook=no_duplicate_keys)}))
+        for session_id, completed_at, payload in connection.execute(
+                "SELECT session_id,completed_at,payload FROM history_evidence ORDER BY session_id"):
+            evidence = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+            records.append(knowledge_record("telemetry", session_id, {
+                "session_id": session_id, "completed_at": completed_at,
+                "state": evidence.get("state"), "context": evidence.get("context"),
+                "risk": evidence.get("risk"), "metrics": evidence.get("metrics", {}),
+                "availability": evidence.get("availability", {}),
+            }))
+        if "history_captures" in tables:
+            for capture_id, payload in connection.execute(
+                    "SELECT capture_id,payload FROM history_captures ORDER BY capture_id"):
+                manifest = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                records.append(knowledge_record("history_capture", capture_id, {
+                    key: manifest.get(key) for key in (
+                        "capture_id", "snapshot", "session_ceiling", "part_ceiling",
+                        "database_digest", "exclusion_digest", "query_digest", "member_count")
+                }, retention="expires" if manifest.get("kind") == "federated" else "retained"))
+        if "benchmark_effects" in tables:
+            for benchmark_id, payload in connection.execute(
+                    "SELECT benchmark_id,payload FROM benchmark_effects ORDER BY benchmark_id"):
+                records.append(knowledge_record(
+                    "benchmark", benchmark_id,
+                    json.loads(payload, object_pairs_hook=no_duplicate_keys)))
+        if "phase_spans" in tables:
+            for row in connection.execute(
+                    "SELECT cycle_id,span_id,parent_span_id,phase,operation,attribution,"
+                    "started_at,finished_at,result FROM phase_spans ORDER BY cycle_id,span_id"):
+                cycle_id, span_id, parent, phase, operation, attribution, started, finished, result = row
+                records.append(knowledge_record("execution", f"{cycle_id}-{span_id}", {
+                    "cycle_id": cycle_id, "span_id": span_id, "parent_span_id": parent,
+                    "phase": phase, "operation": operation, "attribution": attribution,
+                    "started_at": started, "finished_at": finished, "result": result,
+                }))
+        if "provider_evaluation_reports" in tables:
+            for report_id, payload in connection.execute(
+                    "SELECT report_id,payload FROM provider_evaluation_reports ORDER BY report_id"):
+                report = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                records.append(knowledge_record("provider_evaluation", report_id, {
+                    key: report.get(key) for key in (
+                        "report_id", "rubric", "harness_identity", "aggregates", "availability",
+                        "confounders", "findings", "recommendations", "created_at")
+                }))
+        if "improvement_workers" in tables:
+            for worker_id, opportunity_id, summary, priority, state, cycle_id, created_at, updated_at in connection.execute(
+                    "SELECT worker_id,opportunity_id,summary,priority,state,cycle_id,created_at,updated_at "
+                    "FROM improvement_workers ORDER BY worker_id"):
+                records.append(knowledge_record("improvement", worker_id, {
+                    "worker_id": worker_id, "opportunity_id": opportunity_id,
+                    "summary": summary, "priority": priority, "state": state,
+                    "cycle_id": cycle_id, "created_at": created_at, "updated_at": updated_at,
+                }))
+        if "knowledge_privacy_tombstones" in tables:
+            for family, item_id, reason, timestamp in knowledge_privacy_rows(connection):
+                records.append({
+                    "type": "privacy", "schema_version": 1, "family": family,
+                    "record_id": hashlib.sha256(f"{family}\0{item_id}".encode()).hexdigest(),
+                    "reason": reason, "timestamp": timestamp,
+                })
+    finally:
+        connection.close()
+    return records
+
+
+def knowledge_cycle_records(repository):
+    records = []
+    directory = cycle_dir(repository) / "cycles"
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else ():
+        try:
+            cycle = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+        except (OSError, json.JSONDecodeError) as error:
+            fail(f"cannot export Cycle Record: {error}")
+        cycle_id = cycle.get("cycle_id")
+        if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+            fail("cannot export invalid Cycle Record")
+        records.append(knowledge_record("cycle", cycle_id, {
+            "cycle_id": cycle_id, "context": cycle.get("context"), "state": cycle.get("state"),
+            "risk": cycle.get("risk"), "delivery_intent": cycle.get("delivery_intent"),
+            "method_revision": cycle.get("method_revision"), "schema_version": cycle.get("schema_version"),
+            "gates": {name: {key: gate.get(key) for key in ("applicability", "result", "reason")
+                             if gate.get(key) is not None}
+                      for name, gate in sorted(cycle.get("gates", {}).items())},
+            "metrics": cycle.get("metrics", {}), "created_at": cycle.get("created_at"),
+            "completed_at": cycle.get("completed_at"),
+        }))
+        for evidence_id, item in sorted(cycle.get("evidence", {}).get("items", {}).items()):
+            records.append(knowledge_record("gate_evidence", evidence_id, {
+                "evidence_id": evidence_id, "cycle_id": cycle_id, "gate": item.get("gate"),
+                "authority": item.get("authority"), "result": item.get("result"),
+                "summary": item.get("summary"), "head": item.get("head"),
+                "started_at": item.get("started_at"), "finished_at": item.get("finished_at"),
+                "content_status": item.get("content", {}).get("status")
+                if isinstance(item.get("content"), dict) else "unavailable",
+            }))
+    return records
+
+
+def knowledge_export_lines(root):
+    privacy = knowledge_privacy_status(root)
+    ledger = ledger_exists(root)
+    repository = root_dir()
+    families = {
+        "cycle": "available" if (cycle_dir(repository) / "cycles").is_dir() else "unavailable",
+        "gate_evidence": "available" if (cycle_dir(repository) / "evidence").is_dir() else "unavailable",
+        "review": "available" if ledger else "unavailable",
+        "history_report": "available" if ledger else "unavailable",
+        "history_capture": "available" if ledger else "unavailable",
+        "telemetry": "available" if ledger else "unavailable",
+        "benchmark": "available" if ledger else "unavailable",
+        "execution": "available" if ledger else "unavailable",
+        "provider_evaluation": "available" if ledger else "unavailable",
+        "improvement": "available" if ledger else "unavailable",
+    }
+    records = knowledge_cycle_records(repository) + knowledge_ledger_records(root)
+    records.sort(key=lambda item: (0 if item["type"] == "privacy" else 1,
+                                   item.get("family", ""), item["record_id"]))
+    if len(records) > 10000:
+        fail("knowledge export exceeds record bound")
+    manifest = {"type": "manifest", "schema_version": 1, **privacy,
+                "families": families, "record_count": len(records)}
+    first = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    encoded_records = [json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+                       for record in records]
+    payload = "".join(f"{line}\n" for line in [first, *encoded_records])
+    if len(payload.encode()) > 16 * 1024 * 1024:
+        fail("knowledge export exceeds byte bound")
+    terminal = json.dumps({"type": "terminal", "schema_version": 1,
+                           "digest": hashlib.sha256(payload.encode()).hexdigest(),
+                           "record_count": len(records)},
+                          sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return [first, *encoded_records, terminal]
+
+
+def command_knowledge_export(args):
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with existing_review_lock(root):
+        lines = knowledge_export_lines(root)
+    print("\n".join(lines))
 
 
 def validate_provider_evaluation_receipt(value):
@@ -5649,6 +6009,9 @@ def command_provider_evaluation_forget(args):
                 fail("provider evaluation report is missing")
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("DELETE FROM provider_evaluation_reports WHERE report_id=?", (args.report_id,))
+            record_knowledge_privacy_tombstone(
+                connection, "provider_evaluation", args.report_id, "forgotten",
+                int(time.time() * 1000))
             quarantine_name = f".forget-{uuid.uuid4().hex}"
             connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                (quarantine_name,))
@@ -6295,12 +6658,14 @@ def command_review_restore(args):
         fcntl.flock(lock, fcntl.LOCK_EX)
         connection = ledger_connection(root, write=True)
         recover_forget_state(root, connection)
+        privacy_rows = knowledge_privacy_rows(connection)
+        privacy_sequence = int(connection.execute(
+            "SELECT value FROM ledger_meta WHERE key='knowledge_privacy_sequence'").fetchone()[0])
         connection.close()
         if source_path.is_symlink() or not source_path.is_file():
             fail("private review backup is missing or unsafe")
         if source_path.stat().st_mode & 0o077:
             fail("private review backup permissions are too broad")
-        forgotten = review_index(root)["forgotten_sessions"]
         with ledger_connection(root, path=source_path) as source:
             ledger_integrity(source)
         rollback, _ = create_ledger_backup(root, prefix="rollback")
@@ -6319,7 +6684,21 @@ def command_review_restore(args):
             restored = ledger_connection(root, write=True, path=temporary)
             try:
                 restored.execute("BEGIN IMMEDIATE")
-                for session_id, timestamp in forgotten.items():
+                restored_sequence = int(restored.execute(
+                    "SELECT value FROM ledger_meta WHERE key='knowledge_privacy_sequence'").fetchone()[0])
+                restored.executemany(
+                    "INSERT INTO knowledge_privacy_tombstones VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(family,item_id) DO UPDATE SET reason=excluded.reason, "
+                    "timestamp=max(timestamp,excluded.timestamp)", privacy_rows)
+                tombstones = knowledge_privacy_rows(restored)
+                unknown = {row[0] for row in tombstones} - {
+                    "telemetry", "review", "history_report", "history_capture", "benchmark",
+                    "provider_evaluation"}
+                if unknown:
+                    fail("private review restore contains unsupported privacy tombstones")
+                for family, session_id, _, timestamp in tombstones:
+                    if family != "telemetry":
+                        continue
                     dependent = [row[0] for row in restored.execute(
                         "SELECT report_id FROM history_report_members WHERE session_id=?", (session_id,))]
                     restored.execute("DELETE FROM history_evidence WHERE session_id=?", (session_id,))
@@ -6330,7 +6709,7 @@ def command_review_restore(args):
                             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_capture_members'").fetchone():
                         captures = [row[0] for row in restored.execute(
                             "SELECT capture_id FROM history_capture_members WHERE session_id=?", (session_id,))]
-                        delete_capture_benchmarks(restored, captures)
+                        delete_capture_benchmarks(restored, captures, timestamp)
                         restored.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                              ((capture_id,) for capture_id in captures))
                     restored.execute(
@@ -6338,6 +6717,45 @@ def command_review_restore(args):
                         "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
                         (session_id, timestamp),
                     )
+                for family, report_id, _, _ in knowledge_privacy_rows(restored):
+                    if family != "history_report":
+                        continue
+                    restored.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?",
+                                     (report_id,))
+                    restored.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
+                for family, report_id, _, _ in knowledge_privacy_rows(restored):
+                    if family != "review":
+                        continue
+                    restored.execute("DELETE FROM ledger_entries WHERE scope='operational' AND report_id=?",
+                                     (report_id,))
+                    restored.execute("DELETE FROM review_reports WHERE report_id=?", (report_id,))
+                for family, capture_id, _, timestamp in knowledge_privacy_rows(restored):
+                    if family != "history_capture":
+                        continue
+                    delete_capture_benchmarks(restored, [capture_id], timestamp)
+                    if restored.execute(
+                            "SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='history_captures'").fetchone():
+                        restored.execute("DELETE FROM history_captures WHERE capture_id=?", (capture_id,))
+                if restored.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' "
+                        "AND name='benchmark_effects'").fetchone():
+                    restored.execute("DELETE FROM benchmark_effects WHERE benchmark_id IN "
+                                     "(SELECT item_id FROM knowledge_privacy_tombstones "
+                                     "WHERE family='benchmark')")
+                if restored.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' "
+                        "AND name='provider_evaluation_reports'").fetchone():
+                    restored.execute("DELETE FROM provider_evaluation_reports WHERE report_id IN "
+                                     "(SELECT item_id FROM knowledge_privacy_tombstones "
+                                     "WHERE family='provider_evaluation')")
+                merged_rows = knowledge_privacy_rows(restored)
+                added = len({tuple(row) for row in merged_rows} - {tuple(row) for row in privacy_rows})
+                sequence = max(privacy_sequence, restored_sequence) + added
+                restored.execute("UPDATE ledger_meta SET value=? WHERE key='knowledge_privacy_sequence'",
+                                 (str(sequence),))
+                restored.execute("UPDATE ledger_meta SET value=? WHERE key='knowledge_privacy_digest'",
+                                 (knowledge_privacy_digest(restored),))
                 prune_phase_spans(root, connection=restored)
                 restored.commit()
             except Exception:
@@ -6993,7 +7411,7 @@ def command_review_forget(args):
                 connection.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
                 connection.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
             if capture_dependent:
-                delete_capture_benchmarks(connection, capture_dependent)
+                delete_capture_benchmarks(connection, capture_dependent, forgotten_at)
                 connection.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                        ((capture_id,) for capture_id in capture_dependent))
             connection.execute(
@@ -7001,6 +7419,14 @@ def command_review_forget(args):
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
                 (args.session_id, forgotten_at),
             )
+            record_knowledge_privacy_tombstone(
+                connection, "telemetry", args.session_id, "forgotten", forgotten_at)
+            for report_id in dependent:
+                record_knowledge_privacy_tombstone(
+                    connection, "history_report", report_id, "forgotten", forgotten_at)
+            for capture_id in capture_dependent:
+                record_knowledge_privacy_tombstone(
+                    connection, "history_capture", capture_id, "forgotten", forgotten_at)
             connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                (quarantine_name,))
             staged = stage_pre_forget_state(root, quarantine_name)
@@ -8670,6 +9096,18 @@ def parser():
     privacy_epoch = commands.add_parser("review-privacy-epoch")
     privacy_epoch.add_argument("--state-root")
     privacy_epoch.set_defaults(func=command_review_privacy_epoch)
+    knowledge_status = commands.add_parser("knowledge-privacy-status")
+    knowledge_status.add_argument("--state-root")
+    knowledge_status.set_defaults(func=command_knowledge_privacy_status)
+    knowledge_guard = commands.add_parser("knowledge-privacy-guard")
+    knowledge_guard.add_argument("--state-root")
+    knowledge_guard.add_argument("--expected-sequence", required=True, type=int)
+    knowledge_guard.add_argument("--expected-digest", required=True)
+    knowledge_guard.add_argument("program", nargs=argparse.REMAINDER)
+    knowledge_guard.set_defaults(func=command_knowledge_privacy_guard)
+    knowledge_export = commands.add_parser("knowledge-export")
+    knowledge_export.add_argument("--state-root")
+    knowledge_export.set_defaults(func=command_knowledge_export)
     evaluation_save = commands.add_parser("provider-evaluation-save")
     evaluation_save.add_argument("--state-root")
     evaluation_save.add_argument("--receipt-json", required=True)

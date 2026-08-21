@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+
+state_root={{ .dotfiles_ai.state.root | quote }}
+port={{ .dotfiles_ai.knowledge_store.code_embedding_port }}
+artifact_root={{ printf "%s/dbsctr" .dotfiles_ai.knowledge_store.quality_model_root | quote }}
+runtime="$HOME/.config/dotfiles-ai/runtime/llama.cpp-0e1d9185"
+server="$runtime/llama-server"
+model="$artifact_root/nomic-embed-code/ff2ddedde976ea623178981f18e36af33c0c2a94/nomic-embed-code.Q4_K_M.gguf"
+api_key="$HOME/.config/dotfiles-ai/private/code-embedding-api-key"
+hasher="$state_root/dbsctr/knowledge/private/launch-sha256"
+manifest="$HOME/.config/dotfiles-ai/knowledge/code-embedding-space.json"
+
+verify_file() {
+    local actual
+    [[ ! -L $1 && -f $1 && "$(/usr/bin/stat -f %z "$1")" == "$2" ]] || return 1
+    actual=$("$hasher" dgst -sha256 -r "$1")
+    [[ ${actual%% *} == "$3" ]]
+}
+
+verify() {
+    [[ -x $hasher && ! -L $hasher ]] || { echo "dbsctr-code-embedding: native hasher unavailable" >&2; return 1; }
+    verify_file "$server" 49984 eca763b9ea33ec611614d36a192353599fcf0a872d66d82c00e5764fdd5ea2f6
+    "$HOME/.local/bin/dbsctr-embedding-runtime-verify" tree "$runtime" \
+        771dbda2e3baf5be8f45239cfcdf68c22024fbe1fcd9e831fbbfd39851b2ef2d
+    verify_file "$model" 4376511808 4354a73ee9ff5d811efe552a515dfd518667ff25fdfc4ee9e10af3f617f96eec
+    /usr/bin/codesign --verify --strict "$server"
+    /usr/bin/codesign -dv --verbose=4 "$server" 2>&1 | /usr/bin/grep -x \
+        'Identifier=llama-server' >/dev/null
+    [[ ! -L $api_key && -f $api_key && "$(/usr/bin/stat -f %Lp "$api_key")" == 600 ]] || return 1
+    key=$(<"$api_key")
+    [[ $key =~ ^[0-9a-f]{64}$ ]] || return 1
+    /usr/bin/python3 - "$manifest" "$port" "$artifact_root" <<'PY'
+import json, sys
+path, port, root = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+value = json.load(open(path, encoding="utf-8"))
+assert value["schema_version"] == 1
+assert value["embedding_space_id"] == "nomic-code-q4km-llamacpp-0e1d9185-native3584-v1"
+assert value["runtime"]["server_sha256"] == "eca763b9ea33ec611614d36a192353599fcf0a872d66d82c00e5764fdd5ea2f6"
+assert value["model"]["sha256"] == "4354a73ee9ff5d811efe552a515dfd518667ff25fdfc4ee9e10af3f617f96eec"
+assert value["contract"] == {"context_tokens":32768,"dimensions":3584,"normalization":"l2","pooling":"last"}
+assert value["service"]["host"] == "127.0.0.1" and value["service"]["port"] == port
+assert value["service"]["artifact_root"] == root
+PY
+}
+
+case ${1:-serve} in
+    verify) verify ;;
+    serve)
+        verify
+        export DYLD_LIBRARY_PATH="$runtime"
+        exec "$server" --model "$model" --alias nomic-embed-code-q4km \
+            --embedding --pooling last --embd-normalize 2 --ctx-size 32768 \
+            --batch-size 2048 --ubatch-size 512 --parallel 1 --host 127.0.0.1 \
+            --port "$port" --api-key-file "$api_key" --offline --metrics \
+            --no-webui --no-cache-prompt --log-disable
+        ;;
+    check)
+        verify
+        /usr/bin/python3 - "$port" "$api_key" <<'PY'
+import json, math, sys, urllib.request
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+port, key_path = sys.argv[1:]
+key = open(key_path, encoding="utf-8").read().strip()
+query = "Represent this query for searching relevant code: validate privacy sequence"
+code = "def validate_privacy_sequence(value):\n    return 0 <= value < 2**64"
+noise = "def banana_color():\n    return 'yellow'"
+request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/embeddings",
+    data=json.dumps({"model":"nomic-embed-code-q4km","input":[query,query,code,noise]}).encode(),
+    headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"})
+with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+    body = json.load(response)
+vectors = [row["embedding"] for row in sorted(body["data"], key=lambda row: row["index"])]
+assert body["model"] == "nomic-embed-code-q4km" and len(vectors) == 4
+assert all(len(vector) == 3584 and all(math.isfinite(item) for item in vector) for vector in vectors)
+assert all(abs(math.sqrt(sum(item*item for item in vector))-1) < 1e-3 for vector in vectors)
+dot = lambda left,right: sum(a*b for a,b in zip(left,right))
+assert dot(vectors[0],vectors[1]) >= 0.9999
+assert dot(vectors[0],vectors[2]) > dot(vectors[0],vectors[3])
+print(json.dumps({"dimensions":3584,"model":body["model"],"normalized":True},sort_keys=True))
+PY
+        ;;
+    *) echo "usage: dbsctr-code-embedding [serve|verify|check]" >&2; exit 2 ;;
+esac

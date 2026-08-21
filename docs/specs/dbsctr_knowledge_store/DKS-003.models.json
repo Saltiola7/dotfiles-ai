@@ -30,7 +30,16 @@
         {"path": "model-00002-of-00002.safetensors", "bytes": 3984833200, "sha256": "78946d22b7f6456ea7a5358dbdf3982de36c5bac1f166a5fd58e18e31db8048a"},
         {"path": "tokenizer.json", "bytes": 11422654, "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"}
       ],
-      "required_revision_files": ["chat_template.jinja", "config.json", "generation_config.json", "merges.txt", "model.safetensors.index.json", "special_tokens_map.json", "tokenizer_config.json", "vocab.json"],
+      "required_revision_files": [
+        {"path": "chat_template.jinja", "bytes": 741, "sha256": "6f682162495ec5b39fd9005c01b6aa2a74669379fe967039f1e2cbbe8752369d"},
+        {"path": "config.json", "bytes": 727, "sha256": "38bff5eac700032a185745e4076eccad7aa453473cafc2a27de412cdb7b79e19"},
+        {"path": "generation_config.json", "bytes": 214, "sha256": "81051cd3f6e77013827148d0b8a6ead93f8ac390d5ab805f849199f0af6a08db"},
+        {"path": "merges.txt", "bytes": 1671853, "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"},
+        {"path": "model.safetensors.index.json", "bytes": 32819, "sha256": "18a783f197360068da36d2ff9ecffce0121542a87598fd1fef3079ead1c3cc08"},
+        {"path": "special_tokens_map.json", "bytes": 613, "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"},
+        {"path": "tokenizer_config.json", "bytes": 9706, "sha256": "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"},
+        {"path": "vocab.json", "bytes": 2776833, "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"}
+      ],
       "runtime": {
         "python": "3.12.11",
         "lock_resolution_python": "3.12.0",
@@ -49,8 +58,11 @@
     }
   },
   "graphify": {
-    "package": "graphifyy==0.9.48",
+    "package": "graphifyy[sql]==0.9.48",
     "revision": "b2cd36267456c166788c95be6e68574064a92a42",
+    "python": "3.13.2",
+    "producer_sha256": "7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091",
+    "runtime_sha256": "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8",
     "license": "Apache-2.0",
     "mode": "code-only"
   }

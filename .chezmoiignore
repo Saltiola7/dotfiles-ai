@@ -55,6 +55,14 @@ Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 .config/dotfiles-ai/knowledge/embedding-space.json
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
 {{ end }}
+{{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.quality_services_enabled) }}
+.local/bin/dbsctr-code-embedding
+.local/bin/dbsctr-reranker
+.config/dotfiles-ai/knowledge/code-embedding-space.json
+.config/dotfiles-ai/knowledge/reranker-space.json
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-code-embedding.plist
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
+{{ end }}
 {{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled) }}
 .local/bin/dksctl
 .local/bin/dks-psql
@@ -108,8 +116,13 @@ configure-pm-postgres.sh
 .local/bin/dbsctr-embedding-runtime-verify
 .config/dotfiles-ai/knowledge/
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-code-embedding.plist
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
 install-dbsctr-embedding.sh
 load-dbsctr-embedding.sh
+install-dbsctr-quality-services.sh
+load-dbsctr-code-embedding.sh
+load-dbsctr-reranker.sh
 .local/bin/pm-psql
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
