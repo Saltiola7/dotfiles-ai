@@ -5,7 +5,7 @@ slug: governed-evidence-quality-retrieval
 context: dbsctr_knowledge_store
 title: Governed evidence into quality-gated retrieval
 kind: epic
-state: ready
+state: done
 priority: high
 points: 8
 depends_on:
@@ -48,8 +48,9 @@ validation:
   - PostgreSQL migration rerun, project RLS, backup/restore, and rollback checks
 created: 2026-08-20
 updated: 2026-08-21
-completed: null
-commits: []
+completed: 2026-08-21
+commits:
+  - 68429e1
 jira_publications: []
 migration: null
 ---
