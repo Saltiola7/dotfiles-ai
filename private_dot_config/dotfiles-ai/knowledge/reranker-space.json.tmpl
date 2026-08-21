@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "reranker_id": "qwen3-reranker-4b-mps-22e68366-v1",
+  "model": {
+    "repository": "Qwen/Qwen3-Reranker-4B",
+    "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+  },
+  "runtime": {
+    "python": "3.12.11",
+    "torch": "2.9.1",
+    "transformers": "5.5.0",
+    "tokenizers": "0.22.2",
+    "safetensors": "0.7.0",
+    "backend": "mps"
+  },
+  "contract": {
+    "context_tokens": 8192,
+    "instruction": "Retrieve authoritative DBSCTR engineering evidence that answers the query",
+    "template_sha256": "c121f3f58991533a6cf1dd73429dc22a4bf0072b65b87b5ccfed274c7b55dde9",
+    "truncation": "longest_first",
+    "score": "binary_softmax_yes"
+  },
+  "service": {
+    "host": "127.0.0.1",
+    "port": {{ .dotfiles_ai.knowledge_store.reranker_port }},
+    "artifact_root": {{ printf "%s/dbsctr" .dotfiles_ai.knowledge_store.quality_model_root | toJson }}
+  }
+}

@@ -475,6 +475,9 @@ age alone. Before normal projection, a separate monotonic privacy transaction
 installs deny identities when the authority sequence is greater than the imported
 sequence. Every query first compares `dbsctrctl knowledge-privacy-status` and
 fails closed on any mismatch; a lower authority sequence is rollback/corruption.
+Private-ledger restore merges the current tombstone set into the restored backup,
+purges every denied telemetry, report, capture, and benchmark identity, and never
+decreases the privacy sequence.
 Reconciliation then purges every active,
 retained, staged, cached, benchmark, and rollback derivative. DKS projection data
 is excluded from backups and recovered by authority replay; only deletion identity,
@@ -499,11 +502,27 @@ Graphify is pinned to `graphifyy` `0.9.48` at commit
 `b2cd36267456c166788c95be6e68574064a92a42`. It runs code-only, offline, without
 database credentials over the immutable accepted corpus. DKS treats
 `graph.json` as untrusted derived input, records its SHA-256, extractor/config
-identity, repository and source snapshot, validates its node-link shape and
+identity, repository and source snapshot, and an owner-private execution receipt
+binding the pinned package revision, runtime tree, offline command contract,
+corpus manifest, configuration, and artifact digest; it validates node-link shape and
 provenance, and maps locations to overlapping exact-byte chunks. Graphify IDs
 are namespaced derivative keys, never source identities. Complete snapshot
 replacement handles deletion. Semantic document extraction and direct
 Neo4j/FalkorDB/PostgreSQL Graphify adapters are prohibited.
+
+Native code-only output cites physical start lines, includes external symbol
+nodes with no source location, and may emit edges to omitted reference nodes.
+Import converts each accepted line to its exact byte range, excludes external
+nodes plus incident or dangling reference edges deterministically, and rejects
+every malformed or unresolved claimed corpus location. The raw
+`graph.json` digest and normalized graph digest are both retained.
+The controlled producer hashes the complete virtual environment and resolved
+Python runtime with modes, stages only verified runtime/corpus bytes into a
+private empty-home scratch tree, then runs detection and extraction under a
+default-deny macOS `sandbox-exec` profile with network access denied. It rehashes
+the authority corpus after extraction. Its versioned normalization excludes claimed corpus
+nodes that lack physical locations and their incident edges, records that count
+in the receipt, and otherwise preserves Graphify output for import validation.
 
 The general Qwen3 Embedding 8B space remains active for all text. The separate
 code candidate is official `nomic-ai/nomic-embed-code-GGUF` revision
@@ -559,9 +578,15 @@ policy `dks-rrf-v1` preserves the DKS-002 1-through-20 contract. JSON reports al
 Graphify, embedding, reranker, template, truncation, score, and fallback
 provenance.
 
-The frozen benchmark stores non-sensitive fixtures, manifest, and judgment schema in Git;
+The frozen benchmark stores non-sensitive fixtures, judgment schema, and approved
+query/judgment digests in Git. The approval commit must be an ancestor of the
+benchmark source revision, with Git replacement objects disabled during verification;
 private query text and judgments remain local under typed private authority and
-only sanitized aggregate evidence enters Git. Activation requires at least 5%
+only sanitized aggregate evidence enters Git. Activation recomputes every metric
+from the owner-private frozen evidence, verifies its query and judgment digests,
+result digest, and two repeated rankings per system, then requires exact equality
+with the sanitized aggregate before evaluating gates.
+Activation requires at least 5%
 relative nDCG@10 improvement overall (or five absolute percentage points when
 baseline is zero), a stratified 95% bootstrap confidence interval above zero, no
 source/use-case stratum worse by more than two absolute points, unchanged exact-
@@ -639,7 +664,9 @@ recovered ready run; the operator reruns the exact command.
 Crashes before activation preserve the prior pointer. A committed activation is
 complete and survives client disconnect. Rebuild reuses an existing embedding
 whose identity is SHA-256 canonical JSON over chunk ID and embedding-space ID, so
-stored vector bytes and ranking remain stable. If an embedding is absent, the
+stored vector bytes and ranking remain stable. Vector payload hashes bind
+PostgreSQL's canonical float32 `vector::text` representation; migration, reuse,
+and rebuild reject any mismatch. If an embedding is absent, the
 candidate must meet dimension, norm, finite-value, and cosine-stability contracts
 before storage; identity comparison is separate from floating-point tolerance.
 
@@ -651,9 +678,8 @@ before storage; identity comparison is separate from floating-point tolerance.
   `latest`, model galleries, or runtime downloads.
 - Runtime archive, model file, and manifest digests must pass before launch.
 - The loader verifies the complete runtime tree before bootstrap. On automatic
-  launchd restarts, an external-volume native hasher rechecks the archive,
-  server, and model while macOS validates the signed runtime libraries; this
-  avoids macOS System Policy blocking interpreter reads from removable volumes.
+  launchd restarts, it rechecks the complete home-cached runtime tree and the
+  external-volume model with the native hasher before starting the signed server.
 - The external model volume is a launch precondition and failure never falls back
   to another disk or model.
 - Query and document formats differ and are versioned.
@@ -917,19 +943,19 @@ failed or abandoned and never change active retrieval.
 
 ### DKS-003
 
-| Gate | Applicability | Result | Planned evidence |
+| Gate | Applicability | Result | Evidence |
 |---|---|---|---|
-| Domain | required | planned | Typed authorities, mixed revisions, retention, model spaces, ranking, graph provenance, and ownership boundaries |
-| Behavior | required | planned | Full projection, forgetting, exact code sync, Graphify rejection, benchmark activation, fallback, and rollback scenarios |
-| Spec | required | planned | Export envelopes, schema migration, chunker, pinned artifacts/services, query JSON, benchmark, and activation interfaces |
-| Contract | required | planned | Sanitization, isolation, citations, deletion, license, model identity, quality, latency, fallback, and atomicity invariants |
-| Test-driven implementation | required | planned | Red/green exporter, migration, chunker, graph importer, model clients, ranking, expiry, rebuild, and live checks |
-| Refactor | required | planned | Preserve DKS-002 paths; reuse one projector, immutable runtime verification, RLS, and activation pattern |
-| Review/Integrate | required | planned | Independent lifecycle, privacy, data, ML, retrieval, and deployment review plus upstream reconciliation |
-| Release | not_applicable | planned | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | planned | Scoped schema/config/services, complete source projection, benchmark winners, and preserved rollback assets |
-| Operate | required | planned | Runtime identities, source counts, expiry/tombstones, p95 latency, memory, fallback, restart, and cited query probes |
-| Maintain/Retire | required | planned | Pinned upgrades, rebuild identity, source forgetting, model rollback, Graphify compatibility, and access removal |
+| Domain | required | passed | Typed authorities, mixed revisions, retention, model spaces, ranking, graph provenance, and ownership boundaries |
+| Behavior | required | passed | Full projection, forgetting, exact code sync, Graphify rejection, benchmark gating, fallback, and rollback scenarios |
+| Spec | required | passed | Export envelopes, schema migration, chunker, pinned artifacts/services, query JSON, benchmark, and activation interfaces |
+| Contract | required | passed | Sanitization, isolation, citations, deletion, license, model identity, quality, latency, fallback, and atomicity invariants |
+| Test-driven implementation | required | passed | Exporter, migration, chunker, graph importer, model clients, ranking, expiry, rebuild, and live checks |
+| Refactor | required | passed | Preserved DKS-002 paths; reused one projector, immutable runtime verification, RLS, and activation pattern |
+| Review/Integrate | required | passed | Independent privacy, data, ML, retrieval, migration, runtime, and deployment findings closed |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | passed | Schema 4, complete source/authority/graph/code projections, external model services, and baseline rollback deployed |
+| Operate | required | passed | Runtime identities, source counts, restart, rebuild identity, rollback, and cited 20-result query probe passed |
+| Maintain/Retire | required | passed | Pinned upgrades, canonical vector migration, rebuild recovery, model rollback, Graphify compatibility, and access removal |
 
 ## Decisions And Risks
 

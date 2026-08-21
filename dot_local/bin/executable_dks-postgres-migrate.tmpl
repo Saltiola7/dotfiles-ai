@@ -34,6 +34,7 @@ SQL
 } | "$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge
 
 "$psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge <<'SQL'
+BEGIN;
 INSERT INTO dks.projects(project_id, repository_remote)
 VALUES ('dotfiles-ai', 'https://github.com/Saltiola7/dotfiles-ai')
 ON CONFLICT (project_id) DO UPDATE SET repository_remote=EXCLUDED.repository_remote;
@@ -46,25 +47,68 @@ GRANT USAGE ON SCHEMA dks TO dks_dotfiles_ai;
 GRANT SELECT ON dks.schema_migrations, dks.projects, dks.embedding_spaces,
     dks.source_revisions, dks.sync_runs, dks.content_objects, dks.source_records,
     dks.knowledge_chunks, dks.embeddings, dks.revision_chunks, dks.graph_nodes,
-    dks.graph_edges TO dks_dotfiles_ai;
+    dks.graph_edges, dks.authority_snapshots, dks.privacy_state, dks.privacy_denies,
+    dks.authority_records,
+    dks.authority_chunks, dks.authority_embeddings, dks.code_embedding_spaces,
+    dks.code_embeddings,
+    dks.graph_imports, dks.imported_graph_nodes, dks.imported_graph_edges,
+    dks.imported_graph_node_chunks, dks.ranking_policies TO dks_dotfiles_ai;
 GRANT INSERT ON dks.embedding_spaces, dks.source_revisions, dks.sync_runs,
     dks.content_objects, dks.source_records, dks.knowledge_chunks, dks.embeddings,
     dks.revision_chunks, dks.graph_nodes, dks.graph_edges TO dks_dotfiles_ai;
-GRANT UPDATE ON dks.projects, dks.sync_runs TO dks_dotfiles_ai;
+GRANT INSERT ON dks.authority_snapshots, dks.authority_records, dks.authority_chunks,
+    dks.authority_embeddings, dks.privacy_state, dks.privacy_denies, dks.code_embedding_spaces,
+    dks.code_embeddings, dks.graph_imports,
+    dks.imported_graph_nodes, dks.imported_graph_edges, dks.imported_graph_node_chunks,
+    dks.ranking_policies TO dks_dotfiles_ai;
+GRANT UPDATE ON dks.projects, dks.sync_runs, dks.authority_snapshots, dks.privacy_state,
+    dks.graph_imports, dks.ranking_policies TO dks_dotfiles_ai;
 GRANT DELETE ON dks.source_records, dks.revision_chunks, dks.graph_nodes,
-    dks.graph_edges TO dks_dotfiles_ai;
+    dks.graph_edges, dks.authority_snapshots, dks.authority_records,
+    dks.authority_chunks, dks.authority_embeddings, dks.code_embeddings,
+    dks.graph_imports, dks.imported_graph_nodes, dks.imported_graph_edges,
+    dks.imported_graph_node_chunks, dks.ranking_policies TO dks_dotfiles_ai;
+DO $vectors$
+DECLARE changed integer; total integer := 0;
+BEGIN
+    UPDATE dks.embeddings SET value_sha256=encode(sha256(value::text::bytea),'hex')
+    WHERE project_id='dotfiles-ai' AND value_sha256<>encode(sha256(value::text::bytea),'hex');
+    GET DIAGNOSTICS changed = ROW_COUNT; total := total + changed;
+    UPDATE dks.authority_embeddings SET value_sha256=encode(sha256(value::text::bytea),'hex')
+    WHERE project_id='dotfiles-ai' AND value_sha256<>encode(sha256(value::text::bytea),'hex');
+    GET DIAGNOSTICS changed = ROW_COUNT; total := total + changed;
+    UPDATE dks.code_embeddings SET value_sha256=encode(sha256(value::text::bytea),'hex')
+    WHERE project_id='dotfiles-ai' AND value_sha256<>encode(sha256(value::text::bytea),'hex');
+    GET DIAGNOSTICS changed = ROW_COUNT; total := total + changed;
+    IF total > 0 THEN
+        UPDATE dks.ranking_policies SET active=false
+        WHERE project_id='dotfiles-ai' AND active AND policy_id='dks-quality-v2';
+        UPDATE dks.ranking_policies SET active=true,activated_at=now()
+        WHERE project_id='dotfiles-ai' AND activation_id='dks-rrf-v1';
+    END IF;
+END
+$vectors$;
+INSERT INTO dks.ranking_policies(project_id,activation_id,policy_id,manifest_sha256,active,activated_at)
+VALUES ('dotfiles-ai','dks-rrf-v1','dks-rrf-v1',
+        '64ea5d5a0cc31571febbbff4aaec9eb6a65cda8030c3f36e01551aa62069c4a6',true,now())
+ON CONFLICT (project_id,activation_id) DO NOTHING;
+DO $policy$ BEGIN IF (SELECT count(*) FROM dks.ranking_policies
+WHERE project_id='dotfiles-ai' AND active)<>1 THEN
+RAISE EXCEPTION 'baseline ranking policy unavailable'; END IF; END $policy$;
+INSERT INTO dks.schema_migrations(version) VALUES (4) ON CONFLICT DO NOTHING;
 GRANT SELECT ON dks.active_chunks, dks.active_graph_nodes, dks.active_graph_edges,
     dks.one_hop_graph TO dks_dotfiles_ai;
 GRANT SELECT ON PROPERTY GRAPH dks.knowledge_graph TO dks_dotfiles_ai;
 GRANT EXECUTE ON FUNCTION dks.authorized_project(), dks.project_allowed(text),
     dks.lexical_candidates(text, integer), dks.vector_candidates(vector, integer)
     TO dks_dotfiles_ai;
+COMMIT;
 SQL
 
 test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
     -c "SELECT extversion FROM pg_extension WHERE extname='vector'")" = 0.8.6
 test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
-    -c 'SELECT 1 FROM dks.schema_migrations WHERE version=1')" = 1
+    -c 'SELECT 1 FROM dks.schema_migrations WHERE version=4')" = 1
 unset DKS_PASSWORD PGPASSWORD dks_password pm_password
 {{- else }}
 {{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled }}

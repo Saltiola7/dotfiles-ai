@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "embedding_space_id": "nomic-code-q4km-llamacpp-0e1d9185-native3584-v1",
+  "runtime": {
+    "name": "llama.cpp",
+    "revision": "0e1d9185c5fe82e905d1f5ae6b2e5dcd607a8dfd",
+    "server_sha256": "eca763b9ea33ec611614d36a192353599fcf0a872d66d82c00e5764fdd5ea2f6",
+    "tree_sha256": "771dbda2e3baf5be8f45239cfcdf68c22024fbe1fcd9e831fbbfd39851b2ef2d",
+    "signature_identifier": "llama-server"
+  },
+  "model": {
+    "repository": "nomic-ai/nomic-embed-code-GGUF",
+    "revision": "ff2ddedde976ea623178981f18e36af33c0c2a94",
+    "file": "nomic-embed-code.Q4_K_M.gguf",
+    "sha256": "4354a73ee9ff5d811efe552a515dfd518667ff25fdfc4ee9e10af3f617f96eec"
+  },
+  "contract": {
+    "pooling": "last",
+    "normalization": "l2",
+    "dimensions": 3584,
+    "context_tokens": 32768
+  },
+  "query": {
+    "template_version": "nomic-code-query-v1",
+    "prefix": "Represent this query for searching relevant code: "
+  },
+  "service": {
+    "host": "127.0.0.1",
+    "port": {{ .dotfiles_ai.knowledge_store.code_embedding_port }},
+    "artifact_root": {{ printf "%s/dbsctr" .dotfiles_ai.knowledge_store.quality_model_root | toJson }},
+    "runtime_root": {{ printf "%s/.config/dotfiles-ai/runtime/llama.cpp-0e1d9185" .chezmoi.homeDir | toJson }}
+  }
+}

@@ -74,3 +74,16 @@
   citations/Recall@50, and warm end-to-end p95 latency no greater than 30 seconds.
 - Deferred Graphify semantic document extraction, graph-database push, ANN,
   hosted inference, and any move of canonical JSON/SQLite authority to PostgreSQL.
+
+## 2026-08-21 - DKS-003 Implementation
+
+- Added governed lifecycle export and monotonic privacy projection, exact Git
+  code/config chunking, controlled offline Graphify import, Nomic code vectors,
+  Qwen reranking, frozen benchmark verification, atomic activation, and rollback.
+- Deployed schema 4 and both candidate services from pinned external-volume
+  models; validated automatic restart hashing, 315 records, 2,393 chunks, 596
+  code vectors, 984 imported nodes, 3,005 imported edges, deterministic rebuild,
+  baseline rollback, and a cited 20-result query.
+- Kept `dks-rrf-v1` active. `dks-quality-v2` remains blocked until a committed
+  pre-generation query/judgment approval and passing human-authored private
+  benchmark evidence exist. No public release applies.

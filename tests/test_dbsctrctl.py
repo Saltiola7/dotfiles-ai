@@ -4117,20 +4117,11 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "history-capture-delete", "--state-root", str(state),
             "--capture-id", saved["capture_id"])
         run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
-        self.assertEqual(json.loads(run(
+        missing_after_restore = run(
             self.repo, "history-capture", "--state-root", str(state),
             "--capture-id", saved["capture_id"],
-        ).stdout), saved)
-        deleted = json.loads(run(
-            self.repo, "history-capture-delete", "--state-root", str(state),
-            "--capture-id", saved["capture_id"],
-        ).stdout)
-        self.assertEqual(deleted, {"deleted": saved["capture_id"]})
-        missing = run(
-            self.repo, "history-capture", "--state-root", str(state),
-            "--capture-id", saved["capture_id"], ok=False,
-        )
-        self.assertIn("capture is missing", missing.stderr)
+            ok=False)
+        self.assertIn("history capture is missing", missing_after_restore.stderr)
 
     def test_history_capture_rejects_manifest_and_projection_tampering(self):
         database = Path(self.temp.name) / "history-capture-integrity.db"
@@ -4235,7 +4226,13 @@ class DbsctrctlTest(unittest.TestCase):
                            "where capture_id=? and position=5", (saved["capture_id"],))
         connection.commit()
         connection.close()
+        privacy_before = json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state)).stdout)
         run(self.repo, "review-forget", "--state-root", str(state), "--session-id", "session-2")
+        privacy_after = json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state)).stdout)
+        self.assertGreater(privacy_after["privacy_sequence"], privacy_before["privacy_sequence"])
+        self.assertNotEqual(privacy_after["privacy_digest"], privacy_before["privacy_digest"])
         missing = run(
             self.repo, "history-capture", "--state-root", str(state),
             "--capture-id", saved["capture_id"], ok=False,
@@ -4606,15 +4603,43 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(restored["rollback"], r"rollback.*\.sqlite3$")
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute("select timestamp from review_tombstones").fetchone()[0], 1784073600001)
-        connection.execute("insert into review_tombstones values ('forgotten_session', 'forgotten-1', 1784073600003)")
+        connection.close()
+        forgotten_at = 1784073600003
+        connection = sqlite3.connect(ledger)
+        connection.execute("insert into review_tombstones values ('forgotten_session', 'forgotten-1', ?)",
+                           (forgotten_at,))
+        connection.execute("insert into knowledge_privacy_tombstones values "
+                           "('telemetry', 'forgotten-1', 'forgotten', ?)", (forgotten_at,))
+        connection.execute("insert into knowledge_privacy_tombstones values "
+                           "('review', 'review-1', 'expired', ?)", (forgotten_at,))
+        connection.execute("insert into knowledge_privacy_tombstones values "
+                           "('provider_evaluation', 'evaluation-1', 'forgotten', ?)", (forgotten_at,))
+        tombstones = [["provider_evaluation", "evaluation-1", "forgotten", forgotten_at],
+                      ["review", "review-1", "expired", forgotten_at],
+                      ["telemetry", "forgotten-1", "forgotten", forgotten_at]]
+        digest = hashlib.sha256(json.dumps(
+            {"schema_version": 1, "tombstones": tombstones},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        connection.execute("update ledger_meta set value='3' where key='knowledge_privacy_sequence'")
+        connection.execute("update ledger_meta set value=? where key='knowledge_privacy_digest'", (digest,))
         connection.commit()
         connection.close()
+        privacy_before_restore = json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state)).stdout)
         run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
         connection = sqlite3.connect(ledger)
         self.assertEqual(connection.execute(
             "select timestamp from review_tombstones where kind='forgotten_session'"
-        ).fetchone()[0], 1784073600003)
+        ).fetchone()[0], connection.execute(
+            "select timestamp from knowledge_privacy_tombstones "
+            "where family='telemetry' and item_id='forgotten-1'"
+        ).fetchone()[0])
+        self.assertEqual(connection.execute(
+            "select count(*) from knowledge_privacy_tombstones").fetchone()[0], 3)
         connection.close()
+        self.assertEqual(json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state)).stdout),
+            privacy_before_restore)
 
         future = backup_path.with_name("future.sqlite3")
         future.write_bytes(backup_path.read_bytes())
@@ -5465,6 +5490,107 @@ class DbsctrctlTest(unittest.TestCase):
         path.chmod(0o600)
         changed = json.loads(run(self.repo, "review-privacy-epoch", "--state-root", str(state)).stdout)
         self.assertNotEqual(changed["privacy_epoch_digest"], first["privacy_epoch_digest"])
+
+    def test_knowledge_privacy_status_and_guard(self):
+        state = Path(self.temp.name) / "knowledge-privacy"
+        status = json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state),
+        ).stdout)
+        self.assertEqual(status["schema_version"], 1)
+        self.assertEqual(status["privacy_sequence"], 0)
+        self.assertRegex(status["privacy_digest"], r"^[0-9a-f]{64}$")
+        run(self.repo, "review-prune", "--state-root", str(state))
+        self.assertEqual(json.loads(run(
+            self.repo, "knowledge-privacy-status", "--state-root", str(state)).stdout), status)
+
+        guarded = run(
+            self.repo, "knowledge-privacy-guard", "--state-root", str(state),
+            "--expected-sequence", "0", "--expected-digest", status["privacy_digest"],
+            "--", sys.executable, "-c", "print('guarded')",
+        )
+        self.assertEqual(guarded.stdout, "guarded\n")
+
+        marker = Path(self.temp.name) / "must-not-run"
+        mismatch = run(
+            self.repo, "knowledge-privacy-guard", "--state-root", str(state),
+            "--expected-sequence", "1", "--expected-digest", status["privacy_digest"],
+            "--", sys.executable, "-c", f"open({str(marker)!r}, 'w').close()",
+            ok=False,
+        )
+        self.assertIn("privacy status mismatch", mismatch.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_capture_benchmark_deletion_records_privacy_tombstone(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_benchmark_privacy", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            create table ledger_meta (key text primary key, value text not null);
+            create table knowledge_privacy_tombstones (
+                family text not null, item_id text not null, reason text not null,
+                timestamp integer not null, primary key (family,item_id));
+            create table benchmark_effects (
+                benchmark_id text primary key, baseline_capture_id text, observation_capture_id text);
+            insert into ledger_meta values ('benchmark_schema','1');
+            insert into ledger_meta values ('knowledge_privacy_sequence','0');
+            insert into ledger_meta values ('knowledge_privacy_digest','0');
+            insert into benchmark_effects values ('benchmark-1','capture-1','capture-2');
+        """)
+        timestamp = 1784073600003
+        self.assertEqual(module.delete_capture_benchmarks(
+            connection, ["capture-1"], timestamp), ["benchmark-1"])
+        self.assertEqual(connection.execute(
+            "select family,item_id,reason,timestamp from knowledge_privacy_tombstones").fetchone(),
+            ("benchmark", "benchmark-1", "forgotten", timestamp))
+        self.assertEqual(connection.execute(
+            "select value from ledger_meta where key='knowledge_privacy_sequence'").fetchone(), ("1",))
+        self.assertIsNone(connection.execute("select 1 from benchmark_effects").fetchone())
+        connection.close()
+
+    def test_knowledge_privacy_digest_corruption_fails_closed(self):
+        state = Path(self.temp.name) / "knowledge-privacy-corrupt"
+        run(self.repo, "review-prune", "--state-root", str(state))
+        connection = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        connection.execute("insert into knowledge_privacy_tombstones values "
+                           "('telemetry','session-1','forgotten',1784073600000)")
+        connection.commit()
+        connection.close()
+        failed = run(self.repo, "knowledge-privacy-status", "--state-root", str(state), ok=False)
+        self.assertIn("privacy digest mismatch", failed.stderr)
+
+    def test_knowledge_export_is_deterministic_and_digest_bound(self):
+        state = Path(self.temp.name) / "knowledge-export"
+        first = run(self.repo, "knowledge-export", "--state-root", str(state)).stdout
+        second = run(self.repo, "knowledge-export", "--state-root", str(state)).stdout
+        self.assertEqual(first, second)
+        lines = first.splitlines()
+        records = [json.loads(line) for line in lines]
+        self.assertEqual(records[0]["type"], "manifest")
+        self.assertEqual(records[-1]["type"], "terminal")
+        self.assertEqual(records[0]["privacy_sequence"], 0)
+        self.assertEqual(
+            records[-1]["digest"],
+            hashlib.sha256("".join(f"{line}\n" for line in lines[:-1]).encode()).hexdigest(),
+        )
+        self.assertEqual(
+            set(records[0]["families"]),
+            {"cycle", "gate_evidence", "review", "history_report", "history_capture",
+             "telemetry", "benchmark", "execution", "provider_evaluation", "improvement"},
+        )
+
+    def test_knowledge_export_rejects_unsafe_payload(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_knowledge_module", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with self.assertRaisesRegex(RuntimeError, "unsafe content"):
+            module.knowledge_record("review", "example", {"notes": "https://example.invalid/raw"})
+        with self.assertRaisesRegex(RuntimeError, "unsafe content"):
+            module.knowledge_record("review", "example", {"summary": "A" * 40})
+        with self.assertRaisesRegex(RuntimeError, "unsafe content"):
+            module.knowledge_record("review", "example", {"scorecards": ["B" * 40]})
 
 
 if __name__ == "__main__":

@@ -99,9 +99,16 @@ jira_issue_types = []
 # machine-local and are installed only after exact digest verification.
 enabled = false
 model_root = "/Volumes/your-drive/lmstudio"
+quality_model_root = "/Volumes/your-drive/state/models"
+quality_benchmark_approval_commit = "" # must precede the benchmark source revision
+quality_benchmark_query_digest = ""
+quality_benchmark_judgment_digest = ""
 embedding_port = 11435
 embedding_dimensions = 4096
 embedding_context_tokens = 4096
+quality_services_enabled = false # candidate services; retrieval still requires benchmark activation
+code_embedding_port = 11436
+reranker_port = 11437
 postgres_enabled = false
 
 [data.dotfiles_ai.knowledge_store.projects.dotfiles_ai]

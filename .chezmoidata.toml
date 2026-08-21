@@ -67,9 +67,16 @@ jira_issue_types = []
 [dotfiles_ai.knowledge_store]
 enabled = false
 model_root = ""
+quality_model_root = ""
+quality_benchmark_approval_commit = ""
+quality_benchmark_query_digest = ""
+quality_benchmark_judgment_digest = ""
 embedding_port = 11435
 embedding_dimensions = 4096
 embedding_context_tokens = 4096
+quality_services_enabled = false
+code_embedding_port = 11436
+reranker_port = 11437
 postgres_enabled = false
 
 [dotfiles_ai.knowledge_store.projects]

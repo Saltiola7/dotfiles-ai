@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+RUNTIME_SHA256 = "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8"
+STAGED_RUNTIME_SHA256 = "8f9c94d49890b68af59b191431aa57761b58c51333bdd47db27b6f80a8a68d3c"
+REVISION = "b2cd36267456c166788c95be6e68574064a92a42"
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def runtime_digest(root):
+    rows = []
+    python = (root / "bin/python").resolve(strict=True)
+    python_root = python.parent.parent
+    for prefix, tree in (("venv", root), ("python", python_root)):
+        for path in sorted(tree.rglob("*")):
+            if "__pycache__" in path.parts or path.suffix == ".pyc":
+                continue
+            relative = f"{prefix}/{path.relative_to(tree).as_posix()}"
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            if path.is_symlink():
+                resolved = path.resolve(strict=True)
+                if tree not in resolved.parents and resolved != python:
+                    raise ValueError("Graphify runtime contains an escaping symlink")
+                rows.append(f"{relative}\0link\0{mode:o}\0{os.readlink(path)}\n")
+            elif path.is_dir():
+                rows.append(f"{relative}\0dir\0{mode:o}\n")
+            elif path.is_file():
+                rows.append(f"{relative}\0file\0{mode:o}\0{hashlib.sha256(path.read_bytes()).hexdigest()}\n")
+            else:
+                raise ValueError("Graphify runtime contains a special file")
+    return hashlib.sha256("".join(rows).encode()).hexdigest()
+
+
+def safe_output(path_value):
+    path = Path(path_value).expanduser()
+    if not path.is_absolute() or path.exists() or path.parent.is_symlink():
+        raise ValueError("output must be a new absolute path")
+    parent = path.parent.resolve(strict=True)
+    details = parent.stat()
+    if details.st_uid != os.getuid() or stat.S_IMODE(details.st_mode) & 0o022:
+        raise ValueError("output directory is unsafe")
+    return path
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="dbsctr-graphify")
+    parser.add_argument("--corpus", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--receipt", required=True)
+    args = parser.parse_args()
+    corpus = Path(args.corpus).expanduser().resolve(strict=True)
+    manifest_path = corpus / "dks-corpus.json"
+    manifest_raw = manifest_path.read_bytes()
+    manifest = json.loads(manifest_raw)
+    if (not manifest_path.is_file() or manifest_path.is_symlink() or not isinstance(manifest, dict)
+            or set(manifest) != {"schema_version", "project", "commit", "source_profile_sha256", "documents"}
+            or manifest.get("schema_version") != 1 or not manifest.get("documents")
+            or any(not isinstance(item, dict) or set(item) != {"path", "blob_id", "content_sha256"}
+                   for item in manifest.get("documents", []))):
+        raise ValueError("corpus manifest is invalid")
+    files = {}
+    for item in manifest["documents"]:
+        path = (corpus / item["path"]).resolve(strict=True)
+        if corpus not in path.parents or not path.is_file() or path.is_symlink():
+            raise ValueError("corpus document is unsafe")
+        payload = path.read_bytes()
+        actual = hashlib.sha256(payload).hexdigest()
+        if actual != item["content_sha256"]:
+            raise ValueError("corpus document identity mismatch")
+        files[item["path"]] = payload
+    runtime = Path(os.environ.get(
+        "DBSCTR_GRAPHIFY_RUNTIME",
+        "~/.config/dotfiles-ai/runtime/graphify-sql-0.9.48-71cb9828")).expanduser()
+    if runtime_digest(runtime) != RUNTIME_SHA256:
+        raise ValueError("Graphify runtime identity mismatch")
+    sandbox = Path("/usr/bin/sandbox-exec")
+    if not sandbox.is_file():
+        raise ValueError("network sandbox is unavailable")
+    script = """
+import contextlib, json, sys
+from graphify.detect import detect
+from graphify.extract import extract
+from pathlib import Path
+root, scratch = map(Path, sys.argv[1:3])
+allowed = {str(Path(item).resolve()) for item in sys.argv[3:]}
+with contextlib.redirect_stdout(sys.stderr):
+    found = detect(root)
+    files = [Path(item) for item in found.get('files', {}).get('code', [])
+             if str(Path(item).resolve()) in allowed]
+    value = extract(files, cache_root=scratch)
+print(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True))
+"""
+    python_root = (runtime / "bin/python").resolve(strict=True).parent.parent
+    with tempfile.TemporaryDirectory(prefix="dbsctr-graphify-") as scratch:
+        scratch = Path(scratch).resolve()
+        staged_runtime = scratch / "runtime"
+        staged_python = scratch / "python"
+        staged_corpus = scratch / "corpus"
+        id_prefix = re.sub(r"[^A-Za-z0-9]+", "_", str(staged_corpus)).strip("_").lower() + "_"
+        cache = scratch / "cache"
+        shutil.copytree(runtime, staged_runtime, symlinks=True)
+        shutil.copytree(python_root, staged_python, symlinks=True)
+        bin_mode = stat.S_IMODE((runtime / "bin").stat().st_mode)
+        (staged_runtime / "bin").chmod(bin_mode | stat.S_IWUSR)
+        (staged_runtime / "bin/python").unlink()
+        (staged_runtime / "bin/python").symlink_to("../../python/bin/python3.13")
+        (staged_runtime / "bin").chmod(bin_mode)
+        if runtime_digest(staged_runtime) != STAGED_RUNTIME_SHA256:
+            raise ValueError("staged Graphify runtime identity mismatch")
+        staged_files = []
+        cache.mkdir()
+        for relative, payload in files.items():
+            path = staged_corpus / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            staged_files.append(str(path))
+        if runtime_digest(runtime) != RUNTIME_SHA256:
+            raise ValueError("Graphify runtime changed during staging")
+        scratch_text = str(scratch)
+        profile = """(version 1)
+(deny default)
+(deny network*)
+(import "system.sb")
+(allow process*)
+(allow signal)
+(allow sysctl-read)
+(allow mach-lookup)
+(allow ipc-posix-sem)
+(allow file-read* (subpath %s)
+  (subpath "/System") (subpath "/usr/lib") (subpath "/private/etc")
+  (literal "/dev/null") (literal "/dev/urandom"))
+(allow file-write* (subpath %s))
+(deny file-write* (subpath %s) (subpath %s) (subpath %s))
+""" % tuple(json.dumps(str(path)) for path in (
+            scratch, scratch, staged_runtime, staged_python, staged_corpus))
+        completed = subprocess.run(
+            [sandbox, "-p", profile, str(staged_runtime / "bin/python"), "-c", script,
+             ".", str(cache), *staged_files], check=False, text=True,
+            capture_output=True, stdin=subprocess.DEVNULL, cwd=staged_corpus,
+            env={"PATH": "/usr/bin:/bin", "HOME": scratch_text, "TMPDIR": scratch_text,
+                 "PYTHONHOME": str(staged_python), "PYTHONNOUSERSITE": "1"},
+        )
+        if completed.returncode:
+            raise ValueError("Graphify sandbox failed: " + completed.stderr[-1000:])
+    for relative, payload in files.items():
+        if hashlib.sha256((corpus / relative).read_bytes()).hexdigest() != hashlib.sha256(payload).hexdigest():
+            raise ValueError("corpus changed during Graphify extraction")
+    extracted = json.loads(completed.stdout)
+    if extracted.get("failed_sources"):
+        raise ValueError("Graphify extraction failed for corpus sources")
+    id_map = {node["id"]: node["id"][len(id_prefix):]
+              if node.get("id", "").startswith(id_prefix) else node["id"]
+              for node in extracted.get("nodes", [])}
+    if len(set(id_map.values())) != len(id_map):
+        raise ValueError("Graphify stable node identity collision")
+    for node in extracted.get("nodes", []):
+        node["id"] = id_map[node["id"]]
+    for edge in extracted.get("edges", []):
+        edge["source"] = id_map.get(edge.get("source"), edge.get("source"))
+        edge["target"] = id_map.get(edge.get("target"), edge.get("target"))
+    extracted["nodes"] = sorted(extracted.get("nodes", []), key=canonical)
+    extracted["edges"] = sorted(extracted.get("edges", []), key=canonical)
+    raw_extraction_sha = hashlib.sha256(canonical(extracted).encode()).hexdigest()
+    for item in [*extracted.get("nodes", []), *extracted.get("edges", [])]:
+        source = item.get("source_file")
+        if isinstance(source, str) and source.startswith("../corpus/"):
+            item["source_file"] = source[len("../corpus/"):]
+    extracted["nodes"] = sorted(extracted.get("nodes", []), key=canonical)
+    extracted["edges"] = sorted(extracted.get("edges", []), key=canonical)
+    missing = {node.get("id") for node in extracted.get("nodes", [])
+               if node.get("source_file") not in (None, "")
+               and node.get("source_location") in (None, "")}
+    graph = {"nodes": [node for node in extracted.get("nodes", []) if node.get("id") not in missing],
+             "edges": [edge for edge in extracted.get("edges", [])
+                       if edge.get("source") not in missing and edge.get("target") not in missing],
+             "hyperedges": [], "input_tokens": extracted.get("input_tokens"),
+             "output_tokens": extracted.get("output_tokens")}
+    graph_raw = (canonical(graph) + "\n").encode()
+    output = safe_output(args.output)
+    receipt_path = safe_output(args.receipt)
+    if output == receipt_path:
+        raise ValueError("artifact and receipt paths must differ")
+    version = "3.13.2"
+    receipt = {"schema_version": 1, "command_contract": "dks-graphify-code-v1",
+               "package": "graphifyy[sql]", "extractor_version": "0.9.48",
+               "extractor_revision": REVISION, "python_version": version,
+               "runtime_sha256": RUNTIME_SHA256,
+               "producer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+               "config_sha256": digest({"extractor": "graphifyy[sql]", "mode": "code-only",
+                                        "normalization": "stable-staged-graph-v1",
+                                        "version": "0.9.48"}),
+               "corpus_manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+               "artifact_sha256": hashlib.sha256(graph_raw).hexdigest(),
+               "raw_extraction_sha256": raw_extraction_sha,
+               "network_disabled": True, "excluded_missing_locations": len(missing),
+               "excluded_missing_location_ids_sha256": digest(sorted(missing))}
+    receipt_raw = (canonical(receipt) + "\n").encode()
+    for path, payload in ((output, graph_raw), (receipt_path, receipt_raw)):
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.part.", dir=path.parent)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    print(canonical({"artifact_sha256": receipt["artifact_sha256"],
+                     "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest()}))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+        print(f"dbsctr-graphify: {error}", file=sys.stderr)
+        raise SystemExit(1)
