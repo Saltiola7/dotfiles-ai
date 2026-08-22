@@ -3,6 +3,7 @@ import argparse
 import csv
 import fcntl
 import hashlib
+import io
 import json
 import math
 import os
@@ -3150,80 +3151,141 @@ def command_benchmark_aggregate(args, config, project):
     return load_benchmark_evidence(args.evidence, manifest, manifest_sha, config)
 
 
-def benchmark_workbook(project):
+def open_benchmark_directory(project, create):
     state_root = Path(project.get("knowledge_state_root", "")).expanduser()
     repository = Path(project.get("repository", "")).expanduser()
     if not state_root.is_absolute() or not repository.is_absolute():
         raise ValueError("benchmark private root is unavailable")
-    private = state_root / "knowledge" / "private"
     try:
-        details = private.lstat()
         state_root_resolved = state_root.resolve(strict=True)
-        private_resolved = private.resolve(strict=True)
         repository_resolved = repository.resolve(strict=True)
     except OSError as error:
         raise ValueError("benchmark private root is unavailable") from error
-    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
-            or stat.S_IMODE(details.st_mode) & 0o077
-            or private_resolved != state_root_resolved / "knowledge" / "private"
-            or private_resolved == repository_resolved
+    private_resolved = state_root_resolved / "knowledge" / "private"
+    if (private_resolved == repository_resolved
             or repository_resolved in private_resolved.parents
             or private_resolved in repository_resolved.parents):
         raise ValueError("benchmark private root is unsafe")
-    current = private
-    for name in ("benchmarks", "DKS-005"):
-        current = current / name
-        try:
-            os.mkdir(current, 0o700)
-        except FileExistsError:
-            pass
-        try:
-            details = current.lstat()
-        except OSError as error:
-            raise ValueError("benchmark private root is unavailable") from error
-        if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
-                or stat.S_IMODE(details.st_mode) != 0o700):
-            raise ValueError("benchmark private root is unsafe")
-    return current / "queries.tsv"
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_CLOEXEC"):
+        directory_flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        directory_flags |= os.O_NOFOLLOW
+    descriptor = None
+    try:
+        expected = state_root.lstat()
+        descriptor = os.open(state_root, directory_flags)
+        actual = os.fstat(descriptor)
+        if (expected.st_dev, expected.st_ino) != (actual.st_dev, actual.st_ino):
+            raise OSError("state root changed")
+        for name in ("knowledge", "private", "benchmarks", "DKS-005"):
+            created = False
+            if create and name in {"benchmarks", "DKS-005"}:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=descriptor)
+                    created = True
+                except FileExistsError:
+                    pass
+            if created:
+                os.chmod(name, 0o700, dir_fd=descriptor, follow_symlinks=False)
+                os.fsync(descriptor)
+            child = os.open(name, directory_flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            details = os.fstat(descriptor)
+            if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+                    or name in {"private", "benchmarks", "DKS-005"}
+                    and stat.S_IMODE(details.st_mode) != 0o700):
+                raise OSError("unsafe directory")
+        return descriptor
+    except OSError as error:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise ValueError("benchmark private root is unsafe") from error
 
 
 def command_benchmark_author_init(args, config, project):
-    path = benchmark_workbook(project)
+    directory = open_benchmark_directory(project, create=True)
+    temporary = f".queries.tsv.{secrets.token_hex(8)}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    installed = False
+    descriptor = None
     try:
-        descriptor = os.open(path, flags, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-            writer.writerow(("query_id", "stratum", "text"))
-            for stratum in BENCHMARK_QUERY_STRATA:
-                for index in range(1, 21):
-                    writer.writerow((f"{stratum}-{index:03d}", stratum, ""))
+        descriptor = os.open(temporary, flags, 0o600, dir_fd=directory)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+                descriptor = None
+                writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+                writer.writerow(("query_id", "stratum", "text"))
+                for stratum in BENCHMARK_QUERY_STRATA:
+                    for index in range(1, 21):
+                        writer.writerow((f"{stratum}-{index:03d}", stratum, ""))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.link(temporary, "queries.tsv", src_dir_fd=directory, dst_dir_fd=directory,
+                    follow_symlinks=False)
+            installed = True
+            os.fsync(directory)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
     except FileExistsError as error:
         raise ValueError("benchmark workbook already exists") from error
     except OSError as error:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if installed:
+            raise ValueError("benchmark workbook installed but durability is unconfirmed") from error
         raise ValueError("benchmark workbook could not be created") from error
+    finally:
+        os.close(directory)
+    if not installed:
+        raise ValueError("benchmark workbook could not be created")
     return {"schema_version": 1, "project": args.project, "benchmark_id": "DKS-005",
-            "workbook": str(path), "query_count": 100,
+            "workbook": "DKS-005/queries.tsv", "query_count": 100,
             "strata": {name: 20 for name in BENCHMARK_QUERY_STRATA}}
 
 
 def command_benchmark_author_validate(args, config, project):
-    path = benchmark_workbook(project)
+    directory = open_benchmark_directory(project, create=False)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = None
     try:
-        details = path.lstat()
+        descriptor = os.open("queries.tsv", flags, dir_fd=directory)
+        details = os.fstat(descriptor)
         if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
-                or stat.S_IMODE(details.st_mode) != 0o600):
+                or stat.S_IMODE(details.st_mode) != 0o600 or details.st_size > 1024 * 1024):
             raise OSError("unsafe workbook")
-        with path.open(encoding="utf-8", newline="") as handle:
-            rows = list(csv.reader(handle, delimiter="\t", strict=True))
+        raw = b""
+        while len(raw) <= 1024 * 1024:
+            chunk = os.read(descriptor, min(65536, 1024 * 1024 + 1 - len(raw)))
+            if not chunk:
+                break
+            raw += chunk
+        after = os.fstat(descriptor)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns)
+        if len(raw) > 1024 * 1024 or len(raw) != details.st_size or identity(details) != identity(after):
+            raise OSError("workbook changed")
+        rows = list(csv.reader(io.StringIO(raw.decode("utf-8"), newline=""),
+                               delimiter="\t", strict=True))
     except (OSError, UnicodeError, csv.Error) as error:
         raise ValueError("unsafe benchmark workbook") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(directory)
     if not rows or rows[0] != ["query_id", "stratum", "text"] or len(rows) != 101:
         raise ValueError("benchmark workbook structure is invalid")
     identity = []

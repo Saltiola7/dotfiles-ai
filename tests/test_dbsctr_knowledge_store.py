@@ -4,6 +4,7 @@ import io
 import importlib.machinery
 import importlib.util
 import json
+import os
 import subprocess
 import tarfile
 from pathlib import Path
@@ -700,7 +701,8 @@ def test_private_query_workbook_initializes_and_validates_without_leaking_text(t
     args = argparse.Namespace(project="dotfiles-ai")
 
     initialized = dks.command_benchmark_author_init(args, {}, project)
-    workbook = Path(initialized["workbook"])
+    workbook = private / "benchmarks" / "DKS-005" / "queries.tsv"
+    assert initialized["workbook"] == "DKS-005/queries.tsv"
     assert initialized["query_count"] == 100
     assert initialized["strata"] == {name: 20 for name in dks.BENCHMARK_QUERY_STRATA}
     assert workbook.stat().st_mode & 0o777 == 0o600
@@ -730,6 +732,49 @@ def test_private_query_workbook_initializes_and_validates_without_leaking_text(t
     workbook.chmod(0o644)
     with pytest.raises(ValueError, match="unsafe benchmark workbook"):
         dks.command_benchmark_author_validate(args, {}, project)
+
+
+def test_private_query_workbook_rejects_symlinks_and_unsafe_roots(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    private = tmp_path / "state" / "knowledge" / "private"
+    private.mkdir(parents=True)
+    private.chmod(0o700)
+    project = {"repository": str(repository), "knowledge_state_root": str(tmp_path / "state")}
+    args = argparse.Namespace(project="dotfiles-ai")
+
+    previous_umask = os.umask(0o777)
+    try:
+        dks.command_benchmark_author_init(args, {}, project)
+    finally:
+        os.umask(previous_umask)
+    benchmark = private / "benchmarks" / "DKS-005"
+    workbook = benchmark / "queries.tsv"
+    assert benchmark.stat().st_mode & 0o777 == 0o700
+    assert workbook.stat().st_mode & 0o777 == 0o600
+
+    workbook.unlink()
+    target = private / "target.tsv"
+    target.write_text("query_id\tstratum\ttext\n")
+    target.chmod(0o600)
+    workbook.symlink_to(target)
+    with pytest.raises(ValueError, match="unsafe benchmark workbook"):
+        dks.command_benchmark_author_validate(args, {}, project)
+
+    benchmark.chmod(0o755)
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_validate(args, {}, project)
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_init(
+            args, {}, {**project, "repository": str(tmp_path)})
+
+    linked_state = tmp_path / "linked-state"
+    linked_state.mkdir()
+    (linked_state / "knowledge").symlink_to(tmp_path / "state" / "knowledge")
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_init(
+            args, {}, {**project, "knowledge_state_root": str(linked_state)})
 
 
 def test_exact_tokens_and_channel_are_strict_and_deterministic() -> None:

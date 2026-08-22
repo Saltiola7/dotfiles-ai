@@ -743,12 +743,16 @@ DKS-005 query authoring uses the fixed private path
 `<knowledge_state_root>/knowledge/private/benchmarks/DKS-005/queries.tsv`. The
 initializer creates a new mode-`0700` benchmark directory and a mode-`0600` TSV
 with exact columns `query_id`, `stratum`, and `text`; it never overwrites an
-existing path. Query IDs are fixed as `<stratum>-001` through `<stratum>-020` in
+existing path. Descriptor-relative no-follow traversal binds every directory and
+the workbook to the checked owner and mode. Initialization writes and syncs a
+private temporary inode before atomically linking the final name without
+overwrite; validation reads at most 1 MiB from the same descriptor it verifies.
+Query IDs are fixed as `<stratum>-001` through `<stratum>-020` in
 the five declared strata above. The human fills only `text`. Validation requires
 exactly those 100 rows in canonical order, one non-empty single-line query per
 row, and computes the existing runner identity
 `SHA256(canonical_json([[query_id, stratum, text], ...]))`. Output never contains
-query text. Initialization and validation do not query retrieval systems, create
+query text or an absolute private path. Initialization and validation do not query retrieval systems, create
 candidates, write PostgreSQL, or update Git lineage.
 
 English lexical storage requires non-null body text and is
