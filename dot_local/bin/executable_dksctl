@@ -807,6 +807,18 @@ def selected_project(config, project_id: str):
     return project
 
 
+def database_failure(stderr: str):
+    if "Keychain item is missing or inaccessible" in stderr:
+        return RuntimeError("knowledge database credential keychain unavailable")
+    if "Keychain OP_SERVICE_ACCOUNT_TOKEN is invalid" in stderr:
+        return RuntimeError("knowledge database credential rejected")
+    if "op-session:" in stderr or "dks-psql:" in stderr:
+        return RuntimeError("knowledge database credential unavailable")
+    if "connection to server" in stderr or "could not connect" in stderr:
+        return RuntimeError("knowledge database unavailable")
+    return RuntimeError("knowledge database operation failed")
+
+
 def load_source_profile(project):
     value = project.get("source_profile_file")
     if not value:
@@ -834,16 +846,17 @@ def run_psql(config, project_id: str, sql: str):
                                input=f"SET dks.project_id = {sql_literal(project_id)};\n{sql}\n",
                                text=True, capture_output=True)
     if completed.returncode:
-        raise RuntimeError("knowledge database operation failed")
+        raise database_failure(completed.stderr)
     return completed.stdout.splitlines()
 
 
 class PsqlSession:
     def __init__(self, config):
         executable = str(Path(config.get("psql", "~/.local/bin/dks-psql")).expanduser())
+        self.errors = tempfile.TemporaryFile(mode="w+t")
         self.process = subprocess.Popen(
             [executable, "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errors,
             text=True, bufsize=1,
         )
 
@@ -858,21 +871,25 @@ class PsqlSession:
         while True:
             line = self.process.stdout.readline()
             if not line:
-                raise RuntimeError("knowledge database operation failed")
+                self.errors.seek(0)
+                raise database_failure(self.errors.read(4096))
             value = line.rstrip("\n")
             if value == marker:
                 return lines
             lines.append(value)
 
     def close(self):
-        if self.process.poll() is None:
-            try:
-                self.process.stdin.write("\\quit\n")
-                self.process.stdin.flush()
-                self.process.wait(timeout=5)
-            except Exception:
-                self.process.terminate()
-                self.process.wait(timeout=5)
+        try:
+            if self.process.poll() is None:
+                try:
+                    self.process.stdin.write("\\quit\n")
+                    self.process.stdin.flush()
+                    self.process.wait(timeout=5)
+                except Exception:
+                    self.process.terminate()
+                    self.process.wait(timeout=5)
+        finally:
+            self.errors.close()
 
     def __enter__(self):
         return self
@@ -2300,13 +2317,18 @@ def command_sync_code(args, config, project):
 def lifecycle_output(config, project, command):
     executable = str(Path(config.get("dbsctrctl", "~/.local/bin/dbsctrctl")).expanduser())
     state_root = project.get("knowledge_state_root")
-    if not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute():
+    repository = Path(project.get("repository", "")).expanduser()
+    if (not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute()
+            or not repository.is_absolute()):
         raise ValueError("knowledge state root is unavailable")
     completed = subprocess.run(
         [executable, command, "--state-root", str(Path(state_root).expanduser())],
-        text=True, capture_output=True, stdin=subprocess.DEVNULL,
+        text=True, capture_output=True, stdin=subprocess.DEVNULL, cwd=repository,
     )
     if completed.returncode:
+        detail = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else ""
+        if re.fullmatch(r"[A-Za-z0-9: ._-]{1,160}", detail):
+            raise RuntimeError(f"lifecycle {command} failed: {detail}")
         raise RuntimeError(f"lifecycle {command} failed")
     return completed.stdout
 

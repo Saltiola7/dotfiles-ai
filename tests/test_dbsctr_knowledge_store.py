@@ -1116,6 +1116,33 @@ def test_dks_embedding_response_indexes_and_reused_vectors_are_validated(monkeyp
         dks.validate_vector([0.0] * 4096)
 
 
+@pytest.mark.parametrize(("stderr", "message"), [
+    ("op-session: Keychain item is missing or inaccessible.", "credential keychain unavailable"),
+    ("op-session: Keychain OP_SERVICE_ACCOUNT_TOKEN is invalid", "credential rejected"),
+    ("op-session: no valid session", "credential unavailable"),
+    ("psql: connection to server failed", "unavailable"),
+    ("ERROR: rejected statement containing private-value", "operation failed"),
+])
+def test_database_failures_expose_only_safe_categories(stderr: str, message: str) -> None:
+    dks = load_dksctl()
+    error = dks.database_failure(stderr)
+    assert str(error) == f"knowledge database {message}"
+    assert "private-value" not in str(error)
+
+
+def test_lifecycle_failure_exposes_only_bounded_safe_detail(monkeypatch, tmp_path: Path) -> None:
+    dks = load_dksctl()
+    project = {"knowledge_state_root": str(tmp_path), "repository": str(tmp_path)}
+    monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
+                        dks.subprocess.CompletedProcess([], 1, "", "dbsctrctl: store busy\n"))
+    with pytest.raises(RuntimeError, match=r"failed: dbsctrctl: store busy$"):
+        dks.lifecycle_output({"dbsctrctl": "/bin/false"}, project, "knowledge-export")
+    monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
+                        dks.subprocess.CompletedProcess([], 1, "", "secret/path/value\n"))
+    with pytest.raises(RuntimeError, match=r"knowledge-export failed$"):
+        dks.lifecycle_output({"dbsctrctl": "/bin/false"}, project, "knowledge-export")
+
+
 def test_dks_embedding_manifest_binds_space_model_endpoint_and_hash(tmp_path: Path) -> None:
     dks = load_dksctl()
     raw = render("private_dot_config/dotfiles-ai/knowledge/embedding-space.json.tmpl").encode()
@@ -1320,12 +1347,16 @@ def test_reconcile_identity_freshness_and_delivery_contract() -> None:
     plist = render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl")
     subprocess.run(["plutil", "-lint", "--", "-"], input=plist, text=True, check=True)
     assert "StartInterval" in plist and "KeepAlive" not in plist
+    assert "DOTFILES_AI_DKS_POSTGRES_KEYCHAIN" in plist
     source = DKSCTL.read_text()
     assert 'commands.add_parser("reconcile"' in source
     assert 'commands.add_parser("doctor"' in source
     assert 'LOCK_EX | fcntl.LOCK_NB' in source
     assert '"fetch", "--no-tags"' in source
     assert "authority_embeddings" in source and "DISTINCT ON (chunk_id)" in source
+    psql = (ROOT / "dot_local/bin/executable_dks-psql.tmpl").read_text()
+    assert "__op_timeout op read" in psql
+    assert "dev.dotfiles-ai.dks-postgres" in psql
 
 
 def test_reconcile_noop_disable_busy_and_failure_are_bounded(tmp_path: Path, monkeypatch) -> None:

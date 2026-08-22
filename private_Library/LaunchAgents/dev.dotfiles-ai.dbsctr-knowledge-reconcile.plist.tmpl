@@ -9,6 +9,7 @@
 <key>EnvironmentVariables</key><dict>
 <key>HOME</key><string>{{ .chezmoi.homeDir | html }}</string>
 <key>PATH</key><string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+<key>DOTFILES_AI_DKS_POSTGRES_KEYCHAIN</key><string>1</string>
 <key>DOTFILES_AI_STATE_ROOT</key><string>{{ .dotfiles_ai.state.root | html }}</string></dict>
 <key>LimitLoadToSessionType</key><string>Aqua</string>
 <key>ProcessType</key><string>Background</string>

@@ -398,6 +398,9 @@ exactly that project. Project identifiers are unique only inside that database. 
 1Password references remain machine-local configuration. Reconciliation is
 disabled by default and requires all five reconcile settings. The managed
 dotfiles-ai deployment enables fetch for its fixed HTTPS `origin` main ref. The
+LaunchAgent resolves a dedicated Keychain mirror of the 1Password-owned project
+credential; no credential is stored in its plist or logs. Managed PostgreSQL
+configuration refreshes the mirror, and rotation requires rerunning that configuration. The
 ref must be a full `refs/remotes/<remote>/<branch>` name; fetch may update only
 that configured remote/ref and never tags, submodules, or source dependencies.
 Interval accepts 300-86400 seconds and timeout accepts 60-86400 seconds. Missing,
