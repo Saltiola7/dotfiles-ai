@@ -154,7 +154,9 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     assert 'vmType: "vz"' in template
     assert 'arch: "aarch64"' in template
     assert 'disk: "{{ .dotfiles_ai.sandbox.disk_gib }}GiB"' in template
-    assert "dnf install -y" in template and "podman" in template
+    packages = template.split("dnf install -y", 1)[1].splitlines()[0].split()
+    assert "podman" in packages
+    assert "make" in packages
     assert "opencode-linux-arm64.tar.gz" in template
     assert "/usr/local/libexec/opencode --auto" in template
     assert "configparser.ConfigParser" in template
@@ -240,6 +242,138 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
         helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert len(calls) == 2
+
+
+def test_install_make_reprovisions_existing_guest_without_widening_sudo(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    state = {"running": True, "provision": []}
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": state["provision"]}})
+        if argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+        elif argv[-1:] == [helper.MAKE_PROBE]:
+            return "missing"
+        elif argv[-1:] == [helper.MAKE_VERIFY]:
+            return "GNU Make 4.4.1"
+        return ""
+
+    helper.install_make(values, values["workspaces"][0], execute=execute)
+
+    argv = [call[0] for call in calls]
+    assert ["limactl", "edit", "--yes", "--set", helper.MAKE_PROVISION_RULE, "workspace1-sandbox"] in argv
+    assert ["limactl", "shell", "workspace1-sandbox", "--", "sh", "-ceu", helper.MAKE_VERIFY] in argv
+    assert state["running"] is True
+    assert "sudo" not in " ".join(part for call, _ in calls for part in call)
+
+
+def test_install_make_preserves_stopped_guest_state_when_already_available(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    state = {"running": False}
+
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped", "config": {}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[-1:] == [helper.MAKE_PROBE]:
+            return "present"
+        return ""
+
+    helper.install_make(values, values["workspaces"][0], execute=execute)
+
+    assert state["running"] is False
+    assert not any(call[:2] == ["limactl", "edit"] for call in calls)
+
+
+def test_install_make_reuses_owned_provision_after_partial_failure(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    state = {"running": True}
+
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": [helper.MAKE_PROVISION]}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[-1:] == [helper.MAKE_PROBE]:
+            return "missing"
+        return "GNU Make 4.4.1" if argv[-1:] == [helper.MAKE_VERIFY] else ""
+
+    helper.install_make(values, values["workspaces"][0], execute=execute)
+
+    assert not any(call[:2] == ["limactl", "edit"] for call in calls)
+    assert state["running"] is True
+
+
+def test_install_make_restores_stopped_state_after_timed_out_provision_start(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    state = {"running": False, "starts": 0}
+
+    def execute(argv, **kwargs):
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": []}})
+        if argv[:2] == ["limactl", "start"]:
+            state["starts"] += 1
+            state["running"] = True
+            if state["starts"] == 2:
+                raise RuntimeError("start timed out after the VM reached running")
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[-1:] == [helper.MAKE_PROBE]:
+            return "missing"
+        return ""
+
+    with pytest.raises(RuntimeError, match="start timed out"):
+        helper.install_make(values, values["workspaces"][0], execute=execute)
+
+    assert state["running"] is False
+
+
+def test_install_make_restores_stopped_state_after_timed_out_probe_start(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    state = {"running": False}
+
+    def execute(argv, **kwargs):
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": []}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+            raise RuntimeError("probe start timed out after the VM reached running")
+        if argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        return ""
+
+    with pytest.raises(RuntimeError, match="probe start timed out"):
+        helper.install_make(values, values["workspaces"][0], execute=execute)
+
+    assert state["running"] is False
 
 
 def test_old_schema_is_normalized_for_ordered_host_migration(tmp_path: Path) -> None:
