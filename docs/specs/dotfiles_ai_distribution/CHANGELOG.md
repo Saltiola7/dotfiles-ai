@@ -16,10 +16,11 @@
   Redis client defect. Colima also exposed the application's macOS GID 20 build
   collision; a process-local GID 1000 workaround proved fallback operation.
   Neither downstream defect changed dotfiles scope.
-- Affected QA passed 106 tests plus Python compilation, diff checks, ticket
+- Affected QA passed 106 tests; post-reconciliation union QA passed 319 tests
+  with one optional Lima skip, plus Python compilation, diff checks, ticket
   validation, live runtime switching, and independent review. Gate Exceptions:
-  none. Initial Gate Commit: `74daa67`; intended Final Push is the feature branch
-  and draft pull request into protected `main`.
+  none. Gate Commits: `74daa67`, `0597aea`, `c4b1bf3`; intended Final Push is the
+  feature branch and draft pull request into protected `main`.
 
 ## 2026-08-19 - Pinned Local Embedding Service
 
