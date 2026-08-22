@@ -2366,6 +2366,10 @@ def privacy_read_lock(project):
     return handle
 
 
+def authority_activation_safe(export, current_export, status, current_status):
+    return current_export["manifest"] == export["manifest"] and current_status == status
+
+
 def command_sync_evidence(args, config, project):
     validate_embedding_config(config)
     raw = lifecycle_output(config, project, "knowledge-export")
@@ -2398,7 +2402,7 @@ def command_sync_evidence(args, config, project):
     with privacy_read_lock(project):
         current_export = parse_knowledge_export(lifecycle_output(config, project, "knowledge-export"))
         current_status = json.loads(lifecycle_output(config, project, "knowledge-privacy-status"))
-        if current_export != export or current_status != status:
+        if not authority_activation_safe(export, current_export, status, current_status):
             raise RuntimeError("knowledge authority changed before activation")
         with PsqlSession(config) as session:
             session.execute(f"SET dks.project_id={sql_literal(args.project)};")

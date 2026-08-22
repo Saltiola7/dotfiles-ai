@@ -1353,6 +1353,15 @@ def test_reconcile_identity_freshness_and_delivery_contract() -> None:
     assert dks.authority_is_fresh(status, export)
     assert not dks.authority_is_fresh({**status, "authority": {**status["authority"],
                                        "privacy_sequence": "1"}}, export)
+    current = {**export, "terminal": {"digest": "c" * 64},
+               "records": [{"family": "cycle", "record_id": "new"}]}
+    privacy = {"privacy_sequence": 2, "privacy_digest": "b" * 64}
+    assert dks.authority_activation_safe(export, current, privacy, privacy)
+    assert not dks.authority_activation_safe(
+        export, {**current, "manifest": {**current["manifest"], "privacy_sequence": 3}},
+        privacy, privacy)
+    assert not dks.authority_activation_safe(export, current, privacy,
+                                              {**privacy, "privacy_sequence": 3})
 
     plist = render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl")
     subprocess.run(["plutil", "-lint", "--", "-"], input=plist, text=True, check=True)
