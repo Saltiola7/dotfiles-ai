@@ -87,3 +87,17 @@
 - Kept `dks-rrf-v1` active. `dks-quality-v2` remains blocked until a committed
   pre-generation query/judgment approval and passing human-authored private
   benchmark evidence exist. No public release applies.
+
+## 2026-08-21 - DKS-004 Discovery
+
+- Scoped unattended identity-based reconciliation, bounded freshness diagnosis,
+  interval launchd operation, break-glass recovery, and automatic read-only cited
+  OpenCode context while preserving Git and typed private authorities.
+- Required unchanged-channel skips, one resolved Git commit per run, benign busy
+  overlap, prior-active preservation, privacy-safe diagnostics, and no automatic
+  ranking activation.
+- Planned benchmark corrections around separate pre-generation and post-assessment
+  lineage, a complete offline four-cell/three-depth runner, per-query citation
+  safety, blinded assessment evidence, and machine-captured telemetry.
+- Split human assessment into dependent DKS-005 and an isolated recommendation-only
+  `pg_search` bakeoff into DKS-006; production PostgreSQL 19 remains untouched.

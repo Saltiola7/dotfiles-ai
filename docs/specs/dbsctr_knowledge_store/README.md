@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-20
+last_updated: 2026-08-21
 ---
 
 # DBSCTR Knowledge Store
@@ -49,6 +49,16 @@ last_updated: 2026-08-20
 | Scope | Typed DBSCTR evidence export; exact Git code/config projection; pinned offline Graphify code graph; Nomic code embeddings; Qwen reranking; frozen benchmark; atomic activation, expiry, tombstone, rebuild, and rollback |
 | Isolation | Source authorities export bounded sanitized envelopes; Graphify receives an immutable materialized corpus with no credentials or network; model services and PostgreSQL remain loopback/client-local |
 | Non-goals | Raw OpenCode transcripts, direct SQLite/WAL access, hosted inference, Graphify semantic document extraction or graph-database push, ANN, PostgreSQL-canonical writes, and replacing Qwen general embeddings without measured evidence |
+
+### DKS-004 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: introduces unattended projection and OpenCode retrieval across private local authorities and changes the benchmark activation contract |
+| Delivery intent | Deploy fail-closed background reconciliation and read-only OpenCode context locally, then deliver a draft pull request |
+| Scope | Incremental identity-based reconciliation, sanitized health and freshness, launchd scheduling, break-glass operation, bounded cited OpenCode retrieval, and a non-circular offline benchmark runner contract |
+| Isolation | The reconciler reads only configured Git and typed authority boundaries; OpenCode receives cited DKS results through a read-only tool and never exposes its SQLite store or raw transcripts |
+| Non-goals | Human relevance judgments, automatic quality activation, production `pg_search`, source execution, hosted inference, canonical PostgreSQL writes, and unsolicited raw prompt injection |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -117,6 +127,9 @@ Adjacent contexts:
 | Source Envelope | Versioned sanitized record emitted by its owning typed authority with stable identity, revision, retention, and deletion provenance. |
 | Reranker | Versioned local pair scorer that reorders an already retrieved candidate set without changing source authority or candidate recall. |
 | Derived Graph | Non-authoritative graph artifact whose extractor, input snapshot, provenance, and digest are recorded and independently validated before projection. |
+| Reconciliation Run | One idempotent attempt to bring independently activated projection channels to their configured immutable source identities. |
+| Freshness | Machine-readable comparison between each configured source identity and its active projected identity; freshness is not source authority. |
+| Benchmark Protocol | Immutable lineage that separately binds pre-generation queries, blinded assessments, frozen judgments, candidate systems, corpus, runtime, and activation thresholds. |
 
 ## Domain Model
 
@@ -126,7 +139,8 @@ Entities include `Source`, `SourceRevision`, `SourceRecord`, `ContentObject`,
 
 Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 `ChunkDerived`, `EmbeddingRequested`, `EmbeddingCompleted`, `EmbeddingRejected`,
-`GraphProjected`, `RetrievalExecuted`, and `EmbeddingSpaceActivated`.
+`GraphProjected`, `ReconciliationStarted`, `ReconciliationSkipped`,
+`ReconciliationFailed`, `RetrievalExecuted`, and `EmbeddingSpaceActivated`.
 
 ## Behavior
 
@@ -234,6 +248,54 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - And unknown shape, dangling identity, unsupported confidence, or missing provenance
   rejects the import without replacing the active graph
 
+### Reconciliation and OpenCode context
+
+**Scenario: Reconcile changed identities without rebuilding unchanged channels**
+
+- Given one configured remote Git ref and typed authority privacy state
+- When the scheduled reconciler resolves the ref once and compares every channel identity
+- Then it updates only stale Git, code-vector, Graphify, or governed-evidence channels
+- And a failure preserves every prior valid active channel for a later retry
+
+**Scenario: Coalesce unattended reconciliation**
+
+- Given a prior scheduled run is still active
+- When launchd invokes another interval
+- Then the second invocation reports a bounded busy result rather than overlapping work
+- And the next interval retries without treating contention as projection corruption
+
+**Scenario: Diagnose freshness without exposing content**
+
+- Given configured authorities, model services, and active projections
+- When the operator requests status or doctor output
+- Then the result reports service, schema, source, privacy, channel, policy, and freshness identities as bounded JSON
+- And actionable drift makes doctor fail without including source text, vectors, prompts, paths, or credentials
+
+**Scenario: Supply relevant cited context to OpenCode**
+
+- Given OpenCode handles a codebase or architecture question for a configured project
+- When its control-plane guidance invokes the read-only DKS context tool
+- Then DKS returns at most 10 project-scoped citation records with complete ranking provenance but no result body
+- And OpenCode treats every returned field as delimited untrusted evidence rather than instructions
+- And it may read cited Git content only through its existing workspace permissions;
+  governed private evidence remains citation metadata unless an explicit local-only policy permits content
+
+### Benchmark preparation
+
+**Scenario: Freeze non-circular benchmark lineage**
+
+- Given queries and strata are approved before candidate generation
+- When blinded assessment completes and judgments freeze
+- Then separate immutable identities bind pre-generation approval and post-assessment judgment lineage
+- And neither approval step changes the corpus revision it attests
+
+**Scenario: Evaluate every candidate without changing active ranking**
+
+- Given one frozen corpus, protocol, model set, and private judgment set
+- When the offline runner executes baseline, code, reranker, and code-plus-reranker cells
+- Then it records actual depths 20, 50, and 100, repeated ranks, per-query citations, timings, and machine-captured resources
+- And no runner or scheduled reconciliation may activate `dks-quality-v2`
+
 ### Retrieval and graph
 
 **Scenario: Return evidence rather than inferred authority**
@@ -319,6 +381,11 @@ postgres_enabled = false
 repository = ""
 remote = "https://github.com/Saltiola7/dotfiles-ai"
 postgres_password_ref = ""
+reconcile_enabled = false
+reconcile_ref = "refs/remotes/origin/main"
+reconcile_fetch = false
+reconcile_interval_seconds = 900
+reconcile_timeout_seconds = 21600
 ```
 
 `postgres_enabled` requires PM PostgreSQL to be enabled. The PM configuration is
@@ -328,7 +395,14 @@ boundary. Each client VM uses the same
 `dbsctr_knowledge` database and owner names. Each project receives a separate
 no-membership login role and generated credential bound by database policy to
 exactly that project. Project identifiers are unique only inside that database. Repository paths and
-1Password references remain machine-local configuration.
+1Password references remain machine-local configuration. Reconciliation is
+disabled by default and requires all five reconcile settings. The managed
+dotfiles-ai deployment enables fetch for its fixed HTTPS `origin` main ref. The
+ref must be a full `refs/remotes/<remote>/<branch>` name; fetch may update only
+that configured remote/ref and never tags, submodules, or source dependencies.
+Interval accepts 300-86400 seconds and timeout accepts 60-86400 seconds. Missing,
+malformed, or partly enabled configuration leaves the job unloaded. Retry occurs
+only on the next interval.
 
 ### PostgreSQL image and schema
 
@@ -578,19 +652,22 @@ policy `dks-rrf-v1` preserves the DKS-002 1-through-20 contract. JSON reports al
 Graphify, embedding, reranker, template, truncation, score, and fallback
 provenance.
 
-The frozen benchmark stores non-sensitive fixtures, judgment schema, and approved
-query/judgment digests in Git. The approval commit must be an ancestor of the
-benchmark source revision, with Git replacement objects disabled during verification;
-private query text and judgments remain local under typed private authority and
-only sanitized aggregate evidence enters Git. Activation recomputes every metric
-from the owner-private frozen evidence, verifies its query and judgment digests,
-result digest, and two repeated rankings per system, then requires exact equality
-with the sanitized aggregate before evaluating gates.
+The frozen benchmark stores non-sensitive fixtures, protocol, and approved
+query/judgment digests in Git. A pre-generation approval binds the query and
+stratum digest without changing the evaluated corpus. After blinded assessment,
+a separate freeze binds the judgment digest, assessor protocol, corpus, and
+preapproval lineage. Neither approval artifact is selected into the evaluated
+corpus. Git replacement objects remain disabled during verification; private
+query text and judgments remain local under typed private authority and only
+sanitized aggregate evidence enters Git. Activation recomputes every metric from
+the owner-private frozen evidence, verifies both lineage stages, result digest,
+and two repeated rankings per system, then requires exact equality with the
+sanitized aggregate before evaluating gates.
 Activation requires at least 5%
 relative nDCG@10 improvement overall (or five absolute percentage points when
 baseline is zero), a stratified 95% bootstrap confidence interval above zero, no
-source/use-case stratum worse by more than two absolute points, unchanged exact-
-evidence citation correctness, candidate Recall@50 no worse than baseline,
+source/use-case stratum worse by more than two absolute points, no per-query
+exact-evidence citation regression, candidate Recall@50 no worse than baseline,
 deterministic rank agreement for identical frozen vectors, p95 end-to-end warm
 latency at or below 30 seconds, peak combined process/Metal memory no greater
 than 56 GiB, normal macOS memory-pressure state, and no swap growth on the 64-GB
@@ -617,11 +694,15 @@ stratum_size`; no runtime RNG is used. Each replicate statistic is the arithmeti
 mean per-query nDCG@10 candidate-minus-baseline delta. Sorted ascending, the
 zero-based elements 249 and 9749 are the 2.5% and 97.5% bounds.
 Prompts, chunkers, candidates, metrics, thresholds, and activation order freeze
-before unblinding. The immutable manifest binds query/judgment digests,
-assessor-protocol version, corpus/source revisions, randomization seed, candidate
-systems, and split. No item may train or tune a candidate. Any query, label,
-corpus, candidate, prompt, threshold, or protocol mutation creates a new
-benchmark version and invalidates prior activation evidence.
+before unblinding. The immutable manifest directly binds preapproval and judgment
+freeze lineage, assessor-protocol version, corpus/source revisions, randomization
+seed, all four candidate systems, prompts, chunkers, metrics, thresholds, split,
+and activation order. Execution evidence proves all four cells ran at depths 20,
+50, and 100. Private assignment records bind blinded pair identity, duplicate
+mapping, adjudication, and machine-captured environment telemetry. No item may
+train or tune a candidate. Any query, label, corpus, candidate, prompt, threshold,
+or protocol mutation creates a new benchmark version and invalidates prior
+activation evidence.
 
 English lexical storage requires non-null body text and is
 `setweight(to_tsvector('english', coalesce(heading_text, '')), 'A') ||
@@ -709,6 +790,28 @@ before storage; identity comparison is separate from floating-point tolerance.
   search only. Approximate indexes require a later measured representation change.
 - Graph edges are deterministic, typed, revision-bound, and source-cited.
 - Result ordering is deterministic for equal inputs and active revision.
+- Background reconciliation resolves one configured Git ref to one immutable
+  commit per run, never executes projected source, and no-ops every channel whose
+  complete source identity already matches.
+- Git identity is repository, commit, source profile, chunker, and general
+  embedding space. Code identity adds code embedding space; Graphify identity adds
+  corpus manifest plus producer/runtime/artifact; authority identity is manifest,
+  privacy sequence/digest, exporter schema, chunker, and embedding space.
+- Git activates first. Code and Graphify participate in default retrieval only
+  when their commit matches active Git; stale revision-bound rows remain retained
+  for explicit prior-revision use. Authority snapshots activate independently.
+- Scheduled overlap is a bounded busy outcome. Partial failure preserves prior
+  valid stored channel state, excludes incompatible channels from current default
+  retrieval, and never triggers quality-policy activation.
+- OpenCode access is read-only, project-scoped, citation-complete, and limited to
+  10 metadata-only results. Returned values are untrusted evidence, not
+  instructions. Hosted providers cannot receive governed private result content;
+  cited Git reads use existing workspace/provider policy. The tool cannot expose
+  raw transcripts or invoke DKS mutation commands.
+- Benchmark preapproval and judgment freeze are separate immutable lineage stages;
+  approval artifacts cannot change the corpus they attest.
+- A quality candidate is ineligible if any query loses exact-citation correctness,
+  any matrix cell or required depth is absent, or telemetry is not machine-captured.
 - Canonical tickets under `docs/tickets/context=<context>/` are work authority;
   per-context `docs/specs/<context>/BACKLOG.md` files are retired and must not be
   recreated. PostgreSQL PM views project tickets automatically.
@@ -753,6 +856,18 @@ only through the existing secret boundary. The knowledge database is rebuildable
 recovery recreates schema and replays exact Git revisions rather than treating a
 database backup as source authority.
 
+DKS-004 adds one interval-based launchd reconciliation job. It exits after each
+attempt and does not use `KeepAlive`; service launch agents retain their existing
+restart-on-failure behavior. The reconciler may fetch only the configured remote
+ref, resolves it once, and processes no source code. It records bounded channel
+identities and diagnostics, retries transient failures on the next interval, and
+never downloads models or extensions. `dksctl doctor` distinguishes disabled,
+busy, stale, privacy-mismatched, and unavailable states without logging content.
+A concise `OPERATION.md` is the break-glass authority for status, manual reconcile,
+service restart, rollback, disablement, and recovery. OpenCode must restart once
+after its DKS tool/config deployment; ordinary projection refreshes require no
+OpenCode restart.
+
 ## Validation Strategy
 
 - Render enabled and disabled configurations and reject unsafe paths, ports,
@@ -785,6 +900,20 @@ database backup as source authority.
   `SET LOCAL dks.project_id`.
 - Use frozen vectors for rank-boundary/RRF fixtures; separately prove live Metal
   embeddings meet numeric tolerance without claiming byte determinism.
+- Prove reconciliation resolves one commit once, skips matching identities,
+  treats overlap as busy, retries safely, and preserves prior active channels at
+  every injected failure boundary.
+- Prove status and doctor detect stale Git, privacy, code, graph, service, schema,
+  and ranking identities without returning source content.
+- Render and lint enabled/disabled interval launchd configuration and prove
+  disablement removes only owned reconciliation targets.
+- Prove the OpenCode tool invokes only bounded `dksctl query`, returns complete
+  metadata-only citations, rejects limits above 10, treats adversarial citation
+  fields as inert data, denies private result bodies to hosted providers, and has
+  no mutation or transcript path.
+- Prove the offline benchmark runner executes all four cells and three depths,
+  rejects circular lineage and any per-query citation regression, and leaves the
+  active ranking policy unchanged.
 
 ## Visual Evidence
 
@@ -957,6 +1086,22 @@ failed or abandoned and never change active retrieval.
 | Operate | required | passed | Runtime identities, source counts, restart, rebuild identity, rollback, and cited 20-result query probe passed |
 | Maintain/Retire | required | passed | Pinned upgrades, canonical vector migration, rebuild recovery, model rollback, Graphify compatibility, and access removal |
 
+### DKS-004
+
+| Gate | Applicability | Result | Planned evidence |
+|---|---|---|---|
+| Domain | required | planned | Reconciliation, freshness, benchmark-lineage, OpenCode, and ownership boundaries |
+| Behavior | required | planned | No-op, partial failure, overlap, diagnosis, cited context, and offline benchmark scenarios |
+| Spec | required | planned | CLI JSON, timer/config, OpenCode tool, runbook, and benchmark protocol interfaces |
+| Contract | required | planned | Privacy, immutable ref, no source execution, bounded output, lineage, and fail-closed invariants |
+| Test-driven implementation | required | planned | Focused reconciliation, control-plane, configuration, protocol, and failure tests |
+| Refactor | required | planned | Reuse existing locks, project configuration, model clients, and atomic channel activation |
+| Review/Integrate | required | planned | Independent privacy, operations, retrieval, benchmark, and upstream review |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | planned | Scoped chezmoi apply, timer/tool installation, one OpenCode restart, and rollback proof |
+| Operate | required | planned | Unattended reconcile, drift diagnosis, busy retry, service recovery, and break-glass checks |
+| Maintain/Retire | required | planned | Disablement, retained source authority, scheduler/tool removal, and benchmark compatibility |
+
 ## Decisions And Risks
 
 - PostgreSQL remains a rebuildable cache in the first knowledge-store phases.
@@ -978,5 +1123,17 @@ failed or abandoned and never change active retrieval.
 - Graphify `0.9.x` has no published stable artifact-schema promise. Its importer
   therefore rejects unknown shape, pins a golden fixture, and requires an
   explicit compatibility gate for every upgrade.
+- DKS-004 accepts eventual per-channel freshness rather than one long transaction
+  across model and graph generation. Every result retains channel-specific source
+  provenance; incompatible stale code/graph channels are excluded from current
+  default retrieval, retained for explicit prior revision use, and doctor reports drift.
+- Automatic OpenCode context means relevant control-plane guidance invokes one
+  bounded metadata-only read tool. Returned data is delimited untrusted evidence,
+  never model instructions; governed private bodies, unsolicited prompt injection,
+  and raw transcript ingestion remain prohibited.
+- `pg_search` v0.25.3 supports PostgreSQL 15-18, requires pgvector and
+  `shared_preload_libraries`, and is AGPL-3.0-or-later. Production PostgreSQL 19
+  Beta 3 is unsupported, so DKS-006 remains an isolated recommendation-only
+  experiment until PG19 GA and an exact-major official build exist.
 - Moving JSON/SQLite source authority into PostgreSQL remains a separate future
   critical migration with writes, audit, export, conflict, backup, and recovery contracts.
