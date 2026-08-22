@@ -5,8 +5,8 @@ slug: "complete-guest-compose-tooling-and-validate-runtime-fallback"
 context: "dotfiles_ai_distribution"
 title: "Complete guest Compose tooling and validate runtime fallback"
 kind: "task"
-state: "active"
-priority: "high"
+state: "done"
+priority: "historical"
 points: null
 depends_on:
   - "DAI-028-F1"
@@ -20,8 +20,9 @@ validation:
   - "Focused rendering tests, live guest tooling probes, clean Podman image build, five-service operation, named-volume identity, serialized Colima fallback, and restored Podman health"
 created: "2026-08-21"
 updated: "2026-08-21"
-completed: null
-commits: []
+completed: "2026-08-21"
+commits:
+  - "74daa67"
 jira_publications: []
 ---
 
@@ -54,7 +55,7 @@ client across event loops. Those application concerns are outside this ticket.
 
 - The rendered Fedora template installs both `podman` and `make`.
 - Both configured guests report GNU Make and rootless Podman after deployment.
-- Podman uses the pinned Compose provider and resolves both declared MGM mounts.
+- Podman uses the pinned Compose provider and resolves both declared project mounts.
 - A no-cache build and `up -d` preserve the named Postgres and Redis volumes.
 - Postgres and Redis answer direct health probes, Prefect returns HTTP 200, and
   Vite is reachable; repeated Django health results are recorded truthfully.
@@ -76,3 +77,27 @@ client across event loops. Those application concerns are outside this ticket.
 
 Review must distinguish distribution behavior from downstream application
 behavior and reject any claim based on one transient HTTP response.
+
+## Evidence
+
+- Both managed Fedora guests report GNU Make 4.4.1, rootless Podman, and Docker
+  Compose v2.40.3 after the exact idempotent package repair.
+- The enterprise stack completed no-cache Podman and Colima builds. All five
+  services started under each runtime; Postgres accepted connections, Redis
+  returned `PONG`, Prefect returned HTTP 200, and Vite returned HTTP 302.
+- Podman volume creation times remained
+  `2026-08-14 18:50:44.605414689 -0600 CST` for Postgres and
+  `2026-08-14 18:50:44.616470298 -0600 CST` for Redis across rebuild, fallback,
+  and restoration. Retained Colima volumes likewise kept their original
+  `2026-08-11T12:27:06-06:00` creation time.
+- Both Podman guests were stopped before Colima started. Colima was stopped
+  before both guests restarted; the personal Atuin service returned active and
+  its authoritative host `/healthz` returned healthy after restoration.
+- No running enterprise container mapped `OP_SERVICE_ACCOUNT_TOKEN`,
+  `GOOGLE_APPLICATION_CREDENTIALS`, or
+  `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`.
+- Repeated Django health probes alternated HTTP 200/500 on Podman and returned
+  HTTP 500 on Colima because the application reuses one module-level async Redis
+  client across event loops. The first Colima build also exposed the downstream
+  Dockerfile's collision with macOS GID 20; process-local `MY_GID=1000` proved
+  the retained runtime fallback without changing application source.
