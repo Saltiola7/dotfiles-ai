@@ -688,7 +688,7 @@ adjudicated and labels freeze. nDCG uses gains `2^grade - 1` and `log2(rank + 1)
 Recall treats grades 1-3 as relevant. The 95% interval is the deterministic
 percentile interval from 10,000 query-level bootstrap replicates sampled with
 replacement inside each stratum while preserving stratum sizes. Draw index is
-`uint64_be(SHA256(manifest_sha256_bytes || uint64_be(replicate) ||
+`uint64_be(SHA256(seed_sha256_bytes || uint64_be(replicate) ||
 uint32_be(stratum_utf8_length) || stratum_utf8 || uint64_be(draw))[0:8]) mod
 stratum_size`; no runtime RNG is used. Each replicate statistic is the arithmetic
 mean per-query nDCG@10 candidate-minus-baseline delta. Sorted ascending, the
