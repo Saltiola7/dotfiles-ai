@@ -4,6 +4,11 @@
 exit 0
 {{ end -}}
 set -eu
+delete_dks_password() {
+    if /usr/bin/security find-generic-password -s dev.dotfiles-ai.dks-postgres -a dks_dotfiles_ai >/dev/null 2>&1; then
+        /usr/bin/security delete-generic-password -s dev.dotfiles-ai.dks-postgres -a dks_dotfiles_ai >/dev/null
+    fi
+}
 label=dev.dotfiles-ai.pm-postgres-backup
 domain="gui/$(id -u)"
 plist="$HOME/Library/LaunchAgents/$label.plist"
@@ -46,15 +51,21 @@ if [ -z "$healthy" ]; then
 fi
 "$HOME/.local/bin/dks-postgres-migrate"
 {{ if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+dks_password=$(op read {{ (index .dotfiles_ai.knowledge_store.projects "dotfiles_ai").postgres_password_ref | quote }})
+printf '%s\n%s\n' "$dks_password" "$dks_password" | /usr/bin/security add-generic-password -U \
+    -s dev.dotfiles-ai.dks-postgres -a dks_dotfiles_ai -w >/dev/null
+unset dks_password
 if [ -n "$baseline" ]; then
     "$HOME/.local/bin/pm-postgres-baseline" --compare "$baseline" >/dev/null
 fi
 {{ else -}}
+delete_dks_password
 /bin/rm -f "$HOME/.local/bin/dksctl" "$HOME/.local/bin/dks-psql" \
     "$HOME/.config/dotfiles-ai/knowledge/projects.json"
 {{ end -}}
 launchctl bootstrap "$domain" "$plist"
 {{ else -}}
+delete_dks_password
 "$HOME/.local/bin/sandbox-vm" configure-pm-postgres --remove
 /bin/rm -f "$plist"
 {{ end -}}

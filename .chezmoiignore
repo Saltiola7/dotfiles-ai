@@ -65,9 +65,13 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
 {{ end }}
 {{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled) }}
 .local/bin/dksctl
+.local/bin/dks-benchmark-collector
 .local/bin/dks-psql
 .config/dotfiles-ai/knowledge/projects.json
 .local/share/dbsctr-knowledge/
+{{ end }}
+{{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled .dotfiles_ai.knowledge_store.reconcile_enabled) }}
+Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist
 {{ end }}
 
 {{ if not .dotfiles_ai.sandbox.atuin_workspace }}

@@ -2,8 +2,18 @@
 {
   "schema_version": 1,
   "psql": {{ printf "%s/.local/bin/dks-psql" .chezmoi.homeDir | toJson }},
-  "quality_benchmark_approval_commit": {{ .dotfiles_ai.knowledge_store.quality_benchmark_approval_commit | toJson }},
+  "benchmark_collector_file": {{ printf "%s/.local/bin/dks-benchmark-collector" .chezmoi.homeDir | toJson }},
+  "benchmark_collector_sha256": {{ include "dot_local/bin/executable_dks-benchmark-collector" | sha256sum | toJson }},
+  "reconcile": {
+    "enabled": {{ default false (get .dotfiles_ai.knowledge_store "reconcile_enabled") | toJson }},
+    "interval_seconds": {{ default 900 (get .dotfiles_ai.knowledge_store "reconcile_interval_seconds") }},
+    "timeout_seconds": {{ default 21600 (get .dotfiles_ai.knowledge_store "reconcile_timeout_seconds") }}
+  },
+  "quality_benchmark_source_revision": {{ .dotfiles_ai.knowledge_store.quality_benchmark_source_revision | toJson }},
+  "quality_benchmark_query_approval_commit": {{ .dotfiles_ai.knowledge_store.quality_benchmark_query_approval_commit | toJson }},
+  "quality_benchmark_judgment_freeze_commit": {{ .dotfiles_ai.knowledge_store.quality_benchmark_judgment_freeze_commit | toJson }},
   "quality_benchmark_query_digest": {{ .dotfiles_ai.knowledge_store.quality_benchmark_query_digest | toJson }},
+  "quality_benchmark_protocol_digest": {{ .dotfiles_ai.knowledge_store.quality_benchmark_protocol_digest | toJson }},
   "quality_benchmark_judgment_digest": {{ .dotfiles_ai.knowledge_store.quality_benchmark_judgment_digest | toJson }},
   "embedding": {
     "url": {{ printf "http://127.0.0.1:%v" .dotfiles_ai.knowledge_store.embedding_port | toJson }},
@@ -33,6 +43,8 @@
     "dotfiles-ai": {
       "repository": {{ $project.repository | toJson }},
       "remote": {{ $project.remote | toJson }},
+      "reconcile_ref": {{ default "refs/remotes/origin/main" (get $project "reconcile_ref") | toJson }},
+      "reconcile_fetch": {{ default false (get $project "reconcile_fetch") | toJson }},
       "source_profile_file": {{ printf "%s/.local/share/dbsctr-knowledge/source-profile.json" .chezmoi.homeDir | toJson }},
       "source_profile_sha256": {{ includeTemplate "dot_local/share/dbsctr-knowledge/source-profile.json" . | sha256sum | toJson }},
       "knowledge_state_root": {{ printf "%s/dbsctr" .dotfiles_ai.state.root | toJson }}
