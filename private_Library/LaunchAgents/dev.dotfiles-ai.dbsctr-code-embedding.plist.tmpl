@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>dev.dotfiles-ai.dbsctr-code-embedding</string>
+<key>ProgramArguments</key><array>
+<string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
+<string>{{ printf "%s/.local/bin/dbsctr-code-embedding" .chezmoi.homeDir | html }}</string>
+<string>serve</string></array>
+<key>EnvironmentVariables</key><dict>
+<key>HOME</key><string>{{ .chezmoi.homeDir | html }}</string>
+<key>PATH</key><string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+<key>DOTFILES_AI_STATE_ROOT</key><string>{{ .dotfiles_ai.state.root | html }}</string></dict>
+<key>LimitLoadToSessionType</key><string>Aqua</string>
+<key>ProcessType</key><string>Interactive</string>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>30</integer>
+<key>StandardOutPath</key><string>{{ printf "%s/Library/Logs/dbsctr-code-embedding.log" .chezmoi.homeDir | html }}</string>
+<key>StandardErrorPath</key><string>{{ printf "%s/Library/Logs/dbsctr-code-embedding.err.log" .chezmoi.homeDir | html }}</string>
+</dict></plist>

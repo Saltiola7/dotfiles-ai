@@ -34,9 +34,13 @@ def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/l
             "knowledge_store": {
                 "enabled": enabled,
                 "model_root": model_root,
+                "quality_model_root": "/Volumes/ext/state/models",
                 "embedding_port": 11435,
                 "embedding_dimensions": 4096,
                 "embedding_context_tokens": 4096,
+                "quality_services_enabled": True,
+                "code_embedding_port": 11436,
+                "reranker_port": 11437,
             },
         }
     }
@@ -144,6 +148,49 @@ def test_manifest_and_launchagent_are_stable_and_private(tmp_path: Path) -> None
     assert "state-root-exec" in plist and "dbsctr-embedding" in plist
     assert "RunAtLoad" in plist and "KeepAlive" in plist
     assert "127.0.0.1" not in plist  # Wrapper owns network arguments.
+
+
+def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path: Path) -> None:
+    code = json.loads(render("private_dot_config/dotfiles-ai/knowledge/code-embedding-space.json.tmpl"))
+    reranker = json.loads(render("private_dot_config/dotfiles-ai/knowledge/reranker-space.json.tmpl"))
+    assert code["contract"] == {"context_tokens": 32768, "dimensions": 3584,
+                                "normalization": "l2", "pooling": "last"}
+    assert code["runtime"]["server_sha256"] == \
+        "eca763b9ea33ec611614d36a192353599fcf0a872d66d82c00e5764fdd5ea2f6"
+    assert reranker["runtime"] == {"backend": "mps", "python": "3.12.11",
+                                    "safetensors": "0.7.0", "tokenizers": "0.22.2",
+                                    "torch": "2.9.1", "transformers": "5.5.0"}
+    assert reranker["contract"]["template_sha256"] == \
+        "c121f3f58991533a6cf1dd73429dc22a4bf0072b65b87b5ccfed274c7b55dde9"
+    code_wrapper = render("dot_local/bin/executable_dbsctr-code-embedding.tmpl")
+    assert "--pooling last" in code_wrapper and "--embd-normalize 2" in code_wrapper
+    assert "--offline" in code_wrapper and "--no-webui" in code_wrapper and "--log-disable" in code_wrapper
+    reranker_wrapper = render("dot_local/bin/executable_dbsctr-reranker.tmpl")
+    compile(reranker_wrapper, "dbsctr-reranker", "exec")
+    assert "local_files_only=True" in reranker_wrapper and "trust_remote_code=False" in reranker_wrapper
+    assert "ThreadingHTTPServer((\"127.0.0.1\", PORT)" in reranker_wrapper
+    assert "build_opener(NoRedirect)" in reranker_wrapper
+    assert "build_opener(NoRedirect)" in render("dot_local/bin/executable_dbsctr-code-embedding.tmpl")
+    graphify_wrapper = (ROOT / "dot_local/bin/executable_dbsctr-graphify").read_text()
+    compile(graphify_wrapper, "dbsctr-graphify", "exec")
+    assert "(deny network*)" in graphify_wrapper
+    assert "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8" in graphify_wrapper
+    models = json.loads((ROOT / "docs/specs/dbsctr_knowledge_store/DKS-003.models.json").read_text())
+    assert models["graphify"]["runtime_sha256"] in graphify_wrapper
+    assert models["graphify"]["producer_sha256"] == \
+        hashlib.sha256(graphify_wrapper.encode()).hexdigest()
+    assert "(deny default)" in graphify_wrapper and "(deny network*)" in graphify_wrapper
+    installer = (ROOT / "run_onchange_after_install-dbsctr-quality-services.sh.tmpl").read_text()
+    assert "graphify-sql-0.9.48-71cb9828" in installer
+    assert 'candidate_root="$HOME/.config/dotfiles-ai/models' not in installer
+    for name in ("code-embedding", "reranker"):
+        plist = render(f"private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-{name}.plist.tmpl")
+        target = tmp_path / f"{name}.plist"
+        target.write_text(plist)
+        subprocess.run(["plutil", "-lint", str(target)], check=True, capture_output=True)
+    for name in ("code-embedding", "reranker"):
+        manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
+        assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
 
 
 def test_loader_bootstraps_only_after_install_and_removes_only_owned_targets() -> None:
@@ -307,6 +354,406 @@ def test_dks002_schema_is_scoped_exact_and_rerunnable() -> None:
     assert "SELECT rc.project_id, rc.revision_id, rc.path, c.*" not in schema
 
 
+def test_dks003_source_profile_is_default_deny_and_byte_exact() -> None:
+    dks = load_dksctl()
+    profile = json.loads((ROOT / "docs/specs/dbsctr_knowledge_store/DKS-003.source-profile.json").read_text())
+    assert dks.accepted_source_path("dot_local/bin/executable_dksctl", profile)
+    assert dks.accepted_source_path("tests/test_dbsctrctl.py", profile)
+    assert dks.accepted_source_path("run_onchange_after_example.sh.tmpl", profile)
+    assert not dks.accepted_source_path("private_dot_config/app/.env", profile)
+    assert not dks.accepted_source_path("docs/_archive/old.md", profile)
+    assert not dks.accepted_source_path("unknown/new.py", profile)
+    assert not dks.accepted_source_path("dot_local/bin/unlisted", profile)
+    deployed = json.loads((ROOT / "dot_local/share/dbsctr-knowledge/source-profile.json").read_text())
+    assert deployed == profile
+
+
+def test_dks003_schema_preserves_baseline_and_adds_versioned_quality_projection() -> None:
+    schema = (ROOT / "dot_local/share/dbsctr-knowledge/schema.sql").read_text()
+    assert "VALUES (1)" in schema and "VALUES (2)" in schema
+    assert "authority_snapshots" in schema and "privacy_sequence" in schema
+    assert "authority_records" in schema and "authority_chunks" in schema
+    assert "vector(4096)" in schema and "vector(3584)" in schema
+    assert "graph_imports" in schema and "imported_graph_nodes" in schema
+    assert "imported_graph_edges" in schema and "ranking_policies" in schema
+    assert "privacy_state" in schema
+    policy_tables = schema.split("FOREACH relation_name IN ARRAY ARRAY[", 1)[1].split("] LOOP", 1)[0]
+    for table in ("authority_snapshots", "privacy_state", "authority_records", "authority_chunks",
+                  "authority_embeddings", "code_embeddings", "graph_imports", "imported_graph_nodes",
+                  "imported_graph_edges", "imported_graph_node_chunks", "ranking_policies"):
+        assert f"'{table}'" in policy_tables
+    assert "ENABLE ROW LEVEL SECURITY" in schema and "FORCE ROW LEVEL SECURITY" in schema
+
+
+def test_dks_source_v1_chunks_exact_nonoverlapping_lines() -> None:
+    dks = load_dksctl()
+    source = b"def one():\r\n    return 1\r\n\r\ndef two():\n    return 2\n"
+    chunks = dks.chunk_source(source, "example.py", lambda value: len(value.encode()), token_limit=45)
+    assert chunks
+    assert chunks[0]["start_byte"] == 0
+    assert chunks[-1]["end_byte"] == len(source)
+    assert all(left["end_byte"] == right["start_byte"] for left, right in zip(chunks, chunks[1:]))
+    assert all(chunk["body"].encode() == source[chunk["start_byte"]:chunk["end_byte"]] for chunk in chunks)
+    assert chunks == dks.chunk_source(source, "example.py", lambda value: len(value.encode()), token_limit=45)
+
+
+def test_dks_source_v1_tokenizer_calls_are_bounded() -> None:
+    dks = load_dksctl()
+    calls = 0
+
+    def count(value: str) -> int:
+        nonlocal calls
+        calls += 1
+        return len(value.encode())
+
+    chunks = dks.chunk_source(b"x\n" * 256, "example.py", count, token_limit=100)
+    assert chunks[-1]["end_byte"] == 512
+    assert calls < 300
+
+
+def test_dks_source_v1_resumes_at_oversized_line_end() -> None:
+    dks = load_dksctl()
+    source = b"a" * 45 + b"\n" + b"b" * 19 + b"\n"
+    chunks = dks.chunk_source(source, "example.py", lambda value: len(value.encode()), token_limit=45)
+    ends = [chunk["end_byte"] for chunk in chunks]
+    assert 46 in ends
+    assert not any(46 < end < len(source) for end in ends)
+
+
+def test_dks_source_v1_prefers_blank_then_declaration_boundaries() -> None:
+    dks = load_dksctl()
+    count = lambda value: len(value.encode())
+    blank = b"a" * 10 + b"\n\n" + b"b" * 10 + b"\n" + b"c" * 10 + b"\n"
+    declaration = b"a" * 10 + b"\ndef item():\n" + b"b" * 10 + b"\n"
+    assert dks.chunk_source(blank, "x.py", count, 48)[0]["end_byte"] == 12
+    assert dks.chunk_source(declaration, "x.py", count, 48)[0]["end_byte"] == 11
+
+
+def test_graphify_import_requires_exact_source_provenance() -> None:
+    dks = load_dksctl()
+    data = b"def answer():\n    return 42\n"
+    content = hashlib.sha256(data).hexdigest()
+    graph = {"nodes": [
+        {"id": "answer", "label": "answer", "file_type": "code",
+         "source_file": "example.py", "source_location": "L1", "_origin": "ast"},
+        {"id": "external", "label": "Path", "source_file": "", "source_location": "",
+         "_origin": "ast"},
+    ], "edges": [{"source": "answer", "target": "external", "relation": "USES",
+                   "confidence": "EXTRACTED", "source_file": "example.py",
+                   "source_location": "L1", "_origin": "ast"},
+                  {"source": "answer", "target": "missing", "relation": "CALLS",
+                   "confidence": "INFERRED", "source_file": "example.py",
+                   "source_location": "L1", "_origin": "ast"}], "hyperedges": [], "input_tokens": 0,
+              "output_tokens": 0}
+    validated = dks.validate_graphify_graph(
+        graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
+        "b" * 40, "0.9.48", "c" * 64)
+    assert validated["nodes"][0]["id"] == "answer"
+    assert validated["excluded_external_nodes"] == 1 and validated["links"] == []
+    assert validated["excluded_dangling_edges"] == 1
+    assert validated["artifact_sha256"] == "c" * 64
+    graph["nodes"][0]["source_location"] = "L3"
+    with pytest.raises(ValueError, match="source location"):
+        dks.validate_graphify_graph(
+            graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
+            "b" * 40, "0.9.48", "c" * 64)
+    graph["nodes"][0]["source_location"] = None
+    with pytest.raises(ValueError, match="source location"):
+        dks.validate_graphify_graph(
+            graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
+            "b" * 40, "0.9.48", "c" * 64)
+
+
+def test_graphify_import_sql_binds_identity_citations_and_completeness() -> None:
+    dks = load_dksctl()
+    graph = {"artifact_sha256": "a" * 64, "normalized_sha256": "b" * 64,
+             "version": "0.9.48", "excluded_external_nodes": 2,
+             "excluded_dangling_edges": 3,
+              "nodes": [{"id": "one", "label": "one", "confidence": "EXTRACTED",
+                         "source_location": {"path": "a.py", "start_byte": 0, "end_byte": 4}},
+                        {"id": "two", "label": "two", "confidence": "EXTRACTED",
+                         "source_location": {"path": "a.py", "start_byte": 4, "end_byte": 8}}],
+              "links": [{"source": "one", "target": "two", "relation": "calls",
+                         "confidence": "EXTRACTED",
+                         "source_location": {"path": "a.py", "start_byte": 0, "end_byte": 4}},
+                        {"source": "one", "target": "two", "relation": "calls",
+                         "confidence": "EXTRACTED",
+                         "source_location": {"path": "a.py", "start_byte": 4, "end_byte": 8}}]}
+    sql = "\n".join(dks.graph_import_statements(
+        "dotfiles-ai", "c" * 40, graph, "d" * 64, "e" * 64, "f" * 64))
+    assert "b2cd36267456c166788c95be6e68574064a92a42" in sql
+    assert "normalized_sha256" in sql and "source_profile_sha256" in sql
+    assert "corpus_manifest_sha256" in sql
+    assert "execution_receipt_sha256" in sql
+    assert "Graphify projection completeness mismatch" in sql
+    assert sql.index("projection completeness mismatch") < sql.index("SET state='active'")
+    assert sql.index("DELETE FROM dks.imported_graph_edges") < \
+        sql.index("DELETE FROM dks.imported_graph_nodes") < sql.index("DELETE FROM dks.graph_imports")
+    assert "policy_id='dks-quality-v2'" in sql and "activation_id='dks-rrf-v1'" in sql
+    edge_inserts = [item for item in dks.graph_import_statements(
+        "dotfiles-ai", "c" * 40, graph, "d" * 64, "e" * 64, "f" * 64)
+                    if item.startswith("INSERT INTO dks.imported_graph_edges")]
+    assert len(edge_inserts) == 2 and edge_inserts[0] != edge_inserts[1]
+
+
+def test_graphify_receipt_binds_runtime_corpus_and_artifact(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    config_sha = dks.digest_json(dks.GRAPHIFY_CONFIG)
+    receipt = {"schema_version": 1, "command_contract": "dks-graphify-code-v1",
+               "package": "graphifyy[sql]", "extractor_version": "0.9.48",
+               "extractor_revision": "b2cd36267456c166788c95be6e68574064a92a42",
+               "python_version": "3.13.2", "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+               "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256,
+               "config_sha256": config_sha, "corpus_manifest_sha256": "b" * 64,
+               "artifact_sha256": "c" * 64, "network_disabled": True,
+               "raw_extraction_sha256": "d" * 64, "excluded_missing_locations": 2,
+               "excluded_missing_location_ids_sha256": "e" * 64}
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(receipt))
+    path.chmod(0o600)
+    assert dks.load_graphify_receipt(path, "c" * 64, "b" * 64) == \
+        hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="identity mismatch"):
+        dks.load_graphify_receipt(path, "d" * 64, "b" * 64)
+    source = DKSCTL.read_text()
+    import_command = source[source.index("def command_import_graph"):source.index("def load_benchmark_aggregate")]
+    assert "producer_sha != GRAPHIFY_PRODUCER_SHA256" in import_command
+    assert "producer_copy.write_bytes(producer_raw)" in import_command
+    assert "subprocess.run([sys.executable, str(producer_copy)" in import_command
+
+
+def test_knowledge_export_validation_and_authority_sql_are_atomic() -> None:
+    dks = load_dksctl()
+    text = '{"decision":"keep"}'
+    record = {"type": "record", "schema_version": 1, "family": "review",
+              "record_id": "a" * 64, "revision": hashlib.sha256(text.encode()).hexdigest(),
+              "retention": "retained", "text": text}
+    manifest = {"type": "manifest", "schema_version": 1, "privacy_sequence": 2,
+                 "privacy_digest": "c" * 64,
+                 "families": {name: "available" for name in dks.KNOWLEDGE_FAMILIES},
+                 "record_count": 2}
+    privacy = {"type": "privacy", "schema_version": 1, "family": "review",
+               "record_id": "b" * 64, "reason": "forgotten", "timestamp": 1}
+    lines = [dks.canonical_json(manifest), dks.canonical_json(privacy), dks.canonical_json(record)]
+    terminal = {"type": "terminal", "schema_version": 1, "record_count": 2,
+                "digest": hashlib.sha256("".join(line + "\n" for line in lines).encode()).hexdigest()}
+    export = dks.parse_knowledge_export("\n".join([*lines, dks.canonical_json(terminal)]) + "\n")
+    chunks = dks.authority_chunks(export["records"], lambda value: len(value.encode()), 1024)
+    vectors = {chunk["chunk_id"]: [0.0] * 4095 + [1.0] for chunk in chunks}
+    sql = "\n".join(dks.authority_sync_statements("dotfiles-ai", export, chunks, vectors,
+                                                    "space", "d" * 64))
+    assert sql.startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;")
+    assert "authority_snapshots" in sql and "authority_records" in sql
+    assert "authority_chunks" in sql and "authority_embeddings" in sql
+    assert sql.index("'staging'") < sql.index("SET state='active'")
+    privacy_sql = "\n".join(dks.privacy_sync_statements("dotfiles-ai", export))
+    assert privacy_sql.startswith("BEGIN;") and privacy_sql.rstrip().endswith("COMMIT;")
+    assert "FOR UPDATE" in privacy_sql and "privacy identity rollback" in privacy_sql
+    assert "DELETE FROM dks.authority_records" not in sql
+    assert "DELETE FROM dks.authority_records" in privacy_sql
+    assert "privacy_denies" in privacy_sql and "authority export contains denied identity" in sql
+    assert "policy_id='dks-quality-v2'" in sql and "activation_id='dks-rrf-v1'" in sql
+    assert "policy_id='dks-quality-v2'" in privacy_sql and "activation_id='dks-rrf-v1'" in privacy_sql
+    assert privacy_sql.index("INSERT INTO dks.privacy_denies") < \
+        privacy_sql.index("DELETE FROM dks.authority_records")
+    assert privacy_sql.index("DELETE FROM dks.authority_records") < privacy_sql.index("COMMIT;")
+    bad = dict(terminal, digest="0" * 64)
+    with pytest.raises(ValueError, match="digest"):
+        dks.parse_knowledge_export("\n".join([*lines, dks.canonical_json(bad)]) + "\n")
+    tombstoned = dict(record, retention="tombstoned")
+    tombstone_lines = [dks.canonical_json(manifest), dks.canonical_json(privacy),
+                       dks.canonical_json(tombstoned)]
+    tombstone_terminal = dict(
+        terminal, digest=hashlib.sha256("".join(line + "\n" for line in tombstone_lines).encode()).hexdigest())
+    with pytest.raises(ValueError, match="record"):
+        dks.parse_knowledge_export(
+            "\n".join([*tombstone_lines, dks.canonical_json(tombstone_terminal)]) + "\n")
+
+
+def test_authority_chunk_identity_includes_family_and_record() -> None:
+    dks = load_dksctl()
+    records = [
+        {"family": "review", "record_id": "a" * 64, "text": "identical"},
+        {"family": "telemetry", "record_id": "b" * 64, "text": "identical"},
+    ]
+    chunks = dks.authority_chunks(records, lambda value: len(value.encode()), 1024)
+    assert len(chunks) == 2
+    assert chunks[0]["chunk_id"] != chunks[1]["chunk_id"]
+
+
+def test_quality_ranking_pins_exact_and_falls_back_deterministically() -> None:
+    dks = load_dksctl()
+    channels = {"lexical": ["semantic", "exact"], "vector": ["semantic", "exact"],
+                "exact": ["exact"]}
+    metadata = {
+        "exact": {"path": "docs/specs/example.md", "body": "release v3.27", "chunk_id": "exact"},
+        "semantic": {"path": "docs/specs/other.md", "body": "related", "chunk_id": "semantic"},
+    }
+    baseline = dks.quality_rank(channels, metadata, "find v3.27", None, 10)
+    reranked = dks.quality_rank(channels, metadata, "find v3.27", {"semantic": 0.99, "exact": 0.01}, 10)
+    assert baseline[0]["id"] == "exact"
+    assert reranked[0]["id"] == "exact"
+    assert dks.quality_rank(channels, metadata, "ordinary query", None, 10) == \
+        dks.quality_rank(channels, metadata, "ordinary query", None, 10)
+
+    crowded = {"lexical": [f"lex-{index}" for index in range(50)],
+               "vector": [f"vec-{index}" for index in range(50)], "exact": ["exact"]}
+    assert dks.quality_candidates(crowded)[0]["id"] == "exact"
+
+
+def test_quality_mutation_and_rollback_fail_closed() -> None:
+    source = DKSCTL.read_text()
+    sync_sql = source[source.index("def sync_statements"):source.index("def authority_sync_statements")]
+    sync_code = source[source.index("def command_sync_code"):source.index("def command_sync_evidence")]
+    activation = source[source.index("def command_activate_quality"):source.index("def command_benchmark_aggregate")]
+    rollback = source[source.index("def command_rollback_quality"):source.index("def command_materialize")]
+    assert "stored code embedding identity mismatch" in sync_code
+    assert "ranking_fallback_statements(project_id)" in sync_sql
+    assert "value_sha256<>" in sync_code and "value<>" in sync_code
+    assert rollback.count("pg_try_advisory_lock") == 1
+    assert "args.project + \":code\"" in rollback and "args.project + \":authority\"" in rollback
+    assert "FOR UPDATE" in rollback and rollback.index("FOR UPDATE") < rollback.index("SET active=false")
+    assert "args.project + \":authority\"" in activation and "projection_payload_sql" in activation
+    for field in ("source_projection_sha256", "authority_snapshot_set_sha256",
+                  "authority_projection_sha256",
+                  "privacy_sequence", "privacy_digest"):
+        assert field in activation
+    assert "aggregate != verified_aggregate" in activation
+    assert "validate_benchmark_approval" in activation
+    query = source[source.index("def command_query"):source.index("def command_guarded_query")]
+    assert query.count("c.body") >= 3
+    assert 'rrf({name: channels[name] for name in ("lexical", "vector", "graph")}' in query
+    assert 'if policy["policy_id"] == "dks-quality-v2"' in query
+    assert 'choices=range(1, 21)' in source
+    assert "pg_try_advisory_lock_shared" in query and "REPEATABLE READ READ ONLY" in query
+    assert "session.execute(sql)" in query
+    projection = source[source.index("def validate_quality_projection"):source.index("def projected_payload")]
+    assert "expected_manifest = digest_json" in projection and "policy[\"manifest_sha256\"]" in projection
+
+
+def test_stored_vector_digest_is_recomputed() -> None:
+    dks = load_dksctl()
+    vector = [1.0] + [0.0] * 4095
+    value = dks.vector_value(vector)
+    digest = hashlib.sha256(value.encode()).hexdigest()
+    dks.validate_stored_vector(vector, value, digest)
+    with pytest.raises(RuntimeError, match="identity"):
+        dks.validate_stored_vector(vector, value, "0" * 64)
+
+
+def test_benchmark_approval_precedes_source_revision(monkeypatch) -> None:
+    dks = load_dksctl()
+    config = {"quality_benchmark_approval_commit": "a" * 40,
+              "quality_benchmark_query_digest": "b" * 64,
+              "quality_benchmark_judgment_digest": "c" * 64}
+    manifest = {"source_revision": "d" * 40, "query_digest": "b" * 64,
+                "judgment_digest": "c" * 64}
+    approved = b'[dotfiles_ai.knowledge_store]\nquality_benchmark_query_digest = "' + \
+        b"b" * 64 + b'"\nquality_benchmark_judgment_digest = "' + b"c" * 64 + b'"\n'
+    monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
+                        subprocess.CompletedProcess([], 0))
+    monkeypatch.setattr(dks, "run_git", lambda *_args, **_kwargs: approved)
+    dks.validate_benchmark_approval(config, {"repository": "/repo"}, manifest)
+    manifest["query_digest"] = "e" * 64
+    with pytest.raises(RuntimeError, match="preapproved"):
+        dks.validate_benchmark_approval(config, {"repository": "/repo"}, manifest)
+    assert '"GIT_NO_REPLACE_OBJECTS": "1"' in DKSCTL.read_text()
+
+
+def test_exact_tokens_and_channel_are_strict_and_deterministic() -> None:
+    dks = load_dksctl()
+    digest = "a" * 64
+    query = f"find {digest} in `dot_local/bin/executable_dksctl` at v3.27"
+    assert dks.exact_query_tokens(query) == [digest, "dot_local/bin/executable_dksctl", "v3.27"]
+    assert dks.exact_query_tokens("`/absolute` `a//b` `a/../b` `a%2Fb` adjacentv3.27x") == []
+    metadata = {
+        "body-twice": {"body": f"{digest} {digest}"},
+        "metadata": {"content_id": digest, "body": ""},
+        "other": {"body": "unrelated"},
+    }
+    assert dks.exact_channel(metadata, digest) == ["metadata", "body-twice"]
+
+
+def test_benchmark_aggregate_enforces_activation_thresholds(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    passing = {"eligible": True, "relative_ndcg10": 0.05, "absolute_ndcg10": 0.06,
+               "baseline_ndcg10": 0.5, "ci95_lower": 0.001,
+               "max_stratum_regression": -0.02, "exact_citation_delta": 0.0,
+               "recall50_delta": 0.0, "deterministic_rank": True,
+               "warm_p95_seconds": 30.0, "peak_memory_gib": 56.0,
+               "memory_pressure": "normal", "swap_growth_bytes": 0}
+    value = {"schema_version": 1, "manifest_sha256": "a" * 64, "query_count": 100,
+             "strata": {f"s{index}": 20 for index in range(5)}, "judgment_depth": 50,
+             "duplicate_fraction": 0.2, "quadratic_kappa": 0.7, "matrix_complete": True,
+             "candidates": {"code": passing, "reranker": passing}}
+    path = tmp_path / "benchmark.json"
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+    loaded, digest = dks.load_benchmark_aggregate(path)
+    assert loaded == value and digest == hashlib.sha256(path.read_bytes()).hexdigest()
+    value["candidates"]["reranker"] = dict(passing, ci95_lower=0.0)
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="eligibility"):
+        dks.load_benchmark_aggregate(path)
+
+
+def test_benchmark_metrics_are_recomputed_from_frozen_evidence(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    systems = ("baseline", "code", "reranker", "code_reranker")
+    queries = []
+    for index in range(100):
+        ids = [f"chunk-{item}" for item in range(50)]
+        code = list(ids)
+        baseline = [*ids[1:], ids[0]]
+        queries.append({
+            "query_id": f"query-{index}", "stratum": f"s{index % 5}", "text": f"query {index}",
+            "judgments": {item: 3 if item == ids[0] else 0 for item in ids},
+            "rankings": {"baseline": baseline, "code": code,
+                         "reranker": baseline, "code_reranker": code},
+            "exact_citation": {name: True for name in systems},
+            "warmups_seconds": {name: [1.0, 1.0, 1.0] for name in systems},
+            "runs_seconds": {name: [1.0] * 5 for name in systems},
+            "repeat_rankings": {"baseline": [baseline, baseline], "code": [code, code],
+                                "reranker": [baseline, baseline], "code_reranker": [code, code]},
+        })
+    query_identity = [[item["query_id"], item["stratum"], item["text"]] for item in queries]
+    duplicate = [[3, 3] for _ in range(20)]
+    judgment_identity = [[item["query_id"], sorted(item["judgments"].items())] for item in queries]
+    judgment_identity.append(["duplicates", duplicate])
+    resources = {name: {"peak_memory_gib": 10.0, "memory_pressure": "normal",
+                        "swap_growth_bytes": 0} for name in ("code", "reranker")}
+    result_identity = [[item["query_id"], item["rankings"], item["exact_citation"],
+                        item["warmups_seconds"], item["runs_seconds"], item["repeat_rankings"]]
+                       for item in queries]
+    result_identity.append(["resources", resources])
+    manifest = {"query_count": 100, "strata": {f"s{index}": 20 for index in range(5)},
+                "query_digest": dks.digest_json(query_identity),
+                "judgment_digest": dks.digest_json(judgment_identity),
+                "result_digest": dks.digest_json(result_identity)}
+    evidence = {"schema_version": 1, "queries": queries, "duplicate_assessments": duplicate,
+                "resources": resources}
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps(evidence))
+    path.chmod(0o600)
+    aggregate = dks.load_benchmark_evidence(path, manifest, "a" * 64)
+    assert aggregate["candidates"]["code"]["eligible"] is True
+    assert aggregate["candidates"]["reranker"]["eligible"] is False
+    evidence["queries"][0]["repeat_rankings"]["code"][0] = baseline
+    result_identity = [[item["query_id"], item["rankings"], item["exact_citation"],
+                        item["warmups_seconds"], item["runs_seconds"], item["repeat_rankings"]]
+                       for item in evidence["queries"]]
+    result_identity.append(["resources", resources])
+    manifest["result_digest"] = dks.digest_json(result_identity)
+    path.write_text(json.dumps(evidence))
+    nondeterministic = dks.load_benchmark_evidence(path, manifest, "a" * 64)
+    assert nondeterministic["candidates"]["code"]["deterministic_rank"] is False
+    assert nondeterministic["candidates"]["code"]["eligible"] is False
+    evidence["queries"][0]["text"] = "mutated"
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="manifest identity"):
+        dks.load_benchmark_evidence(path, manifest, "a" * 64)
+
+
 def test_dksctl_normalizes_only_supported_repository_remotes() -> None:
     dks = load_dksctl()
 
@@ -347,6 +794,44 @@ def test_dksctl_reads_exact_git_blobs_not_dirty_worktree(tmp_path: Path) -> None
     source = DKSCTL.read_text()
     assert '"GIT_NO_REPLACE_OBJECTS": "1"' in source
     assert '"ls-tree", "-rz", "--full-tree", "-r"' in source
+
+
+def test_materialized_corpus_uses_only_exact_selected_blobs(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init")
+    git(repo, "config", "user.email", "test@example.com")
+    git(repo, "config", "user.name", "Test")
+    git(repo, "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai")
+    (repo / "src").mkdir()
+    (repo / "src/accepted.py").write_text("committed = True\n")
+    (repo / "secret.txt").write_text("excluded\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "fixture")
+    commit = git(repo, "rev-parse", "HEAD")
+    (repo / "src/accepted.py").write_text("dirty = True\n")
+    profile_path = tmp_path / "source-profile.json"
+    profile = {"schema_version": 1, "profile_id": "dks-source-profile-v1", "roots": ["src"],
+               "root_files": [], "root_prefix_suffix": [], "suffixes": [".py"],
+               "extensionless_paths": [], "excluded_components": [], "excluded_basenames": [],
+               "excluded_suffixes": []}
+    raw = canonical = dks.canonical_json(profile).encode()
+    profile_path.write_bytes(raw)
+    profile_path.chmod(0o600)
+    output = tmp_path / "corpus"
+    project = {"repository": str(repo), "remote": "https://github.com/Saltiola7/dotfiles-ai",
+               "source_profile_file": str(profile_path),
+               "source_profile_sha256": hashlib.sha256(raw).hexdigest()}
+    result = dks.command_materialize(
+        type("Args", (), {"output": str(output), "commit": commit, "project": "dotfiles-ai"})(),
+        {}, project)
+    assert result["documents"] == 1
+    assert (output / "src/accepted.py").read_text() == "committed = True\n"
+    assert not (output / "secret.txt").exists()
+    assert json.loads((output / "dks-corpus.json").read_text())["commit"] == commit
+    assert result["manifest_sha256"] == hashlib.sha256(
+        (output / "dks-corpus.json").read_bytes()).hexdigest()
 
 
 def test_dksctl_rejects_unsupported_git_modes_and_text(tmp_path: Path) -> None:
@@ -547,6 +1032,11 @@ def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> Non
     assert "DELETE ON dks.projects" not in migrator
     assert "SELECT ON PROPERTY GRAPH" in migrator
     assert "SELECT ON dks.schema_migrations" in migrator
+    vectors = migrator.index("DO $vectors$")
+    version = migrator.index("VALUES (4)")
+    commit = migrator.index("COMMIT;", vectors)
+    assert vectors < version < commit
+    assert "policy_id='dks-quality-v2'" in migrator and "activation_id='dks-rrf-v1'" in migrator
     assert "same-base compatible" in baseline
 
 
@@ -578,6 +1068,9 @@ def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
                 "enabled": True, "postgres_enabled": True,
                 "embedding_port": 11435, "embedding_dimensions": 4096,
                 "embedding_context_tokens": 4096, "model_root": "/models",
+                "quality_model_root": "/quality-models",
+                "quality_services_enabled": True, "code_embedding_port": 11436,
+                "reranker_port": 11437,
                 "projects": {"dotfiles_ai": {
                     "repository": "/repo", "remote": "https://github.com/example/repo",
                 }},
@@ -592,6 +1085,27 @@ def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
                               text=True, capture_output=True, check=True).stdout.encode()
     assert set(project["projects"]) == {"dotfiles-ai"}
     assert project["embedding"]["manifest_sha256"] == hashlib.sha256(manifest).hexdigest()
+    assert project["code_embedding"]["space_id"].startswith("nomic-code-")
+    assert project["reranker"]["model"] == "qwen3-reranker-4b"
+
+
+@pytest.mark.parametrize("path", [
+    "dot_local/bin/executable_dbsctr-code-embedding.tmpl",
+    "run_onchange_after_install-dbsctr-quality-services.sh.tmpl",
+    "run_onchange_after_load-dbsctr-code-embedding.sh.tmpl",
+    "run_onchange_after_load-dbsctr-reranker.sh.tmpl",
+])
+def test_quality_service_rendered_shell_is_valid(path: str) -> None:
+    subprocess.run(["/bin/bash", "-n"], input=render(path), text=True, check=True)
+
+
+def test_code_embedding_sync_persists_bounded_batches() -> None:
+    source = (ROOT / "dot_local/bin/executable_dksctl").read_text()
+    sync_code = source.split("def command_sync_code", 1)[1].split("def lifecycle_output", 1)[0]
+    assert 'for offset in range(0, len(rows), 8)' in sync_code
+    assert "GROUP BY c.chunk_id,c.body" in sync_code
+    assert 'missing = [row for row in batch' in sync_code
+    assert 'session.execute("\\n".join(statements))' in sync_code
 
 
 def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:

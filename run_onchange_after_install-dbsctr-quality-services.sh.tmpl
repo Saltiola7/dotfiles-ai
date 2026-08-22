@@ -1,0 +1,68 @@
+#!/bin/bash
+# quality enabled: {{ .dotfiles_ai.knowledge_store.quality_services_enabled }}
+# code manifest: {{ include "private_dot_config/dotfiles-ai/knowledge/code-embedding-space.json.tmpl" | sha256sum }}
+# reranker manifest: {{ include "private_dot_config/dotfiles-ai/knowledge/reranker-space.json.tmpl" | sha256sum }}
+set -euo pipefail
+[[ $(uname) == Darwin ]] || exit 0
+{{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.quality_services_enabled) -}}
+exit 0
+{{ else -}}
+{{ if eq (.dotfiles_ai.knowledge_store.code_embedding_port | int) (.dotfiles_ai.knowledge_store.reranker_port | int) -}}
+{{ fail "quality service ports must be distinct" }}
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.knowledge_store.code_embedding_port | int) 1024) (gt (.dotfiles_ai.knowledge_store.code_embedding_port | int) 65535) -}}
+{{ fail "code embedding port must be between 1024 and 65535" }}
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.knowledge_store.reranker_port | int) 1024) (gt (.dotfiles_ai.knowledge_store.reranker_port | int) 65535) -}}
+{{ fail "reranker port must be between 1024 and 65535" }}
+{{ end -}}
+state_root={{ .dotfiles_ai.state.root | quote }}
+source_root={{ .dotfiles_ai.knowledge_store.quality_model_root | quote }}
+private_dir="$state_root/dbsctr/knowledge/private"
+key_dir="$HOME/.config/dotfiles-ai/private"
+hasher="$private_dir/launch-sha256"
+[[ -d $source_root && -d $private_dir && -x $hasher && ! -L $hasher ]] || {
+    echo "install-dbsctr-quality-services: prerequisite unavailable" >&2
+    exit 1
+}
+/bin/mkdir -p "$key_dir"
+/bin/chmod 0700 "$key_dir"
+runtime_target="$HOME/.config/dotfiles-ai/runtime/llama.cpp-0e1d9185"
+if [[ ! -d $runtime_target ]]; then
+    /bin/mkdir -p "$HOME/.config/dotfiles-ai/runtime"
+    stage=$(/usr/bin/mktemp -d "$HOME/.config/dotfiles-ai/runtime/.llama-0e1d9185.part.XXXXXX")
+    trap '/bin/rm -rf "$stage"' EXIT
+    /bin/cp -c -R "$source_root/dbsctr/llama.cpp-0e1d9185/build/bin/." "$stage/"
+    /bin/chmod -R a-w "$stage"
+    /bin/mv "$stage" "$runtime_target"
+    trap - EXIT
+fi
+graphify_target="$HOME/.config/dotfiles-ai/runtime/graphify-sql-0.9.48-71cb9828"
+if [[ ! -d $graphify_target ]]; then
+    stage=$(/usr/bin/mktemp -d "$HOME/.config/dotfiles-ai/runtime/.graphify-0.9.48.part.XXXXXX")
+    trap '/bin/rm -rf "$stage"' EXIT
+    /bin/cp -c -R "$source_root/dbsctr/graphify-sql-0.9.48/." "$stage/"
+    /bin/chmod -R a-w "$stage"
+    /bin/mv "$stage" "$graphify_target"
+    trap - EXIT
+fi
+for name in code-embedding-api-key reranker-api-key; do
+    path="$key_dir/$name"
+    [[ ! -L $path ]] || { echo "install-dbsctr-quality-services: unsafe API key" >&2; exit 1; }
+    if [[ ! -e $path ]]; then
+        umask 077
+        temporary=$(/usr/bin/mktemp "$key_dir/.$name.part.XXXXXX")
+        trap '/bin/rm -f "$temporary"' EXIT
+        /usr/bin/openssl rand -hex 32 >"$temporary"
+        /bin/chmod 0600 "$temporary"
+        /bin/mv -f "$temporary" "$path"
+        trap - EXIT
+    fi
+    [[ -f $path && "$(/usr/bin/stat -f %Lp "$path")" == 600 && $(<"$path") =~ ^[0-9a-f]{64}$ ]] || {
+        echo "install-dbsctr-quality-services: invalid API key" >&2
+        exit 1
+    }
+done
+"$HOME/.local/bin/dbsctr-code-embedding" verify
+"$source_root/dbsctr/reranker-venv/bin/python" "$HOME/.local/bin/dbsctr-reranker" verify
+{{ end -}}

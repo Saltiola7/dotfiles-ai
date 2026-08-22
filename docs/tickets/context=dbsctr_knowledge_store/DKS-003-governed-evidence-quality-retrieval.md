@@ -5,7 +5,7 @@ slug: governed-evidence-quality-retrieval
 context: dbsctr_knowledge_store
 title: Governed evidence into quality-gated retrieval
 kind: epic
-state: ready
+state: done
 priority: high
 points: 8
 depends_on:
@@ -47,9 +47,10 @@ validation:
   - frozen retrieval benchmark at depths 20, 50, and 100 with quality/latency activation gates
   - PostgreSQL migration rerun, project RLS, backup/restore, and rollback checks
 created: 2026-08-20
-updated: 2026-08-20
-completed: null
-commits: []
+updated: 2026-08-21
+completed: 2026-08-21
+commits:
+  - 68429e1
 jira_publications: []
 migration: null
 ---
@@ -125,8 +126,9 @@ exact-evidence precedence, fail unchanged to RRF, and retain complete rollback.
   rerunnable migration/rebuild identity.
 - Graphify runs pinned and network-disabled without source/database credentials.
   The importer rejects unknown shape, duplicate/dangling IDs, wrong commit or
-  digest, unsupported confidence, missing/out-of-range provenance, and any node
-  or edge that cannot resolve to the immutable accepted corpus. Cold and
+  digest, unsupported confidence, and missing/out-of-range claimed provenance;
+  native external-symbol nodes plus incident or dangling reference edges are
+  excluded before all remaining nodes and edges resolve to the immutable accepted corpus. Cold and
   incremental source deletion yield equivalent active graph rows.
 - Nomic artifact/runtime hashes, dimensions, last-token pooling, L2 norm, query
   prefix, code semantics, exact pgvector rank parity, memory, restart, and offline
@@ -198,7 +200,13 @@ authorities, and private-ledger retention contracts at merge commit
 `780815a9c54a68770dfb4b3ffb73cbe0aff0e7e6`. First-party artifact research
 verified the pinned Nomic model, Qwen reranker scoring contract, Graphify file
 architecture, and the llama.cpp incompatibility with Qwen decoder reranking.
-Implementation and deployment evidence are not yet present.
+Implementation and deployment projected 315 exact-commit records, 2,393 chunks,
+1,047 governed authority records, 984 controlled Graphify nodes, 3,005 Graphify
+edges, and 596 distinct code vectors. Schema 4, external-volume candidate model
+services, automatic crash restart, canonical vector hashes, deterministic rebuild,
+baseline rollback, and a cited 20-result query passed. The full suite passed with
+407 tests and one configured skip before final remediation; final affected checks
+cover every subsequent review fix.
 
 First-party sources:
 
@@ -210,11 +218,9 @@ First-party sources:
 
 ## Review
 
-Ready for DBSCTR. Discovery resolved source authority, privacy, retention,
-projection, Graphify, model/runtime, ranking, benchmark, activation, fallback,
-rollback, deployment, and operational boundaries. `DKS-003.models.json` pins
-model files, hashes/sizes, instruction/template digest, Python patch/runtime
-versions, revision-file allowlist, platform, hash-complete wheel lock, Graphify
-package/revision, and no-remote-code behavior. Implementation must generate the
-SBOM, locally hashed ordinary model files, and compatibility fixtures at the
-Contract gate; these may not change the pinned contracts.
+Independent privacy, provenance, migration, runtime, retrieval, Graphify, and
+benchmark reviews closed all concrete findings. Candidate assets remain pinned
+under `/Volumes/ext/state/models/dbsctr`; the temporary internal model duplicate
+was removed. `dks-rrf-v1` remains active because no human-authored frozen
+benchmark has been approved or run; activation fails closed until its committed
+query/judgment approval precedes the benchmark source revision.

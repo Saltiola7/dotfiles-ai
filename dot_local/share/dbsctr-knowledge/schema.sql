@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS dks.knowledge_chunks (
     project_id text NOT NULL,
     chunk_id text NOT NULL CHECK (chunk_id ~ '^[0-9a-f]{64}$'),
     content_id text NOT NULL,
-    chunker_version text NOT NULL CHECK (chunker_version = 'dks-markdown-v1'),
+    chunker_version text NOT NULL CHECK (chunker_version IN ('dks-markdown-v1','dks-source-v1')),
     ordinal integer NOT NULL CHECK (ordinal >= 0),
     start_byte integer NOT NULL CHECK (start_byte >= 0),
     end_byte integer NOT NULL CHECK (end_byte > start_byte),
@@ -126,6 +126,9 @@ CREATE TABLE IF NOT EXISTS dks.knowledge_chunks (
 );
 CREATE INDEX IF NOT EXISTS knowledge_chunks_fts
     ON dks.knowledge_chunks USING gin(search_tsv);
+ALTER TABLE dks.knowledge_chunks DROP CONSTRAINT IF EXISTS knowledge_chunks_chunker_version_check;
+ALTER TABLE dks.knowledge_chunks ADD CONSTRAINT knowledge_chunks_chunker_version_check
+    CHECK (chunker_version IN ('dks-markdown-v1','dks-source-v1'));
 
 CREATE TABLE IF NOT EXISTS dks.embeddings (
     project_id text NOT NULL,
@@ -188,6 +191,214 @@ CREATE TABLE IF NOT EXISTS dks.graph_edges (
     FOREIGN KEY (project_id, revision_id, target_node_id)
         REFERENCES dks.graph_nodes(project_id, revision_id, node_id)
 );
+
+CREATE TABLE IF NOT EXISTS dks.authority_snapshots (
+    project_id text NOT NULL REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    source_kind text NOT NULL,
+    snapshot_id text NOT NULL CHECK (snapshot_id ~ '^[0-9a-f]{64}$'),
+    manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    privacy_sequence numeric(20,0) NOT NULL CHECK (privacy_sequence >= 0),
+    privacy_digest text NOT NULL CHECK (privacy_digest ~ '^[0-9a-f]{64}$'),
+    state text NOT NULL CHECK (state IN ('staging','active','retained','failed')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, source_kind, snapshot_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS authority_snapshots_one_active
+    ON dks.authority_snapshots(project_id, source_kind) WHERE state = 'active';
+
+CREATE TABLE IF NOT EXISTS dks.privacy_state (
+    project_id text PRIMARY KEY REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    privacy_sequence numeric(20,0) NOT NULL CHECK (privacy_sequence >= 0),
+    privacy_digest text NOT NULL CHECK (privacy_digest ~ '^[0-9a-f]{64}$'),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS dks.privacy_denies (
+    project_id text NOT NULL REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    source_kind text NOT NULL,
+    record_id text NOT NULL CHECK (record_id ~ '^[0-9a-f]{64}$'),
+    reason text NOT NULL CHECK (reason IN ('deleted','expired','forgotten')),
+    denied_at numeric(20,0) NOT NULL CHECK (denied_at >= 0),
+    PRIMARY KEY (project_id, source_kind, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS dks.authority_records (
+    project_id text NOT NULL,
+    source_kind text NOT NULL,
+    snapshot_id text NOT NULL,
+    record_id text NOT NULL CHECK (record_id ~ '^[0-9a-f]{64}$'),
+    revision text NOT NULL CHECK (revision ~ '^[0-9a-f]{64}$'),
+    retention text NOT NULL CHECK (retention IN ('retained','expires','tombstoned')),
+    body text NOT NULL,
+    content_id text NOT NULL CHECK (content_id ~ '^[0-9a-f]{64}$'),
+    PRIMARY KEY (project_id, source_kind, snapshot_id, record_id),
+    FOREIGN KEY (project_id, source_kind, snapshot_id)
+        REFERENCES dks.authority_snapshots(project_id, source_kind, snapshot_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dks.authority_chunks (
+    project_id text NOT NULL,
+    source_kind text NOT NULL,
+    snapshot_id text NOT NULL,
+    record_id text NOT NULL,
+    chunk_id text NOT NULL CHECK (chunk_id ~ '^[0-9a-f]{64}$'),
+    ordinal integer NOT NULL CHECK (ordinal >= 0),
+    start_byte integer NOT NULL CHECK (start_byte >= 0),
+    end_byte integer NOT NULL CHECK (end_byte > start_byte),
+    body text NOT NULL,
+    body_sha256 text NOT NULL CHECK (body_sha256 ~ '^[0-9a-f]{64}$'),
+    token_count integer NOT NULL CHECK (token_count BETWEEN 1 AND 1024),
+    search_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', body)) STORED,
+    PRIMARY KEY (project_id, source_kind, snapshot_id, record_id, chunk_id),
+    FOREIGN KEY (project_id, source_kind, snapshot_id, record_id)
+        REFERENCES dks.authority_records(project_id, source_kind, snapshot_id, record_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS authority_chunks_fts ON dks.authority_chunks USING gin(search_tsv);
+
+CREATE TABLE IF NOT EXISTS dks.authority_embeddings (
+    project_id text NOT NULL,
+    source_kind text NOT NULL,
+    snapshot_id text NOT NULL,
+    record_id text NOT NULL,
+    chunk_id text NOT NULL,
+    embedding_space_id text NOT NULL,
+    value vector(4096) NOT NULL,
+    value_sha256 text NOT NULL CHECK (value_sha256 ~ '^[0-9a-f]{64}$'),
+    PRIMARY KEY (project_id, source_kind, snapshot_id, record_id, chunk_id, embedding_space_id),
+    FOREIGN KEY (project_id, source_kind, snapshot_id, record_id, chunk_id)
+        REFERENCES dks.authority_chunks(project_id, source_kind, snapshot_id, record_id, chunk_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dks.code_embeddings (
+    project_id text NOT NULL,
+    chunk_id text NOT NULL,
+    embedding_space_id text NOT NULL,
+    value vector(3584) NOT NULL,
+    value_sha256 text NOT NULL CHECK (value_sha256 ~ '^[0-9a-f]{64}$'),
+    PRIMARY KEY (project_id, chunk_id, embedding_space_id),
+    FOREIGN KEY (project_id, chunk_id) REFERENCES dks.knowledge_chunks(project_id, chunk_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dks.code_embedding_spaces (
+    project_id text NOT NULL REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    embedding_space_id text NOT NULL,
+    manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    dimensions integer NOT NULL CHECK (dimensions = 3584),
+    PRIMARY KEY (project_id, embedding_space_id)
+);
+ALTER TABLE dks.code_embeddings DROP CONSTRAINT IF EXISTS code_embeddings_space_fk;
+ALTER TABLE dks.code_embeddings ADD CONSTRAINT code_embeddings_space_fk
+    FOREIGN KEY (project_id, embedding_space_id)
+    REFERENCES dks.code_embedding_spaces(project_id, embedding_space_id);
+
+CREATE TABLE IF NOT EXISTS dks.graph_imports (
+    project_id text NOT NULL REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    revision_id text NOT NULL,
+    artifact_sha256 text NOT NULL CHECK (artifact_sha256 ~ '^[0-9a-f]{64}$'),
+    normalized_sha256 text NOT NULL CHECK (normalized_sha256 ~ '^[0-9a-f]{64}$'),
+    extractor_version text NOT NULL,
+    extractor_revision text NOT NULL CHECK (extractor_revision ~ '^[0-9a-f]{40}$'),
+    config_sha256 text NOT NULL CHECK (config_sha256 ~ '^[0-9a-f]{64}$'),
+    source_profile_sha256 text NOT NULL CHECK (source_profile_sha256 ~ '^[0-9a-f]{64}$'),
+    corpus_manifest_sha256 text NOT NULL CHECK (corpus_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    execution_receipt_sha256 text NOT NULL CHECK (execution_receipt_sha256 ~ '^[0-9a-f]{64}$'),
+    expected_nodes integer NOT NULL CHECK (expected_nodes >= 0),
+    expected_edges integer NOT NULL CHECK (expected_edges >= 0),
+    excluded_external_nodes integer NOT NULL CHECK (excluded_external_nodes >= 0),
+    excluded_dangling_edges integer NOT NULL CHECK (excluded_dangling_edges >= 0),
+    state text NOT NULL CHECK (state IN ('staging','active','retained','failed')),
+    PRIMARY KEY (project_id, artifact_sha256)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS graph_imports_one_active
+    ON dks.graph_imports(project_id) WHERE state = 'active';
+ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS corpus_manifest_sha256 text
+    CHECK (corpus_manifest_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS execution_receipt_sha256 text
+    CHECK (execution_receipt_sha256 ~ '^[0-9a-f]{64}$');
+
+CREATE TABLE IF NOT EXISTS dks.imported_graph_nodes (
+    project_id text NOT NULL,
+    artifact_sha256 text NOT NULL,
+    node_id text NOT NULL CHECK (node_id ~ '^[0-9a-f]{64}$'),
+    raw_id text NOT NULL,
+    label text NOT NULL,
+    confidence text NOT NULL CHECK (confidence IN ('EXTRACTED','INFERRED','AMBIGUOUS')),
+    source_path text NOT NULL,
+    source_start_byte integer NOT NULL,
+    source_end_byte integer NOT NULL,
+    PRIMARY KEY (project_id, artifact_sha256, node_id),
+    FOREIGN KEY (project_id, artifact_sha256) REFERENCES dks.graph_imports(project_id, artifact_sha256) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dks.imported_graph_edges (
+    project_id text NOT NULL,
+    artifact_sha256 text NOT NULL,
+    edge_id text NOT NULL CHECK (edge_id ~ '^[0-9a-f]{64}$'),
+    source_node_id text NOT NULL,
+    target_node_id text NOT NULL,
+    relation text NOT NULL,
+    confidence text NOT NULL CHECK (confidence IN ('EXTRACTED','INFERRED','AMBIGUOUS')),
+    source_path text NOT NULL,
+    source_start_byte integer NOT NULL CHECK (source_start_byte >= 0),
+    source_end_byte integer NOT NULL CHECK (source_end_byte > source_start_byte),
+    PRIMARY KEY (project_id, artifact_sha256, edge_id),
+    FOREIGN KEY (project_id, artifact_sha256, source_node_id)
+        REFERENCES dks.imported_graph_nodes(project_id, artifact_sha256, node_id),
+    FOREIGN KEY (project_id, artifact_sha256, target_node_id)
+        REFERENCES dks.imported_graph_nodes(project_id, artifact_sha256, node_id)
+);
+
+CREATE TABLE IF NOT EXISTS dks.imported_graph_node_chunks (
+    project_id text NOT NULL,
+    artifact_sha256 text NOT NULL,
+    node_id text NOT NULL,
+    chunk_id text NOT NULL,
+    overlap_start_byte integer NOT NULL,
+    overlap_end_byte integer NOT NULL,
+    PRIMARY KEY (project_id,artifact_sha256,node_id,chunk_id),
+    FOREIGN KEY (project_id,artifact_sha256,node_id)
+        REFERENCES dks.imported_graph_nodes(project_id,artifact_sha256,node_id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id,chunk_id)
+        REFERENCES dks.knowledge_chunks(project_id,chunk_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dks.ranking_policies (
+    project_id text NOT NULL REFERENCES dks.projects(project_id) ON DELETE CASCADE,
+    activation_id text NOT NULL,
+    policy_id text NOT NULL CHECK (policy_id IN ('dks-rrf-v1','dks-quality-v2')),
+    manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    benchmark_sha256 text CHECK (benchmark_sha256 ~ '^[0-9a-f]{64}$'),
+    benchmark_aggregate_sha256 text CHECK (benchmark_aggregate_sha256 ~ '^[0-9a-f]{64}$'),
+    source_revision_id text CHECK (source_revision_id ~ '^[0-9a-f]{40}$'),
+    source_projection_sha256 text CHECK (source_projection_sha256 ~ '^[0-9a-f]{64}$'),
+    authority_snapshot_set_sha256 text CHECK (authority_snapshot_set_sha256 ~ '^[0-9a-f]{64}$'),
+    authority_projection_sha256 text CHECK (authority_projection_sha256 ~ '^[0-9a-f]{64}$'),
+    privacy_sequence numeric(20,0) CHECK (privacy_sequence >= 0),
+    privacy_digest text CHECK (privacy_digest ~ '^[0-9a-f]{64}$'),
+    code_embedding_space_id text,
+    graph_artifact_sha256 text,
+    reranker_manifest_sha256 text CHECK (reranker_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    active boolean NOT NULL DEFAULT false,
+    activated_at timestamptz,
+    PRIMARY KEY (project_id, activation_id),
+    FOREIGN KEY (project_id, code_embedding_space_id)
+        REFERENCES dks.code_embedding_spaces(project_id, embedding_space_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ranking_policies_one_active
+    ON dks.ranking_policies(project_id) WHERE active;
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS source_revision_id text
+    CHECK (source_revision_id ~ '^[0-9a-f]{40}$');
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS source_projection_sha256 text
+    CHECK (source_projection_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS authority_snapshot_set_sha256 text
+    CHECK (authority_snapshot_set_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS authority_projection_sha256 text
+    CHECK (authority_projection_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS privacy_sequence numeric(20,0)
+    CHECK (privacy_sequence >= 0);
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS privacy_digest text
+    CHECK (privacy_digest ~ '^[0-9a-f]{64}$');
 
 DO $constraints$
 BEGIN
@@ -287,37 +498,20 @@ LANGUAGE sql STABLE AS $$
     LIMIT candidate_limit
 $$;
 
-ALTER TABLE dks.projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.projects FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.embedding_spaces ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.embedding_spaces FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.source_revisions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.source_revisions FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.sync_runs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.sync_runs FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.content_objects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.content_objects FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.source_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.source_records FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.knowledge_chunks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.knowledge_chunks FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.embeddings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.embeddings FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.revision_chunks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.revision_chunks FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.graph_nodes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.graph_nodes FORCE ROW LEVEL SECURITY;
-ALTER TABLE dks.graph_edges ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dks.graph_edges FORCE ROW LEVEL SECURITY;
-
 DO $policy$
 DECLARE relation_name text;
 BEGIN
     FOREACH relation_name IN ARRAY ARRAY[
         'projects', 'embedding_spaces', 'source_revisions', 'sync_runs',
         'content_objects', 'source_records', 'knowledge_chunks', 'embeddings',
-        'revision_chunks', 'graph_nodes', 'graph_edges'
+        'revision_chunks', 'graph_nodes', 'graph_edges', 'authority_snapshots', 'privacy_state',
+        'privacy_denies',
+        'authority_records', 'authority_chunks', 'authority_embeddings',
+        'code_embedding_spaces', 'code_embeddings', 'graph_imports', 'imported_graph_nodes',
+        'imported_graph_edges', 'imported_graph_node_chunks', 'ranking_policies'
     ] LOOP
+        EXECUTE format('ALTER TABLE dks.%I ENABLE ROW LEVEL SECURITY', relation_name);
+        EXECUTE format('ALTER TABLE dks.%I FORCE ROW LEVEL SECURITY', relation_name);
         EXECUTE format('DROP POLICY IF EXISTS project_isolation ON dks.%I', relation_name);
         EXECUTE format(
             'CREATE POLICY project_isolation ON dks.%I ' ||
@@ -328,5 +522,7 @@ END
 $policy$;
 
 INSERT INTO dks.schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO dks.schema_migrations(version) VALUES (2) ON CONFLICT DO NOTHING;
+INSERT INTO dks.schema_migrations(version) VALUES (3) ON CONFLICT DO NOTHING;
 
 COMMIT;

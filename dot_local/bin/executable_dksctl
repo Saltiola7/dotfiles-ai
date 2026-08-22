@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import hashlib
 import json
 import math
@@ -7,9 +8,13 @@ import os
 import posixpath
 import re
 import secrets
+import shutil
 import stat
+import struct
 import subprocess
 import sys
+import tempfile
+import tomllib
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -17,8 +22,24 @@ from pathlib import Path
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GRAPHIFY_RUNTIME_SHA256 = "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8"
+GRAPHIFY_PRODUCER_SHA256 = "7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091"
+GRAPHIFY_CONFIG = {"extractor": "graphifyy[sql]", "mode": "code-only",
+                   "normalization": "stable-staged-graph-v1", "version": "0.9.48"}
 HEADING_RE = re.compile(rb"^(#{1,6})[ \t]+(.+?)[ \t]*$")
+DECLARATION_RE = re.compile(
+    rb"^[ \t]*(?:class|data|def|enum|fn|func|function|interface|locals|module|output|"
+    rb"package|provider|resource|struct|terraform|type|variable)\b")
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
+KNOWLEDGE_FAMILIES = (
+    "cycle", "gate_evidence", "review", "history_report", "history_capture",
+    "telemetry", "benchmark", "execution", "provider_evaluation", "improvement",
+)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
 
 
 def canonical_json(value) -> str:
@@ -27,6 +48,70 @@ def canonical_json(value) -> str:
 
 def digest_json(value) -> str:
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
+
+
+def parse_knowledge_export(value: str):
+    try:
+        lines = value.splitlines()
+        rows = [json.loads(line) for line in lines]
+    except json.JSONDecodeError as error:
+        raise ValueError("knowledge export is not canonical JSONL") from error
+    if len(rows) < 2 or any(canonical_json(row) != line for row, line in zip(rows, lines)):
+        raise ValueError("knowledge export is not canonical JSONL")
+    manifest, terminal = rows[0], rows[-1]
+    if (manifest.get("type") != "manifest" or manifest.get("schema_version") != 1
+            or set(manifest.get("families", {})) != set(KNOWLEDGE_FAMILIES)
+            or any(value not in ("available", "unavailable") for value in manifest["families"].values())
+            or not isinstance(manifest.get("privacy_sequence"), int)
+            or not 0 <= manifest["privacy_sequence"] < 2**64
+            or not SHA256_RE.fullmatch(manifest.get("privacy_digest", ""))):
+        raise ValueError("knowledge export manifest is invalid")
+    digest = hashlib.sha256("".join(f"{line}\n" for line in lines[:-1]).encode()).hexdigest()
+    if (terminal != {"type": "terminal", "schema_version": 1,
+                     "digest": digest, "record_count": len(rows) - 2}
+            or manifest.get("record_count") != len(rows) - 2):
+        raise ValueError("knowledge export terminal digest is invalid")
+    records, privacy, seen = [], [], set()
+    content_seen = False
+    for row in rows[1:-1]:
+        if row.get("type") == "privacy":
+            if (content_seen or set(row) != {"type", "schema_version", "family", "record_id",
+                                             "reason", "timestamp"}
+                    or row.get("schema_version") != 1
+                    or row.get("family") not in KNOWLEDGE_FAMILIES
+                    or not SHA256_RE.fullmatch(row.get("record_id", ""))
+                    or row.get("reason") not in {"deleted", "expired", "forgotten"}
+                    or type(row.get("timestamp")) is not int or row["timestamp"] < 0):
+                raise ValueError("knowledge export privacy record is invalid")
+            privacy.append(row)
+            continue
+        content_seen = True
+        if (set(row) != {"type", "schema_version", "family", "record_id", "revision", "retention", "text"}
+                or row.get("type") != "record" or row.get("schema_version") != 1
+                or row.get("family") not in KNOWLEDGE_FAMILIES
+                or not SHA256_RE.fullmatch(row.get("record_id", ""))
+                or not SHA256_RE.fullmatch(row.get("revision", ""))
+                or row.get("retention") not in ("retained", "expires")
+                or not isinstance(row.get("text"), str)
+                or hashlib.sha256(row["text"].encode()).hexdigest() != row["revision"]
+                or (row["family"], row["record_id"]) in seen):
+            raise ValueError("knowledge export record is invalid")
+        seen.add((row["family"], row["record_id"]))
+        records.append(row)
+    return {"manifest": manifest, "terminal": terminal, "records": records, "privacy": privacy}
+
+
+def authority_chunks(records, token_count, token_limit=1024):
+    output = []
+    for record in sorted(records, key=lambda item: (item["family"], item["record_id"])):
+        path = f"authority/{record['family']}/{record['record_id']}.json"
+        for chunk in chunk_source(record["text"].encode(), path, token_count, token_limit):
+            chunk["chunk_id"] = digest_json({"source_kind": record["family"],
+                                                "record_id": record["record_id"],
+                                                "source_chunk_id": chunk["chunk_id"]})
+            chunk.update(family=record["family"], record_id=record["record_id"])
+            output.append(chunk)
+    return output
 
 
 def normalize_remote(value: str) -> str:
@@ -69,7 +154,27 @@ def accepted_path(path: str) -> bool:
             "_archive" not in parts)
 
 
-def git_documents(repository: Path, commit: str, expected_remote: str):
+def accepted_source_path(path: str, profile: dict) -> bool:
+    if (not isinstance(path, str) or not path or path.startswith("/") or "\\" in path
+            or any(part in ("", ".", "..") for part in path.split("/"))):
+        return False
+    parts = path.split("/")
+    if (any(part in profile.get("excluded_components", []) for part in parts)
+            or parts[-1] in profile.get("excluded_basenames", [])
+            or any(path.endswith(suffix) for suffix in profile.get("excluded_suffixes", []))):
+        return False
+    selected = (path in profile.get("root_files", [])
+                or any(path == root or path.startswith(root + "/") for root in profile.get("roots", []))
+                or "/" not in path and any(
+                    path.startswith(rule["prefix"]) and path.endswith(rule["suffix"])
+                    for rule in profile.get("root_prefix_suffix", [])))
+    if not selected:
+        return False
+    return (path in profile.get("extensionless_paths", [])
+            or any(path.endswith(suffix) for suffix in profile.get("suffixes", [])))
+
+
+def git_documents(repository: Path, commit: str, expected_remote: str, source_profile=None):
     repository = repository.resolve(strict=True)
     if not COMMIT_RE.fullmatch(commit):
         raise ValueError("commit must be a lowercase 40-hex SHA-1")
@@ -80,8 +185,9 @@ def git_documents(repository: Path, commit: str, expected_remote: str):
         raise ValueError("repository remote mismatch")
     if run_git(repository, "cat-file", "-t", commit).strip() != "commit":
         raise ValueError("revision is not a commit")
+    selectors = () if source_profile else ("docs/specs", "docs/tickets")
     tree = run_git(repository, "ls-tree", "-rz", "--full-tree", "-r", commit, "--",
-                   "docs/specs", "docs/tickets", binary=True)
+                   *selectors, binary=True)
     documents = []
     for row in tree.split(b"\0"):
         if not row:
@@ -89,14 +195,16 @@ def git_documents(repository: Path, commit: str, expected_remote: str):
         metadata, raw_path = row.split(b"\t", 1)
         mode, kind, raw_oid = metadata.split(b" ", 2)
         path = raw_path.decode("utf-8", errors="strict")
-        if not accepted_path(path):
+        accepted = accepted_source_path(path, source_profile) if source_profile else accepted_path(path)
+        if not accepted:
             continue
         if mode not in {b"100644", b"100755"} or kind != b"blob":
             raise ValueError(f"unsupported Git mode for {path}")
         oid = raw_oid.decode()
         data = run_git(repository, "cat-file", "blob", oid, binary=True)
         validate_markdown(data)
-        documents.append({"path": path, "blob_id": oid, "data": data})
+        documents.append({"path": path, "blob_id": oid, "data": data,
+                          "chunker": "dks-markdown-v1" if accepted_path(path) else "dks-source-v1"})
     return sorted(documents, key=lambda item: item["path"].encode())
 
 
@@ -113,6 +221,168 @@ def source_lines(data: bytes):
             else:
                 position += 1
         yield start, payload_end, position, data[start:payload_end]
+
+
+def source_embedding_text(path: str, body: bytes) -> str:
+    kind = Path(path).suffix.lstrip(".") or "executable"
+    return f"path={path}\nkind={kind}\n\n{body.decode('utf-8')}"
+
+
+def chunk_source(data: bytes, path: str, token_count, token_limit: int = 1024):
+    validate_markdown(data)
+    if not data:
+        return []
+    lines = list(source_lines(data))
+    counts = {}
+
+    def measure(start, end):
+        key = (start, end)
+        if key not in counts:
+            counts[key] = token_count(source_embedding_text(path, data[start:end]))
+        return counts[key]
+
+    def fitting_end(start, candidates):
+        end = None
+        for candidate in candidates:
+            if measure(start, candidate) > token_limit:
+                break
+            end = candidate
+        return end
+
+    def fitting_codepoint_end(start, candidates):
+        low, high = 0, len(candidates)
+        while low < high:
+            middle = (low + high) // 2
+            if measure(start, candidates[middle]) <= token_limit:
+                low = middle + 1
+            else:
+                high = middle
+        end = candidates[low - 1] if low else None
+        return end if end is not None and measure(start, end) <= token_limit else None
+
+    chunks = []
+    content_id = hashlib.sha256(data).hexdigest()
+    position = 0
+    while position < len(data):
+        remaining = [line for line in lines if line[2] > position]
+        line_ends = [line[2] for line in remaining]
+        end = fitting_end(position, line_ends)
+        if end is not None and end < len(data):
+            fitted = [line for line in remaining if line[2] <= end]
+            blank = [line[2] for line in fitted if not line[3].strip(b" \t")]
+            declarations = [line[0] for line in fitted
+                            if line[0] > position and DECLARATION_RE.match(line[3])]
+            end = max(blank or declarations or [end])
+        if end is None:
+            candidates = []
+            candidate = position
+            line_end = line_ends[0]
+            while candidate < line_end:
+                width = (1 if data[candidate] < 0x80 else 2 if data[candidate] < 0xE0
+                         else 3 if data[candidate] < 0xF0 else 4)
+                candidate += width
+                candidates.append(candidate)
+            end = fitting_codepoint_end(position, candidates)
+            if end is None:
+                raise ValueError("source context leaves no room for one UTF-8 code point")
+        body = data[position:end]
+        body_sha = hashlib.sha256(body).hexdigest()
+        ordinal = len(chunks)
+        text = source_embedding_text(path, body)
+        identity = {"body_sha256": body_sha, "chunker": "dks-source-v1",
+                    "content_id": content_id, "end_byte": end, "heading_path": [],
+                    "ordinal": ordinal, "source_kind": Path(path).suffix or "executable",
+                    "start_byte": position}
+        chunks.append({"start_byte": position, "end_byte": end, "body": body.decode("utf-8"),
+                       "body_bytes": body, "body_sha256": body_sha,
+                       "chunk_id": digest_json(identity), "content_id": content_id,
+                       "embedding_text": text, "embedding_tokens": measure(position, end),
+                       "token_count": measure(position, end), "heading_path": [],
+                       "ordinal": ordinal, "chunker_version": "dks-source-v1"})
+        position = end
+    return chunks
+
+
+def graphify_location(document, value):
+    if value is None and document["data"]:
+        return {"path": document["path"], "blob_id": document["blob_id"],
+                "content_sha256": hashlib.sha256(document["data"]).hexdigest(),
+                "start_byte": 0, "end_byte": len(document["data"])}
+    match = re.fullmatch(r"L([1-9][0-9]*)", str(value))
+    if not match:
+        raise ValueError("invalid Graphify source location")
+    lines = list(source_lines(document["data"]))
+    line = int(match.group(1))
+    if line > len(lines):
+        raise ValueError("invalid Graphify source location")
+    start, _payload_end, end, _payload = lines[line - 1]
+    return {"path": document["path"], "blob_id": document["blob_id"],
+            "content_sha256": hashlib.sha256(document["data"]).hexdigest(),
+            "start_byte": start, "end_byte": end}
+
+
+def validate_graphify_graph(graph: dict, documents: dict, commit: str, version: str,
+                            artifact_sha256=None, corpus_manifest_sha256=None):
+    if (not COMMIT_RE.fullmatch(commit) or version != "0.9.48" or not isinstance(graph, dict)
+            or set(graph) != {"nodes", "edges", "hyperedges", "input_tokens", "output_tokens"}
+            or not isinstance(graph.get("nodes"), list) or len(graph["nodes"]) > 100000
+            or not isinstance(graph.get("edges"), list) or len(graph["edges"]) > 500000
+            or graph.get("hyperedges") != [] or graph.get("input_tokens") != 0
+            or graph.get("output_tokens") != 0
+            or artifact_sha256 is not None and not SHA256_RE.fullmatch(artifact_sha256)):
+        raise ValueError("invalid Graphify artifact")
+    seen = set()
+    external = set()
+    nodes = []
+    node_fields = {"_callable", "_callable_class", "_origin", "confidence", "ecosystem",
+                   "file_type", "frontmatter", "id", "label", "metadata", "node_kind",
+                   "source_file", "source_location", "type", "version"}
+    for node in graph["nodes"]:
+        if (not isinstance(node, dict) or not isinstance(node.get("id"), str)
+                or set(node) - node_fields or node.get("_origin") != "ast"
+                or node.get("confidence", "EXTRACTED") not in {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
+                or not 1 <= len(node["id"].encode()) <= 512 or node["id"] in seen):
+            raise ValueError("invalid Graphify node")
+        seen.add(node["id"])
+        path = node.get("source_file")
+        location = node.get("source_location")
+        if path in (None, "") and location in (None, ""):
+            external.add(node["id"])
+            continue
+        if not isinstance(path, str) or path not in documents or location in (None, ""):
+            raise ValueError("invalid Graphify source location")
+        normalized = {"id": node["id"], "label": str(node.get("label", node["id"])),
+                      "confidence": node.get("confidence", "EXTRACTED"),
+                      "source_location": graphify_location(documents[path], location)}
+        nodes.append(normalized)
+    links = []
+    dangling = 0
+    edge_fields = {"_origin", "confidence", "confidence_score", "context", "relation",
+                   "source", "source_file", "source_location", "target", "weight"}
+    for link in graph["edges"]:
+        if not isinstance(link, dict) or set(link) - edge_fields or link.get("_origin") != "ast":
+            raise ValueError("invalid Graphify link")
+        if link.get("source") not in seen or link.get("target") not in seen:
+            dangling += 1
+            continue
+        if link["source"] in external or link["target"] in external:
+            continue
+        if (not isinstance(link.get("relation"), str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", link.get("relation", ""))
+                or link.get("confidence", "EXTRACTED") not in {"EXTRACTED", "INFERRED", "AMBIGUOUS"}):
+            raise ValueError("invalid Graphify link")
+        path = link.get("source_file")
+        if (not isinstance(path, str) or path not in documents
+                or link.get("source_location") in (None, "")):
+            raise ValueError("invalid Graphify source location")
+        links.append({"source": link["source"], "target": link["target"],
+                      "relation": link["relation"], "confidence": link.get("confidence", "EXTRACTED"),
+                      "source_location": graphify_location(documents[path], link.get("source_location"))})
+    identity = {"commit": commit, "version": version, "nodes": nodes, "links": links,
+                "corpus_manifest_sha256": corpus_manifest_sha256,
+                "excluded_external_nodes": len(external), "excluded_dangling_edges": dangling}
+    return {**identity, "artifact_sha256": artifact_sha256 or digest_json(graph),
+            "normalized_sha256": digest_json(identity)}
 
 
 def fence_open(payload: bytes):
@@ -407,11 +677,13 @@ def build_graph(project_id: str, revision_id: str, documents, chunks):
 
     link_pattern = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
     for chunk in chunks:
+        if chunk.get("chunker_version") == "dks-source-v1":
+            continue
         source = node_id(project_id, "chunk", chunk["chunk_id"])
         for match in link_pattern.finditer(chunk["body"]):
             link = match.group(1).strip()
             parsed = urllib.parse.urlsplit(link)
-            if parsed.scheme or parsed.netloc or link.startswith("/"):
+            if parsed.scheme or parsed.netloc or parsed.query or link.startswith("/"):
                 continue
             target_path, fragment = resolve_project_link(chunk["path"], link)
             if target_path not in paths:
@@ -440,6 +712,56 @@ def rrf(channels, limit: int = 20, k: int = 60):
     ordered = sorted(scores, key=lambda identity: (-scores[identity], identity))[:limit]
     return [{"id": identity, "score": scores[identity], "ranks": ranks[identity]}
             for identity in ordered]
+
+
+def exact_query_tokens(query: str):
+    tokens = set(re.findall(r"(?<![0-9A-Za-z._/+:-])(?:[0-9a-f]{64}|[0-9a-f]{40}|"
+                            r"v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?)"
+                            r"(?![0-9A-Za-z._/+:-])", query))
+    for path in re.findall(r"`([^`\n]+)`", query):
+        parts = path.split("/")
+        if (not path.startswith("/") and "\\" not in path and "%" not in path
+                and all(part not in ("", ".", "..") for part in parts)
+                and posixpath.normpath(path) == path):
+            tokens.add(path)
+    return sorted(tokens)
+
+
+def exact_channel(metadata, query, limit=20):
+    tokens = exact_query_tokens(query)
+    ranked = []
+    for chunk_id, row in metadata.items():
+        meta = "\n".join(str(row.get(key, "")) for key in (
+            "path", "blob_id", "commit", "content_id", "body_sha256", "chunk_id"))
+        body = str(row.get("body", ""))
+        metadata_matches = sum(token in meta for token in tokens)
+        body_matches = sum(body.count(token) for token in tokens)
+        if metadata_matches or body_matches:
+            distinct_matches = sum(token in meta or token in body for token in tokens)
+            ranked.append((-distinct_matches, -metadata_matches, -body_matches, chunk_id))
+    return [chunk_id for *_keys, chunk_id in sorted(ranked)[:limit]]
+
+
+def quality_candidates(channels, limit=50):
+    fused = rrf(channels, limit=sum(len(items) for items in channels.values()))
+    by_id = {item["id"]: item for item in fused}
+    pinned = [by_id[chunk_id] for chunk_id in channels.get("exact", [])[:20]
+              if chunk_id in by_id]
+    pinned_ids = {item["id"] for item in pinned}
+    return pinned + [item for item in fused if item["id"] not in pinned_ids][:limit - len(pinned)]
+
+
+def quality_rank(channels, metadata, query, rerank_scores=None, limit=10):
+    fused = quality_candidates(channels)
+    exact_ids = set(channels.get("exact", []))
+    pinned = [item for item in fused if item["id"] in exact_ids]
+    remainder = [item for item in fused if item["id"] not in exact_ids]
+    if rerank_scores is not None:
+        remainder.sort(key=lambda item: (-float(rerank_scores.get(item["id"], float("-inf"))),
+                                         -item["score"], item["id"]))
+        for item in remainder:
+            item["rerank_score"] = rerank_scores.get(item["id"])
+    return (pinned + remainder)[:limit]
 
 
 def sql_literal(value) -> str:
@@ -474,6 +796,27 @@ def selected_project(config, project_id: str):
     if not isinstance(project, dict):
         raise ValueError("invalid project configuration")
     return project
+
+
+def load_source_profile(project):
+    value = project.get("source_profile_file")
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    try:
+        details = path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) & 0o022):
+            raise OSError("unsafe source profile")
+        raw = path.read_bytes()
+        profile = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("source profile unavailable") from error
+    if (hashlib.sha256(raw).hexdigest() != project.get("source_profile_sha256")
+            or profile.get("schema_version") != 1
+            or profile.get("profile_id") != "dks-source-profile-v1"):
+        raise ValueError("source profile identity mismatch")
+    return profile
 
 
 def run_psql(config, project_id: str, sql: str):
@@ -553,13 +896,104 @@ def api_request(config, path: str, payload):
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *_args, **_kwargs):
-                return None
         with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
             return json.load(response)
     except Exception as error:
         raise RuntimeError("embedding request failed") from error
+
+
+def code_api_request(config, path: str, payload):
+    service = config.get("code_embedding", {})
+    key_path = Path(service.get("api_key_file", "")).expanduser()
+    try:
+        details = key_path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) != 0o600):
+            raise OSError("unsafe code embedding credential")
+        key = key_path.read_text().strip()
+    except OSError as error:
+        raise RuntimeError("code embedding credential unavailable") from error
+    url = urllib.parse.urlsplit(service.get("url", ""))
+    if (url.scheme != "http" or url.hostname != "127.0.0.1" or url.port is None
+            or url.username or url.password or url.path not in ("", "/")
+            or url.query or url.fragment or not re.fullmatch(r"[0-9a-f]{64}", key)):
+        raise RuntimeError("code embedding endpoint is not approved loopback")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{url.port}" + path,
+        data=json.dumps(payload, separators=(",", ":")).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+            return json.load(response)
+    except Exception as error:
+        raise RuntimeError("code embedding request failed") from error
+
+
+def validate_reranker_config(config, expected_manifest):
+    service = config.get("reranker", {})
+    if service.get("manifest_sha256") != expected_manifest:
+        raise RuntimeError("reranker activation identity mismatch")
+    manifest_path = Path(service.get("manifest_file", "")).expanduser()
+    try:
+        manifest_details = manifest_path.lstat()
+        manifest_raw = manifest_path.read_bytes()
+        manifest = json.loads(manifest_raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("reranker manifest unavailable") from error
+    if (not stat.S_ISREG(manifest_details.st_mode) or manifest_details.st_uid != os.getuid()
+            or stat.S_IMODE(manifest_details.st_mode) & 0o022
+            or hashlib.sha256(manifest_raw).hexdigest() != expected_manifest
+            or manifest.get("model", {}).get("revision")
+            != "22e683669bc0f0bd69640a1354a6d0aebcfeede5"):
+        raise RuntimeError("reranker manifest identity mismatch")
+    return manifest
+
+
+def rerank(config, query, candidates, expected_manifest=None):
+    if expected_manifest is None:
+        return None
+    service = config.get("reranker", {})
+    manifest = validate_reranker_config(config, expected_manifest)
+    key_path = Path(service.get("api_key_file", "")).expanduser()
+    try:
+        details = key_path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) != 0o600):
+            raise OSError("unsafe reranker credential")
+        key = key_path.read_text().strip()
+    except OSError as error:
+        raise RuntimeError("reranker credential unavailable") from error
+    url = urllib.parse.urlsplit(service.get("url", ""))
+    if (url.scheme != "http" or url.hostname != "127.0.0.1" or url.port is None
+            or url.username or url.password or url.path not in ("", "/")
+            or url.query or url.fragment or not re.fullmatch(r"[0-9a-f]{64}", key)):
+        raise RuntimeError("reranker endpoint is not approved loopback")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{url.port}/rerank",
+        data=json.dumps({"model": service.get("model"), "query": query,
+                         "documents": [item["body"] for item in candidates]},
+                        separators=(",", ":")).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+            body = json.load(response)
+    except Exception as error:
+        raise RuntimeError("reranker request failed") from error
+    scores = body.get("scores")
+    if (body.get("model") != service.get("model")
+            or body.get("revision") != manifest["model"]["revision"]
+            or body.get("template_sha256") != manifest.get("contract", {}).get("template_sha256")
+            or body.get("truncation") != "longest_first" or not isinstance(scores, list)
+            or len(scores) != len(candidates)
+            or any(not isinstance(score, (int, float)) or isinstance(score, bool)
+                   or not math.isfinite(score) or not 0 <= score <= 1 for score in scores)):
+        raise RuntimeError("reranker response invalid")
+    return ({item["chunk_id"]: float(score) for item, score in zip(candidates, scores)},
+            {"reranker_id": manifest.get("reranker_id"), "revision": body["revision"],
+             "runtime": manifest.get("runtime"), "template_sha256": body["template_sha256"],
+             "truncation": body["truncation"]})
 
 
 def token_counter(config):
@@ -593,13 +1027,69 @@ def embed(config, texts):
     return vectors
 
 
-def validate_vector(vector):
-    if not isinstance(vector, list) or len(vector) != 4096 or \
+def validate_vector(vector, dimensions=4096):
+    if not isinstance(vector, list) or len(vector) != dimensions or \
             not all(isinstance(value, (int, float)) and math.isfinite(value) for value in vector):
         raise RuntimeError("embedding vector invalid")
     norm = math.sqrt(sum(value * value for value in vector))
     if abs(norm - 1.0) > 1e-3:
         raise RuntimeError("embedding vector is not normalized")
+
+
+def vector_value(vector):
+    values = []
+    for item in vector:
+        packed = struct.pack("!f", float(item))
+        value = struct.unpack("!f", packed)[0]
+        values.append(next(text for precision in range(1, 10)
+                           if struct.pack("!f", float(text := format(value, f".{precision}g"))) == packed))
+    return "[" + ",".join(values) + "]"
+
+
+def validate_stored_vector(vector, value_text, value_sha256, dimensions=4096):
+    validate_vector(vector, dimensions)
+    if (not SHA256_RE.fullmatch(value_sha256 or "")
+            or hashlib.sha256(value_text.encode()).hexdigest() != value_sha256):
+        raise RuntimeError("stored embedding identity mismatch")
+
+
+def validate_code_embedding_config(config):
+    service = config.get("code_embedding", {})
+    path = Path(service.get("manifest_file", "")).expanduser()
+    try:
+        details = path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) & 0o022):
+            raise OSError("unsafe code embedding manifest")
+        raw = path.read_bytes()
+        manifest = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("code embedding manifest unavailable") from error
+    url = urllib.parse.urlsplit(service.get("url", ""))
+    if (hashlib.sha256(raw).hexdigest() != service.get("manifest_sha256")
+            or manifest.get("embedding_space_id") != service.get("space_id")
+            or manifest.get("contract") != {"context_tokens": 32768, "dimensions": 3584,
+                                               "normalization": "l2", "pooling": "last"}
+            or manifest.get("service", {}).get("host") != "127.0.0.1"
+            or manifest.get("service", {}).get("port") != url.port
+            or service.get("model") != "nomic-embed-code-q4km"):
+        raise RuntimeError("code embedding manifest identity mismatch")
+
+
+def code_embed(config, texts):
+    if not texts:
+        return []
+    service = config.get("code_embedding", {})
+    body = code_api_request(config, "/v1/embeddings", {"model": service.get("model"), "input": texts})
+    rows = body.get("data", [])
+    if (body.get("model") != service.get("model") or not isinstance(rows, list)
+            or any(not isinstance(item, dict) or type(item.get("index")) is not int for item in rows)
+            or sorted(item["index"] for item in rows) != list(range(len(texts)))):
+        raise RuntimeError("code embedding response invalid")
+    vectors = [item.get("embedding") for item in sorted(rows, key=lambda item: item["index"])]
+    for vector in vectors:
+        validate_vector(vector, 3584)
+    return vectors
 
 
 def validate_embedding_config(config):
@@ -643,6 +1133,104 @@ SELECT json_build_object(
 )::text FROM dks.projects p WHERE p.project_id=current_setting('dks.project_id');
 """)
     return json.loads(lines[-1]) if lines else {"project": args.project, "active_revision": None}
+
+
+def active_ranking_policy(config, project_id, session=None):
+    sql = """
+SELECT json_build_object('activation_id',activation_id,'policy_id',policy_id,
+  'manifest_sha256',manifest_sha256,'benchmark_sha256',benchmark_sha256,
+  'benchmark_aggregate_sha256',benchmark_aggregate_sha256,
+  'source_revision_id',source_revision_id,'source_projection_sha256',source_projection_sha256,
+  'authority_snapshot_set_sha256',authority_snapshot_set_sha256,
+  'authority_projection_sha256',authority_projection_sha256,
+  'privacy_sequence',privacy_sequence::text,'privacy_digest',privacy_digest,
+  'current_source_revision',(SELECT active_revision_id FROM dks.projects p WHERE p.project_id=ranking_policies.project_id),
+  'current_privacy_sequence',(SELECT privacy_sequence::text FROM dks.privacy_state s WHERE s.project_id=ranking_policies.project_id),
+  'current_privacy_digest',(SELECT privacy_digest FROM dks.privacy_state s WHERE s.project_id=ranking_policies.project_id),
+  'code_embedding_space_id',code_embedding_space_id,
+  'graph_artifact_sha256',graph_artifact_sha256,
+  'reranker_manifest_sha256',reranker_manifest_sha256)::text
+FROM dks.ranking_policies WHERE project_id=current_setting('dks.project_id') AND active;
+"""
+    lines = session.execute(sql) if session else run_psql(config, project_id, sql)
+    if len(lines) != 1:
+        raise RuntimeError("active ranking policy is unavailable")
+    policy = json.loads(lines[0])
+    if (policy.get("policy_id") not in {"dks-rrf-v1", "dks-quality-v2"}
+            or not SHA256_RE.fullmatch(policy.get("manifest_sha256", ""))
+            or (policy["policy_id"] == "dks-quality-v2"
+                and (not SHA256_RE.fullmatch(policy.get("benchmark_sha256") or "")
+                     or not SHA256_RE.fullmatch(policy.get("benchmark_aggregate_sha256") or "")
+                     or not SHA256_RE.fullmatch(policy.get("activation_id") or "")
+                     or not COMMIT_RE.fullmatch(policy.get("source_revision_id") or "")
+                     or any(not SHA256_RE.fullmatch(policy.get(name) or "") for name in (
+                         "source_projection_sha256", "authority_snapshot_set_sha256",
+                         "authority_projection_sha256", "privacy_digest"))
+                     or not str(policy.get("privacy_sequence") or "").isdigit()
+                     or policy.get("current_source_revision") != policy.get("source_revision_id")
+                     or policy.get("current_privacy_sequence") != policy.get("privacy_sequence")
+                     or policy.get("current_privacy_digest") != policy.get("privacy_digest")))
+            or any(value is not None and not SHA256_RE.fullmatch(value) for value in (
+                policy.get("graph_artifact_sha256"), policy.get("reranker_manifest_sha256")))):
+        raise RuntimeError("active ranking policy identity is invalid")
+    return policy
+
+
+def imported_graph_channel(config, project_id, artifact, seed_ids, session=None):
+    if not artifact or not seed_ids:
+        return []
+    seeds = ",".join(f"({rank},{sql_literal(chunk_id)})"
+                     for rank, chunk_id in enumerate(seed_ids, 1))
+    sql = f"""
+WITH seeds(seed_rank,chunk_id) AS (VALUES {seeds}), adjacent AS (
+  SELECT s.seed_rank,e.relation,e.edge_id,target.chunk_id
+  FROM seeds s
+  JOIN dks.imported_graph_node_chunks source ON source.chunk_id=s.chunk_id
+  JOIN dks.imported_graph_edges e ON e.project_id=source.project_id
+    AND e.artifact_sha256=source.artifact_sha256 AND e.source_node_id=source.node_id
+  JOIN dks.imported_graph_node_chunks target ON target.project_id=e.project_id
+    AND target.artifact_sha256=e.artifact_sha256 AND target.node_id=e.target_node_id
+  WHERE e.artifact_sha256={sql_literal(artifact)} AND e.confidence='EXTRACTED'
+  UNION ALL
+  SELECT s.seed_rank,e.relation,e.edge_id,source.chunk_id
+  FROM seeds s
+  JOIN dks.imported_graph_node_chunks target ON target.chunk_id=s.chunk_id
+  JOIN dks.imported_graph_edges e ON e.project_id=target.project_id
+    AND e.artifact_sha256=target.artifact_sha256 AND e.target_node_id=target.node_id
+  JOIN dks.imported_graph_node_chunks source ON source.project_id=e.project_id
+    AND source.artifact_sha256=e.artifact_sha256 AND source.node_id=e.source_node_id
+  WHERE e.artifact_sha256={sql_literal(artifact)} AND e.confidence='EXTRACTED'
+)
+SELECT chunk_id FROM adjacent ORDER BY seed_rank,relation,edge_id,chunk_id;
+"""
+    lines = session.execute(sql) if session else run_psql(config, project_id, sql)
+    seen = set(seed_ids)
+    result = []
+    for chunk_id in lines:
+        if chunk_id not in seen:
+            seen.add(chunk_id)
+            result.append(chunk_id)
+        if len(result) == 20:
+            break
+    return result
+
+
+def graphify_provenance(config, project_id, artifact, session=None):
+    if not artifact:
+        return None
+    sql = f"""
+SELECT json_build_object('artifact_sha256',artifact_sha256,'normalized_sha256',normalized_sha256,
+  'extractor_version',extractor_version,'extractor_revision',extractor_revision,
+  'config_sha256',config_sha256,'source_profile_sha256',source_profile_sha256,
+  'corpus_manifest_sha256',corpus_manifest_sha256,'execution_receipt_sha256',execution_receipt_sha256,
+  'excluded_external_nodes',excluded_external_nodes,'excluded_dangling_edges',excluded_dangling_edges)::text
+FROM dks.graph_imports WHERE project_id=current_setting('dks.project_id')
+  AND artifact_sha256={sql_literal(artifact)} AND state='active';
+"""
+    lines = session.execute(sql) if session else run_psql(config, project_id, sql)
+    if len(lines) != 1:
+        raise RuntimeError("active Graphify provenance is unavailable")
+    return json.loads(lines[0])
 
 
 def graph_channel(project_id, seed_ids, edges, nodes, chunks):
@@ -689,17 +1277,38 @@ def graph_channel(project_id, seed_ids, edges, nodes, chunks):
     return ordered
 
 
-def command_query(args, config, project):
+def command_query_transaction(args, config, project, session):
+    policy = active_ranking_policy(config, args.project, session)
+    validate_quality_projection(config, args.project, policy, session)
+    maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
+    if not 1 <= args.limit <= maximum:
+        raise ValueError(f"query limit must be between 1 and {maximum}")
+    if (policy["policy_id"] == "dks-quality-v2" and args.commit
+            and args.commit != policy["source_revision_id"]):
+        raise RuntimeError("quality policy is not valid for the selected revision")
     validate_embedding_config(config)
     vector = embed(config, [f"Instruct: Retrieve authoritative DBSCTR engineering evidence\nQuery:{args.text}"])[0]
     vector_sql = "[" + ",".join(format(float(value), ".9g") for value in vector) + "]"
+    code_sql = ""
+    if policy.get("code_embedding_space_id"):
+        validate_code_embedding_config(config)
+        prefix = "Represent this query for searching relevant code: "
+        code_vector = code_embed(config, [prefix + args.text])[0]
+        code_value = "[" + ",".join(format(float(value), ".9g") for value in code_vector) + "]"
+        code_sql = f"""
+  UNION ALL
+  SELECT 'code_vector', c.chunk_id, -(e.value <#> {sql_literal(code_value)}::vector(3584))
+  FROM scoped_chunks c JOIN dks.code_embeddings e USING(project_id,chunk_id)
+  WHERE c.chunker_version='dks-source-v1'
+    AND e.embedding_space_id={sql_literal(policy['code_embedding_space_id'])}
+"""
     revision_filter = (sql_literal(args.commit) if args.commit else
                        "(SELECT active_revision_id FROM dks.projects WHERE project_id=current_setting('dks.project_id'))")
     sql = f"""
-WITH scoped_chunks AS (
+WITH git_chunks AS (
   SELECT DISTINCT ON (c.chunk_id) rc.project_id, rc.revision_id, rc.path, sr.blob_id,
          c.chunk_id, c.content_id, c.ordinal, c.start_byte, c.end_byte, c.heading_path,
-         c.body_sha256, c.search_tsv, e.value
+          c.body_sha256, c.body, c.search_tsv, c.chunker_version, e.value
   FROM dks.revision_chunks rc
   JOIN dks.knowledge_chunks c USING (project_id, chunk_id)
   JOIN dks.source_records sr USING (project_id, revision_id, path)
@@ -707,6 +1316,22 @@ WITH scoped_chunks AS (
   JOIN dks.projects p USING (project_id)
   WHERE rc.revision_id={revision_filter} AND e.embedding_space_id=p.active_embedding_space_id
   ORDER BY c.chunk_id, rc.path
+), authority_scoped AS (
+  SELECT c.project_id, c.snapshot_id AS revision_id,
+         ('authority/' || c.source_kind || '/' || c.record_id || '.json') AS path,
+         r.revision AS blob_id, c.chunk_id, r.content_id, c.ordinal, c.start_byte, c.end_byte,
+           '[]'::jsonb AS heading_path, c.body_sha256, c.body, c.search_tsv,
+          'dks-authority-v1' AS chunker_version, e.value
+  FROM dks.authority_chunks c
+  JOIN dks.authority_records r USING (project_id,source_kind,snapshot_id,record_id)
+  JOIN dks.authority_snapshots s USING (project_id,source_kind,snapshot_id)
+  JOIN dks.authority_embeddings e USING (project_id,source_kind,snapshot_id,record_id,chunk_id)
+  JOIN dks.projects p USING (project_id)
+  WHERE s.state='active' AND e.embedding_space_id=p.active_embedding_space_id
+), scoped_chunks AS (
+  SELECT * FROM git_chunks
+  UNION ALL
+  SELECT * FROM authority_scoped
 ), candidates AS (
   SELECT 'lexical' AS channel, c.chunk_id,
          ts_rank_cd(c.search_tsv, websearch_to_tsquery('english', {sql_literal(args.text)}), 32)::double precision AS score
@@ -715,6 +1340,7 @@ WITH scoped_chunks AS (
   UNION ALL
   SELECT 'vector', c.chunk_id, -(c.value <#> {sql_literal(vector_sql)}::vector(4096))
   FROM scoped_chunks c
+  {code_sql}
 ), ranked AS (
   SELECT *, row_number() OVER (PARTITION BY channel ORDER BY score DESC, chunk_id ASC) AS rank
   FROM candidates
@@ -724,7 +1350,7 @@ FROM ranked WHERE rank <= 20
 UNION ALL
 SELECT json_build_object('kind','chunk','chunk_id',c.chunk_id,'path',c.path,'ordinal',c.ordinal,
   'heading_path',c.heading_path,'start_byte',c.start_byte,'end_byte',c.end_byte,'content_id',c.content_id,
-  'body_sha256',c.body_sha256,'blob_id',c.blob_id,'commit',c.revision_id)::text
+  'body_sha256',c.body_sha256,'blob_id',c.blob_id,'commit',c.revision_id,'body',c.body)::text
 FROM scoped_chunks c
 UNION ALL
 SELECT json_build_object('kind','node','node_id',node_id,'node_kind',kind,'stable_key',stable_key,'path',path,'heading_path',heading_path)::text
@@ -737,12 +1363,12 @@ FROM GRAPH_TABLE (
            edge.edge_id AS edge_id, edge.edge_type AS edge_type, target.node_id AS target_node_id)
 ) graph_rows WHERE revision_id={revision_filter};
 """
-    rows = [json.loads(line) for line in run_psql(config, args.project, sql)]
+    rows = [json.loads(line) for line in session.execute(sql)]
     channel_rows = [row for row in rows if row["kind"] == "candidate"]
     channels = {
         name: [row["chunk_id"] for row in sorted(channel_rows, key=lambda item: item["rank"])
                if row["channel"] == name]
-        for name in ("lexical", "vector")
+        for name in ("lexical", "vector", "code_vector")
     }
     seeds = [item["id"] for item in rrf(channels, limit=10)]
     chunks = [row for row in rows if row["kind"] == "chunk"]
@@ -754,17 +1380,90 @@ FROM GRAPH_TABLE (
           "path": row.get("path"), "heading_path": row.get("heading_path")} for row in rows if row["kind"] == "node"],
         chunks,
     )
+    channels["graphify"] = imported_graph_channel(
+        config, args.project, policy.get("graph_artifact_sha256"), seeds, session)
     metadata = {row["chunk_id"]: row for row in chunks}
+    channels["exact"] = exact_channel(metadata, args.text)
+    reranker_provenance = fallback = None
+    fused_results = rrf({name: channels[name] for name in ("lexical", "vector", "graph")},
+                        args.limit)
+    if policy["policy_id"] == "dks-quality-v2":
+        rerank_scores = None
+        try:
+            candidates = [metadata[item["id"]] for item in quality_candidates(channels)
+                          if item["id"] in metadata]
+            reranked = rerank(config, args.text, candidates,
+                              policy.get("reranker_manifest_sha256"))
+            if reranked is not None:
+                rerank_scores, reranker_provenance = reranked
+        except RuntimeError as error:
+            fallback = str(error)
+        fused_results = quality_rank(channels, metadata, args.text, rerank_scores, args.limit)
     results = []
-    for fused in rrf(channels, limit=args.limit):
+    for fused in fused_results:
         if fused["id"] not in metadata:
             continue
         citation = {key: value for key, value in metadata[fused["id"]].items()
-                    if key not in {"kind", "heading_path", "ordinal"}}
+                    if key not in {"kind", "heading_path", "ordinal", "body"}}
         fused["score_terms"] = {name: 1.0 / (60 + rank) for name, rank in fused["ranks"].items()}
         results.append({**citation, **fused})
     return {"project": args.project, "revision": args.commit or (results[0]["commit"] if results else None),
+            "ranking_policy": policy["policy_id"], "activation": policy,
+            "graphify": graphify_provenance(config, args.project,
+                                             policy.get("graph_artifact_sha256"), session),
+            "reranker": reranker_provenance, "reranker_fallback": fallback,
             "results": results}
+
+
+def command_query(args, config, project):
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock_shared(hashtextextended({sql_literal(lock_name)}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("quality query lock unavailable")
+        session.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+        result = command_query_transaction(args, config, project, session)
+        session.execute("COMMIT;")
+    return result
+
+
+def command_guarded_query(args, config, project):
+    policy = active_ranking_policy(config, args.project)
+    maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
+    args.limit = args.limit if args.limit is not None else maximum
+    if not 1 <= args.limit <= maximum:
+        raise ValueError(f"query limit must be between 1 and {maximum}")
+    lines = run_psql(config, args.project, """
+SELECT json_build_object('privacy_sequence',privacy_sequence::text,
+                         'privacy_digest',privacy_digest)::text
+FROM dks.privacy_state WHERE project_id=current_setting('dks.project_id');
+""")
+    if not lines:
+        raise RuntimeError("knowledge privacy state is unavailable")
+    identity = json.loads(lines[-1])
+    executable = str(Path(config.get("dbsctrctl", "~/.local/bin/dbsctrctl")).expanduser())
+    state_root = project.get("knowledge_state_root")
+    if not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute():
+        raise ValueError("knowledge state root is unavailable")
+    command = [
+        executable, "knowledge-privacy-guard", "--state-root", state_root,
+        "--expected-sequence", identity["privacy_sequence"],
+        "--expected-digest", identity["privacy_digest"], "--",
+        sys.executable, str(Path(__file__).resolve()), "_query-core",
+        "--config", args.config, "--project", args.project, "--text", args.text,
+        "--limit", str(args.limit),
+    ]
+    if args.commit:
+        command.extend(["--commit", args.commit])
+    completed = subprocess.run(command, text=True, capture_output=True, stdin=subprocess.DEVNULL)
+    if completed.returncode:
+        raise RuntimeError("privacy-guarded query failed")
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("privacy-guarded query returned invalid JSON") from error
 
 
 def projection_payload_sql(revision: str):
@@ -779,9 +1478,72 @@ SELECT json_build_object(
 """
 
 
-def projection_identity(config, project_id: str, revision: str):
-    lines = run_psql(config, project_id, projection_payload_sql(revision))
+def projection_identity(config, project_id: str, revision: str, session=None):
+    sql = projection_payload_sql(revision)
+    lines = session.execute(sql) if session else run_psql(config, project_id, sql)
     return digest_json(json.loads(lines[-1])) if lines else None
+
+
+def authority_projection_payload_sql():
+    return """
+SELECT json_build_object(
+  'snapshots',(SELECT coalesce(jsonb_agg(jsonb_build_array(source_kind,snapshot_id,manifest_sha256)
+      ORDER BY source_kind,snapshot_id), '[]'::jsonb) FROM dks.authority_snapshots
+      WHERE project_id=current_setting('dks.project_id') AND state='active'),
+  'records',(SELECT coalesce(jsonb_agg(jsonb_build_array(r.source_kind,r.snapshot_id,r.record_id,
+      r.revision,r.retention,r.content_id,r.body) ORDER BY r.source_kind,r.snapshot_id,r.record_id), '[]'::jsonb)
+      FROM dks.authority_records r JOIN dks.authority_snapshots s
+      USING(project_id,source_kind,snapshot_id) WHERE r.project_id=current_setting('dks.project_id')
+      AND s.state='active'),
+  'chunks',(SELECT coalesce(jsonb_agg(jsonb_build_array(c.source_kind,c.snapshot_id,c.record_id,
+      c.chunk_id,c.body_sha256,c.body) ORDER BY c.source_kind,c.snapshot_id,c.record_id,c.chunk_id), '[]'::jsonb)
+      FROM dks.authority_chunks c JOIN dks.authority_snapshots s
+      USING(project_id,source_kind,snapshot_id) WHERE c.project_id=current_setting('dks.project_id')
+      AND s.state='active'),
+  'embeddings',(SELECT coalesce(jsonb_agg(jsonb_build_array(e.source_kind,e.snapshot_id,e.record_id,
+      e.chunk_id,e.embedding_space_id,e.value_sha256)
+      ORDER BY e.source_kind,e.snapshot_id,e.record_id,e.chunk_id,e.embedding_space_id), '[]'::jsonb)
+      FROM dks.authority_embeddings e JOIN dks.authority_snapshots s
+      USING(project_id,source_kind,snapshot_id) WHERE e.project_id=current_setting('dks.project_id')
+      AND s.state='active'),
+  'privacy_sequence',(SELECT privacy_sequence::text FROM dks.privacy_state
+      WHERE project_id=current_setting('dks.project_id')),
+  'privacy_digest',(SELECT privacy_digest FROM dks.privacy_state
+      WHERE project_id=current_setting('dks.project_id')))::text;
+"""
+
+
+def validate_quality_projection(config, project_id, policy, session=None):
+    if policy["policy_id"] != "dks-quality-v2":
+        return
+    source_sha = projection_identity(config, project_id, policy["source_revision_id"], session)
+    sql = authority_projection_payload_sql()
+    rows = session.execute(sql) if session else run_psql(config, project_id, sql)
+    if len(rows) != 1:
+        raise RuntimeError("quality authority projection is unavailable")
+    authority = json.loads(rows[0])
+    expected_manifest = digest_json({
+        "aggregate_sha256": policy["benchmark_aggregate_sha256"],
+        "authority_projection_sha256": policy["authority_projection_sha256"],
+        "authority_snapshot_set_sha256": policy["authority_snapshot_set_sha256"],
+        "benchmark_sha256": policy["benchmark_sha256"],
+        "code_embedding_space_id": policy["code_embedding_space_id"],
+        "graph_artifact_sha256": policy["graph_artifact_sha256"],
+        "policy_id": "dks-quality-v2", "privacy_digest": policy["privacy_digest"],
+        "privacy_sequence": int(policy["privacy_sequence"]),
+        "reranker_manifest_sha256": policy["reranker_manifest_sha256"],
+        "source_projection_sha256": policy["source_projection_sha256"],
+        "source_revision_id": policy["source_revision_id"],
+    })
+    if (source_sha != policy["source_projection_sha256"]
+            or digest_json(authority["snapshots"]) != policy["authority_snapshot_set_sha256"]
+            or digest_json(authority) != policy["authority_projection_sha256"]
+            or authority.get("privacy_sequence") != policy["privacy_sequence"]
+            or authority.get("privacy_digest") != policy["privacy_digest"]
+            or expected_manifest != policy["manifest_sha256"]
+            or digest_json({"manifest_sha256": expected_manifest,
+                            "revision": policy["source_revision_id"]}) != policy["activation_id"]):
+        raise RuntimeError("active quality projection identity mismatch")
 
 
 def projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, edges):
@@ -799,6 +1561,19 @@ def projected_payload(documents, chunks, embedding_space, vector_hashes, nodes, 
         "nodes": sorted(node["node_id"] for node in nodes),
         "edges": sorted(edge["edge_id"] for edge in edges),
     }
+
+
+def ranking_fallback_statements(project_id):
+    project = sql_literal(project_id)
+    return [
+        f"UPDATE dks.ranking_policies SET active=false WHERE project_id={project} "
+        "AND active AND policy_id='dks-quality-v2';",
+        f"UPDATE dks.ranking_policies SET active=true,activated_at=now() WHERE project_id={project} "
+        "AND activation_id='dks-rrf-v1';",
+        "DO $policy$ BEGIN IF (SELECT count(*) FROM dks.ranking_policies WHERE project_id="
+        f"{project} AND active)<>1 THEN RAISE EXCEPTION 'baseline ranking policy unavailable'; "
+        "END IF; END $policy$;",
+    ]
 
 
 def sync_statements(project_id, commit, run_id, embedding_space, manifest_sha,
@@ -840,16 +1615,16 @@ def sync_statements(project_id, commit, run_id, embedding_space, manifest_sha,
         heading_json = canonical_json(chunk["heading_path"])
         statements.append(
             "INSERT INTO dks.knowledge_chunks(project_id,chunk_id,content_id,chunker_version,ordinal,start_byte,end_byte,heading_path,heading_text,body,body_sha256,token_count) VALUES ("
-            f"{sql_literal(project_id)},{sql_literal(chunk['chunk_id'])},{sql_literal(chunk['content_id'])},'dks-markdown-v1',"
+            f"{sql_literal(project_id)},{sql_literal(chunk['chunk_id'])},{sql_literal(chunk['content_id'])},{sql_literal(chunk.get('chunker_version', 'dks-markdown-v1'))},"
             f"{chunk['ordinal']},{chunk['start_byte']},{chunk['end_byte']},{sql_literal(heading_json)}::jsonb,"
             f"{sql_literal(' > '.join(chunk['heading_path']))},{sql_literal(chunk['body'])},{sql_literal(chunk['body_sha256'])},{chunk['embedding_tokens']}) ON CONFLICT DO NOTHING;")
         embedding_id = digest_json({"chunk_id": chunk["chunk_id"], "embedding_space_id": embedding_space})
-        vector_value = "[" + ",".join(format(float(value), ".9g") for value in vectors[embedding_id]) + "]"
-        vector_sha = hashlib.sha256(vector_value.encode()).hexdigest()
+        stored_value = vector_value(vectors[embedding_id])
+        vector_sha = hashlib.sha256(stored_value.encode()).hexdigest()
         statements.append(
             "INSERT INTO dks.embeddings(project_id,embedding_id,chunk_id,embedding_space_id,value,value_sha256) VALUES ("
             f"{sql_literal(project_id)},{sql_literal(embedding_id)},{sql_literal(chunk['chunk_id'])},"
-            f"{sql_literal(embedding_space)},{sql_literal(vector_value)}::vector(4096),{sql_literal(vector_sha)}) ON CONFLICT DO NOTHING;")
+            f"{sql_literal(embedding_space)},{sql_literal(stored_value)}::vector(4096),{sql_literal(vector_sha)}) ON CONFLICT DO NOTHING;")
         statements.append(
             "INSERT INTO dks.revision_chunks(project_id,run_id,revision_id,path,chunk_id) VALUES ("
             f"{sql_literal(project_id)},{sql_literal(run_id)},{sql_literal(commit)},"
@@ -880,9 +1655,229 @@ def sync_statements(project_id, commit, run_id, embedding_space, manifest_sha,
         f"UPDATE dks.sync_runs SET state='retained', finished_at=now() WHERE project_id={sql_literal(project_id)} AND state='active';",
         f"UPDATE dks.projects SET active_revision_id={sql_literal(commit)}, active_run_id={sql_literal(run_id)}, active_embedding_space_id={sql_literal(embedding_space)}, updated_at=now() WHERE project_id={sql_literal(project_id)};",
         f"UPDATE dks.sync_runs SET state='active', finished_at=now() WHERE project_id={sql_literal(project_id)} AND run_id={sql_literal(run_id)};",
-        "COMMIT;",
     ])
+    statements.extend(ranking_fallback_statements(project_id))
+    statements.append("COMMIT;")
     return statements
+
+
+def authority_sync_statements(project_id, export, chunks, vectors, embedding_space, manifest_sha):
+    manifest = export["manifest"]
+    stream_digest = export["terminal"]["digest"]
+    by_family = {family: [] for family in KNOWLEDGE_FAMILIES}
+    for record in export["records"]:
+        by_family[record["family"]].append(record)
+    chunks_by_record = {}
+    for chunk in chunks:
+        chunks_by_record.setdefault((chunk["family"], chunk["record_id"]), []).append(chunk)
+    statements = ["BEGIN;"]
+    incoming = [(record["family"], record["record_id"]) for record in export["records"]]
+    if incoming:
+        values = ",".join(f"({sql_literal(family)},{sql_literal(record_id)})"
+                          for family, record_id in incoming)
+        statements.append(
+            "DO $deny$ BEGIN IF EXISTS (SELECT 1 FROM dks.privacy_denies d "
+            f"JOIN (VALUES {values}) AS incoming(source_kind,record_id) USING(source_kind,record_id) "
+            f"WHERE d.project_id={sql_literal(project_id)}) THEN "
+            "RAISE EXCEPTION 'authority export contains denied identity'; END IF; END $deny$;")
+    for family in KNOWLEDGE_FAMILIES:
+        if manifest["families"][family] == "unavailable":
+            continue
+        snapshot = digest_json({"family": family, "stream_digest": stream_digest})
+        statements.append(
+            "UPDATE dks.authority_snapshots SET state='retained' WHERE project_id="
+            f"{sql_literal(project_id)} AND source_kind={sql_literal(family)} AND state='active';")
+        statements.append(
+            "DELETE FROM dks.authority_snapshots WHERE project_id="
+            f"{sql_literal(project_id)} AND source_kind={sql_literal(family)} "
+            f"AND snapshot_id={sql_literal(snapshot)};")
+        statements.append(
+            "INSERT INTO dks.authority_snapshots(project_id,source_kind,snapshot_id,manifest_sha256,"
+            "privacy_sequence,privacy_digest,state) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(family)},{sql_literal(snapshot)},"
+            f"{sql_literal(stream_digest)},{manifest['privacy_sequence']},{sql_literal(manifest['privacy_digest'])},"
+            "'staging');")
+        for record in by_family[family]:
+            content_id = hashlib.sha256(record["text"].encode()).hexdigest()
+            statements.append(
+                "INSERT INTO dks.authority_records(project_id,source_kind,snapshot_id,record_id,revision,"
+                "retention,body,content_id) VALUES ("
+                f"{sql_literal(project_id)},{sql_literal(family)},{sql_literal(snapshot)},"
+                f"{sql_literal(record['record_id'])},{sql_literal(record['revision'])},"
+                f"{sql_literal(record['retention'])},{sql_literal(record['text'])},{sql_literal(content_id)});")
+            for chunk in chunks_by_record.get((family, record["record_id"]), []):
+                body = chunk["body"].decode() if isinstance(chunk["body"], bytes) else chunk["body"]
+                statements.append(
+                    "INSERT INTO dks.authority_chunks(project_id,source_kind,snapshot_id,record_id,chunk_id,"
+                    "ordinal,start_byte,end_byte,body,body_sha256,token_count) VALUES ("
+                    f"{sql_literal(project_id)},{sql_literal(family)},{sql_literal(snapshot)},"
+                    f"{sql_literal(record['record_id'])},{sql_literal(chunk['chunk_id'])},{chunk['ordinal']},"
+                    f"{chunk['start_byte']},{chunk['end_byte']},{sql_literal(body)},"
+                    f"{sql_literal(chunk['body_sha256'])},{chunk['embedding_tokens']});")
+                vector = vectors[chunk["chunk_id"]]
+                validate_vector(vector)
+                value = vector_value(vector)
+                statements.append(
+                    "INSERT INTO dks.authority_embeddings(project_id,source_kind,snapshot_id,record_id,chunk_id,"
+                    "embedding_space_id,value,value_sha256) "
+                    "VALUES ("
+                    f"{sql_literal(project_id)},{sql_literal(family)},{sql_literal(snapshot)},"
+                    f"{sql_literal(record['record_id'])},{sql_literal(chunk['chunk_id'])},"
+                    f"{sql_literal(embedding_space)},"
+                    f"{sql_literal(value)}::vector(4096),{sql_literal(hashlib.sha256(value.encode()).hexdigest())});")
+        statements.append(
+            "UPDATE dks.authority_snapshots SET state='active' WHERE project_id="
+            f"{sql_literal(project_id)} AND source_kind={sql_literal(family)} "
+            f"AND snapshot_id={sql_literal(snapshot)};")
+    statements.extend(ranking_fallback_statements(project_id))
+    statements.append("COMMIT;")
+    return statements
+
+
+def privacy_sync_statements(project_id, export):
+    manifest = export["manifest"]
+    sequence = manifest["privacy_sequence"]
+    digest = manifest["privacy_digest"]
+    statements = ["BEGIN;", (
+        "INSERT INTO dks.privacy_state(project_id,privacy_sequence,privacy_digest) VALUES ("
+        f"{sql_literal(project_id)},{sequence},{sql_literal(digest)}) ON CONFLICT DO NOTHING;"), (
+        "DO $privacy$ DECLARE current_sequence numeric; current_digest text; BEGIN "
+        "SELECT privacy_sequence,privacy_digest INTO STRICT current_sequence,current_digest "
+        f"FROM dks.privacy_state WHERE project_id={sql_literal(project_id)} FOR UPDATE; "
+        f"IF {sequence}<current_sequence OR ({sequence}=current_sequence AND {sql_literal(digest)}<>current_digest) "
+        "THEN RAISE EXCEPTION 'knowledge privacy identity rollback'; END IF; END $privacy$;")]
+    for item in export["privacy"]:
+        statements.append(
+            "INSERT INTO dks.privacy_denies(project_id,source_kind,record_id,reason,denied_at) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(item['family'])},{sql_literal(item['record_id'])},"
+            f"{sql_literal(item['reason'])},{item['timestamp']}) ON CONFLICT(project_id,source_kind,record_id) "
+            "DO UPDATE SET reason=excluded.reason,denied_at=greatest(dks.privacy_denies.denied_at,excluded.denied_at);")
+        statements.append(
+            "DELETE FROM dks.authority_records WHERE project_id="
+            f"{sql_literal(project_id)} AND source_kind={sql_literal(item['family'])} "
+            f"AND record_id={sql_literal(item['record_id'])};")
+    statements.extend([
+        "UPDATE dks.privacy_state SET "
+        f"privacy_sequence={sequence},privacy_digest={sql_literal(digest)},updated_at=now() "
+        f"WHERE project_id={sql_literal(project_id)};",
+    ])
+    statements.extend(ranking_fallback_statements(project_id))
+    statements.append("COMMIT;")
+    return statements
+
+
+def graph_import_statements(project_id, commit, graph, source_profile_sha256,
+                            corpus_manifest_sha256, execution_receipt_sha256):
+    artifact = graph["artifact_sha256"]
+    config_sha = digest_json(GRAPHIFY_CONFIG)
+    statements = ["BEGIN;",
+        f"UPDATE dks.graph_imports SET state='retained' WHERE project_id={sql_literal(project_id)} AND state='active';",
+        f"DELETE FROM dks.imported_graph_edges WHERE project_id={sql_literal(project_id)} "
+        f"AND artifact_sha256={sql_literal(artifact)};",
+        f"DELETE FROM dks.imported_graph_node_chunks WHERE project_id={sql_literal(project_id)} "
+        f"AND artifact_sha256={sql_literal(artifact)};",
+        f"DELETE FROM dks.imported_graph_nodes WHERE project_id={sql_literal(project_id)} "
+        f"AND artifact_sha256={sql_literal(artifact)};",
+        f"DELETE FROM dks.graph_imports WHERE project_id={sql_literal(project_id)} "
+        f"AND artifact_sha256={sql_literal(artifact)};",
+        "INSERT INTO dks.graph_imports(project_id,revision_id,artifact_sha256,normalized_sha256,extractor_version,"
+        "extractor_revision,config_sha256,source_profile_sha256,corpus_manifest_sha256,execution_receipt_sha256,"
+        "expected_nodes,expected_edges,"
+        "excluded_external_nodes,excluded_dangling_edges,state) VALUES ("
+        f"{sql_literal(project_id)},{sql_literal(commit)},{sql_literal(artifact)},"
+        f"{sql_literal(graph['normalized_sha256'])},{sql_literal(graph['version'])},"
+        f"'b2cd36267456c166788c95be6e68574064a92a42',{sql_literal(config_sha)},"
+        f"{sql_literal(source_profile_sha256)},{sql_literal(corpus_manifest_sha256)},"
+        f"{sql_literal(execution_receipt_sha256)},"
+        f"{len(graph['nodes'])},{len(graph['links'])},"
+        f"{graph['excluded_external_nodes']},{graph['excluded_dangling_edges']},'staging');"]
+    node_ids = {}
+    for node in graph["nodes"]:
+        identity = digest_json({"artifact": artifact, "raw_id": node["id"]})
+        node_ids[node["id"]] = identity
+        location = node["source_location"]
+        confidence = node.get("confidence", "EXTRACTED")
+        statements.append(
+            "INSERT INTO dks.imported_graph_nodes(project_id,artifact_sha256,node_id,raw_id,label,confidence,"
+            "source_path,source_start_byte,source_end_byte) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(artifact)},{sql_literal(identity)},"
+            f"{sql_literal(node['id'])},{sql_literal(node.get('label', node['id']))},{sql_literal(confidence)},"
+            f"{sql_literal(location['path'])},{location['start_byte']},{location['end_byte']});")
+        statements.append(
+            "INSERT INTO dks.imported_graph_node_chunks(project_id,artifact_sha256,node_id,chunk_id,"
+            "overlap_start_byte,overlap_end_byte) SELECT "
+            f"{sql_literal(project_id)},{sql_literal(artifact)},{sql_literal(identity)},c.chunk_id,"
+            f"greatest(c.start_byte,{location['start_byte']}),least(c.end_byte,{location['end_byte']}) "
+            "FROM dks.revision_chunks rc JOIN dks.knowledge_chunks c USING(project_id,chunk_id) WHERE "
+            f"rc.project_id={sql_literal(project_id)} AND rc.revision_id={sql_literal(commit)} "
+            f"AND rc.path={sql_literal(location['path'])} AND c.start_byte<{location['end_byte']} "
+            f"AND c.end_byte>{location['start_byte']};")
+    for ordinal, link in enumerate(graph["links"]):
+        location = link["source_location"]
+        identity = digest_json({"artifact": artifact, "source": link["source"],
+                                "target": link["target"], "relation": link["relation"],
+                                "source_path": location["path"],
+                                "source_start_byte": location["start_byte"],
+                                "source_end_byte": location["end_byte"], "ordinal": ordinal})
+        statements.append(
+            "INSERT INTO dks.imported_graph_edges(project_id,artifact_sha256,edge_id,source_node_id,"
+            "target_node_id,relation,confidence,source_path,source_start_byte,source_end_byte) VALUES ("
+            f"{sql_literal(project_id)},{sql_literal(artifact)},{sql_literal(identity)},"
+            f"{sql_literal(node_ids[link['source']])},{sql_literal(node_ids[link['target']])},"
+            f"{sql_literal(link['relation'])},{sql_literal(link.get('confidence', 'EXTRACTED'))},"
+            f"{sql_literal(location['path'])},{location['start_byte']},{location['end_byte']});")
+    statements.extend([
+        "DO $graph$ DECLARE expected integer; mapped integer; edge_count integer; BEGIN "
+        f"expected:={len(graph['nodes'])}; SELECT count(DISTINCT node_id) INTO mapped "
+        "FROM dks.imported_graph_node_chunks "
+        f"WHERE project_id={sql_literal(project_id)} AND artifact_sha256={sql_literal(artifact)}; "
+        "SELECT count(*) INTO edge_count FROM dks.imported_graph_edges "
+        f"WHERE project_id={sql_literal(project_id)} AND artifact_sha256={sql_literal(artifact)}; "
+        f"IF mapped<>expected OR edge_count<>{len(graph['links'])} THEN "
+        "RAISE EXCEPTION 'Graphify projection completeness mismatch'; END IF; END $graph$;",
+        f"UPDATE dks.graph_imports SET state='active' WHERE project_id={sql_literal(project_id)} "
+        f"AND artifact_sha256={sql_literal(artifact)};"])
+    statements.extend(ranking_fallback_statements(project_id))
+    statements.append("COMMIT;")
+    return statements
+
+
+def load_graphify_receipt(path_value, artifact_sha256, corpus_manifest_sha256):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate Graphify receipt key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("Graphify execution receipt unavailable") from error
+    config_sha = digest_json(GRAPHIFY_CONFIG)
+    fields = {"schema_version", "command_contract", "package", "extractor_version",
+              "extractor_revision", "python_version", "runtime_sha256", "producer_sha256",
+              "config_sha256", "raw_extraction_sha256",
+              "corpus_manifest_sha256", "artifact_sha256", "network_disabled",
+              "excluded_missing_locations", "excluded_missing_location_ids_sha256"}
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077 or not isinstance(value, dict)
+            or set(value) != fields or value.get("schema_version") != 1
+            or value.get("command_contract") != "dks-graphify-code-v1"
+            or value.get("package") != "graphifyy[sql]"
+            or value.get("extractor_version") != "0.9.48"
+            or value.get("extractor_revision") != "b2cd36267456c166788c95be6e68574064a92a42"
+            or value.get("python_version") != "3.13.2"
+            or value.get("runtime_sha256") != GRAPHIFY_RUNTIME_SHA256
+            or value.get("producer_sha256") != GRAPHIFY_PRODUCER_SHA256
+            or value.get("config_sha256") != config_sha
+            or not SHA256_RE.fullmatch(value.get("raw_extraction_sha256", ""))
+            or value.get("corpus_manifest_sha256") != corpus_manifest_sha256
+            or value.get("artifact_sha256") != artifact_sha256
+            or value.get("network_disabled") is not True
+            or type(value.get("excluded_missing_locations")) is not int
+            or value["excluded_missing_locations"] < 0
+            or not SHA256_RE.fullmatch(value.get("excluded_missing_location_ids_sha256", ""))):
+        raise ValueError("Graphify execution receipt identity mismatch")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def command_sync(args, config, project):
@@ -910,11 +1905,15 @@ DELETE FROM dks.graph_edges WHERE run_id IN (SELECT run_id FROM dks.sync_runs WH
 DELETE FROM dks.revision_chunks WHERE run_id IN (SELECT run_id FROM dks.sync_runs WHERE state IN ('staging','ready'));
 UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('staging','ready');
 """)
-        documents = git_documents(repository, args.commit, project.get("remote", ""))
+        documents = git_documents(repository, args.commit, project.get("remote", ""),
+                                  load_source_profile(project))
         count = token_counter(config)
         chunks = []
         for document in documents:
-            for chunk in chunk_markdown(document["data"], count):
+            derived = (chunk_markdown(document["data"], count)
+                       if document["chunker"] == "dks-markdown-v1"
+                       else chunk_source(document["data"], document["path"], count))
+            for chunk in derived:
                 chunk.update(path=document["path"], blob_id=document["blob_id"])
                 chunks.append(chunk)
         nodes, edges = build_graph(args.project, args.commit, documents, chunks)
@@ -935,9 +1934,7 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
                 if row["chunk"] != expected_chunk or row["space"] != embedding_space:
                     raise RuntimeError("stored embedding association mismatch")
                 vector = [float(value) for value in row["value"].strip("[]").split(",")]
-                validate_vector(vector)
-                if not SHA256_RE.fullmatch(row["sha"] or ""):
-                    raise RuntimeError("stored embedding identity mismatch")
+                validate_stored_vector(vector, row["value"], row["sha"])
                 existing[row["id"]] = vector
                 vector_hashes[row["id"]] = row["sha"]
         vectors = {}
@@ -947,7 +1944,7 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
             for chunk, vector in zip(batch, embed(config, [item["embedding_text"] for item in batch])):
                 identity = embedding_ids[chunk["chunk_id"]]
                 vectors[identity] = vector
-                value = "[" + ",".join(format(float(item), ".9g") for item in vector) + "]"
+                value = vector_value(vector)
                 vector_hashes[identity] = hashlib.sha256(value.encode()).hexdigest()
         vectors.update(existing)
         if rebuild_payload is not None:
@@ -974,6 +1971,714 @@ def command_rebuild(args, config, project):
     return result
 
 
+def command_sync_code(args, config, project):
+    validate_code_embedding_config(config)
+    service = config["code_embedding"]
+    space = service.get("space_id")
+    manifest_sha = service.get("manifest_sha256")
+    if not isinstance(space, str) or not SHA256_RE.fullmatch(str(manifest_sha or "")):
+        raise ValueError("code embedding space configuration invalid")
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        locked = session.execute(
+            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project + ':code')}, 0));")
+        if not locked or locked[-1] != "t":
+            raise RuntimeError("code embedding sync already running")
+        rows = [json.loads(line) for line in session.execute(
+            "SELECT json_build_object('chunk_id',c.chunk_id,'body',c.body)::text "
+            "FROM dks.revision_chunks rc JOIN dks.knowledge_chunks c USING(project_id,chunk_id) "
+            f"WHERE rc.project_id={sql_literal(args.project)} AND rc.revision_id={sql_literal(args.commit)} "
+            "AND c.chunker_version='dks-source-v1' GROUP BY c.chunk_id,c.body ORDER BY c.chunk_id;")]
+        session.execute("\n".join(["BEGIN;",
+            "INSERT INTO dks.code_embedding_spaces(project_id,embedding_space_id,manifest_sha256,dimensions) "
+            f"VALUES ({sql_literal(args.project)},{sql_literal(space)},{sql_literal(manifest_sha)},3584) "
+            "ON CONFLICT DO NOTHING;",
+            "DO $space$ BEGIN IF NOT EXISTS (SELECT 1 FROM dks.code_embedding_spaces WHERE "
+            f"project_id={sql_literal(args.project)} AND embedding_space_id={sql_literal(space)} "
+            f"AND manifest_sha256={sql_literal(manifest_sha)} AND dimensions=3584) THEN "
+            "RAISE EXCEPTION 'code embedding space identity mismatch'; END IF; END $space$;",
+            "COMMIT;",
+        ]))
+        for offset in range(0, len(rows), 8):
+            batch = rows[offset:offset + 8]
+            values = ",".join(sql_literal(row["chunk_id"]) for row in batch)
+            existing = {}
+            for line in session.execute(
+                    "SELECT json_build_object('chunk',chunk_id,'value',value::text,'sha',value_sha256)::text "
+                    "FROM dks.code_embeddings WHERE "
+                    f"project_id={sql_literal(args.project)} AND embedding_space_id={sql_literal(space)} "
+                    f"AND chunk_id IN ({values});"):
+                stored = json.loads(line)
+                vector = [float(value) for value in stored["value"].strip("[]").split(",")]
+                validate_stored_vector(vector, stored["value"], stored["sha"], 3584)
+                if stored["chunk"] in existing:
+                    raise RuntimeError("stored code embedding identity mismatch")
+                existing[stored["chunk"]] = vector
+            missing = [row for row in batch if row["chunk_id"] not in existing]
+            statements = ["BEGIN;"]
+            for row, vector in zip(missing, code_embed(config, [item["body"] for item in missing])):
+                value = vector_value(vector)
+                value_sha = hashlib.sha256(value.encode()).hexdigest()
+                statements.append(
+                    "DO $vector$ BEGIN IF EXISTS (SELECT 1 FROM dks.code_embeddings WHERE "
+                    f"project_id={sql_literal(args.project)} AND chunk_id={sql_literal(row['chunk_id'])} "
+                    f"AND embedding_space_id={sql_literal(space)} AND (value_sha256<>"
+                    f"{sql_literal(value_sha)} OR value<>{sql_literal(value)}::vector(3584))) THEN "
+                    "RAISE EXCEPTION 'stored code embedding identity mismatch'; END IF; END $vector$;")
+                statements.append(
+                    "INSERT INTO dks.code_embeddings(project_id,chunk_id,embedding_space_id,value,value_sha256) "
+                    f"VALUES ({sql_literal(args.project)},{sql_literal(row['chunk_id'])},{sql_literal(space)},"
+                    f"{sql_literal(value)}::vector(3584),"
+                    f"{sql_literal(value_sha)}) ON CONFLICT DO NOTHING;")
+            statements.append("COMMIT;")
+            session.execute("\n".join(statements))
+        session.execute("\n".join([
+            "DO $complete$ DECLARE actual integer; BEGIN SELECT count(*) INTO actual FROM dks.code_embeddings "
+            f"WHERE project_id={sql_literal(args.project)} AND embedding_space_id={sql_literal(space)} "
+            f"AND chunk_id IN (SELECT chunk_id FROM dks.revision_chunks WHERE project_id={sql_literal(args.project)} "
+            f"AND revision_id={sql_literal(args.commit)}); IF actual<>{len(rows)} THEN "
+            "RAISE EXCEPTION 'code embedding completeness mismatch'; END IF; END $complete$;",
+        ]))
+        session.execute(
+            f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project + ':code')}, 0));")
+    return {"project": args.project, "commit": args.commit, "embedding_space": space,
+            "embeddings": len(rows), "state": "candidate"}
+
+
+def lifecycle_output(config, project, command):
+    executable = str(Path(config.get("dbsctrctl", "~/.local/bin/dbsctrctl")).expanduser())
+    state_root = project.get("knowledge_state_root")
+    if not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute():
+        raise ValueError("knowledge state root is unavailable")
+    completed = subprocess.run(
+        [executable, command, "--state-root", str(Path(state_root).expanduser())],
+        text=True, capture_output=True, stdin=subprocess.DEVNULL,
+    )
+    if completed.returncode:
+        raise RuntimeError(f"lifecycle {command} failed")
+    return completed.stdout
+
+
+def privacy_read_lock(project):
+    state_root = project.get("knowledge_state_root")
+    if not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute():
+        raise ValueError("knowledge state root is unavailable")
+    directory = Path(state_root).expanduser() / "reviews"
+    path = directory / ".lock"
+    if directory.is_symlink():
+        raise RuntimeError("knowledge privacy lock is unsafe")
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    details = os.fstat(descriptor)
+    if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
+        os.close(descriptor)
+        raise RuntimeError("knowledge privacy lock is unsafe")
+    os.fchmod(descriptor, 0o600)
+    handle = os.fdopen(descriptor, "a+", encoding="utf-8")
+    fcntl.flock(handle, fcntl.LOCK_SH)
+    return handle
+
+
+def command_sync_evidence(args, config, project):
+    validate_embedding_config(config)
+    raw = lifecycle_output(config, project, "knowledge-export")
+    export = parse_knowledge_export(raw)
+    status = json.loads(lifecycle_output(config, project, "knowledge-privacy-status"))
+    if (status.get("privacy_sequence") != export["manifest"]["privacy_sequence"]
+            or status.get("privacy_digest") != export["manifest"]["privacy_digest"]):
+        raise RuntimeError("knowledge privacy changed during export")
+    chunks = authority_chunks(export["records"], token_counter(config))
+    vectors = {}
+    for offset in range(0, len(chunks), 8):
+        batch = chunks[offset:offset + 8]
+        for chunk, vector in zip(batch, embed(config, [item["embedding_text"] for item in batch])):
+            vectors[chunk["chunk_id"]] = vector
+    embedding = config.get("embedding", {})
+    with privacy_read_lock(project):
+        current_export = parse_knowledge_export(lifecycle_output(config, project, "knowledge-export"))
+        current_status = json.loads(lifecycle_output(config, project, "knowledge-privacy-status"))
+        if current_export != export or current_status != status:
+            raise RuntimeError("knowledge authority changed before activation")
+        with PsqlSession(config) as session:
+            session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project + ':authority')}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("authority sync already running")
+            session.execute("\n".join(privacy_sync_statements(args.project, export)))
+            session.execute("\n".join(authority_sync_statements(
+                args.project, export, chunks, vectors, embedding.get("space_id"),
+                embedding.get("manifest_sha256"))))
+            session.execute(
+                f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project + ':authority')}, 0));")
+    return {"project": args.project, "snapshot": export["terminal"]["digest"],
+            "records": len(export["records"]), "chunks": len(chunks),
+            "privacy_sequence": status["privacy_sequence"], "state": "active"}
+
+
+def command_import_graph(args, config, project):
+    repository = Path(project.get("repository", "")).expanduser()
+    documents = git_documents(repository, args.commit, project.get("remote", ""),
+                              load_source_profile(project))
+    corpus_path = Path(args.corpus_manifest).expanduser().resolve(strict=True)
+    try:
+        corpus_raw = corpus_path.read_bytes()
+        corpus = json.loads(corpus_raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("Graphify corpus manifest unavailable") from error
+    expected_documents = [{"path": item["path"], "blob_id": item["blob_id"],
+                           "content_sha256": hashlib.sha256(item["data"]).hexdigest()}
+                          for item in documents]
+    expected_corpus = {"schema_version": 1, "project": args.project, "commit": args.commit,
+                       "source_profile_sha256": project.get("source_profile_sha256"),
+                       "documents": expected_documents}
+    if corpus != expected_corpus:
+        raise ValueError("Graphify corpus manifest identity mismatch")
+    corpus_sha = hashlib.sha256(corpus_raw).hexdigest()
+    producer = Path(config.get("graphify_producer", "~/.local/bin/dbsctr-graphify")).expanduser()
+    try:
+        details = producer.lstat()
+        producer_raw = producer.read_bytes()
+        producer_sha = hashlib.sha256(producer_raw).hexdigest()
+    except OSError as error:
+        raise ValueError("Graphify producer unavailable") from error
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022
+            or producer_sha != GRAPHIFY_PRODUCER_SHA256):
+        raise ValueError("Graphify producer identity mismatch")
+    with tempfile.TemporaryDirectory(prefix="dks-import-graph-") as temporary:
+        producer_copy = Path(temporary) / "producer.py"
+        producer_copy.write_bytes(producer_raw)
+        producer_copy.chmod(0o500)
+        path = Path(temporary) / "graph.json"
+        receipt = Path(temporary) / "receipt.json"
+        subprocess.run([sys.executable, str(producer_copy), "--corpus", str(corpus_path.parent),
+                        "--output", str(path), "--receipt", str(receipt)],
+                       check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        raw = path.read_bytes()
+        if len(raw) > 128 * 1024 * 1024:
+            raise ValueError("Graphify artifact exceeds byte bound")
+        graph = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate Graphify key")))
+        receipt_sha = load_graphify_receipt(
+            receipt, hashlib.sha256(raw).hexdigest(), corpus_sha)
+    validated = validate_graphify_graph(
+        graph, {item["path"]: item for item in documents}, args.commit, args.version,
+        hashlib.sha256(raw).hexdigest(), corpus_sha)
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        locked = session.execute(
+            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project)}, 0));")
+        if not locked or locked[-1] != "t":
+            raise RuntimeError("project sync already running")
+        session.execute("\n".join(graph_import_statements(
+            args.project, args.commit, validated, project.get("source_profile_sha256"), corpus_sha,
+            receipt_sha)))
+        session.execute(f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project)}, 0));")
+    return {"project": args.project, "commit": args.commit,
+            "artifact_sha256": validated["artifact_sha256"],
+            "nodes": len(validated["nodes"]), "edges": len(validated["links"]),
+            "state": "active"}
+
+
+def load_benchmark_aggregate(path_value):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) & 0o022):
+            raise OSError("unsafe benchmark aggregate")
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate benchmark key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("benchmark aggregate unavailable") from error
+    fields = {"schema_version", "manifest_sha256", "query_count", "strata", "judgment_depth",
+              "duplicate_fraction", "quadratic_kappa", "matrix_complete", "candidates"}
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 1
+            or not SHA256_RE.fullmatch(value.get("manifest_sha256", ""))
+            or type(value.get("query_count")) is not int or value["query_count"] < 100
+            or not isinstance(value.get("strata"), dict) or len(value["strata"]) < 1
+            or sum(value["strata"].values()) != value["query_count"]
+            or any(not isinstance(name, str) or not name or type(count) is not int or count < 20
+                   for name, count in value["strata"].items())
+            or value.get("judgment_depth") != 50
+            or not isinstance(value.get("duplicate_fraction"), (int, float))
+            or isinstance(value["duplicate_fraction"], bool) or value["duplicate_fraction"] < 0.2
+            or not isinstance(value.get("quadratic_kappa"), (int, float))
+            or isinstance(value["quadratic_kappa"], bool) or value["quadratic_kappa"] < 0.70
+            or value.get("matrix_complete") is not True
+            or set(value.get("candidates", {})) != {"code", "reranker"}):
+        raise ValueError("benchmark aggregate is invalid")
+    metric_fields = {"eligible", "relative_ndcg10", "absolute_ndcg10", "baseline_ndcg10",
+                     "ci95_lower", "max_stratum_regression", "exact_citation_delta",
+                     "recall50_delta", "deterministic_rank", "warm_p95_seconds",
+                     "peak_memory_gib", "memory_pressure", "swap_growth_bytes"}
+    for candidate in value["candidates"].values():
+        if (not isinstance(candidate, dict) or set(candidate) != metric_fields
+                or type(candidate.get("eligible")) is not bool
+                or candidate.get("deterministic_rank") is not True
+                or candidate.get("memory_pressure") != "normal"
+                or type(candidate.get("swap_growth_bytes")) is not int
+                or candidate["swap_growth_bytes"] != 0
+                or any(not isinstance(candidate.get(name), (int, float))
+                       or isinstance(candidate[name], bool) or not math.isfinite(candidate[name])
+                       for name in metric_fields - {"eligible", "deterministic_rank",
+                                                    "memory_pressure", "swap_growth_bytes"})):
+            raise ValueError("benchmark candidate metrics are invalid")
+        passes = ((candidate["relative_ndcg10"] >= 0.05
+                   if candidate["baseline_ndcg10"] > 0 else candidate["absolute_ndcg10"] >= 0.05)
+                  and candidate["ci95_lower"] > 0
+                  and candidate["max_stratum_regression"] >= -0.02
+                  and candidate["exact_citation_delta"] == 0
+                  and candidate["recall50_delta"] >= 0
+                  and candidate["warm_p95_seconds"] <= 30
+                  and candidate["peak_memory_gib"] <= 56)
+        if candidate["eligible"] != passes:
+            raise ValueError("benchmark eligibility does not match metrics")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def benchmark_ndcg(ranking, judgments, depth=10):
+    gains = sorted((2 ** grade - 1 for grade in judgments.values()), reverse=True)[:depth]
+    ideal = sum(gain / math.log2(rank + 2) for rank, gain in enumerate(gains))
+    actual = sum((2 ** judgments.get(item, 0) - 1) / math.log2(rank + 2)
+                 for rank, item in enumerate(ranking[:depth]))
+    return actual / ideal if ideal else 0.0
+
+
+def quadratic_kappa(pairs):
+    size = len(pairs)
+    left = [sum(a == grade for a, _ in pairs) / size for grade in range(4)]
+    right = [sum(b == grade for _, b in pairs) / size for grade in range(4)]
+    observed = sum(((a - b) ** 2 / 9) for a, b in pairs) / size
+    expected = sum(((a - b) ** 2 / 9) * left[a] * right[b]
+                   for a in range(4) for b in range(4))
+    return 1.0 if expected == 0 and observed == 0 else 1 - observed / expected
+
+
+def benchmark_candidate_metrics(queries, baseline_name, candidate_name, manifest_sha, resource):
+    deltas = {}
+    baseline_scores = []
+    candidate_scores = []
+    recall_deltas = []
+    exact_deltas = []
+    latencies = []
+    deterministic = True
+    for query in queries:
+        judgments = query["judgments"]
+        baseline = benchmark_ndcg(query["rankings"][baseline_name], judgments)
+        candidate = benchmark_ndcg(query["rankings"][candidate_name], judgments)
+        baseline_scores.append(baseline)
+        candidate_scores.append(candidate)
+        deltas.setdefault(query["stratum"], []).append(candidate - baseline)
+        relevant = {item for item, grade in judgments.items() if grade > 0}
+        baseline_recall = len(relevant.intersection(query["rankings"][baseline_name][:50])) / len(relevant)
+        candidate_recall = len(relevant.intersection(query["rankings"][candidate_name][:50])) / len(relevant)
+        recall_deltas.append(candidate_recall - baseline_recall)
+        exact_deltas.append(int(query["exact_citation"][candidate_name])
+                            - int(query["exact_citation"][baseline_name]))
+        latencies.extend(query["runs_seconds"][candidate_name])
+        deterministic = deterministic and all(
+            repeat == query["rankings"][candidate_name]
+            for repeat in query["repeat_rankings"][candidate_name])
+    flat_deltas = [value for values in deltas.values() for value in values]
+    bootstrap = []
+    manifest_bytes = bytes.fromhex(manifest_sha)
+    for replicate in range(10000):
+        sampled = []
+        for stratum, values in sorted(deltas.items()):
+            encoded = stratum.encode()
+            for draw in range(len(values)):
+                seed = (manifest_bytes + replicate.to_bytes(8, "big") + len(encoded).to_bytes(4, "big")
+                        + encoded + draw.to_bytes(8, "big"))
+                sampled.append(values[int.from_bytes(hashlib.sha256(seed).digest()[:8], "big") % len(values)])
+        bootstrap.append(sum(sampled) / len(sampled))
+    bootstrap.sort()
+    baseline_mean = sum(baseline_scores) / len(baseline_scores)
+    candidate_mean = sum(candidate_scores) / len(candidate_scores)
+    absolute = candidate_mean - baseline_mean
+    latency = sorted(latencies)
+    metrics = {
+        "relative_ndcg10": absolute / baseline_mean if baseline_mean else 0.0,
+        "absolute_ndcg10": absolute,
+        "baseline_ndcg10": baseline_mean,
+        "ci95_lower": bootstrap[249],
+        "max_stratum_regression": min(sum(values) / len(values) for values in deltas.values()),
+        "exact_citation_delta": sum(exact_deltas) / len(exact_deltas),
+        "recall50_delta": sum(recall_deltas) / len(recall_deltas),
+        "deterministic_rank": deterministic,
+        "warm_p95_seconds": latency[math.ceil(0.95 * len(latency)) - 1],
+        "peak_memory_gib": resource["peak_memory_gib"],
+        "memory_pressure": resource["memory_pressure"],
+        "swap_growth_bytes": resource["swap_growth_bytes"],
+    }
+    metrics["eligible"] = ((metrics["relative_ndcg10"] >= 0.05
+                            if baseline_mean > 0 else absolute >= 0.05)
+                           and metrics["ci95_lower"] > 0
+                           and metrics["max_stratum_regression"] >= -0.02
+                           and metrics["exact_citation_delta"] == 0
+                           and metrics["recall50_delta"] >= 0
+                           and deterministic and metrics["warm_p95_seconds"] <= 30
+                           and metrics["peak_memory_gib"] <= 56
+                           and metrics["memory_pressure"] == "normal"
+                           and metrics["swap_growth_bytes"] == 0)
+    return metrics
+
+
+def load_benchmark_evidence(path_value, manifest, manifest_sha):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        value = json.loads(path.read_bytes(), object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate benchmark evidence key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("benchmark evidence unavailable") from error
+    systems = {"baseline", "code", "reranker", "code_reranker"}
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077 or not isinstance(value, dict)
+            or set(value) != {"schema_version", "queries", "duplicate_assessments", "resources"}
+            or value.get("schema_version") != 1 or not isinstance(value.get("queries"), list)
+            or len(value["queries"]) != manifest["query_count"]
+            or not isinstance(value.get("duplicate_assessments"), list)
+            or len(value["duplicate_assessments"]) < math.ceil(len(value["queries"]) * 0.2)
+            or set(value.get("resources", {})) != {"code", "reranker"}):
+        raise ValueError("benchmark evidence is invalid")
+    query_identity = []
+    judgment_identity = []
+    result_identity = []
+    strata = {}
+    seen = set()
+    for query in value["queries"]:
+        if (not isinstance(query, dict)
+                or set(query) != {"query_id", "stratum", "text", "judgments", "rankings",
+                                  "exact_citation", "warmups_seconds", "runs_seconds",
+                                  "repeat_rankings"}
+                or not isinstance(query.get("query_id"), str) or not query["query_id"]
+                or query["query_id"] in seen or not isinstance(query.get("stratum"), str)
+                or not query["stratum"] or not isinstance(query.get("text"), str) or not query["text"]
+                or not isinstance(query.get("judgments"), dict)
+                or any(not isinstance(item, str) or not item or type(grade) is not int or not 0 <= grade <= 3
+                       for item, grade in query["judgments"].items())
+                or set(query.get("rankings", {})) != systems
+                or any(not isinstance(ranking, list) or len(ranking) < 50 or len(ranking) > 100
+                       or len(ranking) != len(set(ranking)) or any(not isinstance(item, str) or not item for item in ranking)
+                       for ranking in query["rankings"].values())
+                or any(item not in query["judgments"] for ranking in query["rankings"].values()
+                       for item in ranking[:50])
+                or not any(grade > 0 for grade in query["judgments"].values())
+                or set(query.get("exact_citation", {})) != systems
+                or any(type(item) is not bool for item in query["exact_citation"].values())
+                or set(query.get("warmups_seconds", {})) != systems
+                or any(not isinstance(samples, list) or len(samples) != 3
+                       or any(not isinstance(item, (int, float)) or isinstance(item, bool)
+                              or not math.isfinite(item) or item < 0 for item in samples)
+                       for samples in query["warmups_seconds"].values())
+                or set(query.get("runs_seconds", {})) != systems
+                or any(not isinstance(samples, list) or len(samples) != 5
+                       or any(not isinstance(item, (int, float)) or isinstance(item, bool)
+                              or not math.isfinite(item) or item < 0 for item in samples)
+                       for samples in query["runs_seconds"].values())
+                or set(query.get("repeat_rankings", {})) != systems
+                or any(not isinstance(repeats, list) or len(repeats) != 2
+                       or any(not isinstance(ranking, list) or len(ranking) < 50 or len(ranking) > 100
+                              or len(ranking) != len(set(ranking))
+                              or any(not isinstance(item, str) or not item for item in ranking)
+                              for ranking in repeats)
+                       for repeats in query["repeat_rankings"].values())):
+            raise ValueError("benchmark query evidence is invalid")
+        seen.add(query["query_id"])
+        strata[query["stratum"]] = strata.get(query["stratum"], 0) + 1
+        query_identity.append([query["query_id"], query["stratum"], query["text"]])
+        judgment_identity.append([query["query_id"], sorted(query["judgments"].items())])
+        result_identity.append([query["query_id"], query["rankings"], query["exact_citation"],
+                                query["warmups_seconds"], query["runs_seconds"],
+                                query["repeat_rankings"]])
+    pairs = []
+    for pair in value["duplicate_assessments"]:
+        if (not isinstance(pair, list) or len(pair) != 2
+                or any(type(grade) is not int or not 0 <= grade <= 3 for grade in pair)):
+            raise ValueError("benchmark duplicate assessment is invalid")
+        pairs.append(tuple(pair))
+    judgment_identity.append(["duplicates", value["duplicate_assessments"]])
+    for resource in value["resources"].values():
+        if (not isinstance(resource, dict)
+                or set(resource) != {"peak_memory_gib", "memory_pressure", "swap_growth_bytes"}
+                or not isinstance(resource["peak_memory_gib"], (int, float))
+                or isinstance(resource["peak_memory_gib"], bool) or not math.isfinite(resource["peak_memory_gib"])
+                or resource["peak_memory_gib"] < 0 or not isinstance(resource["memory_pressure"], str)
+                or resource["memory_pressure"] not in {"normal", "warning", "critical"}
+                or type(resource["swap_growth_bytes"]) is not int or resource["swap_growth_bytes"] < 0):
+            raise ValueError("benchmark resource evidence is invalid")
+    result_identity.append(["resources", value["resources"]])
+    if (strata != manifest["strata"]
+            or digest_json(query_identity) != manifest["query_digest"]
+            or digest_json(judgment_identity) != manifest["judgment_digest"]
+            or digest_json(result_identity) != manifest["result_digest"]):
+        raise ValueError("benchmark evidence manifest identity mismatch")
+    code = benchmark_candidate_metrics(value["queries"], "baseline", "code", manifest_sha,
+                                       value["resources"]["code"])
+    reranker_baseline = "code" if code["eligible"] else "baseline"
+    reranker_candidate = "code_reranker" if code["eligible"] else "reranker"
+    return {"schema_version": 1, "manifest_sha256": manifest_sha,
+            "query_count": len(value["queries"]), "strata": strata, "judgment_depth": 50,
+            "duplicate_fraction": len(pairs) / len(value["queries"]),
+            "quadratic_kappa": quadratic_kappa(pairs), "matrix_complete": True,
+            "candidates": {"code": code, "reranker": benchmark_candidate_metrics(
+                value["queries"], reranker_baseline, reranker_candidate, manifest_sha,
+                value["resources"]["reranker"])}}
+
+
+def load_benchmark_manifest(path_value):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate benchmark manifest key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("benchmark manifest unavailable") from error
+    fields = {"schema_version", "benchmark_id", "protocol_version", "source_revision",
+              "source_profile_sha256", "source_projection_sha256",
+              "authority_snapshot_set_sha256", "authority_projection_sha256",
+              "privacy_sequence", "privacy_digest",
+              "graph_artifact_sha256",
+              "general_embedding_manifest_sha256", "code_embedding_manifest_sha256",
+              "reranker_manifest_sha256", "query_digest", "judgment_digest", "query_count",
+              "result_digest", "strata", "depths", "seed_sha256", "hardware", "authored_at"}
+    hashes = {"source_profile_sha256", "graph_artifact_sha256",
+              "source_projection_sha256", "authority_snapshot_set_sha256",
+              "authority_projection_sha256", "privacy_digest",
+              "general_embedding_manifest_sha256", "code_embedding_manifest_sha256",
+              "reranker_manifest_sha256", "query_digest", "judgment_digest", "seed_sha256"}
+    hashes.add("result_digest")
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022 or not isinstance(value, dict)
+            or set(value) != fields or value.get("schema_version") != 1
+            or not isinstance(value.get("benchmark_id"), str) or not value["benchmark_id"]
+            or value.get("protocol_version") != "dks-benchmark-v1"
+            or not COMMIT_RE.fullmatch(value.get("source_revision", ""))
+            or type(value.get("privacy_sequence")) is not int
+            or not 0 <= value["privacy_sequence"] < 2**64
+            or any(not SHA256_RE.fullmatch(value.get(name, "")) for name in hashes)
+            or type(value.get("query_count")) is not int or value["query_count"] < 100
+            or not isinstance(value.get("strata"), dict) or sum(value["strata"].values()) != value["query_count"]
+            or any(type(count) is not int or count < 20 for count in value["strata"].values())
+            or value.get("depths") != [20, 50, 100]
+            or not isinstance(value.get("hardware"), dict)
+            or set(value["hardware"]) != {"sku", "os", "power", "thermal"}
+            or any(not isinstance(item, str) or not item for item in value["hardware"].values())
+            or type(value.get("authored_at")) is not int or value["authored_at"] < 0):
+        raise ValueError("benchmark manifest is invalid")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def validate_benchmark_approval(config, project, manifest):
+    approval = config.get("quality_benchmark_approval_commit")
+    query_digest = config.get("quality_benchmark_query_digest")
+    judgment_digest = config.get("quality_benchmark_judgment_digest")
+    if (not COMMIT_RE.fullmatch(str(approval or ""))
+            or not SHA256_RE.fullmatch(str(query_digest or ""))
+            or not SHA256_RE.fullmatch(str(judgment_digest or ""))
+            or query_digest != manifest["query_digest"]
+            or judgment_digest != manifest["judgment_digest"]):
+        raise RuntimeError("benchmark query and judgment set is not preapproved")
+    repository = Path(project.get("repository", "")).expanduser()
+    environment = {**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"}
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", approval, manifest["source_revision"]],
+        cwd=repository, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, env=environment,
+    )
+    if ancestor.returncode:
+        raise RuntimeError("benchmark approval does not precede its source revision")
+    try:
+        raw = run_git(repository, "show", f"{approval}:.chezmoidata.toml", binary=True)
+        approved = tomllib.loads(raw.decode())["dotfiles_ai"]["knowledge_store"]
+    except (KeyError, UnicodeDecodeError, tomllib.TOMLDecodeError, subprocess.CalledProcessError) as error:
+        raise RuntimeError("benchmark approval record is unavailable") from error
+    if (approved.get("quality_benchmark_query_digest") != query_digest
+            or approved.get("quality_benchmark_judgment_digest") != judgment_digest):
+        raise RuntimeError("benchmark approval record does not match configured identities")
+
+
+def command_activate_quality(args, config, project):
+    aggregate, aggregate_sha = load_benchmark_aggregate(args.benchmark)
+    manifest, manifest_sha = load_benchmark_manifest(args.manifest)
+    validate_benchmark_approval(config, project, manifest)
+    verified_aggregate = load_benchmark_evidence(args.evidence, manifest, manifest_sha)
+    if (aggregate["manifest_sha256"] != manifest_sha
+            or aggregate["query_count"] != manifest["query_count"]
+            or aggregate["strata"] != manifest["strata"]
+            or aggregate != verified_aggregate):
+        raise RuntimeError("benchmark aggregate does not match verified frozen evidence")
+    code_enabled = aggregate["candidates"]["code"]["eligible"]
+    reranker_enabled = aggregate["candidates"]["reranker"]["eligible"]
+    if not code_enabled and not reranker_enabled:
+        raise RuntimeError("no benchmark candidate is eligible")
+    code = config.get("code_embedding", {})
+    reranker_config = config.get("reranker", {})
+    code_space = code.get("space_id") if code_enabled else None
+    reranker_manifest = reranker_config.get("manifest_sha256") if reranker_enabled else None
+    if code_enabled:
+        validate_code_embedding_config(config)
+    validate_embedding_config(config)
+    if reranker_enabled:
+        if not SHA256_RE.fullmatch(str(reranker_manifest or "")):
+            raise RuntimeError("reranker manifest identity is unavailable")
+        validate_reranker_config(config, reranker_manifest)
+    if (manifest["source_profile_sha256"] != project.get("source_profile_sha256")
+            or manifest["general_embedding_manifest_sha256"]
+            != config.get("embedding", {}).get("manifest_sha256")
+            or manifest["code_embedding_manifest_sha256"] != code.get("manifest_sha256")
+            or manifest["reranker_manifest_sha256"] != reranker_config.get("manifest_sha256")):
+        raise RuntimeError("benchmark manifest runtime identity mismatch")
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(lock_name)}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("quality activation lock unavailable")
+        session.execute("BEGIN;")
+        revision_rows = session.execute(
+            "SELECT active_revision_id FROM dks.projects "
+            "WHERE project_id=current_setting('dks.project_id') FOR UPDATE;")
+        if revision_rows != [manifest["source_revision"]]:
+            raise RuntimeError("benchmark corpus revision is not active")
+        projection_rows = session.execute(projection_payload_sql(manifest["source_revision"]))
+        if len(projection_rows) != 1:
+            raise RuntimeError("quality activation source projection is unavailable")
+        source_projection_sha = digest_json(json.loads(projection_rows[0]))
+        authority_rows = session.execute(authority_projection_payload_sql())
+        if len(authority_rows) != 1:
+            raise RuntimeError("quality activation authority projection is unavailable")
+        authority = json.loads(authority_rows[0])
+        authority_snapshot_sha = digest_json(authority["snapshots"])
+        authority_projection_sha = digest_json(authority)
+        if (source_projection_sha != manifest["source_projection_sha256"]
+                or authority_snapshot_sha != manifest["authority_snapshot_set_sha256"]
+                or authority_projection_sha != manifest["authority_projection_sha256"]
+                or authority.get("privacy_sequence") != str(manifest["privacy_sequence"])
+                or authority.get("privacy_digest") != manifest["privacy_digest"]):
+            raise RuntimeError("benchmark authority or projection identity mismatch")
+        identity_rows = session.execute(f"""
+SELECT json_build_object(
+  'revision',p.active_revision_id,
+  'source_chunks',(SELECT count(*) FROM dks.revision_chunks rc JOIN dks.knowledge_chunks c USING(project_id,chunk_id)
+      WHERE rc.project_id=p.project_id AND rc.revision_id=p.active_revision_id AND c.chunker_version='dks-source-v1'),
+  'code_embeddings',(SELECT count(*) FROM dks.code_embeddings e JOIN dks.revision_chunks rc USING(project_id,chunk_id)
+      WHERE rc.project_id=p.project_id AND rc.revision_id=p.active_revision_id
+        AND e.embedding_space_id={sql_literal(code_space)}),
+  'graph_artifact',(SELECT artifact_sha256 FROM dks.graph_imports
+      WHERE project_id=p.project_id AND revision_id=p.active_revision_id AND state='active')
+)::text FROM dks.projects p WHERE p.project_id=current_setting('dks.project_id');
+""")
+        if len(identity_rows) != 1:
+            raise RuntimeError("quality activation projection is unavailable")
+        identity = json.loads(identity_rows[0])
+        if (code_enabled and identity["source_chunks"] != identity["code_embeddings"]
+                or identity.get("graph_artifact") != manifest["graph_artifact_sha256"]):
+            raise RuntimeError("quality activation projection is incomplete")
+        policy_manifest = digest_json({"aggregate_sha256": aggregate_sha,
+                                       "authority_projection_sha256": authority_projection_sha,
+                                       "authority_snapshot_set_sha256": authority_snapshot_sha,
+                                       "benchmark_sha256": manifest_sha,
+                                       "code_embedding_space_id": code_space,
+                                       "graph_artifact_sha256": identity["graph_artifact"],
+                                       "policy_id": "dks-quality-v2",
+                                       "privacy_digest": authority["privacy_digest"],
+                                       "privacy_sequence": manifest["privacy_sequence"],
+                                       "reranker_manifest_sha256": reranker_manifest,
+                                       "source_projection_sha256": source_projection_sha,
+                                       "source_revision_id": identity["revision"]})
+        activation_id = digest_json({"manifest_sha256": policy_manifest,
+                                     "revision": identity["revision"]})
+        session.execute(f"""
+UPDATE dks.ranking_policies SET active=false WHERE project_id=current_setting('dks.project_id') AND active;
+INSERT INTO dks.ranking_policies(project_id,activation_id,policy_id,manifest_sha256,benchmark_sha256,benchmark_aggregate_sha256,
+  source_revision_id,source_projection_sha256,authority_snapshot_set_sha256,authority_projection_sha256,
+  privacy_sequence,privacy_digest,
+  code_embedding_space_id,graph_artifact_sha256,reranker_manifest_sha256,active,activated_at)
+VALUES (current_setting('dks.project_id'),{sql_literal(activation_id)},'dks-quality-v2',
+  {sql_literal(policy_manifest)},{sql_literal(manifest_sha)},{sql_literal(aggregate_sha)},
+  {sql_literal(identity['revision'])},{sql_literal(source_projection_sha)},
+  {sql_literal(authority_snapshot_sha)},{sql_literal(authority_projection_sha)},
+  {manifest['privacy_sequence']},{sql_literal(authority['privacy_digest'])},
+  {sql_literal(code_space)},
+  {sql_literal(identity['graph_artifact'])},{sql_literal(reranker_manifest)},true,now());
+COMMIT;
+""")
+    return {"project": args.project, "activation_id": activation_id,
+            "benchmark_sha256": aggregate["manifest_sha256"], "code": code_enabled,
+            "reranker": reranker_enabled, "ranking_policy": "dks-quality-v2"}
+
+
+def command_benchmark_aggregate(args, config, project):
+    manifest, manifest_sha = load_benchmark_manifest(args.manifest)
+    return load_benchmark_evidence(args.evidence, manifest, manifest_sha)
+
+
+def command_rollback_quality(args, config, project):
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(lock_name)}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("quality rollback lock unavailable")
+        session.execute("""
+BEGIN;
+SELECT activation_id FROM dks.ranking_policies
+WHERE project_id=current_setting('dks.project_id') AND active FOR UPDATE;
+UPDATE dks.ranking_policies SET active=false WHERE project_id=current_setting('dks.project_id') AND active;
+UPDATE dks.ranking_policies SET active=true,activated_at=now()
+WHERE project_id=current_setting('dks.project_id') AND activation_id='dks-rrf-v1';
+DO $rollback$ BEGIN IF NOT EXISTS (SELECT 1 FROM dks.ranking_policies
+  WHERE project_id=current_setting('dks.project_id') AND activation_id='dks-rrf-v1' AND active)
+  THEN RAISE EXCEPTION 'rollback policy unavailable'; END IF; END $rollback$;
+COMMIT;
+""")
+    return {"project": args.project, "ranking_policy": "dks-rrf-v1", "state": "active"}
+
+
+def command_materialize(args, config, project):
+    destination = Path(args.output).expanduser()
+    if not destination.is_absolute() or destination.exists():
+        raise ValueError("materialized corpus output must be a new absolute path")
+    parent = destination.parent.resolve(strict=True)
+    repository = Path(project.get("repository", "")).expanduser()
+    documents = git_documents(repository, args.commit, project.get("remote", ""),
+                              load_source_profile(project))
+    stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.part.", dir=parent))
+    try:
+        manifest = []
+        for document in documents:
+            path = stage / document["path"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(document["data"])
+            path.chmod(0o444)
+            manifest.append({"path": document["path"], "blob_id": document["blob_id"],
+                             "content_sha256": hashlib.sha256(document["data"]).hexdigest()})
+        identity = {"schema_version": 1, "project": args.project, "commit": args.commit,
+                    "source_profile_sha256": project.get("source_profile_sha256"),
+                    "documents": manifest}
+        (stage / "dks-corpus.json").write_text(canonical_json(identity) + "\n")
+        (stage / "dks-corpus.json").chmod(0o444)
+        os.replace(stage, destination)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+    return {"project": args.project, "commit": args.commit, "output": str(destination),
+            "documents": len(documents),
+            "manifest_sha256": hashlib.sha256((canonical_json(identity) + "\n").encode()).hexdigest()}
+
+
 def exact_commit(value: str):
     if not COMMIT_RE.fullmatch(value):
         raise argparse.ArgumentTypeError("commit must be lowercase 40-hex")
@@ -991,10 +2696,32 @@ def parser():
     sync.add_argument("--commit", required=True)
     rebuild = commands.add_parser("rebuild", parents=[common])
     rebuild.add_argument("--commit", required=True)
+    code = commands.add_parser("sync-code", parents=[common])
+    code.add_argument("--commit", required=True, type=exact_commit)
+    commands.add_parser("sync-evidence", parents=[common])
+    graph = commands.add_parser("import-graph", parents=[common])
+    graph.add_argument("--commit", required=True, type=exact_commit)
+    graph.add_argument("--version", required=True)
+    graph.add_argument("--corpus-manifest", required=True)
+    materialize = commands.add_parser("materialize", parents=[common])
+    materialize.add_argument("--commit", required=True, type=exact_commit)
+    materialize.add_argument("--output", required=True)
+    activate = commands.add_parser("activate-quality", parents=[common])
+    activate.add_argument("--benchmark", required=True)
+    activate.add_argument("--manifest", required=True)
+    activate.add_argument("--evidence", required=True)
+    benchmark = commands.add_parser("benchmark-aggregate", parents=[common])
+    benchmark.add_argument("--manifest", required=True)
+    benchmark.add_argument("--evidence", required=True)
+    commands.add_parser("rollback-quality", parents=[common])
     query = commands.add_parser("query", parents=[common])
     query.add_argument("--text", required=True)
     query.add_argument("--commit", type=exact_commit)
-    query.add_argument("--limit", type=int, choices=range(1, 101), default=20)
+    query.add_argument("--limit", type=int, choices=range(1, 21))
+    query_core = commands.add_parser("_query-core", parents=[common], help=argparse.SUPPRESS)
+    query_core.add_argument("--text", required=True)
+    query_core.add_argument("--commit", type=exact_commit)
+    query_core.add_argument("--limit", type=int, choices=range(1, 21), default=10)
     commands.add_parser("status", parents=[common])
     return root
 
@@ -1006,9 +2733,25 @@ def main(argv=None):
         project = selected_project(config, args.project)
         if args.command == "sync":
             result = command_sync(args, config, project)
+        elif args.command == "sync-evidence":
+            result = command_sync_evidence(args, config, project)
+        elif args.command == "sync-code":
+            result = command_sync_code(args, config, project)
+        elif args.command == "import-graph":
+            result = command_import_graph(args, config, project)
+        elif args.command == "materialize":
+            result = command_materialize(args, config, project)
+        elif args.command == "activate-quality":
+            result = command_activate_quality(args, config, project)
+        elif args.command == "benchmark-aggregate":
+            result = command_benchmark_aggregate(args, config, project)
+        elif args.command == "rollback-quality":
+            result = command_rollback_quality(args, config, project)
         elif args.command == "rebuild":
             result = command_rebuild(args, config, project)
         elif args.command == "query":
+            result = command_guarded_query(args, config, project)
+        elif args.command == "_query-core":
             result = command_query(args, config, project)
         else:
             result = command_status(args, config, project)

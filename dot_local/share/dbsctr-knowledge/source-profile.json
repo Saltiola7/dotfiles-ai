@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "profile_id": "dks-source-profile-v1",
+  "roots": ["docs/specs", "docs/tickets", "dot_agents", "dot_local/bin", "dot_local/share", "private_dot_config", "tests"],
+  "root_files": [".chezmoidata.toml", ".chezmoiignore", "config.example.toml", "pyproject.toml"],
+  "root_prefix_suffix": [{"prefix": "run_", "suffix": ".sh.tmpl"}],
+  "suffixes": [".json", ".md", ".py", ".sh", ".sh.tmpl", ".sql", ".toml", ".tmpl", ".ts", ".yaml", ".yml"],
+  "extensionless_paths": [
+    "dot_local/bin/executable_dbsctr-embedding-runtime-verify", "dot_local/bin/executable_dbsctrctl",
+    "dot_local/bin/executable_dksctl", "dot_local/bin/executable_docker",
+    "dot_local/bin/executable_herdr-history-maintain", "dot_local/bin/executable_herdr-opencode-restore",
+    "dot_local/bin/executable_pm-postgres-image-build", "dot_local/bin/executable_pm-postgres-image-verify",
+    "dot_local/bin/executable_pm-postgres-migrate", "dot_local/bin/executable_pmctl",
+    "dot_local/bin/executable_sandbox-vm", "dot_local/bin/executable_state-root-exec",
+    "dot_local/bin/executable_vertex-reauth-browser"
+  ],
+  "excluded_components": [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__", "_archive", "build", "data", "dist", "graphify-out", "node_modules", "state", "vendor", "venv"],
+  "excluded_basenames": [".env", ".envrc", "id_ed25519", "id_rsa"],
+  "excluded_suffixes": [".age", ".db", ".gpg", ".key", ".p12", ".pem", ".shm", ".sqlite", ".sqlite3", ".wal"]
+}
