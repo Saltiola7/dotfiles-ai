@@ -211,6 +211,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Merged-source convergence, rootless runtime checks, service-account vault visibility, isolated Vertex response, enterprise stack continuity, and truthful residual blockers |
 | Overrides | The runtime may close while the private project reference migration remains undelivered in its owning repository and an unrelated personal-workspace Hermes catalog hook remains blocked |
 
+### DAI-028-F2 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: switches two container runtimes around retained persistent volumes and repairs system packages in existing managed guests |
+| Delivery intent | Deploy complete guest Compose tooling, validate Podman and retained Colima operation, and deliver a draft pull request |
+| Scope | Shared Fedora `make` provisioning, exact existing-guest package repair, clean enterprise image rebuild, five-service operation, volume preservation, and serialized Colima fallback |
+| Overrides | Dotfiles owns runtime tooling and switching evidence only; project UID/path portability and intermittent Django Redis health remain application-owned follow-up |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -743,8 +752,13 @@ feature branch with a draft pull request; the operator retains merge authority.
 ### Guest Container Development And Credentials
 
 - Given a new managed Fedora workspace, when Lima provisions it, then rootless
-  Podman is installed explicitly and the guest user receives a checksum-pinned
-  Docker Compose v2 provider plus a `docker` compatibility command.
+  Podman and `make` are installed explicitly and the guest user receives a
+  checksum-pinned Docker Compose v2 provider plus a `docker` compatibility
+  command, so project Make targets can retain their normal command surface.
+- Given a managed workspace predates `make` provisioning, when the operator
+  runs `sandbox-vm install-make WORKSPACE`, then one idempotent system provision
+  adds only the Fedora `make` package; the prior running state, VM, credentials,
+  containers, images, and named volumes remain.
 - Given an existing workspace, when `sandbox-vm update WORKSPACE` reapplies the
   source, then the same user-owned Compose provider, compatibility command,
   1Password CLI, and configured Vertex helpers are installed idempotently without
@@ -769,6 +783,12 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given Colima compatibility is checked, when the Podman project stack is stopped,
   then the unchanged project command surface may run against Colima. Colima never
   becomes the Atuin authority while the Podman Atuin service is active.
+- Given a project requires machine-local path or identity overrides to run on both
+  runtimes, when fallback is validated, then those values remain project-owned
+  process or environment configuration and are not embedded in the Lima runtime.
+- Given Podman and Colima are switched around a project with persistent data,
+  when validation completes, then neither runtime runs that project concurrently,
+  no Compose command uses `--volumes`, and the original Podman stack is restored.
 
 ### Federated Host R&D
 
@@ -833,10 +853,15 @@ feature branch with a draft pull request; the operator retains merge authority.
   `LIMA_HOME` only inside the sandbox controller process; an inherited
   `LIMA_HOME` remains untouched when the setting is empty.
 - `sandbox-vm shell WORKSPACE` enters the selected VM; ordinary guest `herdr`
-  and `opencode` commands retain their native names. `sandbox-vm status|update` owns bounded
-  host-to-VM operations; unknown instances and undeclared paths fail closed.
-- Every managed guest has rootless Podman. New guests receive the Fedora `podman`
-  package during Lima provisioning; existing guests must already satisfy that
+  and `opencode` commands retain their native names.
+  `sandbox-vm status|update|install-make` owns bounded host-to-VM operations;
+  unknown instances and undeclared paths fail closed. `install-make` first
+  probes availability, then stops only a deficient configured instance, appends
+  the exact idempotent system provision, starts it for verification, and restores
+  its prior lifecycle state without changing guest sudo policy.
+- Every managed guest has rootless Podman and GNU Make. New guests receive the
+  Fedora `podman` and `make` packages during Lima provisioning; existing guests
+  must already satisfy the rootless Podman
   capability before update proceeds. User-owned installers pin Docker Compose v2
   and the 1Password CLI by version and checksum and enable the rootless Podman
   user socket. Podman selects the exact Compose provider path rather than provider
@@ -1049,7 +1074,7 @@ feature branch with a draft pull request; the operator retains merge authority.
 | `chezmoi data/cat/apply --dry-run` | Enabled/disabled local data and rendered targets |
 | `opencode debug config/agent` | Exact primary IDs, models, permissions, and provider-local routes |
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
-| Guest runtime probes | Rootless Podman, exact Compose provider, Docker shim, bounded Keychain forwarding, 1Password denial/success, Vertex hosted reauthentication, and absence of implicit container credentials |
+| Guest runtime probes | Rootless Podman, GNU Make, exact Compose provider, Docker shim, bounded Keychain forwarding, 1Password denial/success, Vertex hosted reauthentication, and absence of implicit container credentials |
 | Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
 | Tailscale probes | Disabled rendering, bounded stdin, client/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
@@ -1062,6 +1087,10 @@ feature branch with a draft pull request; the operator retains merge authority.
 - The selected Atuin workspace is intentionally always-on. Colima remains an
   installed rollback dependency until a later explicit retirement verifies no
   host Docker consumers remain.
+- Existing guests cannot install system packages through their restricted user.
+  Adding a missing managed package requires one exact root repair through the
+  host-owned Lima boundary; recreation remains unnecessary and named volumes must
+  not be removed.
 
 - Current-user OpenCode workers are not sandboxed; explicit policy and OS
   permissions remain the security boundary.

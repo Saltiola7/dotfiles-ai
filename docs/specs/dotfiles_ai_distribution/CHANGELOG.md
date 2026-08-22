@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-21 - Complete Guest Compose Tooling
+
+- Added shared Fedora `make` provisioning and an exact idempotent
+  `sandbox-vm install-make WORKSPACE` repair that restores each guest's prior
+  lifecycle state and does not widen sudo authority. Both managed guests now
+  report GNU Make 4.4.1, rootless Podman, and Docker Compose v2.40.3.
+- Completed no-cache builds and five-service startup under serialized Podman and
+  retained Colima. Postgres, Redis, Prefect, and Vite passed runtime probes; no
+  enterprise container mapped the service-account token or ambient Vertex ADC.
+- Preserved the original Postgres and Redis volume creation identities in both
+  runtimes. Colima was stopped before both Podman guests were restored; the
+  development stack and the personal Atuin health endpoint are active again.
+- Repeated Django probes truthfully exposed an application-owned shared async
+  Redis client defect. Colima also exposed the application's macOS GID 20 build
+  collision; a process-local GID 1000 workaround proved fallback operation.
+  Neither downstream defect changed dotfiles scope.
+- Affected QA passed 106 tests; post-reconciliation union QA passed 319 tests
+  with one optional Lima skip, plus Python compilation, diff checks, ticket
+  validation, live runtime switching, and independent review. Gate Exceptions:
+  none. Gate Commits: `74daa67`, `0597aea`, `c4b1bf3`; intended Final Push is the
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-19 - Pinned Local Embedding Service
 
 - Added and deployed a default-off, loopback-only Qwen3 Embedding 8B service

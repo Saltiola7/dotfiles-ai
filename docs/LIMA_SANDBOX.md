@@ -66,10 +66,12 @@ sandbox-vm shell workspace1
 sandbox-vm status
 sandbox-vm configure-atuin
 sandbox-vm update workspace1
+sandbox-vm install-make workspace1
 workspace1sh
 ```
 
-Every managed guest uses rootless Podman with checksum-pinned Docker Compose v2.
+Every managed guest includes GNU Make and uses rootless Podman with
+checksum-pinned Docker Compose v2.
 The guest-only `docker` command routes `docker compose` to that provider over the
 Podman engine, so existing project Make targets keep their normal interface.
 Verify after create or update:
@@ -77,6 +79,7 @@ Verify after create or update:
 ```sh
 workspace1sh -- podman info --format '{{.Host.Security.Rootless}}'
 workspace1sh -- docker compose version
+workspace1sh -- make --version
 ```
 
 `sandbox-vm update` requires an existing guest to already provide rootless
@@ -84,6 +87,12 @@ Podman before it changes guest files. The current managed Fedora workspaces meet
 that precondition. A legacy guest without Podman must be recreated from the
 current rendered template; the restricted guest account cannot mutate system
 packages.
+
+An existing guest created before GNU Make was added requires
+`sandbox-vm install-make WORKSPACE`. The controller preserves prior running or
+stopped state, appends one idempotent system provision, restarts only when the
+package is missing, and verifies `make --version`. Do not grant the guest user
+broader sudo or recreate the VM merely to add this package.
 
 Enroll one workspace with a one-off, pre-authorized, tagged key supplied only on
 stdin:
@@ -221,5 +230,7 @@ from the new home before removing the old tree. Roll back by stopping instances,
 restoring the prior `lima_home`, and restarting from the retained source copy.
 
 To verify Colima compatibility, first stop the guest project stack, start Colima,
-and run the unchanged `docker compose` project command on macOS. Never start the
-retained Colima Atuin service while the Lima Podman Atuin service is authoritative.
+and run the project command on macOS with any required project-owned host path or
+identity overrides. Never use `down --volumes`, run both project stacks at once,
+or start the retained Colima Atuin service while the Lima Podman Atuin service is
+authoritative. Stop Colima and restore the Podman stack when validation ends.
