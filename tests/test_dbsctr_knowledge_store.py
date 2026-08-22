@@ -464,6 +464,23 @@ def test_graphify_import_requires_exact_source_provenance() -> None:
             "b" * 40, "0.9.48", "c" * 64)
 
 
+def test_graphify_locations_parse_each_document_once(monkeypatch) -> None:
+    dks = load_dksctl()
+    calls = 0
+    source_lines = dks.source_lines
+
+    def counted(data):
+        nonlocal calls
+        calls += 1
+        return source_lines(data)
+
+    monkeypatch.setattr(dks, "source_lines", counted)
+    document = {"path": "example.py", "blob_id": "a" * 40, "data": b"one\ntwo\n"}
+    assert dks.graphify_location(document, "L1")["start_byte"] == 0
+    assert dks.graphify_location(document, "L2")["start_byte"] == 4
+    assert calls == 1
+
+
 def test_graphify_import_sql_binds_identity_citations_and_completeness() -> None:
     dks = load_dksctl()
     graph = {"artifact_sha256": "a" * 64, "normalized_sha256": "b" * 64,

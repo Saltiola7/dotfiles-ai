@@ -308,20 +308,25 @@ def chunk_source(data: bytes, path: str, token_count, token_limit: int = 1024):
 
 
 def graphify_location(document, value):
+    lines = document.get("_graphify_lines")
+    if lines is None:
+        lines = document["_graphify_lines"] = list(source_lines(document["data"]))
+    content_sha256 = document.get("_graphify_content_sha256")
+    if content_sha256 is None:
+        content_sha256 = document["_graphify_content_sha256"] = hashlib.sha256(document["data"]).hexdigest()
     if value is None and document["data"]:
         return {"path": document["path"], "blob_id": document["blob_id"],
-                "content_sha256": hashlib.sha256(document["data"]).hexdigest(),
+                "content_sha256": content_sha256,
                 "start_byte": 0, "end_byte": len(document["data"])}
     match = re.fullmatch(r"L([1-9][0-9]*)", str(value))
     if not match:
         raise ValueError("invalid Graphify source location")
-    lines = list(source_lines(document["data"]))
     line = int(match.group(1))
     if line > len(lines):
         raise ValueError("invalid Graphify source location")
     start, _payload_end, end, _payload = lines[line - 1]
     return {"path": document["path"], "blob_id": document["blob_id"],
-            "content_sha256": hashlib.sha256(document["data"]).hexdigest(),
+            "content_sha256": content_sha256,
             "start_byte": start, "end_byte": end}
 
 
