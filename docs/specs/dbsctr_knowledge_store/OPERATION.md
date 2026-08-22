@@ -3,6 +3,22 @@
 DKS is a rebuildable local projection. Git and typed DBSCTR stores remain source
 authority. Never repair source truth through PostgreSQL.
 
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | not_applicable: this runbook does not change the boundary view | Does recovery preserve canonical authority? | `README.md` Visual Evidence | DKS boundary change |
+| Interaction | not_applicable: commands below are the accessible procedural view | Is every action ordered and reversible? | Normal Operation and Manual Recovery | Recovery flow change |
+| State | not_applicable: health states are defined in the failure table | Does each state have one bounded action? | Normal Operation failure table | Doctor state change |
+| Data/trust | not_applicable: no new data flow is defined here | Do logs and recovery remain content-safe? | `README.md` trust boundary | Privacy contract change |
+| Schema | not_applicable: schema identity is reported, not designed here | Does recovery use the managed migration path? | Rebuild and Rollback | Schema migration change |
+| Dependency/deployment | not_applicable: owned services are listed textually | Can each service be restarted or disabled independently? | Disable and Rollback | LaunchAgent change |
+| Quantitative | not_applicable: this runbook makes no quantitative comparison | Are counts treated only as health evidence? | `dksctl status` output | Health metric change |
+
+**Text Equivalent:** The runbook proceeds from health inspection to one bounded
+manual retry, then managed migration/rebuild only when required; rollback or
+disablement removes only owned runtime state and never edits canonical sources.
+
 ## Normal Operation
 
 Launchd runs `dksctl reconcile --project dotfiles-ai` at the configured interval.
