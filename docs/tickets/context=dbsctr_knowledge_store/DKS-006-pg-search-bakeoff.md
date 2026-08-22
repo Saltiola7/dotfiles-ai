@@ -36,11 +36,16 @@ migration: null
 A production-independent benchmark decides whether BM25 merits later PostgreSQL
 19 adoption work; this ticket cannot install, configure, or route production.
 
-## Blockers
+## Context
 
 DKS-005 must first supply frozen human judgments. Production evaluation remains
 blocked until PostgreSQL 19 is GA and ParadeDB publishes an official `pg_search`
 build for the exact production major.
+
+## Scope
+
+Compare native FTS and isolated BM25 on the frozen sanitized corpus, then publish
+only a recommendation and destruction evidence without changing production.
 
 ## Acceptance Criteria
 
@@ -76,3 +81,8 @@ Official sources:
 - https://github.com/paradedb/paradedb/blob/v0.25.3/pg_search/pg_search.control
 - https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-SHARED-PRELOAD-LIBRARIES
 - https://www.postgresql.org/about/news/postgresql-186-1711-1615-1519-1424-and-19-beta-3-released-3365/
+
+## Review
+
+Blocked pending DKS-005 evidence, PostgreSQL 19 GA, and official exact-major
+`pg_search` support; no production mutation is authorized.

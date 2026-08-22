@@ -5,14 +5,14 @@ slug: hands-off-reconciliation-context
 context: dbsctr_knowledge_store
 title: Make projection and cited context hands-off
 kind: epic
-state: in_progress
+state: done
 priority: high
 points: 8
 depends_on:
   - DKS-003
 relations:
-  - DKS-005
-  - DKS-006
+  - dbsctr_knowledge_store:DKS-005
+  - dbsctr_knowledge_store:DKS-006
 owns:
   - .chezmoidata.toml
   - .chezmoiignore
@@ -25,6 +25,7 @@ owns:
   - docs/specs/dbsctr_knowledge_store/benchmark-runner-v2.schema.json
   - docs/tickets/context=dbsctr_knowledge_store/DKS-004-hands-off-reconciliation-context.md
   - dot_local/bin/executable_dksctl
+  - dot_local/bin/executable_dks-psql.tmpl
   - dot_local/bin/executable_dks-benchmark-collector
   - private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl
   - private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl
@@ -33,6 +34,7 @@ owns:
   - private_dot_config/opencode/tools/dks.ts
   - private_dot_config/opencode/tools/dbsctr.ts
   - run_onchange_after_load-dbsctr-knowledge-reconcile.sh.tmpl
+  - run_onchange_after_configure-pm-postgres.sh.tmpl
   - tests/test_dbsctr_knowledge_store.py
   - tests/test_opencode_control_plane.py
 reads:
@@ -49,8 +51,16 @@ validation:
   - offline four-cell benchmark lineage, depth, citation, telemetry, and non-activation checks
 created: 2026-08-21
 updated: 2026-08-21
-completed: null
-commits: []
+completed: 2026-08-21
+commits:
+  - 4d3c35d
+  - 475ba24
+  - 5cdca8a
+  - bf9377e
+  - b584f53
+  - 3c47cea
+  - bc50702
+  - 81ae12b
 jira_publications: []
 migration: null
 ---
@@ -143,3 +153,15 @@ tools, and live schema-4 deployment after merge commit `311e22d`. Independent
 operations and benchmark reviews found no reconciliation scheduler, partial
 status coverage, circular benchmark approval lineage, incomplete matrix/depth
 proof, and cancellable exact-citation regressions.
+
+Delivery deployed schema 5, bounded OpenCode context, the interval reconciler,
+doctor/status diagnostics, corrected benchmark contracts, and a Keychain-backed
+unattended database credential. The projection converged to `b830bae`, reported
+healthy, then completed a four-stage unchanged run with launchd exit 0. The union
+affected suite passed 175 tests; independent final review found no P0/P1 issues.
+`dks-rrf-v1` remains active and no DKS-004 path activated candidate ranking.
+
+## Review
+
+Accepted after union affected validation, deployed scheduled no-op evidence, and
+independent operations/security review with no remaining P0/P1 findings.

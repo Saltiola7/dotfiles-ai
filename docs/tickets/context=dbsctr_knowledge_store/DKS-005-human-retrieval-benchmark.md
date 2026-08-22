@@ -11,7 +11,7 @@ points: 8
 depends_on:
   - DKS-004
 relations:
-  - DKS-006
+  - dbsctr_knowledge_store:DKS-006
 owns:
   - docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.protocol.json
   - docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.aggregate.json
@@ -39,10 +39,15 @@ Human-authored private relevance evidence determines whether code vectors,
 reranking, both, or neither improve cited retrieval enough to replace
 `dks-rrf-v1`.
 
-## Blocker
+## Context
 
 DKS-004 must first deliver the non-circular protocol and immutable offline runner.
 Human judgments cannot be automated or fabricated.
+
+## Scope
+
+Run the frozen private human assessment and publish only its bounded protocol,
+digests, aggregate evidence, reviewed policy decision, and rollback result.
 
 ## Acceptance Criteria
 
@@ -75,3 +80,7 @@ DKS-003 specified the quality thresholds but intentionally retained the baseline
 because no approved human evidence exists. DKS-004 owns correction of the runner
 and lineage defects; this ticket owns only human assessment and the resulting
 conditional policy decision.
+
+## Review
+
+Blocked pending DKS-004 delivery and explicit human-authored private judgments.
