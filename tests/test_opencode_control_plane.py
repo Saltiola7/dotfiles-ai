@@ -470,6 +470,9 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["dbsctrctl cleanup*"] == "ask"
     assert bash["dbsctrctl cycle-retire*"] == "ask"
     assert bash["*limactl *"] == "deny"
+    assert bash["sandbox-vm install-make*"] == "ask"
+    assert bash["*/sandbox-vm install-make*"] == "ask"
+    assert bash["*sandbox-vm install-make*"] == "ask"
     for command in (
         "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*",
         "herdr workspace close*", "herdr pane close*", "herdr tab close*",
