@@ -303,6 +303,8 @@ CREATE TABLE IF NOT EXISTS dks.graph_imports (
     source_profile_sha256 text NOT NULL CHECK (source_profile_sha256 ~ '^[0-9a-f]{64}$'),
     corpus_manifest_sha256 text NOT NULL CHECK (corpus_manifest_sha256 ~ '^[0-9a-f]{64}$'),
     execution_receipt_sha256 text NOT NULL CHECK (execution_receipt_sha256 ~ '^[0-9a-f]{64}$'),
+    runtime_sha256 text NOT NULL CHECK (runtime_sha256 ~ '^[0-9a-f]{64}$'),
+    producer_sha256 text NOT NULL CHECK (producer_sha256 ~ '^[0-9a-f]{64}$'),
     expected_nodes integer NOT NULL CHECK (expected_nodes >= 0),
     expected_edges integer NOT NULL CHECK (expected_edges >= 0),
     excluded_external_nodes integer NOT NULL CHECK (excluded_external_nodes >= 0),
@@ -316,6 +318,14 @@ ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS corpus_manifest_sha256 te
     CHECK (corpus_manifest_sha256 ~ '^[0-9a-f]{64}$');
 ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS execution_receipt_sha256 text
     CHECK (execution_receipt_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS runtime_sha256 text
+    DEFAULT '71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8'
+    CHECK (runtime_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS producer_sha256 text
+    DEFAULT '7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091'
+    CHECK (producer_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.graph_imports ALTER COLUMN runtime_sha256 SET NOT NULL;
+ALTER TABLE dks.graph_imports ALTER COLUMN producer_sha256 SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dks.imported_graph_nodes (
     project_id text NOT NULL,
@@ -524,5 +534,6 @@ $policy$;
 INSERT INTO dks.schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
 INSERT INTO dks.schema_migrations(version) VALUES (2) ON CONFLICT DO NOTHING;
 INSERT INTO dks.schema_migrations(version) VALUES (3) ON CONFLICT DO NOTHING;
+INSERT INTO dks.schema_migrations(version) VALUES (5) ON CONFLICT DO NOTHING;
 
 COMMIT;

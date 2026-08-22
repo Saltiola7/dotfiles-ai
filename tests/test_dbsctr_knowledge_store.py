@@ -641,21 +641,32 @@ def test_stored_vector_digest_is_recomputed() -> None:
         dks.validate_stored_vector(vector, value, "0" * 64)
 
 
-def test_benchmark_approval_precedes_source_revision(monkeypatch) -> None:
+def test_benchmark_lineage_freezes_source_before_queries_and_judgments(monkeypatch) -> None:
     dks = load_dksctl()
-    config = {"quality_benchmark_approval_commit": "a" * 40,
+    config = {"quality_benchmark_source_revision": "a" * 40,
+              "quality_benchmark_query_approval_commit": "b" * 40,
+              "quality_benchmark_judgment_freeze_commit": "c" * 40,
               "quality_benchmark_query_digest": "b" * 64,
+              "quality_benchmark_protocol_digest": "f" * 64,
               "quality_benchmark_judgment_digest": "c" * 64}
-    manifest = {"source_revision": "d" * 40, "query_digest": "b" * 64,
-                "judgment_digest": "c" * 64}
-    approved = b'[dotfiles_ai.knowledge_store]\nquality_benchmark_query_digest = "' + \
-        b"b" * 64 + b'"\nquality_benchmark_judgment_digest = "' + b"c" * 64 + b'"\n'
+    manifest = {"source_revision": "a" * 40, "query_approval_commit": "b" * 40,
+                "judgment_freeze_commit": "c" * 40, "query_digest": "b" * 64,
+                "protocol_digest": "f" * 64, "judgment_digest": "c" * 64}
+    query_record = (b'[dotfiles_ai.knowledge_store]\nquality_benchmark_source_revision = "'
+                    + b"a" * 40 + b'"\nquality_benchmark_query_digest = "' + b"b" * 64
+                    + b'"\nquality_benchmark_protocol_digest = "' + b"f" * 64 + b'"\n')
+    freeze_record = (b'[dotfiles_ai.knowledge_store]\nquality_benchmark_source_revision = "'
+                     + b"a" * 40 + b'"\nquality_benchmark_query_approval_commit = "'
+                     + b"b" * 40 + b'"\nquality_benchmark_query_digest = "' + b"b" * 64
+                     + b'"\nquality_benchmark_protocol_digest = "' + b"f" * 64
+                     + b'"\nquality_benchmark_judgment_digest = "' + b"c" * 64 + b'"\n')
     monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
                         subprocess.CompletedProcess([], 0))
-    monkeypatch.setattr(dks, "run_git", lambda *_args, **_kwargs: approved)
+    monkeypatch.setattr(dks, "run_git", lambda _repo, _show, revision, **_kwargs:
+                        query_record if revision.startswith("b") else freeze_record)
     dks.validate_benchmark_approval(config, {"repository": "/repo"}, manifest)
     manifest["query_digest"] = "e" * 64
-    with pytest.raises(RuntimeError, match="preapproved"):
+    with pytest.raises(RuntimeError, match="lineage"):
         dks.validate_benchmark_approval(config, {"repository": "/repo"}, manifest)
     assert '"GIT_NO_REPLACE_OBJECTS": "1"' in DKSCTL.read_text()
 
@@ -678,11 +689,11 @@ def test_benchmark_aggregate_enforces_activation_thresholds(tmp_path: Path) -> N
     dks = load_dksctl()
     passing = {"eligible": True, "relative_ndcg10": 0.05, "absolute_ndcg10": 0.06,
                "baseline_ndcg10": 0.5, "ci95_lower": 0.001,
-               "max_stratum_regression": -0.02, "exact_citation_delta": 0.0,
+               "max_stratum_regression": -0.02, "exact_citation_regressions": 0,
                "recall50_delta": 0.0, "deterministic_rank": True,
                "warm_p95_seconds": 30.0, "peak_memory_gib": 56.0,
                "memory_pressure": "normal", "swap_growth_bytes": 0}
-    value = {"schema_version": 1, "manifest_sha256": "a" * 64, "query_count": 100,
+    value = {"schema_version": 2, "manifest_sha256": "a" * 64, "query_count": 100,
              "strata": {f"s{index}": 20 for index in range(5)}, "judgment_depth": 50,
              "duplicate_fraction": 0.2, "quadratic_kappa": 0.7, "matrix_complete": True,
              "candidates": {"code": passing, "reranker": passing}}
@@ -697,61 +708,204 @@ def test_benchmark_aggregate_enforces_activation_thresholds(tmp_path: Path) -> N
         dks.load_benchmark_aggregate(path)
 
 
+def test_benchmark_v2_manifest_binds_complete_protocol(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    hashes = {name: "a" * 64 for name in (
+        "source_profile_sha256", "source_projection_sha256", "authority_snapshot_set_sha256",
+        "authority_projection_sha256", "privacy_digest", "graph_artifact_sha256",
+        "general_embedding_manifest_sha256", "code_embedding_manifest_sha256",
+        "reranker_manifest_sha256", "query_digest", "judgment_digest", "result_digest",
+        "seed_sha256")}
+    manifest = {"schema_version": 2, "benchmark_id": "DKS-005", "protocol_version": "dks-benchmark-v2",
+                "source_revision": "b" * 40, "query_approval_commit": "c" * 40,
+                "judgment_freeze_commit": "d" * 40, "privacy_sequence": 0,
+                "query_count": 100, "strata": {f"s{i}": 20 for i in range(5)},
+                "depths": [20, 50, 100], "hardware": {"sku": "Mac", "os": "26",
+                "power": "ac", "thermal": "nominal"}, "authored_at": 1,
+                "assessor_protocol_version": "dks-assessor-v2",
+                "candidate_systems": ["baseline", "code", "reranker", "code_reranker"],
+                "prompts": {name: "e" * 64 for name in ("general", "code", "reranker")},
+                "chunkers": ["dks-markdown-v1", "dks-source-v1", "dks-authority-v1"],
+                "metrics": ["ndcg10", "recall50", "exact_citation", "latency", "memory"],
+                "thresholds": {"relative_ndcg10": 0.05, "absolute_ndcg10_zero_baseline": 0.05,
+                "ci95_lower": 0.0, "max_stratum_regression": -0.02,
+                "warm_p95_seconds": 30.0, "peak_memory_gib": 56.0},
+                "split": {"evaluation": "frozen", "training_queries": 0},
+                "activation_order": ["baseline", "code", "reranker"],
+                "telemetry_collector_sha256": "f" * 64, **hashes}
+    manifest["protocol_digest"] = dks.digest_json(dks.benchmark_protocol_identity(manifest))
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    path.chmod(0o600)
+    loaded, _ = dks.load_benchmark_manifest(path)
+    assert loaded == manifest
+    manifest["candidate_systems"] = ["baseline"]
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="manifest"):
+        dks.load_benchmark_manifest(path)
+
+
 def test_benchmark_metrics_are_recomputed_from_frozen_evidence(tmp_path: Path) -> None:
     dks = load_dksctl()
     systems = ("baseline", "code", "reranker", "code_reranker")
     queries = []
     for index in range(100):
-        ids = [f"chunk-{item}" for item in range(50)]
+        ids = [f"chunk-{item}" for item in range(100)]
         code = list(ids)
         baseline = [*ids[1:], ids[0]]
+        citation = hashlib.sha256(f"citation-{index}".encode()).hexdigest()
+        rankings = {"baseline": baseline, "code": code,
+                    "reranker": baseline, "code_reranker": code}
+        warmups = {name: [1.0, 1.0, 1.0] for name in systems}
+        runs = {name: [1.0] * 5 for name in systems}
+        depths = {name: {str(depth): ranking[:depth] for depth in (20, 50, 100)}
+                  for name, ranking in rankings.items()}
+        depth_timings = {name: {str(depth): {
+            "warmups": warmups[name] if depth == 100 else [1.0 + depth / 1000] * 3,
+            "runs": runs[name] if depth == 100 else [1.0 + depth / 1000] * 5}
+            for depth in (20, 50, 100)} for name in systems}
         queries.append({
             "query_id": f"query-{index}", "stratum": f"s{index % 5}", "text": f"query {index}",
             "judgments": {item: 3 if item == ids[0] else 0 for item in ids},
-            "rankings": {"baseline": baseline, "code": code,
-                         "reranker": baseline, "code_reranker": code},
-            "exact_citation": {name: True for name in systems},
-            "warmups_seconds": {name: [1.0, 1.0, 1.0] for name in systems},
-            "runs_seconds": {name: [1.0] * 5 for name in systems},
+            "rankings": rankings, "expected_citations": [citation],
+            "citations": {name: [citation] for name in systems},
+            "depth_rankings": depths,
+            "depth_timings": depth_timings,
+            "execution_receipts": {name: {str(depth): {
+                "run_id": f"query-{index}-{name}-{depth}",
+                "ranking_sha256": dks.digest_json(depths[name][str(depth)]),
+                "timings_sha256": dks.digest_json(depth_timings[name][str(depth)]),
+                "telemetry_sha256": "b" * 64} for depth in (20, 50, 100)} for name in systems},
+            "warmups_seconds": warmups,
+            "runs_seconds": runs,
             "repeat_rankings": {"baseline": [baseline, baseline], "code": [code, code],
                                 "reranker": [baseline, baseline], "code_reranker": [code, code]},
         })
     query_identity = [[item["query_id"], item["stratum"], item["text"]] for item in queries]
-    duplicate = [[3, 3] for _ in range(20)]
-    judgment_identity = [[item["query_id"], sorted(item["judgments"].items())] for item in queries]
+    duplicate = [{"original_assignment_id": f"original-{index}",
+                  "duplicate_assignment_id": f"duplicate-{index}", "pair_id": f"pair-{index}",
+                  "assessor_id": "assessor-a", "query_id": f"query-{index}",
+                  "item_id": "chunk-0", "randomization_sha256": "f" * 64,
+                  "first_grade": 3, "second_grade": 3}
+                 for index in range(20)]
+    judgment_identity = [[item["query_id"], sorted(item["judgments"].items()),
+                          item["expected_citations"]] for item in queries]
     judgment_identity.append(["duplicates", duplicate])
+    judgment_identity.append(["adjudications", []])
     resources = {name: {"peak_memory_gib": 10.0, "memory_pressure": "normal",
-                        "swap_growth_bytes": 0} for name in ("code", "reranker")}
-    result_identity = [[item["query_id"], item["rankings"], item["exact_citation"],
+                        "swap_growth_bytes": 0, "hardware_sku": "Mac", "os_version": "26",
+                        "power_state": "ac", "thermal_state": "nominal", "captured_at": 1,
+                        "collector_sha256": "a" * 64}
+                 for name in ("code", "reranker")}
+    telemetry_receipts = {}
+    run_manifests = {}
+    for name, selected in (("code", {"baseline", "code"}),
+                           ("reranker", {"reranker", "code_reranker"})):
+        run_ids = sorted(receipt["run_id"] for query in queries
+                         for system, receipts in query["execution_receipts"].items()
+                         if system in selected for receipt in receipts.values())
+        run_manifests[name] = {"collector_sha256": resources[name]["collector_sha256"],
+                               "protocol_digest": "e" * 64, "run_ids": run_ids}
+        resources[name]["run_manifest_sha256"] = dks.digest_json(run_manifests[name])
+        receipt = {"collector_sha256": resources[name]["collector_sha256"],
+                   "run_manifest_sha256": resources[name]["run_manifest_sha256"],
+                   "run_ids": run_ids,
+                   "samples": {key: resources[name][key] for key in (
+                       "peak_memory_gib", "memory_pressure", "swap_growth_bytes", "hardware_sku",
+                       "os_version", "power_state", "thermal_state", "captured_at")}}
+        telemetry_receipts[name] = receipt
+        resources[name]["raw_telemetry_sha256"] = dks.digest_json(receipt)
+        for query in queries:
+            for system in selected:
+                for receipt_item in query["execution_receipts"][system].values():
+                    receipt_item["telemetry_sha256"] = resources[name]["raw_telemetry_sha256"]
+    result_identity = [[item["query_id"], item["rankings"], item["expected_citations"],
+                        item["citations"], item["depth_rankings"],
+                        item["depth_timings"],
+                        item["execution_receipts"],
                         item["warmups_seconds"], item["runs_seconds"], item["repeat_rankings"]]
                        for item in queries]
     result_identity.append(["resources", resources])
+    result_identity.append(["telemetry_receipts", telemetry_receipts])
+    result_identity.append(["run_manifests", run_manifests])
     manifest = {"query_count": 100, "strata": {f"s{index}": 20 for index in range(5)},
-                "query_digest": dks.digest_json(query_identity),
-                "judgment_digest": dks.digest_json(judgment_identity),
-                "result_digest": dks.digest_json(result_identity)}
-    evidence = {"schema_version": 1, "queries": queries, "duplicate_assessments": duplicate,
-                "resources": resources}
+                 "query_digest": dks.digest_json(query_identity),
+                 "judgment_digest": dks.digest_json(judgment_identity),
+                 "result_digest": dks.digest_json(result_identity), "seed_sha256": "d" * 64,
+                 "hardware": {"sku": "Mac", "os": "26", "power": "ac", "thermal": "nominal"},
+                 "telemetry_collector_sha256": "a" * 64, "protocol_digest": "e" * 64}
+    evidence = {"schema_version": 2, "queries": queries, "duplicate_assessments": duplicate,
+                "adjudications": [], "resources": resources,
+                "telemetry_receipts": telemetry_receipts, "run_manifests": run_manifests}
+    collector = tmp_path / "collector"
+    collector.write_text("collector\n")
+    collector.chmod(0o600)
+    collector_sha = hashlib.sha256(collector.read_bytes()).hexdigest()
+    manifest["telemetry_collector_sha256"] = collector_sha
+    for name in resources:
+        resources[name]["collector_sha256"] = collector_sha
+        run_manifests[name]["collector_sha256"] = collector_sha
+        resources[name]["run_manifest_sha256"] = dks.digest_json(run_manifests[name])
+        telemetry_receipts[name]["collector_sha256"] = collector_sha
+        telemetry_receipts[name]["run_manifest_sha256"] = resources[name]["run_manifest_sha256"]
+        resources[name]["raw_telemetry_sha256"] = dks.digest_json(telemetry_receipts[name])
+        for query in queries:
+            for system in ({"baseline", "code"} if name == "code" else {"reranker", "code_reranker"}):
+                for receipt in query["execution_receipts"][system].values():
+                    receipt["telemetry_sha256"] = resources[name]["raw_telemetry_sha256"]
+    result_identity = [[item["query_id"], item["rankings"], item["expected_citations"],
+                        item["citations"], item["depth_rankings"], item["depth_timings"],
+                        item["execution_receipts"], item["warmups_seconds"], item["runs_seconds"],
+                        item["repeat_rankings"]] for item in queries]
+    result_identity.extend([["resources", resources], ["telemetry_receipts", telemetry_receipts],
+                            ["run_manifests", run_manifests]])
+    manifest["result_digest"] = dks.digest_json(result_identity)
+    collector_config = {"benchmark_collector_file": str(collector),
+                        "benchmark_collector_sha256": collector_sha}
     path = tmp_path / "evidence.json"
     path.write_text(json.dumps(evidence))
     path.chmod(0o600)
-    aggregate = dks.load_benchmark_evidence(path, manifest, "a" * 64)
+    aggregate = dks.load_benchmark_evidence(path, manifest, "a" * 64, collector_config)
     assert aggregate["candidates"]["code"]["eligible"] is True
     assert aggregate["candidates"]["reranker"]["eligible"] is False
-    evidence["queries"][0]["repeat_rankings"]["code"][0] = baseline
-    result_identity = [[item["query_id"], item["rankings"], item["exact_citation"],
+    assert aggregate["candidates"]["code"]["exact_citation_regressions"] == 0
+    evidence["queries"][0]["citations"]["code"] = []
+    evidence["queries"][1]["citations"]["baseline"] = []
+    result_identity = [[item["query_id"], item["rankings"], item["expected_citations"],
+                        item["citations"], item["depth_rankings"],
+                        item["depth_timings"],
+                        item["execution_receipts"],
                         item["warmups_seconds"], item["runs_seconds"], item["repeat_rankings"]]
                        for item in evidence["queries"]]
     result_identity.append(["resources", resources])
+    result_identity.append(["telemetry_receipts", telemetry_receipts])
+    result_identity.append(["run_manifests", run_manifests])
     manifest["result_digest"] = dks.digest_json(result_identity)
     path.write_text(json.dumps(evidence))
-    nondeterministic = dks.load_benchmark_evidence(path, manifest, "a" * 64)
+    citation_regression = dks.load_benchmark_evidence(path, manifest, "a" * 64, collector_config)
+    assert citation_regression["candidates"]["code"]["exact_citation_regressions"] == 1
+    assert citation_regression["candidates"]["code"]["eligible"] is False
+    evidence["queries"][0]["citations"]["code"] = evidence["queries"][0]["expected_citations"]
+    evidence["queries"][1]["citations"]["baseline"] = evidence["queries"][1]["expected_citations"]
+    evidence["queries"][0]["repeat_rankings"]["code"][0] = baseline
+    result_identity = [[item["query_id"], item["rankings"], item["expected_citations"],
+                        item["citations"], item["depth_rankings"],
+                        item["depth_timings"],
+                        item["execution_receipts"],
+                        item["warmups_seconds"], item["runs_seconds"], item["repeat_rankings"]]
+                       for item in evidence["queries"]]
+    result_identity.append(["resources", resources])
+    result_identity.append(["telemetry_receipts", telemetry_receipts])
+    result_identity.append(["run_manifests", run_manifests])
+    manifest["result_digest"] = dks.digest_json(result_identity)
+    path.write_text(json.dumps(evidence))
+    nondeterministic = dks.load_benchmark_evidence(path, manifest, "a" * 64, collector_config)
     assert nondeterministic["candidates"]["code"]["deterministic_rank"] is False
     assert nondeterministic["candidates"]["code"]["eligible"] is False
     evidence["queries"][0]["text"] = "mutated"
     path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="manifest identity"):
-        dks.load_benchmark_evidence(path, manifest, "a" * 64)
+        dks.load_benchmark_evidence(path, manifest, "a" * 64, collector_config)
 
 
 def test_dksctl_normalizes_only_supported_repository_remotes() -> None:
@@ -1106,6 +1260,169 @@ def test_code_embedding_sync_persists_bounded_batches() -> None:
     assert "GROUP BY c.chunk_id,c.body" in sync_code
     assert 'missing = [row for row in batch' in sync_code
     assert 'session.execute("\\n".join(statements))' in sync_code
+
+
+def test_reconcile_configuration_and_ref_are_bounded(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init")
+    git(repo, "config", "user.email", "test@example.com")
+    git(repo, "config", "user.name", "Test")
+    git(repo, "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai")
+    (repo / "README.md").write_text("fixture\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "fixture")
+    commit = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-ref", "refs/remotes/origin/main", commit)
+    config = {"reconcile": {"enabled": True, "interval_seconds": 900,
+                             "timeout_seconds": 21600}}
+    project = {"repository": str(repo), "remote": "https://github.com/Saltiola7/dotfiles-ai",
+               "reconcile_ref": "refs/remotes/origin/main", "reconcile_fetch": False}
+
+    settings = dks.reconcile_settings(config, project)
+    assert dks.resolve_reconcile_commit(project, settings) == commit
+    with pytest.raises(ValueError, match="ref"):
+        dks.reconcile_settings(config, {**project, "reconcile_ref": "main"})
+    with pytest.raises(ValueError, match="configuration"):
+        dks.reconcile_settings({"reconcile": {**config["reconcile"], "interval_seconds": 1}}, project)
+
+
+def test_reconcile_identity_freshness_and_delivery_contract() -> None:
+    dks = load_dksctl()
+    digest = "a" * 64
+    export = {"manifest": {"privacy_sequence": 2, "privacy_digest": "b" * 64,
+                            "families": {family: "available" for family in dks.KNOWLEDGE_FAMILIES}},
+              "terminal": {"digest": digest}, "records": []}
+    status = {"authority": {"privacy_sequence": "2", "privacy_digest": "b" * 64,
+                             "manifests": [digest] * len(dks.KNOWLEDGE_FAMILIES)}}
+    assert dks.authority_is_fresh(status, export)
+    assert not dks.authority_is_fresh({**status, "authority": {**status["authority"],
+                                       "privacy_sequence": "1"}}, export)
+
+    plist = render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl")
+    subprocess.run(["plutil", "-lint", "--", "-"], input=plist, text=True, check=True)
+    assert "StartInterval" in plist and "KeepAlive" not in plist
+    source = DKSCTL.read_text()
+    assert 'commands.add_parser("reconcile"' in source
+    assert 'commands.add_parser("doctor"' in source
+    assert 'LOCK_EX | fcntl.LOCK_NB' in source
+    assert '"fetch", "--no-tags"' in source
+    assert "authority_embeddings" in source and "DISTINCT ON (chunk_id)" in source
+
+
+def test_reconcile_noop_disable_busy_and_failure_are_bounded(tmp_path: Path, monkeypatch) -> None:
+    dks = load_dksctl()
+    commit = "a" * 40
+    space = "general-space"
+    code_space = "code-space"
+    config = {"reconcile": {"enabled": True, "interval_seconds": 900, "timeout_seconds": 60},
+              "embedding": {"space_id": space, "manifest_sha256": "b" * 64},
+              "code_embedding": {"space_id": code_space, "manifest_sha256": "c" * 64}}
+    project = {"knowledge_state_root": str(tmp_path), "source_profile_sha256": "d" * 64,
+               "reconcile_ref": "refs/remotes/origin/main", "reconcile_fetch": False}
+    settings = dks.reconcile_settings(config, project)
+    export = {"manifest": {"privacy_sequence": 0, "privacy_digest": "e" * 64,
+                            "families": {family: "available" for family in dks.KNOWLEDGE_FAMILIES}},
+              "terminal": {"digest": "f" * 64}, "records": []}
+    status = {"active_revision": commit, "embedding_space": space, "embedding_manifest": "b" * 64,
+              "code_chunks": 1, "code_embeddings": 1,
+              "code_identity": {"embedding_space": code_space, "manifest_sha256": "c" * 64},
+              "graphify": {"revision": commit, "source_profile_sha256": "d" * 64,
+              "extractor_version": dks.GRAPHIFY_CONFIG["version"],
+              "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
+              "config_sha256": dks.digest_json(dks.GRAPHIFY_CONFIG)},
+              "authority": {"privacy_sequence": "0", "privacy_digest": "e" * 64,
+              "manifests": ["f" * 64] * len(dks.KNOWLEDGE_FAMILIES), "embedding_spaces": []}}
+    monkeypatch.setattr(dks, "resolve_reconcile_commit", lambda *_args, **_kwargs: commit)
+    monkeypatch.setattr(dks, "command_status", lambda *_args, **_kwargs: status)
+    monkeypatch.setattr(dks, "lifecycle_output", lambda *_args, **_kwargs: "export")
+    monkeypatch.setattr(dks, "parse_knowledge_export", lambda _raw: export)
+    monkeypatch.setattr(dks, "git_is_fresh", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(dks, "graph_is_fresh", lambda *_args, **_kwargs: True)
+    for name in ("command_sync", "command_sync_code", "command_import_graph", "command_sync_evidence"):
+        monkeypatch.setattr(dks, name, lambda *_args, _name=name, **_kwargs:
+                            pytest.fail(f"unexpected {_name}"))
+    args = type("Args", (), {"project": "dotfiles-ai", "force": False})()
+    result = dks.command_reconcile(args, config, project)
+    assert [stage["state"] for stage in result["stages"]] == ["unchanged"] * 4
+
+    disabled = {**config, "reconcile": {**config["reconcile"], "enabled": False}}
+    assert dks.command_reconcile(args, disabled, project)["state"] == "disabled"
+
+    handle = dks.open_reconcile_lock(project)
+    dks.fcntl.flock(handle, dks.fcntl.LOCK_EX | dks.fcntl.LOCK_NB)
+    try:
+        assert dks.command_reconcile(args, config, project)["state"] == "busy"
+    finally:
+        handle.close()
+
+    stale = {**status, "active_revision": "0" * 40}
+    monkeypatch.setattr(dks, "command_status", lambda *_args, **_kwargs: stale)
+    monkeypatch.setattr(dks, "git_is_fresh", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(dks, "command_sync", lambda *_args, **_kwargs:
+                        (_ for _ in ()).throw(RuntimeError("injected")))
+    with pytest.raises(RuntimeError, match="injected"):
+        dks.command_reconcile(args, config, project)
+
+
+def test_reconcile_lock_rejects_fifo(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    directory = tmp_path / "knowledge/reconcile"
+    directory.mkdir(parents=True)
+    (directory / "dotfiles-ai.lock").unlink(missing_ok=True)
+    import os
+    os.mkfifo(directory / "dotfiles-ai.lock", 0o600)
+    with pytest.raises(RuntimeError, match="unsafe"):
+        dks.open_reconcile_lock({"knowledge_state_root": str(tmp_path)})
+
+
+def test_git_and_graph_freshness_bind_complete_identities(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init")
+    git(repo, "config", "user.email", "test@example.com")
+    git(repo, "config", "user.name", "Test")
+    git(repo, "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai")
+    (repo / "src").mkdir()
+    (repo / "src/example.py").write_text("value = 1\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "fixture")
+    commit = git(repo, "rev-parse", "HEAD")
+    profile = {"schema_version": 1, "profile_id": "dks-source-profile-v1", "roots": ["src"],
+               "root_files": [], "root_prefix_suffix": [], "suffixes": [".py"],
+               "extensionless_paths": [], "excluded_components": [], "excluded_basenames": [],
+               "excluded_suffixes": []}
+    profile_path = tmp_path / "profile.json"
+    profile_raw = dks.canonical_json(profile).encode()
+    profile_path.write_bytes(profile_raw)
+    profile_path.chmod(0o600)
+    project = {"repository": str(repo), "remote": "https://github.com/Saltiola7/dotfiles-ai",
+               "source_profile_file": str(profile_path),
+               "source_profile_sha256": hashlib.sha256(profile_raw).hexdigest()}
+    config = {"embedding": {"space_id": "space", "manifest_sha256": "a" * 64}}
+    records_sha, chunkers = dks.expected_source_identity(project, commit)
+    status = {"active_revision": commit, "embedding_space": "space",
+              "embedding_manifest": "a" * 64, "source_records_sha256": records_sha,
+              "chunkers": chunkers}
+    assert dks.git_is_fresh(status, config, project, commit)
+    assert not dks.git_is_fresh({**status, "source_records_sha256": "0" * 64}, config, project, commit)
+
+    producer = tmp_path / "producer"
+    producer.write_text("producer\n")
+    dks.GRAPHIFY_PRODUCER_SHA256 = hashlib.sha256(producer.read_bytes()).hexdigest()
+    graph = {"revision": commit, "source_profile_sha256": project["source_profile_sha256"],
+             "extractor_version": dks.GRAPHIFY_CONFIG["version"],
+             "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
+             "config_sha256": dks.digest_json(dks.GRAPHIFY_CONFIG),
+             "corpus_manifest_sha256": dks.expected_corpus_manifest_sha("dotfiles-ai", project, commit),
+             "execution_receipt_sha256": "b" * 64, "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+             "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256}
+    assert dks.graph_is_fresh({"graphify": graph}, {"graphify_producer": str(producer)},
+                              "dotfiles-ai", project, commit)
+    assert not dks.graph_is_fresh({"graphify": {**graph, "runtime_sha256": "0" * 64}},
+                                  {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
 
 
 def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:

@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+import json
+import platform
+import subprocess
+import time
+
+
+def command(*args):
+    return subprocess.run(args, text=True, capture_output=True, check=True).stdout.strip()
+
+
+def main():
+    power = command("pmset", "-g", "batt").splitlines()[0]
+    pressure = command("memory_pressure").splitlines()[-1]
+    print(json.dumps({"schema_version": 1, "captured_at": int(time.time()),
+                      "hardware_sku": command("sysctl", "-n", "hw.model"),
+                      "os_version": platform.mac_ver()[0], "power_state": power,
+                      "thermal_state": command("pmset", "-g", "therm"),
+                      "memory_pressure": pressure},
+                     sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

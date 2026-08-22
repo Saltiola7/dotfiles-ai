@@ -100,8 +100,11 @@ jira_issue_types = []
 enabled = false
 model_root = "/Volumes/your-drive/lmstudio"
 quality_model_root = "/Volumes/your-drive/state/models"
-quality_benchmark_approval_commit = "" # must precede the benchmark source revision
+quality_benchmark_source_revision = "" # frozen before query approval
+quality_benchmark_query_approval_commit = ""
+quality_benchmark_judgment_freeze_commit = ""
 quality_benchmark_query_digest = ""
+quality_benchmark_protocol_digest = ""
 quality_benchmark_judgment_digest = ""
 embedding_port = 11435
 embedding_dimensions = 4096
@@ -110,11 +113,16 @@ quality_services_enabled = false # candidate services; retrieval still requires 
 code_embedding_port = 11436
 reranker_port = 11437
 postgres_enabled = false
+reconcile_enabled = false # unattended fetch/project; enable only for reviewed projects
+reconcile_interval_seconds = 900
+reconcile_timeout_seconds = 21600
 
 [data.dotfiles_ai.knowledge_store.projects.dotfiles_ai]
 repository = "/absolute/path/to/dotfiles-ai"
 remote = "https://github.com/your-account/dotfiles-ai"
 postgres_password_ref = "op://Private/DBSCTR Knowledge/password"
+reconcile_ref = "refs/remotes/origin/main"
+reconcile_fetch = false
 
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.

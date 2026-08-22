@@ -96,6 +96,7 @@ DO $policy$ BEGIN IF (SELECT count(*) FROM dks.ranking_policies
 WHERE project_id='dotfiles-ai' AND active)<>1 THEN
 RAISE EXCEPTION 'baseline ranking policy unavailable'; END IF; END $policy$;
 INSERT INTO dks.schema_migrations(version) VALUES (4) ON CONFLICT DO NOTHING;
+INSERT INTO dks.schema_migrations(version) VALUES (5) ON CONFLICT DO NOTHING;
 GRANT SELECT ON dks.active_chunks, dks.active_graph_nodes, dks.active_graph_edges,
     dks.one_hop_graph TO dks_dotfiles_ai;
 GRANT SELECT ON PROPERTY GRAPH dks.knowledge_graph TO dks_dotfiles_ai;
@@ -108,7 +109,7 @@ SQL
 test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
     -c "SELECT extversion FROM pg_extension WHERE extname='vector'")" = 0.8.6
 test "$("$psql" -X -At -h 127.0.0.1 -p 55432 -U pm_kernel -d dbsctr_knowledge \
-    -c 'SELECT 1 FROM dks.schema_migrations WHERE version=4')" = 1
+    -c 'SELECT 1 FROM dks.schema_migrations WHERE version=5')" = 1
 unset DKS_PASSWORD PGPASSWORD dks_password pm_password
 {{- else }}
 {{- if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled }}

@@ -25,8 +25,12 @@ owns:
   - docs/specs/dbsctr_knowledge_store/benchmark-runner-v2.schema.json
   - docs/tickets/context=dbsctr_knowledge_store/DKS-004-hands-off-reconciliation-context.md
   - dot_local/bin/executable_dksctl
+  - dot_local/bin/executable_dks-benchmark-collector
   - private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl
   - private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl
+  - private_dot_config/opencode/AGENTS.md
+  - private_dot_config/opencode/lib/dbsctr-runtime.ts
+  - private_dot_config/opencode/tools/dks.ts
   - private_dot_config/opencode/tools/dbsctr.ts
   - run_onchange_after_load-dbsctr-knowledge-reconcile.sh.tmpl
   - tests/test_dbsctr_knowledge_store.py
