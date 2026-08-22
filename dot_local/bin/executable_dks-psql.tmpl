@@ -3,7 +3,7 @@ set -eu
 {{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled }}
 {{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" }}
 if [ "${DOTFILES_AI_DKS_POSTGRES_KEYCHAIN:-}" = "1" ]; then
-    password=$(security find-generic-password -s dev.dotfiles-ai.dks-postgres -a dks_dotfiles_ai -w)
+    password=$(/usr/bin/security find-generic-password -s dev.dotfiles-ai.dks-postgres -a dks_dotfiles_ai -w)
 else
 . "$HOME/.local/bin/op-session"
 password=$(__op_timeout op read {{ $project.postgres_password_ref | quote }})

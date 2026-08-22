@@ -886,10 +886,22 @@ class PsqlSession:
                     self.process.stdin.flush()
                     self.process.wait(timeout=5)
                 except Exception:
-                    self.process.terminate()
-                    self.process.wait(timeout=5)
+                    try:
+                        if self.process.poll() is None:
+                            self.process.terminate()
+                            try:
+                                self.process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                self.process.kill()
+                                self.process.wait(timeout=5)
+                    except Exception:
+                        pass
         finally:
-            self.errors.close()
+            for stream in (self.process.stdin, self.process.stdout, self.errors):
+                try:
+                    stream.close()
+                except Exception:
+                    pass
 
     def __enter__(self):
         return self
@@ -2319,16 +2331,16 @@ def lifecycle_output(config, project, command):
     state_root = project.get("knowledge_state_root")
     repository = Path(project.get("repository", "")).expanduser()
     if (not isinstance(state_root, str) or not Path(state_root).expanduser().is_absolute()
-            or not repository.is_absolute()):
-        raise ValueError("knowledge state root is unavailable")
-    completed = subprocess.run(
-        [executable, command, "--state-root", str(Path(state_root).expanduser())],
-        text=True, capture_output=True, stdin=subprocess.DEVNULL, cwd=repository,
-    )
+            or not repository.is_absolute() or not repository.is_dir()):
+        raise ValueError("knowledge lifecycle repository unavailable")
+    try:
+        completed = subprocess.run(
+            [executable, command, "--state-root", str(Path(state_root).expanduser())],
+            text=True, capture_output=True, stdin=subprocess.DEVNULL, cwd=repository,
+        )
+    except OSError as error:
+        raise RuntimeError(f"lifecycle {command} unavailable") from error
     if completed.returncode:
-        detail = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else ""
-        if re.fullmatch(r"[A-Za-z0-9: ._-]{1,160}", detail):
-            raise RuntimeError(f"lifecycle {command} failed: {detail}")
         raise RuntimeError(f"lifecycle {command} failed")
     return completed.stdout
 

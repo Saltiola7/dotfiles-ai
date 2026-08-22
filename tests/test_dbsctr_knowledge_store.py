@@ -1130,17 +1130,23 @@ def test_database_failures_expose_only_safe_categories(stderr: str, message: str
     assert "private-value" not in str(error)
 
 
-def test_lifecycle_failure_exposes_only_bounded_safe_detail(monkeypatch, tmp_path: Path) -> None:
+def test_lifecycle_failure_never_exposes_child_detail(monkeypatch, tmp_path: Path) -> None:
     dks = load_dksctl()
     project = {"knowledge_state_root": str(tmp_path), "repository": str(tmp_path)}
     monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
                         dks.subprocess.CompletedProcess([], 1, "", "dbsctrctl: store busy\n"))
-    with pytest.raises(RuntimeError, match=r"failed: dbsctrctl: store busy$"):
+    with pytest.raises(RuntimeError, match=r"knowledge-export failed$") as error:
         dks.lifecycle_output({"dbsctrctl": "/bin/false"}, project, "knowledge-export")
+    assert "store busy" not in str(error.value)
     monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs:
-                        dks.subprocess.CompletedProcess([], 1, "", "secret/path/value\n"))
-    with pytest.raises(RuntimeError, match=r"knowledge-export failed$"):
+                        (_ for _ in ()).throw(OSError("private/path")))
+    with pytest.raises(RuntimeError, match=r"knowledge-export unavailable$") as error:
         dks.lifecycle_output({"dbsctrctl": "/bin/false"}, project, "knowledge-export")
+    assert "private/path" not in str(error.value)
+    with pytest.raises(ValueError, match="repository unavailable"):
+        dks.lifecycle_output({"dbsctrctl": "/bin/false"},
+                             {**project, "repository": str(tmp_path / "missing")},
+                             "knowledge-export")
 
 
 def test_dks_embedding_manifest_binds_space_model_endpoint_and_hash(tmp_path: Path) -> None:
@@ -1244,6 +1250,7 @@ def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
     ignore = (ROOT / ".chezmoiignore").read_text()
     project = (ROOT / "private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl").read_text()
     psql = (ROOT / "dot_local/bin/executable_dks-psql.tmpl").read_text()
+    configure = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
 
     assert "postgres_enabled = false" in defaults
     assert "[dotfiles_ai.knowledge_store.projects]" in defaults
@@ -1255,6 +1262,9 @@ def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
     assert "postgres_password_ref" not in project
     assert "op read" in psql and "DBSCTR_KNOWLEDGE_PASSWORD" not in psql
     assert "127.0.0.1" in psql and "dbsctr_knowledge" in psql
+    assert "/usr/bin/security find-generic-password" in psql
+    assert "| /usr/bin/security add-generic-password" in configure
+    assert '-w "$dks_password"' not in configure
 
 
 def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
