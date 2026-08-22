@@ -5,7 +5,7 @@ slug: human-retrieval-benchmark
 context: dbsctr_knowledge_store
 title: Run the frozen human retrieval benchmark
 kind: epic
-state: blocked
+state: in_progress
 priority: high
 points: 8
 depends_on:
@@ -13,6 +13,9 @@ depends_on:
 relations:
   - dbsctr_knowledge_store:DKS-006
 owns:
+  - dot_local/bin/executable_dksctl
+  - tests/test_dbsctr_knowledge_store.py
+  - docs/specs/dbsctr_knowledge_store/README.md
   - docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.protocol.json
   - docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.aggregate.json
   - docs/tickets/context=dbsctr_knowledge_store/DKS-005-human-retrieval-benchmark.md
@@ -26,7 +29,7 @@ validation:
   - blinded duplicate, agreement, adjudication, four-cell, three-depth, quality, latency, and resource gates
   - sanitized aggregate recomputation, explicit human review, conditional activation, and rollback
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-22
 completed: null
 commits: []
 jira_publications: []
@@ -53,6 +56,9 @@ digests, aggregate evidence, reviewed policy decision, and rollback result.
 
 - Before candidate generation, a human authors and approves at least 100 queries,
   declared source/use-case strata, and at least 20 queries per stratum.
+- Query authoring uses a new owner-private TSV beneath the configured knowledge
+  state root, fixed commit `0975428470e53282545676cbd3bf261a91aecb77`, and five
+  balanced strata; validation emits identities and counts but no query text.
 - The primary assessor grades a deduplicated randomized depth-50 pool from 0-3
   with system, model, channel, score, and rank hidden. At least 20% of pairs repeat
   blindly for intra-rater agreement.
@@ -83,4 +89,7 @@ conditional policy decision.
 
 ## Review
 
-Blocked pending DKS-004 delivery and explicit human-authored private judgments.
+DKS-004 is delivered. DKS-005 preparation uses the operator-approved local TSV
+workflow with five balanced strata, the operator as primary assessor, and a
+separate human adjudicator. Candidate generation remains blocked until all 100
+queries are human-authored, structurally validated, and explicitly approved.

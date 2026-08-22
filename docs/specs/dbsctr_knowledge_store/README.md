@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-21
+last_updated: 2026-08-22
 ---
 
 # DBSCTR Knowledge Store
@@ -59,6 +59,16 @@ last_updated: 2026-08-21
 | Scope | Incremental identity-based reconciliation, sanitized health and freshness, launchd scheduling, break-glass operation, bounded cited OpenCode retrieval, and a non-circular offline benchmark runner contract |
 | Isolation | The reconciler reads only configured Git and typed authority boundaries; OpenCode receives cited DKS results through a read-only tool and never exposes its SQLite store or raw transcripts |
 | Non-goals | Human relevance judgments, automatic quality activation, production `pg_search`, source execution, hosted inference, canonical PostgreSQL writes, and unsolicited raw prompt injection |
+
+### DKS-005 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: processes owner-private benchmark queries and human relevance judgments that must never enter Git or projection content |
+| Delivery intent | Deploy the private authoring and assessment workflow locally, run the frozen benchmark after human approvals, then deliver a draft pull request |
+| Scope | Commit `0975428470e53282545676cbd3bf261a91aecb77`; five fixed 20-query strata; owner-private TSV authoring; blinded depth-50 assessment; frozen lineage; four-cell evaluation; reviewed activation or baseline retention |
+| Isolation | Private benchmark files live beneath the configured knowledge state root with directory mode `0700` and regular-file mode `0600`; Git receives only protocol identities, digests, sanitized aggregates, and reviewed decisions |
+| Non-goals | Machine-authored queries or labels, training or tuning on benchmark evidence, hosted inference, production `pg_search`, and automatic quality activation |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -130,6 +140,7 @@ Adjacent contexts:
 | Reconciliation Run | One idempotent attempt to bring independently activated projection channels to their configured immutable source identities. |
 | Freshness | Machine-readable comparison between each configured source identity and its active projected identity; freshness is not source authority. |
 | Benchmark Protocol | Immutable lineage that separately binds pre-generation queries, blinded assessments, frozen judgments, candidate systems, corpus, runtime, and activation thresholds. |
+| Query Stratum | One predeclared retrieval use-case category whose human-authored queries remain private and whose approved count is frozen before candidate generation. |
 
 ## Domain Model
 
@@ -281,6 +292,27 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
   governed private evidence remains citation metadata unless an explicit local-only policy permits content
 
 ### Benchmark preparation
+
+**Scenario: Author private queries before candidate generation**
+
+- Given the frozen `0975428470e53282545676cbd3bf261a91aecb77` corpus and no generated candidates
+- When the owner initializes the DKS-005 query workbook
+- Then it contains 20 empty human-authoring rows for each of `code_architecture`, `specs_contracts`, `operations_recovery`, `tickets_history`, and `configuration_tooling`
+- And the workbook is a private regular file outside the repository with no machine-authored query text
+
+**Scenario: Validate a complete human-authored query workbook**
+
+- Given the owner has filled every private TSV row with one query
+- When `dksctl benchmark-author-validate --project dotfiles-ai` validates it
+- Then it rejects changed headers, identifiers, strata, counts, blank or multiline text, unsafe ownership or mode, symlinks, and repository-contained files
+- And success returns only the query count, stratum counts, frozen source revision, and canonical query digest
+
+**Scenario: Preserve an incomplete workbook for correction**
+
+- Given the private workbook is incomplete or invalid
+- When validation fails
+- Then it reports a content-safe structural error without deleting or rewriting the workbook
+- And no query digest, candidate generation, judgment assignment, or Git approval occurs
 
 **Scenario: Freeze non-circular benchmark lineage**
 
@@ -707,6 +739,18 @@ train or tune a candidate. Any query, label, corpus, candidate, prompt, threshol
 or protocol mutation creates a new benchmark version and invalidates prior
 activation evidence.
 
+DKS-005 query authoring uses the fixed private path
+`<knowledge_state_root>/knowledge/private/benchmarks/DKS-005/queries.tsv`. The
+initializer creates a new mode-`0700` benchmark directory and a mode-`0600` TSV
+with exact columns `query_id`, `stratum`, and `text`; it never overwrites an
+existing path. Query IDs are fixed as `<stratum>-001` through `<stratum>-020` in
+the five declared strata above. The human fills only `text`. Validation requires
+exactly those 100 rows in canonical order, one non-empty single-line query per
+row, and computes the existing runner identity
+`SHA256(canonical_json([[query_id, stratum, text], ...]))`. Output never contains
+query text. Initialization and validation do not query retrieval systems, create
+candidates, write PostgreSQL, or update Git lineage.
+
 English lexical storage requires non-null body text and is
 `setweight(to_tsvector('english', coalesce(heading_text, '')), 'A') ||
 setweight(to_tsvector('english', body), 'B')`. Query SQL uses
@@ -1091,19 +1135,35 @@ failed or abandoned and never change active retrieval.
 
 ### DKS-004
 
+| Gate | Applicability | Result | Evidence |
+|---|---|---|---|
+| Domain | required | passed | Reconciliation, freshness, benchmark-lineage, OpenCode, and ownership boundaries |
+| Behavior | required | passed | No-op, partial failure, overlap, diagnosis, cited context, and offline benchmark scenarios |
+| Spec | required | passed | CLI JSON, timer/config, OpenCode tool, runbook, and benchmark protocol interfaces |
+| Contract | required | passed | Privacy, immutable ref, no source execution, bounded output, lineage, and fail-closed invariants |
+| Test-driven implementation | required | passed | Focused reconciliation, control-plane, configuration, protocol, and failure tests |
+| Refactor | required | passed | Reused existing locks, project configuration, model clients, and atomic channel activation |
+| Review/Integrate | required | passed | Independent privacy, operations, retrieval, benchmark, and upstream review closed all ship blockers |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | passed | Scoped chezmoi apply, timer/tool installation, OpenCode restart contract, and rollback proof |
+| Operate | required | passed | Unattended reconcile, drift diagnosis, busy retry, service recovery, and break-glass checks |
+| Maintain/Retire | required | passed | Disablement, retained source authority, scheduler/tool removal, and benchmark compatibility |
+
+### DKS-005
+
 | Gate | Applicability | Result | Planned evidence |
 |---|---|---|---|
-| Domain | required | planned | Reconciliation, freshness, benchmark-lineage, OpenCode, and ownership boundaries |
-| Behavior | required | planned | No-op, partial failure, overlap, diagnosis, cited context, and offline benchmark scenarios |
-| Spec | required | planned | CLI JSON, timer/config, OpenCode tool, runbook, and benchmark protocol interfaces |
-| Contract | required | planned | Privacy, immutable ref, no source execution, bounded output, lineage, and fail-closed invariants |
-| Test-driven implementation | required | planned | Focused reconciliation, control-plane, configuration, protocol, and failure tests |
-| Refactor | required | planned | Reuse existing locks, project configuration, model clients, and atomic channel activation |
-| Review/Integrate | required | planned | Independent privacy, operations, retrieval, benchmark, and upstream review |
+| Domain | required | passed | Human query author, primary assessor, independent adjudicator, private workbook, frozen corpus, and benchmark lineage |
+| Behavior | required | passed | Private initialization/validation and fail-closed correction behavior; assessment through activation remains specified for the next increment |
+| Spec | required | passed | Fixed TSV, private path, CLI JSON, canonical digest, protocol, runner evidence, aggregate, and activation interfaces |
+| Contract | required | passed | Human-only authorship, mode/ownership, no-overwrite, no-leakage, immutable lineage, quality, resource, and fail-closed invariants |
+| Test-driven implementation | required | passed | Red/green private-path, workbook, digest, mode, no-overwrite, and no-content-output checks; existing runner and activation checks remain green |
+| Refactor | required | passed | Reused existing project configuration, canonical JSON digest, CLI dispatch, benchmark loader, and activation path without a dependency |
+| Review/Integrate | required | planned | Independent privacy, ML evaluation, retrieval, operations, and upstream review |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | planned | Scoped chezmoi apply, timer/tool installation, one OpenCode restart, and rollback proof |
-| Operate | required | planned | Unattended reconcile, drift diagnosis, busy retry, service recovery, and break-glass checks |
-| Maintain/Retire | required | planned | Disablement, retained source authority, scheduler/tool removal, and benchmark compatibility |
+| Deploy | required | planned | Scoped chezmoi apply of the validated authoring and benchmark commands |
+| Operate | required | planned | Private workbook health, frozen lineage, model/runtime telemetry, reviewed decision, and rollback checks |
+| Maintain/Retire | required | planned | Private evidence retention/removal, benchmark invalidation, baseline retention, and tool removal |
 
 ## Decisions And Risks
 

@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import io
 import importlib.machinery
@@ -686,6 +687,49 @@ def test_benchmark_lineage_freezes_source_before_queries_and_judgments(monkeypat
     with pytest.raises(RuntimeError, match="lineage"):
         dks.validate_benchmark_approval(config, {"repository": "/repo"}, manifest)
     assert '"GIT_NO_REPLACE_OBJECTS": "1"' in DKSCTL.read_text()
+
+
+def test_private_query_workbook_initializes_and_validates_without_leaking_text(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    private = tmp_path / "state" / "knowledge" / "private"
+    private.mkdir(parents=True)
+    private.chmod(0o700)
+    project = {"repository": str(repository), "knowledge_state_root": str(tmp_path / "state")}
+    args = argparse.Namespace(project="dotfiles-ai")
+
+    initialized = dks.command_benchmark_author_init(args, {}, project)
+    workbook = Path(initialized["workbook"])
+    assert initialized["query_count"] == 100
+    assert initialized["strata"] == {name: 20 for name in dks.BENCHMARK_QUERY_STRATA}
+    assert workbook.stat().st_mode & 0o777 == 0o600
+    assert workbook.parent.stat().st_mode & 0o777 == 0o700
+    lines = workbook.read_text().splitlines()
+    assert lines[0] == "query_id\tstratum\ttext"
+    assert all(line.endswith("\t") for line in lines[1:])
+    with pytest.raises(ValueError, match="already exists"):
+        dks.command_benchmark_author_init(args, {}, project)
+
+    completed = [lines[0], *(f"{line}human query {index}" for index, line in enumerate(lines[1:], 1))]
+    workbook.write_text("\n".join(completed) + "\n")
+    workbook.chmod(0o600)
+    validated = dks.command_benchmark_author_validate(args, {}, project)
+    identity = [line.split("\t", 2) for line in completed[1:]]
+    assert validated == {
+        "schema_version": 1,
+        "project": "dotfiles-ai",
+        "benchmark_id": "DKS-005",
+        "source_revision": "0975428470e53282545676cbd3bf261a91aecb77",
+        "query_count": 100,
+        "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
+        "query_digest": dks.digest_json(identity),
+    }
+    assert "human query" not in dks.canonical_json(validated)
+
+    workbook.chmod(0o644)
+    with pytest.raises(ValueError, match="unsafe benchmark workbook"):
+        dks.command_benchmark_author_validate(args, {}, project)
 
 
 def test_exact_tokens_and_channel_are_strict_and_deterministic() -> None:

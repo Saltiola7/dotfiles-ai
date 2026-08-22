@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import csv
 import fcntl
 import hashlib
 import json
@@ -39,6 +40,11 @@ KNOWLEDGE_FAMILIES = (
     "cycle", "gate_evidence", "review", "history_report", "history_capture",
     "telemetry", "benchmark", "execution", "provider_evaluation", "improvement",
 )
+BENCHMARK_QUERY_STRATA = (
+    "code_architecture", "specs_contracts", "operations_recovery",
+    "tickets_history", "configuration_tooling",
+)
+DKS_005_SOURCE_REVISION = "0975428470e53282545676cbd3bf261a91aecb77"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -3144,6 +3150,98 @@ def command_benchmark_aggregate(args, config, project):
     return load_benchmark_evidence(args.evidence, manifest, manifest_sha, config)
 
 
+def benchmark_workbook(project):
+    state_root = Path(project.get("knowledge_state_root", "")).expanduser()
+    repository = Path(project.get("repository", "")).expanduser()
+    if not state_root.is_absolute() or not repository.is_absolute():
+        raise ValueError("benchmark private root is unavailable")
+    private = state_root / "knowledge" / "private"
+    try:
+        details = private.lstat()
+        state_root_resolved = state_root.resolve(strict=True)
+        private_resolved = private.resolve(strict=True)
+        repository_resolved = repository.resolve(strict=True)
+    except OSError as error:
+        raise ValueError("benchmark private root is unavailable") from error
+    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077
+            or private_resolved != state_root_resolved / "knowledge" / "private"
+            or private_resolved == repository_resolved
+            or repository_resolved in private_resolved.parents
+            or private_resolved in repository_resolved.parents):
+        raise ValueError("benchmark private root is unsafe")
+    current = private
+    for name in ("benchmarks", "DKS-005"):
+        current = current / name
+        try:
+            os.mkdir(current, 0o700)
+        except FileExistsError:
+            pass
+        try:
+            details = current.lstat()
+        except OSError as error:
+            raise ValueError("benchmark private root is unavailable") from error
+        if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) != 0o700):
+            raise ValueError("benchmark private root is unsafe")
+    return current / "queries.tsv"
+
+
+def command_benchmark_author_init(args, config, project):
+    path = benchmark_workbook(project)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(("query_id", "stratum", "text"))
+            for stratum in BENCHMARK_QUERY_STRATA:
+                for index in range(1, 21):
+                    writer.writerow((f"{stratum}-{index:03d}", stratum, ""))
+    except FileExistsError as error:
+        raise ValueError("benchmark workbook already exists") from error
+    except OSError as error:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError("benchmark workbook could not be created") from error
+    return {"schema_version": 1, "project": args.project, "benchmark_id": "DKS-005",
+            "workbook": str(path), "query_count": 100,
+            "strata": {name: 20 for name in BENCHMARK_QUERY_STRATA}}
+
+
+def command_benchmark_author_validate(args, config, project):
+    path = benchmark_workbook(project)
+    try:
+        details = path.lstat()
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) != 0o600):
+            raise OSError("unsafe workbook")
+        with path.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.reader(handle, delimiter="\t", strict=True))
+    except (OSError, UnicodeError, csv.Error) as error:
+        raise ValueError("unsafe benchmark workbook") from error
+    if not rows or rows[0] != ["query_id", "stratum", "text"] or len(rows) != 101:
+        raise ValueError("benchmark workbook structure is invalid")
+    identity = []
+    for offset, stratum in enumerate(BENCHMARK_QUERY_STRATA):
+        for index in range(1, 21):
+            row = rows[1 + offset * 20 + index - 1]
+            expected = f"{stratum}-{index:03d}"
+            if (len(row) != 3 or row[:2] != [expected, stratum]
+                    or not row[2] or row[2] != row[2].strip()
+                    or any(character in row[2] for character in "\t\r\n\x00")):
+                raise ValueError("benchmark workbook row is invalid")
+            identity.append(row)
+    return {"schema_version": 1, "project": args.project, "benchmark_id": "DKS-005",
+            "source_revision": DKS_005_SOURCE_REVISION, "query_count": len(identity),
+            "strata": {name: 20 for name in BENCHMARK_QUERY_STRATA},
+            "query_digest": digest_json(identity)}
+
+
 def command_rollback_quality(args, config, project):
     with PsqlSession(config) as session:
         session.execute(f"SET dks.project_id={sql_literal(args.project)};")
@@ -3297,6 +3395,8 @@ def parser():
     benchmark = commands.add_parser("benchmark-aggregate", parents=[common])
     benchmark.add_argument("--manifest", required=True)
     benchmark.add_argument("--evidence", required=True)
+    commands.add_parser("benchmark-author-init", parents=[common])
+    commands.add_parser("benchmark-author-validate", parents=[common])
     commands.add_parser("rollback-quality", parents=[common])
     query = commands.add_parser("query", parents=[common])
     query.add_argument("--text", required=True)
@@ -3332,6 +3432,10 @@ def main(argv=None):
             result = command_activate_quality(args, config, project)
         elif args.command == "benchmark-aggregate":
             result = command_benchmark_aggregate(args, config, project)
+        elif args.command == "benchmark-author-init":
+            result = command_benchmark_author_init(args, config, project)
+        elif args.command == "benchmark-author-validate":
+            result = command_benchmark_author_validate(args, config, project)
         elif args.command == "rollback-quality":
             result = command_rollback_quality(args, config, project)
         elif args.command == "rebuild":
