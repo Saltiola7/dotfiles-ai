@@ -1,33 +1,16 @@
 {
-  "schema_version": 1,
-  "method_revision": "3.27",
-  "cycle_id": "AUTH-013",
-  "context": "shell_auth_startup",
-  "risk": "elevated",
-  "delivery_intent": "draft_pr",
-  "profile": {
-    "path": "docs/specs/shell_auth_startup/README.md",
-    "blob": "51cabcd8be7f19e20f455292ec56f650e5235436"
-  },
-  "modules": ["security"],
+  "profile": "docs/specs/shell_auth_startup/README.md",
   "gates": {
-    "domain": "required",
-    "behavior": "required",
-    "spec": "required",
-    "contract": "required",
-    "test_driven_implementation": "required",
-    "refactor": "required",
-    "review_integrate": "required",
-    "release": "not_applicable",
-    "deploy": "required",
-    "operate": "required",
-    "maintain_retire": "required"
-  },
-  "rationales": {
-    "security": "Herdr session startup changes OpenCode permission defaults and process coordination.",
-    "release": "No packaged release is produced; delivery is managed configuration plus local deployment.",
-    "deploy": "The repaired wrapper and restore helper must be applied to the active Aqua runtime.",
-    "operate": "Recovered panes must preserve exact session identity and render after paced startup.",
-    "maintain_retire": "The bounded pacing lock must recover from stale owners and remain removable with the wrapper."
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "No versioned dotfiles artifact is published."},
+    "deploy": {"applicability": "required"},
+    "operate": {"applicability": "required"},
+    "maintain_retire": {"applicability": "required"}
   }
 }
