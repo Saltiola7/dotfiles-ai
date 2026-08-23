@@ -166,6 +166,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Gateway service refresh and readiness, serialized managed cron replacement, stale-attempt recovery, and one controlled exhaustion pass |
 | Overrides | Preserve one lens per native Build worker and existing cadence; no new scheduler, lens, model authority, merge, release, or remote deployment |
 
+### DAI-021-F2 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: lets critical P0 findings produce isolated implementation drafts and persists new private candidate artifacts |
+| Delivery intent | Repair complete six-lens review, automate evidence-ready P0/P1 Discovery, and publish only draft pull requests |
+| Scope | Federated unavailable-attribution compatibility, candidate kinds, feature measurement plans, Discovery interviews, generated implementation reports, and optional DKS citations |
+| Overrides | P2/P3 wait for promotion; uncertainty blocks; DKS is supplemental and fail-closed; merge, readiness, release, and deployment remain human-controlled |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -303,7 +312,7 @@ container receives no project filesystem mount.
 ```mermaid
 sequenceDiagram
     accTitle: Autonomous improvement approval and delivery
-    accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready noncritical work, critical or uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
+    accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready P0 and P1 work in isolation, uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
     participant H as Hermes
     participant O as OpenCode
     participant U as Operator
@@ -311,9 +320,9 @@ sequenceDiagram
     participant G as GitHub
     H->>O: Fill one eligible lens slot
     O->>O: Review all eligible federated history
-    alt Evidence-ready and noncritical
+    alt Evidence-ready P0 or P1
         O->>O: Complete Discovery autonomously
-    else Critical or materially uncertain
+    else Materially uncertain
         O-->>U: Wait for answers and explicit proceed
         U->>O: Answer and approve implementation
     end
@@ -324,9 +333,8 @@ sequenceDiagram
 ```
 
 **Text Equivalent:** Hermes continuously fills eligible lens slots. OpenCode
-reviews all eligible federated history and may complete Discovery without a
-prompt only when evidence resolves every material question and risk is not
-critical. Critical or materially uncertain work waits for explicit operator
+reviews all eligible federated history and may complete P0/P1 Discovery without a
+prompt only when evidence resolves every material question. Materially uncertain work waits for explicit operator
 approval. DBSCTR still requires an isolated gated cycle and can publish only a
 feature branch with a draft pull request; the operator retains merge authority.
 
@@ -337,8 +345,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Keep optional 1Password integration fail-open for Herdr startup.
 - Provide machine-local opt-in Hermes scheduling, context-isolated backlog
   refinement, and resumable OpenCode R&D workers.
-- Review sanitized global history continuously, autonomously resolve bounded
-  noncritical Discovery, and create only human-merge draft pull requests for this source.
+- Review sanitized global history continuously, autonomously resolve evidence-ready
+  P0/P1 Discovery, and create only human-merge draft pull requests for this source.
 - Keep automatic Gate Commits on feature branches and require draft pull requests
   into configured `main` for ordinary and autonomous DBSCTR delivery.
 
@@ -348,7 +356,7 @@ feature branch with a draft pull request; the operator retains merge authority.
   DAI-016 installs Hermes only when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
-- Guessing unresolved Discovery answers or autonomously handling critical risk.
+- Guessing unresolved Discovery answers or autonomously merging critical fixes.
 - Automatically merging, marking ready, releasing, or deploying.
 - Supporting Windows.
 - Supporting Linux as a general-purpose host; Fedora is supported only as the
@@ -581,14 +589,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores
   daily cadence without changing another lens or any live claim.
-- Every distinct claim stores exactly one P0-P3 priority. P1-P3 may enter
-  Discovery under a durable `autonomous` readiness authorization only when its
-  canonical receipt names the exact worker, session, and opportunity, declares routine or
-  elevated risk and no unresolved material question, and cites that worker's
-  immutable successful lens-pass manifest. Exact operator confirmation records
-  `operator` authorization. P0, critical risk, unresolved questions, missing
-  evidence, tampering, and replay block. Evidence-ready noncritical work may
-  proceed through DBSCTR to a draft pull request, but never merge or deploy.
+- Every distinct claim stores exactly one P0-P3 priority and `fix`, `feature`, or
+  `process` kind. A feature also stores a version-1 hypothesis, baseline, metric,
+  procedure, success threshold, and repository-relative evidence path. P0/P1 may
+  enter Discovery under durable `autonomous` authorization only when the canonical
+  readiness and Discovery receipts name the exact worker, session, opportunity,
+  and immutable successful lens-pass manifest. P0 requires critical risk; P1
+  requires routine or elevated risk. P2/P3 remain claimed until promotion.
+  Unresolved questions, missing evidence, tampering, and replay block. Final Push
+  generates a draft URL, changed-path set, diff digest, and passed-gate report;
+  automation never merges or deploys it.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
   or delivers a worker. An operator may explicitly confirm the exact worker ID of
   a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
@@ -616,6 +626,10 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given autonomous readiness or explicit operator proceed and passing DBSCTR
   gates, then the worker pushes only its isolated feature branch and creates a
   draft pull request. It never merges, marks ready, releases, or deploys.
+- Given a candidate signal may benefit from related source evidence, then the
+  worker may query `dks_context` for bounded untrusted citation metadata, verifies
+  useful citations against source, and continues from authoritative DBSCTR evidence
+  when DKS is stale, locked, or unavailable. It never queries PostgreSQL directly.
 
 ### Recovery And Completion
 
@@ -1022,9 +1036,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   per-lens attempts, pass telemetry, sanitized outcome references, and cadence
   state. Launchd and Herdr are advisory.
 - The private improvement ledger stores `none`, `autonomous`, or `operator`
-  authorization and the canonical worker/opportunity-bound readiness receipt.
-  Claimed P1-P3 require a matching immutable scheduler `yield` pass or exact
-  confirmation before Discovery; P0 always requires exact operator confirmation.
+  authorization; candidate kind; optional feature measurement plan; canonical
+  worker/opportunity-bound readiness and Discovery receipts; and a generated
+  implementation report. Claimed P0/P1 require a matching immutable scheduler
+  `yield` pass or exact confirmation before Discovery. P2/P3 require promotion.
 - The DBSCTR private ledger adds separately versioned
   `provider_evaluation_reports`, `provider_evaluation_members`,
   `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather

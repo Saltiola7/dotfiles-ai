@@ -41,8 +41,9 @@ target files.
 11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
     feature branch and submits a draft pull request into the configured `main`
     branch; automation never commits or pushes cycle work directly to `main`.
-12. Noncritical P1-P3 claims may enter autonomous Discovery when every material
-    question is resolved; P0, critical, and uncertain claims wait for the operator.
+12. P0/P1 claims enter autonomous Discovery when every material question is
+    resolved and produce only an isolated implementation draft for review; P2/P3
+    wait for promotion, and uncertain claims wait for the operator.
 13. An operator combines completed feature branches on an ephemeral batch branch,
     reviews the exact merge commits, and explicitly publishes the batch for normal
     pull-request review without granting Hermes authority over `main`.
@@ -70,13 +71,13 @@ boundary. The existing journey view and Text Equivalent remain current.
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai product journey boundaries
-    accDescr: A developer configures portable public defaults with private local values, opts into isolated automation, reviews critical or uncertain decisions and every draft pull request, while evidence-ready noncritical work may proceed autonomously and secrets remain local.
+    accDescr: A developer configures portable public defaults with private local values, opts into isolated automation, reviews uncertain decisions and every draft pull request, while evidence-ready P0 and P1 work may proceed to an isolated implementation draft and secrets remain local.
     P[Public repository] -->|Add private local values| C[Machine-local configuration]
     C -->|Preview and apply| W[Managed host and workspaces]
     W -->|Optional opt-in| A[Isolated automation profiles]
     W -->|Optional personal service role| S[Rootless personal services]
-    A -->|Ready noncritical work| I[Isolated implementation cycle]
-    A -->|Critical or uncertain| U[Operator approval]
+    A -->|Ready P0 or P1 work| I[Isolated implementation cycle]
+    A -->|Uncertain work| U[Operator approval]
     U -->|Explicit proceed| I
     I -->|Draft pull request| R[Human review and merge]
     C -.->|Never publish| X[Secrets and machine identity]
@@ -85,8 +86,8 @@ flowchart LR
 **Text Equivalent:** Public defaults become usable only after private local
 values are supplied. Applying them creates managed host and workspace
 environments; automation remains optional and isolated. Evidence-ready
-noncritical Discovery may proceed automatically, while critical or uncertain
-work waits for the operator. Delivery ends at a draft pull request for human
+P0/P1 Discovery may proceed automatically when evidence resolves every material
+question, while uncertain work waits for the operator. Delivery ends at a draft pull request for human
 review. One personal workspace may separately host rootless services without
 mounting project files into those containers. Secrets and machine identity never
 enter the public repository.
@@ -123,12 +124,13 @@ approval outcome changes.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
   cutover.
 - Enabled and disabled Hermes profiles, backlog mirrors, Herdr attachment, and
-  review jobs are repeatable; critical or uncertain Discovery pauses for input.
+  review jobs are repeatable; materially uncertain Discovery pauses for input.
 - Concurrent workers claim distinct opportunities durably, recover exact
   sessions without duplicate work, and cannot merge their draft pull requests.
-- Every claim carries P0-P3 priority; worker/opportunity-bound autonomous readiness
-  backed by that worker's successful lens manifest may advance noncritical P1-P3,
-  while P0, unsupported evidence, and materially uncertain work remain visible.
+- Every claim carries P0-P3 priority and candidate kind; feature claims carry a
+  measurement plan. Worker/opportunity-bound readiness backed by that worker's
+  successful lens manifest may advance P0/P1 to a review-only draft, while P2/P3,
+  unsupported evidence, and materially uncertain work remain visible.
 - Confirmed P2/P3 promotion atomically enters Discovery; batch previews and
   integration retain exact source SHAs while batch publication remains an
   explicit operator action and `main` remains pull-request protected.
