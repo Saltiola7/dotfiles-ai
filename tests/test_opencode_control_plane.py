@@ -17,8 +17,8 @@ DATA = {
             "vertex_project": "test-project",
             "vertex_location": "global",
             "vertex_credentials": "/tmp/test-adc.json",
-            "default_model": "openai/gpt-5.6-sol",
-            "small_model": "openai/gpt-5.6-luna",
+            "default_model": "openai/gpt-5.6-sol-fast",
+            "small_model": "openai/gpt-5.6-luna-fast",
             "lmstudio_base_url": "http://127.0.0.1:1234/v1",
         },
         "herdr": {
@@ -234,9 +234,10 @@ def test_provider_and_primary_contracts():
     assert "headroom" not in config["provider"]
     assert "headroom-lmstudio" not in config["provider"]
     assert "gpt-5.6-sol-pro" not in config["provider"]["openai"]["models"]
-    assert config["agent"]["plan"]["model"] == "openai/gpt-5.6-sol"
+    assert config["model"] == "openai/gpt-5.6-sol-fast"
+    assert config["agent"]["plan"]["model"] == "openai/gpt-5.6-sol-fast"
     assert config["agent"]["plan"]["variant"] == "medium"
-    assert config["small_model"] == "openai/gpt-5.6-luna"
+    assert config["small_model"] == "openai/gpt-5.6-luna-fast"
     assert any(
         p == {"effect": "deny", "action": "provider.use", "resource": "anthropic"}
         for p in config["experimental"]["policies"]
@@ -298,7 +299,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
         assert not (OC / "agents" / name).exists()
 
     build = (OC / "agents/build-gpt.md").read_text()
-    assert "model: openai/gpt-5.6-sol" in build
+    assert "model: openai/gpt-5.6-sol-fast" in build
     assert "variant: medium" in build
     claude = (OC / "agents/build-claude.md").read_text()
     assert "model: google-vertex-anthropic/claude-opus-5@default" in claude
@@ -306,9 +307,9 @@ def test_oauth_incompatible_pro_agents_are_absent():
     assert "claude-opus-4-8" not in text(".chezmoitemplates/opencode.json.tmpl")
 
     expected = {
-        "explore-openai.md": ("openai/gpt-5.6-luna", "low"),
-        "scout-openai.md": ("openai/gpt-5.6-terra", "medium"),
-        "builder-openai.md": ("openai/gpt-5.6-terra", "medium"),
+        "explore-openai.md": ("openai/gpt-5.6-luna-fast", "low"),
+        "scout-openai.md": ("openai/gpt-5.6-terra-fast", "medium"),
+        "builder-openai.md": ("openai/gpt-5.6-terra-fast", "medium"),
     }
     for name, (model, variant) in expected.items():
         body = (OC / "agents" / name).read_text()
@@ -320,7 +321,7 @@ def test_commands_inherit_current_agent():
     for name in ("dbsctr", "discovery", "qa", "dbsctr-review"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     exact = {
-        "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol"),
+        "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol-fast"),
         "dbsctr-claude": ("build-claude", "google-vertex-anthropic/claude-opus-5@default"),
     }
     for name, (agent, model) in exact.items():
@@ -513,7 +514,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
 
     reviewer = (OC / "agents/reviewer-openai.md").read_text()
     assert "mode: subagent" in reviewer
-    assert "model: openai/gpt-5.6-sol" in reviewer
+    assert "model: openai/gpt-5.6-sol-fast" in reviewer
     assert "edit: deny" in reviewer
     assert "task: deny" in reviewer
     assert "dbsctr_begin: deny" in reviewer
