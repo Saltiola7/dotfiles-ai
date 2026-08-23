@@ -5,7 +5,7 @@ slug: "route-openai-agents-to-gpt-5-6-fast-models"
 context: "opencode_control_plane"
 title: "Route OpenAI agents to GPT-5.6 Fast models"
 kind: "task"
-state: "active"
+state: "review"
 priority: "high"
 points: null
 depends_on:
@@ -17,11 +17,12 @@ reads:
   - "OpenCode model registry and existing provider-affine routing contract"
 parallel_safe: false
 validation:
-  - "Rendered config, focused control-plane tests, live resolved models, and restart guidance pass"
+  - "Rendered config, 53 focused tests, targeted deployment, live resolved models, and restart guidance pass"
 created: "2026-08-22"
 updated: "2026-08-22"
 completed: null
-commits: []
+commits:
+  - "d49c9b48359f715de04b3fac470d7d2f5287a5f0"
 jira_publications: []
 ---
 
@@ -41,3 +42,10 @@ and disposable small-model work, and Terra Fast for scouting and bounded builds.
 
 Fast identities use OpenAI priority processing and published rates are twice the
 standard token rates. Existing cost-report estimates do not yet include Fast IDs.
+
+## Evidence
+
+- The routing regression check failed on four old-ID paths before implementation.
+- `uv run --group test pytest -q tests/test_opencode_control_plane.py tests/test_portable_distribution.py`: 53 passed.
+- Targeted `chezmoi` deployment produced no remaining diff for managed OpenCode routing targets.
+- Fresh `opencode debug config` and `opencode debug agent` calls resolved the exact Fast identities and preserved efforts.
