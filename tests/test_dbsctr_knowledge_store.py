@@ -163,9 +163,10 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
                                     "safetensors": "0.7.0", "tokenizers": "0.22.2",
                                     "torch": "2.9.1", "transformers": "5.5.0"}
     assert reranker["contract"] | {"template_sha256": None} == {
-        "batch_size": 1, "context_tokens": 8192, "instruction":
+        "batch_size": 1, "context_tokens": 4096, "instruction":
         "Retrieve authoritative DBSCTR engineering evidence that answers the query",
-        "logits_to_keep": 1, "max_mps_memory_gib": 24, "score": "binary_softmax_yes",
+        "logits_to_keep": 1, "max_mps_memory_gib": 20, "max_process_memory_gib": 24,
+        "score": "binary_softmax_yes",
         "template_sha256": None, "truncation": "longest_first", "use_cache": False,
     }
     assert reranker["contract"]["template_sha256"] == \
@@ -176,7 +177,8 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     reranker_wrapper = render("dot_local/bin/executable_dbsctr-reranker.tmpl")
     compile(reranker_wrapper, "dbsctr-reranker", "exec")
     assert "local_files_only=True" in reranker_wrapper and "trust_remote_code=False" in reranker_wrapper
-    assert "BATCH_SIZE = 1" in reranker_wrapper and "MAX_MPS_MEMORY_GIB = 24" in reranker_wrapper
+    assert "BATCH_SIZE = 1" in reranker_wrapper and "MAX_MPS_MEMORY_GIB = 20" in reranker_wrapper
+    assert "MAX_PROCESS_MEMORY_GIB = 24" in reranker_wrapper
     assert "set_per_process_memory_fraction" in reranker_wrapper
     assert "use_cache=False, logits_to_keep=1" in reranker_wrapper
     assert "ThreadingHTTPServer((\"127.0.0.1\", PORT)" in reranker_wrapper

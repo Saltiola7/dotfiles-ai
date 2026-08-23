@@ -118,6 +118,6 @@ until an official PostgreSQL 19 artifact exists and cannot alter production.
 
 Run reranker calibration before a full benchmark after any model, runtime, or
 scoring change. The service must retain normal memory pressure, no swap growth,
-and MPS allocation below its 24-GiB hard ceiling at the 8192-token operational
-limit. Stop on any failed guard; never increase batch size without new calibration
-evidence.
+MPS allocation below 20 GiB, and total process footprint below 24 GiB at the
+4096-token operational limit. Stop on any failed guard; never increase context or
+batch size without new calibration evidence.

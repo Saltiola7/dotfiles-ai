@@ -38,7 +38,9 @@ MANIFEST = Path.home() / ".config/dotfiles-ai/knowledge/reranker-space.json"
 PORT = {{ .dotfiles_ai.knowledge_store.reranker_port }}
 LOCK = threading.Lock()
 BATCH_SIZE = 1
-MAX_MPS_MEMORY_GIB = 24
+CONTEXT_TOKENS = 4096
+MAX_MPS_MEMORY_GIB = 20
+MAX_PROCESS_MEMORY_GIB = 24
 
 
 def digest(path):
@@ -70,9 +72,10 @@ def verify():
     if (manifest.get("reranker_id") != "qwen3-reranker-4b-mps-22e68366-v1"
             or manifest.get("model", {}).get("revision") != REVISION
             or manifest.get("contract") != {
-                "batch_size": BATCH_SIZE, "context_tokens": 8192,
+                "batch_size": BATCH_SIZE, "context_tokens": CONTEXT_TOKENS,
                 "instruction": INSTRUCTION, "logits_to_keep": 1,
                 "max_mps_memory_gib": MAX_MPS_MEMORY_GIB,
+                "max_process_memory_gib": MAX_PROCESS_MEMORY_GIB,
                 "score": "binary_softmax_yes",
                 "template_sha256": hashlib.sha256(TEMPLATE.encode()).hexdigest(),
                 "truncation": "longest_first", "use_cache": False}
@@ -110,7 +113,7 @@ def prompt_ids(tokenizer, query, document):
     suffix = tokenizer.encode(after, add_special_tokens=False)
     query_ids = tokenizer.encode(query, add_special_tokens=False)
     document_ids = tokenizer.encode(document, add_special_tokens=False)
-    budget = 8192 - len(fixed) - len(middle) - len(suffix)
+    budget = CONTEXT_TOKENS - len(fixed) - len(middle) - len(suffix)
     if budget < 2:
         raise RuntimeError("reranker template exceeds context")
     while len(query_ids) + len(document_ids) > budget:
@@ -154,7 +157,8 @@ def serve():
             self.wfile.write(body)
         def do_GET(self):
             self.send_json(200, {"ready":True,"model":MODEL_ID,"revision":REVISION,
-                                 "batch_size":BATCH_SIZE,"max_mps_memory_gib":MAX_MPS_MEMORY_GIB}) \
+                                 "batch_size":BATCH_SIZE,"max_mps_memory_gib":MAX_MPS_MEMORY_GIB,
+                                 "max_process_memory_gib":MAX_PROCESS_MEMORY_GIB}) \
                 if self.path == "/health" else self.send_json(404, {"error":"not found"})
         def do_POST(self):
             if self.path != "/rerank":

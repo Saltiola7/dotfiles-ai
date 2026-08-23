@@ -73,9 +73,9 @@ seven-day trial with automatic baseline restoration.
 - Every eligible candidate meets the existing nDCG, bootstrap, stratum, Recall@50,
   deterministic ranking, p95, memory-pressure, peak-memory, and swap gates, with
   no per-query exact-citation regression.
-- Reranker calibration at the 8192-token operational limit proves one-document
-  forwards remain below the 24-GiB MPS ceiling with normal memory pressure and no
-  swap growth before the complete matrix executes.
+- Reranker calibration at the 4096-token operational limit proves one-document
+  forwards remain below 20 GiB MPS allocation and 24 GiB total footprint with
+  normal memory pressure and no swap growth before the complete matrix executes.
 - `activate-silver-trial` accepts only a recomputed eligible aggregate, records a
   fixed 604800-second expiry, and cannot create a permanent policy.
 - Expiry, source/privacy/model identity drift, or an unavailable required quality
