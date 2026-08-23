@@ -1062,11 +1062,43 @@ def test_silver_runner_uses_git_only_depth_100_cells() -> None:
     assert "rank <= {100 if benchmark else 20}" in query
     assert "quality_candidates(channels, max(50, args.limit))" not in query
     assert "quality_candidates(channels)" in query
-    assert 'policy.get("reranker_manifest_sha256"), 600 if benchmark else 30)' in query
+    assert "600 if benchmark else 30" in query and "8 if benchmark else 50" in query
     assert 'systems = ("baseline", "code", "reranker", "code_reranker")' in runner
     assert "resolve_silver_citations" in runner and "limit=100" in runner
     assert "BenchmarkTelemetry" in runner and "receipt_hmac_sha256" in runner
     assert 'commands.add_parser("benchmark-silver-run"' in source
+
+
+def test_silver_reranker_batches_offline_candidates(tmp_path: Path, monkeypatch) -> None:
+    dks = load_dksctl()
+    key = tmp_path / "key"
+    key.write_text("a" * 64)
+    key.chmod(0o600)
+    manifest = {"model": {"revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"},
+                "contract": {"template_sha256": "b" * 64}, "reranker_id": "test"}
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    batches = []
+
+    class Opener:
+        def open(self, request, timeout):
+            documents = json.loads(request.data)["documents"]
+            batches.append((len(documents), timeout))
+            return io.BytesIO(json.dumps({
+                "model": "reranker", "revision": manifest["model"]["revision"],
+                "template_sha256": manifest["contract"]["template_sha256"],
+                "truncation": "longest_first", "scores": [0.5] * len(documents),
+            }).encode())
+
+    monkeypatch.setattr(dks.urllib.request, "build_opener", lambda *_args: Opener())
+    config = {"reranker": {"url": "http://127.0.0.1:11437", "model": "reranker",
+                            "api_key_file": str(key), "manifest_file": str(manifest_path),
+                            "manifest_sha256": manifest_sha}}
+    candidates = [{"chunk_id": f"{offset:064x}", "body": str(offset)}
+                  for offset in range(17)]
+    scores, _ = dks.rerank(config, "query", candidates, manifest_sha, 600, 8)
+    assert batches == [(8, 600), (8, 600), (1, 600)] and len(scores) == 17
 
 
 def test_benchmark_v2_manifest_binds_complete_protocol(tmp_path: Path) -> None:

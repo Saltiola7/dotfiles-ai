@@ -998,7 +998,7 @@ def validate_reranker_config(config, expected_manifest):
     return manifest
 
 
-def rerank(config, query, candidates, expected_manifest=None, timeout=30):
+def rerank(config, query, candidates, expected_manifest=None, timeout=30, batch_size=50):
     if expected_manifest is None:
         return None
     service = config.get("reranker", {})
@@ -1017,27 +1017,31 @@ def rerank(config, query, candidates, expected_manifest=None, timeout=30):
             or url.username or url.password or url.path not in ("", "/")
             or url.query or url.fragment or not re.fullmatch(r"[0-9a-f]{64}", key)):
         raise RuntimeError("reranker endpoint is not approved loopback")
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{url.port}/rerank",
-        data=json.dumps({"model": service.get("model"), "query": query,
-                         "documents": [item["body"] for item in candidates]},
-                        separators=(",", ":")).encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
-            body = json.load(response)
-    except Exception as error:
-        raise RuntimeError("reranker request failed") from error
-    scores = body.get("scores")
-    if (body.get("model") != service.get("model")
-            or body.get("revision") != manifest["model"]["revision"]
-            or body.get("template_sha256") != manifest.get("contract", {}).get("template_sha256")
-            or body.get("truncation") != "longest_first" or not isinstance(scores, list)
-            or len(scores) != len(candidates)
-            or any(not isinstance(score, (int, float)) or isinstance(score, bool)
-                   or not math.isfinite(score) or not 0 <= score <= 1 for score in scores)):
-        raise RuntimeError("reranker response invalid")
+    scores = []
+    for offset in range(0, len(candidates), batch_size):
+        batch = candidates[offset:offset + batch_size]
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{url.port}/rerank",
+            data=json.dumps({"model": service.get("model"), "query": query,
+                             "documents": [item["body"] for item in batch]},
+                            separators=(",", ":")).encode(),
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
+                body = json.load(response)
+        except Exception as error:
+            raise RuntimeError("reranker request failed") from error
+        batch_scores = body.get("scores")
+        if (body.get("model") != service.get("model")
+                or body.get("revision") != manifest["model"]["revision"]
+                or body.get("template_sha256") != manifest.get("contract", {}).get("template_sha256")
+                or body.get("truncation") != "longest_first" or not isinstance(batch_scores, list)
+                or len(batch_scores) != len(batch)
+                or any(not isinstance(score, (int, float)) or isinstance(score, bool)
+                       or not math.isfinite(score) or not 0 <= score <= 1 for score in batch_scores)):
+            raise RuntimeError("reranker response invalid")
+        scores.extend(batch_scores)
     return ({item["chunk_id"]: float(score) for item, score in zip(candidates, scores)},
             {"reranker_id": manifest.get("reranker_id"), "revision": body["revision"],
              "runtime": manifest.get("runtime"), "template_sha256": body["template_sha256"],
@@ -1756,7 +1760,8 @@ FROM GRAPH_TABLE (
             candidates = [metadata[item["id"]] for item in quality_candidates(channels)
                           if item["id"] in metadata]
             reranked = rerank(config, args.text, candidates,
-                              policy.get("reranker_manifest_sha256"), 600 if benchmark else 30)
+                              policy.get("reranker_manifest_sha256"), 600 if benchmark else 30,
+                              8 if benchmark else 50)
             if reranked is not None:
                 rerank_scores, reranker_provenance = reranked
         except RuntimeError as error:
