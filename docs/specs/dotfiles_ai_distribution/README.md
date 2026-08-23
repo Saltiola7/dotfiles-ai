@@ -1006,6 +1006,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   mode-`0600` lens receipt only when every configured source is available. The
   model ranks proposals from the complete distributions and bounded evidence;
   it does not stream capture pages through model context.
+- The manifest digest binds the exact compact helper envelope, excluding only
+  its single digest field. The envelope requires strictly sorted unique object
+  keys and no external whitespace, preserves helper numeric tokens across the
+  Python/TypeScript boundary, and is returned unchanged by the typed adapter.
 - The typed federation adapter retains the 256 KiB aggregate output bound but has
   no aggregate wall-clock timeout. `sandbox-vm` gives the host exporter 900 seconds
   and each guest exporter 120 seconds, and bounds concurrent source work to four tasks.

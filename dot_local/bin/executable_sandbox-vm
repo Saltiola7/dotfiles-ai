@@ -1357,11 +1357,11 @@ def federated_lens_summary(config, lens, scope, execute=command, filters=None,
               for name in ("page_count", "session_count", "review_session_count",
                            "excluded_review_session_count", "unattributed_session_count")}
     telemetry = {**totals, "source_count": len(sources)}
-    identity = {"lens": lens, "scope": scope, "sources": sources}
-    return {"schema_version": 1, "lens": lens, "scope": scope, "sources": sources,
-            "manifest_digest": hashlib.sha256(json.dumps(identity, sort_keys=True,
-                                                           separators=(",", ":")).encode()).hexdigest(),
-            "telemetry": telemetry}
+    result = {"schema_version": 1, "lens": lens, "scope": scope, "sources": sources,
+              "telemetry": telemetry}
+    manifest_digest = hashlib.sha256(json.dumps(
+        result, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {**result, "manifest_digest": manifest_digest}
 
 
 def privacy_epochs(config, execute=command):

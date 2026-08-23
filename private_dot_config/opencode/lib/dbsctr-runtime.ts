@@ -62,6 +62,66 @@ function sha256(value: any) {
   return createHash("sha256").update(canonicalJSON(value)).digest("hex")
 }
 
+function unambiguousJSONText(text: string) {
+  let index = 0
+  const parseString = () => {
+    const start = index++
+    while (index < text.length) {
+      if (text[index] === "\\") index += 2
+      else if (text[index++] === '"') return JSON.parse(text.slice(start, index))
+    }
+    throw new Error("unterminated string")
+  }
+  const parseValue = (): void => {
+    if (text[index] === '"') { parseString(); return }
+    if (text[index] === "[") {
+      index++
+      if (text[index] === "]") { index++; return }
+      while (true) {
+        parseValue()
+        if (text[index] === "]") { index++; return }
+        if (text[index++] !== ",") throw new Error("invalid array")
+      }
+    }
+    if (text[index] === "{") {
+      index++
+      if (text[index] === "}") { index++; return }
+      let previous: string | undefined
+      while (true) {
+        if (text[index] !== '"') throw new Error("invalid object")
+        const key = parseString()
+        if (previous !== undefined && key <= previous) throw new Error("noncanonical object")
+        previous = key
+        if (text[index++] !== ":") throw new Error("invalid object")
+        parseValue()
+        if (text[index] === "}") { index++; return }
+        if (text[index++] !== ",") throw new Error("invalid object")
+      }
+    }
+    const start = index
+    while (index < text.length && !",]}".includes(text[index])) {
+      if (/\s/.test(text[index])) throw new Error("noncanonical whitespace")
+      index++
+    }
+    if (index === start) throw new Error("invalid value")
+  }
+  try {
+    parseValue()
+    return index === text.length
+  } catch {
+    return false
+  }
+}
+
+function validRawManifestDigest(output: string, digest: any) {
+  if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest) || !unambiguousJSONText(output)) return false
+  const marker = `"manifest_digest":"${digest}",`
+  const index = output.indexOf(marker)
+  if (index !== output.indexOf(",") + 1 || index !== output.lastIndexOf(marker)) return false
+  const body = output.slice(0, index) + output.slice(index + marker.length)
+  return createHash("sha256").update(body).digest("hex") === digest
+}
+
 async function federatedSourceOrder(env: NodeJS.ProcessEnv) {
   const path = env.OPENCODE_VM_CONFIG ?? join(homedir(), ".config", "dotfiles-ai", "sandbox.json")
   let config: any
@@ -139,7 +199,7 @@ export async function knowledgeContext(text: string, limit: number, cwd: string)
       revision: value.revision, ranking_policy: value.ranking_policy, results: value.results } })
 }
 
-async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaining: number }) {
+async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaining: number }, trim = true) {
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
@@ -157,10 +217,12 @@ async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaini
     bytes.set(chunk, offset)
     offset += chunk.byteLength
   }
-  return new TextDecoder().decode(bytes).trim()
+  const text = new TextDecoder().decode(bytes)
+  return trim ? text.trim() : text
 }
 
-async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000, outputLimit = 64 * 1024) {
+async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000,
+                          outputLimit = 64 * 1024, preserveOutput = false) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
   const budget = { remaining: outputLimit }
   const killTree = () => {
@@ -179,7 +241,7 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number | null 
   })
   try {
     const operation = Promise.all([
-      boundedText(child.stdout, budget),
+      boundedText(child.stdout, budget, !preserveOutput),
       boundedText(child.stderr, budget),
       child.exited,
     ])
@@ -770,8 +832,8 @@ export async function reviewFederatedSummary(lens: "correctness_safety" | "relia
   const argv = ["sandbox-vm", "review-summary", "--lens", lens, "--review-sessions", reviewSessions]
   if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
   if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
-  const [value, expectedSources] = await Promise.all([
-    analyticsJSON(argv, cwd, null), federatedSourceOrder(env),
+  const [[value, rawOutput], expectedSources] = await Promise.all([
+    analyticsRawJSON(argv, cwd, null), federatedSourceOrder(env),
   ])
   const telemetryKeys = ["page_count", "session_count", "review_session_count",
     "excluded_review_session_count", "unattributed_session_count", "source_count"]
@@ -864,8 +926,7 @@ export async function reviewFederatedSummary(lens: "correctness_safety" | "relia
         ? ["source_id", "availability", "summary"] : ["source_id", "availability"])
         || !["available", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
         || source.availability === "available" && !validSummary(source.summary))
-      || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
-      || value.manifest_digest !== sha256({ lens, scope: reviewSessions, sources: value.sources })
+      || !validRawManifestDigest(rawOutput, value.manifest_digest)
       || !validTelemetry(value.telemetry, telemetryKeys)
       || value.telemetry.source_count !== expectedSources.length
       || value.telemetry.unattributed_session_count !== 0) {
@@ -888,7 +949,7 @@ export async function reviewFederatedSummary(lens: "correctness_safety" | "relia
     await rename(temporary, path)
     await chmod(path, 0o600)
   }
-  return JSON.stringify(value)
+  return rawOutput
 }
 
 export async function vmHandoff(report: {
@@ -991,8 +1052,7 @@ function reviewHistoryArgv(args: {
   return argv
 }
 
-async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
-  const output = await runBounded(argv, cwd, timeoutMs, 256 * 1024)
+function validatedAnalyticsJSON(output: string) {
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
   if (unsafe.test(output)) {
     throw new Error("analytics helper returned unsafe content")
@@ -1008,6 +1068,18 @@ async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | nu
   }
   if (unsafe.test(JSON.stringify(value))) throw new Error("analytics helper returned unsafe content")
   return value
+}
+
+async function analyticsRawJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
+  const raw = await runBounded(argv, cwd, timeoutMs, 256 * 1024, true)
+  if (!raw.endsWith("\n") || raw.endsWith("\n\n"))
+    throw new Error("analytics helper returned noncanonical JSON")
+  const output = raw.slice(0, -1)
+  return [validatedAnalyticsJSON(output), output] as const
+}
+
+async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
+  return validatedAnalyticsJSON(await runBounded(argv, cwd, timeoutMs, 256 * 1024))
 }
 
 function exactKeys(value: any, keys: string[]) {

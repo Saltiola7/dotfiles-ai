@@ -1368,7 +1368,7 @@ def test_federated_lens_summary_writes_terminal_receipt(tmp_path):
                     "tool_count", "tool_error_count")
     summary = {
         "schema_version": 1, "capture_id": "c" * 24, "lens": "performance_cost", "scope": "exclude",
-        "snapshot": 10, "session_ceiling": 9, "part_ceiling": 8,
+        "snapshot": 10.0, "session_ceiling": 9, "part_ceiling": 8,
         "database_digest": "a" * 64, "exclusion_digest": None, "query": query,
         "member_count": 0, "members_digest": "b" * 64, "telemetry": telemetry,
         "categories": {name: {} for name in ("cycle_state", "risk", "delivery_intent",
@@ -1378,13 +1378,14 @@ def test_federated_lens_summary_writes_terminal_receipt(tmp_path):
                     for name in metric_names}, "evidence": [],
     }
     sources = [{"source_id": "host", "availability": "available", "summary": summary}]
-    identity = {"lens": "performance_cost", "scope": "exclude", "sources": sources}
-    manifest_digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     response = {"schema_version": 1, "lens": "performance_cost", "scope": "exclude",
-                "sources": sources, "manifest_digest": manifest_digest,
-                "telemetry": {**telemetry, "source_count": 1}}
+                "sources": sources, "telemetry": {**telemetry, "source_count": 1}}
+    manifest_digest = hashlib.sha256(json.dumps(
+        response, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    response["manifest_digest"] = manifest_digest
     sandbox = bin_dir / "sandbox-vm"
-    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    sandbox.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, sort_keys=True, separators=(',', ':'))}'\n")
     sandbox.chmod(0o755)
     config = tmp_path / "sandbox.json"
     config.write_text(json.dumps({"workspaces": []}))
@@ -1392,17 +1393,35 @@ def test_federated_lens_summary_writes_terminal_receipt(tmp_path):
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (f'import {{ reviewFederatedSummary }} from {json.dumps(str(runtime))};'
               'console.log(await reviewFederatedSummary("performance_cost","exclude",process.cwd()));')
+    canonical = json.dumps(response, sort_keys=True, separators=(",", ":"))
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
              "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
         text=True, capture_output=True, check=True,
     )
+    assert result.stdout == canonical + "\n"
     assert json.loads(result.stdout)["manifest_digest"] == manifest_digest
     receipt = json.loads((receipts / f"{manifest_digest}.exclude.json").read_text())
     assert receipt == {"schema_version": 1, "manifest_digest": manifest_digest,
                        "lens": "performance_cost", "scope": "exclude",
                        "telemetry": {**telemetry, "source_count": 1}}
+
+    for malformed in (
+        canonical.replace('{"lens":', '{"lens":"wrong","lens":', 1),
+        canonical.replace(":", ": ", 1),
+        " " + canonical,
+        canonical + " ",
+        json.dumps(response, separators=(",", ":")),
+    ):
+        sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{malformed}'\n")
+        rejected = subprocess.run(
+            ["bun", "-e", script], cwd=ROOT,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                 "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+            text=True, capture_output=True,
+        )
+        assert rejected.returncode != 0
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
