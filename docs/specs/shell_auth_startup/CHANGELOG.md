@@ -1,5 +1,18 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-22 - Native Herdr Ownership
+
+- Pinned and installed native Herdr 0.8.2 under `~/.local/bin` with SHA-256
+  verification, exact protocol checks, bounded live handoff, and rollback.
+- Kept the Aqua LaunchAgent owner alive across handoff, added five-probe
+  tolerance, and made unexpected server disappearance restartable.
+- Live deployment exposed repeated post-handoff shutdowns and session restores;
+  recovery finished with 54 panes, 46 live session identities, native server PID
+  `47444`, LaunchAgent owner PID `73813`, and a three-minute stable ownership soak.
+- Validation passed 75 affected tests, rendered shell and plist checks, and an
+  independent final review with no actionable findings. Gate commits: `12f402a`,
+  `9020e21`.
+
 ## 2026-08-18 - Canonical Ticket Migration
 
 - Migrated completed shell-auth work records to independently validated PM

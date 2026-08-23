@@ -14,11 +14,19 @@ HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 
 herdr_server_running() {
-    "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
+    for _ in {1..5}; do
+        "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true' && return 0
+        sleep 0.2
+    done
+    return 1
+}
+
+managed_job_running() {
+    /bin/launchctl print "$DOMAIN/$LABEL" 2>/dev/null | /usr/bin/grep -q 'state = running'
 }
 
 {{ if not .dotfiles_ai.herdr.launchagent -}}
-if herdr_server_running; then
+if herdr_server_running || managed_job_running; then
     PLIST_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
     if [[ "$PLIST_LABEL" == "$LABEL" ]]; then
         /bin/rm -f "$PLIST"
@@ -37,8 +45,7 @@ exit 0
 [[ -f "$PLIST" ]] || exit 0
 mkdir -p "$HOME/Library/Logs"
 
-/bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
-if herdr_server_running; then
+if herdr_server_running || managed_job_running; then
     echo "[herdr-launchagent] active server preserved; LaunchAgent reload deferred until next login or reboot" >&2
     exit 0
 fi

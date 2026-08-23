@@ -5,6 +5,7 @@ import plistlib
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -27,6 +28,9 @@ def _run_native_installer(
     *,
     handoff_fails: bool = False,
     seed_previous: bool = False,
+    seed_native: bool = False,
+    compatible_old: bool = True,
+    interrupt_handoff: bool = False,
     old_version: str = "0.7.5",
     old_protocol: int = 17,
     pane_count: int = 1,
@@ -49,9 +53,10 @@ def _run_native_installer(
         "  --version) printf 'herdr 0.8.2\\n' ;;\n"
         "  'status server --json')\n"
         "    if [[ -f \"$STATE\" ]]; then printf '{\"running\":true,\"version\":\"0.8.2\",\"protocol\":20,\"capabilities\":{\"live_handoff\":true}}\\n';\n"
-        "    else printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true}}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\"; fi ;;\n"
+        "    else printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true},\"compatible\":false}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\"; fi ;;\n"
         "  server\\ live-handoff*)\n"
         "    printf '%s\\n' \"$*\" >> \"$CALLS\"\n"
+        "    [[ \"${INTERRUPT_HANDOFF:-0}\" == 1 ]] && { kill -TERM \"$PPID\"; sleep 0.1; exit 1; }\n"
         "    [[ \"${HANDOFF_FAIL:-0}\" == 1 ]] && exit 1\n"
         "    touch \"$STATE\" ;;\n"
         "esac\n"
@@ -64,14 +69,18 @@ def _run_native_installer(
         "#!/bin/bash\n"
         "case \"$*\" in\n"
         "  --version) printf 'herdr %s\\n' \"${OLD_VERSION:-0.7.5}\" ;;\n"
-        "  'status server --json') printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true}}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\" ;;\n"
+        "  'status server --json') printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true},\"compatible\":%s}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\" \"$COMPATIBLE_OLD\" ;;\n"
         "  'pane list') if [[ \"${RECHECK_FAIL:-0}\" == 1 && -f \"$PANE_CALLS\" ]]; then exit 1; fi; touch \"$PANE_CALLS\"; printf '{\"result\":{\"panes\":['; for ((i=0; i<PANE_COUNT; i++)); do ((i)) && printf ','; printf '{\"pane_id\":\"w1:p%s\"}' \"$i\"; done; printf ']}}\\n' ;;\n"
         "  'server stop') kill \"$SERVER_PID\" \"$PANE_PID\" ;;\n"
         "esac\n"
     )
     old.chmod(0o755)
     previous_bytes = old.read_bytes()
-    if seed_previous:
+    if seed_native:
+        target.parent.mkdir(parents=True)
+        target.write_bytes(asset.read_bytes())
+        target.chmod(0o755)
+    elif seed_previous:
         target.parent.mkdir(parents=True)
         target.write_bytes(previous_bytes)
         target.chmod(0o755)
@@ -105,7 +114,9 @@ def _run_native_installer(
             "HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin",
             "ASSET": str(asset), "STATE": str(state), "CALLS": str(calls),
             "HANDOFF_FAIL": "1" if handoff_fails else "0",
+            "INTERRUPT_HANDOFF": "1" if interrupt_handoff else "0",
             "OLD_VERSION": old_version, "OLD_PROTOCOL": str(old_protocol),
+            "COMPATIBLE_OLD": "true" if compatible_old else "false",
             "PANE_COUNT": str(pane_count),
             "SERVER_PID": str(server_pid or ""), "PANE_PID": str(pane_pid or ""),
             "RECHECK_FAIL": "1" if recheck_fails else "0",
@@ -182,6 +193,15 @@ def test_failed_native_handoff_restores_previous_path_and_keeps_processes(tmp_pa
         server.wait()
 
 
+def test_interrupted_native_handoff_restores_previous_path(tmp_path) -> None:
+    result, _, previous = _run_native_installer(
+        tmp_path, seed_previous=True, interrupt_handoff=True
+    )
+
+    assert result.returncode != 0
+    assert (tmp_path / "home/.local/bin/herdr").read_bytes() == previous
+
+
 def test_same_version_with_wrong_digest_is_replaced(tmp_path) -> None:
     result, asset, previous = _run_native_installer(
         tmp_path, seed_previous=True, old_version="0.8.2", old_protocol=20
@@ -190,6 +210,22 @@ def test_same_version_with_wrong_digest_is_replaced(tmp_path) -> None:
     assert result.returncode == 0, result.stderr
     assert previous != asset
     assert (tmp_path / "home/.local/bin/herdr").read_bytes() == asset
+
+
+def test_installed_native_client_skips_incompatible_old_server(tmp_path) -> None:
+    result, _, _ = _run_native_installer(tmp_path, seed_native=True)
+
+    assert result.returncode == 0, result.stderr
+    assert "server live-handoff" in (tmp_path / "calls").read_text()
+
+
+def test_installer_fails_when_no_compatible_live_server_client_exists(tmp_path) -> None:
+    result, _, _ = _run_native_installer(
+        tmp_path, seed_native=True, compatible_old=False
+    )
+
+    assert result.returncode != 0
+    assert "no compatible client for safe handoff" in result.stderr
 
 
 def test_protocol_match_is_exact_and_handoff_refuses_more_than_64_panes(tmp_path) -> None:
@@ -263,16 +299,16 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     assert 'rm -f "$PLIST"' in disabled
 
 
-def test_active_server_defers_launchagent_reload(tmp_path) -> None:
+def test_loaded_owner_defers_launchagent_reload_when_status_fails(tmp_path) -> None:
     calls = tmp_path / "calls"
     launchctl = tmp_path / "launchctl"
     herdr = tmp_path / "herdr"
     launchctl.write_text(
-        '#!/bin/bash\nprintf "launchctl %s\\n" "$1" >> "$CALLS"\n[[ "$1" == print ]] && exit 1\nexit 99\n'
+        '#!/bin/bash\nprintf "launchctl %s\\n" "$1" >> "$CALLS"\n'
+        '[[ "$1" == print ]] && { printf "state = running\\n"; exit 0; }\nexit 99\n'
     )
     herdr.write_text(
         '#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$CALLS"\n'
-        '[[ "$*" == "status server --json" ]] && printf \'{"running":true}\\n\'\n'
     )
     launchctl.chmod(0o755)
     herdr.chmod(0o755)
@@ -311,7 +347,10 @@ def test_active_server_defers_launchagent_reload(tmp_path) -> None:
     )
     assert result.returncode == 0
     assert "active server preserved; LaunchAgent reload deferred" in result.stderr
-    assert calls.read_text().splitlines() == ["launchctl print", "herdr status server --json"]
+    assert calls.read_text().splitlines() == [
+        *["herdr status server --json"] * 5,
+        "launchctl print",
+    ]
 
 
 def test_disabling_launchagent_does_not_boot_out_active_server(tmp_path) -> None:
@@ -422,6 +461,106 @@ def test_herdr_owner_recovers_exact_sessions_after_server_start() -> None:
 
     assert '"$HERDR" server' in owner
     assert '"$HOME/.local/bin/herdr-opencode-restore"' in owner
+    assert 'while [[ $stopping == 0 && $failures -lt 5 ]]' in owner
+    assert 'if [[ $stopping == 1 ]]; then status=0; else status=1; fi' in owner
+    assert 'wait "$server_pid"\n    status=$?\n    server_pid=' in owner
+
+
+def test_herdr_owner_stays_alive_after_handoff_child_exits(tmp_path) -> None:
+    home = tmp_path / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    state = tmp_path / "running"
+    calls = tmp_path / "calls"
+    herdr = tmp_path / "herdr"
+    herdr.write_text(
+        '#!/bin/bash\n'
+        'case "$*" in\n'
+        f'  server) touch "{state}"; sleep 0.1 ;;\n'
+        '  "status server --json")\n'
+        f'    calls=$(cat "{calls}" 2>/dev/null || printf 0); calls=$((calls + 1)); printf %s "$calls" > "{calls}"\n'
+        f'    [[ -f "{state}" && $calls != 3 ]] && printf \'{{"running":true}}\\n\' ;;\n'
+        'esac\n'
+    )
+    herdr.chmod(0o755)
+    restore = home / ".local/bin/herdr-opencode-restore"
+    restore.write_text("#!/bin/bash\nexit 1\n")
+    restore.chmod(0o755)
+    owner = _render_herdr_script(".local/bin/herdr-server-owner", {
+        "dotfiles_ai": {"herdr": {"executable": str(herdr)}}
+    })
+
+    process = subprocess.Popen(["bash"], stdin=subprocess.PIPE, text=True, env={
+        **os.environ, "HOME": str(home),
+    })
+    process.stdin.write(owner)
+    process.stdin.close()
+    for _ in range(100):
+        if state.exists():
+            break
+        time.sleep(0.01)
+    time.sleep(1.2)
+    assert process.poll() is None
+    process.terminate()
+    assert process.wait(timeout=3) == 0
+
+
+def test_herdr_owner_tolerates_transient_monitor_probe_failure(tmp_path) -> None:
+    home = tmp_path / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    calls = tmp_path / "calls"
+    herdr = tmp_path / "herdr"
+    herdr.write_text(
+        '#!/bin/bash\n'
+        f'calls=$(cat "{calls}" 2>/dev/null || printf 0)\n'
+        'calls=$((calls + 1))\n'
+        f'printf %s "$calls" > "{calls}"\n'
+        '[[ $calls == 3 ]] || printf \'{"running":true}\\n\'\n'
+    )
+    herdr.chmod(0o755)
+    restore = home / ".local/bin/herdr-opencode-restore"
+    restore.write_text("#!/bin/bash\nexit 1\n")
+    restore.chmod(0o755)
+    owner = _render_herdr_script(".local/bin/herdr-server-owner", {
+        "dotfiles_ai": {"herdr": {"executable": str(herdr)}}
+    })
+
+    process = subprocess.Popen(["bash"], stdin=subprocess.PIPE, text=True, env={
+        **os.environ, "HOME": str(home),
+    })
+    process.stdin.write(owner)
+    process.stdin.close()
+    time.sleep(0.5)
+    assert process.poll() is None
+    process.terminate()
+    assert process.wait(timeout=3) == 0
+
+
+def test_herdr_owner_exits_nonzero_after_five_monitor_failures(tmp_path) -> None:
+    home = tmp_path / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    calls = tmp_path / "calls"
+    herdr = tmp_path / "herdr"
+    herdr.write_text(
+        '#!/bin/bash\n'
+        f'calls=$(cat "{calls}" 2>/dev/null || printf 0)\n'
+        'calls=$((calls + 1))\n'
+        f'printf %s "$calls" > "{calls}"\n'
+        '[[ $calls == 1 ]] && printf \'{"running":true}\\n\'\n'
+    )
+    herdr.chmod(0o755)
+    restore = home / ".local/bin/herdr-opencode-restore"
+    restore.write_text("#!/bin/bash\nexit 1\n")
+    restore.chmod(0o755)
+    owner = _render_herdr_script(".local/bin/herdr-server-owner", {
+        "dotfiles_ai": {"herdr": {"executable": str(herdr)}}
+    })
+
+    result = subprocess.run(
+        ["bash"], input=owner, text=True, timeout=8,
+        env={**os.environ, "HOME": str(home)},
+    )
+
+    assert result.returncode != 0
 
 
 def test_session_restore_uses_manifest_database_and_managed_wrapper() -> None:

@@ -115,15 +115,17 @@ One grouped fetch succeeds only after the complete projected secret set validate
 ```mermaid
 flowchart TD
     accTitle: Chezmoi-managed native Herdr upgrade
-    accDescr: Chezmoi verifies the pinned native Herdr release. With no running server it installs directly. With a compatible running server it installs atomically and requests live handoff. A failed handoff restores the prior executable and leaves the old server running. LaunchAgent reload waits until a natural login or reboot.
+    accDescr: Chezmoi verifies the pinned native Herdr release. With no running server it installs directly. With a compatible running server it installs atomically and requests live handoff. A managed owner remains alive for the replacement; a failed handoff restores the prior executable and leaves the old server running.
     A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
     V --> R{Herdr server running?}
     R -->|No| I[Install native executable]
     R -->|Yes, handoff capable| H[Install atomically and request live handoff]
     R -->|Yes, no handoff| F[Fail without replacing or stopping server]
     H --> S{Pinned server responds?}
-    S -->|Yes| D[Defer LaunchAgent reload]
+    S -->|Yes| O{Managed owner active?}
     S -->|No| B[Restore prior executable and keep old server]
+    O -->|Yes| K[Owner remains alive for replacement]
+    O -->|No| D[Defer LaunchAgent reload]
     D --> L[LaunchAgent owns next natural start]
 ```
 
@@ -131,8 +133,9 @@ flowchart TD
 Herdr asset. With no running server, chezmoi installs it directly. A compatible
 running server receives an atomic executable replacement and live-handoff
 request. Unsupported or failed handoff never triggers a stop; failure restores
-the prior executable where present. The replacement runs detached until the
-next natural login or reboot gives ownership back to the Aqua LaunchAgent.
+the prior executable where present. A managed owner remains alive across the
+handoff. An unmanaged replacement runs detached until the next natural login or
+reboot gives ownership back to the Aqua LaunchAgent.
 The shell-auth owner updates this view when authentication precedence, context,
 or failure behavior changes.
 
@@ -161,12 +164,6 @@ or failure behavior changes.
 - And the handoff remains pending for a retry after the operator stops the server
 - And server ownership is determined from structured Herdr status rather than command exit status
 
-**Scenario: Managed Herdr server is reloaded**
-- Given the managed Aqua LaunchAgent owns the `HerdrServer`
-- When chezmoi reapplies changed LaunchAgent configuration
-- Then deployment waits up to five seconds for the old server to stop before bootstrapping its replacement
-- And deployment fails if the old server remains running
-
 **Scenario: Chezmoi installs the pinned native Herdr release**
 - Given no native `HerdrServer` executable exists at the configured path
 - And no `HerdrServer` is running
@@ -183,6 +180,13 @@ or failure behavior changes.
 - And it requests live handoff with the pinned version and protocol
 - And it never requests a normal server stop
 - And the replacement server retains the pane processes
+- And a managed owner remains alive while the replacement serves them
+
+**Scenario: Managed Herdr owner observes a transient probe failure**
+- Given the Aqua LaunchAgent owns a live `HerdrServer`
+- When fewer than five consecutive structured health probes fail
+- Then the owner remains active and does not terminate the server coalition
+- And an unexpected server disappearance exits as failure so launchd restarts it
 
 **Scenario: Native Herdr live handoff fails**
 - Given a live `HerdrServer` owns pane processes
@@ -325,6 +329,7 @@ or failure behavior changes.
 - **Invariant:** chezmoi deployment never stops a running `HerdrServer`; compatible upgrades use live handoff and LaunchAgent reconciliation waits for the next GUI login or reboot.
 - **Invariant:** `HerdrServer` ownership checks use the structured `running` status because the Herdr status command exits successfully when no server is running.
 - **Invariant:** failed live handoff never falls back to `herdr server stop`.
+- **Invariant:** a managed owner remains active across live handoff and tolerates fewer than five consecutive failed health probes.
 - **Post:** failed live handoff leaves the old server available and restores the prior native executable when applicable.
 - **Post:** an active server causes LaunchAgent reconciliation to succeed as deferred rather than terminate pane processes.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
@@ -354,6 +359,22 @@ or failure behavior changes.
 | Deploy | Apply managed Herdr ownership configuration | required | passed | Targeted chezmoi deployment; `e858602`, `4a05198` | - | Primary |
 | Operate | Verify Aqua LaunchAgent and Herdr-mode authentication | required | passed | Running Aqua LaunchAgent, Keychain access, and `op-session` | - | Primary |
 | Maintain/Retire | Keep failed ownership handoff retryable | required | passed | Unmanaged refusal and bounded shutdown contracts | - | Primary |
+
+## Gate Ledger - AUTH-012
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Native release and durable handoff ownership | required | passed | This README and AUTH-012 ticket | - | Primary |
+| Behavior | Install, handoff, rollback, and owner continuity | required | passed | Focused regression tests | - | Primary |
+| Spec | Pinned native lifecycle and managed/unmanaged ownership | required | passed | README and `AUTH-012.plan.json` | - | Primary |
+| Contract | Preserve panes; never stop on upgrade failure | required | passed | Rendered shell and runtime identity checks | - | Primary |
+| Test-driven implementation | Native installer and owner regressions | required | passed | `tests/test_herdr_launchagent.py` | - | Primary |
+| Refactor | Shared structured status and bounded owner probes | required | passed | Shell syntax and integrated diff | - | Primary |
+| Review/Integrate | Process and ownership safety | required | passed | Independent review clean; 75 affected tests passed | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply native binary and owner wrapper | required | passed | Native `0.8.2`; targeted chezmoi deployment | - | Primary |
+| Operate | Verify pane/session health and durable ownership | required | passed | 54 panes, 46 sessions, stable owner/server PIDs over three minutes | - | Primary |
+| Maintain/Retire | Retire Homebrew source declaration and retain rollback | required | passed | Brewfile declaration removed; installed keg retained as temporary rollback | - | Primary |
 
 ## Verification
 

@@ -5,7 +5,7 @@ slug: "manage-native-herdr-with-process-preserving-upgrades"
 context: "shell_auth_startup"
 title: "Manage native Herdr with process-preserving upgrades"
 kind: "task"
-state: "in_progress"
+state: "completed"
 priority: "high"
 points: null
 depends_on: []
@@ -25,8 +25,10 @@ validation:
   - "uv run --group test pytest tests/test_herdr_launchagent.py tests/test_portable_distribution.py tests/test_opencode_control_plane.py"
 created: "2026-08-22"
 updated: "2026-08-22"
-completed: null
-commits: []
+completed: "2026-08-22"
+commits:
+  - "12f402a"
+  - "9020e21"
 jira_publications: []
 ---
 
@@ -49,14 +51,22 @@ through live handoff without terminating pane processes.
 - A version change requests `server live-handoff` with the pinned protocol and version.
 - A failed handoff preserves the running server and never calls `server stop`.
 - Active servers defer LaunchAgent reconciliation until a natural login or reboot.
+- A managed LaunchAgent owner remains alive across handoff, tolerates transient probe failures, and makes unexpected server disappearance restartable.
 - Focused tests and live migration evidence cover installation, rollback, pane count, process identity, and runtime health.
 
 ## Risks
 
 - Live handoff is experimental and supports at most 64 pane file descriptors; deployment must verify the current pane count first.
 - The handoff disconnects clients and transient API requests; clients must reconnect.
-- The handed-off replacement is detached until launchd starts it at a later natural login or reboot.
+- An unmanaged handed-off replacement is detached until launchd starts it at a later natural login or reboot.
+- Starting handoff outside the managed owner can leave the replacement exposed to the initiating process supervisor.
 
 ## Review
 
-Pending implementation and live deployment evidence.
+Implementation and focused tests pass. Initial live attempts preserved identities
+through handoff but the replacements later shut down, forcing session restores.
+The recovered native server retained 54 panes and exposed 46 unique session
+identities; LaunchAgent owner PID `73813` and server PID `47444` remained stable
+through a three-minute soak. All 75 affected tests passed and final independent
+review reported no actionable findings. The Homebrew declaration is retired;
+the installed keg remains temporarily available for rollback.
