@@ -10,7 +10,7 @@
     "benchmark_id": {"const": "DKS-005"},
     "protocol_version": {"const": "dks-silver-v1"},
     "evidence_class": {"const": "silver"},
-    "source_revision": {"const": "0975428470e53282545676cbd3bf261a91aecb77"},
+    "source_revision": {"const": "45096bb03891e9771a891d53f92b23863ae08a3e"},
     "generated_at": {"type": "integer", "minimum": 0},
     "generator": {"$ref": "#/$defs/modelEvidence"},
     "reviewers": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/modelEvidence"}},

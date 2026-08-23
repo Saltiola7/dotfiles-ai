@@ -1,7 +1,7 @@
 # DKS-005 Silver Generation Prompt
 
 Read only Git objects at commit
-`0975428470e53282545676cbd3bf261a91aecb77` in the dotfiles-ai repository. Do
+`45096bb03891e9771a891d53f92b23863ae08a3e` in the dotfiles-ai repository. Do
 not read the worktree overlay, private DBSCTR authority, transcripts,
 credentials, PostgreSQL content, or retrieval results.
 

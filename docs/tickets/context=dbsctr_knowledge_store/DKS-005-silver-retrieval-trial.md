@@ -62,7 +62,7 @@ seven-day trial with automatic baseline restoration.
 
 - Before candidate execution, a hosted AI generates at least 100 questions across
   the five fixed strata from committed Git at
-  `0975428470e53282545676cbd3bf261a91aecb77` only, with source citations that are
+  `45096bb03891e9771a891d53f92b23863ae08a3e` only, with source citations that are
   resolved independently of retrieval candidates.
 - The committed suite records `evidence_class: silver`, exact provider/model and
   prompt identities, two independent alignment reviews, and no private authority,

@@ -1,7 +1,7 @@
 # DKS-005 Silver Review Prompt
 
 Review the complete proposed `dks-silver-v1` question array against only Git
-objects at commit `0975428470e53282545676cbd3bf261a91aecb77`. Do not inspect
+objects at commit `45096bb03891e9771a891d53f92b23863ae08a3e`. Do not inspect
 private DBSCTR authority, transcripts, credentials, PostgreSQL content,
 uncommitted files, or retrieval candidates/results.
 
