@@ -113,8 +113,11 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
     assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
     assert 'UV_TOOL_DIR="$HOME/.local/share/uv/tools"' in installer
-    assert 'uv tool install --force "$wheel"' in installer
+    assert 'UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"' in installer
+    assert 'uv python install 3.13.2' in installer
+    assert 'uv tool install --force --python 3.13.2 "$wheel"' in installer
     assert '"$target" != /Volumes/*' in installer
+    assert '"$runtime" != /Volumes/*' in installer
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert 'managed_home="$HERMES_HOME/managed"' in configure
