@@ -68,17 +68,18 @@ P0/P1 Discovery interviews, and isolated implementation drafts for human review.
   Lima sandbox 55, and OpenCode control plane 38.
 - Scoped chezmoi deployment converges the six runtime targets and migrates the
   private improvement ledger from schema 4 to schema 5.
-- A live three-source federated probe returns host, personal, and MGM as
-  `available`. The host's valid 1.7M-part snapshot takes about 10m21s, so the
+- A live three-source federated probe returns the host and both configured guests
+  as `available`. The host's valid 1.7M-part snapshot takes about 10m21s, so the
   bounded host exporter now permits 900 seconds while guests remain at 120.
 - Twelve stale or orphan lens workers and their six retained reservations were
   reconciled without changing claimed or Discovery work.
-- Exact helper/runtime hashes were deployed to the host and both guests. MGM was
-  restored to stopped and personal remained running after the smoke.
+- Exact helper/runtime hashes were deployed to the host and both guests. The
+  previously stopped guest was restored and the other remained running after
+  the smoke.
 - The controlled scheduler advanced from 10 to 19 retained passes with no active
-  attempt: all six lenses completed the typed terminal-receipt path against host,
-  personal, and MGM. Performance-cost follow-up produced three distinct P1 claims
-  for Fast-route cost estimates, a finite Build step budget, and fork-overlap
+  attempt: all six lenses completed the typed terminal-receipt path against all
+  three configured sources. Performance-cost follow-up produced three distinct
+  P1 claims for Fast-route cost estimates, a finite Build step budget, and fork-overlap
   accounting, then reached `no_yield`; review-session governance also reached
   `no_yield` over 540 attributed review sessions.
 

@@ -8,8 +8,8 @@
 - Reused fresh query-compatible no-exclusion captures for 24 hours under the
   private writer lock, applied current worker-family exclusion at summary time,
   and bound the exact compact helper envelope through typed receipt validation.
-- Deployed exact committed helpers to host, personal, and MGM. The live scheduler
-  completed all six lenses across all three sources, retained zero active
+- Deployed exact committed helpers to the host and both configured guests. The
+  live scheduler completed all six lenses across all three sources, retained zero active
   attempts, and produced three distinct P1 performance-cost claims before a
   terminal no-yield pass; governance reviewed 540 attributed review sessions.
 - Affected QA passed 289 tests with one optional skip before the digest repair,
