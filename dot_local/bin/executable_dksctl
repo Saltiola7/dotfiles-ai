@@ -1753,7 +1753,7 @@ FROM GRAPH_TABLE (
     if policy["policy_id"] == "dks-quality-v2":
         rerank_scores = None
         try:
-            candidates = [metadata[item["id"]] for item in quality_candidates(channels, max(50, args.limit))
+            candidates = [metadata[item["id"]] for item in quality_candidates(channels)
                           if item["id"] in metadata]
             reranked = rerank(config, args.text, candidates,
                               policy.get("reranker_manifest_sha256"))

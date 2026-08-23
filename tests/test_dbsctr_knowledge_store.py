@@ -1060,6 +1060,8 @@ def test_silver_runner_uses_git_only_depth_100_cells() -> None:
     runner = source[source.index("def command_benchmark_silver_run"):source.index("def load_benchmark_aggregate")]
     assert "benchmark_system" in query and "'false' if benchmark" in query
     assert "rank <= {100 if benchmark else 20}" in query
+    assert "quality_candidates(channels, max(50, args.limit))" not in query
+    assert "quality_candidates(channels)" in query
     assert 'systems = ("baseline", "code", "reranker", "code_reranker")' in runner
     assert "resolve_silver_citations" in runner and "limit=100" in runner
     assert "BenchmarkTelemetry" in runner and "receipt_hmac_sha256" in runner
