@@ -47,7 +47,7 @@ BENCHMARK_QUERY_STRATA = (
     "code_architecture", "specs_contracts", "operations_recovery",
     "tickets_history", "configuration_tooling",
 )
-DKS_005_SOURCE_REVISION = "0975428470e53282545676cbd3bf261a91aecb77"
+DKS_005_SOURCE_REVISION = "45096bb03891e9771a891d53f92b23863ae08a3e"
 SILVER_TRIAL_SECONDS = 604800
 
 

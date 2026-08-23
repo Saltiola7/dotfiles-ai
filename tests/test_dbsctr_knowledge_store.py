@@ -733,7 +733,7 @@ def test_private_query_workbook_initializes_and_validates_without_leaking_text(t
         "schema_version": 1,
         "project": "dotfiles-ai",
         "benchmark_id": "DKS-005",
-        "source_revision": "0975428470e53282545676cbd3bf261a91aecb77",
+        "source_revision": dks.DKS_005_SOURCE_REVISION,
         "query_count": 100,
         "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
         "query_digest": dks.digest_json(identity),
@@ -881,7 +881,7 @@ def test_committed_silver_suite_is_grounded_at_the_frozen_revision() -> None:
     assert all(item["prompt_sha256"] == hashlib.sha256(
         (prompt_root / "DKS-005.review-prompt.txt").read_bytes()).hexdigest()
                for item in loaded["reviewers"])
-    assert digest == "4478b0c250d5a454ed2ce2c6601d5a9e307cda5b7d957643ddff18d689cfb270"
+    assert digest == "65fa72267e73df5fd18e63c9a484313208cbf8a6576eab06726d52a9219acb42"
 
 
 def test_invalid_silver_trial_atomically_restores_baseline(monkeypatch) -> None:
