@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution Changelog
 
-## 2026-08-23 - Restore Continuous Six-Lens R&D Dispatch
+## 2026-08-23 - DAI-021-F1 Restore Continuous Six-Lens R&D Dispatch
 
 - Force-refreshed Hermes gateway definitions, pinned the launchd runtime to an
   internal macOS Python while retaining external state, removed external working
@@ -16,6 +16,8 @@
 - Affected QA passes 102 tests, ticket validation, shell/Python syntax, and diff
   checks. Independent review found no high- or medium-severity issues; executable
   fake-launchctl coverage for project profiles remains a residual test gap.
+- Post-reconciliation union QA passes 127 tests. Final Gate Commits include
+  `c4a8f6c`, `57a51bd`, and reconciliation commit `2e4ab64`.
 
 ## 2026-08-21 - Complete Guest Compose Tooling
 
