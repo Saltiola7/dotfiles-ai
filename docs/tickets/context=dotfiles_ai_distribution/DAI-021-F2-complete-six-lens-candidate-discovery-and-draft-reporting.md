@@ -5,7 +5,7 @@ slug: "complete-six-lens-candidate-discovery-and-draft-reporting"
 context: "dotfiles_ai_distribution"
 title: "Complete six-lens candidate Discovery and draft reporting"
 kind: "task"
-state: "doing"
+state: "blocked"
 priority: "high"
 points: 3
 depends_on:
@@ -31,7 +31,11 @@ validation:
 created: "2026-08-23"
 updated: "2026-08-23"
 completed: null
-commits: []
+commits:
+  - "abb5be2"
+  - "1d0b436"
+  - "156dd6f"
+  - "9a44048"
 jira_publications: []
 migration: "Private improvement schema 4 migrates in place to schema 5."
 ---
@@ -51,3 +55,24 @@ P0/P1 Discovery interviews, and isolated implementation drafts for human review.
 - Final Push records a generated diff digest, changed paths, passed gates, and
   draft URL.
 - DKS citation metadata is optional, untrusted, source-verified, and nonblocking.
+
+## Evidence
+
+- Affected suites pass: `dbsctrctl` 159 tests with one optional skip, R&D 37,
+  Lima sandbox 54, and OpenCode control plane 37.
+- Scoped chezmoi deployment converges the six runtime targets and migrates the
+  private improvement ledger from schema 4 to schema 5.
+- A live three-source federated probe returns host, personal, and MGM as
+  `available`. The host's valid 1.7M-part snapshot takes about 10m21s, so the
+  bounded host exporter now permits 900 seconds while guests remain at 120.
+- Twelve stale or orphan lens workers and their six retained reservations were
+  reconciled without changing claimed or Discovery work.
+
+## Blocker
+
+The controlled correctness pass completes its host snapshot but exits without a
+`lens-result`. At the safe 25-candidate output bound, the current host capture has
+177 continuation pages. Manually recording `no_yield` would fabricate completion.
+The six-lens smoke remains blocked until the worker can exhaust that immutable
+capture within one bounded run or the runtime provides an equivalent verified
+server-side traversal summary.
