@@ -13,4 +13,35 @@ export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
     exit 75
 }
 {{ end -}}
+
+if [[ -n ${HERDR_ENV:-} ]]; then
+    auto=0
+    session=0
+    for argument in "$@"; do
+        [[ $argument == --auto ]] && auto=1
+        [[ $argument == --session || $argument == --session=* ]] && session=1
+    done
+    [[ $auto == 1 ]] || set -- "$@" --auto
+
+    if [[ $session == 1 ]]; then
+        startup_dir=${DOTFILES_AI_STATE_ROOT:-${TMPDIR:-/tmp}}/herdr
+        /bin/mkdir -p "$startup_dir"
+        lock=$startup_dir/opencode-startup.lock
+        while ! /usr/bin/shlock -p $$ -f "$lock" 2>/dev/null; do sleep 0.1; done
+        trap '/bin/rm -f "$lock"' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+
+        last=0
+        [[ -f $startup_dir/opencode-startup.timestamp ]] && read -r last < "$startup_dir/opencode-startup.timestamp"
+        [[ $last =~ ^[0-9]+$ ]] || last=0
+        now=$(/bin/date +%s)
+        (( last <= now )) || last=0
+        (( now - last > 5 )) || sleep "$((6 - now + last))"
+        /bin/date +%s > "$startup_dir/opencode-startup.timestamp"
+
+        /bin/rm -f "$lock"
+        trap - EXIT INT TERM
+    fi
+fi
 exec /opt/homebrew/bin/opencode "$@"

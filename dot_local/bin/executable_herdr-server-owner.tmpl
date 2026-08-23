@@ -7,7 +7,8 @@ herdr_server_running() {
     "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
 }
 start_capture() {
-    if herdr_server_running && HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore"; then
+    if herdr_server_running; then
+        HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore" || true
         HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore" --watch &
         capture_pid=$!
     fi
