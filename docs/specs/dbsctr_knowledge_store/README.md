@@ -666,7 +666,10 @@ tokenizer files by a loopback-only Transformers MPS scorer. llama.cpp `/rerank`
 and third-party GGUFs are excluded because they do not implement or prove the
 official decoder `yes`/`no` final-logit contract. The scorer uses the official
 system/pair template, fixed DBSCTR retrieval instruction, 8192-token operational
-limit, longest-first truncation, and binary softmax relevance probability.
+limit, longest-first truncation, and binary softmax relevance probability. Each
+forward pass scores one document, disables the decoder KV cache, computes only
+the final-token logits, releases idle MPS allocations, and enforces a 24-GiB MPS
+allocator ceiling before model load.
 `DKS-003.models.json` pins safetensor shard and tokenizer hashes/sizes, exact
 instruction/template bytes and digest, the complete revision-file allowlist,
 no-remote-code identity, Python 3.12.11, torch 2.9.1, Transformers 5.5.0,
