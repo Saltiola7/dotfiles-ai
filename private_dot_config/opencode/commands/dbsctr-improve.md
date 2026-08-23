@@ -19,7 +19,9 @@ Operate as one bounded native-Build R&D worker:
    while `state_schema_version` versions the scheduler database.
 2. Call `dbsctr_lens_summary` once with the assigned lens and the plan's exact
    `only` or `exclude` review-session scope. The helper inspects every member of
-   one immutable 25-member-page capture per source and returns complete bounded
+   one fresh immutable capture per source at any bounded stored page size, creating
+   it with 25-member pages only
+   when no query-compatible 24-hour capture exists, and returns complete bounded
    distributions plus at most 20 deterministic evidence projections per source.
    The full-history summary must include the host and every federated workspace
    source and both previously reviewed and unreviewed sessions. Stop if any

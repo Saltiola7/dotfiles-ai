@@ -79,4 +79,7 @@ Discovery selected a verified server-side summary: every source now inspects all
 members of its immutable capture locally, binds exact distributions and at most
 20 evidence projections to a full-member digest, and returns one bounded terminal
 manifest. The typed adapter writes a lens-bound receipt only after all configured
-sources succeed. Unit contracts pass; live six-lens operational proof remains.
+sources succeed. Fresh query-compatible base captures are reused for 24 hours;
+the private writer lock creates one new 25-member-page base only when needed, so
+parallel lenses do not repeat the 1.7M-part scan. Unit contracts pass; live
+six-lens operational proof remains.

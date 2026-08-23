@@ -4201,6 +4201,51 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual((review["member_count"], review["telemetry"]["session_count"]), (1, 1))
         self.assertNotEqual(ordinary["members_digest"], review["members_digest"])
 
+        transient = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "25", "--capture",
+        ).stdout)
+        started = time.monotonic()
+        latest = json.loads(run(
+            self.repo, "history-capture-latest", "--database", str(database),
+            "--state-root", str(state), "--page-size", "25",
+        ).stdout)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(latest["capture_id"], transient["capture_id"])
+        self.assertEqual((latest["page_size"], latest["member_count"]), (25, 201))
+        reused = json.loads(run(
+            self.repo, "history-capture-latest", "--database", str(database),
+            "--state-root", str(state), "--page-size", "50",
+        ).stdout)
+        self.assertEqual((reused["capture_id"], reused["page_size"]), (transient["capture_id"], 25))
+
+        capture_db = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        future = json.loads(capture_db.execute(
+            "select payload from history_captures where capture_id=?", (transient["capture_id"],)).fetchone()[0])
+        future["created_at"] = int(time.time() * 1000) + 10 * 60 * 1000
+        future.pop("capture_id")
+        future_id = hashlib.sha256(module.ledger_payload(future).encode()).hexdigest()[:24]
+        future["capture_id"] = future_id
+        capture_db.execute("insert into history_captures values (?, ?)",
+                           (future_id, module.ledger_payload(future)))
+        capture_db.execute(
+            "insert into history_capture_members select ?,position,session_id,payload "
+            "from history_capture_members where capture_id=?", (future_id, transient["capture_id"]))
+        capture_db.commit()
+        capture_db.close()
+        bounded = json.loads(run(
+            self.repo, "history-capture-latest", "--database", str(database),
+            "--state-root", str(state), "--page-size", "25",
+        ).stdout)
+        self.assertEqual(bounded["capture_id"], transient["capture_id"])
+
+        archived = json.loads(run(
+            self.repo, "history-capture-latest", "--database", str(database),
+            "--state-root", str(Path(self.temp.name) / "archive-capture-state"),
+            "--page-size", "25", "--archive-only",
+        ).stdout)
+        self.assertTrue(archived["query"]["archive_only"])
+
         summary = json.loads(run(
             self.repo, "history-capture", "--state-root", str(state),
             "--capture-id", saved["capture_id"],

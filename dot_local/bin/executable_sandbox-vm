@@ -28,6 +28,7 @@ SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
 HOST_HISTORY_TIMEOUT = 900
+HOST_SUMMARY_TIMEOUT = 1800
 WORKSPACE_HISTORY_TIMEOUT = 120
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 ATUIN_PORT_FORWARD = {"guestPort": 8888, "hostPort": 8889, "guestIP": "127.0.0.1", "hostIP": "127.0.0.1"}
@@ -398,6 +399,18 @@ def _history_argv(limit, cursor, state=None, filters=None, excluded_session_id=N
     names = {"method_revision": "method-revision", "cycle_id": "cycle-id", "project_digest": "project-digest",
              "reviewed_status": "reviewed-status", "archive_only": "archive-only"}
     for key, value in (() if state is not None else (filters or {}).items()):
+        if value is True:
+            argv.append(f"--{names.get(key, key.replace('_', '-'))}")
+        elif value is not None and value is not False:
+            argv.extend([f"--{names.get(key, key.replace('_', '-'))}", str(value)])
+    return argv
+
+
+def _capture_latest_argv(filters):
+    argv = ["dbsctrctl", "history-capture-latest", "--page-size", "25"]
+    names = {"method_revision": "method-revision", "cycle_id": "cycle-id", "project_digest": "project-digest",
+             "reviewed_status": "reviewed-status", "archive_only": "archive-only"}
+    for key, value in filters.items():
         if value is True:
             argv.append(f"--{names.get(key, key.replace('_', '-'))}")
         elif value is not None and value is not False:
@@ -1258,6 +1271,25 @@ def _validated_lens_summary(output, lens, scope, filters, capture_id):
     return value
 
 
+def _validated_capture_descriptor(output, filters):
+    if len(output.encode()) > 4096 or UNSAFE.search(output):
+        raise ValueError("unsafe output")
+    value = json.loads(output)
+    keys = {"schema_version", "capture_id", "created_at", "query", "snapshot", "session_ceiling",
+            "part_ceiling", "database_digest", "page_size", "page_count", "member_count"}
+    now = int(time.time() * 1000)
+    if (not _exact(value, keys) or value.get("schema_version") != 1
+            or not re.fullmatch(r"[0-9a-f]{24}", value.get("capture_id", ""))
+            or value.get("query") != filters or not DIGEST.fullmatch(value.get("database_digest", ""))
+            or not _nonnegative_integer(value.get("created_at"))
+            or not now - 24 * 60 * 60 * 1000 <= value["created_at"] <= now + 5 * 60 * 1000
+            or any(not _nonnegative_integer(value.get(name))
+                   for name in ("snapshot", "session_ceiling", "part_ceiling", "page_count", "member_count"))
+            or not isinstance(value.get("page_size"), int) or not 1 <= value["page_size"] <= 100):
+        raise ValueError("invalid capture descriptor")
+    return value
+
+
 def federated_lens_summary(config, lens, scope, execute=command, filters=None,
                            excluded_session_id=None, excluded_message_id=None):
     validate_config(config)
@@ -1270,15 +1302,17 @@ def federated_lens_summary(config, lens, scope, execute=command, filters=None,
     sources = [None] * (len(workspaces) + 1)
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
 
-    def collect(source, run, timeout):
+    def collect(source, run, timeout, excluded_session=None, excluded_message=None):
         try:
-            page_output = run(_history_argv(25, 0, filters=filters,
-                                            excluded_session_id=excluded_session_id,
-                                            excluded_message_id=excluded_message_id), timeout)
-            page, _ = _source_page(source, page_output, 25, 0, filters=filters)
-            capture_id = page["page"]["capture_id"]
-            summary_output = run(["dbsctrctl", "history-capture", "--capture-id", capture_id,
-                                  "--lens-summary", lens, "--review-sessions", scope], timeout)
+            descriptor = _validated_capture_descriptor(run(_capture_latest_argv(filters), timeout), filters)
+            capture_id = descriptor["capture_id"]
+            summary_argv = ["dbsctrctl", "history-capture", "--capture-id", capture_id,
+                            "--lens-summary", lens, "--review-sessions", scope]
+            if excluded_session is not None:
+                summary_argv.extend(["--excluded-session-id", excluded_session])
+            if excluded_message is not None:
+                summary_argv.extend(["--excluded-message-id", excluded_message])
+            summary_output = run(summary_argv, timeout)
             summary = _namespace(_validated_lens_summary(summary_output, lens, scope, filters, capture_id), source)
             summary["query"] = filters
             return {"source_id": source, "availability": "available", "summary": summary}
@@ -1286,7 +1320,7 @@ def federated_lens_summary(config, lens, scope, execute=command, filters=None,
             return {"source_id": source, "availability": "invalid_output"}
 
     jobs = [(0, lambda: collect("host", lambda argv, timeout: execute(argv, timeout=timeout),
-                                HOST_HISTORY_TIMEOUT))]
+                                HOST_SUMMARY_TIMEOUT, excluded_session_id, excluded_message_id))]
     for index, workspace in enumerate(workspaces, 1):
         def guest(workspace=workspace):
             source, instance = workspace["name"], workspace["instance"]

@@ -4993,9 +4993,10 @@ def history_capture_summary(value):
             "aggregates": value["aggregates"]}
 
 
-def history_lens_summary(manifest, members, lens, scope):
+def history_lens_summary(manifest, members, lens, scope, excluded_family=(), exclusion_digest=None):
     if any("review_session" not in member for member in members):
         fail("history capture review-session attribution is unavailable")
+    members = [member for member in members if member["session_id"] not in excluded_family]
     selected = [member for member in members if member["review_session"] == (scope == "only")]
     aggregate_names = sorted(BENCHMARK_METRICS)
     telemetry_names = ("delegation_count", "gate_failure_count", "gate_reopen_count",
@@ -5083,12 +5084,12 @@ def history_lens_summary(manifest, members, lens, scope):
         "schema_version": 1, "capture_id": manifest["capture_id"], "lens": lens, "scope": scope,
         "snapshot": manifest["snapshot"], "session_ceiling": manifest["session_ceiling"],
         "part_ceiling": manifest["part_ceiling"], "database_digest": manifest["database_digest"],
-        "exclusion_digest": manifest["exclusion_digest"], "query": manifest["query"],
+        "exclusion_digest": exclusion_digest or manifest["exclusion_digest"], "query": manifest["query"],
         "member_count": len(selected),
         "members_digest": hashlib.sha256(ledger_payload(selected).encode()).hexdigest(),
         "telemetry": {"page_count": max(1, len(manifest["pages"])), "session_count": len(selected),
                       "review_session_count": review_count,
-                      "excluded_review_session_count": (manifest["member_count"] - len(selected)) if scope == "exclude" else 0,
+                      "excluded_review_session_count": (len(members) - len(selected)) if scope == "exclude" else 0,
                       "unattributed_session_count": 0},
         "categories": categories, "metrics": metric_summaries,
         "evidence": [projection(member, values, signal_score)
@@ -5337,8 +5338,10 @@ def review_history_page(args, lock_held=False):
         records = sorted((record for record in records if include(record)),
                          key=lambda item: (int(item["completed_at"]), item["session_id"]), reverse=True)
         page = records[args.cursor:args.cursor + args.limit]
+        empty_archive = {"snapshot": 0, "session_ceiling": 0, "part_ceiling": 0,
+                         "database_digest": hashlib.sha256(b"").hexdigest(), "exclusion_digest": None}
         metadata = ({} if args.replay else live if not args.archive_only else
-                    (page[-1] if page else (records[-1] if records else {})))
+                    (page[-1] if page else (records[-1] if records else empty_archive)))
         result = {"schema_version": 1, "candidates": page, "session_ids": [item["session_id"] for item in page],
                   "limit": args.limit, "cursor": args.cursor,
                   "continuation": args.cursor + args.limit if len(records) > args.cursor + args.limit else None,
@@ -5393,7 +5396,8 @@ def history_capture_review_page(manifest, members, limit, cursor):
 
 def capture_history_args(args):
     return argparse.Namespace(
-        database=args.database, state_root=args.state_root, archive_only=False,
+        database=args.database, state_root=args.state_root,
+        archive_only=getattr(args, "archive_only", False),
         limit=args.page_size, cursor=0, after=args.after, before=args.before,
         method_revision=args.method_revision, cycle_id=args.cycle_id, state=args.state,
         context=args.context, project_digest=args.project_digest, reviewed_status=args.reviewed_status,
@@ -5528,19 +5532,61 @@ def command_history_capture(args):
     with existing_review_lock(root):
         with ledger_connection(root) as connection:
             manifest, members = load_history_capture(connection, args.capture_id)
-    result = (history_lens_summary(manifest, members, args.lens_summary, args.review_sessions)
-              if args.lens_summary else history_capture_summary(manifest))
-    if args.cursor is not None and not args.lens_summary:
-        if args.cursor < 0:
-            fail("history capture cursor must be non-negative")
-        page = members[args.cursor:args.cursor + args.limit]
-        result.update({"cursor": args.cursor, "limit": args.limit, "members": page,
-                       "continuation": args.cursor + args.limit
-                       if len(members) > args.cursor + args.limit else None})
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if len(encoded.encode()) > HISTORY_SCAN_HARD:
-        fail("history capture response exceeds bound")
-    print(encoded)
+        excluded_family = historical_excluded_family(
+            args.database, args.excluded_session_id, args.excluded_message_id) if args.lens_summary else set()
+        root_session = (args.excluded_session_id or session_for_message(args.database, args.excluded_message_id)
+                        if args.excluded_message_id else args.excluded_session_id)
+        result = (history_lens_summary(manifest, members, args.lens_summary, args.review_sessions,
+                                       excluded_family, session_id_digest(root_session) if root_session else None)
+                  if args.lens_summary else history_capture_summary(manifest))
+        if args.cursor is not None and not args.lens_summary:
+            if args.cursor < 0:
+                fail("history capture cursor must be non-negative")
+            page = members[args.cursor:args.cursor + args.limit]
+            result.update({"cursor": args.cursor, "limit": args.limit, "members": page,
+                           "continuation": args.cursor + args.limit
+                           if len(members) > args.cursor + args.limit else None})
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if len(encoded.encode()) > HISTORY_SCAN_HARD:
+            fail("history capture response exceeds bound")
+        print(encoded)
+
+
+def command_history_capture_latest(args):
+    root = review_root(args.state_root)
+    query = history_capture_query(args)
+    now = max(REVIEW_START_MS, int(time.time() * 1000))
+    manifest = members = None
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if ledger_exists(root):
+            with ledger_connection(root) as connection:
+                if connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_captures'").fetchone():
+                    rows = connection.execute("SELECT capture_id,payload FROM history_captures").fetchall()
+                    candidates = []
+                    for capture_id, payload in rows:
+                        value = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                        if (value.get("kind") == "federated" and value.get("exclusion_digest") is None
+                                and value.get("query") == query
+                                and now - FEDERATED_CAPTURE_RETENTION_MS <= value.get("created_at", 0)
+                                <= now + 5 * 60 * 1000):
+                            candidates.append((value["created_at"], capture_id))
+                    if candidates:
+                        manifest, members = load_history_capture(connection, max(candidates)[1])
+        if manifest is None:
+            capture_args = capture_history_args(argparse.Namespace(
+                **{**vars(args), "excluded_session_id": None, "excluded_message_id": None}))
+            source = review_history_page(capture_args, lock_held=True)
+            manifest, members = persist_history_capture(
+                root, source, args.page_size, allow_empty=True, transient=True)
+    result = {"schema_version": 1, "capture_id": manifest["capture_id"],
+              "created_at": manifest["created_at"], "query": manifest["query"],
+              "snapshot": manifest["snapshot"], "session_ceiling": manifest["session_ceiling"],
+              "part_ceiling": manifest["part_ceiling"], "database_digest": manifest["database_digest"],
+              "page_size": manifest["page_size"], "page_count": max(1, len(manifest["pages"])),
+              "member_count": manifest["member_count"]}
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
 
 
 def command_history_capture_delete(args):
@@ -9381,13 +9427,30 @@ def parser():
     capture_save.add_argument("--excluded-message-id")
     capture_save.set_defaults(func=command_history_capture_save)
     capture = commands.add_parser("history-capture")
+    capture.add_argument("--database")
     capture.add_argument("--state-root")
     capture.add_argument("--capture-id", required=True)
     capture.add_argument("--cursor", type=int)
     capture.add_argument("--limit", type=int, default=100, choices=range(1, REVIEW_MAX_LIMIT + 1))
     capture.add_argument("--lens-summary", choices=RND_LENSES)
     capture.add_argument("--review-sessions", choices=("only", "exclude"), default="exclude")
+    capture.add_argument("--excluded-session-id")
+    capture.add_argument("--excluded-message-id")
     capture.set_defaults(func=command_history_capture)
+    capture_latest = commands.add_parser("history-capture-latest")
+    capture_latest.add_argument("--database")
+    capture_latest.add_argument("--state-root")
+    capture_latest.add_argument("--page-size", type=int, default=25, choices=range(1, REVIEW_MAX_LIMIT + 1))
+    capture_latest.add_argument("--after", type=int)
+    capture_latest.add_argument("--before", type=int)
+    capture_latest.add_argument("--method-revision")
+    capture_latest.add_argument("--cycle-id")
+    capture_latest.add_argument("--state", choices=("active", "blocked", "abandoned", "completed", "unknown"))
+    capture_latest.add_argument("--context")
+    capture_latest.add_argument("--project-digest")
+    capture_latest.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
+    capture_latest.add_argument("--archive-only", action="store_true")
+    capture_latest.set_defaults(func=command_history_capture_latest)
     capture_delete = commands.add_parser("history-capture-delete")
     capture_delete.add_argument("--state-root")
     capture_delete.add_argument("--capture-id", required=True)

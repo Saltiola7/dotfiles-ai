@@ -986,8 +986,15 @@ feature branch with a draft pull request; the operator retains merge authority.
   cursor. Empty databases remain available sources with an immutable empty capture.
   These explicitly mutating private captures are tagged `federated`; unreferenced
   captures older than 24 hours are pruned when the next capture is created.
-- `sandbox-vm review-summary` creates one immutable 25-member-page capture in
-  each source, then asks that source to inspect every stored member under one
+- `sandbox-vm review-summary` reuses each source's newest query-compatible,
+  no-exclusion federated capture with any bounded 1-100 page size for up to 24
+  hours, or creates one immutable 25-member-page capture under the existing
+  private writer lock when none is
+  fresh. Page size affects only stored page telemetry, not complete-member
+  distributions or evidence. Concurrent lenses therefore share one complete base snapshot instead
+  of rescanning the source. Current worker-session exclusion is applied after
+  capture lookup and is bound into the scoped summary digest. The adapter then
+  asks that source to inspect every stored member under one
   versioned lens and exact `only` or `exclude` review-session scope. Each source
   returns its full selected-members digest, exact fixed-category and numeric
   distributions, exact page/session telemetry, and at most 20 deterministic
@@ -1002,6 +1009,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 - The typed federation adapter retains the 256 KiB aggregate output bound but has
   no aggregate wall-clock timeout. `sandbox-vm` gives the host exporter 900 seconds
   and each guest exporter 120 seconds, and bounds concurrent source work to four tasks.
+  A cold host summary capture receives 1,800 seconds; reuse and summary reads keep
+  the ordinary guest source bound.
   The typed adapter reads the managed sandbox config independently and rejects a
   helper manifest whose source membership or order differs from configured federation.
 - Deployment cannot claim federated R&D operational from unit tests or a direct

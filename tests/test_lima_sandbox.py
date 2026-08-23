@@ -178,6 +178,13 @@ def lens_summary() -> dict:
     }
 
 
+def capture_descriptor() -> dict:
+    return {"schema_version": 1, "capture_id": "d" * 24, "created_at": int(time.time() * 1000),
+            "query": history_page()["query"], "snapshot": 10, "session_ceiling": 9,
+            "part_ceiling": 8, "database_digest": "a" * 64, "page_size": 25,
+            "page_count": 1, "member_count": 1}
+
+
 def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
     assert "template:_images/fedora-44" in template
@@ -1094,6 +1101,8 @@ def test_federated_lens_summary_exhausts_captures_server_side(tmp_path: Path) ->
                 {"name": "workspace1-sandbox", "status": "Running"},
                 {"name": "workspace2-sandbox", "status": "Running"},
             ])
+        if "history-capture-latest" in argv:
+            return json.dumps(capture_descriptor())
         if "history-capture" in argv:
             return json.dumps(lens_summary())
         return json.dumps({**history_page(), "limit": 25})
