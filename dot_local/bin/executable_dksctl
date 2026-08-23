@@ -998,7 +998,7 @@ def validate_reranker_config(config, expected_manifest):
     return manifest
 
 
-def rerank(config, query, candidates, expected_manifest=None):
+def rerank(config, query, candidates, expected_manifest=None, timeout=30):
     if expected_manifest is None:
         return None
     service = config.get("reranker", {})
@@ -1025,7 +1025,7 @@ def rerank(config, query, candidates, expected_manifest=None):
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
             body = json.load(response)
     except Exception as error:
         raise RuntimeError("reranker request failed") from error
@@ -1756,7 +1756,7 @@ FROM GRAPH_TABLE (
             candidates = [metadata[item["id"]] for item in quality_candidates(channels)
                           if item["id"] in metadata]
             reranked = rerank(config, args.text, candidates,
-                              policy.get("reranker_manifest_sha256"))
+                              policy.get("reranker_manifest_sha256"), 600 if benchmark else 30)
             if reranked is not None:
                 rerank_scores, reranker_provenance = reranked
         except RuntimeError as error:
