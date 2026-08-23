@@ -24,7 +24,7 @@ DATA = {
         "herdr": {
             "theme": "catppuccin",
             "launchagent": True,
-            "executable": "/opt/homebrew/bin/herdr",
+            "executable": "~/.local/bin/herdr",
         },
         "onepassword": {
             "enabled": False,

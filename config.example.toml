@@ -34,7 +34,11 @@ theme = "catppuccin"
 theme = "catppuccin"
 agent_panel_sort = "priority"
 launchagent = true
-executable = "/opt/homebrew/bin/herdr"
+executable = "~/.local/bin/herdr"
+version = "0.8.2"
+protocol = 20
+asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-macos-aarch64"
+asset_sha256 = "a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574"
 
 [data.dotfiles_ai.hermes]
 # Hermes is the optional orchestration plane; authenticate this environment separately.

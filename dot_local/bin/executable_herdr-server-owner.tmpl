@@ -2,36 +2,64 @@
 
 set -u
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 herdr_server_running() {
     "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
 }
-"$HERDR" server &
-server_pid=$!
+start_capture() {
+    if herdr_server_running && HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore"; then
+        HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore" --watch &
+        capture_pid=$!
+    fi
+}
+server_pid=
 capture_pid=
+stopping=0
+monitor_server=0
 stop() {
+    stopping=1
     if [[ -n $capture_pid ]]; then
         kill "$capture_pid" 2>/dev/null
         wait "$capture_pid" 2>/dev/null
     fi
-    kill "$server_pid" 2>/dev/null
+    [[ -z $server_pid ]] || kill "$server_pid" 2>/dev/null
 }
 trap stop TERM INT EXIT
-for _ in {1..50}; do
-    if herdr_server_running; then
-        if HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore"; then
-            HERDR_BIN="$HERDR" "$HOME/.local/bin/herdr-opencode-restore" --watch &
-            capture_pid=$!
+
+server_status=$("$HERDR" status server --json 2>/dev/null || true)
+if /usr/bin/grep -q '"running":true' <<<"$server_status"; then
+    status=0
+    monitor_server=1
+    start_capture
+else
+    "$HERDR" server &
+    server_pid=$!
+    for _ in {1..50}; do
+        if herdr_server_running; then
+            monitor_server=1
+            break
         fi
-        break
-    fi
-    kill -0 "$server_pid" 2>/dev/null || break
-    sleep 0.1
-done
-wait "$server_pid"
-status=$?
+        kill -0 "$server_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    start_capture
+    wait "$server_pid"
+    status=$?
+    server_pid=
+    if [[ $stopping == 1 ]]; then status=0; else status=1; fi
+fi
+if [[ $monitor_server == 1 ]]; then
+    failures=0
+    while [[ $stopping == 0 && $failures -lt 5 ]]; do
+        sleep 1
+        if herdr_server_running; then
+            failures=0
+        else
+            ((failures++))
+        fi
+    done
+    if [[ $stopping == 1 ]]; then status=0; else status=1; fi
+fi
 trap - EXIT
 if [[ -n $capture_pid ]]; then kill "$capture_pid" 2>/dev/null; wait "$capture_pid" 2>/dev/null; fi
-if [[ $status -ne 0 ]] && herdr_server_running; then
-    exit 0
-fi
 exit "$status"
