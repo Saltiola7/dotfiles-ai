@@ -609,13 +609,13 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "execution-dag"' in runtime
     assert '"dbsctrctl", "execution-benchmark"' in runtime
     assert '"dbsctrctl", "reconcile-target", "--mode", mode, "--json"' in runtime
-    assert runtime.count('"--excluded-session-id"') == 5
+    assert runtime.count('"--excluded-session-id"') == 6
     assert "context.sessionID" in tools
     assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
     assert '"herdr", "pane", "current"' in runtime
     config = rendered_config()
-    for permission in ("dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
+    for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
@@ -1352,6 +1352,59 @@ def test_federated_review_rejects_scope_switch_on_continuation(tmp_path):
     assert "scope is not bound to this capture" in result.stderr
 
 
+def test_federated_lens_summary_writes_terminal_receipt(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    telemetry = {"page_count": 1, "session_count": 0, "review_session_count": 0,
+                 "excluded_review_session_count": 0, "unattributed_session_count": 0}
+    metric_names = ("approval_count", "candidate_count", "child_count", "cost_total",
+                    "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count",
+                    "cycle_completed_count", "cycle_count", "cycle_unknown_count", "delegation_count",
+                    "elapsed_ms", "gate_failure_count", "gate_reopen_count", "provider_error_count",
+                    "remediation_round_count", "retry_count", "token_total", "tool_call_count",
+                    "tool_count", "tool_error_count")
+    summary = {
+        "schema_version": 1, "capture_id": "c" * 24, "lens": "performance_cost", "scope": "exclude",
+        "snapshot": 10, "session_ceiling": 9, "part_ceiling": 8,
+        "database_digest": "a" * 64, "exclusion_digest": None, "query": query,
+        "member_count": 0, "members_digest": "b" * 64, "telemetry": telemetry,
+        "categories": {name: {} for name in ("cycle_state", "risk", "delivery_intent",
+                                                "correlation_quality", "reviewed_status", "session_relation")},
+        "metrics": {name: {"available_count": 0, "unavailable_count": 0,
+                            "total": "unavailable", "minimum": "unavailable", "maximum": "unavailable"}
+                    for name in metric_names}, "evidence": [],
+    }
+    sources = [{"source_id": "host", "availability": "available", "summary": summary}]
+    identity = {"lens": "performance_cost", "scope": "exclude", "sources": sources}
+    manifest_digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    response = {"schema_version": 1, "lens": "performance_cost", "scope": "exclude",
+                "sources": sources, "manifest_digest": manifest_digest,
+                "telemetry": {**telemetry, "source_count": 1}}
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    receipts = tmp_path / "receipts"
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (f'import {{ reviewFederatedSummary }} from {json.dumps(str(runtime))};'
+              'console.log(await reviewFederatedSummary("performance_cost","exclude",process.cwd()));')
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(result.stdout)["manifest_digest"] == manifest_digest
+    receipt = json.loads((receipts / f"{manifest_digest}.exclude.json").read_text())
+    assert receipt == {"schema_version": 1, "manifest_digest": manifest_digest,
+                       "lens": "performance_cost", "scope": "exclude",
+                       "telemetry": {**telemetry, "source_count": 1}}
+
+
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1656,7 +1709,8 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
 
 def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     command = text("private_dot_config/opencode/commands/dbsctr-improve.md")
-    assert "`dbsctr_review_federated` with `limit=100`" in command
+    assert "Call `dbsctr_lens_summary` once" in command
+    assert "inspects every member" in command and "full-member digests" in command
     assert "Do not call\n   `dbsctr_review_history_save`" in command
     assert "dbsctr-rnd lens-plan --worker-id" in command
     assert all(lens in command for lens in (
@@ -1675,6 +1729,7 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     federated = tools.split("export const review_federated", 1)[1].split("export const vm_handoff", 1)[0]
     assert 'reviewSessions: tool.schema.enum(["only", "exclude"])' in federated
+    assert "export const lens_summary = tool" in tools
 
 
 def test_removed_managed_integrations_are_absent():

@@ -1005,7 +1005,7 @@ def parallel_lens_result(worker_id, capture_day, manifest_digest, outcome, telem
             raise RuntimeError("parallel lens telemetry receipt is unsafe")
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         if (receipt != {"schema_version": 1, "manifest_digest": manifest_digest,
-                        "scope": scope, "telemetry": telemetry}):
+                        "lens": lens_name, "scope": scope, "telemetry": telemetry}):
             raise RuntimeError("parallel lens telemetry does not match its capture receipt")
         if lens_name == REVIEW_SESSION_LENS:
             if (telemetry["excluded_review_session_count"]

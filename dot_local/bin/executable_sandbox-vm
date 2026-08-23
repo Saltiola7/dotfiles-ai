@@ -84,6 +84,18 @@ TELEMETRY_KEYS = LEGACY_TELEMETRY_KEYS | {"schema_version", "provider_ids", "mod
 AVAILABILITY_KEYS = TELEMETRY_KEYS - {"schema_version", "availability", "attribution_status"}
 LEGACY_AVAILABILITY_KEYS = LEGACY_TELEMETRY_KEYS - {"availability", "attribution_status"}
 PHASE_KEYS = {"schema_version", "cycle_id", "status", "critical_path_ms", "total_wall_ms", "overlap_ms", "repeated_work", "principal_waits", "attribution_caveats"}
+RND_LENSES = {"correctness_safety", "reliability_recovery", "performance_cost",
+              "operator_experience", "architecture_rnd_meta", "review_session_governance"}
+LENS_METRIC_KEYS = AGGREGATE_KEYS | {"delegation_count", "gate_failure_count", "gate_reopen_count",
+                                     "remediation_round_count", "provider_error_count"}
+LENS_CATEGORY_VALUES = {
+    "cycle_state": {"active", "blocked", "abandoned", "completed", "unknown"},
+    "risk": {"routine", "elevated", "critical", "unavailable"},
+    "delivery_intent": {"local", "merge", "release", "deploy", "draft_pr", "unavailable"},
+    "correlation_quality": {"exact", "family", "worktree", "source", "ambiguous", "unavailable"},
+    "reviewed_status": {"reviewed", "unreviewed"},
+    "session_relation": {"primary", "child", "unavailable"},
+}
 
 
 def command(argv, timeout=30, input_data=None, environment=None):
@@ -873,7 +885,9 @@ def _safe_values(value):
     if isinstance(value, list):
         return all(_safe_values(item) for item in value)
     if isinstance(value, dict):
-        return all(_safe_values(item) for item in value.values())
+        return all(isinstance(key, str) and len(key) <= 128 and ID.fullmatch(key)
+                   and not SECRET.search(f"{key}:") and _safe_values(item)
+                   for key, item in value.items())
     return value is None or isinstance(value, (bool, int, float))
 
 
@@ -1171,6 +1185,151 @@ def federated_review(config, limit=25, cursor=0, source_state=None, execute=comm
     return {"schema_version": 2, "sources": sources, "source_state": continuation, "manifest_digest": digest}
 
 
+def _validated_lens_summary(output, lens, scope, filters, capture_id):
+    if len(output.encode()) > MAX_OUTPUT or UNSAFE.search(output):
+        raise ValueError("unsafe output")
+    value = json.loads(output)
+    keys = {"schema_version", "capture_id", "lens", "scope", "snapshot", "session_ceiling",
+            "part_ceiling", "database_digest", "exclusion_digest", "query", "member_count",
+            "members_digest", "telemetry", "categories", "metrics", "evidence"}
+    telemetry = {"page_count", "session_count", "review_session_count",
+                 "excluded_review_session_count", "unattributed_session_count"}
+    if (not _exact(value, keys) or value.get("schema_version") != 1 or value.get("lens") != lens
+            or value.get("scope") != scope or value.get("capture_id") != capture_id
+            or value.get("query") != filters or not DIGEST.fullmatch(value.get("database_digest", ""))
+            or value.get("exclusion_digest") is not None
+            and not DIGEST.fullmatch(value["exclusion_digest"])
+            or not DIGEST.fullmatch(value.get("members_digest", ""))
+            or any(not _nonnegative_integer(value.get(name))
+                   for name in ("snapshot", "session_ceiling", "part_ceiling", "member_count"))
+            or not _exact(value.get("telemetry"), telemetry)
+            or any(not _nonnegative_integer(item) for item in value["telemetry"].values())
+            or value["telemetry"]["unattributed_session_count"] != 0
+            or value["member_count"] != value["telemetry"]["session_count"]
+            or scope == "exclude" and value["telemetry"]["review_session_count"] != 0
+            or scope == "only" and (value["telemetry"]["excluded_review_session_count"] != 0
+                                    or value["telemetry"]["session_count"] != value["telemetry"]["review_session_count"])
+            or not _exact(value.get("categories"), set(LENS_CATEGORY_VALUES))
+            or any(not isinstance(counts, dict) or set(counts) - LENS_CATEGORY_VALUES[name]
+                   or any(not _nonnegative_integer(count) for count in counts.values())
+                   for name, counts in value["categories"].items())
+            or any(sum(value["categories"][name].values()) != value["telemetry"]["session_count"]
+                   for name in ("correlation_quality", "reviewed_status", "session_relation"))
+            or len({sum(value["categories"][name].values())
+                    for name in ("cycle_state", "risk", "delivery_intent")}) != 1
+            or not _exact(value.get("metrics"), LENS_METRIC_KEYS)
+            or any(not _exact(metric, {"available_count", "unavailable_count", "total", "minimum", "maximum"})
+                   or not _nonnegative_integer(metric["available_count"])
+                   or not _nonnegative_integer(metric["unavailable_count"])
+                   or metric["available_count"] + metric["unavailable_count"] != value["telemetry"]["session_count"]
+                   or any(item != "unavailable" and not _nonnegative(item)
+                          for item in (metric["total"], metric["minimum"], metric["maximum"]))
+                   or (metric["available_count"] == 0) != (metric["total"] == metric["minimum"] == metric["maximum"] == "unavailable")
+                   or metric["available_count"] > 0 and not (metric["minimum"] <= metric["maximum"] <= metric["total"])
+                   for metric in value["metrics"].values())
+            or not isinstance(value.get("evidence"), list) or len(value["evidence"]) > 20
+            or not _safe_values(value)):
+        raise ValueError("invalid lens summary")
+    cycle_total = sum(value["categories"]["cycle_state"].values())
+    if value["metrics"]["cycle_count"]["total"] != ("unavailable" if not value["member_count"] else cycle_total):
+        raise ValueError("invalid lens summary")
+    for evidence in value["evidence"]:
+        if (not _exact(evidence, {"session_id", "context", "completed_at", "correlation_quality",
+                                  "cycles", "metrics", "signal_score"})
+                or not ID.fullmatch(evidence.get("session_id", ""))
+                or not ID.fullmatch(evidence.get("context", ""))
+                or not isinstance(evidence.get("completed_at"), str) or not evidence["completed_at"].isdigit()
+                or evidence.get("correlation_quality") not in LENS_CATEGORY_VALUES["correlation_quality"]
+                or not isinstance(evidence.get("cycles"), list) or len(evidence["cycles"]) > 3
+                or any(not isinstance(cycle, dict) or set(cycle) - {"cycle_id", "state", "risk", "delivery_intent", "metrics"}
+                       or not {"cycle_id", "state"} <= set(cycle) or not ID.fullmatch(cycle["cycle_id"])
+                       or cycle["state"] not in LENS_CATEGORY_VALUES["cycle_state"]
+                       or cycle.get("risk", "unavailable") not in LENS_CATEGORY_VALUES["risk"]
+                       or cycle.get("delivery_intent", "unavailable") not in LENS_CATEGORY_VALUES["delivery_intent"]
+                       or "metrics" in cycle and (not _exact(cycle["metrics"], {"elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count"})
+                           or cycle["metrics"]["elapsed_ms"] != "unavailable" and not _nonnegative_integer(cycle["metrics"]["elapsed_ms"])
+                           or any(not _nonnegative_integer(cycle["metrics"][name]) for name in ("gate_failure_count", "gate_reopen_count", "remediation_round_count")))
+                       for cycle in evidence["cycles"])
+                or not _exact(evidence.get("metrics"), LENS_METRIC_KEYS)
+                or any(item != "unavailable" and not _nonnegative(item) for item in evidence["metrics"].values())
+                or not isinstance(evidence.get("signal_score"), list) or not 1 <= len(evidence["signal_score"]) <= 8
+                or not all(_nonnegative(item) for item in evidence["signal_score"])):
+            raise ValueError("invalid lens summary")
+    return value
+
+
+def federated_lens_summary(config, lens, scope, execute=command, filters=None,
+                           excluded_session_id=None, excluded_message_id=None):
+    validate_config(config)
+    if lens not in RND_LENSES or scope not in {"only", "exclude"}:
+        raise ValueError("invalid lens summary request")
+    filters = {key: (False if key == "archive_only" else None) for key in QUERY_KEYS} | (filters or {})
+    if not _valid_query(filters):
+        raise ValueError("invalid history filters")
+    workspaces = [workspace for workspace in config["workspaces"] if workspace["federate"]]
+    sources = [None] * (len(workspaces) + 1)
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+
+    def collect(source, run, timeout):
+        try:
+            page_output = run(_history_argv(25, 0, filters=filters,
+                                            excluded_session_id=excluded_session_id,
+                                            excluded_message_id=excluded_message_id), timeout)
+            page, _ = _source_page(source, page_output, 25, 0, filters=filters)
+            capture_id = page["page"]["capture_id"]
+            summary_output = run(["dbsctrctl", "history-capture", "--capture-id", capture_id,
+                                  "--lens-summary", lens, "--review-sessions", scope], timeout)
+            summary = _namespace(_validated_lens_summary(summary_output, lens, scope, filters, capture_id), source)
+            summary["query"] = filters
+            return {"source_id": source, "availability": "available", "summary": summary}
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            return {"source_id": source, "availability": "invalid_output"}
+
+    jobs = [(0, lambda: collect("host", lambda argv, timeout: execute(argv, timeout=timeout),
+                                HOST_HISTORY_TIMEOUT))]
+    for index, workspace in enumerate(workspaces, 1):
+        def guest(workspace=workspace):
+            source, instance = workspace["name"], workspace["instance"]
+            with _instance_lock(lock_root, instance):
+                started = False
+                result = {"source_id": source, "availability": "invalid_output"}
+                try:
+                    statuses = _parse_statuses(execute(["limactl", "list", "--json"]))
+                    if instance not in statuses:
+                        result = {"source_id": source, "availability": "missing_instance"}
+                    elif statuses[instance] in {"running", "stopped"}:
+                        started = statuses[instance] == "stopped"
+                        if started:
+                            execute(["limactl", "start", instance], timeout=120)
+                        result = collect(source, lambda argv, timeout: execute(
+                            ["limactl", "shell", instance, "--", *argv], timeout=timeout),
+                            WORKSPACE_HISTORY_TIMEOUT)
+                except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+                    pass
+                finally:
+                    if started:
+                        try:
+                            execute(["limactl", "stop", instance], timeout=120)
+                        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                            result = {"source_id": source, "availability": "state_restore_failed"}
+                return result
+        jobs.append((index, guest))
+    with ThreadPoolExecutor(max_workers=min(4, len(jobs))) as pool:
+        futures = [(index, pool.submit(job)) for index, job in jobs]
+        for index, future in futures:
+            sources[index] = future.result()
+    totals = {name: sum(source["summary"]["telemetry"][name] for source in sources
+                        if source["availability"] == "available")
+              for name in ("page_count", "session_count", "review_session_count",
+                           "excluded_review_session_count", "unattributed_session_count")}
+    telemetry = {**totals, "source_count": len(sources)}
+    identity = {"lens": lens, "scope": scope, "sources": sources}
+    return {"schema_version": 1, "lens": lens, "scope": scope, "sources": sources,
+            "manifest_digest": hashlib.sha256(json.dumps(identity, sort_keys=True,
+                                                           separators=(",", ":")).encode()).hexdigest(),
+            "telemetry": telemetry}
+
+
 def privacy_epochs(config, execute=command):
     validate_config(config)
     federated = [workspace for workspace in config["workspaces"] if workspace["federate"]]
@@ -1254,6 +1413,20 @@ def main(argv=None, invocation=None):
     review.add_argument("--archive-only", action="store_true")
     review.add_argument("--excluded-session-id")
     review.add_argument("--excluded-message-id")
+    summary = commands.add_parser("review-summary")
+    summary.add_argument("--lens", required=True, choices=sorted(RND_LENSES))
+    summary.add_argument("--review-sessions", required=True, choices=("only", "exclude"))
+    summary.add_argument("--after", type=int)
+    summary.add_argument("--before", type=int)
+    summary.add_argument("--method-revision")
+    summary.add_argument("--cycle-id")
+    summary.add_argument("--state", choices=("active", "blocked", "abandoned", "completed", "unknown"))
+    summary.add_argument("--context")
+    summary.add_argument("--project-digest")
+    summary.add_argument("--reviewed-status", choices=("reviewed", "unreviewed"))
+    summary.add_argument("--archive-only", action="store_true")
+    summary.add_argument("--excluded-session-id")
+    summary.add_argument("--excluded-message-id")
     commands.add_parser("privacy-epochs")
     commands.add_parser("status")
     commands.add_parser("build-workspace")
@@ -1273,6 +1446,13 @@ def main(argv=None, invocation=None):
         filters = {key: getattr(args, key) for key in QUERY_KEYS}
         print(json.dumps(federated_review(
             config, args.limit, args.cursor, state, filters=filters,
+            excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
+        ), sort_keys=True, separators=(",", ":")))
+        return
+    if args.command == "review-summary":
+        filters = {key: getattr(args, key) for key in QUERY_KEYS}
+        print(json.dumps(federated_lens_summary(
+            config, args.lens, args.review_sessions, filters=filters,
             excluded_session_id=args.excluded_session_id, excluded_message_id=args.excluded_message_id,
         ), sort_keys=True, separators=(",", ":")))
         return

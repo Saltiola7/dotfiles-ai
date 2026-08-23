@@ -61,6 +61,10 @@ BENCHMARK_METRICS = {
     "token_total", "cycle_active_count", "cycle_blocked_count", "cycle_abandoned_count",
     "cycle_completed_count", "cycle_unknown_count",
 }
+RND_LENSES = (
+    "correctness_safety", "reliability_recovery", "performance_cost",
+    "operator_experience", "architecture_rnd_meta", "review_session_governance",
+)
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -4989,6 +4993,109 @@ def history_capture_summary(value):
             "aggregates": value["aggregates"]}
 
 
+def history_lens_summary(manifest, members, lens, scope):
+    if any("review_session" not in member for member in members):
+        fail("history capture review-session attribution is unavailable")
+    selected = [member for member in members if member["review_session"] == (scope == "only")]
+    aggregate_names = sorted(BENCHMARK_METRICS)
+    telemetry_names = ("delegation_count", "gate_failure_count", "gate_reopen_count",
+                       "remediation_round_count", "provider_error_count")
+
+    def metrics(member):
+        values = {name: member["aggregates"].get(name, "unavailable") for name in aggregate_names}
+        telemetry = member.get("telemetry", {})
+        for name in telemetry_names[:-1]:
+            values[name] = telemetry.get(name, "unavailable")
+        errors = telemetry.get("error_classes", {})
+        values["provider_error_count"] = errors.get("provider_error", "unavailable") if isinstance(errors, dict) else "unavailable"
+        return values
+
+    metric_rows = [(member, metrics(member)) for member in selected]
+    metric_summaries = {}
+    for name in (*aggregate_names, *telemetry_names):
+        values = [row[name] for _, row in metric_rows
+                  if isinstance(row[name], (int, float)) and not isinstance(row[name], bool)]
+        metric_summaries[name] = {
+            "available_count": len(values), "unavailable_count": len(selected) - len(values),
+            "total": sum(values) if values else "unavailable",
+            "minimum": min(values) if values else "unavailable",
+            "maximum": max(values) if values else "unavailable",
+        }
+
+    def counts(values):
+        return {value: values.count(value) for value in sorted(set(values))}
+
+    cycles = [cycle for member in selected for cycle in member["cycles"]]
+    categories = {
+        "cycle_state": counts([cycle["state"] for cycle in cycles]),
+        "risk": counts([cycle.get("risk", "unavailable") for cycle in cycles]),
+        "delivery_intent": counts([cycle.get("delivery_intent", "unavailable") for cycle in cycles]),
+        "correlation_quality": counts([member["correlation_quality"] for member in selected]),
+        "reviewed_status": counts([member["reviewed_status"] for member in selected]),
+        "session_relation": counts([member.get("telemetry", {}).get("session_relation", "unavailable")
+                                    for member in selected]),
+    }
+
+    def score(member, values):
+        states = [cycle["state"] for cycle in member["cycles"]]
+        risks = [cycle.get("risk", "unavailable") for cycle in member["cycles"]]
+        cycle_metrics = [cycle.get("metrics", {}) for cycle in member["cycles"]]
+        phase_profiles = [cycle.get("phase_profile", {}) for cycle in member["cycles"]]
+        number = lambda name: values.get(name) if isinstance(values.get(name), (int, float)) else 0
+        gates = sum(metric.get("gate_failure_count", 0) for metric in cycle_metrics)
+        reopens = sum(metric.get("gate_reopen_count", 0) for metric in cycle_metrics)
+        remediation = sum(metric.get("remediation_round_count", 0) for metric in cycle_metrics)
+        repeated = sum(profile.get("repeated_work", 0) for profile in phase_profiles if isinstance(profile, dict))
+        common = (risks.count("critical"), states.count("blocked"), states.count("abandoned"))
+        if lens == "correctness_safety":
+            return (*common, gates, reopens, number("tool_error_count"), number("provider_error_count"))
+        if lens == "reliability_recovery":
+            return (states.count("blocked"), states.count("abandoned"), number("provider_error_count"),
+                    number("tool_error_count"), reopens, remediation)
+        if lens == "performance_cost":
+            return (number("cost_total"), number("token_total"), number("elapsed_ms"), number("tool_call_count"))
+        if lens == "operator_experience":
+            return (states.count("blocked"), number("approval_count"), number("retry_count"),
+                    number("tool_error_count"), number("elapsed_ms"))
+        if lens == "architecture_rnd_meta":
+            return (repeated, number("child_count"), number("delegation_count"), remediation,
+                    number("tool_count"))
+        return (reopens, remediation, number("retry_count"), number("tool_error_count"), repeated)
+
+    def projection(member, values, signal_score):
+        cycle_rank = {"blocked": 4, "abandoned": 3, "active": 2, "unknown": 1, "completed": 0}
+        projected_cycles = sorted(member["cycles"], key=lambda cycle: (
+            cycle_rank.get(cycle["state"], 0), cycle.get("risk", ""), cycle["cycle_id"]), reverse=True)[:3]
+        return {
+            "session_id": member["session_id"], "context": member["context"],
+            "completed_at": member["completed_at"], "correlation_quality": member["correlation_quality"],
+            "cycles": [{name: cycle[name] for name in ("cycle_id", "state", "risk", "delivery_intent")
+                        if name in cycle} | ({"metrics": cycle["metrics"]} if "metrics" in cycle else {})
+                       for cycle in projected_cycles],
+            "metrics": values, "signal_score": list(signal_score),
+        }
+
+    ranked = sorted(((score(member, values), member, values) for member, values in metric_rows),
+                    key=lambda item: (item[0], int(item[1]["completed_at"]), item[1]["session_id"]),
+                    reverse=True)
+    review_count = sum(member["review_session"] for member in selected)
+    return {
+        "schema_version": 1, "capture_id": manifest["capture_id"], "lens": lens, "scope": scope,
+        "snapshot": manifest["snapshot"], "session_ceiling": manifest["session_ceiling"],
+        "part_ceiling": manifest["part_ceiling"], "database_digest": manifest["database_digest"],
+        "exclusion_digest": manifest["exclusion_digest"], "query": manifest["query"],
+        "member_count": len(selected),
+        "members_digest": hashlib.sha256(ledger_payload(selected).encode()).hexdigest(),
+        "telemetry": {"page_count": max(1, len(manifest["pages"])), "session_count": len(selected),
+                      "review_session_count": review_count,
+                      "excluded_review_session_count": (manifest["member_count"] - len(selected)) if scope == "exclude" else 0,
+                      "unattributed_session_count": 0},
+        "categories": categories, "metrics": metric_summaries,
+        "evidence": [projection(member, values, signal_score)
+                     for signal_score, member, values in ranked[:20]],
+    }
+
+
 def history_page_digest(records, source_identities, limit, cursor):
     identity = hashlib.sha256()
     identity.update(f"{limit}\0{cursor}\0".encode())
@@ -5421,8 +5528,9 @@ def command_history_capture(args):
     with existing_review_lock(root):
         with ledger_connection(root) as connection:
             manifest, members = load_history_capture(connection, args.capture_id)
-    result = history_capture_summary(manifest)
-    if args.cursor is not None:
+    result = (history_lens_summary(manifest, members, args.lens_summary, args.review_sessions)
+              if args.lens_summary else history_capture_summary(manifest))
+    if args.cursor is not None and not args.lens_summary:
         if args.cursor < 0:
             fail("history capture cursor must be non-negative")
         page = members[args.cursor:args.cursor + args.limit]
@@ -9277,6 +9385,8 @@ def parser():
     capture.add_argument("--capture-id", required=True)
     capture.add_argument("--cursor", type=int)
     capture.add_argument("--limit", type=int, default=100, choices=range(1, REVIEW_MAX_LIMIT + 1))
+    capture.add_argument("--lens-summary", choices=RND_LENSES)
+    capture.add_argument("--review-sessions", choices=("only", "exclude"), default="exclude")
     capture.set_defaults(func=command_history_capture)
     capture_delete = commands.add_parser("history-capture-delete")
     capture_delete.add_argument("--state-root")

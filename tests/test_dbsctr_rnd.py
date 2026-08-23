@@ -844,12 +844,20 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
             "source_count": 3}
     runner["RECEIPTS"].mkdir(mode=0o700)
 
-    def write_receipt(digest, scope, telemetry):
+    def write_receipt(digest, scope, telemetry, lens="correctness_safety"):
         path = runner["RECEIPTS"] / f"{digest}.{scope}.json"
         path.write_text(json.dumps({"schema_version": 1, "manifest_digest": digest,
-                                    "scope": scope, "telemetry": telemetry}))
+                                    "lens": lens, "scope": scope, "telemetry": telemetry}))
         path.chmod(0o600)
 
+    write_receipt("a" * 64, "exclude", base, "reliability_recovery")
+    try:
+        runner["parallel_lens_result"](
+            ordinary, "2024-01-01", "a" * 64, "no_yield", base, now)
+    except RuntimeError as error:
+        assert "capture receipt" in str(error)
+    else:
+        raise AssertionError("ordinary lens accepted another lens receipt")
     write_receipt("a" * 64, "exclude", base)
     try:
         runner["parallel_lens_result"](
@@ -874,7 +882,7 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     review_metrics = {"page_count": 7, "session_count": 2, "review_session_count": 2,
                       "excluded_review_session_count": 0, "unattributed_session_count": 0,
                       "source_count": 3}
-    write_receipt("b" * 64, "only", review_metrics)
+    write_receipt("b" * 64, "only", review_metrics, runner["REVIEW_SESSION_LENS"])
     try:
         runner["parallel_lens_result"](
             review, "2024-01-01", "b" * 64, "no_yield",
@@ -889,7 +897,7 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     yielded = attempts["reliability_recovery"][1]
     states[yielded] = "claimed"
     opportunities[yielded] = "c" * 64
-    write_receipt("d" * 64, "exclude", base)
+    write_receipt("d" * 64, "exclude", base, "reliability_recovery")
     runner["parallel_lens_result"](yielded, "2024-01-01", "d" * 64, "yield", base, now)
     connection = sqlite3.connect(state)
     assert connection.execute(
@@ -914,7 +922,7 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
         assert "incarnation changed" in str(error)
     else:
         raise AssertionError("completion rebound a pending lens attempt")
-    write_receipt("f" * 64, "exclude", base)
+    write_receipt("f" * 64, "exclude", base, "performance_cost")
     try:
         runner["parallel_lens_result"](reused, "2024-01-01", "f" * 64, "yield", base, now)
     except RuntimeError as error:

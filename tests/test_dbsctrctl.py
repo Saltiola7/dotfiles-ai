@@ -4171,6 +4171,36 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(saved["page_count"], 3)
         self.assertEqual(saved["aggregates"]["candidate_count"], 201)
 
+        lens = json.loads(run(
+            self.repo, "history-capture", "--state-root", str(state),
+            "--capture-id", saved["capture_id"], "--lens-summary", "performance_cost",
+            "--review-sessions", "exclude",
+        ).stdout)
+        self.assertEqual(lens["member_count"], 201)
+        self.assertEqual(lens["telemetry"], {
+            "page_count": 3, "session_count": 201, "review_session_count": 0,
+            "excluded_review_session_count": 0, "unattributed_session_count": 0,
+        })
+        self.assertLessEqual(len(lens["evidence"]), 20)
+        self.assertRegex(lens["members_digest"], r"^[0-9a-f]{64}$")
+
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_lens_summary", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        capture_db = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        manifest = json.loads(capture_db.execute(
+            "select payload from history_captures where capture_id=?", (saved["capture_id"],)).fetchone()[0])
+        members = [json.loads(row[0]) for row in capture_db.execute(
+            "select payload from history_capture_members where capture_id=? order by position", (saved["capture_id"],))]
+        capture_db.close()
+        members[0]["review_session"] = True
+        ordinary = module.history_lens_summary(manifest, members, "performance_cost", "exclude")
+        review = module.history_lens_summary(manifest, members, "review_session_governance", "only")
+        self.assertEqual((ordinary["member_count"], ordinary["telemetry"]["session_count"]), (200, 200))
+        self.assertEqual((review["member_count"], review["telemetry"]["session_count"]), (1, 1))
+        self.assertNotEqual(ordinary["members_digest"], review["members_digest"])
+
         summary = json.loads(run(
             self.repo, "history-capture", "--state-root", str(state),
             "--capture-id", saved["capture_id"],

@@ -172,7 +172,7 @@ The completed DAI-016-F1 applicability plan is retained at
 |---|---|
 | Risk | Elevated: lets critical P0 findings produce isolated implementation drafts and persists new private candidate artifacts |
 | Delivery intent | Repair complete six-lens review, automate evidence-ready P0/P1 Discovery, and publish only draft pull requests |
-| Scope | Federated unavailable-attribution compatibility, candidate kinds, feature measurement plans, Discovery interviews, generated implementation reports, and optional DKS citations |
+| Scope | Federated unavailable-attribution compatibility, verified full-capture lens summaries, candidate kinds, feature measurement plans, Discovery interviews, generated implementation reports, and optional DKS citations |
 | Overrides | P2/P3 wait for promotion; uncertainty blocks; DKS is supplemental and fail-closed; merge, readiness, release, and deployment remain human-controlled |
 
 ### Provider-Native Evaluation Initiative Overrides
@@ -285,7 +285,7 @@ flowchart LR
     HR -->|Present sessions| HO
     VH -->|Schedule and refine| VO
     VR -->|Present sessions| VO
-    VC -->|Sanitized bounded evidence| HL
+    VC -->|Full-member digests, distributions, and bounded evidence| HL
     VC -->|Encrypted Atuin records| TS
     KC -->|Selected environment variable, memory only| VC
     VC -->|Explicit project variables only| PD
@@ -297,8 +297,9 @@ flowchart LR
 
 **Text Equivalent:** Host and workspace profiles have independent Hermes,
 OpenCode, Herdr, history, and private state. Herdr presents sessions
-but does not own lifecycle state. Only bounded sanitized evidence crosses from a
-workspace to host review; only an explicitly approved implementation handoff
+but does not own lifecycle state. Only full-member digests, complete sanitized
+distributions, and bounded evidence projections cross from a workspace to host
+review; only an explicitly approved implementation handoff
 crosses from host to workspace. Both OpenCode runtimes produce feature-branch
 evidence governed by DBSCTR and Git. The host may forward its Keychain-backed
 1Password service token to a workspace shell as one environment value without
@@ -985,6 +986,19 @@ feature branch with a draft pull request; the operator retains merge authority.
   cursor. Empty databases remain available sources with an immutable empty capture.
   These explicitly mutating private captures are tagged `federated`; unreferenced
   captures older than 24 hours are pruned when the next capture is created.
+- `sandbox-vm review-summary` creates one immutable 25-member-page capture in
+  each source, then asks that source to inspect every stored member under one
+  versioned lens and exact `only` or `exclude` review-session scope. Each source
+  returns its full selected-members digest, exact fixed-category and numeric
+  distributions, exact page/session telemetry, and at most 20 deterministic
+  sanitized evidence projections. Missing review-session attribution, malformed
+  evidence, an unavailable source, changed identity, or output above 256 KiB
+  fails closed.
+- Read-only `dbsctr_lens_summary` validates configured source order, recomputes
+  the terminal manifest digest and aggregate telemetry, and writes the existing
+  mode-`0600` lens receipt only when every configured source is available. The
+  model ranks proposals from the complete distributions and bounded evidence;
+  it does not stream capture pages through model context.
 - The typed federation adapter retains the 256 KiB aggregate output bound but has
   no aggregate wall-clock timeout. `sandbox-vm` gives the host exporter 900 seconds
   and each guest exporter 120 seconds, and bounds concurrent source work to four tasks.

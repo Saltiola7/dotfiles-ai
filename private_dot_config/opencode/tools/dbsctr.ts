@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -237,6 +237,19 @@ export const review_federated = tool({
   },
   async execute(args, context) {
     return await reviewFederated(args, context.worktree, context.sessionID, context.messageID)
+  },
+})
+
+export const lens_summary = tool({
+  description: "Inspect every member of one immutable federated capture server-side and return bounded lens evidence.",
+  args: {
+    lens: tool.schema.enum(["correctness_safety", "reliability_recovery", "performance_cost",
+      "operator_experience", "architecture_rnd_meta", "review_session_governance"]),
+    reviewSessions: tool.schema.enum(["only", "exclude"]),
+  },
+  async execute(args, context) {
+    return await reviewFederatedSummary(args.lens, args.reviewSessions, context.worktree,
+      context.sessionID, context.messageID)
   },
 })
 

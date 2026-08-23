@@ -620,7 +620,13 @@ The typed read interface is `dbsctr_review_federated`; it accepts the existing
 history filters plus cursor and limit and returns the validated federated source
 manifest schema version `2`. Continuation state binds its capture ID and normalized filter query, and the typed
 boundary recomputes the manifest digest and correlates each state with its source
-page. The typed write interface is `dbsctr_vm_handoff`; it accepts one
+page. The separate read-only `dbsctr_lens_summary` interface asks every configured
+source to inspect one complete immutable capture under a versioned lens and exact
+review-session scope. It returns complete fixed distributions and at most 20
+deterministic evidence projections per source, recomputes the terminal manifest
+and telemetry, and writes a private lens receipt only for all-source success.
+The existing provider-affine control flow remains current because this adds a
+validated local adapter without changing routing or trust ownership. The typed write interface is `dbsctr_vm_handoff`; it accepts one
 schema-versioned sanitized approved report and asks before launching the VM
 session. Plan, read-only agents, and Builder subagents deny handoff. Native Build
 and provider-affine Build primaries may invoke it only after explicit proceed.

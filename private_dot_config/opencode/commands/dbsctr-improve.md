@@ -17,23 +17,21 @@ Operate as one bounded native-Build R&D worker:
    `dbsctr-lens-audit`. One plan intentionally assigns one of six independent
    lenses. In `dbsctr-rnd health`, `schema_version` versions the output envelope
    while `state_schema_version` versions the scheduler database.
-2. Call `dbsctr_review_federated` with `limit=100` and `reviewSessions` set to
-   the assigned plan's exact `only` or `exclude` value once
-   without a `reviewedStatus` filter and follow every continuation. This full
-   history pass must include the host and every federated workspace source and both
-   previously reviewed and unreviewed sessions. Stop if any configured source is
-   unavailable; never describe a partial manifest as global history.
-   Pass the returned `sourceState` unchanged with each continuation so every
-   source retains its original snapshot, ceilings, and database identity. Apply
-   the assigned lens to every page while it is in context. Count pages, sources,
-   selected sessions, selected review sessions, and excluded review sessions.
-   Never let an ordinary lens reason from a review-session candidate.
-   The federated tool's immutable private captures are the pass evidence; do not
+2. Call `dbsctr_lens_summary` once with the assigned lens and the plan's exact
+   `only` or `exclude` review-session scope. The helper inspects every member of
+   one immutable 25-member-page capture per source and returns complete bounded
+   distributions plus at most 20 deterministic evidence projections per source.
+   The full-history summary must include the host and every federated workspace
+   source and both previously reviewed and unreviewed sessions. Stop if any
+   configured source is unavailable; never describe a partial manifest as global
+   history. Apply only the assigned lens to the complete distributions and bounded
+   evidence. Use the returned exact page, source, selected-session,
+   selected-review-session, and excluded-review-session telemetry. Never let an ordinary lens
+   reason from a review-session candidate.
+   The federated tool's immutable private captures and full-member digests are the pass evidence; do not
    resubmit namespaced source cohorts to the live host database. Do not call
-   `dbsctr_review_history_save`, `dbsctr_review_complete`, or change review markers. After each source page,
-   reduce it to at most 10 concise issue signals and merge only the strongest 20
-   into a running shortlist before continuing; never use context pressure as a
-   reason to skip a page.
+   `dbsctr_review_history_save`, `dbsctr_review_complete`, or change review markers.
+   Merge only the strongest 20 issue signals into a running shortlist.
 3. Synthesize one ranked shortlist across the complete lens pass. Compare each
    concrete issue with durable improvement claims, this source's
    specs, backlogs, source, tests, and dotfiles-ai GitHub state. Read GitHub state
