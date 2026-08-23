@@ -91,6 +91,21 @@ replace_job() {
     mv "$id_file.tmp" "$id_file"
 }
 
+prune_duplicate_jobs() {
+    local name=$1 keep=$2 jobs duplicate
+    jobs=$("$HERMES" -p "$PROFILE" cron list --all)
+    while IFS= read -r duplicate; do
+        [[ -z "$duplicate" ]] || "$HERMES" -p "$PROFILE" cron remove "$duplicate"
+    done < <(/usr/bin/awk -v name="$name" -v keep="$keep" '
+        $1 ~ /^[0-9a-f]{12}$/ { id=$1 }
+        /^[[:space:]]*Name:[[:space:]]*/ {
+            value=$0
+            sub(/^[[:space:]]*Name:[[:space:]]*/, "", value)
+            if (value == name && id != keep) print id
+        }
+    ' <<<"$jobs")
+}
+
 {{ if .dotfiles_ai.hermes.project_profiles -}}
 replace_job "$state/catalog-cron-id" "every 15m" "dotfiles-ai project catalog" "" "dbsctr-catalog.py"
 {{ else -}}
@@ -100,6 +115,16 @@ replace_job "$state/refinement-cron-id" "every 5m" \
 {{ end -}}
 replace_job "$state/maintenance-cron-id" "0 3 * * *" \
     "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"
+
+{{ if .dotfiles_ai.hermes.project_profiles -}}
+IFS= read -r managed_id < "$state/catalog-cron-id"
+prune_duplicate_jobs "dotfiles-ai project catalog" "$managed_id"
+{{ else -}}
+IFS= read -r managed_id < "$state/refinement-cron-id"
+prune_duplicate_jobs "dotfiles-ai context refinement" "$managed_id"
+{{ end -}}
+IFS= read -r managed_id < "$state/maintenance-cron-id"
+prune_duplicate_jobs "dotfiles-ai completed worktree maintenance" "$managed_id"
 
 "$HERMES" -p "$PROFILE" gateway install --force --no-start-now
 {{ if eq .dotfiles_ai.rnd.backend "hermes" -}}

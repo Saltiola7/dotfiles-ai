@@ -121,6 +121,8 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "gateway install --force" in configure
     assert "/usr/bin/shlock -p $$" in configure and "flock -n 9" in configure
     assert 'rm -f "$lock"' in configure
+    assert "cron list --all" in configure and "prune_duplicate_jobs" in configure
+    assert "cron remove \"$duplicate\"" in configure
     assert "launchctl print" in configure and "state = running" in configure
     assert '"config", "get", "model.provider"' in catalog
     assert '"config", "get", "model.default"' in catalog
