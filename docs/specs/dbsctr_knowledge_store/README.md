@@ -66,7 +66,7 @@ last_updated: 2026-08-22
 |---|---|
 | Risk | `elevated`: sends only frozen committed Git to hosted AI, uses silver relevance evidence to alter local ranking temporarily, and must restore the safe baseline without operator action |
 | Delivery intent | Freeze and run a committed silver benchmark, deploy an eligible seven-day local trial with automatic rollback, then deliver a draft pull request |
-| Scope | Commit `0975428470e53282545676cbd3bf261a91aecb77`; five fixed 20-query strata; AI-generated source-cited silver evidence; four-cell local execution; fixed seven-day trial; expiry, health, identity, and manual rollback |
+| Scope | Commit `45096bb03891e9771a891d53f92b23863ae08a3e`; five fixed 20-query strata; AI-generated source-cited silver evidence; four-cell local execution; fixed seven-day trial; expiry, health, identity, and manual rollback |
 | Isolation | Hosted generation receives committed Git at the frozen revision only; private DBSCTR authority, transcripts, credentials, uncommitted files, projection bodies, and candidate results remain local |
 | Non-goals | Human-ground-truth claims, training or tuning on silver evidence, permanent activation from silver evidence, hosted retrieval execution, production `pg_textsearch`, and unsupported PostgreSQL 19 extension installation |
 
@@ -297,7 +297,7 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 
 **Scenario: Generate silver questions before candidate execution**
 
-- Given frozen commit `0975428470e53282545676cbd3bf261a91aecb77` and no candidate execution
+- Given frozen commit `45096bb03891e9771a891d53f92b23863ae08a3e` and no candidate execution
 - When hosted AI generates the DKS-005 silver suite
 - Then it creates 20 source-cited questions for each of `code_architecture`, `specs_contracts`, `operations_recovery`, `tickets_history`, and `configuration_tooling`
 - And hosted input contains only committed Git from that revision, never private authority, transcripts, credentials, uncommitted files, projection bodies, or candidate results
