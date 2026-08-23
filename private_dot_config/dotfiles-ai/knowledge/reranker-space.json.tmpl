@@ -14,11 +14,15 @@
     "backend": "mps"
   },
   "contract": {
+    "batch_size": 1,
     "context_tokens": 8192,
     "instruction": "Retrieve authoritative DBSCTR engineering evidence that answers the query",
+    "logits_to_keep": 1,
+    "max_mps_memory_gib": 24,
     "template_sha256": "c121f3f58991533a6cf1dd73429dc22a4bf0072b65b87b5ccfed274c7b55dde9",
     "truncation": "longest_first",
-    "score": "binary_softmax_yes"
+    "score": "binary_softmax_yes",
+    "use_cache": false
   },
   "service": {
     "host": "127.0.0.1",

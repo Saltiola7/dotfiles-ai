@@ -115,3 +115,9 @@ that reconciliation, doctor, and guarded query restore to `dks-rrf-v1` when
 expired or unhealthy. Human v2 evidence remains required for permanent
 `activate-quality`. `pg_textsearch` is not installed; DKS-006 remains blocked
 until an official PostgreSQL 19 artifact exists and cannot alter production.
+
+Run reranker calibration before a full benchmark after any model, runtime, or
+scoring change. The service must retain normal memory pressure, no swap growth,
+and MPS allocation below its 24-GiB hard ceiling at the 8192-token operational
+limit. Stop on any failed guard; never increase batch size without new calibration
+evidence.

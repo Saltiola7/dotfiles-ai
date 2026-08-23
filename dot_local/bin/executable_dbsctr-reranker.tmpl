@@ -37,6 +37,8 @@ KEY = Path.home() / ".config/dotfiles-ai/private/reranker-api-key"
 MANIFEST = Path.home() / ".config/dotfiles-ai/knowledge/reranker-space.json"
 PORT = {{ .dotfiles_ai.knowledge_store.reranker_port }}
 LOCK = threading.Lock()
+BATCH_SIZE = 1
+MAX_MPS_MEMORY_GIB = 24
 
 
 def digest(path):
@@ -67,10 +69,15 @@ def verify():
     manifest = json.loads(MANIFEST.read_text())
     if (manifest.get("reranker_id") != "qwen3-reranker-4b-mps-22e68366-v1"
             or manifest.get("model", {}).get("revision") != REVISION
-            or manifest.get("contract", {}).get("template_sha256")
-            != hashlib.sha256(TEMPLATE.encode()).hexdigest()
+            or manifest.get("contract") != {
+                "batch_size": BATCH_SIZE, "context_tokens": 8192,
+                "instruction": INSTRUCTION, "logits_to_keep": 1,
+                "max_mps_memory_gib": MAX_MPS_MEMORY_GIB,
+                "score": "binary_softmax_yes",
+                "template_sha256": hashlib.sha256(TEMPLATE.encode()).hexdigest(),
+                "truncation": "longest_first", "use_cache": False}
             or manifest.get("service") != {"host":"127.0.0.1", "port":PORT,
-                                            "artifact_root":str(ARTIFACT_ROOT)}):
+                                             "artifact_root":str(ARTIFACT_ROOT)}):
         raise RuntimeError("reranker manifest identity mismatch")
     return key
 
@@ -80,6 +87,11 @@ def load_model():
     from transformers import AutoModelForCausalLM, AutoTokenizer
     if not torch.backends.mps.is_available():
         raise RuntimeError("reranker MPS unavailable")
+    recommended = torch.mps.recommended_max_memory()
+    if recommended <= 0:
+        raise RuntimeError("reranker MPS memory identity unavailable")
+    limit = MAX_MPS_MEMORY_GIB * 1024 ** 3
+    torch.mps.set_per_process_memory_fraction(float(min(1, limit / recommended)))
     tokenizer = AutoTokenizer.from_pretrained(
         MODEL, local_files_only=True, trust_remote_code=False, padding_side="left")
     model = AutoModelForCausalLM.from_pretrained(
@@ -110,11 +122,18 @@ def score(state, query, documents):
     torch, tokenizer, model, no_id, yes_id = state
     scores = []
     with LOCK, torch.inference_mode():
-        for offset in range(0, len(documents), 8):
-            rows = [prompt_ids(tokenizer, query, document) for document in documents[offset:offset + 8]]
-            batch = tokenizer.pad({"input_ids": rows}, padding=True, return_tensors="pt").to("mps")
-            logits = model(**batch).logits[:, -1, [no_id, yes_id]]
-            scores.extend(torch.softmax(logits, dim=1)[:, 1].float().cpu().tolist())
+        try:
+            for offset in range(0, len(documents), BATCH_SIZE):
+                rows = [prompt_ids(tokenizer, query, document)
+                        for document in documents[offset:offset + BATCH_SIZE]]
+                batch = tokenizer.pad({"input_ids": rows}, padding=True, return_tensors="pt").to("mps")
+                logits = model(**batch, use_cache=False, logits_to_keep=1).logits[:, -1, [no_id, yes_id]]
+                scores.extend(torch.softmax(logits, dim=1)[:, 1].float().cpu().tolist())
+                del batch, logits
+                torch.mps.empty_cache()
+        except Exception:
+            torch.mps.empty_cache()
+            raise
     if len(scores) != len(documents) or any(not math.isfinite(item) or not 0 <= item <= 1 for item in scores):
         raise RuntimeError("reranker score invalid")
     return scores
@@ -134,7 +153,8 @@ def serve():
             self.end_headers()
             self.wfile.write(body)
         def do_GET(self):
-            self.send_json(200, {"ready":True,"model":MODEL_ID,"revision":REVISION}) \
+            self.send_json(200, {"ready":True,"model":MODEL_ID,"revision":REVISION,
+                                 "batch_size":BATCH_SIZE,"max_mps_memory_gib":MAX_MPS_MEMORY_GIB}) \
                 if self.path == "/health" else self.send_json(404, {"error":"not found"})
         def do_POST(self):
             if self.path != "/rerank":
