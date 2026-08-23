@@ -8,7 +8,7 @@
 
 | Field | Value |
 |---|---|
-| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, and status-bar polling contracts |
+| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, native Herdr installation, and status-bar polling contracts |
 | Languages/frameworks | Bash, Zsh, Go templates, launchd plist, and Markdown |
 | Applicable modules | Security |
 | Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, Aqua LaunchAgent, chezmoi, 1Password CLI, and Keychain |
@@ -16,7 +16,7 @@
 | Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs |
 | Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
 | Release/deployment | No packaged release; managed configuration deploys through explicit chezmoi apply |
-| Maintenance/retirement | Rotate or revoke credentials externally; preserve bounded failure and explicit Herdr ownership handoff |
+| Maintenance/retirement | Rotate or revoke credentials externally; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
 
 ### AUTH-011 Delivered Overrides
 
@@ -38,6 +38,7 @@ Entities:
 - `TemplateRenderer`: chezmoi render path that must not require live 1Password access.
 - `HerdrPane`: restored or newly opened Herdr pane with `HERDR_ENV` set.
 - `HerdrServer`: persistent pane owner launched in the macOS Aqua bootstrap context.
+- `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
 
 Value objects:
@@ -57,6 +58,8 @@ Events:
 - `SecretLoadRequested`
 - `OnePasswordCommandTimedOut`
 - `HerdrPaneRestored`
+- `NativeHerdrReleaseApplied`
+- `HerdrLiveHandoffCompleted`
 - `ClockifyPollSkipped`
 
 Glossary:
@@ -73,7 +76,7 @@ Glossary:
 | State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
 | Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
 | Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
-| Dependency/deployment | not_applicable: launchd ownership is a bounded contract without additional topology | - | HerdrServer scenarios | Shell-auth owner |
+| Dependency/deployment | required: native install and live handoff sequence | How does chezmoi replace Herdr without terminating pane processes? | HerdrServer scenarios and contracts | Shell-auth owner; release pin or launchd ownership changes |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
 
 V3.35 adds the missing profile and completion ledger without changing credential
@@ -108,6 +111,28 @@ Keychain service token and otherwise fails without biometric sign-in. Other
 shells may use a valid cache; only an interactive local TTY may mint a new bounded
 session. SSH and noninteractive contexts without valid credentials fail fast.
 One grouped fetch succeeds only after the complete projected secret set validates.
+
+```mermaid
+flowchart TD
+    accTitle: Chezmoi-managed native Herdr upgrade
+    accDescr: Chezmoi verifies the pinned native Herdr release. With no running server it installs directly. With a compatible running server it installs atomically and requests live handoff. A failed handoff restores the prior executable and leaves the old server running. LaunchAgent reload waits until a natural login or reboot.
+    A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
+    V --> R{Herdr server running?}
+    R -->|No| I[Install native executable]
+    R -->|Yes, handoff capable| H[Install atomically and request live handoff]
+    R -->|Yes, no handoff| F[Fail without replacing or stopping server]
+    H --> S{Pinned server responds?}
+    S -->|Yes| D[Defer LaunchAgent reload]
+    S -->|No| B[Restore prior executable and keep old server]
+    D --> L[LaunchAgent owns next natural start]
+```
+
+**Text Equivalent:** A release-pin change downloads and verifies the native
+Herdr asset. With no running server, chezmoi installs it directly. A compatible
+running server receives an atomic executable replacement and live-handoff
+request. Unsupported or failed handoff never triggers a stop; failure restores
+the prior executable where present. The replacement runs detached until the
+next natural login or reboot gives ownership back to the Aqua LaunchAgent.
 The shell-auth owner updates this view when authentication precedence, context,
 or failure behavior changes.
 
@@ -141,6 +166,36 @@ or failure behavior changes.
 - When chezmoi reapplies changed LaunchAgent configuration
 - Then deployment waits up to five seconds for the old server to stop before bootstrapping its replacement
 - And deployment fails if the old server remains running
+
+**Scenario: Chezmoi installs the pinned native Herdr release**
+- Given no native `HerdrServer` executable exists at the configured path
+- And no `HerdrServer` is running
+- When chezmoi applies `NativeHerdrRelease`
+- Then it downloads the pinned asset
+- And it verifies the pinned SHA-256 before installation
+- And the installed executable reports the pinned version
+
+**Scenario: Chezmoi upgrades a running Herdr server**
+- Given a live-handoff-capable `HerdrServer` owns pane processes
+- And `NativeHerdrRelease` pins a different version or protocol
+- When chezmoi applies the release pin
+- Then it installs the verified native executable atomically
+- And it requests live handoff with the pinned version and protocol
+- And it never requests a normal server stop
+- And the replacement server retains the pane processes
+
+**Scenario: Native Herdr live handoff fails**
+- Given a live `HerdrServer` owns pane processes
+- When the pinned replacement cannot complete live handoff
+- Then chezmoi leaves the old server running
+- And it restores the previous native executable when one existed
+- And deployment fails without invoking a stop fallback
+
+**Scenario: Active Herdr defers LaunchAgent reconciliation**
+- Given any `HerdrServer` is running when chezmoi reconciles the Aqua LaunchAgent
+- When the managed plist or owner wrapper changed
+- Then deployment does not boot out the LaunchAgent
+- And managed ownership resumes at the next natural login or reboot
 
 ### Feature: Fail-fast secret loading
 
@@ -265,10 +320,13 @@ or failure behavior changes.
 - **Invariant:** Keychain repair is explicit and interactive; `SecretLoader` never mutates Keychain ACLs.
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
-- **Invariant:** chezmoi deployment never stops an unmanaged `HerdrServer`; initial handoff is explicit or occurs at the next GUI login.
+- **Invariant:** chezmoi owns the native Herdr version, protocol, asset URL, SHA-256, installation path, and upgrade workflow.
+- **Invariant:** native release bytes are installed only after SHA-256 verification and executable version validation.
+- **Invariant:** chezmoi deployment never stops a running `HerdrServer`; compatible upgrades use live handoff and LaunchAgent reconciliation waits for the next GUI login or reboot.
 - **Invariant:** `HerdrServer` ownership checks use the structured `running` status because the Herdr status command exits successfully when no server is running.
-- **Post:** a handoff blocked by an unmanaged `HerdrServer` fails so chezmoi does not record the `run_onchange` script as completed.
-- **Post:** managed LaunchAgent replacement waits a bounded five seconds for the old `HerdrServer` to stop before bootstrap.
+- **Invariant:** failed live handoff never falls back to `herdr server stop`.
+- **Post:** failed live handoff leaves the old server available and restores the prior native executable when applicable.
+- **Post:** an active server causes LaunchAgent reconciliation to succeed as deferred rather than terminate pane processes.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
 - **Post:** invalid service account tokens fail fast with a service-account-specific error.
 - **Post:** SSH shells without a service account token must not attempt biometric or password-based `op signin`.
