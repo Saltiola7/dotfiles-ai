@@ -1025,7 +1025,7 @@ def rerank(config, query, candidates, expected_manifest=None):
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response:
             body = json.load(response)
     except Exception as error:
         raise RuntimeError("reranker request failed") from error

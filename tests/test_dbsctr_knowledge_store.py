@@ -1062,6 +1062,8 @@ def test_silver_runner_uses_git_only_depth_100_cells() -> None:
     assert "rank <= {100 if benchmark else 20}" in query
     assert "quality_candidates(channels, max(50, args.limit))" not in query
     assert "quality_candidates(channels)" in query
+    reranker = source[source.index("def rerank("):source.index("def token_counter(")]
+    assert ".open(request, timeout=120)" in reranker
     assert 'systems = ("baseline", "code", "reranker", "code_reranker")' in runner
     assert "resolve_silver_citations" in runner and "limit=100" in runner
     assert "BenchmarkTelemetry" in runner and "receipt_hmac_sha256" in runner
