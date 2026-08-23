@@ -25,8 +25,8 @@ vertex_credentials = ""
 # Pins the browser login to one identity, so a multi-account picker cannot
 # quietly authenticate the wrong one. Optional; blank prompts for a choice.
 vertex_account = ""
-default_model = "openai/gpt-5.6-sol"
-small_model = "openai/gpt-5.6-luna"
+default_model = "openai/gpt-5.6-sol-fast"
+small_model = "openai/gpt-5.6-luna-fast"
 lmstudio_base_url = "http://127.0.0.1:1234/v1"
 theme = "catppuccin"
 

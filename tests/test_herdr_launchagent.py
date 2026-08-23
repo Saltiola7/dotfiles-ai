@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import plistlib
+import runpy
 import sqlite3
 import subprocess
 import sys
@@ -446,6 +447,99 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     assert ".dotfiles-ai-state" in rendered
 
 
+def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".dotfiles-ai-state").touch()
+    target = tmp_path / "opencode"
+    target.write_text('#!/bin/bash\nprintf "%s\\n" "$@"\n')
+    target.chmod(0o755)
+    rendered = _render_herdr_script(".local/bin/opencode", {
+        "dotfiles_ai": {"state": {"root": str(state)}}
+    }).replace("/opt/homebrew/bin/opencode", str(target))
+    wrapper = tmp_path / "wrapper"
+    wrapper.write_text(rendered)
+    wrapper.chmod(0o755)
+
+    plain = subprocess.run(
+        [wrapper, "plain"], text=True, capture_output=True, check=True,
+        env={key: value for key, value in os.environ.items() if key != "HERDR_ENV"},
+    )
+    herdr = subprocess.run(
+        [wrapper, "herdr"], text=True, capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
+    explicit = subprocess.run(
+        [wrapper, "--auto"], text=True, capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
+    administrative = subprocess.run(
+        [wrapper, "session", "list"], text=True, capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
+
+    assert plain.stdout.splitlines() == ["plain"]
+    assert herdr.stdout.splitlines() == ["herdr", "--auto"]
+    assert explicit.stdout.splitlines() == ["--auto"]
+    assert administrative.stdout.splitlines() == ["session", "list"]
+
+    startup_dir = state / "herdr"
+    startup_dir.mkdir()
+    (startup_dir / "opencode-startup.lock").write_text("999999\n")
+    (startup_dir / "opencode-startup.timestamp").write_text(str(int(time.time()) + 3600))
+    started = time.monotonic()
+    subprocess.run(
+        [wrapper, "--session", "ses_first"], capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
+    assert time.monotonic() - started < 2
+    started = time.monotonic()
+    resumed = subprocess.run(
+        [wrapper, "--session", "ses_second"], text=True, capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
+
+    assert time.monotonic() - started >= 5
+    assert resumed.stdout.splitlines() == ["--session", "ses_second", "--auto"]
+
+
+def test_session_detection_ignores_unrelated_processes(monkeypatch) -> None:
+    script = runpy.run_path(str(ROOT / "dot_local/bin/executable_herdr-opencode-restore"))
+    monkeypatch.setitem(script["pane_state"].__globals__, "run", lambda *_: {
+        "result": {"process_info": {"foreground_processes": [
+            {"argv": ["other", "--session", "ses_wrong"]},
+            {"argv": ["/tmp/opencode", "--session=ses_right", "--auto"]},
+        ]}}
+    })
+
+    assert script["pane_state"]("w1:p1") == ("ses_right", True)
+
+
+def test_session_watcher_survives_capture_failure(monkeypatch, capsys, tmp_path) -> None:
+    script = runpy.run_path(str(ROOT / "dot_local/bin/executable_herdr-opencode-restore"))
+    script_globals = script["main"].__globals__
+    calls = 0
+
+    def capture(_manifest) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary failure")
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(script_globals, "capture", capture)
+    monkeypatch.setattr(script["time"], "sleep", lambda _: None)
+    monkeypatch.setattr(script["sys"], "argv", ["herdr-opencode-restore", "--watch"])
+    monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path))
+    try:
+        script["main"]()
+    except KeyboardInterrupt:
+        pass
+
+    assert calls == 2
+    assert "OpenCode session capture failed: temporary failure" in capsys.readouterr().err
+
+
 def test_centralized_state_guard_fails_closed() -> None:
     guard = ROOT / "dot_local/bin/executable_state-root-exec"
     result = subprocess.run(
@@ -478,19 +572,25 @@ def test_herdr_owner_stays_alive_after_handoff_child_exits(tmp_path) -> None:
         f'  server) touch "{state}"; sleep 0.1 ;;\n'
         '  "status server --json")\n'
         f'    calls=$(cat "{calls}" 2>/dev/null || printf 0); calls=$((calls + 1)); printf %s "$calls" > "{calls}"\n'
-        f'    [[ -f "{state}" && $calls != 3 ]] && printf \'{{"running":true}}\\n\' ;;\n'
+        f'    [[ -f "{state}" ]] && printf \'{{"running":true}}\\n\' ;;\n'
         'esac\n'
     )
     herdr.chmod(0o755)
     restore = home / ".local/bin/herdr-opencode-restore"
-    restore.write_text("#!/bin/bash\nexit 1\n")
+    watch = tmp_path / "watch"
+    restore.write_text(
+        '#!/bin/bash\n'
+        '[[ ${1:-} == --watch ]] || exit 1\n'
+        'touch "$WATCH"\n'
+        'sleep 10\n'
+    )
     restore.chmod(0o755)
     owner = _render_herdr_script(".local/bin/herdr-server-owner", {
         "dotfiles_ai": {"herdr": {"executable": str(herdr)}}
     })
 
     process = subprocess.Popen(["bash"], stdin=subprocess.PIPE, text=True, env={
-        **os.environ, "HOME": str(home),
+        **os.environ, "HOME": str(home), "WATCH": str(watch),
     })
     process.stdin.write(owner)
     process.stdin.close()
@@ -500,6 +600,7 @@ def test_herdr_owner_stays_alive_after_handoff_child_exits(tmp_path) -> None:
         time.sleep(0.01)
     time.sleep(1.2)
     assert process.poll() is None
+    assert watch.exists()
     process.terminate()
     assert process.wait(timeout=3) == 0
 
@@ -608,27 +709,25 @@ def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> 
         'case "$1 $2" in\n'
         '  "agent list") printf \'{"result":{"agents":[{"agent_session":{"value":"ses_running"}}]}}\\n\' ;;\n'
         '  "pane get") printf \'{"result":{"pane":{}}}\\n\' ;;\n'
-        '  "pane run") touch "$STARTED" ;;\n'
-        '  "pane process-info") if [ "$4" = w1:p1 ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_running"]}]}}}\\n\'; elif [ -f "$STARTED" ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_restore"]}]}}}\\n\'; else printf \'{"result":{"process_info":{"foreground_processes":[]}}}\\n\'; fi ;;\n'
+        '  "pane run") sleep 0.2; touch "$STARTED" ;;\n'
+        '  "pane process-info") if [ "$4" = w1:p1 ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_running","--auto"]}]}}}\\n\'; elif [ -f "$STARTED" ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_restore","--auto"]}]}}}\\n\'; else printf \'{"result":{"process_info":{"foreground_processes":[]}}}\\n\'; fi ;;\n'
         'esac\n'
     )
     herdr.chmod(0o755)
 
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "dot_local/bin/executable_herdr-opencode-restore")],
-        text=True,
-        capture_output=True,
-        env={
-            **os.environ,
-            "HOME": str(home),
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
-            "CALLS": str(tmp_path / "calls"),
-            "STARTED": str(tmp_path / "started"),
-            "DOTFILES_AI_STATE_ROOT": str(state),
-            "XDG_DATA_HOME": str(state / "xdg/data"),
-        },
-    )
-    assert result.returncode == 0, result.stderr
+    command = [sys.executable, str(ROOT / "dot_local/bin/executable_herdr-opencode-restore")]
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "CALLS": str(tmp_path / "calls"),
+        "STARTED": str(tmp_path / "started"),
+        "DOTFILES_AI_STATE_ROOT": str(state),
+        "XDG_DATA_HOME": str(state / "xdg/data"),
+    }
+    processes = [subprocess.Popen(command, text=True, stderr=subprocess.PIPE, env=env) for _ in range(2)]
+    results = [(process.wait(timeout=10), process.stderr.read()) for process in processes]
+    assert results == [(0, ""), (0, "")]
     calls = (tmp_path / "calls").read_text()
     assert "ses_running" not in calls
-    assert f"pane run w1:p2 exec {wrapper} --session ses_restore" in calls
+    assert calls.count(f"pane run w1:p2 exec {wrapper} --session ses_restore --auto") == 1
