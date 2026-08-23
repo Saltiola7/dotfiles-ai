@@ -149,9 +149,28 @@ prune_duplicate_jobs() {
     ' <<<"$jobs")
 }
 
+retire_job() {
+    local id_file=$1 name=$2 jobs id
+    jobs=$("$HERMES" -p "$PROFILE" cron list --all)
+    while IFS= read -r id; do
+        [[ -z "$id" ]] || "$HERMES" -p "$PROFILE" cron pause "$id" >/dev/null
+        [[ -z "$id" ]] || "$HERMES" -p "$PROFILE" cron remove "$id" >/dev/null
+    done < <(/usr/bin/awk -v name="$name" '
+        $1 ~ /^[0-9a-f]{12}$/ { id=$1 }
+        /^[[:space:]]*Name:[[:space:]]*/ {
+            value=$0
+            sub(/^[[:space:]]*Name:[[:space:]]*/, "", value)
+            if (value == name) print id
+        }
+    ' <<<"$jobs")
+    rm -f "$id_file"
+}
+
 {{ if .dotfiles_ai.hermes.project_profiles -}}
+retire_job "$state/refinement-cron-id" "dotfiles-ai context refinement"
 replace_job "$state/catalog-cron-id" "every 15m" "dotfiles-ai project catalog" "" "dbsctr-catalog.py"
 {{ else -}}
+retire_job "$state/catalog-cron-id" "dotfiles-ai project catalog"
 replace_job "$state/refinement-cron-id" "every 5m" \
     "dotfiles-ai context refinement" \
     "Fill every eligible lens reservation with its deterministic direct OpenCode R&D launcher."

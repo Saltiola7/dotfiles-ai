@@ -14,7 +14,11 @@ relations: []
 owns:
   - "run_onchange_after_configure-hermes.sh.tmpl"
   - "run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl"
+  - "run_onchange_before_install-hermes.sh.tmpl"
+  - "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl"
   - "tests/test_dbsctr_rnd.py"
+  - "docs/tickets/context=dotfiles_ai_distribution/DAI-028-F2-complete-guest-compose-tooling-and-validate-runtime-fallback.md"
+  - "docs/tickets/context=shell_auth_startup/AUTH-012-manage-native-herdr-with-process-preserving-upgrades.md"
 reads:
   - "dot_local/bin/executable_dbsctr-rnd.tmpl"
 parallel_safe: false
