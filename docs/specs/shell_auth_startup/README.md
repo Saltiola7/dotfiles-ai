@@ -1,6 +1,6 @@
 # Shell Auth Startup
 
-**Status:** AUTH-011 deployed and verified in the local macOS Aqua session
+**Status:** AUTH-013 deployed and verified in the local macOS Aqua session
 
 ## Engineering Profile
 
@@ -422,17 +422,17 @@ the manifest watcher.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Exact OpenCode identity and paced Herdr startup | required | pending | This README and AUTH-013 ticket | - | Primary |
-| Behavior | Auto approval, serial restore, and partial failure | required | pending | Focused regression tests | - | Primary |
-| Spec | Herdr restore sequence and trust boundary | required | pending | README and `AUTH-013.plan.json` | - | Primary |
-| Contract | Preserve session identity and explicit permission denies | required | pending | Rendered wrapper and helper assertions | - | Primary |
-| Test-driven implementation | Wrapper and restore regressions | required | pending | `tests/test_herdr_launchagent.py` | - | Primary |
-| Refactor | Native stale-safe startup lock | required | pending | Shell syntax and integrated diff | - | Primary |
-| Review/Integrate | Permission and process safety | required | pending | Independent review and affected QA | - | Primary |
+| Domain | Exact OpenCode identity and paced Herdr startup | required | passed | This README and AUTH-013 ticket | - | Primary |
+| Behavior | Auto approval, serial restore, and partial failure | required | passed | Focused regression tests | - | Primary |
+| Spec | Herdr restore sequence and trust boundary | required | passed | README and `AUTH-013.plan.json` | - | Primary |
+| Contract | Preserve session identity and explicit permission denies | required | passed | Rendered wrapper and helper assertions | - | Primary |
+| Test-driven implementation | Wrapper and restore regressions | required | passed | 78 affected tests | - | Primary |
+| Refactor | Native stale-safe startup lock | required | passed | Rendered shell and Python syntax | - | Primary |
+| Review/Integrate | Permission and process safety | required | passed | Independent review: no actionable findings | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
-| Deploy | Apply wrapper, helper, and owner | required | pending | Targeted chezmoi deployment | - | Primary |
-| Operate | Recover stalled exact sessions | required | pending | Pane/session identity and TUI checks | - | Primary |
-| Maintain/Retire | Keep pacing stale-safe and wrapper-owned | required | pending | `shlock` recovery and managed-file ownership | - | Primary |
+| Deploy | Apply wrapper, helper, and owner | required | passed | Targeted chezmoi apply and verify | - | Primary |
+| Operate | Recover stalled exact sessions | required | passed | 45 recovered; 46 unique exact `--auto` sessions verified | - | Primary |
+| Maintain/Retire | Keep pacing stale-safe and wrapper-owned | required | passed | Stale-lock regression; duplicate pane retained as an open shell | - | Primary |
 
 ## Verification
 

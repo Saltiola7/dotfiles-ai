@@ -5,7 +5,7 @@ slug: "pace-restored-opencode-sessions"
 context: "shell_auth_startup"
 title: "Pace restored OpenCode sessions"
 kind: "bug"
-state: "in_progress"
+state: "completed"
 priority: "high"
 points: null
 depends_on: []
@@ -23,8 +23,12 @@ validation:
   - "uv run --group test pytest tests/test_herdr_launchagent.py"
 created: "2026-08-23"
 updated: "2026-08-23"
-completed: null
-commits: []
+completed: "2026-08-23"
+commits:
+  - "01ef8fa"
+  - "828c539"
+  - "36715c4"
+  - "1980b9b"
 jira_publications: []
 ---
 
@@ -47,3 +51,11 @@ permission approval, instead of launching every persisted session concurrently.
 - `--auto` broadens OpenCode permission approval; explicit denied permissions remain the control boundary.
 - Recovery must exclude the active operator pane and reject unsafe manifest identifiers.
 - Serial recovery is intentionally slower than concurrent restore.
+
+## Review
+
+All 78 affected tests and rendered syntax checks pass, and independent review
+reported no actionable findings. Targeted deployment recovered 45 stalled exact
+sessions and verified 46 unique rendered `--auto` sessions without restarting
+Herdr. The stale duplicate of the active session was stopped at its existing pane,
+which remains open at a shell while the active pane retains the exact identity.
