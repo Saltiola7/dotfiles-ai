@@ -58,12 +58,13 @@ exit 0
 [[ {{ .dotfiles_ai.rnd.backend | quote }} == native || {{ .dotfiles_ai.rnd.backend | quote }} == hermes ]] \
     || { echo "rnd.backend must be native or hermes" >&2; exit 1; }
 profile_home="$HERMES_HOME/profiles/$PROFILE"
+managed_home="$HERMES_HOME/managed"
 [[ -d "$profile_home" ]] || "$HERMES" profile create "$PROFILE" --description "DBSCTR context-isolated orchestration"
 mkdir -p "$profile_home/skills/dbsctr-supervisor" "$profile_home/scripts" "$state"
 chmod 700 "$profile_home" "$profile_home/scripts" "$state"
-install -m 600 "$HOME/.hermes/managed/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
-install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
-install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
+install -m 600 "$managed_home/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
+install -m 700 "$managed_home/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
+install -m 700 "$managed_home/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
 "$HERMES" -p "$PROFILE" config set terminal.home_mode profile
 "$HERMES" -p "$PROFILE" config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
 "$HERMES" -p "$PROFILE" config set model.default openai-codex/gpt-5.6-sol

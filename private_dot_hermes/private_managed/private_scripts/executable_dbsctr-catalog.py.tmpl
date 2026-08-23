@@ -24,7 +24,7 @@ def run(*argv, output=False, check=True):
 catalog = json.loads(run("dbsctr-rnd", "repositories", output=True).stdout)
 if catalog != {**catalog, "project_profiles": True} or len(catalog["repositories"]) > 128:
     raise SystemExit("invalid project catalog")
-managed_skill = HOME / ".hermes/managed/skills/dbsctr-supervisor/SKILL.md"
+managed_skill = HERMES_HOME / "managed/skills/dbsctr-supervisor/SKILL.md"
 base_env = HERMES_HOME / f"profiles/{BASE_PROFILE}/.env"
 state_root = HOME / f".local/state/dotfiles-ai/hermes-{BASE_PROFILE}/projects"
 state_root.mkdir(parents=True, exist_ok=True)

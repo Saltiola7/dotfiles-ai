@@ -114,6 +114,8 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
+    assert 'managed_home="$HERMES_HOME/managed"' in configure
+    assert '$HOME/.hermes/managed' not in configure
     assert "terminal.home_mode profile" in configure
     assert "config set model.default openai-codex/gpt-5.6-sol" in configure
     assert "config get model.provider" in configure
@@ -126,6 +128,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "launchctl print" in configure and "state = running" in configure
     assert '"config", "get", "model.provider"' in catalog
     assert '"config", "get", "model.default"' in catalog
+    assert 'HERMES_HOME / "managed/skills/dbsctr-supervisor/SKILL.md"' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
