@@ -44,7 +44,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
-IMPROVEMENT_SCHEMA = 4
+IMPROVEMENT_SCHEMA = 5
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
@@ -573,7 +573,7 @@ def ledger_connection(root, write=False, path=None):
             fail("private review ledger has an unsupported schema")
         improvement_schema = connection.execute(
             "SELECT value FROM ledger_meta WHERE key='improvement_schema'").fetchone()
-        if write and improvement_schema in (("1",), ("2",), ("3",)):
+        if write and improvement_schema in (("1",), ("2",), ("3",), ("4",)):
             if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
                 fail("private review ledger integrity check failed")
             if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
@@ -795,6 +795,21 @@ def ensure_improvement_schema(connection):
             connection.execute("ALTER TABLE improvement_workers ADD COLUMN readiness TEXT")
             connection.execute("UPDATE improvement_workers SET authorization='operator' "
                                "WHERE authorization='autonomous'")
+            connection.execute("UPDATE ledger_meta SET value='4' WHERE key='improvement_schema'")
+            connection.commit()
+            row = ("4",)
+        except Exception:
+            connection.rollback()
+            raise
+    if row == ("4",):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN kind TEXT "
+                               "CHECK (kind IN ('fix','feature','process'))")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN measurement_plan TEXT")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN discovery_report TEXT")
+            connection.execute("ALTER TABLE improvement_workers ADD COLUMN implementation_report TEXT")
+            connection.execute("UPDATE improvement_workers SET kind='fix' WHERE opportunity_id IS NOT NULL")
             connection.execute("UPDATE ledger_meta SET value=? WHERE key='improvement_schema'",
                                (str(IMPROVEMENT_SCHEMA),))
             connection.commit()
@@ -810,6 +825,10 @@ def ensure_improvement_schema(connection):
             opportunity_id TEXT UNIQUE,
             summary TEXT,
             priority TEXT CHECK (priority IN ('P0','P1','P2','P3')),
+            kind TEXT CHECK (kind IN ('fix','feature','process')),
+            measurement_plan TEXT,
+            discovery_report TEXT,
+            implementation_report TEXT,
             authorization TEXT NOT NULL DEFAULT 'none' CHECK (authorization IN ('none','autonomous','operator')),
             readiness TEXT,
             state TEXT NOT NULL CHECK (state IN (
@@ -853,12 +872,14 @@ def improvement_integrity(connection):
     if tables != expected_tables:
         fail("private improvement ledger tables are invalid")
     for row in connection.execute("""
-            SELECT worker_id, session_id, opportunity_id, summary, priority, authorization, readiness, state, resume_state,
+            SELECT worker_id, session_id, opportunity_id, summary, priority, kind, measurement_plan,
+                   discovery_report, implementation_report, authorization, readiness, state, resume_state,
                    recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                    pr_number, pr_url, created_at, updated_at
             FROM improvement_workers
     """):
-        worker_id, session_id, opportunity_id, summary, priority, authorization, readiness, state, resume_state, attempts, *rest = row
+        (worker_id, session_id, opportunity_id, summary, priority, kind, measurement_plan,
+         discovery_report, implementation_report, authorization, readiness, state, resume_state, attempts, *rest) = row
         presentation_ids, cycle_id = rest[:3], rest[3]
         pr_number, pr_url, created_at, updated_at = rest[4:]
         if (not OPAQUE_ID.fullmatch(worker_id) or not OPAQUE_ID.fullmatch(session_id)
@@ -867,7 +888,14 @@ def improvement_integrity(connection):
                                              or not 1 <= len(summary.encode()) <= 512 or review_unsafe(summary))
                 or (opportunity_id is None) != (summary is None)
                 or (opportunity_id is None) != (priority is None)
+                or (opportunity_id is None) != (kind is None)
                 or priority is not None and priority not in {"P0", "P1", "P2", "P3"}
+                or kind is not None and kind not in {"fix", "feature", "process"}
+                or kind == "feature" and measurement_plan is None
+                or kind != "feature" and measurement_plan is not None
+                or measurement_plan is not None and improvement_measurement_plan(measurement_plan) != measurement_plan
+                or discovery_report is not None and improvement_discovery_report(discovery_report) != discovery_report
+                or implementation_report is not None and improvement_implementation_report(implementation_report) != implementation_report
                 or authorization not in {"none", "autonomous", "operator"}
                 or readiness is not None and authorization != "autonomous"
                 or authorization == "autonomous" and readiness is None
@@ -2472,6 +2500,29 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
                                                **({"harness_activation": activation} if activation else {})}}
     elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
         fail("OpenCode runtime paths require a session ID")
+    improvement_worker_id = os.environ.get("DBSCTR_IMPROVEMENT_WORKER_ID")
+    if improvement_worker_id is not None:
+        improvement_worker_id = improvement_id(improvement_worker_id, "improvement worker ID")
+        ledger_root = review_root()
+        if session_id is None or not ledger_exists(ledger_root):
+            fail("improvement cycle requires a registered guest session")
+        connection = sqlite3.connect(f"file:{ledger_path(ledger_root)}?mode=ro", uri=True)
+        try:
+            worker = connection.execute(
+                "SELECT session_id,opportunity_id,state,discovery_report FROM improvement_workers WHERE worker_id=?",
+                (improvement_worker_id,),
+            ).fetchone()
+        except sqlite3.Error:
+            worker = None
+        finally:
+            connection.close()
+        if (worker is None or worker[0] != session_id or worker[1] is None
+                or worker[2] != "discovery" or worker[3] is None):
+            fail("improvement cycle requires a Discovery-ready guest projection")
+        record["improvement"] = {
+            "worker_id": improvement_worker_id, "session_id": session_id,
+            "opportunity_id": worker[1],
+        }
     active = cycle_dir(root) / "worktrees" / record["worktree"]["id"] / "active"
     exclusive_json(record_path, record)
     try:
@@ -6887,9 +6938,84 @@ def improvement_summary(value):
     return normalized
 
 
-def improvement_opportunity_id(summary):
-    canonical = improvement_summary(summary).casefold()
+def improvement_opportunity_id(summary, kind="fix", measurement_plan=None):
+    canonical = json.dumps({"summary": improvement_summary(summary).casefold(), "kind": kind,
+                            "measurement_plan": measurement_plan}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(b"dbsctr-improvement\0" + canonical.encode()).hexdigest()
+
+
+def improvement_bounded_text(value, label):
+    if not isinstance(value, str):
+        fail(f"invalid {label}")
+    normalized = " ".join(value.split())
+    if not 1 <= len(normalized.encode()) <= 512 or review_unsafe(normalized):
+        fail(f"unsafe {label}")
+    return normalized
+
+
+def improvement_json(value, label):
+    try:
+        payload = json.loads(value, object_pairs_hook=no_duplicate_keys) if isinstance(value, str) else value
+    except json.JSONDecodeError:
+        fail(f"invalid {label}")
+    if not isinstance(payload, dict):
+        fail(f"invalid {label}")
+    return payload
+
+
+def improvement_measurement_plan(value):
+    payload = improvement_json(value, "improvement measurement plan")
+    fields = {"schema_version", "hypothesis", "baseline", "metric", "procedure",
+              "success_threshold", "evidence_path"}
+    if set(payload) != fields or payload.get("schema_version") != 1:
+        fail("invalid improvement measurement plan")
+    for field in fields - {"schema_version", "evidence_path"}:
+        payload[field] = improvement_bounded_text(payload[field], f"measurement plan {field}")
+    payload["evidence_path"] = improvement_path(payload["evidence_path"])
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def improvement_discovery_report(value):
+    payload = improvement_json(value, "improvement discovery report")
+    fields = {"schema_version", "interview", "assumptions", "citations", "risks", "evidence_digest"}
+    if (set(payload) != fields or payload.get("schema_version") != 1
+            or not isinstance(payload.get("interview"), list) or not 1 <= len(payload["interview"]) <= 20
+            or not isinstance(payload.get("evidence_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", payload["evidence_digest"])):
+        fail("invalid improvement discovery report")
+    interview = []
+    for item in payload["interview"]:
+        if not isinstance(item, dict) or set(item) != {"question", "answer"}:
+            fail("invalid improvement discovery report")
+        interview.append({key: improvement_bounded_text(item[key], f"discovery {key}")
+                          for key in ("question", "answer")})
+    payload["interview"] = interview
+    for field in ("assumptions", "citations", "risks"):
+        if not isinstance(payload.get(field), list) or len(payload[field]) > 20:
+            fail("invalid improvement discovery report")
+        payload[field] = [improvement_bounded_text(item, f"discovery {field}") for item in payload[field]]
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def improvement_implementation_report(value):
+    payload = improvement_json(value, "improvement implementation report")
+    fields = {"schema_version", "pull_request_url", "changed_paths", "diff_digest", "passed_gates"}
+    if (set(payload) != fields or payload.get("schema_version") != 1
+            or not isinstance(payload.get("pull_request_url"), str)
+            or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*",
+                                payload["pull_request_url"])
+            or not isinstance(payload.get("diff_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", payload["diff_digest"])):
+        fail("invalid improvement implementation report")
+    if (not isinstance(payload.get("changed_paths"), list) or not payload["changed_paths"]
+            or payload["changed_paths"] != sorted(set(payload["changed_paths"]))):
+        fail("invalid improvement implementation report")
+    payload["changed_paths"] = [improvement_path(path) for path in payload["changed_paths"]]
+    if (not isinstance(payload.get("passed_gates"), list)
+            or payload["passed_gates"] != sorted(set(payload["passed_gates"]))
+            or any(not isinstance(gate, str) or not OPAQUE_ID.fullmatch(gate) for gate in payload["passed_gates"])):
+        fail("invalid improvement implementation report")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def improvement_readiness(value, worker_id, session_id, opportunity_id, validate_evidence=False):
@@ -6902,7 +7028,7 @@ def improvement_readiness(value, worker_id, session_id, opportunity_id, validate
     if (not isinstance(receipt, dict) or set(receipt) != fields or receipt.get("schema_version") != 1
             or receipt.get("worker_id") != worker_id or receipt.get("session_id") != session_id
             or receipt.get("opportunity_id") != opportunity_id
-            or receipt.get("risk") not in {"routine", "elevated"}
+            or receipt.get("risk") not in {"routine", "elevated", "critical"}
             or receipt.get("material_questions_resolved") is not True
             or not isinstance(receipt.get("evidence_digest"), str)
             or not re.fullmatch(r"[0-9a-f]{64}", receipt["evidence_digest"])):
@@ -6949,14 +7075,16 @@ def improvement_readiness(value, worker_id, session_id, opportunity_id, validate
 
 def improvement_worker(connection, worker_id):
     row = connection.execute("""
-        SELECT worker_id, session_id, opportunity_id, summary, priority, authorization, readiness, state, resume_state,
+        SELECT worker_id, session_id, opportunity_id, summary, priority, kind, measurement_plan,
+               discovery_report, implementation_report, authorization, readiness, state, resume_state,
                recovery_attempts, workspace_id, tab_id, pane_id, cycle_id,
                pr_number, pr_url, created_at, updated_at
         FROM improvement_workers WHERE worker_id=?
     """, (worker_id,)).fetchone()
     if row is None:
         fail("improvement worker is missing")
-    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "authorization", "readiness", "state", "resume_state",
+    names = ("worker_id", "session_id", "opportunity_id", "summary", "priority", "kind", "measurement_plan",
+             "discovery_report", "implementation_report", "authorization", "readiness", "state", "resume_state",
              "recovery_attempts", "workspace_id", "tab_id", "pane_id", "cycle_id",
              "pr_number", "pr_url", "created_at", "updated_at")
     value = dict(zip(names, row))
@@ -6993,7 +7121,14 @@ def command_improvement_claim(args):
     session_id = improvement_id(args.session_id, "session ID")
     summary = improvement_summary(args.summary)
     priority = args.priority
-    opportunity_id = improvement_opportunity_id(summary)
+    kind = args.kind
+    measurement_plan = (improvement_measurement_plan(args.measurement_plan_json)
+                        if args.measurement_plan_json is not None else None)
+    if kind == "feature" and measurement_plan is None:
+        fail("feature improvement claims require a measurement plan")
+    if kind != "feature" and measurement_plan is not None:
+        fail("only feature improvement claims accept a measurement plan")
+    opportunity_id = improvement_opportunity_id(summary, kind, measurement_plan)
     timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
     root = review_root(args.state_root)
 
@@ -7012,17 +7147,20 @@ def command_improvement_claim(args):
             if existing is None:
                 connection.execute("""
                     INSERT INTO improvement_workers (
-                        worker_id, session_id, opportunity_id, summary, priority, state, resume_state,
+                        worker_id, session_id, opportunity_id, summary, priority, kind, measurement_plan,
+                        state, resume_state,
                         recovery_attempts, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
-                """, (worker_id, session_id, opportunity_id, summary, priority, timestamp, timestamp))
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'claimed', 'claimed', 0, ?, ?)
+                """, (worker_id, session_id, opportunity_id, summary, priority, kind,
+                      measurement_plan, timestamp, timestamp))
             elif existing != (session_id, None):
                 fail("improvement opportunity or worker is already claimed")
             else:
                 connection.execute("""
-                    UPDATE improvement_workers SET opportunity_id=?, summary=?, priority=?, state='claimed',
-                           authorization='none', readiness=NULL, resume_state='claimed', updated_at=? WHERE worker_id=?
-                """, (opportunity_id, summary, priority, timestamp, worker_id))
+                    UPDATE improvement_workers SET opportunity_id=?, summary=?, priority=?, kind=?, measurement_plan=?,
+                           discovery_report=NULL, implementation_report=NULL, state='claimed', authorization='none',
+                           readiness=NULL, resume_state='claimed', updated_at=? WHERE worker_id=?
+                """, (opportunity_id, summary, priority, kind, measurement_plan, timestamp, worker_id))
         except sqlite3.IntegrityError:
             fail("improvement opportunity or worker is already claimed")
         return improvement_public(improvement_worker(connection, worker_id))
@@ -7042,8 +7180,8 @@ def command_improvement_promote(args):
             fail("only a claimed P2/P3 improvement worker can be promoted")
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         connection.execute("""
-            UPDATE improvement_workers SET priority='P1', authorization='operator', readiness=NULL, state='discovery',
-                   resume_state='discovery', updated_at=? WHERE worker_id=?
+            UPDATE improvement_workers SET priority='P1', authorization='operator', readiness=NULL,
+                   state='discovery', resume_state='discovery', updated_at=? WHERE worker_id=?
         """, (timestamp, worker_id))
         return improvement_public(improvement_worker(connection, worker_id))
 
@@ -7124,26 +7262,47 @@ def command_improvement_update(args):
         current = improvement_worker(connection, worker_id)
         authorization = current["authorization"]
         readiness = current["readiness"]
+        discovery_report = current["discovery_report"]
         if ((args.autonomous or args.readiness_json is not None or args.operator_confirm is not None)
                 and not (current["state"] == "claimed" and state == "discovery")):
             fail("improvement authorization is accepted only for claimed -> discovery")
+        discovery_update = (args.discovery_json is not None and current["state"] == "discovery"
+                            and state == "discovery" and current["authorization"] == "operator"
+                            and current["discovery_report"] is None)
+        if (args.discovery_json is not None and not discovery_update
+                and not (current["state"] == "claimed" and state == "discovery")):
+            fail("Discovery report is accepted only when entering or completing Discovery")
         if current["state"] == "claimed" and state == "discovery":
+            discovery_report = (improvement_discovery_report(args.discovery_json)
+                                if args.discovery_json is not None else None)
             if args.operator_confirm == worker_id:
+                if discovery_report is None:
+                    fail("Discovery requires a persisted interview report")
                 authorization = "operator"
                 readiness = None
-            elif current["priority"] in {"P1", "P2", "P3"} and args.autonomous:
+            elif current["priority"] in {"P0", "P1"} and args.autonomous:
                 authorization = "autonomous"
                 readiness = improvement_readiness(
                     args.readiness_json, worker_id, current["session_id"], current["opportunity_id"],
                     validate_evidence=True)
-            elif current["priority"] == "P0":
-                fail("P0 improvement claims require exact operator confirmation")
+                receipt = json.loads(readiness)
+                if (current["priority"] == "P0" and receipt["risk"] != "critical"
+                        or current["priority"] == "P1" and receipt["risk"] == "critical"):
+                    fail("autonomous readiness risk does not match improvement priority")
+                if (discovery_report is None
+                        or json.loads(discovery_report)["evidence_digest"] != receipt["evidence_digest"]):
+                    fail("autonomous Discovery report does not match readiness evidence")
             else:
-                fail("P1-P3 improvement claims require autonomous readiness or operator confirmation")
+                fail("P0/P1 require autonomous readiness or operator confirmation; P2/P3 require promotion")
+        elif discovery_update:
+            discovery_report = improvement_discovery_report(args.discovery_json)
         if state != current["state"] and state not in transitions[current["state"]]:
             fail(f"invalid improvement transition: {current['state']} -> {state}")
-        if state == "implementing" and (not paths or args.cycle_id is None):
-            fail("implementing requires a cycle ID and declared scope paths")
+        if state == "implementing":
+            if discovery_report is None:
+                fail("implementing requires a persisted Discovery interview")
+            if not paths or args.cycle_id is None:
+                fail("implementing requires a cycle ID and declared scope paths")
         if state == "draft_pr":
             fail("draft_pr state is recorded only by verified Final Push")
         if paths:
@@ -7169,6 +7328,9 @@ def command_improvement_update(args):
         if readiness != current["readiness"]:
             assignments.append("readiness=?")
             values.append(readiness)
+        if discovery_report != current["discovery_report"]:
+            assignments.append("discovery_report=?")
+            values.append(discovery_report)
         if state in IMPROVEMENT_RESUMABLE_STATES:
             assignments.append("resume_state=?")
             values.append(state)
@@ -8205,39 +8367,66 @@ def command_batch_publish(args):
     print(json.dumps({"batch_id": identifier, "pull_request": pull_request}, sort_keys=True))
 
 
-def link_improvement_pull_request(record, pull_request):
+def link_improvement_pull_request(record, pull_request, worktree=None, comparison_base=None):
     sessions = record.get("runtime", {}).get("opencode", {}).get("session_ids", [])
+    binding = record.get("improvement")
     if not sessions:
+        if binding is not None:
+            fail("bound improvement cycle has no OpenCode session")
         return
-    root = review_root()
-    if not ledger_exists(root):
+    ledger_root = review_root()
+    if not ledger_exists(ledger_root):
+        if binding is not None:
+            fail("bound improvement worker ledger is missing")
         return
-    connection = ledger_connection(root)
+    connection = sqlite3.connect(f"file:{ledger_path(ledger_root)}?mode=ro", uri=True)
     try:
         if connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='improvement_workers'"
         ).fetchone() is None:
+            if binding is not None:
+                fail("bound improvement worker ledger is invalid")
             return
-        row = connection.execute(
-            "SELECT worker_id FROM improvement_workers WHERE session_id=?", (sessions[-1],)
-        ).fetchone()
     finally:
         connection.close()
-    if row is None:
-        return
-    worker_id = row[0]
 
     def link(connection):
+        row = (connection.execute(
+            "SELECT worker_id FROM improvement_workers WHERE worker_id=? AND session_id=? AND opportunity_id=?",
+            (binding["worker_id"], binding["session_id"], binding["opportunity_id"]),
+        ).fetchone() if binding is not None else connection.execute(
+            "SELECT worker_id FROM improvement_workers WHERE session_id=?", (sessions[-1],)
+        ).fetchone())
+        if row is None:
+            if binding is not None:
+                fail("bound improvement worker projection is missing")
+            return
+        worker_id = row[0]
+        if worktree is None:
+            fail("improvement draft report requires the cycle worktree")
+        base = comparison_base or record["delivery"]["base_head"]
+        comparison = f"{base}...HEAD"
+        changed_paths = sorted(set(filter(None, git(
+            worktree, "diff", "--name-only", comparison).stdout.splitlines())))
+        diff = git(worktree, "diff", "--binary", comparison).stdout
+        implementation_report = improvement_implementation_report({
+            "schema_version": 1,
+            "pull_request_url": pull_request["url"],
+            "changed_paths": changed_paths,
+            "diff_digest": hashlib.sha256(diff.encode()).hexdigest(),
+            "passed_gates": sorted(name for name, gate in record["gates"].items()
+                                   if gate["result"] == "passed"),
+        })
         current = improvement_worker(connection, worker_id)
         if current["state"] not in {"implementing", "draft_pr"}:
             fail("improvement worker is not ready for draft_pr delivery")
         connection.execute("""
             UPDATE improvement_workers SET state='draft_pr', resume_state='draft_pr',
-                   pr_number=?, pr_url=?, updated_at=? WHERE worker_id=?
+                   pr_number=?, pr_url=?, implementation_report=?, updated_at=? WHERE worker_id=?
         """, (pull_request["number"], pull_request["url"],
-              int(datetime.now(timezone.utc).timestamp() * 1000), worker_id))
+              implementation_report, int(datetime.now(timezone.utc).timestamp() * 1000), worker_id))
 
-    improvement_write(root, link)
+    improvement_write(ledger_root, link)
 
 
 def finish_push(root, path, record):
@@ -8369,7 +8558,7 @@ def finish_push(root, path, record):
         if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
             fail("push did not synchronize feature branch")
         record["delivery"]["pull_request"] = deliver_draft_pr(root, record)
-        link_improvement_pull_request(record, record["delivery"]["pull_request"])
+        link_improvement_pull_request(record, record["delivery"]["pull_request"], root, target_head)
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
     if reconciled and record["delivery_intent"] != "draft_pr":
@@ -9189,6 +9378,8 @@ def parser():
     improvement_claim.add_argument("--session-id", required=True)
     improvement_claim.add_argument("--summary", required=True)
     improvement_claim.add_argument("--priority", choices=("P0", "P1", "P2", "P3"), default="P2")
+    improvement_claim.add_argument("--kind", choices=("fix", "feature", "process"), default="fix")
+    improvement_claim.add_argument("--measurement-plan-json")
     improvement_claim.set_defaults(func=command_improvement_claim)
     improvement_promote = commands.add_parser("improvement-promote")
     improvement_promote.add_argument("--state-root")
@@ -9208,6 +9399,7 @@ def parser():
     improvement_update.add_argument("--autonomous", action="store_true")
     improvement_update.add_argument("--operator-confirm")
     improvement_update.add_argument("--readiness-json")
+    improvement_update.add_argument("--discovery-json")
     improvement_update.set_defaults(func=command_improvement_update)
     improvement_recover = commands.add_parser("improvement-recover")
     improvement_recover.add_argument("--state-root")

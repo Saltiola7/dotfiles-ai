@@ -1087,7 +1087,7 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
 
     runner["command"] = execute
     runner["launch"] = lambda *_args: (_ for _ in ()).throw(AssertionError("worker recovered"))
-    for priority in ("P0", "P2", "P3"):
+    for priority in ("P2", "P3"):
         worker["priority"] = priority
         assert runner["watchdog"]() == 0
         assert json.loads(capsys.readouterr().out) == {

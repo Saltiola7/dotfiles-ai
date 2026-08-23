@@ -387,10 +387,20 @@ export const improvement_claim = tool({
   args: {
     summary: tool.schema.string().min(1).max(512),
     priority: tool.schema.enum(["P0", "P1", "P2", "P3"]),
+    kind: tool.schema.enum(["fix", "feature", "process"]).optional().default("fix"),
+    measurementPlan: tool.schema.object({
+      hypothesis: tool.schema.string().min(1).max(512),
+      baseline: tool.schema.string().min(1).max(512),
+      metric: tool.schema.string().min(1).max(512),
+      procedure: tool.schema.string().min(1).max(512),
+      successThreshold: tool.schema.string().min(1).max(512),
+      evidencePath: tool.schema.string().min(1).max(512),
+    }).optional(),
   },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_improvement_claim", patterns: ["*"], always: [] })
-    return await improvementClaim(context.sessionID, args.summary, args.priority, context.worktree)
+    return await improvementClaim(context.sessionID, args.summary, args.priority, context.worktree,
+      args.kind, args.measurementPlan)
   },
 })
 
@@ -404,8 +414,18 @@ export const improvement_update = tool({
     readiness: tool.schema.object({
       workerId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
       opportunityId: tool.schema.string().regex(/^[0-9a-f]{64}$/),
-      risk: tool.schema.enum(["routine", "elevated"]),
+      risk: tool.schema.enum(["routine", "elevated", "critical"]),
       materialQuestionsResolved: tool.schema.literal(true),
+      evidenceDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+    }).optional(),
+    discovery: tool.schema.object({
+      interview: tool.schema.array(tool.schema.object({
+        question: tool.schema.string().min(1).max(512),
+        answer: tool.schema.string().min(1).max(512),
+      })).min(1).max(20),
+      assumptions: tool.schema.array(tool.schema.string().min(1).max(512)).max(20),
+      citations: tool.schema.array(tool.schema.string().min(1).max(512)).max(20),
+      risks: tool.schema.array(tool.schema.string().min(1).max(512)).max(20),
       evidenceDigest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
     }).optional(),
   },
@@ -417,6 +437,7 @@ export const improvement_update = tool({
       paths: args.paths,
       autonomous: args.autonomous,
       readiness: args.readiness,
+      discovery: args.discovery,
     }, context.worktree, true)
   },
 })

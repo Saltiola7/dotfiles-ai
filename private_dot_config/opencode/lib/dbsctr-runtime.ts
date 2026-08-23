@@ -479,7 +479,9 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
       && exactKeys(candidate.telemetry.availability, expectedAvailability) && Array.isArray(candidate.cycles)
       && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegativeInteger(candidate.snapshot)
       && nonnegativeInteger(candidate.session_ceiling) && nonnegativeInteger(candidate.part_ceiling)
-      && digest.test(candidate.database_digest) && digest.test(candidate.project_digest) && id.test(candidate.context)
+      && digest.test(candidate.database_digest)
+       && typeof candidate.project_digest === "string"
+       && (candidate.project_digest === "unavailable" || digest.test(candidate.project_digest)) && id.test(candidate.context)
       && (candidate.completed_at === null || typeof candidate.completed_at === "string"
         && /^(?:\d{10,16}|\d{4}-\d{2}-\d{2}T\S{1,40}Z)$/.test(candidate.completed_at))
       && ["reviewed", "unreviewed"].includes(candidate.reviewed_status)
@@ -781,7 +783,7 @@ export async function vmHandoff(report: {
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
   const source = `${home}/.local/share/chezmoi-dotfiles-ai`
-  const prompt = `Approved host R&D handoff. Execute the approved decisions and start a separate DBSCTR draft-PR cycle. ${serialized}`
+  const prompt = `Approved host R&D handoff. Register and claim the current guest session under worker ${report.worker_id} before starting its separate DBSCTR draft-PR cycle; this guest projection owns the implementation report. Execute the approved decisions. ${serialized}`
   const workspaceOutput = await runBounded(["limactl", "shell", instance, "--", "herdr", "workspace", "create",
     "--cwd", source, "--label", "DBSCTR Handoff", "--no-focus"], cwd, 120_000)
   let workspace: any
@@ -796,6 +798,8 @@ export async function vmHandoff(report: {
   if (typeof paneID !== "string" || !id.test(paneID)
       || typeof workspaceID !== "string" || !id.test(workspaceID)
       || !paneID.startsWith(`${workspaceID}:`)) throw new Error("VM Herdr returned no workspace pane")
+  await runBounded(["limactl", "shell", instance, "--", "herdr", "pane", "run", paneID,
+    `export DBSCTR_IMPROVEMENT_WORKER_ID=${report.worker_id}`], cwd, 120_000)
   const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "DBSCTR Handoff",
     "--kind", "opencode", "--pane", paneID, "--timeout", "120000", "--",
     "run", "--agent", "build", "--interactive", prompt], cwd, 180_000)
@@ -1042,12 +1046,28 @@ export async function improvementStatus(workerID?: string, cwd = process.cwd()) 
   ], cwd)
 }
 
-export async function improvementClaim(sessionID: string, summary: string, priority: "P0" | "P1" | "P2" | "P3", cwd = process.cwd()) {
+export async function improvementClaim(sessionID: string, summary: string, priority: "P0" | "P1" | "P2" | "P3",
+  cwd = process.cwd(), kind: "fix" | "feature" | "process" = "fix", measurementPlan?: {
+    hypothesis: string
+    baseline: string
+    metric: string
+    procedure: string
+    successThreshold: string
+    evidencePath: string
+  }) {
+  if ((kind === "feature") !== (measurementPlan !== undefined))
+    throw new Error("feature improvement claims require exactly one measurement plan")
   return await run([
     "dbsctrctl", "improvement-claim",
     "--session-id", sessionID,
     "--summary", summary,
     "--priority", priority,
+    ...(kind === "fix" ? [] : ["--kind", kind]),
+    ...(measurementPlan === undefined ? [] : ["--measurement-plan-json", JSON.stringify({
+      schema_version: 1, hypothesis: measurementPlan.hypothesis, baseline: measurementPlan.baseline,
+      metric: measurementPlan.metric, procedure: measurementPlan.procedure,
+      success_threshold: measurementPlan.successThreshold, evidence_path: measurementPlan.evidencePath,
+    })]),
   ], cwd)
 }
 
@@ -1063,8 +1083,15 @@ export async function improvementUpdate(workerID: string, args: {
     workerId: string
     sessionId?: string
     opportunityId: string
-    risk: "routine" | "elevated"
+    risk: "routine" | "elevated" | "critical"
     materialQuestionsResolved: true
+    evidenceDigest: string
+  }
+  discovery?: {
+    interview: { question: string, answer: string }[]
+    assumptions: string[]
+    citations: string[]
+    risks: string[]
     evidenceDigest: string
   }
 }, cwd = process.cwd(), bySession = false) {
@@ -1079,6 +1106,10 @@ export async function improvementUpdate(workerID: string, args: {
       opportunity_id: value.opportunityId,
       risk: value.risk, material_questions_resolved: value.materialQuestionsResolved,
       evidence_digest: value.evidenceDigest,
+    }))
+    else if (name === "discovery" && value !== undefined) argv.push("--discovery-json", JSON.stringify({
+      schema_version: 1, interview: value.interview, assumptions: value.assumptions,
+      citations: value.citations, risks: value.risks, evidence_digest: value.evidenceDigest,
     }))
     else if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
   }

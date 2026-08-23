@@ -1672,7 +1672,7 @@ def watchdog():
     current_workers = {worker["worker_id"]: worker for worker in workers}
     merge_identities = {}
     actionable = [worker for worker in workers
-                  if not (worker["state"] == "claimed" and worker.get("priority") != "P1")]
+                  if not (worker["state"] == "claimed" and worker.get("priority") not in {"P0", "P1"})]
     agents = (records(command([HERDR, "agent", "list"]), "agents") if actionable else [])
     token = None
     events = []
@@ -1689,7 +1689,7 @@ def watchdog():
         if worker["state"] == "blocked":
             events.append({"worker_id": worker["worker_id"], "status": "blocked"})
             continue
-        if worker["state"] == "claimed" and worker.get("priority") != "P1":
+        if worker["state"] == "claimed" and worker.get("priority") not in {"P0", "P1"}:
             events.append({"worker_id": worker["worker_id"], "status": "waiting_priority"})
             continue
         matches = [agent for agent in agents

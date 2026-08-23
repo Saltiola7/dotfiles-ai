@@ -970,11 +970,13 @@ def test_federation_rejects_malformed_scalar_values() -> None:
     candidate = history_candidate(helper)
     assert helper._valid_candidate(candidate)
     assert helper._valid_candidate({**candidate, "method_revision": "unavailable"})
+    assert helper._valid_candidate({**candidate, "project_digest": "unavailable"})
     for key, value in (
         ("context", "/etc/passwd"),
         ("context", "person@example.com"),
         ("context", "password=private"),
         ("database_digest", "not-a-digest"),
+        ("project_digest", "not-a-digest"),
         ("session_id", "bad/session"),
         ("snapshot", True),
         ("snapshot", 1.5),

@@ -934,8 +934,11 @@ def _valid_candidate(candidate):
     if (candidate.get("schema_version") != 1 or not ID.fullmatch(candidate.get("session_id", ""))
             or not all(_nonnegative_integer(candidate.get(name))
                        for name in ("snapshot", "session_ceiling", "part_ceiling"))
-            or not all(isinstance(candidate.get(name), str) and DIGEST.fullmatch(candidate[name])
-                       for name in ("database_digest", "project_digest"))
+            or not isinstance(candidate.get("database_digest"), str)
+            or not DIGEST.fullmatch(candidate["database_digest"])
+            or candidate.get("project_digest") != "unavailable"
+            and (not isinstance(candidate.get("project_digest"), str)
+                 or not DIGEST.fullmatch(candidate["project_digest"]))
             or not isinstance(candidate.get("context"), str) or not ID.fullmatch(candidate["context"])
             or candidate.get("completed_at") is not None
             and (not isinstance(candidate["completed_at"], str)

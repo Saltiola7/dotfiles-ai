@@ -595,14 +595,17 @@ feature branch with a draft pull request; the operator retains merge authority.
   enter Discovery under durable `autonomous` authorization only when the canonical
   readiness and Discovery receipts name the exact worker, session, opportunity,
   and immutable successful lens-pass manifest. P0 requires critical risk; P1
-  requires routine or elevated risk. P2/P3 remain claimed until promotion.
+  requires routine or elevated risk. P2/P3 remain claimed until promotion; promotion
+  atomically changes priority to P1 and enters Discovery, while implementation still
+  requires a persisted interview report.
   Unresolved questions, missing evidence, tampering, and replay block. Final Push
-  generates a draft URL, changed-path set, diff digest, and passed-gate report;
+  generates a draft URL, changed-path set and diff digest relative to the verified
+  current pull-request base, and passed-gate report;
   automation never merges or deploys it.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
   or delivers a worker. An operator may explicitly confirm the exact worker ID of
   a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
-  `discovery` without launching or resuming a worker. Every other state fails
+  `discovery`, where implementation waits for its persisted interview. Every other state fails
   closed. [`DAI-020.md`](DAI-020.md) owns the detailed contract.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
@@ -626,6 +629,12 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given autonomous readiness or explicit operator proceed and passing DBSCTR
   gates, then the worker pushes only its isolated feature branch and creates a
   draft pull request. It never merges, marks ready, releases, or deploys.
+- Given an approved host worker hands implementation to a VM, then the guest
+  registers and claims its current session under the same worker ID before starting
+  the cycle. The handoff exports that worker ID into the guest pane; cycle start
+  fails unless its session is a Discovery-ready projection, records the exact
+  opportunity, and Final Push fails unless that full binding receives the report. Host and guest
+  ledgers never share mutable state.
 - Given a candidate signal may benefit from related source evidence, then the
   worker may query `dks_context` for bounded untrusted citation metadata, verifies
   useful citations against source, and continues from authoritative DBSCTR evidence
