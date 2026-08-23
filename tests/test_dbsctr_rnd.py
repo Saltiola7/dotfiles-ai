@@ -105,13 +105,16 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
 
 
 def test_hermes_templates_are_profile_local_and_valid_bash():
-    installer = render("run_once_before_install-hermes.sh.tmpl")
+    installer = render("run_onchange_before_install-hermes.sh.tmpl")
     configure = render("run_onchange_after_configure-hermes.sh.tmpl")
     catalog = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl").read_text()
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
     assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
+    assert 'UV_TOOL_DIR="$HOME/.local/share/uv/tools"' in installer
+    assert 'uv tool install --force "$wheel"' in installer
+    assert '"$target" != /Volumes/*' in installer
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
     assert 'managed_home="$HERMES_HOME/managed"' in configure

@@ -2,6 +2,7 @@
 # supervisor: {{ include "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
 # maintenance: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py" | sha256sum }}
 # catalog: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl" | sha256sum }}
+# installer: {{ include "run_onchange_before_install-hermes.sh.tmpl" | sha256sum }}
 # profile: {{ .dotfiles_ai.hermes.profile }}
 # backend: {{ .dotfiles_ai.rnd.backend }}
 
