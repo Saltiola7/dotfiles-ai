@@ -1,5 +1,19 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-23 - Paced OpenCode Session Recovery
+
+- Added Herdr-only `--auto`, stale-safe five-second session-start pacing, exact
+  session parsing with trailing flags, serialized restore helpers, and resilient
+  manifest watching.
+- Passed 78 affected tests, rendered syntax checks, and independent review with
+  no actionable findings.
+- Applied and verified the three managed executables, recovered 45 stalled exact
+  sessions, and verified 46 unique rendered `--auto` sessions while preserving
+  Herdr owner/server PIDs `2974` and `3109`.
+- Left the duplicate pane open at its shell while retaining that session identity
+  in the active operator pane. Gate commits: `01ef8fa`, `828c539`, `36715c4`,
+  `1980b9b`.
+
 ## 2026-08-22 - Native Herdr Ownership
 
 - Pinned and installed native Herdr 0.8.2 under `~/.local/bin` with SHA-256
