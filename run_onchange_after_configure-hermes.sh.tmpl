@@ -16,6 +16,28 @@ HERMES_HOME="$HOME/.hermes"
 {{ end -}}
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
 
+mkdir -p "$state"
+chmod 700 "$state"
+lock="$state/configure.lock"
+if [[ $(uname) == Darwin ]]; then
+    /usr/bin/shlock -p $$ -f "$lock" || exit 0
+else
+    exec 9>"$lock"
+    flock -n 9 || exit 0
+fi
+trap 'rm -f "$lock"' EXIT
+
+gateway_ready() {
+    if [[ $(uname) == Darwin ]]; then
+        /bin/launchctl print "gui/$(id -u)/ai.hermes.gateway-$PROFILE" 2>/dev/null \
+            | /usr/bin/grep -q 'state = running'
+    else
+        local status
+        status=$("$HERMES" -p "$PROFILE" gateway status --deep 2>&1) || return 1
+        ! /usr/bin/grep -Eqi 'not running|will NOT fire|stale' <<<"$status"
+    fi
+}
+
 pause_owned() {
     [[ -x "$HERMES" ]] || return 0
     for file in "$state"/*-cron-id; do
@@ -79,13 +101,15 @@ replace_job "$state/refinement-cron-id" "every 5m" \
 replace_job "$state/maintenance-cron-id" "0 3 * * *" \
     "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"
 
-"$HERMES" -p "$PROFILE" gateway install
+"$HERMES" -p "$PROFILE" gateway install --force --no-start-now
 {{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
 for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron resume "$id"; done
 {{ else -}}
 for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron pause "$id"; done
 {{ end -}}
 "$HERMES" -p "$PROFILE" gateway start
+for _ in {1..50}; do gateway_ready && break; sleep 0.1; done
+gateway_ready || { echo "Hermes gateway did not become ready" >&2; exit 1; }
 {{ if .dotfiles_ai.hermes.project_profiles -}}
 "$profile_home/scripts/dbsctr-catalog.py"
 {{ end -}}

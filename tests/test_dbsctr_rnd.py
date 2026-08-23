@@ -98,6 +98,7 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
                     values(backend="hermes"))
     subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
     assert "gateway status" in loader
+    assert "launchctl print" in loader and "state = running" in loader
     assert "*-cron-id" in loader
     assert "remove_job dev.dotfiles-ai.dbsctr-spawner" in loader
     assert loader.index("gateway status") < loader.index("launchctl bootstrap")
@@ -117,6 +118,10 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "config set model.default openai-codex/gpt-5.6-sol" in configure
     assert "config get model.provider" in configure
     assert "config get model.default" in configure
+    assert "gateway install --force" in configure
+    assert "/usr/bin/shlock -p $$" in configure and "flock -n 9" in configure
+    assert 'rm -f "$lock"' in configure
+    assert "launchctl print" in configure and "state = running" in configure
     assert '"config", "get", "model.provider"' in catalog
     assert '"config", "get", "model.default"' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
@@ -134,6 +139,7 @@ def test_supervisor_uses_argparse_safe_direct_launch_command():
         "--repository-id REPOSITORY_ID launch"
     ) in skill
     assert "dbsctr-rnd --reservation RESERVATION --reason prelaunch_failed release" in skill
+    assert "Repeatedly run `dbsctr-rnd reserve` until a no-op" in skill
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
@@ -857,6 +863,25 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     for lens, (reservation, _worker) in attempts.items():
         if lens not in {"correctness_safety", "reliability_recovery", runner["REVIEW_SESSION_LENS"]}:
             runner["release_reservation"](reservation)
+
+
+def test_parallel_lenses_reclaim_absent_expired_worker(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "parallel-stale-worker")
+    now = 1_704_067_200
+    reservation, lens, _ = runner["reserve_parallel_lens"]([], now)
+    runner["claim_reservation"](reservation, "worker-stale", now)
+    runner["complete_reservation"](reservation, "worker-stale", session_id="session-stale")
+
+    replacement, replacement_lens, reason = runner["reserve_parallel_lens"](
+        [], now + runner["RESERVATION_LEASE_SECONDS"] + 1
+    )
+
+    assert reason == "reserved" and replacement_lens == lens and replacement != reservation
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select count(*) from spawn_reservations where reservation_id=?", (reservation,)
+    ).fetchone() == (0,)
+    connection.close()
 
 
 def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeypatch):
