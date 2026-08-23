@@ -3,9 +3,13 @@ import json
 import hashlib
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
+import time
 
 HERMES = str(Path({{ .dotfiles_ai.hermes.executable | quote }}).expanduser())
 BASE_PROFILE = {{ .dotfiles_ai.hermes.profile | quote }}
@@ -14,6 +18,8 @@ BACKEND = {{ .dotfiles_ai.rnd.backend | quote }}
 SCHEDULE = {{ printf "%d %d * * *" .dotfiles_ai.rnd.review_minute .dotfiles_ai.rnd.review_hour | quote }}
 HOME = Path.home()
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", HOME / ".hermes"))
+STATE_ROOT = os.environ.get("DOTFILES_AI_STATE_ROOT", "")
+MANAGED_HOME = Path(STATE_ROOT) / "hermes/managed" if STATE_ROOT else HOME / ".hermes/managed"
 os.umask(0o077)
 
 
@@ -21,10 +27,53 @@ def run(*argv, output=False, check=True):
     return subprocess.run(argv, check=check, text=True, capture_output=output)
 
 
+def refresh_gateway(profile):
+    run(HERMES, "-p", profile, "gateway", "install", "--force", "--no-start-now")
+    if os.uname().sysname != "Darwin":
+        run(HERMES, "-p", profile, "gateway", "start")
+        return
+    path = HOME / f"Library/LaunchAgents/ai.hermes.gateway-{profile}.plist"
+    payload = plistlib.loads(path.read_bytes())
+    arguments = payload.get("ProgramArguments")
+    if not isinstance(arguments, list) or not arguments or not all(isinstance(item, str) for item in arguments):
+        raise RuntimeError("invalid Hermes project gateway arguments")
+    if STATE_ROOT:
+        wrapper = str(HOME / ".local/bin/state-root-exec")
+        if not Path(wrapper).is_file():
+            raise RuntimeError("Hermes project gateway trampoline is missing")
+        if arguments[0] != wrapper:
+            arguments.insert(0, wrapper)
+        environment = payload.setdefault("EnvironmentVariables", {})
+        if not isinstance(environment, dict):
+            raise RuntimeError("invalid Hermes project gateway environment")
+        environment["DOTFILES_AI_STATE_ROOT"] = STATE_ROOT
+    payload.pop("WorkingDirectory", None)
+    logs = HOME / "Library/Logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    payload["StandardOutPath"] = str(logs / f"hermes-gateway-{payload['Label']}.log")
+    payload["StandardErrorPath"] = str(logs / f"hermes-gateway-{payload['Label']}.err.log")
+    mode = stat.S_IMODE(path.stat().st_mode)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+        plistlib.dump(payload, output)
+        output.flush()
+        os.fsync(output.fileno())
+    os.chmod(output.name, mode)
+    os.replace(output.name, path)
+    label = f"gui/{os.getuid()}/ai.hermes.gateway-{profile}"
+    run("/bin/launchctl", "bootout", label, check=False)
+    run("/bin/launchctl", "bootstrap", f"gui/{os.getuid()}", str(path))
+    for _ in range(50):
+        status = run("/bin/launchctl", "print", label, output=True, check=False)
+        if status.returncode == 0 and "state = running" in status.stdout:
+            return
+        time.sleep(0.1)
+    raise RuntimeError("Hermes project gateway did not become ready")
+
+
 catalog = json.loads(run("dbsctr-rnd", "repositories", output=True).stdout)
 if catalog != {**catalog, "project_profiles": True} or len(catalog["repositories"]) > 128:
     raise SystemExit("invalid project catalog")
-managed_skill = HOME / ".hermes/managed/skills/dbsctr-supervisor/SKILL.md"
+managed_skill = MANAGED_HOME / "skills/dbsctr-supervisor/SKILL.md"
 base_env = HERMES_HOME / f"profiles/{BASE_PROFILE}/.env"
 state_root = HOME / f".local/state/dotfiles-ai/hermes-{BASE_PROFILE}/projects"
 state_root.mkdir(parents=True, exist_ok=True)
@@ -76,7 +125,7 @@ for item in catalog["repositories"]:
     digest = hashlib.sha256(f"{profile}\0{repository}\0{SCHEDULE}\0{prompt}\0{BACKEND}".encode()).hexdigest()
     if re.fullmatch(r"[0-9a-f]{12}", old_id) and spec_file.exists() and spec_file.read_text().strip() == digest:
         run(HERMES, "-p", profile, "cron", "resume" if BACKEND == "hermes" else "pause", old_id)
-        run(HERMES, "-p", profile, "gateway", "start")
+        refresh_gateway(profile)
         continue
     created = run(HERMES, "-p", profile, "cron", "create", SCHEDULE, prompt,
                   "--deliver", "local", "--name", "dotfiles-ai project refinement", output=True).stdout
@@ -92,10 +141,9 @@ for item in catalog["repositories"]:
     os.chmod(id_file, 0o600)
     os.chmod(spec_file, 0o600)
     os.chmod(profile_file, 0o600)
-    run(HERMES, "-p", profile, "gateway", "install")
     if BACKEND == "hermes":
         run(HERMES, "-p", profile, "cron", "resume", new_id)
-    run(HERMES, "-p", profile, "gateway", "start")
+    refresh_gateway(profile)
 
 for project_state in state_root.iterdir():
     if not project_state.is_dir() or project_state.name in active:

@@ -5,12 +5,12 @@ slug: "manage-native-herdr-with-process-preserving-upgrades"
 context: "shell_auth_startup"
 title: "Manage native Herdr with process-preserving upgrades"
 kind: "task"
-state: "completed"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
 relations:
-  - "AUTH-011"
+  - "related:AUTH-011"
 owns:
   - ".chezmoidata.toml"
   - "config.example.toml"
@@ -30,12 +30,18 @@ commits:
   - "12f402a"
   - "9020e21"
 jira_publications: []
+migration: null
 ---
 
 ## Outcome
 
 Chezmoi owns the pinned native Herdr installation and upgrades a running server
 through live handoff without terminating pane processes.
+
+## Context
+
+The prior LaunchAgent handoff could preserve pane processes but did not keep the
+replacement server durable after the initiating process exited.
 
 ## Scope
 
@@ -53,6 +59,11 @@ through live handoff without terminating pane processes.
 - Active servers defer LaunchAgent reconciliation until a natural login or reboot.
 - A managed LaunchAgent owner remains alive across handoff, tolerates transient probe failures, and makes unexpected server disappearance restartable.
 - Focused tests and live migration evidence cover installation, rollback, pane count, process identity, and runtime health.
+
+## Evidence
+
+- Commits `12f402a` and `9020e21` define and implement the managed native handoff.
+- The affected test suite and live process-preservation soak passed.
 
 ## Risks
 

@@ -19,6 +19,11 @@ export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
 {{ end -}}
 mkdir -p "$HOME/Library/Logs"
 
+gateway_ready() {
+    /bin/launchctl print "$DOMAIN/ai.hermes.gateway-$PROFILE" 2>/dev/null \
+        | /usr/bin/grep -q 'state = running'
+}
+
 remove_job() {
     local label=$1 plist=$2 plist_label
     /bin/launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
@@ -43,6 +48,7 @@ exit 0
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
 [[ -f "$state/cutover-ready" ]] || { echo "Hermes cutover receipt is missing" >&2; exit 1; }
 "$HERMES" -p "$PROFILE" gateway status >/dev/null
+gateway_ready || { echo "Hermes gateway is not running" >&2; exit 1; }
 jobs=$("$HERMES" -p "$PROFILE" cron list)
 for file in "$state"/*-cron-id; do
     [[ -f "$file" ]] || { echo "Hermes cron identity is missing" >&2; exit 1; }

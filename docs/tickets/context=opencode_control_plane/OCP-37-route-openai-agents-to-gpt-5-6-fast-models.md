@@ -24,12 +24,23 @@ completed: null
 commits:
   - "d49c9b48359f715de04b3fac470d7d2f5287a5f0"
 jira_publications: []
+migration: null
 ---
 
 ## Outcome
 
 Use GPT-5.6 Sol Fast for OpenAI primary and review work, Luna Fast for exploration
 and disposable small-model work, and Terra Fast for scouting and bounded builds.
+
+## Context
+
+OpenAI-affine agents previously used standard GPT-5.6 identities rather than the
+configured priority-processing variants.
+
+## Scope
+
+Update only managed OpenAI model identities and their focused routing evidence;
+preserve provider affinity, permissions, and Claude routes.
 
 ## Acceptance Criteria
 
@@ -49,3 +60,8 @@ standard token rates. Existing cost-report estimates do not yet include Fast IDs
 - `uv run --group test pytest -q tests/test_opencode_control_plane.py tests/test_portable_distribution.py`: 53 passed.
 - Targeted `chezmoi` deployment produced no remaining diff for managed OpenCode routing targets.
 - Fresh `opencode debug config` and `opencode debug agent` calls resolved the exact Fast identities and preserved efforts.
+
+## Review
+
+Focused tests and deployed model-resolution checks passed with no routing changes
+outside the owned OpenAI identities.

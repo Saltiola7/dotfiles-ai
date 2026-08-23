@@ -157,6 +157,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Six source-controlled lenses, one lens per worker, all-source full-history review, per-lens yield/backoff, autonomous noncritical Discovery, and lens-governance telemetry |
 | Overrides | Only `review_session_governance` may review prior autonomous review sessions; P0 or materially uncertain work blocks; Git merge, readiness, release, and deployment remain human-controlled |
 
+### DAI-021-F1 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: repairs the continuously running local R&D dispatcher and its launch service |
+| Delivery intent | Restore and deploy six-lens Hermes scheduling locally, then publish a draft pull request |
+| Scope | Gateway service refresh and readiness, serialized managed cron replacement, stale-attempt recovery, and one controlled exhaustion pass |
+| Overrides | Preserve one lens per native Build worker and existing cadence; no new scheduler, lens, model authority, merge, release, or remote deployment |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -516,6 +525,16 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given the five-minute Hermes fill schedule fires, then it reserves and launches
   each eligible lens sequentially until no slot remains; registered OpenCode
   workers continue in parallel without requiring Herdr.
+- Given the Hermes executable moves or its LaunchAgent becomes stale, then managed
+  configuration force-refreshes the service definition and records cutover readiness
+  only after launchd reports the profile gateway running. When the runtime lives on
+  the centralized external state volume, launchd enters through the existing local
+  state-root trampoline before executing Hermes. Concurrent configuration exits
+  without creating duplicate managed cron jobs.
+- Given a pending lens attempt is older than its lease and its worker is absent from
+  the authoritative improvement ledger, then the next reservation tick removes that
+  stale ownership before selecting eligible lenses. `no_lens_due` therefore follows
+  reconciliation rather than preserving orphaned attempts.
 - Failed dispatch releases its reservation without advancing cadence. Successful
   registration preserves exactly one active review attempt per lens; concurrent
   ticks cannot duplicate a lens slot.

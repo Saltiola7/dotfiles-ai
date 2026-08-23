@@ -473,10 +473,15 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
         [wrapper, "--auto"], text=True, capture_output=True, check=True,
         env={**os.environ, "HERDR_ENV": "1"},
     )
+    administrative = subprocess.run(
+        [wrapper, "session", "list"], text=True, capture_output=True, check=True,
+        env={**os.environ, "HERDR_ENV": "1"},
+    )
 
     assert plain.stdout.splitlines() == ["plain"]
     assert herdr.stdout.splitlines() == ["herdr", "--auto"]
     assert explicit.stdout.splitlines() == ["--auto"]
+    assert administrative.stdout.splitlines() == ["session", "list"]
 
     startup_dir = state / "herdr"
     startup_dir.mkdir()

@@ -7,13 +7,25 @@ exit 0
 
 HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
+needs_install=true
 if [[ -x "$HERMES" ]]; then
     "$HERMES" --version | /usr/bin/grep -q '0\.19\.0' \
         || { echo "unsupported Hermes version; update manually through a reviewed cycle" >&2; exit 1; }
-    exit 0
+    target=$(readlink "$HERMES" 2>/dev/null || true)
+    runtime=$(readlink "${target%/*}/python" 2>/dev/null || true)
+    if [[ $(uname) != Darwin || ( "$target" != /Volumes/* && "$runtime" != /Volumes/* ) ]]; then
+        needs_install=false
+    fi
 fi
+[[ "$needs_install" == true ]] || exit 0
 command -v curl >/dev/null || { echo "curl is required to install Hermes" >&2; exit 1; }
 command -v uv >/dev/null || { echo "uv is required to install Hermes" >&2; exit 1; }
+if [[ $(uname) == Darwin ]]; then
+    export UV_TOOL_DIR="$HOME/.local/share/uv/tools"
+    export UV_TOOL_BIN_DIR="${HERMES%/*}"
+    export UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"
+    uv python install 3.13.2
+fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/hermes-agent.XXXXXX")
 wheel="$tmp/hermes_agent-0.19.0-py3-none-any.whl"
 trap '/bin/rm -rf "$tmp"' EXIT
@@ -23,6 +35,6 @@ if command -v sha256sum >/dev/null; then
 else
     printf '%s  %s\n' bd0bac012aee38a60894781f4597dc29ee7bedb3448540249921f10d3bef327f "$wheel" | shasum -a 256 -c -
 fi
-uv tool install "$wheel"
+uv tool install --force --python 3.13.2 "$wheel"
 [[ -x "$HERMES" ]] || { echo "Hermes installation did not create $HERMES" >&2; exit 1; }
 "$HERMES" --version | /usr/bin/grep -q '0\.19\.0' || { echo "unsupported Hermes version" >&2; exit 1; }

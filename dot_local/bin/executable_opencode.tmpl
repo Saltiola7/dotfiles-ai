@@ -21,7 +21,7 @@ if [[ -n ${HERDR_ENV:-} ]]; then
         [[ $argument == --auto ]] && auto=1
         [[ $argument == --session || $argument == --session=* ]] && session=1
     done
-    [[ $auto == 1 ]] || set -- "$@" --auto
+    [[ $auto == 1 || ( ${1:-} == session && ${2:-} == list ) ]] || set -- "$@" --auto
 
     if [[ $session == 1 ]]; then
         startup_dir=${DOTFILES_AI_STATE_ROOT:-${TMPDIR:-/tmp}}/herdr
