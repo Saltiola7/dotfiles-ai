@@ -389,8 +389,14 @@ CREATE TABLE IF NOT EXISTS dks.ranking_policies (
     code_embedding_space_id text,
     graph_artifact_sha256 text,
     reranker_manifest_sha256 text CHECK (reranker_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+    evidence_class text NOT NULL DEFAULT 'baseline'
+        CHECK (evidence_class IN ('baseline','human','silver')),
+    trial_expires_at timestamptz,
     active boolean NOT NULL DEFAULT false,
     activated_at timestamptz,
+    CHECK ((policy_id='dks-rrf-v1' AND evidence_class='baseline' AND trial_expires_at IS NULL)
+        OR (policy_id='dks-quality-v2' AND evidence_class='human' AND trial_expires_at IS NULL)
+        OR (policy_id='dks-quality-v2' AND evidence_class='silver' AND trial_expires_at IS NOT NULL)),
     PRIMARY KEY (project_id, activation_id),
     FOREIGN KEY (project_id, code_embedding_space_id)
         REFERENCES dks.code_embedding_spaces(project_id, embedding_space_id)
@@ -409,6 +415,33 @@ ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS privacy_sequence numer
     CHECK (privacy_sequence >= 0);
 ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS privacy_digest text
     CHECK (privacy_digest ~ '^[0-9a-f]{64}$');
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS evidence_class text;
+ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS trial_expires_at timestamptz;
+UPDATE dks.ranking_policies SET evidence_class=CASE
+    WHEN policy_id='dks-rrf-v1' THEN 'baseline' ELSE 'human' END
+WHERE evidence_class IS NULL;
+ALTER TABLE dks.ranking_policies ALTER COLUMN evidence_class SET DEFAULT 'baseline';
+ALTER TABLE dks.ranking_policies ALTER COLUMN evidence_class SET NOT NULL;
+DO $ranking_trial$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname='ranking_policies_evidence_class_check'
+                     AND conrelid='dks.ranking_policies'::regclass) THEN
+        ALTER TABLE dks.ranking_policies
+            ADD CONSTRAINT ranking_policies_evidence_class_check CHECK (
+                evidence_class IN ('baseline','human','silver'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname='ranking_policies_trial_check'
+                     AND conrelid='dks.ranking_policies'::regclass) THEN
+        ALTER TABLE dks.ranking_policies
+            ADD CONSTRAINT ranking_policies_trial_check CHECK (
+                (policy_id='dks-rrf-v1' AND evidence_class='baseline' AND trial_expires_at IS NULL)
+                OR (policy_id='dks-quality-v2' AND evidence_class='human' AND trial_expires_at IS NULL)
+                OR (policy_id='dks-quality-v2' AND evidence_class='silver' AND trial_expires_at IS NOT NULL));
+    END IF;
+END
+$ranking_trial$;
 
 DO $constraints$
 BEGIN

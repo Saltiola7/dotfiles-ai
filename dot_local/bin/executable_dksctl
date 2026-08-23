@@ -2,6 +2,7 @@
 import argparse
 import csv
 import fcntl
+import hmac
 import hashlib
 import io
 import json
@@ -17,6 +18,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 import urllib.parse
@@ -46,6 +48,7 @@ BENCHMARK_QUERY_STRATA = (
     "tickets_history", "configuration_tooling",
 )
 DKS_005_SOURCE_REVISION = "0975428470e53282545676cbd3bf261a91aecb77"
+SILVER_TRIAL_SECONDS = 604800
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -768,7 +771,7 @@ def quality_candidates(channels, limit=50):
 
 
 def quality_rank(channels, metadata, query, rerank_scores=None, limit=10):
-    fused = quality_candidates(channels)
+    fused = quality_candidates(channels, max(50, limit))
     exact_ids = set(channels.get("exact", []))
     pinned = [item for item in fused if item["id"] in exact_ids]
     remainder = [item for item in fused if item["id"] not in exact_ids]
@@ -1231,7 +1234,11 @@ SELECT json_build_object(
       'runtime_sha256',g.runtime_sha256,'producer_sha256',g.producer_sha256)
     FROM dks.graph_imports g WHERE g.project_id=p.project_id AND g.state='active')
   ,'ranking_policy', (SELECT policy_id FROM dks.ranking_policies q
-                      WHERE q.project_id=p.project_id AND q.active)
+                       WHERE q.project_id=p.project_id AND q.active)
+  ,'ranking_evidence_class', (SELECT evidence_class FROM dks.ranking_policies q
+                       WHERE q.project_id=p.project_id AND q.active)
+  ,'trial_expires_at', (SELECT extract(epoch FROM trial_expires_at)::bigint FROM dks.ranking_policies q
+                       WHERE q.project_id=p.project_id AND q.active)
 )::text FROM dks.projects p WHERE p.project_id=current_setting('dks.project_id');
 """)
     if not lines:
@@ -1361,12 +1368,16 @@ def command_doctor(args, config, project):
                 "failures": [], "status": None}
     failures = []
     try:
+        ensure_quality_policy(config, args.project)
+    except (ValueError, RuntimeError, subprocess.SubprocessError):
+        failures.append("ranking_policy_unavailable")
+    try:
         status = command_status(args, config, project)
     except (ValueError, RuntimeError, subprocess.SubprocessError):
         return {"schema_version": 1, "project": args.project, "enabled": settings["enabled"],
                 "target_revision": None, "healthy": False,
                 "failures": ["database_unavailable"], "status": None}
-    if status.get("migration") != 5:
+    if status.get("migration") != 6:
         failures.append("schema_unavailable")
     try:
         active_ranking_policy(config, args.project)
@@ -1432,17 +1443,28 @@ SELECT json_build_object('activation_id',activation_id,'policy_id',policy_id,
   'current_privacy_digest',(SELECT privacy_digest FROM dks.privacy_state s WHERE s.project_id=ranking_policies.project_id),
   'code_embedding_space_id',code_embedding_space_id,
   'graph_artifact_sha256',graph_artifact_sha256,
-  'reranker_manifest_sha256',reranker_manifest_sha256)::text
+  'reranker_manifest_sha256',reranker_manifest_sha256,
+  'evidence_class',evidence_class,
+  'trial_expires_at',extract(epoch FROM trial_expires_at)::bigint::text,
+  'trial_expired',coalesce(trial_expires_at <= now(),false))::text
 FROM dks.ranking_policies WHERE project_id=current_setting('dks.project_id') AND active;
 """
     lines = session.execute(sql) if session else run_psql(config, project_id, sql)
     if len(lines) != 1:
         raise RuntimeError("active ranking policy is unavailable")
     policy = json.loads(lines[0])
+    evidence_class = policy.get("evidence_class")
     if (policy.get("policy_id") not in {"dks-rrf-v1", "dks-quality-v2"}
             or not SHA256_RE.fullmatch(policy.get("manifest_sha256", ""))
+            or (policy["policy_id"] == "dks-rrf-v1"
+                and (evidence_class != "baseline" or policy.get("trial_expires_at") is not None))
             or (policy["policy_id"] == "dks-quality-v2"
-                and (not SHA256_RE.fullmatch(policy.get("benchmark_sha256") or "")
+                and (evidence_class not in {"human", "silver"}
+                     or (evidence_class == "human" and policy.get("trial_expires_at") is not None)
+                     or (evidence_class == "silver"
+                         and (not str(policy.get("trial_expires_at") or "").isdigit()
+                              or policy.get("trial_expired") is not False))
+                     or not SHA256_RE.fullmatch(policy.get("benchmark_sha256") or "")
                      or not SHA256_RE.fullmatch(policy.get("benchmark_aggregate_sha256") or "")
                      or not SHA256_RE.fullmatch(policy.get("activation_id") or "")
                      or not COMMIT_RE.fullmatch(policy.get("source_revision_id") or "")
@@ -1457,6 +1479,35 @@ FROM dks.ranking_policies WHERE project_id=current_setting('dks.project_id') AND
                 policy.get("graph_artifact_sha256"), policy.get("reranker_manifest_sha256")))):
         raise RuntimeError("active ranking policy identity is invalid")
     return policy
+
+
+def ensure_quality_policy(config, project_id):
+    with PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(project_id)};")
+        for lock_name in (project_id, project_id + ":code", project_id + ":authority"):
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(lock_name)}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("quality policy lock unavailable")
+        session.execute("BEGIN;")
+        session.execute("SELECT activation_id FROM dks.ranking_policies "
+                        "WHERE project_id=current_setting('dks.project_id') AND active FOR UPDATE;")
+        try:
+            policy = active_ranking_policy(config, project_id, session)
+            validate_quality_projection(config, project_id, policy, session)
+            if policy["policy_id"] == "dks-quality-v2" and policy["evidence_class"] == "silver":
+                if policy.get("code_embedding_space_id"):
+                    validate_code_embedding_config(config)
+                    validate_service_health(config, "code_embedding")
+                if policy.get("reranker_manifest_sha256"):
+                    validate_reranker_config(config, policy["reranker_manifest_sha256"])
+                    validate_service_health(config, "reranker")
+        except (ValueError, RuntimeError):
+            session.execute("\n".join(ranking_fallback_statements(project_id)))
+            session.execute("COMMIT;")
+            return {"ranking_policy": "dks-rrf-v1", "state": "restored"}
+        session.execute("COMMIT;")
+    return {"ranking_policy": policy["policy_id"], "state": "active"}
 
 
 def imported_graph_channel(config, project_id, artifact, seed_ids, session=None):
@@ -1560,10 +1611,39 @@ def graph_channel(project_id, seed_ids, edges, nodes, chunks):
     return ordered
 
 
+def silver_benchmark_policy(args, config, session):
+    system = getattr(args, "benchmark_system", None)
+    if system not in {"baseline", "code", "reranker", "code_reranker"}:
+        raise ValueError("silver benchmark system is invalid")
+    rows = session.execute(f"""
+SELECT json_build_object('revision',p.active_revision_id,'graph_artifact',(
+  SELECT artifact_sha256 FROM dks.graph_imports g WHERE g.project_id=p.project_id
+    AND g.revision_id=p.active_revision_id AND g.state='active'))::text
+FROM dks.projects p WHERE p.project_id=current_setting('dks.project_id');
+""")
+    if len(rows) != 1:
+        raise RuntimeError("silver benchmark projection is unavailable")
+    identity = json.loads(rows[0])
+    if identity.get("revision") != args.commit:
+        raise RuntimeError("silver benchmark source revision is not active")
+    quality = system != "baseline"
+    return {"activation_id": "dks-silver-v1", "policy_id": "dks-quality-v2" if quality else "dks-rrf-v1",
+            "source_revision_id": args.commit,
+            "code_embedding_space_id": (config.get("code_embedding", {}).get("space_id")
+                                        if system in {"code", "code_reranker"} else None),
+            "graph_artifact_sha256": identity.get("graph_artifact") if quality else None,
+            "reranker_manifest_sha256": (config.get("reranker", {}).get("manifest_sha256")
+                                         if system in {"reranker", "code_reranker"} else None),
+            "evidence_class": "silver", "trial_expires_at": None}
+
+
 def command_query_transaction(args, config, project, session):
-    policy = active_ranking_policy(config, args.project, session)
-    validate_quality_projection(config, args.project, policy, session)
-    maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
+    benchmark = getattr(args, "benchmark_system", None) is not None
+    policy = (silver_benchmark_policy(args, config, session) if benchmark
+              else active_ranking_policy(config, args.project, session))
+    if not benchmark:
+        validate_quality_projection(config, args.project, policy, session)
+    maximum = 100 if benchmark else 10 if policy["policy_id"] == "dks-quality-v2" else 20
     if not 1 <= args.limit <= maximum:
         raise ValueError(f"query limit must be between 1 and {maximum}")
     if (policy["policy_id"] == "dks-quality-v2" and args.commit
@@ -1610,7 +1690,7 @@ WITH git_chunks AS (
   JOIN dks.authority_snapshots s USING (project_id,source_kind,snapshot_id)
   JOIN dks.authority_embeddings e USING (project_id,source_kind,snapshot_id,record_id,chunk_id)
   JOIN dks.projects p USING (project_id)
-  WHERE s.state='active' AND e.embedding_space_id=p.active_embedding_space_id
+   WHERE {'false' if benchmark else "s.state='active'"} AND e.embedding_space_id=p.active_embedding_space_id
 ), scoped_chunks AS (
   SELECT * FROM git_chunks
   UNION ALL
@@ -1629,7 +1709,7 @@ WITH git_chunks AS (
   FROM candidates
 )
 SELECT json_build_object('kind','candidate','channel',channel,'chunk_id',chunk_id,'score',score,'rank',rank)::text
-FROM ranked WHERE rank <= 20
+FROM ranked WHERE rank <= {100 if benchmark else 20}
 UNION ALL
 SELECT json_build_object('kind','chunk','chunk_id',c.chunk_id,'path',c.path,'ordinal',c.ordinal,
   'heading_path',c.heading_path,'start_byte',c.start_byte,'end_byte',c.end_byte,'content_id',c.content_id,
@@ -1673,13 +1753,15 @@ FROM GRAPH_TABLE (
     if policy["policy_id"] == "dks-quality-v2":
         rerank_scores = None
         try:
-            candidates = [metadata[item["id"]] for item in quality_candidates(channels)
+            candidates = [metadata[item["id"]] for item in quality_candidates(channels, max(50, args.limit))
                           if item["id"] in metadata]
             reranked = rerank(config, args.text, candidates,
                               policy.get("reranker_manifest_sha256"))
             if reranked is not None:
                 rerank_scores, reranker_provenance = reranked
         except RuntimeError as error:
+            if policy.get("evidence_class") == "silver":
+                raise RuntimeError("silver trial reranker unavailable") from error
             fallback = str(error)
         fused_results = quality_rank(channels, metadata, args.text, rerank_scores, args.limit)
     results = []
@@ -1699,6 +1781,7 @@ FROM GRAPH_TABLE (
 
 
 def command_query(args, config, project):
+    ensure_quality_policy(config, args.project)
     with PsqlSession(config) as session:
         session.execute(f"SET dks.project_id={sql_literal(args.project)};")
         for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
@@ -1713,6 +1796,7 @@ def command_query(args, config, project):
 
 
 def command_guarded_query(args, config, project):
+    ensure_quality_policy(config, args.project)
     policy = active_ranking_policy(config, args.project)
     maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
     args.limit = args.limit if args.limit is not None else maximum
@@ -1741,6 +1825,9 @@ FROM dks.privacy_state WHERE project_id=current_setting('dks.project_id');
     if args.commit:
         command.extend(["--commit", args.commit])
     completed = subprocess.run(command, text=True, capture_output=True, stdin=subprocess.DEVNULL)
+    if completed.returncode and policy.get("evidence_class") == "silver":
+        command_rollback_quality(argparse.Namespace(project=args.project), config, project)
+        completed = subprocess.run(command, text=True, capture_output=True, stdin=subprocess.DEVNULL)
     if completed.returncode:
         raise RuntimeError("privacy-guarded query failed")
     try:
@@ -1811,12 +1898,15 @@ def validate_quality_projection(config, project_id, policy, session=None):
         "authority_snapshot_set_sha256": policy["authority_snapshot_set_sha256"],
         "benchmark_sha256": policy["benchmark_sha256"],
         "code_embedding_space_id": policy["code_embedding_space_id"],
+        "evidence_class": policy["evidence_class"],
         "graph_artifact_sha256": policy["graph_artifact_sha256"],
         "policy_id": "dks-quality-v2", "privacy_digest": policy["privacy_digest"],
         "privacy_sequence": int(policy["privacy_sequence"]),
         "reranker_manifest_sha256": policy["reranker_manifest_sha256"],
         "source_projection_sha256": policy["source_projection_sha256"],
         "source_revision_id": policy["source_revision_id"],
+        "trial_expires_at": (int(policy["trial_expires_at"])
+                             if policy["trial_expires_at"] is not None else None),
     })
     if (source_sha != policy["source_projection_sha256"]
             or digest_json(authority["snapshots"]) != policy["authority_snapshot_set_sha256"]
@@ -2494,6 +2584,510 @@ def command_import_graph(args, config, project):
             "state": "active"}
 
 
+def load_silver_suite(path_value, project):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate silver suite key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("silver suite unavailable") from error
+    fields = {"schema_version", "benchmark_id", "protocol_version", "evidence_class",
+              "source_revision", "generated_at", "generator", "reviewers", "strata",
+              "candidate_systems", "depths", "trial_duration_seconds", "questions"}
+    expected_strata = {name: 20 for name in BENCHMARK_QUERY_STRATA}
+    model_fields = {"provider", "model", "prompt_sha256", "evidence_sha256"}
+    model_evidence = [value.get("generator"), *(value.get("reviewers") or [])]
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022 or not isinstance(value, dict)
+            or set(value) != fields or value.get("schema_version") != 1
+            or value.get("benchmark_id") != "DKS-005"
+            or value.get("protocol_version") != "dks-silver-v1"
+            or value.get("evidence_class") != "silver"
+            or value.get("source_revision") != DKS_005_SOURCE_REVISION
+            or type(value.get("generated_at")) is not int or value["generated_at"] < 0
+            or not isinstance(value.get("reviewers"), list) or len(value["reviewers"]) != 2
+            or any(not isinstance(item, dict) or set(item) != model_fields
+                   or any(not isinstance(item[name], str) or not item[name]
+                          for name in ("provider", "model"))
+                   or any(not SHA256_RE.fullmatch(item.get(name, ""))
+                          for name in ("prompt_sha256", "evidence_sha256"))
+                   for item in model_evidence)
+            or len({item["evidence_sha256"] for item in model_evidence}) != 3
+            or value.get("strata") != expected_strata
+            or value.get("candidate_systems") != ["baseline", "code", "reranker", "code_reranker"]
+            or value.get("depths") != [20, 50, 100]
+            or value.get("trial_duration_seconds") != SILVER_TRIAL_SECONDS
+            or not isinstance(value.get("questions"), list) or len(value["questions"]) != 100
+            or value["generator"]["evidence_sha256"] != digest_json(value["questions"])):
+        raise ValueError("silver suite is invalid")
+    documents = git_documents(Path(project.get("repository", "")).expanduser(),
+                              value["source_revision"], project.get("remote", ""),
+                              load_source_profile(project) if project.get("source_profile_file") else None)
+    corpus = {item["path"]: item["data"].decode("utf-8") for item in documents}
+    seen_text = set()
+    invalid_citations = []
+    for offset, question in enumerate(value["questions"]):
+        stratum = BENCHMARK_QUERY_STRATA[offset // 20]
+        query_id = f"{stratum}-{offset % 20 + 1:03d}"
+        if (not isinstance(question, dict)
+                or set(question) != {"query_id", "stratum", "text", "citations"}
+                or question.get("query_id") != query_id or question.get("stratum") != stratum
+                or not isinstance(question.get("text"), str)
+                or not question["text"] or question["text"] != question["text"].strip()
+                or any(character in question["text"] for character in "\r\n\x00")
+                or question["text"] in seen_text
+                or not isinstance(question.get("citations"), list)
+                or not 1 <= len(question["citations"]) <= 3):
+            raise ValueError("silver suite question is invalid")
+        seen_text.add(question["text"])
+        for citation in question["citations"]:
+            citation_path = citation.get("path") if isinstance(citation, dict) else None
+            quote = citation.get("quote") if isinstance(citation, dict) else None
+            if (not isinstance(citation, dict) or set(citation) != {"path", "quote", "grade"}
+                    or not isinstance(citation_path, str) or not citation_path
+                    or citation_path.startswith("/") or posixpath.normpath(citation_path) != citation_path
+                    or citation_path.startswith("../") or citation.get("grade") != 3
+                    or not isinstance(quote, str) or len(quote) < 16
+                    or quote not in corpus.get(citation_path, "")):
+                invalid_citations.append(query_id)
+    if invalid_citations:
+        raise ValueError("silver suite citation is invalid for "
+                         + ",".join(sorted(set(invalid_citations))))
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def resolve_silver_citations(config, project_id, suite, session=None):
+    rows = []
+    for question in suite["questions"]:
+        for citation in question["citations"]:
+            rows.append(f"({sql_literal(question['query_id'])},{sql_literal(citation['path'])},"
+                        f"{sql_literal(citation['quote'])},{citation['grade']})")
+    sql = f"""
+WITH declared(query_id,path,quote,grade) AS (VALUES {','.join(rows)})
+SELECT json_build_object('query_id',d.query_id,'chunk_id',c.chunk_id,
+                         'body_sha256',c.body_sha256,'grade',d.grade)::text
+FROM declared d
+JOIN dks.revision_chunks r ON r.project_id=current_setting('dks.project_id')
+  AND r.revision_id={sql_literal(suite['source_revision'])} AND r.path=d.path
+JOIN dks.knowledge_chunks c USING(project_id,chunk_id)
+WHERE position(d.quote in c.body)>0
+ORDER BY d.query_id,c.chunk_id;
+"""
+    values = session.execute(sql) if session else run_psql(config, project_id, sql)
+    resolved = {question["query_id"]: {"judgments": {}, "expected_citations": []}
+                for question in suite["questions"]}
+    for line in values:
+        item = json.loads(line)
+        target = resolved.get(item.get("query_id"))
+        if (target is None or not SHA256_RE.fullmatch(item.get("chunk_id", ""))
+                or not SHA256_RE.fullmatch(item.get("body_sha256", ""))
+                or item.get("grade") != 3):
+            raise ValueError("silver citation resolution is invalid")
+        target["judgments"][item["chunk_id"]] = item["grade"]
+        if item["body_sha256"] not in target["expected_citations"]:
+            target["expected_citations"].append(item["body_sha256"])
+    if any(not item["judgments"] or not item["expected_citations"] for item in resolved.values()):
+        raise ValueError("silver citation did not resolve to the frozen projection")
+    for item in resolved.values():
+        item["expected_citations"].sort()
+    return resolved
+
+
+def frozen_chunk_citations(config, project_id, revision):
+    lines = run_psql(config, project_id, f"""
+SELECT json_build_object('chunk_id',c.chunk_id,'body_sha256',c.body_sha256)::text
+FROM dks.revision_chunks r JOIN dks.knowledge_chunks c USING(project_id,chunk_id)
+WHERE r.project_id=current_setting('dks.project_id') AND r.revision_id={sql_literal(revision)}
+ORDER BY c.chunk_id;
+""")
+    values = {}
+    for line in lines:
+        item = json.loads(line)
+        if (not SHA256_RE.fullmatch(item.get("chunk_id", ""))
+                or not SHA256_RE.fullmatch(item.get("body_sha256", ""))
+                or item["chunk_id"] in values):
+            raise ValueError("frozen projection chunk identity is invalid")
+        values[item["chunk_id"]] = item["body_sha256"]
+    if not values:
+        raise ValueError("frozen projection chunks are unavailable")
+    return values
+
+
+def load_silver_evidence(path_value, suite, suite_sha, config, project_id):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate silver evidence key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("silver evidence unavailable") from error
+    identities_fields = {"source_revision", "source_profile_sha256", "source_projection_sha256",
+                         "authority_snapshot_set_sha256", "authority_projection_sha256",
+                         "privacy_sequence", "privacy_digest", "graph_artifact_sha256",
+                         "general_embedding_manifest_sha256", "code_embedding_manifest_sha256",
+                         "reranker_manifest_sha256"}
+    systems = {"baseline", "code", "reranker", "code_reranker"}
+    resources = value.get("resources", {}) if isinstance(value, dict) else {}
+    identities = value.get("identities", {}) if isinstance(value, dict) else {}
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022 or not isinstance(value, dict)
+            or set(value) != {"schema_version", "evidence_class", "suite_sha256", "execution_depth",
+                              "reported_depths", "identities", "queries", "resources",
+                              "telemetry_samples", "receipt_hmac_sha256"}
+            or value.get("schema_version") != 1 or value.get("evidence_class") != "silver"
+            or value.get("suite_sha256") != suite_sha or not isinstance(identities, dict)
+            or value.get("execution_depth") != 100
+            or value.get("reported_depths") != [20, 50, 100]
+            or not SHA256_RE.fullmatch(value.get("receipt_hmac_sha256", ""))
+            or set(identities) != identities_fields
+            or identities.get("source_revision") != suite["source_revision"]
+            or type(identities.get("privacy_sequence")) is not int
+            or identities["privacy_sequence"] < 0
+            or any(not SHA256_RE.fullmatch(identities.get(name, ""))
+                   for name in identities_fields - {"source_revision", "privacy_sequence"})
+            or not isinstance(value.get("queries"), list) or len(value["queries"]) != 100
+            or not isinstance(resources, dict) or set(resources) != {"code", "reranker"}):
+        raise ValueError("silver evidence is invalid")
+    unsigned = {key: item for key, item in value.items() if key != "receipt_hmac_sha256"}
+    if not hmac.compare_digest(value["receipt_hmac_sha256"], benchmark_receipt(config, unsigned)):
+        raise ValueError("silver evidence receipt is invalid")
+    resolved = resolve_silver_citations(config, project_id, suite)
+    projected_chunks = frozen_chunk_citations(config, project_id, suite["source_revision"])
+    seen = set()
+    strata = {}
+    for source, query in zip(suite["questions"], value["queries"]):
+        if (not isinstance(query, dict)
+                or set(query) != {"query_id", "stratum", "judgments", "expected_citations",
+                                  "rankings", "citations", "runs_seconds", "repeat_rankings"}
+                or query.get("query_id") != source["query_id"]
+                or query.get("stratum") != source["stratum"] or query["query_id"] in seen
+                or query.get("judgments") != resolved[query["query_id"]]["judgments"]
+                or query.get("expected_citations") != resolved[query["query_id"]]["expected_citations"]
+                or set(query.get("rankings", {})) != systems
+                or any(not isinstance(ranking, list) or len(ranking) != 100
+                       or len(ranking) != len(set(ranking))
+                       or any(not SHA256_RE.fullmatch(item) or item not in projected_chunks
+                              for item in ranking)
+                       for ranking in query["rankings"].values())
+                or set(query.get("citations", {})) != systems
+                or any(not isinstance(items, list) or len(items) > 20
+                       or len(items) != len(set(items))
+                       or any(not SHA256_RE.fullmatch(item) for item in items)
+                       for items in query["citations"].values())
+                or set(query.get("runs_seconds", {})) != systems
+                or any(not isinstance(samples, list) or len(samples) < 2
+                       or any(not isinstance(item, (int, float)) or isinstance(item, bool)
+                              or not math.isfinite(item) or item < 0 for item in samples)
+                       for samples in query["runs_seconds"].values())
+                or set(query.get("repeat_rankings", {})) != systems
+                or any(not isinstance(repeats, list) or len(repeats) != 2
+                       or any(repeat != query["rankings"][system] for repeat in repeats)
+                       for system, repeats in query["repeat_rankings"].items())):
+            raise ValueError("silver query evidence is invalid")
+        if any(query["citations"][system] != list(dict.fromkeys(
+                projected_chunks[item] for item in query["rankings"][system][:10]))
+               for system in systems):
+            raise ValueError("silver query citation evidence is invalid")
+        seen.add(query["query_id"])
+        strata[query["stratum"]] = strata.get(query["stratum"], 0) + 1
+    if strata != suite["strata"]:
+        raise ValueError("silver evidence strata are invalid")
+    telemetry = value["telemetry_samples"]
+    if (not isinstance(telemetry, list) or len(telemetry) < 2
+            or any(not isinstance(item, dict)
+                   or set(item) != {"captured_at", "memory_gib", "memory_pressure", "swap_used_bytes"}
+                   or not isinstance(item["captured_at"], (int, float))
+                   or not isinstance(item["memory_gib"], (int, float))
+                   or not math.isfinite(item["captured_at"]) or not math.isfinite(item["memory_gib"])
+                   or item["captured_at"] < 0 or item["memory_gib"] < 0
+                   or item["memory_pressure"] not in {"normal", "warning", "critical"}
+                   or type(item["swap_used_bytes"]) is not int or item["swap_used_bytes"] < 0
+                   for item in telemetry)
+            or any(right["captured_at"] <= left["captured_at"]
+                   or right["captured_at"] - left["captured_at"] > 15
+                   for left, right in zip(telemetry, telemetry[1:]))):
+        raise ValueError("silver telemetry evidence is invalid")
+    measured_resource = {
+        "peak_memory_gib": max(item["memory_gib"] for item in telemetry),
+        "memory_pressure": max((item["memory_pressure"] for item in telemetry),
+                               key=("normal", "warning", "critical").index),
+        "swap_growth_bytes": max(0, max(item["swap_used_bytes"] for item in telemetry)
+                                 - telemetry[0]["swap_used_bytes"]),
+    }
+    for resource in resources.values():
+        if (not isinstance(resource, dict)
+                or set(resource) != {"peak_memory_gib", "memory_pressure", "swap_growth_bytes"}
+                or not isinstance(resource["peak_memory_gib"], (int, float))
+                or isinstance(resource["peak_memory_gib"], bool)
+                or not math.isfinite(resource["peak_memory_gib"]) or resource["peak_memory_gib"] < 0
+                or resource["memory_pressure"] not in {"normal", "warning", "critical"}
+                or type(resource["swap_growth_bytes"]) is not int or resource["swap_growth_bytes"] < 0
+                or resource != measured_resource):
+            raise ValueError("silver resource evidence is invalid")
+    code = benchmark_candidate_metrics(value["queries"], "baseline", "code",
+                                       suite_sha, resources["code"])
+    reranker_baseline = "code" if code["eligible"] else "baseline"
+    reranker_candidate = "code_reranker" if code["eligible"] else "reranker"
+    return {"schema_version": 1, "evidence_class": "silver", "suite_sha256": suite_sha,
+            "query_count": len(value["queries"]), "strata": strata, "matrix_complete": True,
+            "identities": identities, "candidates": {"code": code, "reranker":
+                benchmark_candidate_metrics(value["queries"], reranker_baseline,
+                                            reranker_candidate, suite_sha, resources["reranker"])}}
+
+
+def load_silver_aggregate(path_value):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate silver aggregate key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("silver aggregate unavailable") from error
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022 or not isinstance(value, dict)
+            or set(value) != {"schema_version", "evidence_class", "suite_sha256", "query_count",
+                              "strata", "matrix_complete", "identities", "candidates"}
+            or value.get("schema_version") != 1 or value.get("evidence_class") != "silver"):
+        raise ValueError("silver aggregate is invalid")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def system_memory_gib():
+    total = int(subprocess.run(["sysctl", "-n", "hw.memsize"], text=True,
+                               capture_output=True, check=True).stdout.strip())
+    output = subprocess.run(["vm_stat"], text=True, capture_output=True, check=True).stdout
+    match = re.search(r"page size of (\d+) bytes", output)
+    free_match = re.search(r"Pages free:\s+(\d+)\.", output)
+    speculative_match = re.search(r"Pages speculative:\s+(\d+)\.", output)
+    if not match or not free_match or not speculative_match:
+        raise RuntimeError("memory telemetry unavailable")
+    free = (int(free_match.group(1)) + int(speculative_match.group(1))) * int(match.group(1))
+    return (total - free) / 1024 ** 3
+
+
+def swap_used_bytes():
+    output = subprocess.run(["sysctl", "-n", "vm.swapusage"], text=True,
+                            capture_output=True, check=True).stdout
+    match = re.search(r"used = ([0-9.]+)([KMG])", output)
+    if not match:
+        raise RuntimeError("swap telemetry unavailable")
+    scale = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3}[match.group(2)]
+    return int(float(match.group(1)) * scale)
+
+
+def memory_pressure_state(config):
+    collector = Path(config.get("benchmark_collector_file", "")).expanduser()
+    try:
+        details = collector.lstat()
+        digest = hashlib.sha256(collector.read_bytes()).hexdigest()
+    except OSError as error:
+        raise RuntimeError("benchmark telemetry collector unavailable") from error
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022
+            or digest != config.get("benchmark_collector_sha256")):
+        raise RuntimeError("benchmark telemetry collector identity mismatch")
+    try:
+        raw = subprocess.run([str(collector)], text=True, capture_output=True,
+                             check=True, timeout=30).stdout
+        pressure = json.loads(raw)["memory_pressure"].lower()
+    except (subprocess.SubprocessError, json.JSONDecodeError, KeyError) as error:
+        raise RuntimeError("benchmark telemetry unavailable") from error
+    if "critical" in pressure:
+        return "critical"
+    if "warning" in pressure or "warn" in pressure:
+        return "warning"
+    return "normal"
+
+
+class BenchmarkTelemetry:
+    def __init__(self, config):
+        self.config = config
+        self.samples = []
+        self.error = None
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _sample(self):
+        self.samples.append({"captured_at": time.time(), "memory_gib": system_memory_gib(),
+                             "memory_pressure": memory_pressure_state(self.config),
+                             "swap_used_bytes": swap_used_bytes()})
+
+    def _run(self):
+        try:
+            while not self.stop.wait(5):
+                self._sample()
+        except Exception as error:
+            self.error = error
+            self.stop.set()
+
+    def __enter__(self):
+        self._sample()
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args):
+        self.stop.set()
+        self.thread.join(timeout=30)
+        if self.thread.is_alive():
+            raise RuntimeError("benchmark telemetry did not stop")
+        self._sample()
+        if self.error:
+            raise RuntimeError("benchmark telemetry failed") from self.error
+        if len(self.samples) < 2 or any(
+                right["captured_at"] - left["captured_at"] > 15
+                for left, right in zip(self.samples, self.samples[1:])):
+            raise RuntimeError("benchmark telemetry coverage is incomplete")
+
+
+def benchmark_receipt_key(config):
+    path = Path(config.get("embedding", {}).get("api_key_file", "")).expanduser()
+    try:
+        details = path.lstat()
+        value = path.read_text().strip()
+    except OSError as error:
+        raise RuntimeError("benchmark receipt key unavailable") from error
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) != 0o600 or not SHA256_RE.fullmatch(value)):
+        raise RuntimeError("benchmark receipt key is invalid")
+    return bytes.fromhex(value)
+
+
+def benchmark_receipt(config, value):
+    return hmac.new(benchmark_receipt_key(config), canonical_json(value).encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def write_new_json(path_value, value):
+    path = Path(path_value).expanduser()
+    if not path.is_absolute() or path.exists():
+        raise ValueError("benchmark output must be a new absolute path")
+    parent = path.parent.resolve(strict=True)
+    temporary = parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                         | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        payload = (canonical_json(value) + "\n").encode()
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = None
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, path, follow_symlinks=False)
+        os.chmod(path, 0o600, follow_symlinks=False)
+        directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def command_benchmark_silver_run(args, config, project):
+    suite, suite_sha = load_silver_suite(args.suite, project)
+    if Path(args.evidence).expanduser().exists() or Path(args.aggregate).expanduser().exists():
+        raise ValueError("benchmark output already exists")
+    validate_embedding_config(config)
+    validate_code_embedding_config(config)
+    validate_reranker_config(config, config.get("reranker", {}).get("manifest_sha256"))
+    for name in ("embedding", "code_embedding", "reranker"):
+        validate_service_health(config, name)
+    systems = ("baseline", "code", "reranker", "code_reranker")
+    query_evidence = []
+    with BenchmarkTelemetry(config) as telemetry, PsqlSession(config) as session:
+        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+        for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
+            locked = session.execute(
+                f"SELECT pg_try_advisory_lock_shared(hashtextextended({sql_literal(lock_name)}, 0));")
+            if not locked or locked[-1] != "t":
+                raise RuntimeError("silver benchmark lock unavailable")
+        session.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+        resolved = resolve_silver_citations(config, args.project, suite, session)
+        source_sha = projection_identity(config, args.project, suite["source_revision"], session)
+        authority_rows = session.execute(authority_projection_payload_sql())
+        graph_rows = session.execute(f"""
+SELECT artifact_sha256 FROM dks.graph_imports
+WHERE project_id=current_setting('dks.project_id')
+  AND revision_id={sql_literal(suite['source_revision'])} AND state='active';
+""")
+        if len(authority_rows) != 1 or len(graph_rows) != 1:
+            raise RuntimeError("silver benchmark projection identity is unavailable")
+        authority = json.loads(authority_rows[0])
+        identities = {
+            "source_revision": suite["source_revision"],
+            "source_profile_sha256": project.get("source_profile_sha256"),
+            "source_projection_sha256": source_sha,
+            "authority_snapshot_set_sha256": digest_json(authority["snapshots"]),
+            "authority_projection_sha256": digest_json(authority),
+            "privacy_sequence": int(authority["privacy_sequence"]),
+            "privacy_digest": authority["privacy_digest"],
+            "graph_artifact_sha256": graph_rows[0],
+            "general_embedding_manifest_sha256": config["embedding"]["manifest_sha256"],
+            "code_embedding_manifest_sha256": config["code_embedding"]["manifest_sha256"],
+            "reranker_manifest_sha256": config["reranker"]["manifest_sha256"],
+        }
+        if any(not SHA256_RE.fullmatch(str(value)) for key, value in identities.items()
+               if key not in {"source_revision", "privacy_sequence"}):
+            raise RuntimeError("silver benchmark identity is invalid")
+        for question in suite["questions"]:
+            rankings, citations, runs, repeats = {}, {}, {}, {}
+            for system in systems:
+                samples = []
+                for _ in range(2):
+                    query_args = argparse.Namespace(project=args.project, text=question["text"],
+                                                    commit=suite["source_revision"], limit=100,
+                                                    benchmark_system=system)
+                    started = time.perf_counter()
+                    result = command_query_transaction(query_args, config, project, session)
+                    samples.append((time.perf_counter() - started, result))
+                ranking_sets = [[item["id"] for item in result["results"]]
+                                for _, result in samples]
+                if any(len(ranking) != 100 for ranking in ranking_sets):
+                    raise RuntimeError("silver benchmark candidate depth is incomplete")
+                rankings[system] = ranking_sets[0]
+                repeats[system] = ranking_sets
+                citations[system] = list(dict.fromkeys(
+                    item["body_sha256"] for item in samples[0][1]["results"][:10]))
+                runs[system] = [elapsed for elapsed, _ in samples]
+            query_evidence.append({"query_id": question["query_id"], "stratum": question["stratum"],
+                                   **resolved[question["query_id"]], "rankings": rankings,
+                                   "citations": citations, "runs_seconds": runs,
+                                   "repeat_rankings": repeats})
+        session.execute("COMMIT;")
+    telemetry_samples = telemetry.samples
+    resource = {
+        "peak_memory_gib": max(item["memory_gib"] for item in telemetry_samples),
+        "memory_pressure": max((item["memory_pressure"] for item in telemetry_samples),
+                               key=("normal", "warning", "critical").index),
+        "swap_growth_bytes": max(0, max(item["swap_used_bytes"] for item in telemetry_samples)
+                                 - telemetry_samples[0]["swap_used_bytes"]),
+    }
+    evidence = {"schema_version": 1, "evidence_class": "silver", "suite_sha256": suite_sha,
+                "execution_depth": 100, "reported_depths": [20, 50, 100],
+                "identities": identities, "queries": query_evidence,
+                "resources": {"code": resource, "reranker": resource},
+                "telemetry_samples": telemetry_samples}
+    evidence["receipt_hmac_sha256"] = benchmark_receipt(config, evidence)
+    write_new_json(args.evidence, evidence)
+    try:
+        aggregate = load_silver_evidence(args.evidence, suite, suite_sha, config, args.project)
+        write_new_json(args.aggregate, aggregate)
+    except Exception:
+        Path(args.evidence).unlink(missing_ok=True)
+        raise
+    return {"project": args.project, "suite_sha256": suite_sha,
+            "query_count": len(query_evidence), "aggregate": aggregate}
+
+
 def load_benchmark_aggregate(path_value):
     path = Path(path_value).expanduser()
     try:
@@ -2591,8 +3185,8 @@ def benchmark_candidate_metrics(queries, baseline_name, candidate_name, seed_sha
         candidate_recall = len(relevant.intersection(query["rankings"][candidate_name][:50])) / len(relevant)
         recall_deltas.append(candidate_recall - baseline_recall)
         expected = set(query["expected_citations"])
-        exact_deltas.append(int(expected == set(query["citations"][candidate_name]))
-                            - int(expected == set(query["citations"][baseline_name])))
+        exact_deltas.append(int(expected.issubset(query["citations"][candidate_name]))
+                            - int(expected.issubset(query["citations"][baseline_name])))
         latencies.extend(query["runs_seconds"][candidate_name])
         deterministic = deterministic and all(
             repeat == query["rankings"][candidate_name]
@@ -3044,6 +3638,22 @@ def command_activate_quality(args, config, project):
             or aggregate["strata"] != manifest["strata"]
             or aggregate != verified_aggregate):
         raise RuntimeError("benchmark aggregate does not match verified frozen evidence")
+    return activate_quality_policy(args, config, project, aggregate, aggregate_sha,
+                                   manifest, manifest_sha, "human")
+
+
+def command_activate_silver_trial(args, config, project):
+    suite, suite_sha = load_silver_suite(args.suite, project)
+    aggregate, aggregate_sha = load_silver_aggregate(args.benchmark)
+    verified_aggregate = load_silver_evidence(args.evidence, suite, suite_sha, config, args.project)
+    if aggregate != verified_aggregate:
+        raise RuntimeError("silver aggregate does not match verified frozen evidence")
+    return activate_quality_policy(args, config, project, aggregate, aggregate_sha,
+                                   aggregate["identities"], suite_sha, "silver")
+
+
+def activate_quality_policy(args, config, project, aggregate, aggregate_sha, manifest,
+                            manifest_sha, evidence_class):
     code_enabled = aggregate["candidates"]["code"]["eligible"]
     reranker_enabled = aggregate["candidates"]["reranker"]["eligible"]
     if not code_enabled and not reranker_enabled:
@@ -3112,18 +3722,23 @@ SELECT json_build_object(
         if (code_enabled and identity["source_chunks"] != identity["code_embeddings"]
                 or identity.get("graph_artifact") != manifest["graph_artifact_sha256"]):
             raise RuntimeError("quality activation projection is incomplete")
+        activated_at = int(time.time())
+        trial_expires_at = (activated_at + SILVER_TRIAL_SECONDS
+                            if evidence_class == "silver" else None)
         policy_manifest = digest_json({"aggregate_sha256": aggregate_sha,
-                                       "authority_projection_sha256": authority_projection_sha,
+                                        "authority_projection_sha256": authority_projection_sha,
                                        "authority_snapshot_set_sha256": authority_snapshot_sha,
                                        "benchmark_sha256": manifest_sha,
-                                       "code_embedding_space_id": code_space,
+                                        "code_embedding_space_id": code_space,
+                                        "evidence_class": evidence_class,
                                        "graph_artifact_sha256": identity["graph_artifact"],
                                        "policy_id": "dks-quality-v2",
                                        "privacy_digest": authority["privacy_digest"],
                                        "privacy_sequence": manifest["privacy_sequence"],
                                        "reranker_manifest_sha256": reranker_manifest,
-                                       "source_projection_sha256": source_projection_sha,
-                                       "source_revision_id": identity["revision"]})
+                                        "source_projection_sha256": source_projection_sha,
+                                        "source_revision_id": identity["revision"],
+                                        "trial_expires_at": trial_expires_at})
         activation_id = digest_json({"manifest_sha256": policy_manifest,
                                      "revision": identity["revision"]})
         session.execute(f"""
@@ -3131,19 +3746,23 @@ UPDATE dks.ranking_policies SET active=false WHERE project_id=current_setting('d
 INSERT INTO dks.ranking_policies(project_id,activation_id,policy_id,manifest_sha256,benchmark_sha256,benchmark_aggregate_sha256,
   source_revision_id,source_projection_sha256,authority_snapshot_set_sha256,authority_projection_sha256,
   privacy_sequence,privacy_digest,
-  code_embedding_space_id,graph_artifact_sha256,reranker_manifest_sha256,active,activated_at)
+  code_embedding_space_id,graph_artifact_sha256,reranker_manifest_sha256,evidence_class,
+  trial_expires_at,active,activated_at)
 VALUES (current_setting('dks.project_id'),{sql_literal(activation_id)},'dks-quality-v2',
   {sql_literal(policy_manifest)},{sql_literal(manifest_sha)},{sql_literal(aggregate_sha)},
   {sql_literal(identity['revision'])},{sql_literal(source_projection_sha)},
   {sql_literal(authority_snapshot_sha)},{sql_literal(authority_projection_sha)},
   {manifest['privacy_sequence']},{sql_literal(authority['privacy_digest'])},
   {sql_literal(code_space)},
-  {sql_literal(identity['graph_artifact'])},{sql_literal(reranker_manifest)},true,now());
+  {sql_literal(identity['graph_artifact'])},{sql_literal(reranker_manifest)},
+  {sql_literal(evidence_class)},{'to_timestamp(' + str(trial_expires_at) + ')' if trial_expires_at else 'NULL'},
+  true,to_timestamp({activated_at}));
 COMMIT;
 """)
     return {"project": args.project, "activation_id": activation_id,
-            "benchmark_sha256": aggregate["manifest_sha256"], "code": code_enabled,
-            "reranker": reranker_enabled, "ranking_policy": "dks-quality-v2"}
+            "benchmark_sha256": manifest_sha, "code": code_enabled,
+            "reranker": reranker_enabled, "ranking_policy": "dks-quality-v2",
+            "evidence_class": evidence_class, "trial_expires_at": trial_expires_at}
 
 
 def command_benchmark_aggregate(args, config, project):
@@ -3377,6 +3996,7 @@ def command_reconcile(args, config, project):
         try:
             commit = resolve_reconcile_commit(project, settings, refresh=True)
             stages = []
+            ensure_quality_policy(config, args.project)
             status = command_status(args, config, project)
             embedding = config.get("embedding", {})
             code = config.get("code_embedding", {})
@@ -3454,9 +4074,17 @@ def parser():
     activate.add_argument("--benchmark", required=True)
     activate.add_argument("--manifest", required=True)
     activate.add_argument("--evidence", required=True)
+    silver_activate = commands.add_parser("activate-silver-trial", parents=[common])
+    silver_activate.add_argument("--benchmark", required=True)
+    silver_activate.add_argument("--suite", required=True)
+    silver_activate.add_argument("--evidence", required=True)
     benchmark = commands.add_parser("benchmark-aggregate", parents=[common])
     benchmark.add_argument("--manifest", required=True)
     benchmark.add_argument("--evidence", required=True)
+    silver = commands.add_parser("benchmark-silver-run", parents=[common])
+    silver.add_argument("--suite", required=True)
+    silver.add_argument("--evidence", required=True)
+    silver.add_argument("--aggregate", required=True)
     commands.add_parser("benchmark-author-init", parents=[common])
     commands.add_parser("benchmark-author-validate", parents=[common])
     commands.add_parser("rollback-quality", parents=[common])
@@ -3492,8 +4120,12 @@ def main(argv=None):
             result = command_materialize(args, config, project)
         elif args.command == "activate-quality":
             result = command_activate_quality(args, config, project)
+        elif args.command == "activate-silver-trial":
+            result = command_activate_silver_trial(args, config, project)
         elif args.command == "benchmark-aggregate":
             result = command_benchmark_aggregate(args, config, project)
+        elif args.command == "benchmark-silver-run":
+            result = command_benchmark_silver_run(args, config, project)
         elif args.command == "benchmark-author-init":
             result = command_benchmark_author_init(args, config, project)
         elif args.command == "benchmark-author-validate":
