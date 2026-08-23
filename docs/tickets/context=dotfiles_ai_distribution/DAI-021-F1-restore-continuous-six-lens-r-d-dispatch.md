@@ -5,7 +5,7 @@ slug: "restore-continuous-six-lens-r-d-dispatch"
 context: "dotfiles_ai_distribution"
 title: "Restore continuous six-lens R&D dispatch"
 kind: "task"
-state: "in_progress"
+state: "review"
 priority: "high"
 points: 2
 depends_on:
@@ -28,7 +28,17 @@ validation:
 created: "2026-08-23"
 updated: "2026-08-23"
 completed: null
-commits: []
+commits:
+  - "1d86f9b"
+  - "d6533c2"
+  - "bd2a261"
+  - "51bb164"
+  - "9740a87"
+  - "c9867ff"
+  - "c637065"
+  - "4fbf9e7"
+  - "7871fbe"
+  - "c4a8f6c"
 jira_publications: []
 migration: null
 ---
@@ -60,7 +70,16 @@ run one controlled six-lens exhaustion pass.
 
 ## Evidence
 
-Pending.
+- The affected Python suite passes 102 tests; shell syntax, Python compilation,
+  canonical ticket inventory, and diff checks pass.
+- Launchd runs Hermes through the internal pinned Python, writes local logs, and
+  reports a fresh cron heartbeat with exactly one refinement and one maintenance
+  job.
+- An isolated committed-source scheduler proof reclaimed all six expired
+  attempts, registered six distinct lens workers and native sessions, and ended
+  with `active_attempt_count=6` and `last_reserve_status=no_lens_due`.
+- Production backlog projection remains fail-closed on the canonical `main`
+  ticket tree until this branch's ticket normalization is merged.
 
 ## Risks
 
@@ -69,4 +88,7 @@ one refinement job, one maintenance job, and existing per-lens cadence.
 
 ## Review
 
-Pending.
+Independent review found no remaining high- or medium-severity correctness
+issues after fail-closed mode retirement and project-profile gateway refresh were
+added. Executable fake-launchctl coverage for project profiles remains a test gap;
+the equivalent base-profile path passed live deployment and readiness checks.

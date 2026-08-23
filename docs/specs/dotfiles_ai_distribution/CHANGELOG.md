@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-23 - Restore Continuous Six-Lens R&D Dispatch
+
+- Force-refreshed Hermes gateway definitions, pinned the launchd runtime to an
+  internal macOS Python while retaining external state, removed external working
+  directory and log dependencies, and required live launchd readiness before
+  cron cutover.
+- Serialized cron reconciliation, pruned duplicate and obsolete mode jobs,
+  refreshed project-profile gateways, and retained exactly one refinement and
+  one maintenance job.
+- Normalized two malformed canonical tickets that blocked backlog projection.
+  An isolated committed-source proof reclaimed six stale attempts, registered
+  all six lens workers, and ended at `no_lens_due`; production projection remains
+  fail-closed until these ticket fixes merge to protected `main`.
+- Affected QA passes 102 tests, ticket validation, shell/Python syntax, and diff
+  checks. Independent review found no high- or medium-severity issues; executable
+  fake-launchctl coverage for project profiles remains a residual test gap.
+
 ## 2026-08-21 - Complete Guest Compose Tooling
 
 - Added shared Fedora `make` provisioning and an exact idempotent
