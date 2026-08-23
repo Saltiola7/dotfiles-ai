@@ -64,6 +64,13 @@ def test_rnd_schedule_is_machine_local_opt_in():
     assert not (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl").exists()
 
 
+def test_rnd_expands_machine_local_herdr_path():
+    data = values()
+    data["dotfiles_ai"]["herdr"]["executable"] = "~/.local/bin/herdr"
+    script = render("dot_local/bin/executable_dbsctr-rnd.tmpl", data)
+    assert 'str(Path("~/.local/bin/herdr").expanduser())' in script
+
+
 def test_launchd_uses_native_daily_and_interval_schedules():
     spawner = chezmoi("cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist")).stdout
     watchdog = chezmoi("cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist")).stdout

@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
 PMCTL = os.environ.get("PMCTL", {{ printf "%s/.local/bin/pmctl" .chezmoi.homeDir | quote }})
-HERDR = os.environ.get("HERDR", {{ .dotfiles_ai.herdr.executable | quote }})
+HERDR = os.environ.get("HERDR", str(Path({{ .dotfiles_ai.herdr.executable | quote }}).expanduser()))
 GH = os.environ.get("GH", "gh")
 OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
 REVIEW_WORKDIR = Path({{ .dotfiles_ai.rnd.review_workdir | quote }}).resolve()
