@@ -27,7 +27,7 @@ EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 SECRET = re.compile(r"(?:password|secret|api[_-]?key|access[_-]?token|bearer)\s*[:=]", re.I)
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT = 256 * 1024
-HOST_HISTORY_TIMEOUT = 300
+HOST_HISTORY_TIMEOUT = 900
 WORKSPACE_HISTORY_TIMEOUT = 120
 TAILSCALE_AUTH_KEY = re.compile(rb"tskey-auth-[A-Za-z0-9_-]{20,1000}")
 ATUIN_PORT_FORWARD = {"guestPort": 8888, "hostPort": 8889, "guestIP": "127.0.0.1", "hostIP": "127.0.0.1"}

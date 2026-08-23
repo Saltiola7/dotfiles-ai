@@ -871,7 +871,7 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
             assert kwargs["timeout"] == 120
             return json.dumps(history_page())
         if argv[:2] == ["dbsctrctl", "review-history"]:
-            assert kwargs["timeout"] == 300
+            assert kwargs["timeout"] == 900
             return json.dumps(history_page())
         raise AssertionError(argv)
 
@@ -908,7 +908,7 @@ def test_federation_collects_sources_concurrently_in_configured_order(tmp_path: 
                 {"name": "workspace1-sandbox", "status": "Running"},
                 {"name": "workspace2-sandbox", "status": "Running"},
             ])
-        assert kwargs["timeout"] == (300 if argv[:2] == ["dbsctrctl", "review-history"] else 120)
+        assert kwargs["timeout"] == (900 if argv[:2] == ["dbsctrctl", "review-history"] else 120)
         with lock:
             active += 1
             peak = max(peak, active)
