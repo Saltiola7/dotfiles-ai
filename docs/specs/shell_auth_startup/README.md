@@ -39,6 +39,7 @@ Entities:
 - `HerdrPane`: restored or newly opened Herdr pane with `HERDR_ENV` set.
 - `HerdrServer`: persistent pane owner launched in the macOS Aqua bootstrap context.
 - `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
+- `OpenCodeSession`: persisted OpenCode identity resumed in its recorded `HerdrPane`.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
 
 Value objects:
@@ -58,6 +59,7 @@ Events:
 - `SecretLoadRequested`
 - `OnePasswordCommandTimedOut`
 - `HerdrPaneRestored`
+- `OpenCodeSessionResumed`
 - `NativeHerdrReleaseApplied`
 - `HerdrLiveHandoffCompleted`
 - `ClockifyPollSkipped`
@@ -72,7 +74,7 @@ Glossary:
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: authentication decision flow | Which shell contexts may use environment, Keychain, cache, or biometric authentication? | Domain and SecretLoader contracts | Shell-auth owner; authentication boundary changes |
-| Interaction | required: authentication decision flow | In what order are authentication sources considered? | Behavior Scenarios | Shell-auth owner; precedence or failure changes |
+| Interaction | required: authentication decision flow and OpenCode restore sequence | In what order are authentication sources and restored OpenCode sessions started? | Behavior Scenarios | Shell-auth owner; precedence, restore order, or failure changes |
 | State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
 | Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
 | Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
@@ -139,6 +141,34 @@ reboot gives ownership back to the Aqua LaunchAgent.
 The shell-auth owner updates this view when authentication precedence, context,
 or failure behavior changes.
 
+```mermaid
+sequenceDiagram
+    accTitle: Paced OpenCode session restoration
+    accDescr: Herdr restores each recorded OpenCode session through the managed wrapper. The wrapper adds automatic permission approval, takes a stale-safe lock, waits until five seconds after the previous session start, records the new start, and launches the exact session. A failed entry does not prevent the manifest watcher from starting.
+    participant H as Herdr owner
+    participant R as Restore helper
+    participant W as Managed OpenCode wrapper
+    participant O as OpenCode
+    H->>R: Restore recorded pane/session entries
+    loop Each valid unoccupied entry
+        R->>W: opencode --session exact-id --auto
+        W->>W: Acquire stale-safe startup lock
+        W->>W: Wait for five-second spacing
+        W->>O: Launch exact session with one --auto
+        R->>R: Verify pane reports exact session
+    end
+    R-->>H: Success or actionable partial failure
+    H->>R: Start manifest watcher regardless
+```
+
+**Text Equivalent:** The Herdr owner asks the restore helper to process valid,
+unoccupied manifest entries. Each entry invokes the managed wrapper with its
+exact session ID and automatic permission approval. The wrapper uses a stale-safe
+lock and a shared timestamp so session starts occur at least five seconds apart,
+then OpenCode starts. The helper verifies the exact pane/session identity. Any
+entry failure remains actionable but does not prevent the owner from starting
+the manifest watcher.
+
 ## Behavior Scenarios
 
 ### Feature: Startup-safe Herdr panes
@@ -148,6 +178,15 @@ or failure behavior changes.
 - When each `LoginShell` starts
 - Then no `SecretLoader` runs automatically
 - And no `OnePasswordCommand` runs from shell startup
+
+**Scenario: Herdr resumes OpenCode sessions without a startup stampede**
+- Given multiple recorded `OpenCodeSession` identities require restoration
+- When the managed restore helper starts them
+- Then each exact identity starts in its recorded `HerdrPane`
+- And starts are serialized at least five seconds apart
+- And each OpenCode process receives exactly one `--auto` flag
+- And a non-Herdr OpenCode invocation receives no implicit permission flag or delay
+- And a failed restore entry does not prevent manifest capture from continuing
 
 **Scenario: Herdr server starts in the GUI security context**
 - Given the user has an active Aqua login session
@@ -330,6 +369,9 @@ or failure behavior changes.
 - **Invariant:** `HerdrServer` ownership checks use the structured `running` status because the Herdr status command exits successfully when no server is running.
 - **Invariant:** failed live handoff never falls back to `herdr server stop`.
 - **Invariant:** a managed owner remains active across live handoff and tolerates fewer than five consecutive failed health probes.
+- **Invariant:** every Herdr OpenCode launch receives one `--auto`; non-Herdr launches preserve caller arguments.
+- **Invariant:** Herdr `--session` starts use a stale-safe lock and occur at least five seconds apart.
+- **Invariant:** OpenCode session capture recognizes `--session` regardless of later arguments.
 - **Post:** failed live handoff leaves the old server available and restores the prior native executable when applicable.
 - **Post:** an active server causes LaunchAgent reconciliation to succeed as deferred rather than terminate pane processes.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
@@ -375,6 +417,22 @@ or failure behavior changes.
 | Deploy | Apply native binary and owner wrapper | required | passed | Native `0.8.2`; targeted chezmoi deployment | - | Primary |
 | Operate | Verify pane/session health and durable ownership | required | passed | 54 panes, 46 sessions, stable owner/server PIDs over three minutes | - | Primary |
 | Maintain/Retire | Retire Homebrew source declaration and retain rollback | required | passed | Brewfile declaration removed; installed keg retained as temporary rollback | - | Primary |
+
+## Gate Ledger - AUTH-013
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Exact OpenCode identity and paced Herdr startup | required | pending | This README and AUTH-013 ticket | - | Primary |
+| Behavior | Auto approval, serial restore, and partial failure | required | pending | Focused regression tests | - | Primary |
+| Spec | Herdr restore sequence and trust boundary | required | pending | README and `AUTH-013.plan.json` | - | Primary |
+| Contract | Preserve session identity and explicit permission denies | required | pending | Rendered wrapper and helper assertions | - | Primary |
+| Test-driven implementation | Wrapper and restore regressions | required | pending | `tests/test_herdr_launchagent.py` | - | Primary |
+| Refactor | Native stale-safe startup lock | required | pending | Shell syntax and integrated diff | - | Primary |
+| Review/Integrate | Permission and process safety | required | pending | Independent review and affected QA | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply wrapper, helper, and owner | required | pending | Targeted chezmoi deployment | - | Primary |
+| Operate | Recover stalled exact sessions | required | pending | Pane/session identity and TUI checks | - | Primary |
+| Maintain/Retire | Keep pacing stale-safe and wrapper-owned | required | pending | `shlock` recovery and managed-file ownership | - | Primary |
 
 ## Verification
 
