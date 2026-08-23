@@ -1,0 +1,23 @@
+# DKS-005 Silver Generation Prompt
+
+Read only Git objects at commit
+`0975428470e53282545676cbd3bf261a91aecb77` in the dotfiles-ai repository. Do
+not read the worktree overlay, private DBSCTR authority, transcripts,
+credentials, PostgreSQL content, or retrieval results.
+
+Generate exactly 20 varied, answerable retrieval questions for the assigned
+stratum. Return only one JSON array. Each item must contain `query_id`,
+`stratum`, `text`, and `citations`. IDs are `<stratum>-001` through
+`<stratum>-020` in order. Each citation must contain a repository-relative
+`path`, an exact 16-240 character `quote` copied from one paragraph at the fixed
+commit, and `grade: 3`. Use one to three citations per question.
+
+Questions must resemble real engineering information needs, be answerable from
+their citations, and avoid exposing the answer verbatim. Do not inspect or infer
+how any retrieval candidate ranks. Use these stratum meanings:
+
+- `code_architecture`: implementation flow, data structures, boundaries, and failure behavior.
+- `specs_contracts`: normative behavior, invariants, interfaces, and decisions.
+- `operations_recovery`: deployment, health, rollback, reconciliation, and incident recovery.
+- `tickets_history`: ticket outcomes, dependencies, delivery evidence, and historical decisions.
+- `configuration_tooling`: rendered configuration, CLI, service, model, and tool contracts.

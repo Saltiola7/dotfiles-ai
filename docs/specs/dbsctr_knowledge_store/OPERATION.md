@@ -110,6 +110,8 @@ metadata-only citations; it never returns governed private bodies.
 ## Benchmark And Extensions
 
 Scheduled reconciliation never runs or activates quality benchmarks. DKS-005
-requires human-authored private judgments and explicit review before
-`activate-quality`. `pg_search` is not installed; DKS-006 is a disposable,
-recommendation-only experiment and cannot alter production PostgreSQL.
+silver evidence may authorize only `activate-silver-trial`, a seven-day lease
+that reconciliation, doctor, and guarded query restore to `dks-rrf-v1` when
+expired or unhealthy. Human v2 evidence remains required for permanent
+`activate-quality`. `pg_textsearch` is not installed; DKS-006 remains blocked
+until an official PostgreSQL 19 artifact exists and cannot alter production.

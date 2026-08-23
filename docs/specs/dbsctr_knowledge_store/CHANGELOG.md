@@ -99,8 +99,10 @@
 - Planned benchmark corrections around separate pre-generation and post-assessment
   lineage, a complete offline four-cell/three-depth runner, per-query citation
   safety, blinded assessment evidence, and machine-captured telemetry.
-- Split human assessment into dependent DKS-005 and an isolated recommendation-only
-  `pg_search` bakeoff into DKS-006; production PostgreSQL 19 remains untouched.
+- Split retrieval assessment into dependent DKS-005 and an isolated
+  recommendation-only BM25 bakeoff in DKS-006; production PostgreSQL 19 remains
+  untouched. Later source verification corrected the extension identity from
+  ParadeDB `pg_search` to Tiger Data `pg_textsearch`.
 
 ## 2026-08-21 - DKS-004 Delivery
 
