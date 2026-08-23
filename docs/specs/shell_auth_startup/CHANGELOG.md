@@ -1,5 +1,32 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-23 - Paced OpenCode Session Recovery
+
+- Added Herdr-only `--auto`, stale-safe five-second session-start pacing, exact
+  session parsing with trailing flags, serialized restore helpers, and resilient
+  manifest watching.
+- Passed 78 affected tests, rendered syntax checks, and independent review with
+  no actionable findings.
+- Applied and verified the three managed executables, recovered 45 stalled exact
+  sessions, and verified 46 unique rendered `--auto` sessions while preserving
+  Herdr owner/server PIDs `2974` and `3109`.
+- Left the duplicate pane open at its shell while retaining that session identity
+  in the active operator pane. Gate commits: `01ef8fa`, `828c539`, `36715c4`,
+  `1980b9b`.
+
+## 2026-08-22 - Native Herdr Ownership
+
+- Pinned and installed native Herdr 0.8.2 under `~/.local/bin` with SHA-256
+  verification, exact protocol checks, bounded live handoff, and rollback.
+- Kept the Aqua LaunchAgent owner alive across handoff, added five-probe
+  tolerance, and made unexpected server disappearance restartable.
+- Live deployment exposed repeated post-handoff shutdowns and session restores;
+  recovery finished with 54 panes, 46 live session identities, native server PID
+  `47444`, LaunchAgent owner PID `73813`, and a three-minute stable ownership soak.
+- Validation passed 75 affected tests, rendered shell and plist checks, and an
+  independent final review with no actionable findings. Gate commits: `12f402a`,
+  `9020e21`.
+
 ## 2026-08-18 - Canonical Ticket Migration
 
 - Migrated completed shell-auth work records to independently validated PM

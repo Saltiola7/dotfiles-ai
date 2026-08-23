@@ -1,7 +1,7 @@
 ---
-description: GPT-5.6 Sol implementation agent using provider-local OpenAI subagents.
+description: GPT-5.6 Sol Fast implementation agent using provider-local OpenAI subagents.
 mode: primary
-model: openai/gpt-5.6-sol
+model: openai/gpt-5.6-sol-fast
 variant: medium
 permission:
   dbsctr_vm_handoff: deny

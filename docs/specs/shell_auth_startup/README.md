@@ -1,6 +1,6 @@
 # Shell Auth Startup
 
-**Status:** AUTH-011 deployed and verified in the local macOS Aqua session
+**Status:** AUTH-013 deployed and verified in the local macOS Aqua session
 
 ## Engineering Profile
 
@@ -8,7 +8,7 @@
 
 | Field | Value |
 |---|---|
-| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, and status-bar polling contracts |
+| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, native Herdr installation, and status-bar polling contracts |
 | Languages/frameworks | Bash, Zsh, Go templates, launchd plist, and Markdown |
 | Applicable modules | Security |
 | Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, Aqua LaunchAgent, chezmoi, 1Password CLI, and Keychain |
@@ -16,7 +16,7 @@
 | Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs |
 | Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
 | Release/deployment | No packaged release; managed configuration deploys through explicit chezmoi apply |
-| Maintenance/retirement | Rotate or revoke credentials externally; preserve bounded failure and explicit Herdr ownership handoff |
+| Maintenance/retirement | Rotate or revoke credentials externally; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
 
 ### AUTH-011 Delivered Overrides
 
@@ -38,6 +38,8 @@ Entities:
 - `TemplateRenderer`: chezmoi render path that must not require live 1Password access.
 - `HerdrPane`: restored or newly opened Herdr pane with `HERDR_ENV` set.
 - `HerdrServer`: persistent pane owner launched in the macOS Aqua bootstrap context.
+- `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
+- `OpenCodeSession`: persisted OpenCode identity resumed in its recorded `HerdrPane`.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
 
 Value objects:
@@ -57,6 +59,9 @@ Events:
 - `SecretLoadRequested`
 - `OnePasswordCommandTimedOut`
 - `HerdrPaneRestored`
+- `OpenCodeSessionResumed`
+- `NativeHerdrReleaseApplied`
+- `HerdrLiveHandoffCompleted`
 - `ClockifyPollSkipped`
 
 Glossary:
@@ -69,11 +74,11 @@ Glossary:
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: authentication decision flow | Which shell contexts may use environment, Keychain, cache, or biometric authentication? | Domain and SecretLoader contracts | Shell-auth owner; authentication boundary changes |
-| Interaction | required: authentication decision flow | In what order are authentication sources considered? | Behavior Scenarios | Shell-auth owner; precedence or failure changes |
+| Interaction | required: authentication decision flow and OpenCode restore sequence | In what order are authentication sources and restored OpenCode sessions started? | Behavior Scenarios | Shell-auth owner; precedence, restore order, or failure changes |
 | State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
 | Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
 | Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
-| Dependency/deployment | not_applicable: launchd ownership is a bounded contract without additional topology | - | HerdrServer scenarios | Shell-auth owner |
+| Dependency/deployment | required: native install and live handoff sequence | How does chezmoi replace Herdr without terminating pane processes? | HerdrServer scenarios and contracts | Shell-auth owner; release pin or launchd ownership changes |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
 
 V3.35 adds the missing profile and completion ledger without changing credential
@@ -108,8 +113,61 @@ Keychain service token and otherwise fails without biometric sign-in. Other
 shells may use a valid cache; only an interactive local TTY may mint a new bounded
 session. SSH and noninteractive contexts without valid credentials fail fast.
 One grouped fetch succeeds only after the complete projected secret set validates.
+
+```mermaid
+flowchart TD
+    accTitle: Chezmoi-managed native Herdr upgrade
+    accDescr: Chezmoi verifies the pinned native Herdr release. With no running server it installs directly. With a compatible running server it installs atomically and requests live handoff. A managed owner remains alive for the replacement; a failed handoff restores the prior executable and leaves the old server running.
+    A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
+    V --> R{Herdr server running?}
+    R -->|No| I[Install native executable]
+    R -->|Yes, handoff capable| H[Install atomically and request live handoff]
+    R -->|Yes, no handoff| F[Fail without replacing or stopping server]
+    H --> S{Pinned server responds?}
+    S -->|Yes| O{Managed owner active?}
+    S -->|No| B[Restore prior executable and keep old server]
+    O -->|Yes| K[Owner remains alive for replacement]
+    O -->|No| D[Defer LaunchAgent reload]
+    D --> L[LaunchAgent owns next natural start]
+```
+
+**Text Equivalent:** A release-pin change downloads and verifies the native
+Herdr asset. With no running server, chezmoi installs it directly. A compatible
+running server receives an atomic executable replacement and live-handoff
+request. Unsupported or failed handoff never triggers a stop; failure restores
+the prior executable where present. A managed owner remains alive across the
+handoff. An unmanaged replacement runs detached until the next natural login or
+reboot gives ownership back to the Aqua LaunchAgent.
 The shell-auth owner updates this view when authentication precedence, context,
 or failure behavior changes.
+
+```mermaid
+sequenceDiagram
+    accTitle: Paced OpenCode session restoration
+    accDescr: Herdr restores each recorded OpenCode session through the managed wrapper. The wrapper adds automatic permission approval, takes a stale-safe lock, waits until five seconds after the previous session start, records the new start, and launches the exact session. A failed entry does not prevent the manifest watcher from starting.
+    participant H as Herdr owner
+    participant R as Restore helper
+    participant W as Managed OpenCode wrapper
+    participant O as OpenCode
+    H->>R: Restore recorded pane/session entries
+    loop Each valid unoccupied entry
+        R->>W: opencode --session exact-id --auto
+        W->>W: Acquire stale-safe startup lock
+        W->>W: Wait for five-second spacing
+        W->>O: Launch exact session with one --auto
+        R->>R: Verify pane reports exact session
+    end
+    R-->>H: Success or actionable partial failure
+    H->>R: Start manifest watcher regardless
+```
+
+**Text Equivalent:** The Herdr owner asks the restore helper to process valid,
+unoccupied manifest entries. Each entry invokes the managed wrapper with its
+exact session ID and automatic permission approval. The wrapper uses a stale-safe
+lock and a shared timestamp so session starts occur at least five seconds apart,
+then OpenCode starts. The helper verifies the exact pane/session identity. Any
+entry failure remains actionable but does not prevent the owner from starting
+the manifest watcher.
 
 ## Behavior Scenarios
 
@@ -120,6 +178,15 @@ or failure behavior changes.
 - When each `LoginShell` starts
 - Then no `SecretLoader` runs automatically
 - And no `OnePasswordCommand` runs from shell startup
+
+**Scenario: Herdr resumes OpenCode sessions without a startup stampede**
+- Given multiple recorded `OpenCodeSession` identities require restoration
+- When the managed restore helper starts them
+- Then each exact identity starts in its recorded `HerdrPane`
+- And starts are serialized at least five seconds apart
+- And each OpenCode process receives exactly one `--auto` flag
+- And a non-Herdr OpenCode invocation receives no implicit permission flag or delay
+- And a failed restore entry does not prevent manifest capture from continuing
 
 **Scenario: Herdr server starts in the GUI security context**
 - Given the user has an active Aqua login session
@@ -136,11 +203,42 @@ or failure behavior changes.
 - And the handoff remains pending for a retry after the operator stops the server
 - And server ownership is determined from structured Herdr status rather than command exit status
 
-**Scenario: Managed Herdr server is reloaded**
-- Given the managed Aqua LaunchAgent owns the `HerdrServer`
-- When chezmoi reapplies changed LaunchAgent configuration
-- Then deployment waits up to five seconds for the old server to stop before bootstrapping its replacement
-- And deployment fails if the old server remains running
+**Scenario: Chezmoi installs the pinned native Herdr release**
+- Given no native `HerdrServer` executable exists at the configured path
+- And no `HerdrServer` is running
+- When chezmoi applies `NativeHerdrRelease`
+- Then it downloads the pinned asset
+- And it verifies the pinned SHA-256 before installation
+- And the installed executable reports the pinned version
+
+**Scenario: Chezmoi upgrades a running Herdr server**
+- Given a live-handoff-capable `HerdrServer` owns pane processes
+- And `NativeHerdrRelease` pins a different version or protocol
+- When chezmoi applies the release pin
+- Then it installs the verified native executable atomically
+- And it requests live handoff with the pinned version and protocol
+- And it never requests a normal server stop
+- And the replacement server retains the pane processes
+- And a managed owner remains alive while the replacement serves them
+
+**Scenario: Managed Herdr owner observes a transient probe failure**
+- Given the Aqua LaunchAgent owns a live `HerdrServer`
+- When fewer than five consecutive structured health probes fail
+- Then the owner remains active and does not terminate the server coalition
+- And an unexpected server disappearance exits as failure so launchd restarts it
+
+**Scenario: Native Herdr live handoff fails**
+- Given a live `HerdrServer` owns pane processes
+- When the pinned replacement cannot complete live handoff
+- Then chezmoi leaves the old server running
+- And it restores the previous native executable when one existed
+- And deployment fails without invoking a stop fallback
+
+**Scenario: Active Herdr defers LaunchAgent reconciliation**
+- Given any `HerdrServer` is running when chezmoi reconciles the Aqua LaunchAgent
+- When the managed plist or owner wrapper changed
+- Then deployment does not boot out the LaunchAgent
+- And managed ownership resumes at the next natural login or reboot
 
 ### Feature: Fail-fast secret loading
 
@@ -265,10 +363,17 @@ or failure behavior changes.
 - **Invariant:** Keychain repair is explicit and interactive; `SecretLoader` never mutates Keychain ACLs.
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
-- **Invariant:** chezmoi deployment never stops an unmanaged `HerdrServer`; initial handoff is explicit or occurs at the next GUI login.
+- **Invariant:** chezmoi owns the native Herdr version, protocol, asset URL, SHA-256, installation path, and upgrade workflow.
+- **Invariant:** native release bytes are installed only after SHA-256 verification and executable version validation.
+- **Invariant:** chezmoi deployment never stops a running `HerdrServer`; compatible upgrades use live handoff and LaunchAgent reconciliation waits for the next GUI login or reboot.
 - **Invariant:** `HerdrServer` ownership checks use the structured `running` status because the Herdr status command exits successfully when no server is running.
-- **Post:** a handoff blocked by an unmanaged `HerdrServer` fails so chezmoi does not record the `run_onchange` script as completed.
-- **Post:** managed LaunchAgent replacement waits a bounded five seconds for the old `HerdrServer` to stop before bootstrap.
+- **Invariant:** failed live handoff never falls back to `herdr server stop`.
+- **Invariant:** a managed owner remains active across live handoff and tolerates fewer than five consecutive failed health probes.
+- **Invariant:** every Herdr OpenCode launch receives one `--auto`; non-Herdr launches preserve caller arguments.
+- **Invariant:** Herdr `--session` starts use a stale-safe lock and occur at least five seconds apart.
+- **Invariant:** OpenCode session capture recognizes `--session` regardless of later arguments.
+- **Post:** failed live handoff leaves the old server available and restores the prior native executable when applicable.
+- **Post:** an active server causes LaunchAgent reconciliation to succeed as deferred rather than terminate pane processes.
 - **Post:** valid service account tokens must not call `op signin` or write `OnePasswordSessionCache`.
 - **Post:** invalid service account tokens fail fast with a service-account-specific error.
 - **Post:** SSH shells without a service account token must not attempt biometric or password-based `op signin`.
@@ -296,6 +401,38 @@ or failure behavior changes.
 | Deploy | Apply managed Herdr ownership configuration | required | passed | Targeted chezmoi deployment; `e858602`, `4a05198` | - | Primary |
 | Operate | Verify Aqua LaunchAgent and Herdr-mode authentication | required | passed | Running Aqua LaunchAgent, Keychain access, and `op-session` | - | Primary |
 | Maintain/Retire | Keep failed ownership handoff retryable | required | passed | Unmanaged refusal and bounded shutdown contracts | - | Primary |
+
+## Gate Ledger - AUTH-012
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Native release and durable handoff ownership | required | passed | This README and AUTH-012 ticket | - | Primary |
+| Behavior | Install, handoff, rollback, and owner continuity | required | passed | Focused regression tests | - | Primary |
+| Spec | Pinned native lifecycle and managed/unmanaged ownership | required | passed | README and `AUTH-012.plan.json` | - | Primary |
+| Contract | Preserve panes; never stop on upgrade failure | required | passed | Rendered shell and runtime identity checks | - | Primary |
+| Test-driven implementation | Native installer and owner regressions | required | passed | `tests/test_herdr_launchagent.py` | - | Primary |
+| Refactor | Shared structured status and bounded owner probes | required | passed | Shell syntax and integrated diff | - | Primary |
+| Review/Integrate | Process and ownership safety | required | passed | Independent review clean; 75 affected tests passed | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply native binary and owner wrapper | required | passed | Native `0.8.2`; targeted chezmoi deployment | - | Primary |
+| Operate | Verify pane/session health and durable ownership | required | passed | 54 panes, 46 sessions, stable owner/server PIDs over three minutes | - | Primary |
+| Maintain/Retire | Retire Homebrew source declaration and retain rollback | required | passed | Brewfile declaration removed; installed keg retained as temporary rollback | - | Primary |
+
+## Gate Ledger - AUTH-013
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Exact OpenCode identity and paced Herdr startup | required | passed | This README and AUTH-013 ticket | - | Primary |
+| Behavior | Auto approval, serial restore, and partial failure | required | passed | Focused regression tests | - | Primary |
+| Spec | Herdr restore sequence and trust boundary | required | passed | README and `AUTH-013.plan.json` | - | Primary |
+| Contract | Preserve session identity and explicit permission denies | required | passed | Rendered wrapper and helper assertions | - | Primary |
+| Test-driven implementation | Wrapper and restore regressions | required | passed | 78 affected tests | - | Primary |
+| Refactor | Native stale-safe startup lock | required | passed | Rendered shell and Python syntax | - | Primary |
+| Review/Integrate | Permission and process safety | required | passed | Independent review: no actionable findings | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Apply wrapper, helper, and owner | required | passed | Targeted chezmoi apply and verify | - | Primary |
+| Operate | Recover stalled exact sessions | required | passed | 45 recovered; 46 unique exact `--auto` sessions verified | - | Primary |
+| Maintain/Retire | Keep pacing stale-safe and wrapper-owned | required | passed | Stale-lock regression; duplicate pane retained as an open shell | - | Primary |
 
 ## Verification
 

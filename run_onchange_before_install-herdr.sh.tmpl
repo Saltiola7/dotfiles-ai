@@ -1,0 +1,170 @@
+#!/bin/bash
+
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+[[ "$(uname -m)" == "arm64" ]] || { echo "native Herdr pin supports macOS arm64 only" >&2; exit 1; }
+
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+VERSION={{ .dotfiles_ai.herdr.version | quote }}
+PROTOCOL={{ .dotfiles_ai.herdr.protocol }}
+URL={{ .dotfiles_ai.herdr.asset_url | quote }}
+SHA256={{ .dotfiles_ai.herdr.asset_sha256 | quote }}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
+[[ "$HERDR" == /* ]] || { echo "Herdr executable path must be absolute or start with ~/" >&2; exit 1; }
+[[ "$URL" == https://* ]] || { echo "Herdr asset URL must use HTTPS" >&2; exit 1; }
+[[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Herdr SHA-256 pin is invalid" >&2; exit 1; }
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Herdr version pin is invalid" >&2; exit 1; }
+
+server_client=
+server_status=
+running_server_seen=false
+for candidate in "$HERDR" "$(command -v herdr 2>/dev/null || true)" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    status=$("$candidate" status server --json 2>/dev/null || true)
+    if /usr/bin/grep -q '"running":true' <<<"$status"; then
+        running_server_seen=true
+        if ! /usr/bin/grep -Eq '"compatible"[[:space:]]*:[[:space:]]*false' <<<"$status"; then
+            server_client=$candidate
+            server_status=$status
+            break
+        fi
+    fi
+done
+if [[ "$running_server_seen" == true && -z "$server_client" ]]; then
+    echo "running Herdr has no compatible client for safe handoff; leaving it and the native executable unchanged" >&2
+    exit 1
+fi
+
+server_matches_pin() {
+    /usr/bin/grep -Eq "\"version\"[[:space:]]*:[[:space:]]*\"$VERSION\"" <<<"$1" \
+        && /usr/bin/grep -Eq "\"protocol\"[[:space:]]*:[[:space:]]*$PROTOCOL([,}])" <<<"$1"
+}
+
+file_sha256() {
+    /usr/bin/shasum -a 256 < "$1" | /usr/bin/awk '{print $1}'
+}
+
+target_matches_pin() {
+    [[ -x "$HERDR" ]] \
+        && [[ "$("$HERDR" --version 2>/dev/null || true)" == "herdr $VERSION" ]] \
+        && [[ "$(file_sha256 "$HERDR")" == "$SHA256" ]]
+}
+
+if [[ -n "$server_client" ]] && ! server_matches_pin "$server_status" \
+    && ! /usr/bin/grep -q '"live_handoff":true' <<<"$server_status"; then
+    echo "running Herdr does not support live handoff; leaving it and the native executable unchanged" >&2
+    exit 1
+fi
+
+if [[ -n "$server_client" ]] && ! server_matches_pin "$server_status"; then
+    panes=$("$server_client" pane list 2>/dev/null || true)
+    /usr/bin/grep -q '"panes":\[' <<<"$panes" \
+        || { echo "could not verify live pane count; leaving server and native executable unchanged" >&2; exit 1; }
+    pane_count=$(/usr/bin/awk -F'"pane_id":' '{count += NF - 1} END {print count}' <<<"$panes")
+    (( pane_count <= 64 )) \
+        || { echo "live handoff supports at most 64 panes; found $pane_count" >&2; exit 1; }
+fi
+
+tmp=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/herdr-install.XXXXXX")
+staged=
+had_previous=false
+target_changed=false
+handoff_pending=false
+rollback_target() {
+    if [[ "$had_previous" == true ]]; then
+        /bin/mv -f "$tmp/previous-herdr" "$HERDR"
+    else
+        /bin/rm -f "$HERDR"
+    fi
+}
+cleanup() {
+    status=$?
+    trap - EXIT
+    if [[ "$target_changed" == true && "$handoff_pending" == true ]]; then
+        rollback_target
+    fi
+    [[ -n "$staged" ]] && /bin/rm -f "$staged"
+    /bin/rm -rf "$tmp"
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if target_matches_pin; then
+    target_ready=true
+else
+    target_ready=false
+    command -v curl >/dev/null || { echo "curl is required to install Herdr" >&2; exit 1; }
+    download="$tmp/herdr"
+    curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 -o "$download" "$URL"
+    actual=$(file_sha256 "$download")
+    [[ "$actual" == "$SHA256" ]] || { echo "downloaded Herdr checksum did not match" >&2; exit 1; }
+    /bin/chmod 755 "$download"
+    [[ "$("$download" --version 2>/dev/null || true)" == "herdr $VERSION" ]] \
+        || { echo "downloaded Herdr version did not match $VERSION" >&2; exit 1; }
+
+    parent=${HERDR%/*}
+    /bin/mkdir -p "$parent"
+    if [[ -e "$HERDR" ]]; then
+        /bin/cp "$HERDR" "$tmp/previous-herdr"
+        had_previous=true
+        if [[ "$server_client" == "$HERDR" ]]; then
+            server_client="$tmp/previous-herdr"
+        fi
+    fi
+    staged=$(/usr/bin/mktemp "$parent/.herdr.XXXXXX")
+    /bin/cp "$download" "$staged"
+    /bin/chmod 755 "$staged"
+    target_changed=true
+    if [[ -n "$server_client" ]] && ! server_matches_pin "$server_status"; then
+        handoff_pending=true
+    fi
+    /bin/mv -f "$staged" "$HERDR"
+    staged=
+    target_ready=true
+fi
+
+[[ "$target_ready" == true ]] || exit 1
+if [[ -z "$server_client" ]] || server_matches_pin "$server_status"; then
+    exit 0
+fi
+handoff_pending=true
+
+# The download can take long enough for new panes to appear after preflight.
+panes=$("$server_client" pane list 2>/dev/null || true)
+if ! /usr/bin/grep -q '"panes":\[' <<<"$panes"; then
+    rollback_target
+    handoff_pending=false
+    echo "could not recheck live pane count; old server left running and native executable rolled back" >&2
+    exit 1
+fi
+pane_count=$(/usr/bin/awk -F'"pane_id":' '{count += NF - 1} END {print count}' <<<"$panes")
+if (( pane_count > 64 )); then
+    rollback_target
+    handoff_pending=false
+    echo "live handoff supports at most 64 panes; found $pane_count; native executable rolled back" >&2
+    exit 1
+fi
+
+handoff_ok=false
+if "$HERDR" server live-handoff --import-exe "$HERDR" \
+    --expected-protocol "$PROTOCOL" --expected-version "$VERSION"; then
+    for _ in {1..300}; do
+        status=$("$HERDR" status server --json 2>/dev/null || true)
+        if /usr/bin/grep -q '"running":true' <<<"$status" && server_matches_pin "$status"; then
+            handoff_ok=true
+            break
+        fi
+        sleep 0.1
+    done
+fi
+
+if [[ "$handoff_ok" != true ]]; then
+    rollback_target
+    handoff_pending=false
+    echo "live handoff failed; old server left running and native executable rolled back" >&2
+    exit 1
+fi
+handoff_pending=false
+
+echo "[herdr-install] live handoff complete; pane processes preserved" >&2

@@ -98,31 +98,91 @@ def test_hermes_backend_retires_native_jobs_only_after_health_contract():
                     values(backend="hermes"))
     subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
     assert "gateway status" in loader
+    assert "launchctl print" in loader and "state = running" in loader
     assert "*-cron-id" in loader
     assert "remove_job dev.dotfiles-ai.dbsctr-spawner" in loader
     assert loader.index("gateway status") < loader.index("launchctl bootstrap")
 
 
 def test_hermes_templates_are_profile_local_and_valid_bash():
-    installer = render("run_once_before_install-hermes.sh.tmpl")
+    installer = render("run_onchange_before_install-hermes.sh.tmpl")
     configure = render("run_onchange_after_configure-hermes.sh.tmpl")
+    project_data = values()
+    project_data["dotfiles_ai"]["hermes"]["project_profiles"] = True
+    project_configure = render("run_onchange_after_configure-hermes.sh.tmpl", project_data)
     catalog = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl").read_text()
     subprocess.run(["bash", "-n"], input=installer, text=True, check=True)
     subprocess.run(["bash", "-n"], input=configure, text=True, check=True)
     assert "sha256sum -c -" in installer and "shasum -a 256 -c -" in installer
     assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
+    assert 'UV_TOOL_DIR="$HOME/.local/share/uv/tools"' in installer
+    assert 'UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"' in installer
+    assert 'uv python install 3.13.2' in installer
+    assert 'uv tool install --force --python 3.13.2 "$wheel"' in installer
+    assert '"$target" != /Volumes/*' in installer
+    assert '"$runtime" != /Volumes/*' in installer
+    assert 'retire_job "$state/catalog-cron-id" "dotfiles-ai project catalog"' in configure
+    assert 'retire_job "$state/refinement-cron-id" "dotfiles-ai context refinement"' in project_configure
     assert '${HERMES#\\~/}' in installer
     assert 'profiles/$PROFILE' in configure
+    assert 'managed_home="$HERMES_HOME/managed"' in configure
+    assert '$HOME/.hermes/managed' not in configure
     assert "terminal.home_mode profile" in configure
     assert "config set model.default openai-codex/gpt-5.6-sol" in configure
     assert "config get model.provider" in configure
     assert "config get model.default" in configure
+    assert "gateway install --force" in configure
+    assert "state-root-exec" in configure and "plistlib" in configure
+    assert 'payload.pop("WorkingDirectory", None)' in configure
+    assert 'payload["StandardOutPath"]' in configure and 'payload["StandardErrorPath"]' in configure
+    assert "launchctl bootout" in configure and "launchctl bootstrap" in configure
+    assert "/usr/bin/shlock -p $$" in configure and "flock -n 9" in configure
+    assert 'rm -f "$lock"' in configure
+    assert "cron list --all" in configure and "prune_duplicate_jobs" in configure
+    assert "cron remove \"$duplicate\"" in configure
+    assert "launchctl print" in configure and "state = running" in configure
     assert '"config", "get", "model.provider"' in catalog
     assert '"config", "get", "model.default"' in catalog
+    assert 'MANAGED_HOME / "skills/dbsctr-supervisor/SKILL.md"' in catalog
+    assert '"gateway", "install", "--force", "--no-start-now"' in catalog
+    assert 'payload.pop("WorkingDirectory", None)' in catalog
+    assert '"state = running" in status.stdout' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
     assert "cron pause" in configure and "cutover-ready" in configure
+
+
+def test_hermes_mode_transition_retires_every_obsolete_job(tmp_path):
+    configure = render("run_onchange_after_configure-hermes.sh.tmpl")
+    helper = configure[configure.index("retire_job() {"):configure.index("\n\nretire_job ", configure.index("retire_job() {"))]
+    hermes = tmp_path / "hermes"
+    log = tmp_path / "calls"
+    hermes.write_text("""#!/bin/bash
+if [[ "$*" == *"cron list --all" ]]; then
+    printf 'aaaaaaaaaaaa [active]\\n  Name:      obsolete\\nbbbbbbbbbbbb [active]\\n  Name:      obsolete\\n'
+else
+    printf '%s\\n' "$*" >> "$FAKE_HERMES_LOG"
+fi
+""")
+    hermes.chmod(0o755)
+    state = tmp_path / "state"
+    state.mkdir()
+    id_file = state / "obsolete-cron-id"
+    id_file.write_text("aaaaaaaaaaaa\n")
+    script = f'''set -euo pipefail
+HERMES={hermes}
+PROFILE=system
+state={state}
+{helper}
+retire_job "$state/obsolete-cron-id" obsolete
+'''
+    subprocess.run(["bash"], input=script, text=True, check=True,
+                   env={**os.environ, "FAKE_HERMES_LOG": str(log)})
+    calls = log.read_text()
+    assert "cron pause aaaaaaaaaaaa" in calls and "cron remove aaaaaaaaaaaa" in calls
+    assert "cron pause bbbbbbbbbbbb" in calls and "cron remove bbbbbbbbbbbb" in calls
+    assert not id_file.exists()
 
 
 def test_supervisor_uses_argparse_safe_direct_launch_command():
@@ -134,6 +194,7 @@ def test_supervisor_uses_argparse_safe_direct_launch_command():
         "--repository-id REPOSITORY_ID launch"
     ) in skill
     assert "dbsctr-rnd --reservation RESERVATION --reason prelaunch_failed release" in skill
+    assert "Repeatedly run `dbsctr-rnd reserve` until a no-op" in skill
     catalog = render("private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")
     compile(catalog, "dbsctr-catalog.py", "exec")
     assert "HERMES_KANBAN_HOME" in catalog and "repository_id" in catalog
@@ -857,6 +918,25 @@ def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, 
     for lens, (reservation, _worker) in attempts.items():
         if lens not in {"correctness_safety", "reliability_recovery", runner["REVIEW_SESSION_LENS"]}:
             runner["release_reservation"](reservation)
+
+
+def test_parallel_lenses_reclaim_absent_expired_worker(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "parallel-stale-worker")
+    now = 1_704_067_200
+    reservation, lens, _ = runner["reserve_parallel_lens"]([], now)
+    runner["claim_reservation"](reservation, "worker-stale", now)
+    runner["complete_reservation"](reservation, "worker-stale", session_id="session-stale")
+
+    replacement, replacement_lens, reason = runner["reserve_parallel_lens"](
+        [], now + runner["RESERVATION_LEASE_SECONDS"] + 1
+    )
+
+    assert reason == "reserved" and replacement_lens == lens and replacement != reservation
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select count(*) from spawn_reservations where reservation_id=?", (reservation,)
+    ).fetchone() == (0,)
+    connection.close()
 
 
 def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeypatch):

@@ -90,6 +90,15 @@
 | Scope | Absolute executable selection, macOS-only rendering, Environment capability boundary, focused tests, resolved configuration, fresh MCP connection, and restart guidance |
 | Overrides | The MCP never manages Password Manager vaults/items or service-account access, never returns Environment secret values, and does not replace existing `op` CLI workflows |
 
+### OCP-37 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: priority processing changes latency and doubles published OpenAI token rates |
+| Delivery intent | Deploy managed Fast model routing and deliver a draft pull request |
+| Scope | Route OpenAI Plan, Build, Reviewer, Explore, Scout, Builder, explicit GPT entry, and disposable small-model work to GPT-5.6 Fast counterparts |
+| Overrides | Existing Sol/Luna/Terra role allocation, reasoning effort, provider affinity, and fallback boundaries remain unchanged |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -258,7 +267,7 @@ crosses providers silently.
 ### Exact provider entry
 
 Given the user invokes `/dbsctr-gpt`, when OpenCode starts the workflow, then it
-selects `build-gpt` with `openai/gpt-5.6-sol`. Given the user invokes
+selects `build-gpt` with `openai/gpt-5.6-sol-fast`. Given the user invokes
 `/dbsctr-claude`, then it selects `build-claude` with
 `amazon-bedrock/global.anthropic.claude-opus-5` at high reasoning effort. The
 existing provider-neutral `/dbsctr` command continues to inherit the selected
@@ -634,9 +643,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   built-in Plan exit target.
 - `gpt-5.6-sol-pro`, `Plan-GPT-Pro`, `Plan-GPT-Pro-Max`, and `Build-GPT-Pro`
   are absent while ChatGPT OAuth excludes Pro reasoning mode.
-- Native Plan and `build-gpt` resolve to `openai/gpt-5.6-sol` with `medium` as
-  their default effort; OpenAI Explore uses Luna low, while Scout and Builder
-  remain on Terra medium.
+- Native Plan and `build-gpt` resolve to `openai/gpt-5.6-sol-fast` with `medium`
+  as their default effort; OpenAI Explore uses Luna Fast low, while Scout and
+  Builder use Terra Fast medium. Fast model identities select OpenAI priority
+  processing; they do not replace reasoning-effort variants.
 - `build-claude` resolves to `amazon-bedrock/global.anthropic.claude-opus-5`
   with high reasoning effort; Bedrock optimized subagents remain on Sonnet 5
   medium. Opus 4.8 is retired rather than retained as fallback.
@@ -649,7 +659,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Provider telemetry uses exact allowlisted runtime identity without provider
   account or billing-client metadata.
 - Provider-neutral commands contain no fixed `agent` field. `/dbsctr-gpt` fixes
-  `agent: build-gpt` and `model: openai/gpt-5.6-sol`; `/dbsctr-claude` fixes
+  `agent: build-gpt` and `model: openai/gpt-5.6-sol-fast`; `/dbsctr-claude` fixes
   `agent: build-claude` and
   `model: amazon-bedrock/global.anthropic.claude-opus-5`.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.

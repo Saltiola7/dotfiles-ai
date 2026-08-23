@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-22 - OCP-37 GPT-5.6 Fast Routing
+
+- Routed native Plan and Build, `build-gpt`, Reviewer, and `/dbsctr-gpt` to Sol
+  Fast; Explore and disposable small-model work to Luna Fast; and Scout and
+  Builder to Terra Fast. Existing reasoning efforts and provider affinity remain
+  unchanged.
+- Red/green routing checks and 53 affected tests passed with Git whitespace
+  validation. A targeted managed deployment preserved unrelated host state, and
+  a fresh OpenCode process resolved every exact Fast identity and effort. Current
+  OpenCode processes require one normal restart. Fast priority processing uses
+  twice the published standard token rates; fallback cost-card estimates do not
+  yet cover Fast IDs. Gate Commit: `d49c9b4`. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-18 - PM Kernel Commands
 
 - Migrated control-plane work records to canonical tickets and deployed

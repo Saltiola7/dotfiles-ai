@@ -2,6 +2,7 @@
 # supervisor: {{ include "private_dot_hermes/private_managed/private_skills/private_dbsctr-supervisor/SKILL.md.tmpl" | sha256sum }}
 # maintenance: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py" | sha256sum }}
 # catalog: {{ include "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl" | sha256sum }}
+# installer: {{ include "run_onchange_before_install-hermes.sh.tmpl" | sha256sum }}
 # profile: {{ .dotfiles_ai.hermes.profile }}
 # backend: {{ .dotfiles_ai.rnd.backend }}
 
@@ -10,11 +11,74 @@ HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
 {{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
 {{ else -}}
+DOTFILES_AI_STATE_ROOT=""
 HERMES_HOME="$HOME/.hermes"
 {{ end -}}
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
+
+mkdir -p "$state"
+chmod 700 "$state"
+lock="$state/configure.lock"
+if [[ $(uname) == Darwin ]]; then
+    /usr/bin/shlock -p $$ -f "$lock" || exit 0
+else
+    exec 9>"$lock"
+    flock -n 9 || exit 0
+fi
+trap 'rm -f "$lock"' EXIT
+
+gateway_ready() {
+    if [[ $(uname) == Darwin ]]; then
+        /bin/launchctl print "gui/$(id -u)/ai.hermes.gateway-$PROFILE" 2>/dev/null \
+            | /usr/bin/grep -q 'state = running'
+    else
+        local status
+        status=$("$HERMES" -p "$PROFILE" gateway status --deep 2>&1) || return 1
+        ! /usr/bin/grep -Eqi 'not running|will NOT fire|stale' <<<"$status"
+    fi
+}
+
+wrap_gateway_service() {
+    local plist="$HOME/Library/LaunchAgents/ai.hermes.gateway-$PROFILE.plist"
+    local wrapper="$HOME/.local/bin/state-root-exec"
+    [[ -x "$wrapper" && -f "$plist" ]] || return 1
+    /usr/bin/python3 - "$plist" "$wrapper" "$DOTFILES_AI_STATE_ROOT" <<'PY'
+import os
+import plistlib
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+path, wrapper, state_root = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+payload = plistlib.loads(path.read_bytes())
+arguments = payload.get("ProgramArguments")
+if not isinstance(arguments, list) or not arguments or not all(isinstance(item, str) for item in arguments):
+    raise SystemExit("invalid Hermes gateway arguments")
+if arguments[0] != wrapper:
+    arguments.insert(0, wrapper)
+environment = payload.setdefault("EnvironmentVariables", {})
+if not isinstance(environment, dict):
+    raise SystemExit("invalid Hermes gateway environment")
+environment["DOTFILES_AI_STATE_ROOT"] = state_root
+payload.pop("WorkingDirectory", None)
+logs = Path.home() / "Library/Logs"
+payload["StandardOutPath"] = str(logs / f"hermes-gateway-{payload['Label']}.log")
+payload["StandardErrorPath"] = str(logs / f"hermes-gateway-{payload['Label']}.err.log")
+mode = stat.S_IMODE(path.stat().st_mode)
+with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+    plistlib.dump(payload, output)
+    output.flush()
+    os.fsync(output.fileno())
+os.chmod(output.name, mode)
+os.replace(output.name, path)
+PY
+    /bin/launchctl bootout "gui/$(id -u)/ai.hermes.gateway-$PROFILE" >/dev/null 2>&1 || true
+    /bin/launchctl bootstrap "gui/$(id -u)" "$plist"
+}
 
 pause_owned() {
     [[ -x "$HERMES" ]] || return 0
@@ -36,12 +100,13 @@ exit 0
 [[ {{ .dotfiles_ai.rnd.backend | quote }} == native || {{ .dotfiles_ai.rnd.backend | quote }} == hermes ]] \
     || { echo "rnd.backend must be native or hermes" >&2; exit 1; }
 profile_home="$HERMES_HOME/profiles/$PROFILE"
+managed_home="$HERMES_HOME/managed"
 [[ -d "$profile_home" ]] || "$HERMES" profile create "$PROFILE" --description "DBSCTR context-isolated orchestration"
 mkdir -p "$profile_home/skills/dbsctr-supervisor" "$profile_home/scripts" "$state"
 chmod 700 "$profile_home" "$profile_home/scripts" "$state"
-install -m 600 "$HOME/.hermes/managed/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
-install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
-install -m 700 "$HOME/.hermes/managed/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
+install -m 600 "$managed_home/skills/dbsctr-supervisor/SKILL.md" "$profile_home/skills/dbsctr-supervisor/SKILL.md"
+install -m 700 "$managed_home/scripts/dbsctr-maintain.py" "$profile_home/scripts/dbsctr-maintain.py"
+install -m 700 "$managed_home/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
 "$HERMES" -p "$PROFILE" config set terminal.home_mode profile
 "$HERMES" -p "$PROFILE" config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
 "$HERMES" -p "$PROFILE" config set model.default openai-codex/gpt-5.6-sol
@@ -69,9 +134,43 @@ replace_job() {
     mv "$id_file.tmp" "$id_file"
 }
 
+prune_duplicate_jobs() {
+    local name=$1 keep=$2 jobs duplicate
+    jobs=$("$HERMES" -p "$PROFILE" cron list --all)
+    while IFS= read -r duplicate; do
+        [[ -z "$duplicate" ]] || "$HERMES" -p "$PROFILE" cron remove "$duplicate"
+    done < <(/usr/bin/awk -v name="$name" -v keep="$keep" '
+        $1 ~ /^[0-9a-f]{12}$/ { id=$1 }
+        /^[[:space:]]*Name:[[:space:]]*/ {
+            value=$0
+            sub(/^[[:space:]]*Name:[[:space:]]*/, "", value)
+            if (value == name && id != keep) print id
+        }
+    ' <<<"$jobs")
+}
+
+retire_job() {
+    local id_file=$1 name=$2 jobs id
+    jobs=$("$HERMES" -p "$PROFILE" cron list --all)
+    while IFS= read -r id; do
+        [[ -z "$id" ]] || "$HERMES" -p "$PROFILE" cron pause "$id" >/dev/null
+        [[ -z "$id" ]] || "$HERMES" -p "$PROFILE" cron remove "$id" >/dev/null
+    done < <(/usr/bin/awk -v name="$name" '
+        $1 ~ /^[0-9a-f]{12}$/ { id=$1 }
+        /^[[:space:]]*Name:[[:space:]]*/ {
+            value=$0
+            sub(/^[[:space:]]*Name:[[:space:]]*/, "", value)
+            if (value == name) print id
+        }
+    ' <<<"$jobs")
+    rm -f "$id_file"
+}
+
 {{ if .dotfiles_ai.hermes.project_profiles -}}
+retire_job "$state/refinement-cron-id" "dotfiles-ai context refinement"
 replace_job "$state/catalog-cron-id" "every 15m" "dotfiles-ai project catalog" "" "dbsctr-catalog.py"
 {{ else -}}
+retire_job "$state/catalog-cron-id" "dotfiles-ai project catalog"
 replace_job "$state/refinement-cron-id" "every 5m" \
     "dotfiles-ai context refinement" \
     "Fill every eligible lens reservation with its deterministic direct OpenCode R&D launcher."
@@ -79,13 +178,29 @@ replace_job "$state/refinement-cron-id" "every 5m" \
 replace_job "$state/maintenance-cron-id" "0 3 * * *" \
     "dotfiles-ai completed worktree maintenance" "" "dbsctr-maintain.py"
 
-"$HERMES" -p "$PROFILE" gateway install
+{{ if .dotfiles_ai.hermes.project_profiles -}}
+IFS= read -r managed_id < "$state/catalog-cron-id"
+prune_duplicate_jobs "dotfiles-ai project catalog" "$managed_id"
+{{ else -}}
+IFS= read -r managed_id < "$state/refinement-cron-id"
+prune_duplicate_jobs "dotfiles-ai context refinement" "$managed_id"
+{{ end -}}
+IFS= read -r managed_id < "$state/maintenance-cron-id"
+prune_duplicate_jobs "dotfiles-ai completed worktree maintenance" "$managed_id"
+
+"$HERMES" -p "$PROFILE" gateway install --force --no-start-now
 {{ if eq .dotfiles_ai.rnd.backend "hermes" -}}
 for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron resume "$id"; done
 {{ else -}}
 for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron pause "$id"; done
 {{ end -}}
-"$HERMES" -p "$PROFILE" gateway start
+if [[ $(uname) == Darwin ]]; then
+    wrap_gateway_service
+else
+    "$HERMES" -p "$PROFILE" gateway start
+fi
+for _ in {1..50}; do gateway_ready && break; sleep 0.1; done
+gateway_ready || { echo "Hermes gateway did not become ready" >&2; exit 1; }
 {{ if .dotfiles_ai.hermes.project_profiles -}}
 "$profile_home/scripts/dbsctr-catalog.py"
 {{ end -}}
