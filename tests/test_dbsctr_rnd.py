@@ -123,6 +123,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "gateway install --force" in configure
     assert "state-root-exec" in configure and "plistlib" in configure
     assert 'payload.pop("WorkingDirectory", None)' in configure
+    assert 'payload["StandardOutPath"]' in configure and 'payload["StandardErrorPath"]' in configure
     assert "launchctl bootout" in configure and "launchctl bootstrap" in configure
     assert "/usr/bin/shlock -p $$" in configure and "flock -n 9" in configure
     assert 'rm -f "$lock"' in configure

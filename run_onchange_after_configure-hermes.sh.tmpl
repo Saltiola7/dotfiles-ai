@@ -64,6 +64,9 @@ if not isinstance(environment, dict):
     raise SystemExit("invalid Hermes gateway environment")
 environment["DOTFILES_AI_STATE_ROOT"] = state_root
 payload.pop("WorkingDirectory", None)
+logs = Path.home() / "Library/Logs"
+payload["StandardOutPath"] = str(logs / f"hermes-gateway-{payload['Label']}.log")
+payload["StandardErrorPath"] = str(logs / f"hermes-gateway-{payload['Label']}.err.log")
 mode = stat.S_IMODE(path.stat().st_mode)
 with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
     plistlib.dump(payload, output)
