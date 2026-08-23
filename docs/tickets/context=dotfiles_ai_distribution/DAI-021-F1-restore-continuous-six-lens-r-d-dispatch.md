@@ -5,7 +5,7 @@ slug: "restore-continuous-six-lens-r-d-dispatch"
 context: "dotfiles_ai_distribution"
 title: "Restore continuous six-lens R&D dispatch"
 kind: "task"
-state: "review"
+state: "done"
 priority: "high"
 points: 2
 depends_on:
@@ -27,7 +27,7 @@ validation:
   - "Hermes gateway, cron, and six-lens exhaustion smoke test"
 created: "2026-08-23"
 updated: "2026-08-23"
-completed: null
+completed: "2026-08-23"
 commits:
   - "1d86f9b"
   - "d6533c2"
@@ -41,6 +41,7 @@ commits:
   - "c4a8f6c"
   - "57a51bd"
   - "2e4ab64"
+  - "163aada"
 jira_publications: []
 migration: null
 ---

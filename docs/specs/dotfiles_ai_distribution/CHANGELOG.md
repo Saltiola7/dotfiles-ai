@@ -17,7 +17,8 @@
   checks. Independent review found no high- or medium-severity issues; executable
   fake-launchctl coverage for project profiles remains a residual test gap.
 - Post-reconciliation union QA passes 127 tests. Final Gate Commits include
-  `c4a8f6c`, `57a51bd`, and reconciliation commit `2e4ab64`.
+  `c4a8f6c`, `57a51bd`, reconciliation commit `2e4ab64`, and reviewed union
+  commit `163aada`.
 
 ## 2026-08-21 - Complete Guest Compose Tooling
 
