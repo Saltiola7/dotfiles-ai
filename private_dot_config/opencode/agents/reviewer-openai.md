@@ -1,7 +1,7 @@
 ---
 description: Independent read-only review of DBSCTR behavior, contracts, diffs, tests, and evidence.
 mode: subagent
-model: openai/gpt-5.6-sol
+model: openai/gpt-5.6-sol-fast
 variant: medium
 permission:
   dbsctr_vm_handoff: deny

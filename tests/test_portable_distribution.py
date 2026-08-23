@@ -174,8 +174,10 @@ def test_tailscale_defaults_and_local_state_stay_out_of_git() -> None:
     assert "[dotfiles_ai.tailscale]" in defaults
     assert "[data.dotfiles_ai.tailscale]" in example
     assert defaults.count("enabled = false") >= 3
-    assert 'small_model = "openai/gpt-5.6-luna"' in defaults
-    assert 'small_model = "openai/gpt-5.6-luna"' in example
+    assert 'default_model = "openai/gpt-5.6-sol-fast"' in defaults
+    assert 'default_model = "openai/gpt-5.6-sol-fast"' in example
+    assert 'small_model = "openai/gpt-5.6-luna-fast"' in defaults
+    assert 'small_model = "openai/gpt-5.6-luna-fast"' in example
     assert "auth_key" not in defaults + example
     assert "/config.local.toml" in ignore
     assert "/.tailscale/" in ignore
