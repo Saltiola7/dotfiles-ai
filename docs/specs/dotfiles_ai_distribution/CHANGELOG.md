@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-23 - DAI-021-F2 Complete Six-Lens Discovery
+
+- Replaced model-mediated history paging with deterministic source-local lens
+  summaries over every immutable capture member, exact distributions, and at
+  most 20 bounded evidence projections per source.
+- Reused fresh query-compatible no-exclusion captures for 24 hours under the
+  private writer lock, applied current worker-family exclusion at summary time,
+  and bound the exact compact helper envelope through typed receipt validation.
+- Deployed exact committed helpers to host, personal, and MGM. The live scheduler
+  completed all six lenses across all three sources, retained zero active
+  attempts, and produced three distinct P1 performance-cost claims before a
+  terminal no-yield pass; governance reviewed 540 attributed review sessions.
+- Affected QA passed 289 tests with one optional skip before the digest repair,
+  then 93 runtime/sandbox tests and exact raw-envelope security regressions.
+  Independent review closed every finding. Gate Exceptions: none. Gate Commits:
+  `cdcdfd2`, `5e39aca`, `e6d83c9`; intended Final Push is the feature branch and
+  draft pull request into protected `main`.
+
 ## 2026-08-23 - DAI-021-F1 Restore Continuous Six-Lens R&D Dispatch
 
 - Force-refreshed Hermes gateway definitions, pinned the launchd runtime to an

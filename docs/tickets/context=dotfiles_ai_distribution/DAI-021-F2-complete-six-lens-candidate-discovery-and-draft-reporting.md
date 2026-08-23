@@ -5,7 +5,7 @@ slug: "complete-six-lens-candidate-discovery-and-draft-reporting"
 context: "dotfiles_ai_distribution"
 title: "Complete six-lens candidate Discovery and draft reporting"
 kind: "task"
-state: "active"
+state: "done"
 priority: "high"
 points: 3
 depends_on:
@@ -32,13 +32,16 @@ validation:
   - "Complete six-lens federated runtime smoke test"
 created: "2026-08-23"
 updated: "2026-08-23"
-completed: null
+completed: "2026-08-23"
 commits:
   - "abb5be2"
   - "1d0b436"
   - "156dd6f"
   - "9a44048"
   - "2fd40ab"
+  - "cdcdfd2"
+  - "5e39aca"
+  - "e6d83c9"
 jira_publications: []
 migration: "Private improvement schema 4 migrates in place to schema 5."
 ---
@@ -70,6 +73,14 @@ P0/P1 Discovery interviews, and isolated implementation drafts for human review.
   bounded host exporter now permits 900 seconds while guests remain at 120.
 - Twelve stale or orphan lens workers and their six retained reservations were
   reconciled without changing claimed or Discovery work.
+- Exact helper/runtime hashes were deployed to the host and both guests. MGM was
+  restored to stopped and personal remained running after the smoke.
+- The controlled scheduler advanced from 10 to 19 retained passes with no active
+  attempt: all six lenses completed the typed terminal-receipt path against host,
+  personal, and MGM. Performance-cost follow-up produced three distinct P1 claims
+  for Fast-route cost estimates, a finite Build step budget, and fork-overlap
+  accounting, then reached `no_yield`; review-session governance also reached
+  `no_yield` over 540 attributed review sessions.
 
 ## Continuation Resolution
 
@@ -81,5 +92,8 @@ members of its immutable capture locally, binds exact distributions and at most
 manifest. The typed adapter writes a lens-bound receipt only after all configured
 sources succeed. Fresh query-compatible base captures are reused for 24 hours;
 the private writer lock creates one new 25-member-page base only when needed, so
-parallel lenses do not repeat the 1.7M-part scan. Unit contracts pass; live
-six-lens operational proof remains.
+parallel lenses do not repeat the 1.7M-part scan. Exact raw-envelope digest
+binding preserves Python numeric tokens through TypeScript validation, closes
+the terminal-receipt boundary, and rejects duplicate, reordered, or externally
+padded JSON. A live scheduler run completed every lens with all three configured
+sources available and no unattributed sessions.
