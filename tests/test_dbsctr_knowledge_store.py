@@ -929,6 +929,10 @@ def test_schema_six_records_trial_class_and_expiry() -> None:
     migration = (ROOT / "dot_local/bin/executable_dks-postgres-migrate.tmpl").read_text()
     source = DKSCTL.read_text()
     assert "evidence_class" in schema and "trial_expires_at" in schema
+    no_force = schema.index("ranking_policies NO FORCE ROW LEVEL SECURITY")
+    backfill = schema.index("UPDATE dks.ranking_policies SET evidence_class")
+    force = schema.index("ranking_policies FORCE ROW LEVEL SECURITY", backfill)
+    assert no_force < backfill < force
     assert "VALUES (6)" in migration and "version=6" in migration
     assert 'commands.add_parser("activate-silver-trial"' in source
     assert "604800" in source and "ensure_quality_policy" in source

@@ -417,11 +417,13 @@ ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS privacy_digest text
     CHECK (privacy_digest ~ '^[0-9a-f]{64}$');
 ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS evidence_class text;
 ALTER TABLE dks.ranking_policies ADD COLUMN IF NOT EXISTS trial_expires_at timestamptz;
+ALTER TABLE dks.ranking_policies NO FORCE ROW LEVEL SECURITY;
 UPDATE dks.ranking_policies SET evidence_class=CASE
     WHEN policy_id='dks-rrf-v1' THEN 'baseline' ELSE 'human' END
 WHERE evidence_class IS NULL;
 ALTER TABLE dks.ranking_policies ALTER COLUMN evidence_class SET DEFAULT 'baseline';
 ALTER TABLE dks.ranking_policies ALTER COLUMN evidence_class SET NOT NULL;
+ALTER TABLE dks.ranking_policies FORCE ROW LEVEL SECURITY;
 DO $ranking_trial$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
