@@ -527,8 +527,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   workers continue in parallel without requiring Herdr.
 - Given the Hermes executable moves or its LaunchAgent becomes stale, then managed
   configuration force-refreshes the service definition and records cutover readiness
-  only after launchd reports the profile gateway running. Concurrent configuration
-  exits without creating duplicate managed cron jobs.
+  only after launchd reports the profile gateway running. When the runtime lives on
+  the centralized external state volume, launchd enters through the existing local
+  state-root trampoline before executing Hermes. Concurrent configuration exits
+  without creating duplicate managed cron jobs.
 - Given a pending lens attempt is older than its lease and its worker is absent from
   the authoritative improvement ledger, then the next reservation tick removes that
   stale ownership before selecting eligible lenses. `no_lens_due` therefore follows

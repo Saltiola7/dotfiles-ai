@@ -10,8 +10,10 @@ HERMES={{ .dotfiles_ai.hermes.executable | quote }}
 case "$HERMES" in "~/"*) HERMES="$HOME/${HERMES#\~/}" ;; esac
 PROFILE={{ .dotfiles_ai.hermes.profile | quote }}
 {{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
 {{ else -}}
+DOTFILES_AI_STATE_ROOT=""
 HERMES_HOME="$HOME/.hermes"
 {{ end -}}
 state="$HOME/.local/state/dotfiles-ai/hermes-$PROFILE"
@@ -36,6 +38,41 @@ gateway_ready() {
         status=$("$HERMES" -p "$PROFILE" gateway status --deep 2>&1) || return 1
         ! /usr/bin/grep -Eqi 'not running|will NOT fire|stale' <<<"$status"
     fi
+}
+
+wrap_gateway_service() {
+    local plist="$HOME/Library/LaunchAgents/ai.hermes.gateway-$PROFILE.plist"
+    local wrapper="$HOME/.local/bin/state-root-exec"
+    [[ -x "$wrapper" && -f "$plist" ]] || return 1
+    /usr/bin/python3 - "$plist" "$wrapper" "$DOTFILES_AI_STATE_ROOT" <<'PY'
+import os
+import plistlib
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+path, wrapper, state_root = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+payload = plistlib.loads(path.read_bytes())
+arguments = payload.get("ProgramArguments")
+if not isinstance(arguments, list) or not arguments or not all(isinstance(item, str) for item in arguments):
+    raise SystemExit("invalid Hermes gateway arguments")
+if arguments[0] != wrapper:
+    arguments.insert(0, wrapper)
+environment = payload.setdefault("EnvironmentVariables", {})
+if not isinstance(environment, dict):
+    raise SystemExit("invalid Hermes gateway environment")
+environment["DOTFILES_AI_STATE_ROOT"] = state_root
+mode = stat.S_IMODE(path.stat().st_mode)
+with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+    plistlib.dump(payload, output)
+    output.flush()
+    os.fsync(output.fileno())
+os.chmod(output.name, mode)
+os.replace(output.name, path)
+PY
+    /bin/launchctl bootout "gui/$(id -u)/ai.hermes.gateway-$PROFILE" >/dev/null 2>&1 || true
+    /bin/launchctl bootstrap "gui/$(id -u)" "$plist"
 }
 
 pause_owned() {
@@ -133,7 +170,11 @@ for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PRO
 {{ else -}}
 for file in "$state"/*-cron-id; do IFS= read -r id < "$file"; "$HERMES" -p "$PROFILE" cron pause "$id"; done
 {{ end -}}
-"$HERMES" -p "$PROFILE" gateway start
+if [[ $(uname) == Darwin ]]; then
+    wrap_gateway_service
+else
+    "$HERMES" -p "$PROFILE" gateway start
+fi
 for _ in {1..50}; do gateway_ready && break; sleep 0.1; done
 gateway_ready || { echo "Hermes gateway did not become ready" >&2; exit 1; }
 {{ if .dotfiles_ai.hermes.project_profiles -}}
