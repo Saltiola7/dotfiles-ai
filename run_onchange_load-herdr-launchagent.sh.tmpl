@@ -11,12 +11,21 @@ PLIST="$HOME/Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
 DOMAIN="gui/$(id -u)"
 LABEL="dev.dotfiles-ai.herdr-server"
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 
 herdr_server_running() {
     "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
 }
 
 {{ if not .dotfiles_ai.herdr.launchagent -}}
+if herdr_server_running; then
+    PLIST_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
+    if [[ "$PLIST_LABEL" == "$LABEL" ]]; then
+        /bin/rm -f "$PLIST"
+    fi
+    echo "[herdr-launchagent] active server preserved; LaunchAgent disable deferred until logout or reboot" >&2
+    exit 0
+fi
 /bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
 PLIST_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
 if [[ "$PLIST_LABEL" == "$LABEL" ]]; then
@@ -28,18 +37,11 @@ exit 0
 [[ -f "$PLIST" ]] || exit 0
 mkdir -p "$HOME/Library/Logs"
 
-if ! /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 \
-    && herdr_server_running; then
-    echo "[herdr-launchagent] unmanaged server owns the socket; run 'herdr server stop', then rerun chezmoi apply" >&2
-    exit 1
+/bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+if herdr_server_running; then
+    echo "[herdr-launchagent] active server preserved; LaunchAgent reload deferred until next login or reboot" >&2
+    exit 0
 fi
 
 /bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
-for _ in {1..50}; do
-    if ! herdr_server_running; then
-        exec /bin/launchctl bootstrap "$DOMAIN" "$PLIST"
-    fi
-    sleep 0.1
-done
-echo "[herdr-launchagent] managed server did not stop within 5 seconds" >&2
-exit 1
+exec /bin/launchctl bootstrap "$DOMAIN" "$PLIST"

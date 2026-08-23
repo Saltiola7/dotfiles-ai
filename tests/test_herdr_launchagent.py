@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import plistlib
@@ -8,6 +9,110 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _render_herdr_script(name: str, values: dict) -> str:
+    return subprocess.run(
+        [
+            "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+            "--config-format", "toml", "--override-data", json.dumps(values),
+            "cat", str(Path.home() / name),
+        ],
+        text=True, capture_output=True, check=True,
+    ).stdout
+
+
+def _run_native_installer(
+    tmp_path: Path,
+    *,
+    handoff_fails: bool = False,
+    seed_previous: bool = False,
+    old_version: str = "0.7.5",
+    old_protocol: int = 17,
+    pane_count: int = 1,
+    server_pid: int | None = None,
+    pane_pid: int | None = None,
+    recheck_fails: bool = False,
+) -> tuple[subprocess.CompletedProcess, bytes, bytes]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    home = tmp_path / "home"
+    bin_dir = tmp_path / "bin"
+    home.mkdir()
+    bin_dir.mkdir()
+    target = home / ".local/bin/herdr"
+    state = tmp_path / "state"
+    calls = tmp_path / "calls"
+    asset = tmp_path / "herdr-asset"
+    asset.write_text(
+        "#!/bin/bash\n"
+        "case \"$*\" in\n"
+        "  --version) printf 'herdr 0.8.2\\n' ;;\n"
+        "  'status server --json')\n"
+        "    if [[ -f \"$STATE\" ]]; then printf '{\"running\":true,\"version\":\"0.8.2\",\"protocol\":20,\"capabilities\":{\"live_handoff\":true}}\\n';\n"
+        "    else printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true}}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\"; fi ;;\n"
+        "  server\\ live-handoff*)\n"
+        "    printf '%s\\n' \"$*\" >> \"$CALLS\"\n"
+        "    [[ \"${HANDOFF_FAIL:-0}\" == 1 ]] && exit 1\n"
+        "    touch \"$STATE\" ;;\n"
+        "esac\n"
+    )
+    asset.chmod(0o755)
+    checksum = hashlib.sha256(asset.read_bytes()).hexdigest()
+
+    old = bin_dir / "herdr"
+    old.write_text(
+        "#!/bin/bash\n"
+        "case \"$*\" in\n"
+        "  --version) printf 'herdr %s\\n' \"${OLD_VERSION:-0.7.5}\" ;;\n"
+        "  'status server --json') printf '{\"running\":true,\"version\":\"%s\",\"protocol\":%s,\"capabilities\":{\"live_handoff\":true}}\\n' \"$OLD_VERSION\" \"$OLD_PROTOCOL\" ;;\n"
+        "  'pane list') if [[ \"${RECHECK_FAIL:-0}\" == 1 && -f \"$PANE_CALLS\" ]]; then exit 1; fi; touch \"$PANE_CALLS\"; printf '{\"result\":{\"panes\":['; for ((i=0; i<PANE_COUNT; i++)); do ((i)) && printf ','; printf '{\"pane_id\":\"w1:p%s\"}' \"$i\"; done; printf ']}}\\n' ;;\n"
+        "  'server stop') kill \"$SERVER_PID\" \"$PANE_PID\" ;;\n"
+        "esac\n"
+    )
+    old.chmod(0o755)
+    previous_bytes = old.read_bytes()
+    if seed_previous:
+        target.parent.mkdir(parents=True)
+        target.write_bytes(previous_bytes)
+        target.chmod(0o755)
+    curl = bin_dir / "curl"
+    curl.write_text(
+        "#!/bin/bash\n"
+        "while [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { /bin/cp \"$ASSET\" \"$2\"; exit; }; shift; done\n"
+    )
+    curl.chmod(0o755)
+    uname = bin_dir / "uname"
+    uname.write_text("#!/bin/bash\n[[ ${1:-} == -m ]] && printf 'arm64\\n' || printf 'Darwin\\n'\n")
+    uname.chmod(0o755)
+    sha256sum = bin_dir / "sha256sum"
+    sha256sum.write_text("#!/bin/bash\nprintf '%064d  -\\n' 0\n")
+    sha256sum.chmod(0o755)
+
+    values = {
+        "dotfiles_ai": {
+            "herdr": {
+                "theme": "nord", "launchagent": True,
+                "executable": str(target), "version": "0.8.2", "protocol": 20,
+                "asset_url": "https://example.invalid/herdr-macos-aarch64",
+                "asset_sha256": checksum,
+            }
+        }
+    }
+    script = _render_herdr_script("install-herdr.sh", values)
+    result = subprocess.run(
+        ["bash"], input=script, text=True, capture_output=True,
+        env={
+            "HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "ASSET": str(asset), "STATE": str(state), "CALLS": str(calls),
+            "HANDOFF_FAIL": "1" if handoff_fails else "0",
+            "OLD_VERSION": old_version, "OLD_PROTOCOL": str(old_protocol),
+            "PANE_COUNT": str(pane_count),
+            "SERVER_PID": str(server_pid or ""), "PANE_PID": str(pane_pid or ""),
+            "RECHECK_FAIL": "1" if recheck_fails else "0",
+            "PANE_CALLS": str(tmp_path / "pane-calls"),
+        },
+    )
+    return result, asset.read_bytes(), previous_bytes
 
 
 def test_herdr_server_runs_in_aqua_without_secrets() -> None:
@@ -22,12 +127,92 @@ def test_herdr_server_runs_in_aqua_without_secrets() -> None:
     assert "OP_SERVICE_ACCOUNT_TOKEN" not in plist + loader
     assert "launchctl bootstrap" in loader
     assert '"$HERDR" server stop' not in loader
-    assert "unmanaged server owns the socket" in loader
+    assert "active server preserved" in loader
     assert "status server" in loader
-    assert "for _ in {1..50}" in loader
-    assert "managed server did not stop within 5 seconds" in loader
+    assert "managed server did not stop" not in loader
     assert "kickstart" not in loader
     assert "com" + ".tis" not in plist + loader
+
+
+def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    installer = (ROOT / "run_onchange_before_install-herdr.sh.tmpl").read_text()
+
+    assert 'executable = "~/.local/bin/herdr"' in defaults
+    assert 'version = "0.8.2"' in defaults
+    assert "protocol = 20" in defaults
+    assert "a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574" in defaults
+    assert "server live-handoff" in installer
+    assert "server stop" not in installer
+
+    result, _, _ = _run_native_installer(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    target = tmp_path / "home/.local/bin/herdr"
+    assert target.exists()
+    assert subprocess.run([target, "--version"], text=True, capture_output=True).stdout == "herdr 0.8.2\n"
+    assert (tmp_path / "calls").read_text().strip() == (
+        f"server live-handoff --import-exe {target} --expected-protocol 20 --expected-version 0.8.2"
+    )
+
+
+def test_failed_native_handoff_restores_previous_path_and_keeps_processes(tmp_path) -> None:
+    pane_pid_file = tmp_path / "pane.pid"
+    server = subprocess.Popen([
+        "bash", "-c", f"sleep 30 & printf '%s' $! > {pane_pid_file}; wait"
+    ])
+    while not pane_pid_file.exists():
+        pass
+    pane_pid = int(pane_pid_file.read_text())
+    try:
+        result, _, previous = _run_native_installer(
+            tmp_path / "install", handoff_fails=True, seed_previous=True,
+            server_pid=server.pid, pane_pid=pane_pid,
+        )
+
+        assert result.returncode != 0
+        target = tmp_path / "install/home/.local/bin/herdr"
+        assert target.read_bytes() == previous
+        assert target.stat().st_mode & 0o777 == 0o755
+        assert server.poll() is None
+        os.kill(pane_pid, 0)
+        assert "live handoff failed; old server left running" in result.stderr
+    finally:
+        server.terminate()
+        server.wait()
+
+
+def test_same_version_with_wrong_digest_is_replaced(tmp_path) -> None:
+    result, asset, previous = _run_native_installer(
+        tmp_path, seed_previous=True, old_version="0.8.2", old_protocol=20
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert previous != asset
+    assert (tmp_path / "home/.local/bin/herdr").read_bytes() == asset
+
+
+def test_protocol_match_is_exact_and_handoff_refuses_more_than_64_panes(tmp_path) -> None:
+    result, _, _ = _run_native_installer(
+        tmp_path / "protocol", old_version="0.8.2", old_protocol=200
+    )
+    assert result.returncode == 0, result.stderr
+    assert "server live-handoff" in (tmp_path / "protocol/calls").read_text()
+
+    result, _, _ = _run_native_installer(tmp_path / "limit", pane_count=65)
+    assert result.returncode != 0
+    assert "supports at most 64 panes; found 65" in result.stderr
+    assert not (tmp_path / "limit/home/.local/bin/herdr").exists()
+
+
+def test_failed_pane_recheck_restores_previous_native_path(tmp_path) -> None:
+    result, _, previous = _run_native_installer(
+        tmp_path, seed_previous=True, recheck_fails=True
+    )
+
+    assert result.returncode != 0
+    assert (tmp_path / "home/.local/bin/herdr").read_bytes() == previous
+    assert "could not recheck live pane count" in result.stderr
 
 
 def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) -> None:
@@ -78,7 +263,7 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     assert 'rm -f "$PLIST"' in disabled
 
 
-def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
+def test_active_server_defers_launchagent_reload(tmp_path) -> None:
     calls = tmp_path / "calls"
     launchctl = tmp_path / "launchctl"
     herdr = tmp_path / "herdr"
@@ -124,9 +309,41 @@ def test_unmanaged_server_keeps_launchagent_handoff_pending(tmp_path) -> None:
         ["bash"], input=loader, text=True, capture_output=True,
         env={"HOME": str(home), "CALLS": str(calls), "PATH": "/usr/bin:/bin"},
     )
-    assert result.returncode == 1
-    assert "run 'herdr server stop', then rerun chezmoi apply" in result.stderr
+    assert result.returncode == 0
+    assert "active server preserved; LaunchAgent reload deferred" in result.stderr
     assert calls.read_text().splitlines() == ["launchctl print", "herdr status server --json"]
+
+
+def test_disabling_launchagent_does_not_boot_out_active_server(tmp_path) -> None:
+    calls = tmp_path / "calls"
+    launchctl = tmp_path / "launchctl"
+    herdr = tmp_path / "herdr"
+    launchctl.write_text('#!/bin/bash\nprintf "launchctl %s\\n" "$1" >> "$CALLS"\n')
+    herdr.write_text(
+        '#!/bin/bash\nprintf "herdr %s\\n" "$*" >> "$CALLS"\n'
+        'printf \'{"running":true}\\n\'\n'
+    )
+    launchctl.chmod(0o755)
+    herdr.chmod(0o755)
+    values = {"dotfiles_ai": {"herdr": {
+        "theme": "nord", "launchagent": False, "executable": str(herdr),
+    }}}
+    loader = _render_herdr_script("load-herdr-launchagent.sh", values).replace(
+        "/bin/launchctl", str(launchctl)
+    )
+    home = tmp_path / "home"
+    plist = home / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
+    plist.parent.mkdir(parents=True)
+    plist.touch()
+
+    result = subprocess.run(
+        ["bash"], input=loader, text=True, capture_output=True,
+        env={"HOME": str(home), "CALLS": str(calls), "PATH": "/usr/bin:/bin"},
+    )
+
+    assert result.returncode == 0
+    assert "LaunchAgent disable deferred" in result.stderr
+    assert calls.read_text().splitlines() == ["herdr status server --json"]
 
 
 def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:

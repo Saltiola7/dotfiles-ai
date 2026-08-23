@@ -2,6 +2,7 @@
 
 set -u
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 herdr_server_running() {
     "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
 }
