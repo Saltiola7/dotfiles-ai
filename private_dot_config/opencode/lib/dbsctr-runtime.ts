@@ -62,6 +62,66 @@ function sha256(value: any) {
   return createHash("sha256").update(canonicalJSON(value)).digest("hex")
 }
 
+function unambiguousJSONText(text: string) {
+  let index = 0
+  const parseString = () => {
+    const start = index++
+    while (index < text.length) {
+      if (text[index] === "\\") index += 2
+      else if (text[index++] === '"') return JSON.parse(text.slice(start, index))
+    }
+    throw new Error("unterminated string")
+  }
+  const parseValue = (): void => {
+    if (text[index] === '"') { parseString(); return }
+    if (text[index] === "[") {
+      index++
+      if (text[index] === "]") { index++; return }
+      while (true) {
+        parseValue()
+        if (text[index] === "]") { index++; return }
+        if (text[index++] !== ",") throw new Error("invalid array")
+      }
+    }
+    if (text[index] === "{") {
+      index++
+      if (text[index] === "}") { index++; return }
+      let previous: string | undefined
+      while (true) {
+        if (text[index] !== '"') throw new Error("invalid object")
+        const key = parseString()
+        if (previous !== undefined && key <= previous) throw new Error("noncanonical object")
+        previous = key
+        if (text[index++] !== ":") throw new Error("invalid object")
+        parseValue()
+        if (text[index] === "}") { index++; return }
+        if (text[index++] !== ",") throw new Error("invalid object")
+      }
+    }
+    const start = index
+    while (index < text.length && !",]}".includes(text[index])) {
+      if (/\s/.test(text[index])) throw new Error("noncanonical whitespace")
+      index++
+    }
+    if (index === start) throw new Error("invalid value")
+  }
+  try {
+    parseValue()
+    return index === text.length
+  } catch {
+    return false
+  }
+}
+
+function validRawManifestDigest(output: string, digest: any) {
+  if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest) || !unambiguousJSONText(output)) return false
+  const marker = `"manifest_digest":"${digest}",`
+  const index = output.indexOf(marker)
+  if (index !== output.indexOf(",") + 1 || index !== output.lastIndexOf(marker)) return false
+  const body = output.slice(0, index) + output.slice(index + marker.length)
+  return createHash("sha256").update(body).digest("hex") === digest
+}
+
 async function federatedSourceOrder(env: NodeJS.ProcessEnv) {
   const path = env.OPENCODE_VM_CONFIG ?? join(homedir(), ".config", "dotfiles-ai", "sandbox.json")
   let config: any
@@ -139,7 +199,7 @@ export async function knowledgeContext(text: string, limit: number, cwd: string)
       revision: value.revision, ranking_policy: value.ranking_policy, results: value.results } })
 }
 
-async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaining: number }) {
+async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaining: number }, trim = true) {
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
@@ -157,10 +217,12 @@ async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaini
     bytes.set(chunk, offset)
     offset += chunk.byteLength
   }
-  return new TextDecoder().decode(bytes).trim()
+  const text = new TextDecoder().decode(bytes)
+  return trim ? text.trim() : text
 }
 
-async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000, outputLimit = 64 * 1024) {
+async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000,
+                          outputLimit = 64 * 1024, preserveOutput = false) {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
   const budget = { remaining: outputLimit }
   const killTree = () => {
@@ -179,7 +241,7 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number | null 
   })
   try {
     const operation = Promise.all([
-      boundedText(child.stdout, budget),
+      boundedText(child.stdout, budget, !preserveOutput),
       boundedText(child.stderr, budget),
       child.exited,
     ])
@@ -479,7 +541,9 @@ function validFederatedPage(page: any, limit: number, cursor: number) {
       && exactKeys(candidate.telemetry.availability, expectedAvailability) && Array.isArray(candidate.cycles)
       && candidate.schema_version === 1 && id.test(candidate.session_id) && nonnegativeInteger(candidate.snapshot)
       && nonnegativeInteger(candidate.session_ceiling) && nonnegativeInteger(candidate.part_ceiling)
-      && digest.test(candidate.database_digest) && digest.test(candidate.project_digest) && id.test(candidate.context)
+      && digest.test(candidate.database_digest)
+       && typeof candidate.project_digest === "string"
+       && (candidate.project_digest === "unavailable" || digest.test(candidate.project_digest)) && id.test(candidate.context)
       && (candidate.completed_at === null || typeof candidate.completed_at === "string"
         && /^(?:\d{10,16}|\d{4}-\d{2}-\d{2}T\S{1,40}Z)$/.test(candidate.completed_at))
       && ["reviewed", "unreviewed"].includes(candidate.reviewed_status)
@@ -761,6 +825,133 @@ export async function reviewFederated(args: {
   return JSON.stringify(value)
 }
 
+export async function reviewFederatedSummary(lens: "correctness_safety" | "reliability_recovery" |
+  "performance_cost" | "operator_experience" | "architecture_rnd_meta" | "review_session_governance",
+  reviewSessions: "only" | "exclude", cwd = process.cwd(), excludedSessionID?: string,
+  excludedMessageID?: string, env = process.env) {
+  const argv = ["sandbox-vm", "review-summary", "--lens", lens, "--review-sessions", reviewSessions]
+  if (excludedSessionID !== undefined) argv.push("--excluded-session-id", excludedSessionID)
+  if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
+  const [[value, rawOutput], expectedSources] = await Promise.all([
+    analyticsRawJSON(argv, cwd, null), federatedSourceOrder(env),
+  ])
+  const telemetryKeys = ["page_count", "session_count", "review_session_count",
+    "excluded_review_session_count", "unattributed_session_count", "source_count"]
+  const sourceTelemetryKeys = telemetryKeys.filter(key => key !== "source_count")
+  const metricNames = ["approval_count", "candidate_count", "child_count", "cost_total",
+    "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count", "cycle_completed_count",
+    "cycle_count", "cycle_unknown_count", "delegation_count", "elapsed_ms", "gate_failure_count",
+    "gate_reopen_count", "provider_error_count", "remediation_round_count", "retry_count", "token_total",
+    "tool_call_count", "tool_count", "tool_error_count"]
+  const categoryValues: Record<string, string[]> = {
+    cycle_state: ["active", "blocked", "abandoned", "completed", "unknown"],
+    risk: ["routine", "elevated", "critical", "unavailable"],
+    delivery_intent: ["local", "merge", "release", "deploy", "draft_pr", "unavailable"],
+    correlation_quality: ["exact", "family", "worktree", "source", "ambiguous", "unavailable"],
+    reviewed_status: ["reviewed", "unreviewed"], session_relation: ["primary", "child", "unavailable"],
+  }
+  const defaultQuery = { after: null, archive_only: false, before: null, context: null, cycle_id: null,
+    method_revision: null, project_digest: null, reviewed_status: null, state: null }
+  const validTelemetry = (telemetry: any, keys: string[]) => exactKeys(telemetry, keys)
+    && keys.every(key => Number.isInteger(telemetry[key]) && telemetry[key] >= 0)
+  const validSummary = (summary: any) => exactKeys(summary, ["schema_version", "capture_id", "lens", "scope",
+    "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "query",
+    "member_count", "members_digest", "telemetry", "categories", "metrics", "evidence"])
+    && summary.schema_version === 1 && summary.lens === lens && summary.scope === reviewSessions
+    && /^[0-9a-f]{24}$/.test(summary.capture_id)
+    && [summary.snapshot, summary.session_ceiling, summary.part_ceiling, summary.member_count]
+      .every((item: any) => Number.isInteger(item) && item >= 0)
+    && /^[0-9a-f]{64}$/.test(summary.database_digest) && /^[0-9a-f]{64}$/.test(summary.members_digest)
+    && (summary.exclusion_digest === null || /^[0-9a-f]{64}$/.test(summary.exclusion_digest))
+    && canonicalJSON(summary.query) === canonicalJSON(defaultQuery)
+    && validTelemetry(summary.telemetry, sourceTelemetryKeys)
+    && summary.telemetry.unattributed_session_count === 0
+    && summary.member_count === summary.telemetry.session_count
+    && (reviewSessions === "exclude" ? summary.telemetry.review_session_count === 0
+      : summary.telemetry.excluded_review_session_count === 0
+        && summary.telemetry.session_count === summary.telemetry.review_session_count)
+    && exactKeys(summary.categories, Object.keys(categoryValues))
+    && Object.entries(summary.categories).every(([name, counts]: [string, any]) =>
+      counts !== null && typeof counts === "object" && !Array.isArray(counts)
+      && Object.keys(counts).every(key => categoryValues[name].includes(key))
+      && Object.values(counts).every(count => Number.isInteger(count) && (count as number) >= 0))
+    && ["correlation_quality", "reviewed_status", "session_relation"].every(name =>
+      Object.values(summary.categories[name]).reduce((total: number, count: any) => total + count, 0)
+        === summary.telemetry.session_count)
+    && new Set(["cycle_state", "risk", "delivery_intent"].map(name =>
+      Object.values(summary.categories[name]).reduce((total: number, count: any) => total + count, 0))).size === 1
+    && exactKeys(summary.metrics, metricNames)
+    && Object.values(summary.metrics).every((metric: any) => exactKeys(metric,
+      ["available_count", "unavailable_count", "total", "minimum", "maximum"])
+      && Number.isInteger(metric.available_count) && metric.available_count >= 0
+      && Number.isInteger(metric.unavailable_count) && metric.unavailable_count >= 0
+      && metric.available_count + metric.unavailable_count === summary.telemetry.session_count
+      && [metric.total, metric.minimum, metric.maximum].every(item => item === "unavailable"
+        || typeof item === "number" && Number.isFinite(item) && item >= 0)
+      && (metric.available_count === 0) === (metric.total === "unavailable"
+        && metric.minimum === "unavailable" && metric.maximum === "unavailable")
+      && (metric.available_count === 0 || metric.minimum <= metric.maximum && metric.maximum <= metric.total))
+    && summary.metrics.cycle_count.total === (summary.member_count === 0 ? "unavailable"
+      : Object.values(summary.categories.cycle_state).reduce((total: number, count: any) => total + count, 0))
+    && Array.isArray(summary.evidence) && summary.evidence.length <= 20
+    && summary.evidence.every((item: any) => exactKeys(item, ["session_id", "context", "completed_at",
+      "correlation_quality", "cycles", "metrics", "signal_score"])
+      && typeof item.session_id === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.session_id)
+      && typeof item.context === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.context)
+      && typeof item.completed_at === "string" && /^\d+$/.test(item.completed_at)
+      && categoryValues.correlation_quality.includes(item.correlation_quality)
+      && Array.isArray(item.cycles) && item.cycles.length <= 3
+      && item.cycles.every((cycle: any) => cycle !== null && typeof cycle === "object" && !Array.isArray(cycle)
+        && Object.keys(cycle).every(key => ["cycle_id", "state", "risk", "delivery_intent", "metrics"].includes(key))
+        && typeof cycle.cycle_id === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(cycle.cycle_id)
+        && categoryValues.cycle_state.includes(cycle.state)
+        && categoryValues.risk.includes(cycle.risk ?? "unavailable")
+        && categoryValues.delivery_intent.includes(cycle.delivery_intent ?? "unavailable")
+        && (cycle.metrics === undefined || exactKeys(cycle.metrics,
+          ["elapsed_ms", "gate_failure_count", "gate_reopen_count", "remediation_round_count"])
+          && (cycle.metrics.elapsed_ms === "unavailable" || Number.isInteger(cycle.metrics.elapsed_ms) && cycle.metrics.elapsed_ms >= 0)
+          && [cycle.metrics.gate_failure_count, cycle.metrics.gate_reopen_count, cycle.metrics.remediation_round_count]
+            .every((count: any) => Number.isInteger(count) && count >= 0)))
+      && exactKeys(item.metrics, metricNames)
+      && Object.values(item.metrics).every(metric => metric === "unavailable"
+        || typeof metric === "number" && Number.isFinite(metric) && metric >= 0)
+      && Array.isArray(item.signal_score) && item.signal_score.length >= 1 && item.signal_score.length <= 8
+      && item.signal_score.every((score: any) => typeof score === "number" && Number.isFinite(score) && score >= 0))
+  if (!exactKeys(value, ["schema_version", "lens", "scope", "sources", "manifest_digest", "telemetry"])
+      || value.schema_version !== 1 || value.lens !== lens || value.scope !== reviewSessions
+      || !Array.isArray(value.sources)
+      || canonicalJSON(value.sources.map((source: any) => source?.source_id)) !== canonicalJSON(expectedSources)
+      || new Set(value.sources.map((source: any) => source?.source_id)).size !== value.sources.length
+      || value.sources.some((source: any) => !exactKeys(source, source?.availability === "available"
+        ? ["source_id", "availability", "summary"] : ["source_id", "availability"])
+        || !["available", "missing_instance", "invalid_output", "state_restore_failed"].includes(source.availability)
+        || source.availability === "available" && !validSummary(source.summary))
+      || !validRawManifestDigest(rawOutput, value.manifest_digest)
+      || !validTelemetry(value.telemetry, telemetryKeys)
+      || value.telemetry.source_count !== expectedSources.length
+      || value.telemetry.unattributed_session_count !== 0) {
+    throw new Error("sandbox helper returned an invalid federated lens summary")
+  }
+  if (value.sources.every((source: any) => source.availability === "available")) {
+    const summed = Object.fromEntries(sourceTelemetryKeys.map(key => [key,
+      value.sources.reduce((total: number, source: any) => total + source.summary.telemetry[key], 0)]))
+    if (sourceTelemetryKeys.some(key => summed[key] !== value.telemetry[key]))
+      throw new Error("sandbox helper returned inconsistent federated lens telemetry")
+    const receipt = { schema_version: 1, manifest_digest: value.manifest_digest,
+      lens, scope: reviewSessions, telemetry: value.telemetry }
+    const directory = process.env.DBSCTR_RND_RECEIPTS
+      ?? join(homedir(), ".local", "state", "dotfiles-ai", "rnd-lens-receipts")
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await chmod(directory, 0o700)
+    const path = join(directory, `${value.manifest_digest}.${reviewSessions}.json`)
+    const temporary = `${path}.${process.pid}.tmp`
+    await writeFile(temporary, JSON.stringify(receipt), { encoding: "utf8", mode: 0o600, flag: "wx" })
+    await rename(temporary, path)
+    await chmod(path, 0o600)
+  }
+  return rawOutput
+}
+
 export async function vmHandoff(report: {
   schema_version: 1
   worker_id: string
@@ -781,7 +972,7 @@ export async function vmHandoff(report: {
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
   const source = `${home}/.local/share/chezmoi-dotfiles-ai`
-  const prompt = `Approved host R&D handoff. Execute the approved decisions and start a separate DBSCTR draft-PR cycle. ${serialized}`
+  const prompt = `Approved host R&D handoff. Register and claim the current guest session under worker ${report.worker_id} before starting its separate DBSCTR draft-PR cycle; this guest projection owns the implementation report. Execute the approved decisions. ${serialized}`
   const workspaceOutput = await runBounded(["limactl", "shell", instance, "--", "herdr", "workspace", "create",
     "--cwd", source, "--label", "DBSCTR Handoff", "--no-focus"], cwd, 120_000)
   let workspace: any
@@ -796,6 +987,8 @@ export async function vmHandoff(report: {
   if (typeof paneID !== "string" || !id.test(paneID)
       || typeof workspaceID !== "string" || !id.test(workspaceID)
       || !paneID.startsWith(`${workspaceID}:`)) throw new Error("VM Herdr returned no workspace pane")
+  await runBounded(["limactl", "shell", instance, "--", "herdr", "pane", "run", paneID,
+    `export DBSCTR_IMPROVEMENT_WORKER_ID=${report.worker_id}`], cwd, 120_000)
   const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "DBSCTR Handoff",
     "--kind", "opencode", "--pane", paneID, "--timeout", "120000", "--",
     "run", "--agent", "build", "--interactive", prompt], cwd, 180_000)
@@ -859,8 +1052,7 @@ function reviewHistoryArgv(args: {
   return argv
 }
 
-async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
-  const output = await runBounded(argv, cwd, timeoutMs, 256 * 1024)
+function validatedAnalyticsJSON(output: string) {
   const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
   if (unsafe.test(output)) {
     throw new Error("analytics helper returned unsafe content")
@@ -876,6 +1068,18 @@ async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | nu
   }
   if (unsafe.test(JSON.stringify(value))) throw new Error("analytics helper returned unsafe content")
   return value
+}
+
+async function analyticsRawJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
+  const raw = await runBounded(argv, cwd, timeoutMs, 256 * 1024, true)
+  if (!raw.endsWith("\n") || raw.endsWith("\n\n"))
+    throw new Error("analytics helper returned noncanonical JSON")
+  const output = raw.slice(0, -1)
+  return [validatedAnalyticsJSON(output), output] as const
+}
+
+async function analyticsJSON(argv: string[], cwd: string, timeoutMs: number | null = 30_000) {
+  return validatedAnalyticsJSON(await runBounded(argv, cwd, timeoutMs, 256 * 1024))
 }
 
 function exactKeys(value: any, keys: string[]) {
@@ -1042,12 +1246,28 @@ export async function improvementStatus(workerID?: string, cwd = process.cwd()) 
   ], cwd)
 }
 
-export async function improvementClaim(sessionID: string, summary: string, priority: "P0" | "P1" | "P2" | "P3", cwd = process.cwd()) {
+export async function improvementClaim(sessionID: string, summary: string, priority: "P0" | "P1" | "P2" | "P3",
+  cwd = process.cwd(), kind: "fix" | "feature" | "process" = "fix", measurementPlan?: {
+    hypothesis: string
+    baseline: string
+    metric: string
+    procedure: string
+    successThreshold: string
+    evidencePath: string
+  }) {
+  if ((kind === "feature") !== (measurementPlan !== undefined))
+    throw new Error("feature improvement claims require exactly one measurement plan")
   return await run([
     "dbsctrctl", "improvement-claim",
     "--session-id", sessionID,
     "--summary", summary,
     "--priority", priority,
+    ...(kind === "fix" ? [] : ["--kind", kind]),
+    ...(measurementPlan === undefined ? [] : ["--measurement-plan-json", JSON.stringify({
+      schema_version: 1, hypothesis: measurementPlan.hypothesis, baseline: measurementPlan.baseline,
+      metric: measurementPlan.metric, procedure: measurementPlan.procedure,
+      success_threshold: measurementPlan.successThreshold, evidence_path: measurementPlan.evidencePath,
+    })]),
   ], cwd)
 }
 
@@ -1063,8 +1283,15 @@ export async function improvementUpdate(workerID: string, args: {
     workerId: string
     sessionId?: string
     opportunityId: string
-    risk: "routine" | "elevated"
+    risk: "routine" | "elevated" | "critical"
     materialQuestionsResolved: true
+    evidenceDigest: string
+  }
+  discovery?: {
+    interview: { question: string, answer: string }[]
+    assumptions: string[]
+    citations: string[]
+    risks: string[]
     evidenceDigest: string
   }
 }, cwd = process.cwd(), bySession = false) {
@@ -1079,6 +1306,10 @@ export async function improvementUpdate(workerID: string, args: {
       opportunity_id: value.opportunityId,
       risk: value.risk, material_questions_resolved: value.materialQuestionsResolved,
       evidence_digest: value.evidenceDigest,
+    }))
+    else if (name === "discovery" && value !== undefined) argv.push("--discovery-json", JSON.stringify({
+      schema_version: 1, interview: value.interview, assumptions: value.assumptions,
+      citations: value.citations, risks: value.risks, evidence_digest: value.evidenceDigest,
     }))
     else if (name !== "state" && name !== "paths" && value !== undefined) argv.push(`--${names[name]}`, String(value))
   }

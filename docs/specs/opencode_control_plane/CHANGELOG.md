@@ -1,5 +1,12 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-23 - Federated Lens Summary
+
+- Added read-only `dbsctr_lens_summary`, which validates complete source-local
+  capture distributions, bounded evidence, source order, terminal manifest and
+  telemetry before writing a lens-bound private receipt. Partial, stale-capture,
+  cross-lens, malformed, and unsafe evidence fails closed.
+
 ## 2026-08-22 - OCP-37 GPT-5.6 Fast Routing
 
 - Routed native Plan and Build, `build-gpt`, Reviewer, and `/dbsctr-gpt` to Sol

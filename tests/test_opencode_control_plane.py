@@ -609,13 +609,13 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '"dbsctrctl", "execution-dag"' in runtime
     assert '"dbsctrctl", "execution-benchmark"' in runtime
     assert '"dbsctrctl", "reconcile-target", "--mode", mode, "--json"' in runtime
-    assert runtime.count('"--excluded-session-id"') == 5
+    assert runtime.count('"--excluded-session-id"') == 6
     assert "context.sessionID" in tools
     assert "context.worktree, true" in tools
     assert '"herdr", "agent", "start", "opencode"' in runtime
     assert '"herdr", "pane", "current"' in runtime
     config = rendered_config()
-    for permission in ("dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
+    for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
@@ -1048,10 +1048,15 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     script = (
         f'import {{ improvementClaim, improvementStatus, improvementUpdate }} from {json.dumps(str(runtime))};'
         'await improvementClaim("session-1","safe; literal","P1",process.cwd());'
+        'await improvementClaim("session-2","measured feature","P1",process.cwd(),"feature",'
+        '{hypothesis:"better",baseline:"none",metric:"count",procedure:"run test",'
+        'successThreshold:"one",evidencePath:"tests/result.json"});'
         'await improvementUpdate("session-1",{state:"implementing",cycleID:"cycle-1",paths:["a b","x;nope"]},process.cwd(),true);'
         'await improvementUpdate("worker-2",{state:"discovery",autonomous:true,readiness:{workerId:"worker-2",'
         'sessionId:"session-2",opportunityId:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",risk:"routine",'
-        'materialQuestionsResolved:true,evidenceDigest:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},process.cwd());'
+        'materialQuestionsResolved:true,evidenceDigest:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},'
+        'discovery:{interview:[{question:"why",answer:"evidence"}],assumptions:[],citations:["source:id"],risks:[],'
+        'evidenceDigest:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},process.cwd());'
         'await improvementStatus("worker-1",process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
@@ -1061,12 +1066,18 @@ def test_dbsctr_improvement_runtime_preserves_literal_argv(tmp_path):
     assert calls == [
         "CALL", "<improvement-claim>", "<--session-id>", "<session-1>",
         "<--summary>", "<safe; literal>", "<--priority>", "<P1>",
+        "CALL", "<improvement-claim>", "<--session-id>", "<session-2>",
+        "<--summary>", "<measured feature>", "<--priority>", "<P1>", "<--kind>", "<feature>",
+        "<--measurement-plan-json>",
+        '<{"schema_version":1,"hypothesis":"better","baseline":"none","metric":"count","procedure":"run test","success_threshold":"one","evidence_path":"tests/result.json"}>',
         "CALL", "<improvement-update>", "<--session-id>", "<session-1>",
         "<--state>", "<implementing>", "<--cycle-id>", "<cycle-1>",
         "<--path>", "<a b>", "<--path>", "<x;nope>",
         "CALL", "<improvement-update>", "<--worker-id>", "<worker-2>",
         "<--state>", "<discovery>", "<--autonomous>", "<--readiness-json>",
         '<{"schema_version":1,"worker_id":"worker-2","session_id":"session-2","opportunity_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","risk":"routine","material_questions_resolved":true,"evidence_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}>',
+        "<--discovery-json>",
+        '<{"schema_version":1,"interview":[{"question":"why","answer":"evidence"}],"assumptions":[],"citations":["source:id"],"risks":[],"evidence_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}>',
         "CALL", "<improvement-status>", "<--worker-id>", "<worker-1>",
     ]
 
@@ -1210,6 +1221,7 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
              "cycle_id": None, "method_revision": None, "project_digest": None,
              "reviewed_status": None, "state": None}
     candidates = [federated_candidate("review", True), federated_candidate("ordinary", False)]
+    candidates[1]["project_digest"] = "unavailable"
     page = {"schema_version": 1, "capture_id": "c" * 24, "snapshot": 10,
             "session_ceiling": 9, "part_ceiling": 8, "database_digest": "a" * 64,
             "exclusion_digest": None, "limit": 25, "cursor": 0, "continuation": None,
@@ -1261,6 +1273,18 @@ def test_federated_review_enforces_review_session_scope(tmp_path):
         "source_count": 1,
     }
     assert only_receipt["telemetry"]["review_session_count"] == 1
+    candidates[1]["project_digest"] = ["a" * 64]
+    response["manifest_digest"] = federated_digest(query, sources)
+    sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, separators=(',', ':'))}'\n")
+    malformed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True,
+    )
+    assert malformed.returncode != 0
+    assert "invalid federation manifest" in malformed.stderr
+    candidates[1]["project_digest"] = "unavailable"
     legacy = federated_candidate("legacy")
     page["candidates"].append(legacy)
     page["session_ids"].append("legacy")
@@ -1326,6 +1350,78 @@ def test_federated_review_rejects_scope_switch_on_continuation(tmp_path):
     )
     assert result.returncode != 0
     assert "scope is not bound to this capture" in result.stderr
+
+
+def test_federated_lens_summary_writes_terminal_receipt(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    query = {"after": None, "archive_only": False, "before": None, "context": None,
+             "cycle_id": None, "method_revision": None, "project_digest": None,
+             "reviewed_status": None, "state": None}
+    telemetry = {"page_count": 1, "session_count": 0, "review_session_count": 0,
+                 "excluded_review_session_count": 0, "unattributed_session_count": 0}
+    metric_names = ("approval_count", "candidate_count", "child_count", "cost_total",
+                    "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count",
+                    "cycle_completed_count", "cycle_count", "cycle_unknown_count", "delegation_count",
+                    "elapsed_ms", "gate_failure_count", "gate_reopen_count", "provider_error_count",
+                    "remediation_round_count", "retry_count", "token_total", "tool_call_count",
+                    "tool_count", "tool_error_count")
+    summary = {
+        "schema_version": 1, "capture_id": "c" * 24, "lens": "performance_cost", "scope": "exclude",
+        "snapshot": 10.0, "session_ceiling": 9, "part_ceiling": 8,
+        "database_digest": "a" * 64, "exclusion_digest": None, "query": query,
+        "member_count": 0, "members_digest": "b" * 64, "telemetry": telemetry,
+        "categories": {name: {} for name in ("cycle_state", "risk", "delivery_intent",
+                                                "correlation_quality", "reviewed_status", "session_relation")},
+        "metrics": {name: {"available_count": 0, "unavailable_count": 0,
+                            "total": "unavailable", "minimum": "unavailable", "maximum": "unavailable"}
+                    for name in metric_names}, "evidence": [],
+    }
+    sources = [{"source_id": "host", "availability": "available", "summary": summary}]
+    response = {"schema_version": 1, "lens": "performance_cost", "scope": "exclude",
+                "sources": sources, "telemetry": {**telemetry, "source_count": 1}}
+    manifest_digest = hashlib.sha256(json.dumps(
+        response, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    response["manifest_digest"] = manifest_digest
+    sandbox = bin_dir / "sandbox-vm"
+    sandbox.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(response, sort_keys=True, separators=(',', ':'))}'\n")
+    sandbox.chmod(0o755)
+    config = tmp_path / "sandbox.json"
+    config.write_text(json.dumps({"workspaces": []}))
+    receipts = tmp_path / "receipts"
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (f'import {{ reviewFederatedSummary }} from {json.dumps(str(runtime))};'
+              'console.log(await reviewFederatedSummary("performance_cost","exclude",process.cwd()));')
+    canonical = json.dumps(response, sort_keys=True, separators=(",", ":"))
+    result = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+        text=True, capture_output=True, check=True,
+    )
+    assert result.stdout == canonical + "\n"
+    assert json.loads(result.stdout)["manifest_digest"] == manifest_digest
+    receipt = json.loads((receipts / f"{manifest_digest}.exclude.json").read_text())
+    assert receipt == {"schema_version": 1, "manifest_digest": manifest_digest,
+                       "lens": "performance_cost", "scope": "exclude",
+                       "telemetry": {**telemetry, "source_count": 1}}
+
+    for malformed in (
+        canonical.replace('{"lens":', '{"lens":"wrong","lens":', 1),
+        canonical.replace(":", ": ", 1),
+        " " + canonical,
+        canonical + " ",
+        json.dumps(response, separators=(",", ":")),
+    ):
+        sandbox.write_text(f"#!/bin/sh\nprintf '%s\\n' '{malformed}'\n")
+        rejected = subprocess.run(
+            ["bun", "-e", script], cwd=ROOT,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                 "OPENCODE_VM_CONFIG": str(config), "DBSCTR_RND_RECEIPTS": str(receipts)},
+            text=True, capture_output=True,
+        )
+        assert rejected.returncode != 0
 
 
 def test_dbsctr_runtime_health_is_advisory_and_normalized(tmp_path):
@@ -1476,6 +1572,8 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     assert "<--kind>" in log
     assert "<--pane>" in log
     assert "<--interactive>" in log
+    assert "<export DBSCTR_IMPROVEMENT_WORKER_ID=dbsctr-12345678>" in log
+    assert "Register and claim the current guest session under worker dbsctr-12345678" in log
     limactl.write_text(
         '#!/bin/sh\nprintf "CALL\\n" >> "$VM_CALLS"\nprintf "<%s>\\n" "$@" >> "$VM_CALLS"\n'
         'case "$*" in *"printenv HOME"*) printf "/home/test.guest\\n";; '
@@ -1630,7 +1728,8 @@ def test_federated_runtime_validates_filters_and_manifest_digest(tmp_path):
 
 def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     command = text("private_dot_config/opencode/commands/dbsctr-improve.md")
-    assert "`dbsctr_review_federated` with `limit=100`" in command
+    assert "Call `dbsctr_lens_summary` once" in command
+    assert "inspects every member" in command and "full-member digests" in command
     assert "Do not call\n   `dbsctr_review_history_save`" in command
     assert "dbsctr-rnd lens-plan --worker-id" in command
     assert all(lens in command for lens in (
@@ -1639,14 +1738,17 @@ def test_autonomous_review_uses_full_capture_pages_without_resaving_cohorts():
     ))
     assert "--outcome no_yield" in command and "--outcome yield" in command
     assert "review_session_governance" in command and "Never let an ordinary lens" in command
-    assert "--telemetry-json" in command and "For P1-P3, load `discovery`" in command
-    assert "autonomous=true" in command and "risk is not critical" in command
+    assert "--telemetry-json" in command and "For P0/P1, load `discovery`" in command
+    assert "autonomous=true" in command and "P2/P3 remain claimed" in command
     assert "materialQuestionsResolved=true" in command and "terminal manifest evidence digest" in command
+    assert "measurement plan" in command and "dks_context" in command
+    assert "implementation report" in command and "proposed implementation diff" in command
     audit = text("dot_agents/skills/dbsctr-lens-audit/SKILL.md")
     assert "review_session_governance" in audit and "Missing telemetry is unavailable, not zero" in audit
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     federated = tools.split("export const review_federated", 1)[1].split("export const vm_handoff", 1)[0]
     assert 'reviewSessions: tool.schema.enum(["only", "exclude"])' in federated
+    assert "export const lens_summary = tool" in tools
 
 
 def test_removed_managed_integrations_are_absent():
