@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-24 - OCP-38 Client History Migration
+
+- Added a fail-closed SQLite migration command that retains exactly declared
+  projects and related OpenCode history, rebases approved paths, removes global
+  identity and credential state, validates relationships, and leaves its source
+  unchanged.
+- Migrated three projects and 3,054 sessions into the isolated client guest.
+  SQLite integrity, foreign keys, child-session relationships, todo retention,
+  backup and rollback readiness, database permissions, and direct MacBook Herdr
+  attachment through Tailscale SSH passed. All 56 affected tests, Python
+  compilation, and Git whitespace validation passed. Gate Exceptions: none.
+  Implementation Gate Commit: `e60253a`. Intended Final Push: feature branch and
+  draft pull request into protected `main`.
+
 ## 2026-08-23 - Federated Lens Summary
 
 - Added read-only `dbsctr_lens_summary`, which validates complete source-local

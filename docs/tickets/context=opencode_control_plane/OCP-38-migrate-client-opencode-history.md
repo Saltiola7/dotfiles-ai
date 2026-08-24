@@ -5,7 +5,7 @@ slug: migrate-client-opencode-history
 context: opencode_control_plane
 title: Migrate selected client OpenCode history into an isolated guest
 kind: task
-state: in_progress
+state: done
 priority: high
 points: null
 depends_on:
@@ -28,9 +28,10 @@ validation:
   - SQLite integrity and foreign-key checks
   - guest backup, startup, session, and rollback smoke
 created: 2026-08-23
-updated: 2026-08-23
-completed: null
-commits: []
+updated: 2026-08-24
+completed: 2026-08-24
+commits:
+  - e60253a
 jira_publications: []
 migration: null
 ---
@@ -71,9 +72,18 @@ worktree cleanup are excluded.
 
 ## Evidence
 
-Authoritative inputs are the installed OpenCode schema, SQLite backup semantics,
-the machine-local mount registry, focused fixtures, and disposable candidate
-checks. No transcript or credential content is evidence.
+- A consistent read-only snapshot retained exactly three declared projects,
+  3,054 sessions, 299,648 messages, 1,207,840 parts, and 1,055,756 events. The
+  host database remained unchanged.
+- The guest cutover retained all 1,413 child sessions with valid parents and 158
+  sessions with todos. SQLite integrity and foreign-key checks passed, the
+  database mode is `0600`, and pre-cutover and failed-cutover backups remain for
+  rollback.
+- The matching checksum-verified Herdr helper was installed in the guest user
+  path. A MacBook attached directly through Tailscale SSH with `herdr --remote`
+  and detached cleanly.
+- All 56 affected tests, Python compilation, and Git whitespace validation
+  passed. No transcript or credential content was used as evidence.
 
 ## Risks
 
@@ -83,5 +93,6 @@ can invalidate the migration. Every condition fails closed before replacement.
 
 ## Review
 
-Discovery is complete. The guest database is explicitly replaceable; the host
-database remains authoritative until all deployment and operation gates pass.
+The migration is complete. The guest database remains replaceable, the retained
+backups provide local rollback, and the unchanged host database remains the
+authoritative source for any future one-time migration.
