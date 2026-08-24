@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
+RATE_CARD = Path(__file__).parents[1] / "private_dot_config/opencode/inference-cost-rates.json"
 
 
 def run(*args, ok=True):
@@ -79,6 +80,73 @@ def database(path, supported=True):
             ))
     connection.commit()
     connection.close()
+
+
+def test_managed_fast_rates_are_exact_and_effective_dated():
+    card = json.loads(RATE_CARD.read_text())
+    entries = {(entry["provider"], entry["model"]): entry for entry in card["entries"]}
+    expected = {
+        "gpt-5.6-sol-fast": {"input": "10", "output": "60", "reasoning": "60", "cache_read": "1", "cache_write": "12.5"},
+        "gpt-5.6-terra-fast": {"input": "4", "output": "24", "reasoning": "24", "cache_read": "0.4", "cache_write": "5"},
+        "gpt-5.6-luna-fast": {"input": "0.4", "output": "2.4", "reasoning": "2.4", "cache_read": "0.04", "cache_write": "0.5"},
+    }
+
+    for model, rates in expected.items():
+        entry = entries[("openai", model)]
+        assert entry["effective_from"] == 1787443200000
+        assert entry["effective_to"] is None
+        assert entry["max_input_tokens"] == 272000
+        assert entry["usd_per_million_tokens"] == rates
+
+
+def test_managed_fast_rates_resolve_only_for_exact_effective_identities(tmp_path):
+    source = tmp_path / "opencode.db"
+    database(source)
+    connection = sqlite3.connect(source)
+    connection.executescript("delete from part; delete from message; delete from session;")
+    boundary = 1787443200000
+    models = (
+        ("sol", "gpt-5.6-sol-fast", boundary, boundary, 0.1435),
+        ("terra", "gpt-5.6-terra-fast", boundary, boundary, 0.0574),
+        ("luna", "gpt-5.6-luna-fast", boundary, boundary, 0.00574),
+        ("near", "gpt-5.6-sol-fast-preview", boundary, boundary, None),
+        ("early", "gpt-5.6-sol-fast", boundary - 1, boundary, None),
+    )
+    for session_id, model, created, updated, _ in models:
+        connection.execute("insert into session values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+            session_id, None, "project", created, updated, "PROHIBITED", "PROHIBITED", "PROHIBITED",
+            json.dumps({"id": model, "providerID": "openai"}), 0, 1000, 1000, 1000, 1000, 1000,
+        ))
+        connection.execute("insert into message values (?,?,?,?,?)", (
+            f"message-{session_id}", session_id, created, updated,
+            json.dumps({"role": "assistant", "providerID": "openai", "modelID": model,
+                        "variant": session_id}),
+        ))
+        connection.execute("insert into part values (?,?,?,?,?,?)", (
+            f"part-{session_id}", f"message-{session_id}", session_id, created, updated,
+            json.dumps({"type": "step-finish", "cost": 0, "tokens": {
+                "input": 1000, "output": 1000, "reasoning": 1000,
+                "cache": {"read": 1000, "write": 1000},
+            }}),
+        ))
+    connection.commit()
+    connection.close()
+
+    output = tmp_path / "report"
+    run("inference-cost-report", "--opencode-db", source, "--output-dir", output, "--rate-card", RATE_CARD)
+    report = json.loads((output / "inference-cost-report.json").read_text())
+    context = report["contexts"][0]
+    resolved = {(item["model"], item["variant"]): item["estimated_cost_usd"]
+                for item in context["models"]}
+    assert resolved == {
+        ("gpt-5.6-luna-fast", "luna"): 0.00574,
+        ("gpt-5.6-sol-fast", "sol"): 0.1435,
+        ("gpt-5.6-sol-fast", "early"): None,
+        ("gpt-5.6-sol-fast-preview", "near"): None,
+        ("gpt-5.6-terra-fast", "terra"): 0.0574,
+    }
+    assert context["estimated_cost_coverage"] == 0.6
+    assert len(report["rate_card"]["used_entries"]) == 3
 
 
 def test_inference_cost_report_reconciles_and_excludes_content(tmp_path):

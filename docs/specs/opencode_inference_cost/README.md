@@ -1,11 +1,11 @@
 ---
-title: "OpenCode Inference Cost Reporting (Spec v0.3)"
+title: "OpenCode Inference Cost Reporting (Spec v0.4)"
 owner: AI Tooling
 goal: "Report token usage and actual or estimated inference cost by DBSCTR bounded context without retaining prompt or response content."
 status: "implemented"
 created: 2026-07-30
-last_updated: 2026-07-30
-version: "0.3"
+last_updated: 2026-08-23
+version: "0.4"
 pipeline_type: "analysis"
 tags: ["opencode", "dbsctr", "telemetry", "cost", "roi"]
 ---
@@ -54,9 +54,9 @@ captures, permissions, retention state machines, or deployment paths.
 
 | Concern | Value |
 |---|---|
-| Affected scope | Replace session-grain extraction with read-only canonical step-finish usage, timestamped DBSCTR context intervals, schema-v2 report output, synthetic tests, and lifecycle artifacts; no database mutation, rate expansion, scheduler, dashboard, or ROI benefit model |
+| Affected scope | Add exact effective-dated list-price rates for the three managed OpenAI Fast model identities; no aliasing, historical backfill, source-database change, scheduler, dashboard, or ROI benefit model |
 | Risk | `elevated`: private developer telemetry and decision-facing financial estimates |
-| Delivery intent | Transfer this specification to the dotfiles/DBSCTR repository, then implement through a feature branch and draft pull request |
+| Delivery intent | Feature branch and draft pull request only; no managed configuration deployment |
 
 ## Goals
 
@@ -92,6 +92,7 @@ captures, permissions, retention state machines, or deployment paths.
 | Attribution Confidence | `HIGH`, `MEDIUM`, or `UNAVAILABLE`, retained separately from status. |
 | Source Snapshot | Immutable read boundary identified by database digest and session/part ceilings where available. |
 | Cost Basis | `RECORDED`, `LIST_PRICE`, or `UNAVAILABLE`; recorded and estimated values are never coalesced. |
+| Fast Model Identity | An exact managed OpenAI model ID ending in `-fast`; it never inherits a standard model's rate by suffix removal. |
 
 ## Domain Model
 
@@ -166,6 +167,21 @@ captures, permissions, retention state machines, or deployment paths.
 - When cost is resolved
 - Then actual cost is null rather than zero
 - And source availability is visible in the report manifest.
+
+**Scenario: An exact managed Fast identity is effective**
+
+- Given a usage record identifies `gpt-5.6-sol-fast`, `gpt-5.6-terra-fast`, or `gpt-5.6-luna-fast`
+- And the complete usage interval starts on or after `2026-08-23T00:00:00Z`
+- When cost is resolved
+- Then the matching priority-processing rate is used
+- And each token-class rate is exactly twice that model's published standard rate.
+
+**Scenario: Fast pricing is not proven for the usage interval**
+
+- Given a usage record has a downgraded, unknown, or pre-boundary Fast identity or interval
+- When cost is resolved
+- Then estimated cost is null with basis `UNAVAILABLE`
+- And no standard-model rate or inferred historical Fast rate is substituted.
 
 ### Privacy and source safety
 
@@ -290,7 +306,10 @@ not overlap. Null token-class rates make an estimate unavailable when that
 class has non-zero usage.
 
 The initial card contains official OpenAI standard short-context rates retrieved
-2026-07-30. OpenAI model documentation states that requests above 272K input
+2026-07-30 and reverified unchanged 2026-08-23. Exact managed Fast identities use
+published priority-processing rates retrieved 2026-08-23 and are effective from
+`2026-08-23T00:00:00Z`; earlier usage remains unestimated. OpenAI model
+documentation states that requests above 272K input
 tokens use long-context pricing. Because the source grain is a canonical model
 step, the adapter applies one rate only when its effective interval covers the
 complete part creation-to-update interval, and applies short rates only when the part's total
@@ -300,7 +319,8 @@ than inheriting direct-provider or inferred regional prices.
 
 | Models | Standard short-context USD per million tokens | Evidence |
 |---|---|---|
-| `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4-mini` | Exact input, cached-input, cache-write where published, and output rates are retained in the checked-in card. | OpenAI pricing and model pages retrieved 2026-07-30; the Git blob and report digest pin the consulted values. |
+| `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4-mini` | Exact input, cached-input, cache-write where published, and output rates are retained in the checked-in card. | OpenAI pricing and model pages retrieved 2026-07-30 and reverified unchanged 2026-08-23; the Git blob and report digest pin the consulted values. |
+| `gpt-5.6-sol-fast`, `gpt-5.6-terra-fast`, `gpt-5.6-luna-fast` | Exact priority-processing rates are twice the corresponding standard rates; matching is exact and starts at the checked-in effective boundary. | OpenAI API pricing retrieved 2026-08-23; no downgraded identity or pre-boundary price is inferred. |
 
 ## Report Contract
 
@@ -444,14 +464,14 @@ flow changes.
 
 | Gate | Applicability | Result | Evidence or reason |
 |---|---|---|---|
-| Domain | required | passed | Canonical usage, session controls, context intervals, quarantine, source ownership, and trust boundaries defined. |
-| Behavior | required | passed | Timestamp attribution, overlap, unknown usage, reconciliation, privacy, and recovery scenarios defined. |
-| Spec | required | passed | Schema-v2 output, strict source projections, interval fields, CLI compatibility, and visual evidence are defined. |
-| Contract | required | passed | Reconciliation, quarantine, half-open intervals, backward compatibility, and privacy failure semantics are explicit. |
-| Test-driven implementation | required | passed | Synthetic SQLite tests cover canonical parts, interval splits, overlap, abandoned fallback, legacy quarantine, orphan rejection, privacy, and recovery. |
-| Refactor | required | passed | Reused existing history, SQLite, validation, statistics, and atomic publication without a runtime dependency. |
-| Review/Integrate | required | passed | Conflict-free upstream reconciliation and 271 union tests passed; independent review was unavailable under sandbox policy and primary review found no unresolved issue. |
+| Domain | required | passed | Exact managed Fast identities, priority-processing rates, ownership, and effective boundary are defined without aliases. |
+| Behavior | required | passed | Exact-ID success, near-identity failure, inclusive boundary, and pre-boundary unavailability are explicit. |
+| Spec | required | passed | The checked-in card adds only Sol Fast, Terra Fast, and Luna Fast at exact published rates. Existing visual evidence remains applicable and unchanged. |
+| Contract | required | passed | Complete usage intervals must match exact provider/model identities and start on or after `2026-08-23T00:00:00Z`; no downgrade or historical inference is allowed. |
+| Test-driven implementation | required | passed | The missing Sol Fast entry produced the intended red failure; six focused tests then passed with exact financial and boundary assertions. |
+| Refactor | required | passed | Reused the existing effective-dated card and resolver without aliases, fallback logic, dependencies, or source changes. |
+| Review/Integrate | required | passed | Independent review findings on provenance and boundary evidence were remediated; final review found no material issue. |
 | Release | not_applicable | not_run | MVP is an internal Git-versioned tool with no package publication. |
-| Deploy | not_applicable | not_run | Manual local command; no environment change. |
-| Operate | not_applicable | not_run | No service, schedule, or alerting in MVP. |
-| Maintain/Retire | required | passed | AI Tooling owns the strict adapter, schema-v1 replacement, history compatibility, rate refreshes, and deletion of replaceable local reports. |
+| Deploy | not_applicable | not_run | Draft PR only; the managed card is not applied. |
+| Operate | not_applicable | not_run | No service, schedule, environment change, or alerting is introduced. |
+| Maintain/Retire | required | passed | AI Tooling retains ownership of exact identity additions, source reverification, effective dates, and rate retirement. |
