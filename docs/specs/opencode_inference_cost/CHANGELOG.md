@@ -1,5 +1,23 @@
 # Changelog - OpenCode Inference Cost Reporting
 
+## 2026-08-23 - Managed OpenAI Fast Estimates (v0.4)
+
+**Outcome:** Added exact effective-dated list-price entries for managed Sol Fast,
+Terra Fast, and Luna Fast usage. Priority-processing token-class rates are twice
+the corresponding standard rates and start at `2026-08-23T00:00:00Z`; near
+identities and complete usage intervals beginning before that boundary remain
+unestimated.
+
+**Provenance and validation:** Existing standard rates were reverified unchanged
+before the card retrieval date advanced. The missing Fast entry produced the
+intended red failure, then six focused inference-cost tests and Git whitespace
+validation passed. Independent review findings on retrieval-date provenance and
+boundary evidence were remediated; final review found no material issue.
+
+**Gate exceptions:** None. **Gate Commit:** `48dd3a4`. **Deployment:** Not run.
+Intended Final Push: feature branch and verified draft pull request into protected
+`main`.
+
 ## 2026-08-18 - Canonical Ticket Migration
 
 - Migrated active and completed inference-cost work records to independently

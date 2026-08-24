@@ -22,7 +22,8 @@ validation:
 created: "2026-08-23"
 updated: "2026-08-23"
 completed: null
-commits: []
+commits:
+  - "48dd3a45d5161e6479faecc9fbab6af7979cdb1e"
 jira_publications: []
 migration: null
 ---
@@ -62,6 +63,7 @@ resolution regression constrain those failures.
 - `uv run --group test pytest -q tests/test_inference_cost_report.py`: 6 passed.
 - `git diff --check`: passed.
 - Standard rates were reverified unchanged on 2026-08-23 before the card-level retrieval date advanced.
+- Development Kernel Gate Commit: `48dd3a45d5161e6479faecc9fbab6af7979cdb1e`.
 
 ## Review
 
