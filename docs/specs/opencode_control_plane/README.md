@@ -99,6 +99,15 @@
 | Scope | Route OpenAI Plan, Build, Reviewer, Explore, Scout, Builder, explicit GPT entry, and disposable small-model work to GPT-5.6 Fast counterparts |
 | Overrides | Existing Sol/Luna/Terra role allocation, reasoning effort, provider affinity, and fallback boundaries remain unchanged |
 
+### OCP-38 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: migrates private OpenCode history across an identity and VM boundary |
+| Delivery intent | Rehearse on disposable snapshots, deploy one validated pruned database to a client guest, and deliver a draft pull request |
+| Scope | Consistent SQLite backup, exact project selection, path rebasing, credential scrubbing, relationship validation, guest rollback, and direct Tailscale Herdr access |
+| Overrides | The host database remains read-only; the replaceable guest database is backed up before cutover; unrelated projects, credentials, and sessions never enter the guest |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -178,6 +187,26 @@ Herdr receives a worktree directory, and Build receives only the root and subtre
 permissions. Configuration, credentials, caches, sockets, locks, and temporary
 files remain local. This repository change does not move live data or restart a
 running OpenCode process.
+
+```mermaid
+flowchart LR
+    accTitle: Client OpenCode history migration
+    accDescr: A read-only host database is copied to a disposable snapshot. Only exact selected client projects and their complete session records remain. Known host paths are rebased to guest mounts, global credentials are removed, and integrity checks gate replacement of the backed-up guest database.
+    H[Read-only host database] -->|SQLite backup API| S[Disposable snapshot]
+    S -->|Exact project allowlist| P[Selected client projects and sessions]
+    P -->|Rebase known prefixes| R[Guest repository and worktree paths]
+    R -->|Scrub host-global identity| V[Validated migration candidate]
+    V -->|Integrity and relationship checks| G[Backed-up client guest database]
+    G -->|Failure| B[Restore guest backup]
+```
+
+**Text Equivalent:** The source OpenCode database is opened read-only and copied
+with SQLite's backup API so committed WAL data is included. The disposable copy
+keeps exactly the configured client projects, their complete session-related rows,
+and matching event streams. It rebases only declared host path prefixes, removes
+host-global credentials and unrelated event streams, then requires SQLite and
+semantic relationship checks before replacing a separately backed-up client guest
+database. Any failed guest smoke check restores that backup.
 
 ## Goals
 
@@ -584,6 +613,29 @@ Native Task subagents remain child sessions in their owning OpenCode server and
 filesystem. The control plane does not claim per-subagent VM isolation; host and
 VM OpenCode servers are separate runtimes.
 
+Given an operator migrates host OpenCode history into a replaceable managed guest,
+when the migration candidate is built, then the host database is opened read-only
+and SQLite creates a consistent backup at a new path. The candidate keeps only
+the exact declared project roots and their complete session graph, rewrites only
+declared path prefixes, retains event streams whose aggregate is a retained
+session, and removes host-global account and credential rows.
+
+Given a project root is absent or duplicated, a required table or column is
+unknown, an output already exists, a path remains under a declared old prefix,
+or a retained session has a dangling parent, workspace, message, part, or event
+relationship, when migration runs, then it fails without changing the source or
+guest database and reports only bounded counts and field names.
+
+Given the disposable candidate passes validation, when guest cutover occurs,
+then the guest OpenCode and Herdr writers are stopped, its existing database is
+backed up, the candidate is installed with owner-only permissions, and a fresh
+guest process lists representative root and child sessions. Failed startup,
+integrity, count, path, or resume checks restore the guest backup.
+
+Given the client VM is running and Tailscale SSH is available, when a remote operator
+attaches, then `herdr --remote HOST` connects directly to the guest Herdr server;
+an intermediate host Herdr session and shell alias are not required for that path.
+
 Given host R&D requests VM history, a VM-local adapter scans only its local
 database and returns one size- and time-bounded sanitized source envelope. The
 host adapter accepts only configured instance IDs and fixed commands, namespaces
@@ -693,8 +745,30 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   broaden Plan or bounded subagents and does not remove native DBSCTR worktree
   access needed by legacy cycles.
 - Existing OpenCode, DBSCTR review, and R&D SQLite stores remain SQLite. This
-  change introduces no database engine, performs no live copy, and requires a
-  fresh OpenCode process after later managed deployment.
+  change introduces no database engine. OCP-38 permits only a read-only SQLite
+  backup into a new disposable file and requires a fresh guest OpenCode process
+  after validated cutover.
+- The migration tool accepts one source and new output file plus exact
+  `HOST=GUEST` project mappings and optional declared path-prefix mappings. It
+  refuses symlinks, an existing output, an unsupported schema, missing or
+  duplicate projects, and any source/output identity collision.
+- Project deletion must cascade through every declared project/session foreign
+  key. Event sequences have no session foreign key, so the tool separately keeps
+  only aggregates belonging to retained sessions. It rejects dangling
+  `session.parent_id`, `session.workspace_id`, and `part.session_id` semantics
+  that SQLite cannot enforce.
+- `account`, `account_state`, `control_account`, and `credential` are always empty
+  in the candidate. Migration and schema records remain intact. Raw transcript,
+  title, event, token, path, credential, and URL values never enter logs or Git.
+- Every declared old path prefix is absent from `project.worktree`,
+  `project_directory.directory`, and `session.directory` after rebasing. Unknown
+  historical paths remain explicit validation failures when covered by a
+  declared prefix; content inside opaque JSON payloads is reported only as a
+  count and is not rewritten speculatively.
+- Live cutover is a separate reversible deployment step. It requires source and
+  candidate digests, a guest backup, owner-only database permissions, exact
+  selected-project and session counts, and post-start smoke evidence. The source
+  database is never deleted or modified.
 - Workspace mounts may declare optional reference names and descriptions. A
   declared reference renders its host path on macOS and guest path in the owning
   VM; mounts without reference metadata are not advertised to OpenCode.
@@ -741,6 +815,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
+| Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 
 ## Risks
 
@@ -765,6 +840,12 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   OpenCode Bash, but same-user command policies are guardrails rather than an OS
   authorization boundary. The VM filesystem boundary remains the security
   control against host access.
+- A copied OpenCode database can contain private transcripts, paths, tokens, and
+  credentials. OCP-38 keeps migration files private, emits only aggregate counts,
+  scrubs global identity rows, and never persists migrated data in Git.
+- OpenCode's schema and event projection can change between versions. Migration
+  fails on an unsupported shape and must be rehearsed with the source version
+  before a newer guest process is allowed to migrate a separate copy.
 - OpenCode cannot retarget native `plan_exit` to a custom primary; `build-gpt`
   and `build-claude` therefore require exact manual agent selection and a new
   message. Changing only the model leaves native Plan active.
