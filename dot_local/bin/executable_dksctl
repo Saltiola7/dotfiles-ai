@@ -28,12 +28,12 @@ from pathlib import Path
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-GRAPHIFY_RUNTIME_SHA256 = "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8"
-GRAPHIFY_PRODUCER_SHA256 = "7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091"
-GRAPHIFY_EXTRACTOR_REVISION = "b2cd36267456c166788c95be6e68574064a92a42"
+GRAPHIFY_RUNTIME_SHA256 = "26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e"
+GRAPHIFY_PRODUCER_SHA256 = "5e4d7141a8d26ac2fa64a6958f3de9565e1abc57cdd6ef9afc9477c61661a5fc"
+GRAPHIFY_EXTRACTOR_REVISION = "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e"
 RERANKER_REVISION = "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
 GRAPHIFY_CONFIG = {"extractor": "graphifyy[sql]", "mode": "code-only",
-                   "normalization": "stable-staged-graph-v1", "version": "0.9.48"}
+                   "normalization": "stable-staged-graph-v1", "version": "0.9.50"}
 HEADING_RE = re.compile(rb"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 DECLARATION_RE = re.compile(
     rb"^[ \t]*(?:class|data|def|enum|fn|func|function|interface|locals|module|output|"
@@ -342,7 +342,7 @@ def graphify_location(document, value):
 
 def validate_graphify_graph(graph: dict, documents: dict, commit: str, version: str,
                             artifact_sha256=None, corpus_manifest_sha256=None):
-    if (not COMMIT_RE.fullmatch(commit) or version != "0.9.48" or not isinstance(graph, dict)
+    if (not COMMIT_RE.fullmatch(commit) or version != "0.9.50" or not isinstance(graph, dict)
             or set(graph) != {"nodes", "edges", "hyperedges", "input_tokens", "output_tokens"}
             or not isinstance(graph.get("nodes"), list) or len(graph["nodes"]) > 100000
             or not isinstance(graph.get("edges"), list) or len(graph["edges"]) > 500000
@@ -1383,7 +1383,7 @@ def command_doctor(args, config, project):
         return {"schema_version": 1, "project": args.project, "enabled": settings["enabled"],
                 "target_revision": None, "healthy": False,
                 "failures": ["database_unavailable"], "status": None}
-    if status.get("migration") != 6:
+    if status.get("migration") != 7:
         failures.append("schema_unavailable")
     try:
         active_ranking_policy(config, args.project)
@@ -2150,7 +2150,8 @@ def privacy_sync_statements(project_id, export):
 
 
 def graph_import_statements(project_id, commit, graph, source_profile_sha256,
-                            corpus_manifest_sha256, execution_receipt_sha256):
+                            corpus_manifest_sha256, execution_receipt_sha256,
+                            execution_receipt=None):
     artifact = graph["artifact_sha256"]
     config_sha = digest_json(GRAPHIFY_CONFIG)
     statements = ["BEGIN;",
@@ -2164,15 +2165,16 @@ def graph_import_statements(project_id, commit, graph, source_profile_sha256,
         f"DELETE FROM dks.graph_imports WHERE project_id={sql_literal(project_id)} "
         f"AND artifact_sha256={sql_literal(artifact)};",
         "INSERT INTO dks.graph_imports(project_id,revision_id,artifact_sha256,normalized_sha256,extractor_version,"
-        "extractor_revision,config_sha256,source_profile_sha256,corpus_manifest_sha256,execution_receipt_sha256,"
+        "extractor_revision,config_sha256,source_profile_sha256,corpus_manifest_sha256,execution_receipt_sha256,execution_receipt,"
         "runtime_sha256,producer_sha256,"
         "expected_nodes,expected_edges,"
         "excluded_external_nodes,excluded_dangling_edges,state) VALUES ("
         f"{sql_literal(project_id)},{sql_literal(commit)},{sql_literal(artifact)},"
         f"{sql_literal(graph['normalized_sha256'])},{sql_literal(graph['version'])},"
-        f"'b2cd36267456c166788c95be6e68574064a92a42',{sql_literal(config_sha)},"
+        f"{sql_literal(GRAPHIFY_EXTRACTOR_REVISION)},{sql_literal(config_sha)},"
         f"{sql_literal(source_profile_sha256)},{sql_literal(corpus_manifest_sha256)},"
         f"{sql_literal(execution_receipt_sha256)},"
+        f"{sql_literal(canonical_json(execution_receipt)) + '::jsonb' if execution_receipt is not None else 'NULL'},"
         f"{sql_literal(GRAPHIFY_RUNTIME_SHA256)},{sql_literal(GRAPHIFY_PRODUCER_SHA256)},"
         f"{len(graph['nodes'])},{len(graph['links'])},"
         f"{graph['excluded_external_nodes']},{graph['excluded_dangling_edges']},'staging');"]
@@ -2227,7 +2229,7 @@ def graph_import_statements(project_id, commit, graph, source_profile_sha256,
     return statements
 
 
-def load_graphify_receipt(path_value, artifact_sha256, corpus_manifest_sha256):
+def load_graphify_receipt(path_value, project_id, artifact_sha256, corpus_manifest_sha256):
     path = Path(path_value).expanduser()
     try:
         details = path.lstat()
@@ -2242,14 +2244,18 @@ def load_graphify_receipt(path_value, artifact_sha256, corpus_manifest_sha256):
               "extractor_revision", "python_version", "runtime_sha256", "producer_sha256",
               "config_sha256", "raw_extraction_sha256",
               "corpus_manifest_sha256", "artifact_sha256", "network_disabled",
+              "cache_schema_version", "cache_key_sha256", "cache_hit",
               "excluded_missing_locations", "excluded_missing_location_ids_sha256"}
+    cache_key = digest_json({"project": project_id, "config_sha256": config_sha,
+                             "runtime_sha256": GRAPHIFY_RUNTIME_SHA256,
+                             "corpus_manifest_sha256": corpus_manifest_sha256})
     if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
             or stat.S_IMODE(details.st_mode) & 0o077 or not isinstance(value, dict)
-            or set(value) != fields or value.get("schema_version") != 1
-            or value.get("command_contract") != "dks-graphify-code-v1"
+            or set(value) != fields or value.get("schema_version") != 2
+            or value.get("command_contract") != "dks-graphify-code-v2"
             or value.get("package") != "graphifyy[sql]"
-            or value.get("extractor_version") != "0.9.48"
-            or value.get("extractor_revision") != "b2cd36267456c166788c95be6e68574064a92a42"
+            or value.get("extractor_version") != "0.9.50"
+            or value.get("extractor_revision") != GRAPHIFY_EXTRACTOR_REVISION
             or value.get("python_version") != "3.13.2"
             or value.get("runtime_sha256") != GRAPHIFY_RUNTIME_SHA256
             or value.get("producer_sha256") != GRAPHIFY_PRODUCER_SHA256
@@ -2258,11 +2264,14 @@ def load_graphify_receipt(path_value, artifact_sha256, corpus_manifest_sha256):
             or value.get("corpus_manifest_sha256") != corpus_manifest_sha256
             or value.get("artifact_sha256") != artifact_sha256
             or value.get("network_disabled") is not True
+            or value.get("cache_schema_version") != 1
+            or value.get("cache_key_sha256") != cache_key
+            or type(value.get("cache_hit")) is not bool
             or type(value.get("excluded_missing_locations")) is not int
             or value["excluded_missing_locations"] < 0
             or not SHA256_RE.fullmatch(value.get("excluded_missing_location_ids_sha256", ""))):
         raise ValueError("Graphify execution receipt identity mismatch")
-    return hashlib.sha256(raw).hexdigest()
+    return hashlib.sha256(raw).hexdigest(), value
 
 
 def command_sync(args, config, project):
@@ -2570,8 +2579,8 @@ def command_import_graph(args, config, project):
         graph = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
                            if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
                                ValueError("duplicate Graphify key")))
-        receipt_sha = load_graphify_receipt(
-            receipt, hashlib.sha256(raw).hexdigest(), corpus_sha)
+        receipt_sha, receipt_value = load_graphify_receipt(
+            receipt, args.project, hashlib.sha256(raw).hexdigest(), corpus_sha)
     validated = validate_graphify_graph(
         graph, {item["path"]: item for item in documents}, args.commit, args.version,
         hashlib.sha256(raw).hexdigest(), corpus_sha)
@@ -2583,7 +2592,7 @@ def command_import_graph(args, config, project):
             raise RuntimeError("project sync already running")
         session.execute("\n".join(graph_import_statements(
             args.project, args.commit, validated, project.get("source_profile_sha256"), corpus_sha,
-            receipt_sha)))
+            receipt_sha, receipt_value)))
         session.execute(f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project)}, 0));")
     return {"project": args.project, "commit": args.commit,
             "artifact_sha256": validated["artifact_sha256"],

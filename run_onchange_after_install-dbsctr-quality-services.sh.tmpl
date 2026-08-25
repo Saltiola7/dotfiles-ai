@@ -37,11 +37,11 @@ if [[ ! -d $runtime_target ]]; then
     /bin/mv "$stage" "$runtime_target"
     trap - EXIT
 fi
-graphify_target="$HOME/.config/dotfiles-ai/runtime/graphify-sql-0.9.48-71cb9828"
+graphify_target="$HOME/.config/dotfiles-ai/runtime/graphify-sql-0.9.50-26b1be94"
 if [[ ! -d $graphify_target ]]; then
-    stage=$(/usr/bin/mktemp -d "$HOME/.config/dotfiles-ai/runtime/.graphify-0.9.48.part.XXXXXX")
+    stage=$(/usr/bin/mktemp -d "$HOME/.config/dotfiles-ai/runtime/.graphify-0.9.50.part.XXXXXX")
     trap '/bin/rm -rf "$stage"' EXIT
-    /bin/cp -c -R "$source_root/dbsctr/graphify-sql-0.9.48/." "$stage/"
+    /bin/cp -c -R "$source_root/dbsctr/graphify-sql-0.9.50/." "$stage/"
     /bin/chmod -R a-w "$stage"
     /bin/mv "$stage" "$graphify_target"
     trap - EXIT
