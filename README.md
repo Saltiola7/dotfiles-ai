@@ -162,7 +162,7 @@ Within each context, `README.md` owns durable truth, files beneath
 owns completed cycle evidence. Historical V2
 source is retained under [`docs/_archive/`](docs/_archive/) and is not deployed or
 current guidance. Public lifecycle entry points are `/discovery`, `/dbsctr`, and
-`/qa`; Method Revision 3.27 is current.
+`/qa`; Method Revision 3.28 is current.
 
 ## License
 

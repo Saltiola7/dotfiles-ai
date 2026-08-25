@@ -125,6 +125,13 @@
 - Permit only applicable project-local MCP configuration; never create or modify
   global MCP configuration.
 
+### V3.37 — Graphify Orchestration (implementation complete)
+
+- Bind an optional committed Graphify adapter and version in strict applicability plans.
+- Run feature-cycle checks in disposable worktrees with private HEAD-bound receipts.
+- Close integration-batch admission before one canonical graph-only promotion commit.
+- Keep DVC push separately authorized and verify graph-only freshness at fixed commits.
+
 ## Delivery Order
 
 Persist this roadmap first, then deliver V3.7, V3.8, V3.9, and V3.10 as

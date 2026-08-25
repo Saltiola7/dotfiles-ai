@@ -29,7 +29,7 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.27` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
+5. Report Method Revision `3.28` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
     otherwise `dbsctrctl status`, to resume the active Cycle
     Record. A validated Build primary resuming an active cycle calls typed
     `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
@@ -180,6 +180,14 @@ state machine. Standing authorization for validated Build-primary begin, resume,
 Plan and subagents remain denied and Plan hands off the validated plan. The `launch` argument defaults to `false`; when
 explicitly true in a Herdr pane, the same authorization covers launching OpenCode
 in the new worktree. Herdr state is presentation only and never gate evidence.
+
+When the applicability plan contains `graphify`, run `dbsctrctl graphify-check`
+after the final affected source change and before Final Push. The helper runs the
+committed project adapter in a disposable detached worktree and retains private
+receipt evidence; feature cycles never update canonical `graphify-out/`. Adapter
+or version changes require a new cycle selection and Engineering Profile change.
+Selection authorizes bounded local execution of that committed project code only;
+review it under Project Policy and never embed push, publish, or deploy behavior.
 
 Before final artifact closure, use `dbsctr_reconcile` preview when the recorded
 upstream may have advanced. If it reports `diverged`, prepare the no-commit merge,
