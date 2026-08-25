@@ -5,7 +5,7 @@ slug: "scope-centralized-xdg-to-opencode-runtime"
 context: "opencode_control_plane"
 title: "Scope centralized XDG state to OpenCode runtimes"
 kind: "task"
-state: "in_progress"
+state: "review"
 priority: "high"
 points: null
 depends_on:
@@ -22,7 +22,8 @@ validation:
 created: "2026-08-24"
 updated: "2026-08-24"
 completed: null
-commits: []
+commits:
+  - "39e12a13f9dc191a6edc62559408f2e08c074fd0"
 jira_publications: []
 migration: null
 ---
@@ -65,7 +66,14 @@ the same wrapper-owned paths.
 - `uv run --group test pytest -q tests/test_herdr_launchagent.py tests/test_opencode_control_plane.py tests/test_portable_distribution.py`: 79 passed.
 - Centralized and native rendered Herdr plists both passed `plutil -lint`.
 - `git diff --check` passed.
+- Targeted chezmoi preview showed only the two XDG key removals. Apply left no
+  managed diff, and the deployed plist passed `plutil -lint` without either key.
+- The guarded loader reported that LaunchAgent reload was deferred. Herdr stayed
+  healthy on the same PID `2974`, version `0.8.2`, and protocol `20`.
 
 ## Review
 
-Pending.
+The diff changes only the generic Herdr environment boundary. Explicit external
+state paths and scoped OpenCode/lifecycle routing remain tested. No process,
+session, data path, dependency, permission, or schema changed. The running
+LaunchAgent retains its old in-memory environment until the next natural start.
