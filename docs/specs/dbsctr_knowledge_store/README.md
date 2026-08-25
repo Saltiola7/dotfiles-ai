@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-22
+last_updated: 2026-08-25
 ---
 
 # DBSCTR Knowledge Store
@@ -69,6 +69,16 @@ last_updated: 2026-08-22
 | Scope | Commit `45096bb03891e9771a891d53f92b23863ae08a3e`; five fixed 20-query strata; AI-generated source-cited silver evidence; four-cell local execution; fixed seven-day trial; expiry, health, identity, and manual rollback |
 | Isolation | Hosted generation receives committed Git at the frozen revision only; private DBSCTR authority, transcripts, credentials, uncommitted files, projection bodies, and candidate results remain local |
 | Non-goals | Human-ground-truth claims, training or tuning on silver evidence, permanent activation from silver evidence, hosted retrieval execution, production `pg_textsearch`, and unsupported PostgreSQL 19 extension installation |
+
+### DKS-007 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: repairs canonical work authority and recovers a stale private production projection while preserving source truth and baseline ranking |
+| Delivery intent | Merge the authority correction, restore the local projection to the merged `origin/main`, and verify unattended convergence |
+| Scope | Correct DKS-005 PM state; observe or retry the active reconciliation; diagnose and minimally repair only a reproducible reconcile failure; verify Git, code, graph, authority, scheduler, and ranking identities |
+| Isolation | Git and typed DBSCTR stores remain authoritative; PostgreSQL remains rebuildable; logs and evidence stay local and content-safe; recovery uses the configured immutable remote ref only |
+| Non-goals | New retrieval behavior, model or schema migration, benchmark rerun, quality-policy activation, PostgreSQL-canonical writes, DKS-006 execution, or unrelated repository ticket repair |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -1240,6 +1250,22 @@ query.
 | Deploy | required | passed | Schema 6 migration and scoped chezmoi apply of validated runner, model guard, and trial commands |
 | Operate | required | passed | Complete 100-query matrix, warning-pressure denial, scheduler restoration, and retained `dks-rrf-v1` baseline |
 | Maintain/Retire | required | passed | Trial expiry, silver invalidation, human v2 compatibility, baseline retention, and tool removal checks |
+
+### DKS-007
+
+| Gate | Applicability | Result | Evidence |
+|---|---|---|---|
+| Domain | required | not_run | Canonical ticket authority, configured Git ref, rebuildable projection, scheduler, and baseline ranking boundaries |
+| Behavior | required | not_run | Valid ticket, successful convergence, transient retry, reproducible failure escalation, and healthy no-op scenarios |
+| Spec | required | not_run | PM ticket schema, `dksctl reconcile`, `doctor`, `status`, launchd interval, and runbook recovery interfaces |
+| Contract | required | not_run | Immutable source, prior-valid preservation, content-safe diagnostics, no candidate activation, and idempotent recovery invariants |
+| Test-driven implementation | required | not_run | Ticket validation, focused reconcile tests when code changes, and live before/after health checks |
+| Refactor | required | not_run | Prefer the existing runbook and reconcile path; change code or configuration only for a reproduced root cause |
+| Review/Integrate | required | not_run | Independent review of authority correction, recovery evidence, and any minimal runtime diff |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | not_run | Merge repository correction and restore the local projection to the resulting `origin/main` commit |
+| Operate | required | not_run | Doctor healthy, all channel identities fresh, scheduler exit 0, and one subsequent unchanged reconcile |
+| Maintain/Retire | required | not_run | Preserve rollback to prior valid projection, baseline policy, logs, and existing disablement/rebuild procedures |
 
 ## Decisions And Risks
 

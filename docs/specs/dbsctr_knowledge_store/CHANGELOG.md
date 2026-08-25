@@ -1,5 +1,16 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-25 - DKS-007 Discovery
+
+- Scoped one elevated recovery cycle to correct DKS-005's unsupported PM state
+  and restore the live projection to merged `origin/main` without changing source
+  authority, schema, models, benchmarks, or baseline ranking.
+- Live evidence showed retained prior-valid projection `b96dd297`, target
+  `d9b09ec`, stale Git/graph/authority channels, a nonzero prior launchd exit, and
+  a new scheduled reconcile actively retrying during discovery.
+- Recovery first observes that in-flight run, then permits one manual runbook
+  retry; only a reproduced failure may expand to a minimal code/config repair.
+
 ## 2026-08-19 - Discovery
 
 - Established the repository-wide knowledge-store boundary: Git and existing
