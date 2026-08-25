@@ -5,13 +5,12 @@ slug: "scope-centralized-xdg-to-opencode-runtime"
 context: "opencode_control_plane"
 title: "Scope centralized XDG state to OpenCode runtimes"
 kind: "task"
-state: "review"
+state: "done"
 priority: "high"
 points: null
 depends_on:
   - "OCP-32"
-relations:
-  - "shell_auth_startup"
+relations: []
 owns:
   - "Herdr LaunchAgent environment, scoped state contract, regression evidence, and managed deployment"
 reads:
@@ -20,8 +19,8 @@ parallel_safe: false
 validation:
   - "Focused Herdr tests, rendered plist validation, targeted chezmoi preview/apply, and live no-restart health checks pass"
 created: "2026-08-24"
-updated: "2026-08-24"
-completed: null
+updated: "2026-08-25"
+completed: "2026-08-24"
 commits:
   - "39e12a13f9dc191a6edc62559408f2e08c074fd0"
 jira_publications: []

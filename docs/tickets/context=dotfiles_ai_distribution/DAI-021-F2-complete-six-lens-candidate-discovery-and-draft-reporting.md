@@ -51,6 +51,16 @@ migration: "Private improvement schema 4 migrates in place to schema 5."
 Each complete lens pass can produce measurable feature candidates, evidence-bound
 P0/P1 Discovery interviews, and isolated implementation drafts for human review.
 
+## Context
+
+Continuous six-lens dispatch was restored, but complete candidate discovery and
+draft reporting still required bounded full-capture summaries and typed receipts.
+
+## Scope
+
+Complete server-side lens summaries, candidate claiming, Discovery readiness,
+draft-only delivery evidence, and three-source runtime validation.
+
 ## Acceptance Criteria
 
 - Federated history accepts the explicit unavailable project-attribution sentinel
@@ -98,3 +108,13 @@ binding preserves Python numeric tokens through TypeScript validation, closes
 the terminal-receipt boundary, and rejects duplicate, reordered, or externally
 padded JSON. A live scheduler run completed every lens with all three configured
 sources available and no unattributed sessions.
+
+## Risks
+
+Private source evidence must remain local and sanitized; stale captures,
+incomplete source coverage, or malformed receipts must fail closed.
+
+## Review
+
+Focused tests, deployment convergence, live six-lens execution, and exact receipt
+validation passed without granting autonomous merge or deployment authority.

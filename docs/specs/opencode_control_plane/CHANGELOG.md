@@ -1,5 +1,11 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-25 - Canonical Completion Reconciliation
+
+- Closed OCP-31, OCP-36, OCP-37, and OCP-39 against their retained implementation,
+  deployment, operation, and validation evidence. No control-plane behavior or
+  managed configuration changed.
+
 ## 2026-08-24 - OCP-39 Scoped Herdr XDG State
 
 - Removed generic XDG data/state homes from the Herdr LaunchAgent while

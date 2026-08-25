@@ -5,12 +5,12 @@ slug: "restore-managed-fast-route-cost-estimates"
 context: "opencode_inference_cost"
 title: "Restore managed Fast route cost estimates"
 kind: "task"
-state: "review"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
 relations:
-  - "OCP-37"
+  - "related:OCP-37"
 owns:
   - "Managed OpenAI Fast rate-card entries, focused regression evidence, and inference-cost lifecycle artifacts"
 reads:
@@ -20,8 +20,8 @@ validation:
   - "uv run --group test pytest -q tests/test_inference_cost_report.py"
   - "git diff --check"
 created: "2026-08-23"
-updated: "2026-08-23"
-completed: null
+updated: "2026-08-25"
+completed: "2026-08-24"
 commits:
   - "48dd3a45d5161e6479faecc9fbab6af7979cdb1e"
 jira_publications: []
