@@ -5,7 +5,7 @@ slug: restore-ticket-and-projection-health
 context: dbsctr_knowledge_store
 title: Restore ticket and projection health
 kind: task
-state: review
+state: done
 priority: high
 points: 3
 depends_on:
@@ -39,8 +39,11 @@ validation:
   - launchctl print gui/$(id -u)/dev.dotfiles-ai.dbsctr-knowledge-reconcile
 created: 2026-08-25
 updated: 2026-08-25
-completed: null
-commits: []
+completed: 2026-08-25
+commits:
+  - 5fb1931
+  - d82be68
+  - 46caf86
 jira_publications: []
 migration: null
 ---
