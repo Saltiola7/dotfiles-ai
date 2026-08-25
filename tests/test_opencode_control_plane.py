@@ -596,7 +596,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert '["sandbox-vm", "instance", report.target]' in runtime
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
-    assert '"herdr", "agent", "start", "DBSCTR Handoff"' in runtime
+    assert '"herdr", "agent", "start", "dbsctr-handoff"' in runtime
     assert '"--kind", "opencode", "--pane", paneID' in runtime
     assert '"dbsctrctl", "history-capture"' in runtime
     assert '"dbsctrctl", "benchmark"' in runtime
@@ -1530,10 +1530,11 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     calls = tmp_path / "calls"
+    sandbox_calls = tmp_path / "sandbox-calls"
     asks = tmp_path / "asks"
     opencode_vm = bin_dir / "sandbox-vm"
     opencode_vm.write_text(
-        '#!/bin/sh\ncase "$1" in build-workspace) printf "workspace1\\n";; '
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in build-workspace) printf "workspace1\\n";; '
         'instance) printf "workspace1-sandbox\\n";; esac\n'
     )
     limactl = bin_dir / "limactl"
@@ -1559,19 +1560,22 @@ const context={{worktree:process.cwd(),ask:async (value)=>{{await Bun.write(proc
 console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
+             "SANDBOX_CALLS": str(sandbox_calls)},
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["session_id"] == "session-vm"
     assert json.loads(result.stdout)["target"] == "workspace1"
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
     assert json.loads(asks.read_text())["patterns"] == ["workspace1"]
+    assert "<parity>\n<workspace1>" in sandbox_calls.read_text()
     log = calls.read_text()
     assert "<herdr>" in log
     assert "<workspace>" in log
     assert "<--kind>" in log
     assert "<--pane>" in log
     assert "<--interactive>" in log
+    assert "<dbsctr-handoff>" in log
     assert "<export DBSCTR_IMPROVEMENT_WORKER_ID=dbsctr-12345678>" in log
     assert "Register and claim the current guest session under worker dbsctr-12345678" in log
     limactl.write_text(
@@ -1582,7 +1586,8 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     )
     missing_identity = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
+             "SANDBOX_CALLS": str(sandbox_calls)},
         text=True, capture_output=True,
     )
     assert missing_identity.returncode != 0
@@ -1595,7 +1600,8 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     )
     mismatched_identity = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks)},
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
+             "SANDBOX_CALLS": str(sandbox_calls)},
         text=True, capture_output=True,
     )
     assert mismatched_identity.returncode != 0
@@ -1628,6 +1634,19 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
         )
         assert rejected.returncode != 0
     assert calls.read_text() == before
+    calls.unlink()
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; parity) exit 1;; esac\n'
+    )
+    stale_runtime = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
+             "SANDBOX_CALLS": str(sandbox_calls)},
+        text=True, capture_output=True,
+    )
+    assert stale_runtime.returncode != 0
+    assert not calls.exists()
 
 
 def test_federated_runtime_rejects_duplicate_sources(tmp_path):

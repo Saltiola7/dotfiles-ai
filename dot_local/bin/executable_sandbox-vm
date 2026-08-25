@@ -37,6 +37,30 @@ MAKE_PROVISION = {"mode": "system", "script": "dnf install -y make"}
 MAKE_PROVISION_RULE = f".provision += [{json.dumps(MAKE_PROVISION, separators=(',', ':'))}]"
 MAKE_PROBE = "if rpm -q make >/dev/null 2>&1 && test -x /usr/bin/make; then printf present; else printf missing; fi"
 MAKE_VERIFY = "rpm -q make >/dev/null && exec /usr/bin/make --version"
+OPENCODE_VERSION = "1.18.22"
+OPENCODE_SHA256 = "7243e7a417d190efa1b7b0981dbf0d6c8aa78ba2fb0181ea23336fdbb51c5178"
+HOST_OPENCODE = "/opt/homebrew/bin/opencode"
+OPENCODE_PROVISION_MARKER = "# dotfiles-ai-opencode"
+OPENCODE_INSTALL = f"""\
+{OPENCODE_PROVISION_MARKER}
+set -eu
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 180 \
+  https://github.com/anomalyco/opencode/releases/download/v{OPENCODE_VERSION}/opencode-linux-arm64.tar.gz \
+  -o "$tmp/opencode.tar.gz"
+printf '%s  %s\\n' {OPENCODE_SHA256} "$tmp/opencode.tar.gz" | sha256sum -c -
+tar -xzf "$tmp/opencode.tar.gz" -C "$tmp"
+install -m 0755 "$tmp/opencode" /usr/local/libexec/.opencode.new
+mv -f /usr/local/libexec/.opencode.new /usr/local/libexec/opencode
+"""
+OPENCODE_PROVISION = {"mode": "system", "script": OPENCODE_INSTALL}
+OPENCODE_PROVISION_RULE = f".provision += [{json.dumps(OPENCODE_PROVISION, separators=(',', ':'))}]"
+OPENCODE_PROBE = f"""if test "$(stat -c '%U:%G:%a' /usr/local/libexec/opencode 2>/dev/null)" = root:root:755 \
+  && test "$(/usr/local/libexec/opencode --version 2>/dev/null)" = {OPENCODE_VERSION}; \
+then printf present; else printf missing; fi"""
+OPENCODE_VERIFY = f"""test "$(stat -c '%U:%G:%a' /usr/local/libexec/opencode)" = root:root:755 \
+  && exec /usr/local/libexec/opencode --version"""
 TAILSCALE_INSTALL = """\
 set -eu
 test "$(loginctl show-user "$USER" -p Linger --value)" = yes
@@ -620,17 +644,30 @@ def _instance_state(execute, instance):
 
 
 def _restore_instance_state(execute, instance, expected_running):
-    for attempt in range(3):
+    deadline = time.monotonic() + 30
+    actions = 0
+    last_error = None
+    while time.monotonic() < deadline:
         try:
-            running, _ = _instance_state(execute, instance)
-            if running == expected_running:
+            rows = _parse_rows(execute(["limactl", "list", "--json"]))
+            current = next((row for row in rows if isinstance(row, dict) and row.get("name") == instance), None)
+            if current is None:
+                raise ValueError("Lima instance is unavailable")
+            status = str(current.get("status", "")).lower()
+            if status == ("running" if expected_running else "stopped"):
                 return
-            execute(["limactl", "start" if expected_running else "stop", instance], timeout=120)
-        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-            if attempt == 2:
-                raise
-            time.sleep(1)
-    raise RuntimeError("failed to restore Lima instance state")
+            if status not in {"starting", "stopping", "running", "stopped"}:
+                raise ValueError("Lima instance is unavailable")
+            if status in {"running", "stopped"}:
+                if actions == 3:
+                    break
+                actions += 1
+                execute(["limactl", "start" if expected_running else "stop", instance], timeout=120)
+                continue
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+            last_error = error
+        time.sleep(1)
+    raise RuntimeError("failed to restore Lima instance state") from last_error
 
 
 def install_make(config, workspace, execute=command):
@@ -672,6 +709,117 @@ def install_make(config, workspace, execute=command):
                 raise RuntimeError("GNU Make provisioning and state restoration failed") from error
             raise
         _restore_instance_state(execute, instance, running)
+
+
+def _install_opencode_locked(workspace, execute, running, current):
+    instance = workspace["instance"]
+    try:
+        if not running:
+            execute(["limactl", "start", instance], timeout=120)
+        status = execute(["limactl", "shell", instance, "--", "sh", "-c", OPENCODE_PROBE], timeout=120).strip()
+        if status not in {"present", "missing"}:
+            raise RuntimeError("invalid OpenCode probe")
+    except Exception as error:
+        try:
+            _restore_instance_state(execute, instance, running)
+        except Exception:
+            raise RuntimeError("OpenCode probe and state restoration failed") from error
+        raise
+    _restore_instance_state(execute, instance, running)
+
+    provisions = current.get("config", {}).get("provision", [])
+    owned = [(index, item) for index, item in enumerate(provisions) if isinstance(item, dict)
+             and str(item.get("script", "")).startswith(f"{OPENCODE_PROVISION_MARKER}\n")]
+    if len(owned) > 1:
+        raise RuntimeError("duplicate OpenCode system provision")
+    rule = OPENCODE_PROVISION_RULE if not owned else (
+        f".provision[{owned[0][0]}] = {json.dumps(OPENCODE_PROVISION, separators=(',', ':'))}")
+    provision_current = bool(owned and owned[0][1] == OPENCODE_PROVISION)
+    if status == "present" and provision_current:
+        return
+    try:
+        if running:
+            execute(["limactl", "stop", instance], timeout=120)
+        if not provision_current:
+            execute(["limactl", "edit", "--yes", "--set", rule, instance], timeout=120)
+        execute(["limactl", "start", instance], timeout=300)
+        version = execute(["limactl", "shell", instance, "--", "sh", "-ceu", OPENCODE_VERIFY], timeout=120).strip()
+        if version != OPENCODE_VERSION:
+            raise RuntimeError("guest OpenCode version mismatch")
+    except Exception as error:
+        try:
+            _restore_instance_state(execute, instance, running)
+        except Exception:
+            raise RuntimeError("OpenCode provisioning and state restoration failed") from error
+        raise
+    _restore_instance_state(execute, instance, running)
+
+
+def install_opencode(config, workspace, execute=command):
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, current = _instance_state(execute, instance)
+        _install_opencode_locked(workspace, execute, running, current)
+
+
+def _opencode_version(value, source):
+    version = value.strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version) or version != OPENCODE_VERSION:
+        raise RuntimeError(f"{source} OpenCode version mismatch")
+    return version
+
+
+def host_opencode_version(execute=command):
+    return _opencode_version(execute([HOST_OPENCODE, "--version"], timeout=30), "host")
+
+
+def guest_opencode_version(workspace, execute=command):
+    value = execute(["limactl", "shell", workspace["instance"], "--",
+                     "/usr/local/libexec/opencode", "--version"], timeout=120)
+    return _opencode_version(value, workspace["name"])
+
+
+def verify_opencode_parity(config, workspace, execute=command):
+    host = host_opencode_version(execute)
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, _ = _instance_state(execute, instance)
+        try:
+            if not running:
+                execute(["limactl", "start", instance], timeout=120)
+            guest = guest_opencode_version(workspace, execute)
+        finally:
+            _restore_instance_state(execute, instance, running)
+    return {"host": host, "guest": guest}
+
+
+def update_managed_workspace(config, workspace, execute=command, installer=None, updater=update_workspace):
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, current = _instance_state(execute, instance)
+        try:
+            if installer is None:
+                _install_opencode_locked(workspace, execute, running, current)
+            else:
+                installer(config, workspace, execute)
+            if not running:
+                execute(["limactl", "start", instance], timeout=120)
+            updater(config, workspace, execute)
+            return guest_opencode_version(workspace, execute)
+        finally:
+            _restore_instance_state(execute, instance, running)
+
+
+def update_all_workspaces(config, execute=command, installer=None, updater=update_workspace):
+    host = host_opencode_version(execute)
+    versions = {}
+    for workspace in config["workspaces"]:
+        versions[workspace["name"]] = update_managed_workspace(
+            config, workspace, execute, installer, updater)
+    return {"host": host, "workspaces": versions}
 
 
 def service_token(config, execute=command):
@@ -726,6 +874,7 @@ def render_workspace(config, workspace, template=None):
         "@@MOUNTS@@": "\n".join(mounts),
         "@@WORKSPACE_JSON@@": json.dumps({"mounts": workspace["mounts"]}, sort_keys=True, separators=(",", ":")),
         "@@SOURCE@@": config["source"],
+        "@@OPENCODE_INSTALL@@": OPENCODE_INSTALL.rstrip().replace("\n", "\n      "),
         "@@GUEST_CONFIG@@": guest_config(config, workspace).rstrip().replace("\n", "\n      "),
         "@@PORT_FORWARDS@@": "\n".join(port_forwards),
     }
@@ -1427,7 +1576,7 @@ def main(argv=None, invocation=None):
         argv = ["shell", matches[0], *(alias_args or ["herdr"])]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "start", "stop", "update", "install-make", "instance", "render", "validate", "shell", "tailscale-enroll"):
+    for name in ("create", "start", "stop", "update", "install-make", "instance", "render", "validate", "shell", "tailscale-enroll", "parity"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
         if name == "shell":
@@ -1464,6 +1613,7 @@ def main(argv=None, invocation=None):
     commands.add_parser("privacy-epochs")
     commands.add_parser("status")
     commands.add_parser("build-workspace")
+    commands.add_parser("update-all")
     atuin = commands.add_parser("configure-atuin")
     atuin.add_argument("--remove", action="store_true")
     pm_postgres = commands.add_parser("configure-pm-postgres")
@@ -1499,6 +1649,9 @@ def main(argv=None, invocation=None):
     if args.command == "build-workspace":
         print(config["build_workspace"])
         return
+    if args.command == "update-all":
+        print(json.dumps(update_all_workspaces(config), sort_keys=True))
+        return
     if args.command == "configure-atuin":
         configure_atuin(config, remove=args.remove)
         status = "removed" if args.remove else "configured"
@@ -1519,6 +1672,9 @@ def main(argv=None, invocation=None):
         raise SystemExit(f"unknown workspace: {args.workspace}")
     if args.command == "instance":
         print(workspace["instance"])
+        return
+    if args.command == "parity":
+        print(json.dumps(verify_opencode_parity(config, workspace), sort_keys=True))
         return
     if args.command == "render":
         print(render_workspace(config, workspace), end="")
@@ -1563,8 +1719,10 @@ def main(argv=None, invocation=None):
         command(["limactl", "start", workspace["instance"]], timeout=900)
         return
     if args.command == "update":
-        update_workspace(config, workspace)
-        print(json.dumps({"workspace": args.workspace, "status": "updated", "allocation": status_report(config)}, sort_keys=True))
+        host = host_opencode_version()
+        guest = update_managed_workspace(config, workspace)
+        print(json.dumps({"workspace": args.workspace, "status": "updated", "opencode": {"host": host, "guest": guest},
+                          "allocation": status_report(config)}, sort_keys=True))
 
 
 if __name__ == "__main__":
