@@ -46,6 +46,13 @@ not source text, vectors, prompts, or credentials.
 | `schema_unavailable`, `ranking_policy_unavailable`, `database_unavailable` | Stop reconciliation, run the managed schema/PM health path, and restore baseline ranking before rebuild. |
 | `lock_unavailable` | Verify the owned lock directory and regular mode-0600 user-owned lock file; do not replace it with a symlink or special file. |
 
+Graphify extraction cache failures appear as a failed `graphify` reconcile stage,
+not as source corruption. The cache lives at
+`~/.cache/dotfiles-ai-graphify/<project>/<config>/<runtime>/`, is owner-private,
+and is disposable. Stop or disable reconciliation before removing an unsafe cache
+namespace, then run one reconcile; the producer rebuilds it through the offline
+sandbox. Never copy cache entries between projects, versions, or machines.
+
 Logs:
 
 ```text
@@ -95,6 +102,12 @@ dksctl rollback-quality --project dotfiles-ai
 If PostgreSQL projection identity is corrupt, retain the canonical authorities,
 recreate schema through the managed migration, and reconcile the configured exact
 ref. Do not restore DKS projection rows as source authority.
+
+For Graphify runtime rollback, stop reconciliation, restore the previously
+committed producer and `dksctl` together, retain the installed immutable `0.9.48`
+runtime, apply the managed files, and reconcile the configured exact ref. Do not
+mix producer, importer, or runtime versions. The transaction retains the prior
+active graph if rollback extraction or import fails.
 
 ## Disablement
 

@@ -63,11 +63,11 @@
     }
   },
   "graphify": {
-    "package": "graphifyy[sql]==0.9.48",
-    "revision": "b2cd36267456c166788c95be6e68574064a92a42",
+    "package": "graphifyy[sql]==0.9.50",
+    "revision": "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e",
     "python": "3.13.2",
-    "producer_sha256": "7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091",
-    "runtime_sha256": "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8",
+    "producer_sha256": "5e4d7141a8d26ac2fa64a6958f3de9565e1abc57cdd6ef9afc9477c61661a5fc",
+    "runtime_sha256": "26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e",
     "license": "Apache-2.0",
     "mode": "code-only"
   }

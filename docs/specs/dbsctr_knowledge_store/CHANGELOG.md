@@ -1,5 +1,15 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-25 - DKS-008 Discovery
+
+- Scoped the pinned Graphify `0.9.50` compatibility upgrade and one disposable,
+  owner-private, identity-namespaced whole-extraction cache.
+- Required external locking, atomic publication, corruption fallback, cold/warm
+  normalized parity, retained sanitized execution receipts, and prior-active graph
+  preservation while keeping Git authoritative and PostgreSQL rebuildable.
+- Retained immutable `0.9.48` runtime material for rollback and deferred deployment,
+  schema migration, and live reconciliation to separate operator approval.
+
 ## 2026-08-25 - DKS-007 Recovery
 
 - Accepted upstream PR #50's canonical DKS-005 state correction after affected
