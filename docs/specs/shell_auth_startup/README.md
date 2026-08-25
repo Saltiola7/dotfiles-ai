@@ -1,6 +1,6 @@
 # Shell Auth Startup
 
-**Status:** AUTH-014 in progress to restore external-volume access to managed Herdr panes
+**Status:** AUTH-014 deployed and verified in the local macOS Aqua session
 
 ## Engineering Profile
 
@@ -32,8 +32,8 @@
 | Field | Value |
 |---|---|
 | Risk | Elevated: changes the responsible executable at a macOS removable-volume privacy boundary |
-| Delivery intent | Draft pull request plus local managed-file deployment; active server restart remains separately approved |
-| Scope | Native responsibility supervisor, deterministic local build, LaunchAgent ancestry, signal propagation, and TCC-aware operation |
+| Delivery intent | Draft pull request plus approved local deployment and managed server restart |
+| Scope | Native responsibility supervisor, reviewed local build, LaunchAgent ancestry, signal propagation, and TCC-aware operation |
 | Overrides | Preserve live handoff, state-root validation, exact-session recovery, and all active pane processes until an approved restart |
 
 ## Domain
@@ -489,8 +489,8 @@ the manifest watcher.
 | Review/Integrate | Security boundary and process-lifecycle safety | required | passed | Independent review findings resolved; affected QA passed | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
 | Deploy | Install supervisor and managed plist without stopping active Herdr | required | passed | Targeted apply; owner/server PIDs `2974`/`3109` preserved | - | Primary |
-| Operate | Activate supervisor and verify fresh-pane removable-volume access | required | pending | Approved restart, TCC attribution, and fresh-pane probe | - | User + Primary |
-| Maintain/Retire | Rebuild only on source change and retain explicit privacy approval | required | pending | On-change build and rollback contract | - | Primary |
+| Operate | Activate supervisor and verify fresh-pane removable-volume access | required | passed | TCC attribution, allowed grant, read/write probe, and no new denial | - | User + Primary |
+| Maintain/Retire | Rebuild only on source change and retain explicit privacy approval | required | passed | On-change embedded-source build and disabled-platform exclusions | - | Primary |
 
 ## Verification
 

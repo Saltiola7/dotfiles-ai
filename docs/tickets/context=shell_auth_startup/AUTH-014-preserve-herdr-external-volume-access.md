@@ -5,7 +5,7 @@ slug: "preserve-herdr-external-volume-access"
 context: "shell_auth_startup"
 title: "Preserve Herdr external-volume access"
 kind: "bug"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
@@ -28,8 +28,9 @@ validation:
   - "uv run --group test pytest tests/test_herdr_launchagent.py tests/test_portable_distribution.py"
 created: "2026-08-24"
 updated: "2026-08-24"
-completed: null
-commits: []
+completed: "2026-08-24"
+commits:
+  - "75e6836"
 jira_publications: []
 migration: null
 ---
@@ -67,8 +68,15 @@ and generic XDG routing are not the cause.
 
 ## Evidence
 
-- Pending focused tests, rendered plist validation, Mach-O signature inspection,
-  independent review, managed-file deployment, and post-restart TCC probe.
+- The regression first failed in three focused checks, then all 44 affected tests passed.
+- Rendered shell and plist checks, strict Mach-O signature verification, and
+  independent security/process review passed.
+- Targeted deployment preserved the old server until the approved restart.
+- After restart, TCC attributed descendants to the native supervisor, recorded
+  an allowed removable-volume grant, and emitted no new System Policy denial.
+- A fresh Herdr shell read a project Git file and created and removed a probe on
+  the external state volume. Herdr retained 32 panes and reported 20 unique
+  detected sessions; the temporary probe tab was closed.
 
 ## Risks
 
@@ -81,4 +89,9 @@ and generic XDG routing are not the cause.
 
 ## Review
 
-Pending.
+The initial review found stale source ordering, disabled-platform management,
+and a post-reap signal race. Embedding source in the before-phase builder,
+excluding the builder when unused, and blocking handled signals during reap
+resolved all findings. The approved restart changed process responsibility as
+required and restored external-volume access without Full Disk Access or direct
+TCC mutation.
