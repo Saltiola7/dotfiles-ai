@@ -34,13 +34,13 @@ update path, and typed VM handoff launches through a valid lowercase Herdr agent
 
 ## Context
 
-The host ran OpenCode 1.18.22 while the guest template pinned 1.18.4. That guest
+The host advanced beyond the guest template's pinned OpenCode 1.18.4. That guest
 parsed the managed interactive `run` invocation through an incompatible command
 surface, while Herdr rejected the uppercase `DBSCTR Handoff` agent identity.
 
 ## Scope
 
-- Make OpenCode 1.18.22 and its Linux arm64 release digest authoritative once.
+- Make the current host OpenCode version and its Linux arm64 release digest authoritative once.
 - Repair existing root-owned guest binaries without recreating VMs or widening sudo.
 - Add one ordered all-workspace update command that restores prior VM states.
 - Preserve hard-coded Build authority and use a valid lowercase Herdr identity.

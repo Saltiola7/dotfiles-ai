@@ -37,8 +37,8 @@ MAKE_PROVISION = {"mode": "system", "script": "dnf install -y make"}
 MAKE_PROVISION_RULE = f".provision += [{json.dumps(MAKE_PROVISION, separators=(',', ':'))}]"
 MAKE_PROBE = "if rpm -q make >/dev/null 2>&1 && test -x /usr/bin/make; then printf present; else printf missing; fi"
 MAKE_VERIFY = "rpm -q make >/dev/null && exec /usr/bin/make --version"
-OPENCODE_VERSION = "1.18.22"
-OPENCODE_SHA256 = "7243e7a417d190efa1b7b0981dbf0d6c8aa78ba2fb0181ea23336fdbb51c5178"
+OPENCODE_VERSION = "1.18.23"
+OPENCODE_SHA256 = "86d3afaf4e8784f9adab189be2a315c12b27ec40a04b70defbe70595c3cc7c65"
 HOST_OPENCODE = "/opt/homebrew/bin/opencode"
 OPENCODE_PROVISION_MARKER = "# dotfiles-ai-opencode"
 OPENCODE_INSTALL = f"""\
