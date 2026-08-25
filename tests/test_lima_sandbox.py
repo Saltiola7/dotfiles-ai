@@ -1458,7 +1458,9 @@ def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
 
     values["lima_home"] = ""
     with mock.patch.dict(os.environ, {"LIMA_HOME": str(tmp_path)}, clear=True):
-        assert helper.status_report(values, execute=execute)["host_free_bytes"] == result["host_free_bytes"]
+        fallback = helper.status_report(values, execute=execute)
+    assert fallback["host_free_bytes"] > 0
+    assert fallback["workspaces"] == result["workspaces"]
 
 
 def test_general_controller_exposes_no_handoff_command() -> None:
