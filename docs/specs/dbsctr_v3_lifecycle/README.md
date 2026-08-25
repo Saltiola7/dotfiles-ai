@@ -2115,6 +2115,11 @@ tool and provider examples and load only when useful.
 - `graphify-check` executes without a shell in a disposable detached worktree at
   exact HEAD. Its private mode-`0600` receipt binds invocation, HEAD, profile and
   adapter blobs, report, manifest, output digests, and non-negative cache counters.
+- Selecting the committed adapter authorizes that project code for bounded local
+  extraction, not publication. The helper strips secret-like environment names,
+  supplies mode/version, and kills the process group on timeout; Project Policy
+  must review the adapter because portable lifecycle code cannot sandbox all host
+  filesystem or network access. Adapters must not push, publish, or deploy.
 - Final Push rejects selected cycles whose receipt is absent, altered, or stale.
 - Batch schema `2` keeps schema `1` readable, requires identical source
   selections, and rejects new sources after finalization.
