@@ -5,7 +5,7 @@ slug: restore-ticket-and-projection-health
 context: dbsctr_knowledge_store
 title: Restore ticket and projection health
 kind: task
-state: ready
+state: review
 priority: high
 points: 3
 depends_on:
@@ -103,11 +103,21 @@ Discovery inspected merged commit `d9b09ec`, the DKS Engineering Profile,
 operation runbook, PM validator, live doctor/status output, launchd metadata, and
 bounded reconcile logs. The live projection remained active at `b96dd297` while
 targeting `d9b09ec`; doctor named `authority_stale`, `git_stale`, and
-`graph_stale`. Launchd began a new interval run during discovery. PM validation
-reported `invalid_ticket_completion`, `invalid_ticket_schema`, and
-`invalid_ticket_state` for DKS-005 because `completed` is not a supported state.
+`graph_stale`. PM validation reported three DKS-005 findings because `completed`
+was not a supported state.
+
+Before this cycle started, upstream reconciliation PR #50 corrected DKS-005 to
+`done`; affected PM validation then returned no DKS findings. The scheduled run
+safely advanced from `b96dd297` to `d9b09ec` but retained that prior-valid result
+when authority changed during the long refresh. One runbook retry converged Git,
+code, graph, and authority to merge commit `87d20d0`. Doctor reported healthy,
+`dks-rrf-v1` remained the baseline policy with no trial expiry, launchd recorded
+exit 0, and the next reconcile reported all four stages unchanged. All 84 focused
+DKS tests passed.
 
 ## Review
 
-Ready for one elevated serialized DBSCTR cycle. Build must re-read live status
-after the active scheduler run before deciding whether any runtime change exists.
+Independent review found one unbound-detail issue. Exact run and count details
+were removed; re-review found no remaining findings. No code, configuration,
+schema, model, benchmark, or ranking change was required. Final delivery must
+reconcile once more after the pull request merge advances `origin/main`.

@@ -1255,17 +1255,17 @@ query.
 
 | Gate | Applicability | Result | Evidence |
 |---|---|---|---|
-| Domain | required | not_run | Canonical ticket authority, configured Git ref, rebuildable projection, scheduler, and baseline ranking boundaries |
-| Behavior | required | not_run | Valid ticket, successful convergence, transient retry, reproducible failure escalation, and healthy no-op scenarios |
-| Spec | required | not_run | PM ticket schema, `dksctl reconcile`, `doctor`, `status`, launchd interval, and runbook recovery interfaces |
-| Contract | required | not_run | Immutable source, prior-valid preservation, content-safe diagnostics, no candidate activation, and idempotent recovery invariants |
-| Test-driven implementation | required | not_run | Ticket validation, focused reconcile tests when code changes, and live before/after health checks |
-| Refactor | required | not_run | Prefer the existing runbook and reconcile path; change code or configuration only for a reproduced root cause |
-| Review/Integrate | required | not_run | Independent review of authority correction, recovery evidence, and any minimal runtime diff |
+| Domain | required | passed | Canonical PM authority, immutable remote ref, rebuildable projection, scheduler, and baseline ranking boundaries verified |
+| Behavior | required | passed | Upstream ticket correction, retained prior-valid state, one recovery retry, healthy convergence, and unchanged follow-up verified |
+| Spec | required | passed | Existing PM schema, `dksctl` JSON, launchd interval, and runbook interfaces were sufficient without change |
+| Contract | required | passed | Immutable source, content-safe diagnostics, prior-valid preservation, idempotent recovery, and no candidate activation held |
+| Test-driven implementation | required | passed | Affected PM findings were empty and all 84 focused DKS tests passed; no runtime code defect reproduced |
+| Refactor | required | passed | Reused the existing runbook and reconcile path; skipped duplicate ticket and speculative runtime changes |
+| Review/Integrate | required | passed | Independent review found one unbound-detail issue; exact details were removed and re-review found no remaining findings |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | not_run | Merge repository correction and restore the local projection to the resulting `origin/main` commit |
-| Operate | required | not_run | Doctor healthy, all channel identities fresh, scheduler exit 0, and one subsequent unchanged reconcile |
-| Maintain/Retire | required | not_run | Preserve rollback to prior valid projection, baseline policy, logs, and existing disablement/rebuild procedures |
+| Deploy | required | passed | One runbook retry converged all channels to `87d20d0`; bound unchanged-reconcile evidence passed |
+| Operate | required | passed | Bound doctor evidence passed with active and target revisions equal, fresh channels, and baseline ranking |
+| Maintain/Retire | required | passed | Existing prior-valid retention, baseline rollback, logs, disablement, and rebuild procedures remained sufficient |
 
 ## Decisions And Risks
 
