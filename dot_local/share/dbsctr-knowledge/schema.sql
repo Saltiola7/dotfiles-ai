@@ -328,6 +328,11 @@ ALTER TABLE dks.graph_imports ADD COLUMN IF NOT EXISTS producer_sha256 text
     CHECK (producer_sha256 ~ '^[0-9a-f]{64}$');
 ALTER TABLE dks.graph_imports ALTER COLUMN runtime_sha256 SET NOT NULL;
 ALTER TABLE dks.graph_imports ALTER COLUMN producer_sha256 SET NOT NULL;
+ALTER TABLE dks.graph_imports DROP CONSTRAINT IF EXISTS graph_imports_receipt_v7_check;
+ALTER TABLE dks.graph_imports ADD CONSTRAINT graph_imports_receipt_v7_check CHECK (
+    extractor_version <> '0.9.50' OR
+    (execution_receipt_sha256 IS NOT NULL AND execution_receipt IS NOT NULL)
+);
 
 CREATE TABLE IF NOT EXISTS dks.imported_graph_nodes (
     project_id text NOT NULL,

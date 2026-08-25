@@ -66,7 +66,7 @@
     "package": "graphifyy[sql]==0.9.50",
     "revision": "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e",
     "python": "3.13.2",
-    "producer_sha256": "5e4d7141a8d26ac2fa64a6958f3de9565e1abc57cdd6ef9afc9477c61661a5fc",
+    "producer_sha256": "69f51c5c28f87e3d2911f856bcef3e35d628f48411e5c5fe1ba108aac4f6064e",
     "runtime_sha256": "26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e",
     "license": "Apache-2.0",
     "mode": "code-only"

@@ -207,6 +207,9 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     assert "(deny default)" in graphify_wrapper and "(deny network*)" in graphify_wrapper
     installer = (ROOT / "run_onchange_after_install-dbsctr-quality-services.sh.tmpl").read_text()
     assert "graphify-sql-0.9.50-" in installer
+    assert 'graphify_verifier="$HOME/.local/bin/dbsctr-graphify"' in installer
+    assert installer.count('--verify-runtime "$graphify_target"') == 2
+    assert '--verify-runtime "$stage"' in installer and '! -L $graphify_target' in installer
     assert 'candidate_root="$HOME/.config/dotfiles-ai/models' not in installer
     for name in ("code-embedding", "reranker"):
         plist = render(f"private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-{name}.plist.tmpl")
@@ -658,6 +661,19 @@ def test_graphify_cache_is_private_atomic_corruption_tolerant_and_stable(tmp_pat
         assert graphify.load_cached_extraction(entry, identity) is None
     assert not entry.exists()
 
+    entry.mkdir()
+    (entry / "partial").write_text("corrupt")
+    with graphify.cache_lock(namespace):
+        assert graphify.load_cached_extraction(entry, identity) is None
+    assert not entry.exists()
+
+    target = tmp_path / "linked-target"
+    target.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="unsafe"):
+        graphify.cache_namespace(linked / "cache", identity)
+
 
 def test_graphify_schema_retains_validated_execution_receipt() -> None:
     schema = (ROOT / "dot_local/share/dbsctr-knowledge/schema.sql").read_text()
@@ -665,6 +681,8 @@ def test_graphify_schema_retains_validated_execution_receipt() -> None:
     dks = load_dksctl()
 
     assert "execution_receipt jsonb" in schema
+    assert "graph_imports_receipt_v7_check" in schema
+    assert "extractor_version <> '0.9.50'" in schema
     assert "VALUES (7)" in schema and "version=7" in migrator
     assert "status.get(\"migration\") != 7" in DKSCTL.read_text()
     graph = {"artifact_sha256": "a" * 64, "normalized_sha256": "b" * 64,
@@ -2067,17 +2085,38 @@ def test_git_and_graph_freshness_bind_complete_identities(tmp_path: Path) -> Non
     producer = tmp_path / "producer"
     producer.write_text("producer\n")
     dks.GRAPHIFY_PRODUCER_SHA256 = hashlib.sha256(producer.read_bytes()).hexdigest()
-    graph = {"revision": commit, "source_profile_sha256": project["source_profile_sha256"],
+    corpus_sha = dks.expected_corpus_manifest_sha("dotfiles-ai", project, commit)
+    artifact_sha = "9" * 64
+    config_sha = dks.digest_json(dks.GRAPHIFY_CONFIG)
+    receipt = {"schema_version": 2, "command_contract": "dks-graphify-code-v2",
+               "package": "graphifyy[sql]", "extractor_version": "0.9.50",
+               "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
+               "python_version": "3.13.2", "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+               "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256, "config_sha256": config_sha,
+               "raw_extraction_sha256": "8" * 64, "corpus_manifest_sha256": corpus_sha,
+               "artifact_sha256": artifact_sha, "network_disabled": True,
+               "cache_schema_version": 1, "cache_key_sha256": dks.digest_json({
+                   "project": "dotfiles-ai", "config_sha256": config_sha,
+                   "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+                   "corpus_manifest_sha256": corpus_sha}), "cache_hit": True,
+               "excluded_missing_locations": 0,
+               "excluded_missing_location_ids_sha256": "7" * 64}
+    receipt_sha = hashlib.sha256((dks.canonical_json(receipt) + "\n").encode()).hexdigest()
+    graph = {"revision": commit, "artifact_sha256": artifact_sha,
+             "source_profile_sha256": project["source_profile_sha256"],
              "extractor_version": dks.GRAPHIFY_CONFIG["version"],
              "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
-             "config_sha256": dks.digest_json(dks.GRAPHIFY_CONFIG),
-             "corpus_manifest_sha256": dks.expected_corpus_manifest_sha("dotfiles-ai", project, commit),
-             "execution_receipt_sha256": "b" * 64, "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+             "config_sha256": config_sha, "corpus_manifest_sha256": corpus_sha,
+             "execution_receipt_sha256": receipt_sha, "execution_receipt": receipt,
+             "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
              "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256}
     assert dks.graph_is_fresh({"graphify": graph}, {"graphify_producer": str(producer)},
                               "dotfiles-ai", project, commit)
     assert not dks.graph_is_fresh({"graphify": {**graph, "runtime_sha256": "0" * 64}},
                                   {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
+    assert not dks.graph_is_fresh(
+        {"graphify": {**graph, "execution_receipt": {**receipt, "cache_hit": "true"}}},
+        {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
 
 
 def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:

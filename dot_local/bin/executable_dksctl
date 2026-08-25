@@ -29,7 +29,7 @@ from pathlib import Path
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GRAPHIFY_RUNTIME_SHA256 = "26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e"
-GRAPHIFY_PRODUCER_SHA256 = "5e4d7141a8d26ac2fa64a6958f3de9565e1abc57cdd6ef9afc9477c61661a5fc"
+GRAPHIFY_PRODUCER_SHA256 = "69f51c5c28f87e3d2911f856bcef3e35d628f48411e5c5fe1ba108aac4f6064e"
 GRAPHIFY_EXTRACTOR_REVISION = "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e"
 RERANKER_REVISION = "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
 GRAPHIFY_CONFIG = {"extractor": "graphifyy[sql]", "mode": "code-only",
@@ -1237,6 +1237,7 @@ SELECT json_build_object(
       'source_profile_sha256',g.source_profile_sha256,'corpus_manifest_sha256',g.corpus_manifest_sha256,
       'extractor_version',g.extractor_version,'extractor_revision',g.extractor_revision,
       'config_sha256',g.config_sha256,'execution_receipt_sha256',g.execution_receipt_sha256,
+      'execution_receipt',g.execution_receipt,
       'runtime_sha256',g.runtime_sha256,'producer_sha256',g.producer_sha256)
     FROM dks.graph_imports g WHERE g.project_id=p.project_id AND g.state='active')
   ,'ranking_policy', (SELECT policy_id FROM dks.ranking_policies q
@@ -1331,14 +1332,20 @@ def graph_is_fresh(status, config, project_id, project, commit):
         producer_sha = hashlib.sha256(producer.read_bytes()).hexdigest()
     except OSError:
         return False
+    corpus_sha = expected_corpus_manifest_sha(project_id, project, commit)
+    receipt = graph.get("execution_receipt")
+    try:
+        validate_graphify_receipt(receipt, project_id, graph.get("artifact_sha256"), corpus_sha)
+    except ValueError:
+        return False
+    receipt_sha = hashlib.sha256((canonical_json(receipt) + "\n").encode()).hexdigest()
     return (graph.get("revision") == commit
             and graph.get("source_profile_sha256") == project.get("source_profile_sha256")
             and graph.get("extractor_version") == GRAPHIFY_CONFIG["version"]
             and graph.get("extractor_revision") == GRAPHIFY_EXTRACTOR_REVISION
             and graph.get("config_sha256") == digest_json(GRAPHIFY_CONFIG)
-            and graph.get("corpus_manifest_sha256") == expected_corpus_manifest_sha(
-                project_id, project, commit)
-            and SHA256_RE.fullmatch(graph.get("execution_receipt_sha256") or "") is not None
+            and graph.get("corpus_manifest_sha256") == corpus_sha
+            and graph.get("execution_receipt_sha256") == receipt_sha
             and graph.get("runtime_sha256") == GRAPHIFY_RUNTIME_SHA256
             and graph.get("producer_sha256") == GRAPHIFY_PRODUCER_SHA256
             and producer_sha == GRAPHIFY_PRODUCER_SHA256)
@@ -2229,16 +2236,7 @@ def graph_import_statements(project_id, commit, graph, source_profile_sha256,
     return statements
 
 
-def load_graphify_receipt(path_value, project_id, artifact_sha256, corpus_manifest_sha256):
-    path = Path(path_value).expanduser()
-    try:
-        details = path.lstat()
-        raw = path.read_bytes()
-        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
-                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
-                               ValueError("duplicate Graphify receipt key")))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("Graphify execution receipt unavailable") from error
+def validate_graphify_receipt(value, project_id, artifact_sha256, corpus_manifest_sha256):
     config_sha = digest_json(GRAPHIFY_CONFIG)
     fields = {"schema_version", "command_contract", "package", "extractor_version",
               "extractor_revision", "python_version", "runtime_sha256", "producer_sha256",
@@ -2249,9 +2247,7 @@ def load_graphify_receipt(path_value, project_id, artifact_sha256, corpus_manife
     cache_key = digest_json({"project": project_id, "config_sha256": config_sha,
                              "runtime_sha256": GRAPHIFY_RUNTIME_SHA256,
                              "corpus_manifest_sha256": corpus_manifest_sha256})
-    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
-            or stat.S_IMODE(details.st_mode) & 0o077 or not isinstance(value, dict)
-            or set(value) != fields or value.get("schema_version") != 2
+    if (not isinstance(value, dict) or set(value) != fields or value.get("schema_version") != 2
             or value.get("command_contract") != "dks-graphify-code-v2"
             or value.get("package") != "graphifyy[sql]"
             or value.get("extractor_version") != "0.9.50"
@@ -2271,6 +2267,22 @@ def load_graphify_receipt(path_value, project_id, artifact_sha256, corpus_manife
             or value["excluded_missing_locations"] < 0
             or not SHA256_RE.fullmatch(value.get("excluded_missing_location_ids_sha256", ""))):
         raise ValueError("Graphify execution receipt identity mismatch")
+
+
+def load_graphify_receipt(path_value, project_id, artifact_sha256, corpus_manifest_sha256):
+    path = Path(path_value).expanduser()
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+        value = json.loads(raw, object_pairs_hook=lambda pairs: dict(pairs)
+                           if len(dict(pairs)) == len(pairs) else (_ for _ in ()).throw(
+                               ValueError("duplicate Graphify receipt key")))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("Graphify execution receipt unavailable") from error
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077):
+        raise ValueError("Graphify execution receipt identity mismatch")
+    validate_graphify_receipt(value, project_id, artifact_sha256, corpus_manifest_sha256)
     return hashlib.sha256(raw).hexdigest(), value
 
 

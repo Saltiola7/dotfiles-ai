@@ -72,7 +72,7 @@ def cache_namespace(root_value, identity):
                    for key in fields - {"project"})):
         raise ValueError("Graphify cache identity is invalid")
     root = Path(root_value).expanduser()
-    if not root.is_absolute() or root.parent.is_symlink():
+    if not root.is_absolute() or any(path.is_symlink() for path in (root.parent, *root.parent.parents)):
         raise ValueError("Graphify cache root is unsafe")
     parent = root.parent.resolve(strict=True)
     details = parent.stat()
@@ -145,7 +145,13 @@ def load_cached_extraction(path, identity):
             raise ValueError("invalid cache entry")
         return value["extraction"]
     except (OSError, ValueError, json.JSONDecodeError):
-        path.unlink(missing_ok=True)
+        try:
+            if stat.S_ISDIR(path.lstat().st_mode) and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
         return None
 
 
@@ -245,10 +251,21 @@ print(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True
 
 def main():
     parser = argparse.ArgumentParser(prog="dbsctr-graphify")
-    parser.add_argument("--corpus", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--receipt", required=True)
+    parser.add_argument("--corpus")
+    parser.add_argument("--output")
+    parser.add_argument("--receipt")
+    parser.add_argument("--verify-runtime")
     args = parser.parse_args()
+    if args.verify_runtime:
+        if args.corpus or args.output or args.receipt:
+            parser.error("--verify-runtime cannot be combined with extraction")
+        runtime = Path(args.verify_runtime).expanduser()
+        if runtime_digest(runtime) != RUNTIME_SHA256:
+            raise ValueError("Graphify runtime identity mismatch")
+        print(canonical({"runtime_sha256": RUNTIME_SHA256, "state": "verified"}))
+        return
+    if not args.corpus or not args.output or not args.receipt:
+        parser.error("--corpus, --output, and --receipt are required")
     corpus = Path(args.corpus).expanduser().resolve(strict=True)
     manifest_path = corpus / "dks-corpus.json"
     manifest_raw = manifest_path.read_bytes()
