@@ -319,6 +319,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("Graphify selection cannot be removed", result.stderr)
 
     def test_graphify_check_runs_in_disposable_worktree_and_records_private_receipt(self):
+        invalid_timeout = run(self.repo, "graphify-check", "--timeout", "0", ok=False)
+        self.assertIn("timeout must be 1 through 3600 seconds", invalid_timeout.stderr)
         adapter = self.repo / "scripts/graphify"
         adapter.parent.mkdir()
         adapter.write_text(

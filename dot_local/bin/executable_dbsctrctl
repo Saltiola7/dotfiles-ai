@@ -9765,6 +9765,16 @@ def command_inference_cost_report(args):
                       "context_count": len(summaries)}, sort_keys=True, separators=(",", ":")))
 
 
+def graphify_timeout(value):
+    try:
+        timeout = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("timeout must be an integer") from error
+    if not 1 <= timeout <= 3600:
+        raise argparse.ArgumentTypeError("timeout must be 1 through 3600 seconds")
+    return timeout
+
+
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
@@ -10073,7 +10083,7 @@ def parser():
     batch_integrate.set_defaults(func=command_batch_integrate)
     batch_finalize = commands.add_parser("batch-finalize")
     batch_finalize.add_argument("--batch-id", required=True)
-    batch_finalize.add_argument("--timeout", type=int, choices=range(1, 3601), default=900)
+    batch_finalize.add_argument("--timeout", type=graphify_timeout, default=900)
     batch_finalize.set_defaults(func=command_batch_finalize)
     batch_dvc = commands.add_parser("batch-record-dvc-push")
     batch_dvc.add_argument("--batch-id", required=True)
@@ -10109,7 +10119,7 @@ def parser():
     update_plan.add_argument("--plan", required=True, help="equal or stricter applicability-plan JSON path or - for stdin")
     update_plan.set_defaults(func=command_update_plan)
     graphify_check = commands.add_parser("graphify-check")
-    graphify_check.add_argument("--timeout", type=int, choices=range(1, 3601), default=900)
+    graphify_check.add_argument("--timeout", type=graphify_timeout, default=900)
     graphify_check.set_defaults(func=command_graphify_check)
     exception = commands.add_parser("approve-exception")
     exception.add_argument("gate", choices=GATES)
