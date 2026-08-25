@@ -153,6 +153,7 @@ def test_local_data_renders_complete_configs() -> None:
         "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")
     ).stdout
     assert 'name = "nord"' in herdr
+    assert "/.local/bin/herdr-launchagent-supervisor" in plist
     assert "/.local/bin/herdr-server-owner" in plist
     wrapper = chezmoi("cat", str(Path.home() / ".local/bin/herdr-server-owner")).stdout
     assert '/usr/local/bin/herdr' in wrapper
@@ -214,6 +215,7 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "install-guest-development-tools.sh" in ignore
     assert ".local/bin/docker" in ignore
     assert "reconcile-sandbox-shell-aliases.sh" in ignore
+    assert "build-herdr-launchagent-supervisor.sh" in ignore
     assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
     installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
     assert "command -v starship" not in installer
