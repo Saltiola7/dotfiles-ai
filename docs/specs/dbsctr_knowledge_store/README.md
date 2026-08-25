@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-21
+last_updated: 2026-08-22
 ---
 
 # DBSCTR Knowledge Store
@@ -58,7 +58,17 @@ last_updated: 2026-08-21
 | Delivery intent | Deploy fail-closed background reconciliation and read-only OpenCode context locally, then deliver a draft pull request |
 | Scope | Incremental identity-based reconciliation, sanitized health and freshness, launchd scheduling, break-glass operation, bounded cited OpenCode retrieval, and a non-circular offline benchmark runner contract |
 | Isolation | The reconciler reads only configured Git and typed authority boundaries; OpenCode receives cited DKS results through a read-only tool and never exposes its SQLite store or raw transcripts |
-| Non-goals | Human relevance judgments, automatic quality activation, production `pg_search`, source execution, hosted inference, canonical PostgreSQL writes, and unsolicited raw prompt injection |
+| Non-goals | Human relevance judgments, automatic quality activation, production `pg_textsearch`, source execution, hosted inference, canonical PostgreSQL writes, and unsolicited raw prompt injection |
+
+### DKS-005 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: sends only frozen committed Git to hosted AI, uses silver relevance evidence to alter local ranking temporarily, and must restore the safe baseline without operator action |
+| Delivery intent | Freeze and run a committed silver benchmark, deploy an eligible seven-day local trial with automatic rollback, then deliver a draft pull request |
+| Scope | Commit `45096bb03891e9771a891d53f92b23863ae08a3e`; five fixed 20-query strata; AI-generated source-cited silver evidence; four-cell local execution; fixed seven-day trial; expiry, health, identity, and manual rollback |
+| Isolation | Hosted generation receives committed Git at the frozen revision only; private DBSCTR authority, transcripts, credentials, uncommitted files, projection bodies, and candidate results remain local |
+| Non-goals | Human-ground-truth claims, training or tuning on silver evidence, permanent activation from silver evidence, hosted retrieval execution, production `pg_textsearch`, and unsupported PostgreSQL 19 extension installation |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -129,7 +139,10 @@ Adjacent contexts:
 | Derived Graph | Non-authoritative graph artifact whose extractor, input snapshot, provenance, and digest are recorded and independently validated before projection. |
 | Reconciliation Run | One idempotent attempt to bring independently activated projection channels to their configured immutable source identities. |
 | Freshness | Machine-readable comparison between each configured source identity and its active projected identity; freshness is not source authority. |
-| Benchmark Protocol | Immutable lineage that separately binds pre-generation queries, blinded assessments, frozen judgments, candidate systems, corpus, runtime, and activation thresholds. |
+| Benchmark Protocol | Immutable lineage that binds evidence class, pre-execution queries and citations, candidate systems, corpus, runtime, and activation thresholds. |
+| Query Stratum | One predeclared retrieval use-case category whose query count is frozen before candidate execution. |
+| Silver Evidence | AI-generated exploratory questions and relevance labels grounded in frozen committed Git; it is not human ground truth and cannot authorize permanent ranking. |
+| Ranking Trial | One expiring activation of a measured ranking policy that automatically returns to `dks-rrf-v1` on expiry or invalid health/identity. |
 
 ## Domain Model
 
@@ -282,19 +295,55 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 
 ### Benchmark preparation
 
+**Scenario: Generate silver questions before candidate execution**
+
+- Given frozen commit `45096bb03891e9771a891d53f92b23863ae08a3e` and no candidate execution
+- When hosted AI generates the DKS-005 silver suite
+- Then it creates 20 source-cited questions for each of `code_architecture`, `specs_contracts`, `operations_recovery`, `tickets_history`, and `configuration_tooling`
+- And hosted input contains only committed Git from that revision, never private authority, transcripts, credentials, uncommitted files, projection bodies, or candidate results
+
+**Scenario: Freeze explicit silver provenance**
+
+- Given generation completed before candidate execution
+- When the committed suite is validated
+- Then it rejects wrong counts, duplicate or blank questions, unresolved source citations, source drift, missing exact generator/reviewer identities, and any evidence class other than `silver`
+- And two independent hosted reviews attest question/citation alignment without seeing candidate results
+
+**Scenario: Reject invalid silver evidence without activation**
+
+- Given the silver suite or local execution evidence is incomplete, stale, or invalid
+- When validation or aggregate recomputation fails
+- Then no candidate executes from an unvalidated suite and no ranking trial activates
+- And `dks-rrf-v1` remains active
+
 **Scenario: Freeze non-circular benchmark lineage**
 
-- Given queries and strata are approved before candidate generation
-- When blinded assessment completes and judgments freeze
-- Then separate immutable identities bind pre-generation approval and post-assessment judgment lineage
-- And neither approval step changes the corpus revision it attests
+- Given silver questions, strata, labels, and source citations are committed before candidate execution
+- When the local runner starts
+- Then immutable suite and source-revision identities bind all four candidate cells
+- And changing a question, citation, label, model, prompt, corpus, candidate, or threshold creates new evidence and invalidates prior trial authority
 
 **Scenario: Evaluate every candidate without changing active ranking**
 
 - Given one frozen corpus, protocol, model set, and private judgment set
 - When the offline runner executes baseline, code, reranker, and code-plus-reranker cells
-- Then it records actual depths 20, 50, and 100, repeated ranks, per-query citations, timings, and machine-captured resources
-- And no runner or scheduled reconciliation may activate `dks-quality-v2`
+- Then it executes every cell twice at depth 100, records repeated ranks and timings, and reports deterministic top-20 and top-50 prefixes from those same rankings
+- And a pinned collector samples memory pressure, conservative system-memory use, and swap throughout execution with no gap over 15 seconds
+- And neither the runner nor scheduled reconciliation may activate `dks-quality-v2`
+
+**Scenario: Bound silver activation to a self-reverting trial**
+
+- Given an exactly recomputed silver aggregate passes every candidate gate
+- When the operator runs `dksctl activate-silver-trial --project dotfiles-ai`
+- Then one transaction activates `dks-quality-v2` with `evidence_class=silver` and an expiry exactly 604800 seconds after activation
+- And silver evidence cannot be accepted by permanent `activate-quality`
+
+**Scenario: Restore the baseline before an invalid trial serves retrieval**
+
+- Given an active silver trial has expired, its projection identity drifted, or a required quality service is unavailable
+- When guarded query, doctor, or reconciliation checks the active policy
+- Then one serialized transaction restores `dks-rrf-v1` before another query can use the invalid trial
+- And lock or rollback failure rejects the query rather than serving stale quality ranking
 
 ### Retrieval and graph
 
@@ -616,8 +665,12 @@ The reranker candidate is official `Qwen/Qwen3-Reranker-4B` revision
 tokenizer files by a loopback-only Transformers MPS scorer. llama.cpp `/rerank`
 and third-party GGUFs are excluded because they do not implement or prove the
 official decoder `yes`/`no` final-logit contract. The scorer uses the official
-system/pair template, fixed DBSCTR retrieval instruction, 8192-token operational
-limit, longest-first truncation, and binary softmax relevance probability.
+system/pair template, fixed DBSCTR retrieval instruction, 4096-token operational
+limit, longest-first truncation, and binary softmax relevance probability. Each
+forward pass scores one document, disables the decoder KV cache, computes only
+the final-token logits, releases idle MPS allocations, enforces a 20-GiB MPS
+allocator ceiling before model load, and must remain below 24 GiB total process
+footprint.
 `DKS-003.models.json` pins safetensor shard and tokenizer hashes/sizes, exact
 instruction/template bytes and digest, the complete revision-file allowlist,
 no-remote-code identity, Python 3.12.11, torch 2.9.1, Transformers 5.5.0,
@@ -655,7 +708,7 @@ policy `dks-rrf-v1` preserves the DKS-002 1-through-20 contract. JSON reports al
 Graphify, embedding, reranker, template, truncation, score, and fallback
 provenance.
 
-The frozen benchmark stores non-sensitive fixtures, protocol, and approved
+The human v2 benchmark stores non-sensitive fixtures, protocol, and approved
 query/judgment digests in Git. A pre-generation approval binds the query and
 stratum digest without changing the evaluated corpus. After blinded assessment,
 a separate freeze binds the judgment digest, assessor protocol, corpus, and
@@ -705,7 +758,54 @@ and activation order. Execution evidence proves all four cells ran at depths 20,
 mapping, adjudication, and machine-captured environment telemetry. No item may
 train or tune a candidate. Any query, label, corpus, candidate, prompt, threshold,
 or protocol mutation creates a new benchmark version and invalidates prior
-activation evidence.
+activation evidence. Human v2 remains the only benchmark class eligible for
+permanent `activate-quality`.
+
+The separate `dks-silver-v1` protocol stores its complete question text, strata,
+source citations, relevance labels, generator identity, prompt digest, and two
+independent reviewer identities in Git. Hosted generation and review may read
+only Git objects at the frozen source revision; private authority, raw history,
+transcripts, credentials, uncommitted files, PostgreSQL bodies, and candidate
+results are prohibited inputs. Questions, labels, and citations freeze before
+candidate execution. Silver evidence is exploratory and may authorize only
+`activate-silver-trial`, never permanent `activate-quality`.
+
+The silver runner resolves declared source citations directly against the frozen
+Git projection before retrieval, executes baseline, code, reranker, and
+code-plus-reranker locally, and binds rankings and aggregate metrics to the suite,
+source, projection, model, prompt, runtime, and telemetry identities. Existing
+quality, exact-citation, recall, determinism, latency, memory-pressure,
+peak-memory, and swap gates remain unchanged. A passing aggregate creates a
+single fixed 604800-second lease. The active policy records `evidence_class` and
+`trial_expires_at`; permanent policies have no expiry. Guarded query, doctor, and
+reconciliation atomically restore `dks-rrf-v1` when a trial expires, projection
+identity changes, or a required code/reranker service is unhealthy. Failure to
+acquire the policy lock or commit fallback fails closed.
+
+Silver execution uses two concurrency-one depth-100 runs per query and cell;
+reported depths 20 and 50 are immutable prefixes of each recorded depth-100
+ranking, not separate executions. Activation independently confirms every ranked
+chunk belongs to the frozen Git projection and derives each reported citation
+from that chunk. A mode-`0600` local embedding credential HMAC binds the complete
+runner evidence, while continuous telemetry records conservative system memory,
+pressure, and swap at least every 15 seconds. Missing coverage, a changed receipt,
+or a summary not exactly derived from raw samples invalidates activation.
+
+Human v2 compatibility query authoring uses the fixed private path
+`<knowledge_state_root>/knowledge/private/benchmarks/DKS-005/queries.tsv`. The
+initializer creates a new mode-`0700` benchmark directory and a mode-`0600` TSV
+with exact columns `query_id`, `stratum`, and `text`; it never overwrites an
+existing path. Descriptor-relative no-follow traversal binds every directory and
+the workbook to the checked owner and mode. Initialization writes and syncs a
+private temporary inode before atomically linking the final name without
+overwrite; validation reads at most 1 MiB from the same descriptor it verifies.
+Query IDs are fixed as `<stratum>-001` through `<stratum>-020` in
+the five declared strata above. The human fills only `text`. Validation requires
+exactly those 100 rows in canonical order, one non-empty single-line query per
+row, and computes the existing runner identity
+`SHA256(canonical_json([[query_id, stratum, text], ...]))`. Output never contains
+query text or an absolute private path. Initialization and validation do not query retrieval systems, create
+candidates, write PostgreSQL, or update Git lineage.
 
 English lexical storage requires non-null body text and is
 `setweight(to_tsvector('english', coalesce(heading_text, '')), 'A') ||
@@ -1039,6 +1139,26 @@ and counts make it ready. A single transaction changes the active pointer and
 retains the prior revision. Validation failures and stale crashed runs become
 failed or abandoned and never change active retrieval.
 
+```mermaid
+stateDiagram-v2
+    accTitle: Silver ranking trial and automatic baseline restoration
+    accDescr: Passing silver evidence can start one seven-day quality trial. Expiry, projection drift, or quality-service failure atomically restores the fixed baseline before another query can use the invalid trial.
+    [*] --> Baseline: dks-rrf-v1 active
+    Baseline --> Trial: eligible silver aggregate and operator activation
+    Trial --> Trial: healthy and before expiry
+    Trial --> Baseline: seven days elapsed
+    Trial --> Baseline: identity drift
+    Trial --> Baseline: required service unhealthy
+    Trial --> Baseline: manual rollback or projection refresh
+```
+
+**Text Equivalent:** The fixed RRF baseline is the safe default. An operator may
+activate one eligible silver quality policy for exactly seven days. Every guarded
+query, doctor run, and reconciliation checks the lease, projection identities,
+and required quality services. Any invalid condition atomically restores the
+baseline before quality retrieval can continue; fallback failure rejects the
+query.
+
 ## Gate Ledger
 
 ### DKS-001
@@ -1091,19 +1211,35 @@ failed or abandoned and never change active retrieval.
 
 ### DKS-004
 
-| Gate | Applicability | Result | Planned evidence |
+| Gate | Applicability | Result | Evidence |
 |---|---|---|---|
-| Domain | required | planned | Reconciliation, freshness, benchmark-lineage, OpenCode, and ownership boundaries |
-| Behavior | required | planned | No-op, partial failure, overlap, diagnosis, cited context, and offline benchmark scenarios |
-| Spec | required | planned | CLI JSON, timer/config, OpenCode tool, runbook, and benchmark protocol interfaces |
-| Contract | required | planned | Privacy, immutable ref, no source execution, bounded output, lineage, and fail-closed invariants |
-| Test-driven implementation | required | planned | Focused reconciliation, control-plane, configuration, protocol, and failure tests |
-| Refactor | required | planned | Reuse existing locks, project configuration, model clients, and atomic channel activation |
-| Review/Integrate | required | planned | Independent privacy, operations, retrieval, benchmark, and upstream review |
+| Domain | required | passed | Reconciliation, freshness, benchmark-lineage, OpenCode, and ownership boundaries |
+| Behavior | required | passed | No-op, partial failure, overlap, diagnosis, cited context, and offline benchmark scenarios |
+| Spec | required | passed | CLI JSON, timer/config, OpenCode tool, runbook, and benchmark protocol interfaces |
+| Contract | required | passed | Privacy, immutable ref, no source execution, bounded output, lineage, and fail-closed invariants |
+| Test-driven implementation | required | passed | Focused reconciliation, control-plane, configuration, protocol, and failure tests |
+| Refactor | required | passed | Reused existing locks, project configuration, model clients, and atomic channel activation |
+| Review/Integrate | required | passed | Independent privacy, operations, retrieval, benchmark, and upstream review closed all ship blockers |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | planned | Scoped chezmoi apply, timer/tool installation, one OpenCode restart, and rollback proof |
-| Operate | required | planned | Unattended reconcile, drift diagnosis, busy retry, service recovery, and break-glass checks |
-| Maintain/Retire | required | planned | Disablement, retained source authority, scheduler/tool removal, and benchmark compatibility |
+| Deploy | required | passed | Scoped chezmoi apply, timer/tool installation, OpenCode restart contract, and rollback proof |
+| Operate | required | passed | Unattended reconcile, drift diagnosis, busy retry, service recovery, and break-glass checks |
+| Maintain/Retire | required | passed | Disablement, retained source authority, scheduler/tool removal, and benchmark compatibility |
+
+### DKS-005
+
+| Gate | Applicability | Result | Evidence |
+|---|---|---|---|
+| Domain | required | passed | Silver evidence, source citation, ranking trial, expiry, fallback event, frozen Git authority, and hosted/local trust boundaries |
+| Behavior | required | passed | Pre-execution generation, complete four-cell execution, ineligible-candidate denial, expiry, drift, service failure, manual rollback, and fail-closed locks |
+| Spec | required | passed | `dks-silver-v1`, runner/aggregate JSON, schema 6, `activate-silver-trial`, status/doctor output, and accessible trial lifecycle visual |
+| Contract | required | passed | Committed-Git-only hosted input, explicit provenance, immutable lineage, permanent-activation denial, fixed lease, and atomic fallback invariants |
+| Test-driven implementation | required | passed | 84 focused suite, execution, migration, activation, status, expiry, drift, service-health, telemetry, reused-chunk, repeat-ranking, and rollback checks |
+| Refactor | required | passed | Preserved human v2 compatibility and reused ranking, metric, lock, projection-validation, and baseline-fallback paths |
+| Review/Integrate | required | passed | Two fixed-commit suite reviews plus independent final privacy, retrieval, migration, operations, and upstream review with no findings |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | passed | Schema 6 migration and scoped chezmoi apply of validated runner, model guard, and trial commands |
+| Operate | required | passed | Complete 100-query matrix, warning-pressure denial, scheduler restoration, and retained `dks-rrf-v1` baseline |
+| Maintain/Retire | required | passed | Trial expiry, silver invalidation, human v2 compatibility, baseline retention, and tool removal checks |
 
 ## Decisions And Risks
 
@@ -1134,9 +1270,9 @@ failed or abandoned and never change active retrieval.
   bounded metadata-only read tool. Returned data is delimited untrusted evidence,
   never model instructions; governed private bodies, unsolicited prompt injection,
   and raw transcript ingestion remain prohibited.
-- `pg_search` v0.25.3 supports PostgreSQL 15-18, requires pgvector and
-  `shared_preload_libraries`, and is AGPL-3.0-or-later. Production PostgreSQL 19
-  Beta 3 is unsupported, so DKS-006 remains an isolated recommendation-only
-  experiment until PG19 GA and an exact-major official build exist.
+- `pg_textsearch` v1.4.0 supports PostgreSQL 17-18, uses the PostgreSQL License,
+  and requires `shared_preload_libraries` plus restart. Production PostgreSQL 19
+  Beta 3 is unsupported; unmerged PR 460 is not a release. DKS-006 remains blocked
+  until an exact-major official PostgreSQL 19 artifact exists.
 - Moving JSON/SQLite source authority into PostgreSQL remains a separate future
   critical migration with writes, audit, export, conflict, backup, and recovery contracts.

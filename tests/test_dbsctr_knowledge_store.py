@@ -1,8 +1,10 @@
+import argparse
 import hashlib
 import io
 import importlib.machinery
 import importlib.util
 import json
+import os
 import subprocess
 import tarfile
 from pathlib import Path
@@ -160,6 +162,13 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     assert reranker["runtime"] == {"backend": "mps", "python": "3.12.11",
                                     "safetensors": "0.7.0", "tokenizers": "0.22.2",
                                     "torch": "2.9.1", "transformers": "5.5.0"}
+    assert reranker["contract"] | {"template_sha256": None} == {
+        "batch_size": 1, "context_tokens": 4096, "instruction":
+        "Retrieve authoritative DBSCTR engineering evidence that answers the query",
+        "logits_to_keep": 1, "max_mps_memory_gib": 20, "max_process_memory_gib": 24,
+        "score": "binary_softmax_yes",
+        "template_sha256": None, "truncation": "longest_first", "use_cache": False,
+    }
     assert reranker["contract"]["template_sha256"] == \
         "c121f3f58991533a6cf1dd73429dc22a4bf0072b65b87b5ccfed274c7b55dde9"
     code_wrapper = render("dot_local/bin/executable_dbsctr-code-embedding.tmpl")
@@ -168,6 +177,12 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     reranker_wrapper = render("dot_local/bin/executable_dbsctr-reranker.tmpl")
     compile(reranker_wrapper, "dbsctr-reranker", "exec")
     assert "local_files_only=True" in reranker_wrapper and "trust_remote_code=False" in reranker_wrapper
+    assert "BATCH_SIZE = 1" in reranker_wrapper and "MAX_MPS_MEMORY_GIB = 20" in reranker_wrapper
+    assert "MAX_PROCESS_MEMORY_GIB = 24" in reranker_wrapper
+    assert "set_per_process_memory_fraction" in reranker_wrapper
+    assert "resource.getrusage(resource.RUSAGE_SELF).ru_maxrss" in reranker_wrapper
+    assert reranker_wrapper.count("enforce_process_memory()") >= 4
+    assert "use_cache=False, logits_to_keep=1" in reranker_wrapper
     assert "ThreadingHTTPServer((\"127.0.0.1\", PORT)" in reranker_wrapper
     assert "build_opener(NoRedirect)" in reranker_wrapper
     assert "build_opener(NoRedirect)" in render("dot_local/bin/executable_dbsctr-code-embedding.tmpl")
@@ -191,6 +206,53 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     for name in ("code-embedding", "reranker"):
         manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
         assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
+
+
+def test_reranker_health_requires_memory_contract(monkeypatch) -> None:
+    dksctl = load_dksctl()
+    health = {"ready": True, "model": "qwen3-reranker-4b",
+              "revision": dksctl.RERANKER_REVISION, "batch_size": 1,
+              "max_mps_memory_gib": 20, "max_process_memory_gib": 24}
+
+    class Opener:
+        def open(self, request, timeout):
+            return io.BytesIO(json.dumps(health).encode())
+
+    monkeypatch.setattr(dksctl.urllib.request, "build_opener", lambda *args: Opener())
+    config = {"reranker": {"url": "http://127.0.0.1:11437",
+                           "model": "qwen3-reranker-4b"}}
+    dksctl.validate_service_health(config, "reranker")
+    health["batch_size"] = 8
+    with pytest.raises(RuntimeError, match="reranker health unavailable"):
+        dksctl.validate_service_health(config, "reranker")
+
+
+def test_frozen_chunk_citations_accepts_identical_reuse(monkeypatch) -> None:
+    dksctl = load_dksctl()
+    chunk_id, body_sha = "a" * 64, "b" * 64
+    rows = [json.dumps({"chunk_id": chunk_id, "body_sha256": body_sha})] * 2
+    monkeypatch.setattr(dksctl, "run_psql", lambda *_args: rows)
+    assert dksctl.frozen_chunk_citations({}, "dotfiles-ai", "c" * 40) == {
+        chunk_id: body_sha}
+
+    rows[-1] = json.dumps({"chunk_id": chunk_id, "body_sha256": "d" * 64})
+    with pytest.raises(ValueError, match="frozen projection chunk identity is invalid"):
+        dksctl.frozen_chunk_citations({}, "dotfiles-ai", "c" * 40)
+
+
+def test_memory_pressure_requires_exact_kernel_state(tmp_path: Path, monkeypatch) -> None:
+    dksctl = load_dksctl()
+    collector = tmp_path / "collector"
+    collector.write_text("collector")
+    config = {"benchmark_collector_file": str(collector),
+              "benchmark_collector_sha256": hashlib.sha256(b"collector").hexdigest()}
+    result = subprocess.CompletedProcess([], 0, json.dumps({"memory_pressure": "normal"}), "")
+    monkeypatch.setattr(dksctl.subprocess, "run", lambda *_args, **_kwargs: result)
+    assert dksctl.memory_pressure_state(config) == "normal"
+
+    result.stdout = json.dumps({"memory_pressure": "unknown"})
+    with pytest.raises(RuntimeError, match="memory pressure is invalid"):
+        dksctl.memory_pressure_state(config)
 
 
 def test_loader_bootstraps_only_after_install_and_removes_only_owned_targets() -> None:
@@ -688,6 +750,93 @@ def test_benchmark_lineage_freezes_source_before_queries_and_judgments(monkeypat
     assert '"GIT_NO_REPLACE_OBJECTS": "1"' in DKSCTL.read_text()
 
 
+def test_private_query_workbook_initializes_and_validates_without_leaking_text(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    private = tmp_path / "state" / "knowledge" / "private"
+    private.mkdir(parents=True)
+    private.chmod(0o700)
+    project = {"repository": str(repository), "knowledge_state_root": str(tmp_path / "state")}
+    args = argparse.Namespace(project="dotfiles-ai")
+
+    initialized = dks.command_benchmark_author_init(args, {}, project)
+    workbook = private / "benchmarks" / "DKS-005" / "queries.tsv"
+    assert initialized["workbook"] == "DKS-005/queries.tsv"
+    assert initialized["query_count"] == 100
+    assert initialized["strata"] == {name: 20 for name in dks.BENCHMARK_QUERY_STRATA}
+    assert workbook.stat().st_mode & 0o777 == 0o600
+    assert workbook.parent.stat().st_mode & 0o777 == 0o700
+    lines = workbook.read_text().splitlines()
+    assert lines[0] == "query_id\tstratum\ttext"
+    assert all(line.endswith("\t") for line in lines[1:])
+    with pytest.raises(ValueError, match="already exists"):
+        dks.command_benchmark_author_init(args, {}, project)
+
+    completed = [lines[0], *(f"{line}human query {index}" for index, line in enumerate(lines[1:], 1))]
+    workbook.write_text("\n".join(completed) + "\n")
+    workbook.chmod(0o600)
+    validated = dks.command_benchmark_author_validate(args, {}, project)
+    identity = [line.split("\t", 2) for line in completed[1:]]
+    assert validated == {
+        "schema_version": 1,
+        "project": "dotfiles-ai",
+        "benchmark_id": "DKS-005",
+        "source_revision": dks.DKS_005_SOURCE_REVISION,
+        "query_count": 100,
+        "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
+        "query_digest": dks.digest_json(identity),
+    }
+    assert "human query" not in dks.canonical_json(validated)
+
+    workbook.chmod(0o644)
+    with pytest.raises(ValueError, match="unsafe benchmark workbook"):
+        dks.command_benchmark_author_validate(args, {}, project)
+
+
+def test_private_query_workbook_rejects_symlinks_and_unsafe_roots(tmp_path: Path) -> None:
+    dks = load_dksctl()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    private = tmp_path / "state" / "knowledge" / "private"
+    private.mkdir(parents=True)
+    private.chmod(0o700)
+    project = {"repository": str(repository), "knowledge_state_root": str(tmp_path / "state")}
+    args = argparse.Namespace(project="dotfiles-ai")
+
+    previous_umask = os.umask(0o777)
+    try:
+        dks.command_benchmark_author_init(args, {}, project)
+    finally:
+        os.umask(previous_umask)
+    benchmark = private / "benchmarks" / "DKS-005"
+    workbook = benchmark / "queries.tsv"
+    assert benchmark.stat().st_mode & 0o777 == 0o700
+    assert workbook.stat().st_mode & 0o777 == 0o600
+
+    workbook.unlink()
+    target = private / "target.tsv"
+    target.write_text("query_id\tstratum\ttext\n")
+    target.chmod(0o600)
+    workbook.symlink_to(target)
+    with pytest.raises(ValueError, match="unsafe benchmark workbook"):
+        dks.command_benchmark_author_validate(args, {}, project)
+
+    benchmark.chmod(0o755)
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_validate(args, {}, project)
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_init(
+            args, {}, {**project, "repository": str(tmp_path)})
+
+    linked_state = tmp_path / "linked-state"
+    linked_state.mkdir()
+    (linked_state / "knowledge").symlink_to(tmp_path / "state" / "knowledge")
+    with pytest.raises(ValueError, match="private root is unsafe"):
+        dks.command_benchmark_author_init(
+            args, {}, {**project, "knowledge_state_root": str(linked_state)})
+
+
 def test_exact_tokens_and_channel_are_strict_and_deterministic() -> None:
     dks = load_dksctl()
     digest = "a" * 64
@@ -723,6 +872,368 @@ def test_benchmark_aggregate_enforces_activation_thresholds(tmp_path: Path) -> N
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="eligibility"):
         dks.load_benchmark_aggregate(path)
+
+
+def test_silver_suite_is_frozen_grounded_and_not_human_evidence(tmp_path: Path, monkeypatch) -> None:
+    dks = load_dksctl()
+    quote = "The fixed baseline remains active until measured evidence passes."
+    suite = {
+        "schema_version": 1, "benchmark_id": "DKS-005", "protocol_version": "dks-silver-v1",
+        "evidence_class": "silver", "source_revision": dks.DKS_005_SOURCE_REVISION,
+        "generated_at": 1,
+        "generator": {"provider": "openai", "model": "gpt-5.6-sol",
+                      "prompt_sha256": "a" * 64, "evidence_sha256": "b" * 64},
+        "reviewers": [
+            {"provider": "openai", "model": "gpt-5.6-sol", "prompt_sha256": "c" * 64,
+             "evidence_sha256": "d" * 64},
+            {"provider": "openai", "model": "gpt-5.6-sol", "prompt_sha256": "e" * 64,
+             "evidence_sha256": "f" * 64},
+        ],
+        "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
+        "candidate_systems": ["baseline", "code", "reranker", "code_reranker"],
+        "depths": [20, 50, 100], "trial_duration_seconds": 604800,
+        "questions": [
+            {"query_id": f"{stratum}-{index:03d}", "stratum": stratum,
+             "text": f"Question {stratum} {index}?",
+             "citations": [{"path": "docs/specs/example.md", "quote": quote, "grade": 3}]}
+            for stratum in dks.BENCHMARK_QUERY_STRATA for index in range(1, 21)
+        ],
+    }
+    suite["generator"]["evidence_sha256"] = dks.digest_json(suite["questions"])
+    path = tmp_path / "silver.json"
+    path.write_text(json.dumps(suite))
+    monkeypatch.setattr(dks, "git_documents", lambda *_args, **_kwargs: [{
+        "path": "docs/specs/example.md", "data": (quote + "\n").encode(), "blob_id": "a" * 40,
+    }])
+    loaded, digest = dks.load_silver_suite(path, {"repository": str(tmp_path), "remote": "origin"})
+    assert loaded == suite
+    assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
+
+    suite["evidence_class"] = "human"
+    path.write_text(json.dumps(suite))
+    with pytest.raises(ValueError, match="silver suite"):
+        dks.load_silver_suite(path, {"repository": str(tmp_path), "remote": "origin"})
+
+
+def test_committed_silver_suite_is_grounded_at_the_frozen_revision() -> None:
+    dks = load_dksctl()
+    profile = ROOT / "dot_local/share/dbsctr-knowledge/source-profile.json"
+    project = {"repository": str(ROOT), "remote": "https://github.com/Saltiola7/dotfiles-ai",
+               "source_profile_file": str(profile),
+               "source_profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest()}
+    suite = ROOT / "docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.silver.json"
+    loaded, digest = dks.load_silver_suite(suite, project)
+    assert loaded["evidence_class"] == "silver" and len(loaded["questions"]) == 100
+    prompt_root = ROOT / "docs/specs/dbsctr_knowledge_store/benchmarks"
+    assert loaded["generator"]["prompt_sha256"] == hashlib.sha256(
+        (prompt_root / "DKS-005.generator-prompt.txt").read_bytes()).hexdigest()
+    assert all(item["prompt_sha256"] == hashlib.sha256(
+        (prompt_root / "DKS-005.review-prompt.txt").read_bytes()).hexdigest()
+               for item in loaded["reviewers"])
+    assert digest == "65fa72267e73df5fd18e63c9a484313208cbf8a6576eab06726d52a9219acb42"
+
+
+def test_invalid_silver_trial_atomically_restores_baseline(monkeypatch) -> None:
+    dks = load_dksctl()
+
+    class Session:
+        statements = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, sql):
+            self.statements.append(sql)
+            if "pg_try_advisory_lock" in sql:
+                return ["t"]
+            return []
+
+    session = Session()
+    monkeypatch.setattr(dks, "PsqlSession", lambda _config: session)
+    monkeypatch.setattr(dks, "active_ranking_policy", lambda *_args, **_kwargs:
+                        (_ for _ in ()).throw(RuntimeError("active silver trial expired")))
+    result = dks.ensure_quality_policy({}, "dotfiles-ai")
+    sql = "\n".join(session.statements)
+    assert result == {"ranking_policy": "dks-rrf-v1", "state": "restored"}
+    assert "FOR UPDATE" in sql
+    assert "activation_id='dks-rrf-v1'" in sql
+    assert sql.index("FOR UPDATE") < sql.index("SET active=false") < sql.index("COMMIT")
+
+
+def test_failed_silver_query_rolls_back_and_retries_once(tmp_path: Path, monkeypatch) -> None:
+    dks = load_dksctl()
+    args = argparse.Namespace(project="dotfiles-ai", config="/config", text="query",
+                              limit=10, commit=None)
+    policy = {"policy_id": "dks-quality-v2", "evidence_class": "silver"}
+    attempts = iter((subprocess.CompletedProcess([], 1, "", "failed"),
+                     subprocess.CompletedProcess([], 0, json.dumps({"ranking_policy": "dks-rrf-v1"}), "")))
+    rolled_back = []
+    monkeypatch.setattr(dks, "ensure_quality_policy", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dks, "active_ranking_policy", lambda *_args, **_kwargs: policy)
+    monkeypatch.setattr(dks, "run_psql", lambda *_args, **_kwargs: [json.dumps({
+        "privacy_sequence": "1", "privacy_digest": "a" * 64})])
+    monkeypatch.setattr(dks, "command_rollback_quality", lambda *_args, **_kwargs:
+                        rolled_back.append(True))
+    monkeypatch.setattr(dks.subprocess, "run", lambda *_args, **_kwargs: next(attempts))
+    result = dks.command_guarded_query(args, {"dbsctrctl": "/bin/true"},
+                                       {"knowledge_state_root": str(tmp_path)})
+    assert result["ranking_policy"] == "dks-rrf-v1"
+    assert rolled_back == [True]
+
+
+def test_schema_six_records_trial_class_and_expiry() -> None:
+    schema = (ROOT / "dot_local/share/dbsctr-knowledge/schema.sql").read_text()
+    migration = (ROOT / "dot_local/bin/executable_dks-postgres-migrate.tmpl").read_text()
+    source = DKSCTL.read_text()
+    assert "evidence_class" in schema and "trial_expires_at" in schema
+    no_force = schema.index("ranking_policies NO FORCE ROW LEVEL SECURITY")
+    backfill = schema.index("UPDATE dks.ranking_policies SET evidence_class")
+    force = schema.index("ranking_policies FORCE ROW LEVEL SECURITY", backfill)
+    assert no_force < backfill < force
+    assert "VALUES (6)" in migration and "version=6" in migration
+    assert 'commands.add_parser("activate-silver-trial"' in source
+    assert "604800" in source and "ensure_quality_policy" in source
+    assert "silver trial reranker unavailable" in source
+
+
+def test_expired_silver_policy_is_never_returned_as_active() -> None:
+    dks = load_dksctl()
+    policy = {
+        "activation_id": "a" * 64, "policy_id": "dks-quality-v2",
+        "manifest_sha256": "b" * 64, "benchmark_sha256": "c" * 64,
+        "benchmark_aggregate_sha256": "d" * 64, "source_revision_id": "e" * 40,
+        "source_projection_sha256": "f" * 64, "authority_snapshot_set_sha256": "1" * 64,
+        "authority_projection_sha256": "2" * 64, "privacy_sequence": "3",
+        "privacy_digest": "4" * 64, "current_source_revision": "e" * 40,
+        "current_privacy_sequence": "3", "current_privacy_digest": "4" * 64,
+        "code_embedding_space_id": None, "graph_artifact_sha256": "5" * 64,
+        "reranker_manifest_sha256": "6" * 64, "evidence_class": "silver",
+        "trial_expires_at": "100", "trial_expired": True,
+    }
+
+    class Session:
+        def execute(self, _sql):
+            return [json.dumps(policy)]
+
+    with pytest.raises(RuntimeError, match="identity"):
+        dks.active_ranking_policy({}, "dotfiles-ai", Session())
+    policy["trial_expired"] = False
+    assert dks.active_ranking_policy({}, "dotfiles-ai", Session())["evidence_class"] == "silver"
+
+
+def test_quality_activation_rejects_ineligible_candidates_before_database(monkeypatch) -> None:
+    dks = load_dksctl()
+    monkeypatch.setattr(dks, "PsqlSession", lambda *_args: (_ for _ in ()).throw(
+        AssertionError("database session opened")))
+    aggregate = {"candidates": {"code": {"eligible": False},
+                                "reranker": {"eligible": False}}}
+    with pytest.raises(RuntimeError, match="no benchmark candidate is eligible"):
+        dks.activate_quality_policy(argparse.Namespace(project="dotfiles-ai"), {}, {},
+                                    aggregate, "a" * 64, {}, "b" * 64, "silver")
+
+
+def test_silver_activation_writes_exact_seven_day_lease(monkeypatch) -> None:
+    dks = load_dksctl()
+    revision, privacy = "a" * 40, "b" * 64
+    projection = {"chunks": 1}
+    authority = {"privacy_sequence": "0", "privacy_digest": privacy, "snapshots": []}
+    graph, general, code, reranker = "c" * 64, "d" * 64, "e" * 64, "f" * 64
+    manifest = {
+        "source_revision": revision,
+        "source_profile_sha256": "1" * 64,
+        "source_projection_sha256": dks.digest_json(projection),
+        "authority_snapshot_set_sha256": dks.digest_json([]),
+        "authority_projection_sha256": dks.digest_json(authority),
+        "privacy_sequence": 0, "privacy_digest": privacy,
+        "graph_artifact_sha256": graph,
+        "general_embedding_manifest_sha256": general,
+        "code_embedding_manifest_sha256": code,
+        "reranker_manifest_sha256": reranker,
+    }
+    statements = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, sql):
+            statements.append(sql)
+            if "pg_try_advisory_lock(" in sql:
+                return ["t"]
+            if "SELECT active_revision_id" in sql:
+                return [revision]
+            if sql == "projection":
+                return [json.dumps(projection)]
+            if sql == "authority":
+                return [json.dumps(authority)]
+            if "'source_chunks'" in sql:
+                return [json.dumps({"revision": revision, "source_chunks": 0,
+                                    "code_embeddings": 0, "graph_artifact": graph})]
+            return []
+
+    config = {"embedding": {"manifest_sha256": general},
+              "code_embedding": {"manifest_sha256": code},
+              "reranker": {"manifest_sha256": reranker}}
+    aggregate = {"candidates": {"code": {"eligible": False},
+                                "reranker": {"eligible": True}}}
+    monkeypatch.setattr(dks, "PsqlSession", lambda *_args: Session())
+    monkeypatch.setattr(dks, "projection_payload_sql", lambda *_args: "projection")
+    monkeypatch.setattr(dks, "authority_projection_payload_sql", lambda: "authority")
+    monkeypatch.setattr(dks, "validate_embedding_config", lambda *_args: None)
+    monkeypatch.setattr(dks, "validate_reranker_config", lambda *_args: None)
+    monkeypatch.setattr(dks.time, "time", lambda: 1000)
+    result = dks.activate_quality_policy(
+        argparse.Namespace(project="dotfiles-ai"), config,
+        {"source_profile_sha256": "1" * 64}, aggregate, "2" * 64,
+        manifest, "3" * 64, "silver")
+    assert result["trial_expires_at"] == 605800
+    assert "'silver',to_timestamp(605800)" in "\n".join(statements)
+
+
+def test_silver_evidence_recomputes_metrics_and_binds_resolved_citations(tmp_path: Path,
+                                                                        monkeypatch) -> None:
+    dks = load_dksctl()
+    systems = ("baseline", "code", "reranker", "code_reranker")
+    questions, queries, resolved, projected = [], [], {}, {}
+    for offset in range(100):
+        stratum = dks.BENCHMARK_QUERY_STRATA[offset // 20]
+        query_id = f"{stratum}-{offset % 20 + 1:03d}"
+        ids = [hashlib.sha256(f"{query_id}-{index}".encode()).hexdigest() for index in range(100)]
+        citation = hashlib.sha256(f"citation-{query_id}".encode()).hexdigest()
+        baseline = [*ids[1:], ids[0]]
+        rankings = {"baseline": baseline, "code": ids, "reranker": baseline,
+                    "code_reranker": ids}
+        questions.append({"query_id": query_id, "stratum": stratum, "text": f"Question {offset}?",
+                          "citations": [{"path": "README.md", "quote": "A sufficiently long quote.",
+                                         "grade": 3}]})
+        resolved[query_id] = {"judgments": {ids[0]: 3}, "expected_citations": [citation]}
+        projected.update({item: citation for item in ids})
+        queries.append({"query_id": query_id, "stratum": stratum, **resolved[query_id],
+                        "rankings": rankings,
+                        "citations": {name: [citation] for name in systems},
+                        "runs_seconds": {name: [1.0, 1.0] for name in systems},
+                        "repeat_rankings": {name: [ranking, ranking]
+                                            for name, ranking in rankings.items()}})
+    queries[0]["repeat_rankings"]["code_reranker"][1] = list(
+        reversed(queries[0]["rankings"]["code_reranker"]))
+    suite = {"source_revision": dks.DKS_005_SOURCE_REVISION,
+             "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
+             "questions": questions}
+    identities = {name: "a" * 64 for name in (
+        "source_profile_sha256", "source_projection_sha256", "authority_snapshot_set_sha256",
+        "authority_projection_sha256", "privacy_digest", "graph_artifact_sha256",
+        "general_embedding_manifest_sha256", "code_embedding_manifest_sha256",
+        "reranker_manifest_sha256")}
+    identities.update({"source_revision": dks.DKS_005_SOURCE_REVISION, "privacy_sequence": 1})
+    resource = {"peak_memory_gib": 10.0, "memory_pressure": "normal", "swap_growth_bytes": 0}
+    evidence = {"schema_version": 1, "evidence_class": "silver", "suite_sha256": "b" * 64,
+                "execution_depth": 100, "reported_depths": [20, 50, 100],
+                "identities": identities, "queries": queries,
+                "resources": {"code": resource, "reranker": resource},
+                "telemetry_samples": [
+                    {"captured_at": 1.0, "memory_gib": 10.0, "memory_pressure": "normal",
+                     "swap_used_bytes": 0},
+                    {"captured_at": 2.0, "memory_gib": 10.0, "memory_pressure": "normal",
+                     "swap_used_bytes": 0},
+                ]}
+    key = tmp_path / "key"
+    key.write_text("f" * 64)
+    key.chmod(0o600)
+    config = {"embedding": {"api_key_file": str(key)}}
+    evidence["receipt_hmac_sha256"] = dks.benchmark_receipt(config, evidence)
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps(evidence))
+    monkeypatch.setattr(dks, "resolve_silver_citations", lambda *_args, **_kwargs: resolved)
+    monkeypatch.setattr(dks, "frozen_chunk_citations", lambda *_args, **_kwargs: projected)
+    aggregate = dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
+    assert aggregate["candidates"]["code"]["eligible"] is True
+    assert aggregate["candidates"]["reranker"]["eligible"] is False
+    assert aggregate["candidates"]["reranker"]["deterministic_rank"] is False
+
+    valid = json.loads(json.dumps(evidence))
+    evidence["receipt_hmac_sha256"] = "0" * 64
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="receipt"):
+        dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
+
+    evidence = json.loads(json.dumps(valid))
+    evidence["queries"][0]["rankings"]["code"][0] = "0" * 64
+    evidence["queries"][0]["repeat_rankings"]["code"] = [
+        evidence["queries"][0]["rankings"]["code"]] * 2
+    unsigned = {key: value for key, value in evidence.items() if key != "receipt_hmac_sha256"}
+    evidence["receipt_hmac_sha256"] = dks.benchmark_receipt(config, unsigned)
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="query evidence"):
+        dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
+
+    evidence = json.loads(json.dumps(valid))
+    evidence["telemetry_samples"][1]["captured_at"] = 20.0
+    unsigned = {key: value for key, value in evidence.items() if key != "receipt_hmac_sha256"}
+    evidence["receipt_hmac_sha256"] = dks.benchmark_receipt(config, unsigned)
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="telemetry"):
+        dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
+
+    evidence = json.loads(json.dumps(valid))
+    evidence["queries"][0]["expected_citations"] = ["0" * 64]
+    unsigned = {key: value for key, value in evidence.items() if key != "receipt_hmac_sha256"}
+    evidence["receipt_hmac_sha256"] = dks.benchmark_receipt(config, unsigned)
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="query evidence"):
+        dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
+
+
+def test_silver_runner_uses_git_only_depth_100_cells() -> None:
+    source = DKSCTL.read_text()
+    query = source[source.index("def command_query_transaction"):source.index("def command_query(")]
+    runner = source[source.index("def command_benchmark_silver_run"):source.index("def load_benchmark_aggregate")]
+    assert "benchmark_system" in query and "'false' if benchmark" in query
+    assert "rank <= {100 if benchmark else 20}" in query
+    assert "quality_candidates(channels, max(50, args.limit))" not in query
+    assert "quality_candidates(channels)" in query
+    assert "600 if benchmark else 30" in query and "8 if benchmark else 50" in query
+    assert 'systems = ("baseline", "code", "reranker", "code_reranker")' in runner
+    assert "resolve_silver_citations" in runner and "limit=100" in runner
+    assert "BenchmarkTelemetry" in runner and "receipt_hmac_sha256" in runner
+    assert 'commands.add_parser("benchmark-silver-run"' in source
+
+
+def test_silver_reranker_batches_offline_candidates(tmp_path: Path, monkeypatch) -> None:
+    dks = load_dksctl()
+    key = tmp_path / "key"
+    key.write_text("a" * 64)
+    key.chmod(0o600)
+    manifest = {"model": {"revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"},
+                "contract": {"template_sha256": "b" * 64}, "reranker_id": "test"}
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    batches = []
+
+    class Opener:
+        def open(self, request, timeout):
+            documents = json.loads(request.data)["documents"]
+            batches.append((len(documents), timeout))
+            return io.BytesIO(json.dumps({
+                "model": "reranker", "revision": manifest["model"]["revision"],
+                "template_sha256": manifest["contract"]["template_sha256"],
+                "truncation": "longest_first", "scores": [0.5] * len(documents),
+            }).encode())
+
+    monkeypatch.setattr(dks.urllib.request, "build_opener", lambda *_args: Opener())
+    config = {"reranker": {"url": "http://127.0.0.1:11437", "model": "reranker",
+                            "api_key_file": str(key), "manifest_file": str(manifest_path),
+                            "manifest_sha256": manifest_sha}}
+    candidates = [{"chunk_id": f"{offset:064x}", "body": str(offset)}
+                  for offset in range(17)]
+    scores, _ = dks.rerank(config, "query", candidates, manifest_sha, 600, 8)
+    assert batches == [(8, 600), (8, 600), (1, 600)] and len(scores) == 17
 
 
 def test_benchmark_v2_manifest_binds_complete_protocol(tmp_path: Path) -> None:
@@ -1407,6 +1918,8 @@ def test_reconcile_noop_disable_busy_and_failure_are_bounded(tmp_path: Path, mon
     monkeypatch.setattr(dks, "parse_knowledge_export", lambda _raw: export)
     monkeypatch.setattr(dks, "git_is_fresh", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(dks, "graph_is_fresh", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(dks, "ensure_quality_policy", lambda *_args, **_kwargs:
+                        {"ranking_policy": "dks-rrf-v1", "state": "active"})
     for name in ("command_sync", "command_sync_code", "command_import_graph", "command_sync_evidence"):
         monkeypatch.setattr(dks, name, lambda *_args, _name=name, **_kwargs:
                             pytest.fail(f"unexpected {_name}"))
