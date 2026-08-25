@@ -108,6 +108,15 @@
 | Scope | Consistent SQLite backup, exact project selection, path rebasing, credential scrubbing, relationship validation, guest rollback, and direct Tailscale Herdr access |
 | Overrides | The host database remains read-only; the replaceable guest database is backed up before cutover; unrelated projects, credentials, and sessions never enter the guest |
 
+### OCP-39 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the inherited environment of a persistent Herdr server and every child pane |
+| Delivery intent | Deploy scoped centralized-state routing without restarting active Herdr panes, then deliver a draft pull request |
+| Scope | Remove generic XDG paths from the Herdr LaunchAgent while preserving explicit state roots and OpenCode wrapper routing |
+| Overrides | Existing panes remain active; the managed plist takes effect at the next natural server start; no data moves or permissions change |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -171,7 +180,7 @@ delegation, loaded skills, adapters, permissions, or provider boundaries change.
 ```mermaid
 flowchart LR
     accTitle: Optional centralized durable state
-    accDescr: An empty state-root setting keeps native OpenCode, DBSCTR, and Herdr locations. A configured root supplies XDG data and state paths, DBSCTR stores and worktrees, Herdr worktrees, and exact OpenCode permissions. Configuration and credentials remain local.
+    accDescr: An empty state-root setting keeps native OpenCode, DBSCTR, and Herdr locations. A configured root scopes XDG data and state paths to OpenCode and lifecycle workers, while Herdr receives only explicit component roots and its worktree location. Configuration and credentials remain local.
     C[Machine-local chezmoi data] -->|root empty| N[Native platform defaults]
     C -->|root configured| R[Central durable state root]
     R -->|XDG data and state| O[OpenCode durable state]
@@ -182,11 +191,12 @@ flowchart LR
 ```
 
 **Text Equivalent:** With no configured root, every component keeps its native
-location. With a root, managed LaunchAgents receive XDG and DBSCTR locations,
-Herdr receives a worktree directory, and Build receives only the root and subtree
-permissions. Configuration, credentials, caches, sockets, locks, and temporary
-files remain local. This repository change does not move live data or restart a
-running OpenCode process.
+location. With a root, OpenCode and lifecycle workers receive XDG and DBSCTR
+locations. Herdr receives explicit component roots and its worktree directory,
+but not generic XDG paths that would redirect unrelated pane tools. Build receives
+only the root and subtree permissions. Configuration, credentials, caches,
+sockets, locks, and temporary files remain local. This repository change does not
+move live data or restart a running OpenCode process.
 
 ```mermaid
 flowchart LR
@@ -249,6 +259,7 @@ database. Any failed guest smoke check restores that backup.
 | Provider Overlay | Conditional prompt guidance loaded only for the selected provider family. |
 | Integration Evidence | Tests, contracts, diff coherence, and downstream checks; not a generic request for the model to review itself again. |
 | Evaluation Cohort | Five comparable completed cycles evaluated under one versioned rubric without automatic remediation authority. |
+| Scoped Runtime Environment | Component-specific state variables exported only to the runtime that owns their paths, rather than inherited by every child process. |
 
 ## Behavior
 
@@ -262,6 +273,15 @@ the command uses that primary and does not force OpenAI.
 Given a Plan primary, edits are denied and Bash requires approval. Given a Build
 primary, local commands run by default while known external, destructive,
 deployment, publishing, and Git-write commands require approval.
+
+### Scoped centralized state
+
+Given a machine configures a centralized state root, when launchd starts Herdr,
+then the server and its panes receive explicit DBSCTR, Hermes, and state-root
+variables but no generic XDG data or state home. When the managed OpenCode wrapper
+or a lifecycle worker starts, it still receives the configured XDG paths. An
+active Herdr server remains undisturbed and adopts the corrected environment at
+its next natural start.
 
 ### Bounded Jira reads
 
@@ -692,6 +712,13 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Recovery accepts only canonical Herdr pane and OpenCode session identifiers,
   shell-quotes the validated wrapper argv, bounds Herdr API calls, and replaces
   captures atomically.
+- The Herdr LaunchAgent must not export `XDG_DATA_HOME` or `XDG_STATE_HOME`.
+  It retains `DOTFILES_AI_STATE_ROOT`, explicit DBSCTR paths, and `HERMES_HOME`;
+  the OpenCode wrapper and scoped lifecycle LaunchAgents remain the owners of
+  centralized XDG paths.
+- Applying a changed Herdr plist while a server is active must not restart or
+  boot out the server. The corrected environment becomes effective at the next
+  natural login, reboot, or otherwise operator-approved server replacement.
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
   the current schema/runtime parser.
