@@ -1,5 +1,16 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-25 - DKS-007 Recovery
+
+- Accepted upstream PR #50's canonical DKS-005 state correction after affected
+  PM validation returned no DKS findings; no duplicate ticket edit was made.
+- Preserved the prior-valid projection when a long scheduled refresh observed
+  changing authority, then used one runbook retry to converge Git, code, graph,
+  and governed evidence to merge commit `87d20d0`.
+- Verified healthy doctor status, launchd exit 0, a four-stage unchanged follow-up,
+  84 focused passing tests, and retained baseline `dks-rrf-v1`; no runtime code,
+  configuration, schema, model, benchmark, or ranking change was needed.
+
 ## 2026-08-25 - DKS-007 Discovery
 
 - Scoped one elevated recovery cycle to correct DKS-005's unsupported PM state
