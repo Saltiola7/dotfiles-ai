@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-25 - DAI-029 Lifecycle Artifact Reconciliation
+
+- Reconciled five delivered OCP/OIC tickets with their committed completion
+  evidence and retained an explicit missing-cost characterization as
+  `unavailable`; runtime source and environments are unchanged.
+- Retired clean empty AUTH-015 and DAI-022 cycle records. AUTH-014 remains
+  unchanged in `finalizing` because typed retirement rejects that state, preserving
+  the reproduced deadlock for the owning recovery cycle.
+- All 160 focused `dbsctrctl` tests, zero-finding canonical ticket validation,
+  lifecycle artifact checks, and Git whitespace validation passed. Gate
+  Exceptions: none. Gate Commit: `d67435d`.
+
 ## 2026-08-23 - DAI-021-F2 Complete Six-Lens Discovery
 
 - Replaced model-mediated history paging with deterministic source-local lens

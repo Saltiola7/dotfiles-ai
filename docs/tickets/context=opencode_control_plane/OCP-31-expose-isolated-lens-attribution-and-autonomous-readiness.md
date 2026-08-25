@@ -5,7 +5,7 @@ slug: "expose-isolated-lens-attribution-and-autonomous-readiness"
 context: "opencode_control_plane"
 title: "Expose isolated lens attribution and autonomous readiness"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on:
@@ -19,9 +19,11 @@ parallel_safe: false
 validation:
   - "Command contract, adapter validation, transition tests, parser and affected QA"
 created: "2026-08-17"
-updated: "2026-08-17"
-completed: null
-commits: []
+updated: "2026-08-25"
+completed: "2026-08-02"
+commits:
+  - "560650d8"
+  - "784d646d"
 jira_publications: []
 migration: "docs/specs/opencode_control_plane/BACKLOG.md:8:f13acbbacf124628d2bcbcdeb1333e3df7de093a543fe3e212054afd051bda65"
 ---
@@ -54,4 +56,5 @@ Legacy values are preserved without inferred semantics.
 
 ## Review
 
-Migrated deterministically; further refinement remains explicit.
+Reconciled against the delivered one-lens worker, readiness, attribution, and
+linked-worktree evidence retained in the control-plane changelog and source.

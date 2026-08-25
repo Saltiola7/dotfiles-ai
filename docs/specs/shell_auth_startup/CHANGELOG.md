@@ -1,5 +1,12 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-25 - AUTH-014 Lifecycle Reconciliation
+
+- Verified AUTH-014 is clean, fully integrated, and has no commits ahead of
+  protected `main`. Its cycle remains unchanged in `finalizing` because the typed
+  retirement contract rejects that state; recovery is assigned to the lifecycle
+  state-machine fix.
+
 ## 2026-08-24 - Herdr External-Volume Responsibility
 
 - Added a native LaunchAgent supervisor so macOS attributes Herdr and pane

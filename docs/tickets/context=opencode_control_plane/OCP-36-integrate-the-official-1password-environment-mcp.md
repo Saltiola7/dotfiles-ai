@@ -5,7 +5,7 @@ slug: "integrate-the-official-1password-environment-mcp"
 context: "opencode_control_plane"
 title: "Integrate the official 1Password Environment MCP"
 kind: "task"
-state: "review"
+state: "done"
 priority: "high"
 points: null
 depends_on:
@@ -19,9 +19,13 @@ parallel_safe: false
 validation:
   - "Source, deployment, 47 focused tests, resolved config, MCP connection, desktop authentication, and read-only Environment listing pass; no Environments currently exist"
 created: "2026-08-17"
-updated: "2026-08-17"
-completed: null
-commits: []
+updated: "2026-08-25"
+completed: "2026-08-15"
+commits:
+  - "ca24f64"
+  - "e24d12d"
+  - "9e7178a"
+  - "5aeebf4"
 jira_publications: []
 migration: "docs/specs/opencode_control_plane/BACKLOG.md:7:2f63a8481cf89bc8e80b63bd65a700751938754d3200b1a1f8e64956476fde57"
 ---
@@ -54,4 +58,6 @@ Legacy values are preserved without inferred semantics.
 
 ## Review
 
-Migrated deterministically; further refinement remains explicit.
+Reconciled against the deployed MCP, desktop authentication, read-only
+Environment listing, and 47-test evidence retained in the control-plane
+changelog.

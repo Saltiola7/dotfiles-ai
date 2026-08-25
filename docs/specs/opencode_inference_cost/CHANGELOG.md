@@ -1,5 +1,11 @@
 # Changelog - OpenCode Inference Cost Reporting
 
+## 2026-08-25 - Canonical Completion Reconciliation
+
+- Closed OIC-009 against merged Fast-rate evidence and verified that structured
+  history already reports absent provider cost as `unavailable`, not zero. No
+  rate card or report behavior changed.
+
 ## 2026-08-23 - Managed OpenAI Fast Estimates (v0.4)
 
 **Outcome:** Added exact effective-dated list-price entries for managed Sol Fast,

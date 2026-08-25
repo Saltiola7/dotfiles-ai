@@ -5,7 +5,7 @@ slug: silver-retrieval-trial
 context: dbsctr_knowledge_store
 title: Run the frozen silver retrieval trial
 kind: epic
-state: completed
+state: done
 priority: high
 points: 8
 depends_on:
@@ -56,7 +56,7 @@ commits:
   - 3edcecd
   - 2c5a90d
 jira_publications: []
-migration: 6
+migration: "6"
 ---
 
 ## Outcome

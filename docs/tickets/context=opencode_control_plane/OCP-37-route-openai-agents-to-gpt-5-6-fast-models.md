@@ -5,7 +5,7 @@ slug: "route-openai-agents-to-gpt-5-6-fast-models"
 context: "opencode_control_plane"
 title: "Route OpenAI agents to GPT-5.6 Fast models"
 kind: "task"
-state: "review"
+state: "done"
 priority: "high"
 points: null
 depends_on:
@@ -19,8 +19,8 @@ parallel_safe: false
 validation:
   - "Rendered config, 53 focused tests, targeted deployment, live resolved models, and restart guidance pass"
 created: "2026-08-22"
-updated: "2026-08-22"
-completed: null
+updated: "2026-08-25"
+completed: "2026-08-22"
 commits:
   - "d49c9b48359f715de04b3fac470d7d2f5287a5f0"
 jira_publications: []

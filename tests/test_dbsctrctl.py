@@ -3725,6 +3725,8 @@ class DbsctrctlTest(unittest.TestCase):
         telemetry = minimal["candidates"][0]["telemetry"]
         self.assertEqual(telemetry["model_families"], "unavailable")
         self.assertEqual(telemetry["delegation_count"], "unavailable")
+        self.assertEqual(telemetry["cost_total"], "unavailable")
+        self.assertEqual(telemetry["availability"]["cost_total"], "unavailable")
         self.assertEqual(telemetry["availability"]["error_classes"], "available")
         self.assertEqual(telemetry["error_classes"], {"tool_error": 0})
 
