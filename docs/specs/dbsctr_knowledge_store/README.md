@@ -634,8 +634,8 @@ boundaries, split an oversized line only at UTF-8 code-point boundaries, never
 overlap, and embed `path` plus source kind as versioned context. Markdown keeps
 `dks-markdown-v1` and existing identities unchanged.
 
-Graphify is pinned to `graphifyy` `0.9.48` at commit
-`b2cd36267456c166788c95be6e68574064a92a42`. It runs code-only, offline, without
+Graphify is pinned to `graphifyy` `0.9.50` at commit
+`43d54acbfa9e731f7a592bb582c1f4b9d48ed73e`. It runs code-only, offline, without
 database credentials over the immutable accepted corpus. DKS treats
 `graph.json` as untrusted derived input, records its SHA-256, extractor/config
 identity, repository and source snapshot, and an owner-private execution receipt
@@ -645,6 +645,17 @@ provenance, and maps locations to overlapping exact-byte chunks. Graphify IDs
 are namespaced derivative keys, never source identities. Complete snapshot
 replacement handles deletion. Semantic document extraction and direct
 Neo4j/FalkorDB/PostgreSQL Graphify adapters are prohibited.
+
+The controlled producer may reuse one complete raw extraction from an
+owner-private filesystem cache. Cache entries are namespaced by project,
+configuration, runtime, and corpus identity; an owner-private external lock
+serializes access. Entries are bounded, schema- and digest-checked, and atomically
+published. Missing, stale, unsafe, or corrupt entries are discarded and rebuilt in
+the sandbox. Cold and warm paths must produce byte-identical normalized artifacts.
+The cache is disposable derived state and never source authority. Schema 7 stores
+the validated sanitized execution receipt and digest with the graph import, but no
+cache body. The prior `0.9.48` runtime remains immutable rollback material until
+post-deployment operation checks pass.
 
 Native code-only output cites physical start lines, includes external symbol
 nodes with no source location, and may emit edges to omitted reference nodes.
@@ -1033,7 +1044,7 @@ OpenCode restart.
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: authority and projection flow | Which system may change source truth? | Overview and Contracts | Knowledge owner; authority change |
-| Interaction | required: authority and projection flow | How does private source become cited retrieval? | Behavior and Interfaces | Knowledge owner; pipeline change |
+| Interaction | required: authority, cache, and projection flow | How does private source become cited retrieval without making cached extraction authoritative? | Behavior and Interfaces | Knowledge owner; pipeline or cache change |
 | State | required: embedding-space lifecycle | How are candidate spaces activated and rolled back? | Contracts and Operations | Model owner; identity change |
 | Data/trust | required: authority and projection flow | Where may private content and vectors move? | Security and Operations | Security owner; trust change |
 | Schema | required: DKS-002 projection and graph schema | Can every derivative trace to project, commit, blob, content, and chunk? | PostgreSQL image and schema | Knowledge owner; migration or identity change |
@@ -1043,14 +1054,16 @@ OpenCode restart.
 ```mermaid
 flowchart LR
     accTitle: DBSCTR knowledge authority and projection flow
-    accDescr: Git and private SQLite stores remain authoritative. A host projector reads immutable revisions and consistent snapshots, deduplicates content, and writes rebuildable PostgreSQL lexical, vector, and graph projections. A loopback embedding service derives vectors, and retrieval returns cited source evidence without changing authority.
+    accDescr: Git and private SQLite stores remain authoritative. A host projector reads immutable revisions and consistent snapshots, deduplicates content, and writes rebuildable PostgreSQL lexical, vector, and graph projections. Offline Graphify may reuse an owner-private disposable extraction cache. A loopback embedding service derives vectors, and retrieval returns cited source evidence without changing authority.
     G[(Git Markdown)] --> P[Host projector]
     S[(Private SQLite stores)] --> P
     P --> C[Content identity and deterministic chunks]
     C --> F[(PostgreSQL FTS)]
     C --> E[Loopback embedding service]
     E --> V[(PostgreSQL vectors)]
-    C --> R[(Relational graph edges)]
+    C --> X[Sandboxed offline Graphify]
+    X <--> K[(Private disposable extraction cache)]
+    X --> R[(Relational graph edges)]
     F --> Q[Hybrid cited retrieval]
     V --> Q
     R --> Q
@@ -1059,9 +1072,11 @@ flowchart LR
 **Text Equivalent:** Git Markdown and private SQLite stores own source truth. A
 host projector reads fixed Git revisions and consistent SQLite snapshots, creates
 content-addressed records and deterministic chunks, and writes rebuildable
-PostgreSQL full-text and relational graph projections. A loopback-only service
-creates versioned vectors. Retrieval combines those projections and returns exact
-source citations; it cannot rewrite the source authorities.
+PostgreSQL full-text and relational graph projections. Offline Graphify may reuse
+an owner-private, identity-bound, disposable extraction cache before validated
+graph import. A loopback-only service creates versioned vectors. Retrieval combines
+those projections and returns exact source citations; neither cache nor retrieval
+can rewrite the source authorities.
 
 ```mermaid
 stateDiagram-v2
@@ -1266,6 +1281,22 @@ query.
 | Deploy | required | passed | One runbook retry converged all channels to `87d20d0`; bound unchanged-reconcile evidence passed |
 | Operate | required | passed | Bound doctor evidence passed with active and target revisions equal, fresh channels, and baseline ranking |
 | Maintain/Retire | required | passed | Existing prior-valid retention, baseline rollback, logs, disablement, and rebuild procedures remained sufficient |
+
+### DKS-008
+
+| Gate | Applicability | Result | Evidence |
+|---|---|---|---|
+| Domain | required | passed | Pinned extractor, disposable cache, projection authority, and rollback boundaries defined |
+| Behavior | required | passed | Cold, warm, corruption, failure, restart, and rollback scenarios resolved |
+| Spec | required | passed | Cache schema, execution receipt, schema 7, status, operation interfaces, and accessible flow updated |
+| Contract | required | passed | Exact identities, private locking, atomic publication, parity, and prior-active preservation required |
+| Test-driven implementation | required | pending | Focused compatibility, cache, receipt, migration, reconcile, and rollback checks |
+| Refactor | required | pending | Reuse existing sandbox, hashing, locking, atomic-write, import, and fallback paths |
+| Review/Integrate | required | pending | Fixed-commit affected review and integration evidence |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | pending | Immutable runtime installation and schema 7 migration |
+| Operate | required | pending | Healthy reconcile, cold/warm parity, restart, and bounded diagnostics |
+| Maintain/Retire | required | pending | Retained 0.9.48 runtime, prior graph, cache disposal, and rebuild proof |
 
 ## Decisions And Risks
 
