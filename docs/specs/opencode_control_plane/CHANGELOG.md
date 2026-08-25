@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-24 - OCP-39 Scoped Herdr XDG State
+
+- Removed generic XDG data/state homes from the Herdr LaunchAgent while
+  preserving explicit external state, DBSCTR, Hermes, worktree, OpenCode wrapper,
+  and lifecycle-worker routing.
+- Regression evidence failed on the leaked Herdr variable before implementation;
+  79 affected tests, centralized/native plist lint, and Git whitespace validation
+  passed afterward.
+- Targeted deployment changed only the managed plist and left no diff. The guarded
+  loader preserved the healthy active server on PID `2974`; launchd adopts the
+  corrected environment at the next natural login or reboot. Gate Commit:
+  `39e12a1`. Gate Exceptions: none. Intended Final Push: feature branch and draft
+  pull request into protected `main`.
+
 ## 2026-08-24 - OCP-38 Client History Migration
 
 - Added a fail-closed SQLite migration command that retains exactly declared

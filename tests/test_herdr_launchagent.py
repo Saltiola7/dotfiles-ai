@@ -400,8 +400,6 @@ def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
 
     expected = {
         "DOTFILES_AI_STATE_ROOT": "/Volumes/ext/state",
-        "XDG_DATA_HOME": "/Volumes/ext/state/xdg/data",
-        "XDG_STATE_HOME": "/Volumes/ext/state/xdg/state",
         "DBSCTR_STATE_ROOT": "/Volumes/ext/state/dbsctr",
         "DBSCTR_WORKTREE_ROOT": "/Volumes/ext/state/dbsctr/worktrees",
         "DBSCTR_RND_STATE": "/Volumes/ext/state/dbsctr/rnd/dbsctr-rnd.sqlite3",
@@ -414,7 +412,14 @@ def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
              str(ROOT / f"private_Library/LaunchAgents/dev.dotfiles-ai.{name}.plist.tmpl")],
             text=True, capture_output=True, check=True,
         ).stdout
-        assert plistlib.loads(rendered.encode())["EnvironmentVariables"].items() >= expected.items()
+        environment = plistlib.loads(rendered.encode())["EnvironmentVariables"]
+        assert environment.items() >= expected.items()
+        if name == "herdr-server":
+            assert "XDG_DATA_HOME" not in environment
+            assert "XDG_STATE_HOME" not in environment
+        else:
+            assert environment["XDG_DATA_HOME"] == "/Volumes/ext/state/xdg/data"
+            assert environment["XDG_STATE_HOME"] == "/Volumes/ext/state/xdg/state"
 
 
 def test_native_state_does_not_render_centralized_environment() -> None:

@@ -240,6 +240,14 @@ the manifest watcher.
 - Then deployment does not boot out the LaunchAgent
 - And managed ownership resumes at the next natural login or reboot
 
+**Scenario: Herdr panes do not inherit OpenCode XDG state**
+- Given centralized OpenCode state is configured on an external drive
+- When launchd starts the managed `HerdrServer`
+- Then the server environment contains the explicit state, DBSCTR, and Hermes roots
+- And it does not contain `XDG_DATA_HOME` or `XDG_STATE_HOME`
+- And the managed OpenCode wrapper still routes OpenCode data and state to the external drive
+- And an active server is not restarted merely to adopt the corrected environment
+
 ### Feature: Fail-fast secret loading
 
 **Scenario: OnePassword command hangs**
