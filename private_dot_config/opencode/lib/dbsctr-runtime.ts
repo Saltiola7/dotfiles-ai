@@ -967,6 +967,7 @@ export async function vmHandoff(report: {
   const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
   if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(report.target)) throw new Error("invalid handoff workspace")
+  await runBounded(["sandbox-vm", "parity", report.target], cwd, 120_000, 1024)
   const instance = await runBounded(["sandbox-vm", "instance", report.target], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
@@ -989,7 +990,7 @@ export async function vmHandoff(report: {
       || !paneID.startsWith(`${workspaceID}:`)) throw new Error("VM Herdr returned no workspace pane")
   await runBounded(["limactl", "shell", instance, "--", "herdr", "pane", "run", paneID,
     `export DBSCTR_IMPROVEMENT_WORKER_ID=${report.worker_id}`], cwd, 120_000)
-  const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "DBSCTR Handoff",
+  const output = await runBounded(["limactl", "shell", instance, "--", "herdr", "agent", "start", "dbsctr-handoff",
     "--kind", "opencode", "--pane", paneID, "--timeout", "120000", "--",
     "run", "--agent", "build", "--interactive", prompt], cwd, 180_000)
   let value: any

@@ -185,8 +185,10 @@ def capture_descriptor() -> dict:
             "page_count": 1, "member_count": 1}
 
 
-def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
+def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
+    helper = load_helper()
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    rendered = helper.render_workspace(config(tmp_path), config(tmp_path)["workspaces"][0], template)
     assert "template:_images/fedora-44" in template
     assert "template:fedora-44" not in template
     assert 'vmType: "vz"' in template
@@ -195,7 +197,9 @@ def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     packages = template.split("dnf install -y", 1)[1].splitlines()[0].split()
     assert "podman" in packages
     assert "make" in packages
-    assert "opencode-linux-arm64.tar.gz" in template
+    assert f"/v{helper.OPENCODE_VERSION}/opencode-linux-arm64.tar.gz" in rendered
+    assert helper.OPENCODE_SHA256 in rendered
+    assert helper.OPENCODE_PROVISION_MARKER in rendered
     assert "/usr/local/libexec/opencode --auto" in template
     assert "configparser.ConfigParser" in template
     assert "opencode-real" not in template
@@ -218,6 +222,7 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     rendered = helper.guest_config(values, values["workspaces"][0])
     parsed = tomllib.loads(rendered)
 
+    assert parsed["data"]["machine_type"] == "guest"
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
@@ -280,6 +285,114 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
         helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert len(calls) == 2
+
+
+def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    calls = []
+    state = {"running": False, "provision": []}
+
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": state["provision"]}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[:2] == ["limactl", "edit"]:
+            state["provision"] = [helper.OPENCODE_PROVISION]
+        elif argv[-1:] == [helper.OPENCODE_PROBE]:
+            return "missing"
+        elif argv[-1:] == [helper.OPENCODE_VERIFY]:
+            return helper.OPENCODE_VERSION
+        return ""
+
+    helper.install_opencode(values, values["workspaces"][0], execute=execute)
+
+    assert ["limactl", "edit", "--yes", "--set", helper.OPENCODE_PROVISION_RULE,
+            "workspace1-sandbox"] in calls
+    assert state["running"] is False
+    assert "sudo" not in " ".join(part for call in calls for part in call)
+
+
+def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    states = {"workspace1-sandbox": True, "workspace2-sandbox": False}
+    installed = []
+    updated = []
+
+    def execute(argv, **kwargs):
+        if argv == [helper.HOST_OPENCODE, "--version"]:
+            return helper.OPENCODE_VERSION
+        if argv == ["limactl", "list", "--json"]:
+            return "\n".join(json.dumps({"name": name, "status": "Running" if running else "Stopped",
+                                           "config": {}}) for name, running in states.items())
+        if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
+            states[argv[2]] = argv[1] == "start"
+            return ""
+        if argv[:4] == ["limactl", "shell", argv[2], "--"]:
+            return helper.OPENCODE_VERSION
+        raise AssertionError(argv)
+
+    def installer(config, workspace, execute):
+        installed.append(workspace["name"])
+
+    def updater(config, workspace, execute):
+        assert states[workspace["instance"]]
+        updated.append(workspace["name"])
+
+    result = helper.update_all_workspaces(values, execute=execute, installer=installer, updater=updater)
+
+    assert installed == updated == ["workspace1", "workspace2"]
+    assert states == {"workspace1-sandbox": True, "workspace2-sandbox": False}
+    assert result == {"host": helper.OPENCODE_VERSION,
+                      "workspaces": {"workspace1": helper.OPENCODE_VERSION,
+                                     "workspace2": helper.OPENCODE_VERSION}}
+
+    def stale_host(argv, **kwargs):
+        return "1.18.21" if argv == [helper.HOST_OPENCODE, "--version"] else execute(argv, **kwargs)
+
+    with pytest.raises(RuntimeError, match="host OpenCode version mismatch"):
+        helper.update_all_workspaces(values, execute=stale_host, installer=installer, updater=updater)
+
+    installed.clear()
+    helper.update_all_workspaces(values, execute=execute, installer=installer)
+    assert installed == ["workspace1", "workspace2"]
+    assert updated == ["workspace1", "workspace2"]
+
+
+def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    running = False
+    guest = helper.OPENCODE_VERSION
+
+    def execute(argv, **_kwargs):
+        nonlocal running
+        if argv == [helper.HOST_OPENCODE, "--version"]:
+            return helper.OPENCODE_VERSION
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps({"name": workspace["instance"], "status": "Running" if running else "Stopped"})
+        if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
+            running = argv[1] == "start"
+            return ""
+        if argv[:2] == ["limactl", "shell"]:
+            return guest
+        raise AssertionError(argv)
+
+    assert helper.verify_opencode_parity(values, workspace, execute) == {
+        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION}
+    assert not running
+    guest = "1.18.21"
+    with pytest.raises(RuntimeError, match="workspace1 OpenCode version mismatch"):
+        helper.verify_opencode_parity(values, workspace, execute)
+    assert not running
 
 
 def test_install_make_reprovisions_existing_guest_without_widening_sudo(tmp_path: Path) -> None:
@@ -1248,6 +1361,20 @@ def test_federation_does_not_start_or_stop_transitional_instance(tmp_path: Path)
     assert not any(call[:2] in (["limactl", "start"], ["limactl", "stop"]) for call in calls)
 
 
+def test_state_restoration_waits_for_lima_transition(monkeypatch) -> None:
+    helper = load_helper()
+    statuses = iter(["Starting", "Running"])
+    calls = []
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        return json.dumps({"name": "workspace1-sandbox", "status": next(statuses)})
+
+    monkeypatch.setattr(helper.time, "sleep", lambda _seconds: None)
+    helper._restore_instance_state(execute, "workspace1-sandbox", True)
+    assert not any(call[:2] in (["limactl", "start"], ["limactl", "stop"]) for call in calls)
+
+
 def test_instance_lifecycle_lock_serializes_and_rejects_symlinks(tmp_path: Path) -> None:
     helper = load_helper()
     root = tmp_path / "locks"
@@ -1331,7 +1458,9 @@ def test_status_reports_sparse_allocation(tmp_path: Path) -> None:
 
     values["lima_home"] = ""
     with mock.patch.dict(os.environ, {"LIMA_HOME": str(tmp_path)}, clear=True):
-        assert helper.status_report(values, execute=execute)["host_free_bytes"] == result["host_free_bytes"]
+        fallback = helper.status_report(values, execute=execute)
+    assert fallback["host_free_bytes"] > 0
+    assert fallback["workspaces"] == result["workspaces"]
 
 
 def test_general_controller_exposes_no_handoff_command() -> None:

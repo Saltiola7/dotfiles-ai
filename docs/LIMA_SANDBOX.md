@@ -66,6 +66,8 @@ sandbox-vm shell workspace1
 sandbox-vm status
 sandbox-vm configure-atuin
 sandbox-vm update workspace1
+sandbox-vm update-all
+sandbox-vm parity workspace1
 sandbox-vm install-make workspace1
 workspace1sh
 ```
@@ -82,11 +84,24 @@ workspace1sh -- docker compose version
 workspace1sh -- make --version
 ```
 
-`sandbox-vm update` requires an existing guest to already provide rootless
-Podman before it changes guest files. The current managed Fedora workspaces meet
-that precondition. A legacy guest without Podman must be recreated from the
-current rendered template; the restricted guest account cannot mutate system
-packages.
+`sandbox-vm update` requires the host to run the source-controlled OpenCode
+version, repairs the existing guest's root-owned binary through a checksum-pinned
+Lima system provision, and verifies exact parity before updating user files. It
+also requires an existing guest to already provide rootless Podman. The current
+managed Fedora workspaces meet that precondition. A legacy guest without Podman
+must be recreated from the current rendered template; the restricted guest
+account cannot mutate system packages.
+
+`sandbox-vm update-all` repairs the managed OpenCode runtime for every configured
+workspace in order and restores each VM's prior running or stopped state without
+applying unrelated guest dotfiles. It fails before guest mutation if the host
+version differs from the managed pin. Use this command after advancing the host
+OpenCode package and source pin so all managed runtimes move together; use
+`sandbox-vm update WORKSPACE` separately when guest source should also be applied.
+
+`sandbox-vm parity WORKSPACE` reports exact host and direct guest OpenCode
+versions, fails on any mismatch, and restores a stopped guest after probing it.
+Typed VM handoff runs this check before creating a Herdr workspace.
 
 An existing guest created before GNU Make was added requires
 `sandbox-vm install-make WORKSPACE`. The controller preserves prior running or

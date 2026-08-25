@@ -803,9 +803,18 @@ feature branch with a draft pull request; the operator retains merge authority.
   adds only the Fedora `make` package; the prior running state, VM, credentials,
   containers, images, and named volumes remain.
 - Given an existing workspace, when `sandbox-vm update WORKSPACE` reapplies the
-  source, then the same user-owned Compose provider, compatibility command,
-  1Password CLI, and configured Vertex helpers are installed idempotently without
-  recreating the VM or changing its named volumes.
+  source, then it first repairs the root-owned guest OpenCode binary from the
+  source-controlled version and SHA-256, requires exact host/guest version parity,
+  and then installs the same user-owned Compose provider, compatibility command,
+  1Password CLI, and configured Vertex helpers idempotently without recreating
+  the VM or changing its named volumes.
+- Given every configured workspace must advance together, when `sandbox-vm
+  update-all` runs, then it fails before guest mutation unless the host matches
+  the managed OpenCode version, updates each managed runtime in configured order,
+  verifies every direct guest binary, and restores each workspace's prior
+  running state without applying unrelated guest dotfiles.
+- Given guest Chezmoi state survives source upgrades, generated guest config
+  declares `data.machine_type = "guest"` before applying the updated source.
 - Given a guest invokes `docker compose`, when the compatibility command routes
   it, then Docker Compose v2 targets the rootless Podman engine and existing
   project Make targets retain their Colima-compatible command surface.
