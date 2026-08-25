@@ -9,8 +9,8 @@
 - Made typed VM handoff fail before Herdr mutation on stale runtime parity and
   use the valid lowercase `dbsctr-handoff` agent while retaining hard-coded
   interactive Build authority.
-- Deployed the targeted host files and checksum-pinned runtime to `personal` and
-  `mgm`. Both guests and the host report 1.18.23, both VMs returned running, both
+- Deployed the targeted host files and checksum-pinned runtime to both configured
+  guests. The guests and host report 1.18.23, both VMs returned running, both
   interactive Build parser smokes passed without inference, and targeted host
   drift is zero.
 - All 97 affected tests, Python compilation, canonical ticket validation, Git
