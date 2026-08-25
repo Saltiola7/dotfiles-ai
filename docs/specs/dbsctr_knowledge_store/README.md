@@ -1290,9 +1290,9 @@ query.
 | Behavior | required | passed | Cold, warm, corruption, failure, restart, and rollback scenarios resolved |
 | Spec | required | passed | Cache schema, execution receipt, schema 7, status, operation interfaces, and accessible flow updated |
 | Contract | required | passed | Exact identities, private locking, atomic publication, parity, and prior-active preservation required |
-| Test-driven implementation | required | pending | Focused compatibility, cache, receipt, migration, reconcile, and rollback checks |
-| Refactor | required | pending | Reuse existing sandbox, hashing, locking, atomic-write, import, and fallback paths |
-| Review/Integrate | required | pending | Fixed-commit affected review and integration evidence |
+| Test-driven implementation | required | passed | 88 focused compatibility, cache, receipt, schema, installer, reconcile, and rollback checks plus real `0.9.50` cold/warm/corruption parity |
+| Refactor | required | passed | Reused the existing sandbox, hashing, locking, atomic-write, import, and fallback paths; no daemon or cache authority added |
+| Review/Integrate | required | passed | Independent fixed-commit review found five issues; remediation and recovery tests passed final re-review with no findings |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
 | Deploy | required | pending | Immutable runtime installation and schema 7 migration |
 | Operate | required | pending | Healthy reconcile, cold/warm parity, restart, and bounded diagnostics |

@@ -10,6 +10,18 @@
 - Retained immutable `0.9.48` runtime material for rollback and deferred deployment,
   schema migration, and live reconciliation to separate operator approval.
 
+## 2026-08-25 - DKS-008 Implementation
+
+- Pinned and verified Graphify `0.9.50`, added an owner-private locked atomic
+  whole-extraction cache, and retained validated sanitized receipts in schema 7.
+- Proved byte-identical cold, warm, and corruption-recovery artifacts against the
+  real runtime; 88 focused tests cover compatibility, permissions, installer
+  verification, cache recovery, receipt freshness, schema, and prior-active safety.
+- Independent review drove runtime installer, schema constraint, corruption, and
+  freshness hardening; final fixed-commit re-review found no remaining issue.
+- Local runtime installation, schema migration, reconciliation, operation, and
+  rollback verification remain pending separate deployment approval.
+
 ## 2026-08-25 - DKS-007 Recovery
 
 - Accepted upstream PR #50's canonical DKS-005 state correction after affected

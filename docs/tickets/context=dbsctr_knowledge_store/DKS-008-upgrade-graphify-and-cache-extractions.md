@@ -38,7 +38,12 @@ validation:
 created: 2026-08-25
 updated: 2026-08-25
 completed: null
-commits: []
+commits:
+  - 066afd0
+  - f74b9cd
+  - dd67877
+  - e67570e
+  - 9e54fa5
 jira_publications: []
 migration: null
 ---
@@ -105,6 +110,16 @@ producer and transactional importer, and verified that no persistent extraction
 cache or dedicated cache authority exists. The current runtime and producer remain
 available as rollback identities until post-deployment operation checks pass.
 
+Implementation produced byte-identical cold, warm, and corruption-recovery graph
+artifacts with pinned runtime SHA-256
+`26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e`.
+All 88 focused tests and Python/shell syntax checks pass. Repository-wide PM ticket
+validation retains one unrelated V3.37 YAML finding; focused DKS-008 validation
+has no finding.
+
 ## Review
 
-Pending fixed-commit affected review after implementation and scoped QA.
+Independent review found installer verification, upgraded-schema receipt,
+directory-corruption, freshness, symlink-path, and recovery-test gaps. The fixes
+passed final fixed-commit re-review with no findings. The real pre-v7 PostgreSQL
+migration remains deploy-gate evidence and is not claimed by static tests.
