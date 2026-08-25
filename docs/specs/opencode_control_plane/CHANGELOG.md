@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-25 - Managed VM Handoff Runtime Parity
+
+- Required exact managed host/guest OpenCode parity before VM handoff creates a
+  Herdr workspace and replaced the invalid uppercase handoff identity with
+  `dbsctr-handoff`; callers still cannot select a different agent or authority.
+- Both managed guests accept `run --agent build --interactive` on OpenCode
+  1.18.23. The parser smoke used no model inference; regression and affected
+  control-plane tests passed.
+
 ## 2026-08-25 - Canonical Completion Reconciliation
 
 - Closed OCP-31, OCP-36, OCP-37, and OCP-39 against their retained implementation,

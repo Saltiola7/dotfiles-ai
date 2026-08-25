@@ -521,6 +521,9 @@ def guest_config(config, workspace):
         'sourceDir = "~/.local/share/chezmoi-dotfiles-ai"',
         'persistentState = "~/.config/dotfiles-ai/chezmoi.boltdb"',
         "",
+        "[data]",
+        'machine_type = "guest"',
+        "",
         "[data.dotfiles_ai.opencode]",
         f"vertex_project = {quote(guest['vertex_project'])}",
         f"vertex_location = {quote(guest['vertex_location'])}",
@@ -795,7 +798,7 @@ def verify_opencode_parity(config, workspace, execute=command):
     return {"host": host, "guest": guest}
 
 
-def update_managed_workspace(config, workspace, execute=command, installer=None, updater=update_workspace):
+def update_managed_workspace(config, workspace, execute=command, installer=None, updater=None):
     instance = workspace["instance"]
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
     with _instance_lock(lock_root, instance):
@@ -807,13 +810,14 @@ def update_managed_workspace(config, workspace, execute=command, installer=None,
                 installer(config, workspace, execute)
             if not running:
                 execute(["limactl", "start", instance], timeout=120)
-            updater(config, workspace, execute)
+            if updater is not None:
+                updater(config, workspace, execute)
             return guest_opencode_version(workspace, execute)
         finally:
             _restore_instance_state(execute, instance, running)
 
 
-def update_all_workspaces(config, execute=command, installer=None, updater=update_workspace):
+def update_all_workspaces(config, execute=command, installer=None, updater=None):
     host = host_opencode_version(execute)
     versions = {}
     for workspace in config["workspaces"]:
@@ -1720,7 +1724,7 @@ def main(argv=None, invocation=None):
         return
     if args.command == "update":
         host = host_opencode_version()
-        guest = update_managed_workspace(config, workspace)
+        guest = update_managed_workspace(config, workspace, updater=update_workspace)
         print(json.dumps({"workspace": args.workspace, "status": "updated", "opencode": {"host": host, "guest": guest},
                           "allocation": status_report(config)}, sort_keys=True))
 

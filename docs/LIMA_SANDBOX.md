@@ -92,11 +92,12 @@ managed Fedora workspaces meet that precondition. A legacy guest without Podman
 must be recreated from the current rendered template; the restricted guest
 account cannot mutate system packages.
 
-`sandbox-vm update-all` performs the same repair and update for every configured
-workspace in order and restores each VM's prior running or stopped state. It
-fails before guest mutation if the host version differs from the managed pin.
-Use this command after advancing the host OpenCode package and source pin so all
-managed runtimes move together.
+`sandbox-vm update-all` repairs the managed OpenCode runtime for every configured
+workspace in order and restores each VM's prior running or stopped state without
+applying unrelated guest dotfiles. It fails before guest mutation if the host
+version differs from the managed pin. Use this command after advancing the host
+OpenCode package and source pin so all managed runtimes move together; use
+`sandbox-vm update WORKSPACE` separately when guest source should also be applied.
 
 `sandbox-vm parity WORKSPACE` reports exact host and direct guest OpenCode
 versions, fails on any mismatch, and restores a stopped guest after probing it.

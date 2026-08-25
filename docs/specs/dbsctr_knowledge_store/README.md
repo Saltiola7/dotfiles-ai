@@ -3,7 +3,7 @@ title: DBSCTR Knowledge Store
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-22
+last_updated: 2026-08-25
 ---
 
 # DBSCTR Knowledge Store
@@ -69,6 +69,16 @@ last_updated: 2026-08-22
 | Scope | Commit `45096bb03891e9771a891d53f92b23863ae08a3e`; five fixed 20-query strata; AI-generated source-cited silver evidence; four-cell local execution; fixed seven-day trial; expiry, health, identity, and manual rollback |
 | Isolation | Hosted generation receives committed Git at the frozen revision only; private DBSCTR authority, transcripts, credentials, uncommitted files, projection bodies, and candidate results remain local |
 | Non-goals | Human-ground-truth claims, training or tuning on silver evidence, permanent activation from silver evidence, hosted retrieval execution, production `pg_textsearch`, and unsupported PostgreSQL 19 extension installation |
+
+### DKS-007 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | `elevated`: repairs canonical work authority and recovers a stale private production projection while preserving source truth and baseline ranking |
+| Delivery intent | Merge the authority correction, restore the local projection to the merged `origin/main`, and verify unattended convergence |
+| Scope | Correct DKS-005 PM state; observe or retry the active reconciliation; diagnose and minimally repair only a reproducible reconcile failure; verify Git, code, graph, authority, scheduler, and ranking identities |
+| Isolation | Git and typed DBSCTR stores remain authoritative; PostgreSQL remains rebuildable; logs and evidence stay local and content-safe; recovery uses the configured immutable remote ref only |
+| Non-goals | New retrieval behavior, model or schema migration, benchmark rerun, quality-policy activation, PostgreSQL-canonical writes, DKS-006 execution, or unrelated repository ticket repair |
 
 Applicable modules are ML/AI, data, security, and local deployment operations.
 
@@ -1240,6 +1250,22 @@ query.
 | Deploy | required | passed | Schema 6 migration and scoped chezmoi apply of validated runner, model guard, and trial commands |
 | Operate | required | passed | Complete 100-query matrix, warning-pressure denial, scheduler restoration, and retained `dks-rrf-v1` baseline |
 | Maintain/Retire | required | passed | Trial expiry, silver invalidation, human v2 compatibility, baseline retention, and tool removal checks |
+
+### DKS-007
+
+| Gate | Applicability | Result | Evidence |
+|---|---|---|---|
+| Domain | required | passed | Canonical PM authority, immutable remote ref, rebuildable projection, scheduler, and baseline ranking boundaries verified |
+| Behavior | required | passed | Upstream ticket correction, retained prior-valid state, one recovery retry, healthy convergence, and unchanged follow-up verified |
+| Spec | required | passed | Existing PM schema, `dksctl` JSON, launchd interval, and runbook interfaces were sufficient without change |
+| Contract | required | passed | Immutable source, content-safe diagnostics, prior-valid preservation, idempotent recovery, and no candidate activation held |
+| Test-driven implementation | required | passed | Affected PM findings were empty and all 84 focused DKS tests passed; no runtime code defect reproduced |
+| Refactor | required | passed | Reused the existing runbook and reconcile path; skipped duplicate ticket and speculative runtime changes |
+| Review/Integrate | required | passed | Independent review found one unbound-detail issue; exact details were removed and re-review found no remaining findings |
+| Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
+| Deploy | required | passed | One runbook retry converged all channels to `87d20d0`; bound unchanged-reconcile evidence passed |
+| Operate | required | passed | Bound doctor evidence passed with active and target revisions equal, fresh channels, and baseline ranking |
+| Maintain/Retire | required | passed | Existing prior-valid retention, baseline rollback, logs, disablement, and rebuild procedures remained sufficient |
 
 ## Decisions And Risks
 

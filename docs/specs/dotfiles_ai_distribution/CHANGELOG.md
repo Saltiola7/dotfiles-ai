@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-25 - DAI-030 Managed OpenCode Runtime Parity
+
+- Centralized the reviewed OpenCode 1.18.23 Linux arm64 release and SHA-256,
+  added idempotent existing-guest repair, exact parity checks, ordered all-guest
+  runtime updates, and prior-state restoration without forcing unrelated guest
+  dotfile changes.
+- Made typed VM handoff fail before Herdr mutation on stale runtime parity and
+  use the valid lowercase `dbsctr-handoff` agent while retaining hard-coded
+  interactive Build authority.
+- Deployed the targeted host files and checksum-pinned runtime to `personal` and
+  `mgm`. Both guests and the host report 1.18.23, both VMs returned running, both
+  interactive Build parser smokes passed without inference, and targeted host
+  drift is zero.
+- All 97 affected tests, Python compilation, canonical ticket validation, Git
+  whitespace validation, and independent review passed. Gate Exceptions: none.
+  Gate Commits: `7960961`, `57b138c`. Intended Final Push: feature branch and
+  draft pull request into protected `main`.
+
 ## 2026-08-25 - DAI-029 Lifecycle Artifact Reconciliation
 
 - Reconciled five delivered OCP/OIC tickets with their committed completion

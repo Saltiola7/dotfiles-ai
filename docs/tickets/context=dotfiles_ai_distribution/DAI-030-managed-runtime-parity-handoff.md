@@ -5,7 +5,7 @@ slug: "managed-runtime-parity-handoff"
 context: "dotfiles_ai_distribution"
 title: "Enforce managed OpenCode parity for VM handoff"
 kind: "bug"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: 3
 depends_on:
@@ -21,8 +21,10 @@ validation:
   - "Focused sandbox/control-plane tests, rendered Lima validation, exact host/guest version probes, live two-workspace update, and handoff smoke"
 created: "2026-08-25"
 updated: "2026-08-25"
-completed: null
-commits: []
+completed: "2026-08-25"
+commits:
+  - "796096117787858d23d89510aba6b9e086c6eee3"
+  - "57b138cdaa3fda14339f091ff62eac03836ddbb0"
 jira_publications: []
 migration: null
 ---
@@ -53,6 +55,7 @@ surface, while Herdr rejected the uppercase `DBSCTR Handoff` agent identity.
 - Single-workspace update fails closed on host or guest version mismatch.
 - `sandbox-vm update-all` updates every configured workspace and restores mixed
   running/stopped states.
+- Existing guest Chezmoi state accepts the regenerated explicit guest machine type.
 - Handoff uses `dbsctr-handoff` and `run --agent build --interactive`; callers
   cannot select another agent.
 - Focused tests, rendered template validation, live parity probes, and an approved
@@ -61,7 +64,10 @@ surface, while Herdr rejected the uppercase `DBSCTR Handoff` agent identity.
 ## Evidence
 
 The parity and lowercase-agent regression checks failed before implementation and
-passed after the minimum managed-provision and adapter changes.
+passed after the minimum managed-provision and adapter changes. All 97 affected
+tests passed. The checksum-pinned 1.18.23 runtime deployed to both configured
+guests; exact parity, interactive Build argv parsing, state restoration, and
+zero targeted host drift passed without model inference.
 
 ## Risks
 

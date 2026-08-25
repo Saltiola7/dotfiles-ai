@@ -222,6 +222,7 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
     rendered = helper.guest_config(values, values["workspaces"][0])
     parsed = tomllib.loads(rendered)
 
+    assert parsed["data"]["machine_type"] == "guest"
     assert parsed["data"]["dotfiles_ai"]["opencode"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["herdr"]["theme"] == "catppuccin"
     assert parsed["data"]["dotfiles_ai"]["atuin"]["sync_address"] == "https://atuin.example.com"
@@ -358,6 +359,11 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
 
     with pytest.raises(RuntimeError, match="host OpenCode version mismatch"):
         helper.update_all_workspaces(values, execute=stale_host, installer=installer, updater=updater)
+
+    installed.clear()
+    helper.update_all_workspaces(values, execute=execute, installer=installer)
+    assert installed == ["workspace1", "workspace2"]
+    assert updated == ["workspace1", "workspace2"]
 
 
 def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path) -> None:
