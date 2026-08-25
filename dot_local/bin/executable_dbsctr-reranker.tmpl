@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import math
 import os
+import resource
 import stat
 import sys
 import threading
@@ -37,6 +38,15 @@ KEY = Path.home() / ".config/dotfiles-ai/private/reranker-api-key"
 MANIFEST = Path.home() / ".config/dotfiles-ai/knowledge/reranker-space.json"
 PORT = {{ .dotfiles_ai.knowledge_store.reranker_port }}
 LOCK = threading.Lock()
+BATCH_SIZE = 1
+CONTEXT_TOKENS = 4096
+MAX_MPS_MEMORY_GIB = 20
+MAX_PROCESS_MEMORY_GIB = 24
+
+
+def enforce_process_memory():
+    if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss > MAX_PROCESS_MEMORY_GIB * 1024 ** 3:
+        raise RuntimeError("reranker process memory limit exceeded")
 
 
 def digest(path):
@@ -67,10 +77,16 @@ def verify():
     manifest = json.loads(MANIFEST.read_text())
     if (manifest.get("reranker_id") != "qwen3-reranker-4b-mps-22e68366-v1"
             or manifest.get("model", {}).get("revision") != REVISION
-            or manifest.get("contract", {}).get("template_sha256")
-            != hashlib.sha256(TEMPLATE.encode()).hexdigest()
+            or manifest.get("contract") != {
+                "batch_size": BATCH_SIZE, "context_tokens": CONTEXT_TOKENS,
+                "instruction": INSTRUCTION, "logits_to_keep": 1,
+                "max_mps_memory_gib": MAX_MPS_MEMORY_GIB,
+                "max_process_memory_gib": MAX_PROCESS_MEMORY_GIB,
+                "score": "binary_softmax_yes",
+                "template_sha256": hashlib.sha256(TEMPLATE.encode()).hexdigest(),
+                "truncation": "longest_first", "use_cache": False}
             or manifest.get("service") != {"host":"127.0.0.1", "port":PORT,
-                                            "artifact_root":str(ARTIFACT_ROOT)}):
+                                             "artifact_root":str(ARTIFACT_ROOT)}):
         raise RuntimeError("reranker manifest identity mismatch")
     return key
 
@@ -80,10 +96,16 @@ def load_model():
     from transformers import AutoModelForCausalLM, AutoTokenizer
     if not torch.backends.mps.is_available():
         raise RuntimeError("reranker MPS unavailable")
+    recommended = torch.mps.recommended_max_memory()
+    if recommended <= 0:
+        raise RuntimeError("reranker MPS memory identity unavailable")
+    limit = MAX_MPS_MEMORY_GIB * 1024 ** 3
+    torch.mps.set_per_process_memory_fraction(float(min(1, limit / recommended)))
     tokenizer = AutoTokenizer.from_pretrained(
         MODEL, local_files_only=True, trust_remote_code=False, padding_side="left")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL, local_files_only=True, trust_remote_code=False, dtype=torch.float16).to("mps").eval()
+    enforce_process_memory()
     no_id, yes_id = (tokenizer.convert_tokens_to_ids(value) for value in ("no", "yes"))
     if no_id == tokenizer.unk_token_id or yes_id == tokenizer.unk_token_id:
         raise RuntimeError("reranker score tokens unavailable")
@@ -98,7 +120,7 @@ def prompt_ids(tokenizer, query, document):
     suffix = tokenizer.encode(after, add_special_tokens=False)
     query_ids = tokenizer.encode(query, add_special_tokens=False)
     document_ids = tokenizer.encode(document, add_special_tokens=False)
-    budget = 8192 - len(fixed) - len(middle) - len(suffix)
+    budget = CONTEXT_TOKENS - len(fixed) - len(middle) - len(suffix)
     if budget < 2:
         raise RuntimeError("reranker template exceeds context")
     while len(query_ids) + len(document_ids) > budget:
@@ -110,11 +132,20 @@ def score(state, query, documents):
     torch, tokenizer, model, no_id, yes_id = state
     scores = []
     with LOCK, torch.inference_mode():
-        for offset in range(0, len(documents), 8):
-            rows = [prompt_ids(tokenizer, query, document) for document in documents[offset:offset + 8]]
-            batch = tokenizer.pad({"input_ids": rows}, padding=True, return_tensors="pt").to("mps")
-            logits = model(**batch).logits[:, -1, [no_id, yes_id]]
-            scores.extend(torch.softmax(logits, dim=1)[:, 1].float().cpu().tolist())
+        try:
+            enforce_process_memory()
+            for offset in range(0, len(documents), BATCH_SIZE):
+                rows = [prompt_ids(tokenizer, query, document)
+                        for document in documents[offset:offset + BATCH_SIZE]]
+                batch = tokenizer.pad({"input_ids": rows}, padding=True, return_tensors="pt").to("mps")
+                logits = model(**batch, use_cache=False, logits_to_keep=1).logits[:, -1, [no_id, yes_id]]
+                scores.extend(torch.softmax(logits, dim=1)[:, 1].float().cpu().tolist())
+                del batch, logits
+                torch.mps.empty_cache()
+                enforce_process_memory()
+        except Exception:
+            torch.mps.empty_cache()
+            raise
     if len(scores) != len(documents) or any(not math.isfinite(item) or not 0 <= item <= 1 for item in scores):
         raise RuntimeError("reranker score invalid")
     return scores
@@ -134,7 +165,14 @@ def serve():
             self.end_headers()
             self.wfile.write(body)
         def do_GET(self):
-            self.send_json(200, {"ready":True,"model":MODEL_ID,"revision":REVISION}) \
+            try:
+                enforce_process_memory()
+                ready = True
+            except RuntimeError:
+                ready = False
+            self.send_json(200, {"ready":ready,"model":MODEL_ID,"revision":REVISION,
+                                 "batch_size":BATCH_SIZE,"max_mps_memory_gib":MAX_MPS_MEMORY_GIB,
+                                 "max_process_memory_gib":MAX_PROCESS_MEMORY_GIB}) \
                 if self.path == "/health" else self.send_json(404, {"error":"not found"})
         def do_POST(self):
             if self.path != "/rerank":

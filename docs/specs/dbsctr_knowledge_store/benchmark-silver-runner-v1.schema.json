@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dotfiles-ai.local/dks/benchmark-silver-runner-v1.schema.json",
+  "title": "DKS local silver benchmark evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_class", "suite_sha256", "execution_depth", "reported_depths", "identities", "queries", "resources", "telemetry_samples", "receipt_hmac_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_class": {"const": "silver"},
+    "suite_sha256": {"$ref": "#/$defs/sha256"},
+    "execution_depth": {"const": 100},
+    "reported_depths": {"const": [20, 50, 100]},
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_revision", "source_profile_sha256", "source_projection_sha256", "authority_snapshot_set_sha256", "authority_projection_sha256", "privacy_sequence", "privacy_digest", "graph_artifact_sha256", "general_embedding_manifest_sha256", "code_embedding_manifest_sha256", "reranker_manifest_sha256"],
+      "properties": {
+        "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "source_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "source_projection_sha256": {"$ref": "#/$defs/sha256"},
+        "authority_snapshot_set_sha256": {"$ref": "#/$defs/sha256"},
+        "authority_projection_sha256": {"$ref": "#/$defs/sha256"},
+        "privacy_sequence": {"type": "integer", "minimum": 0},
+        "privacy_digest": {"$ref": "#/$defs/sha256"},
+        "graph_artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "general_embedding_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "code_embedding_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "reranker_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "queries": {"type": "array", "minItems": 100, "maxItems": 100, "items": {"$ref": "#/$defs/query"}},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "reranker"],
+      "properties": {"code": {"$ref": "#/$defs/resource"}, "reranker": {"$ref": "#/$defs/resource"}}
+    },
+    "telemetry_samples": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/telemetry"}},
+    "receipt_hmac_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ranking": {"type": "array", "minItems": 100, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+    "systemRankings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "code", "reranker", "code_reranker"],
+      "properties": {"baseline": {"$ref": "#/$defs/ranking"}, "code": {"$ref": "#/$defs/ranking"}, "reranker": {"$ref": "#/$defs/ranking"}, "code_reranker": {"$ref": "#/$defs/ranking"}}
+    },
+    "systemCitations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "code", "reranker", "code_reranker"],
+      "properties": {"baseline": {"$ref": "#/$defs/citationList"}, "code": {"$ref": "#/$defs/citationList"}, "reranker": {"$ref": "#/$defs/citationList"}, "code_reranker": {"$ref": "#/$defs/citationList"}}
+    },
+    "citationList": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+    "systemRuns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "code", "reranker", "code_reranker"],
+      "properties": {"baseline": {"$ref": "#/$defs/runs"}, "code": {"$ref": "#/$defs/runs"}, "reranker": {"$ref": "#/$defs/runs"}, "code_reranker": {"$ref": "#/$defs/runs"}}
+    },
+    "runs": {"type": "array", "minItems": 2, "items": {"type": "number", "minimum": 0}},
+    "systemRepeats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "code", "reranker", "code_reranker"],
+      "properties": {"baseline": {"$ref": "#/$defs/repeats"}, "code": {"$ref": "#/$defs/repeats"}, "reranker": {"$ref": "#/$defs/repeats"}, "code_reranker": {"$ref": "#/$defs/repeats"}}
+    },
+    "repeats": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/ranking"}},
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "stratum", "judgments", "expected_citations", "rankings", "citations", "runs_seconds", "repeat_rankings"],
+      "properties": {
+        "query_id": {"type": "string", "minLength": 1},
+        "stratum": {"type": "string", "minLength": 1},
+        "judgments": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 3}},
+        "expected_citations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+        "rankings": {"$ref": "#/$defs/systemRankings"},
+        "citations": {"$ref": "#/$defs/systemCitations"},
+        "runs_seconds": {"$ref": "#/$defs/systemRuns"},
+        "repeat_rankings": {"$ref": "#/$defs/systemRepeats"}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peak_memory_gib", "memory_pressure", "swap_growth_bytes"],
+      "properties": {
+        "peak_memory_gib": {"type": "number", "minimum": 0},
+        "memory_pressure": {"enum": ["normal", "warning", "critical"]},
+        "swap_growth_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["captured_at", "memory_gib", "memory_pressure", "swap_used_bytes"],
+      "properties": {
+        "captured_at": {"type": "number", "minimum": 0},
+        "memory_gib": {"type": "number", "minimum": 0},
+        "memory_pressure": {"enum": ["normal", "warning", "critical"]},
+        "swap_used_bytes": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

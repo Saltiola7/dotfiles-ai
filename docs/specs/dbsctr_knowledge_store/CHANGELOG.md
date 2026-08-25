@@ -99,8 +99,10 @@
 - Planned benchmark corrections around separate pre-generation and post-assessment
   lineage, a complete offline four-cell/three-depth runner, per-query citation
   safety, blinded assessment evidence, and machine-captured telemetry.
-- Split human assessment into dependent DKS-005 and an isolated recommendation-only
-  `pg_search` bakeoff into DKS-006; production PostgreSQL 19 remains untouched.
+- Split retrieval assessment into dependent DKS-005 and an isolated
+  recommendation-only BM25 bakeoff in DKS-006; production PostgreSQL 19 remains
+  untouched. Later source verification corrected the extension identity from
+  ParadeDB `pg_search` to Tiger Data `pg_textsearch`.
 
 ## 2026-08-21 - DKS-004 Delivery
 
@@ -114,3 +116,20 @@
   independent final review found no P0/P1 issues.
 - Gate commits: `4d3c35d`, `5cdca8a`, `bf9377e`, `b584f53`, `3c47cea`,
   `bc50702`, and `81ae12b`. Release remained not applicable.
+
+## 2026-08-24 - DKS-005 Delivery
+
+- Added the committed 100-query silver suite, exact fixed-commit provenance,
+  four-cell local runner, continuously sampled HMAC-bound evidence, schema 6
+  trial lease, and automatic baseline restoration.
+- Bounded Qwen3-Reranker-4B to batch 1, 4,096 tokens, cache-free last-token
+  logits, 20 GiB MPS allocation, and 24 GiB process footprint; the final real
+  depth-100 smoke stayed near 11.46 GB while kernel pressure moved from normal
+  to warning and swap usage decreased.
+- Completed the matrix at aggregate SHA-256
+  `837271160639c5148d75984eba53c068fc20fd049e732824be080fd84c3c5b0b`.
+  Code vectors regressed quality; reranking improved nDCG but failed citation,
+  latency, kernel-pressure, peak-memory, and swap gates. Neither candidate
+  activated, and `dks-rrf-v1` remained the production policy.
+- Retained DKS-006 as recommendation-only and blocked production
+  `pg_textsearch` work solely on official PostgreSQL 19 support.

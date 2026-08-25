@@ -1,0 +1,14 @@
+# DKS-005 Silver Review Prompt
+
+Review the complete proposed `dks-silver-v1` question array against only Git
+objects at commit `45096bb03891e9771a891d53f92b23863ae08a3e`. Do not inspect
+private DBSCTR authority, transcripts, credentials, PostgreSQL content,
+uncommitted files, or retrieval candidates/results.
+
+Verify all 100 IDs and five 20-question strata, question uniqueness and
+answerability, exact citation path/quote support, grade 3 grounding, and absence
+of candidate leakage. Return only one JSON object with keys `decision`,
+`reviewed_count`, `finding_count`, and `findings`. `decision` is `approved` only
+when every question is supported; otherwise use `rejected` and identify each
+question requiring correction without proposing relevance labels from retrieval
+results.
