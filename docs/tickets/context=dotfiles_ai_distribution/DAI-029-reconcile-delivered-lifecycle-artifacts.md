@@ -5,7 +5,7 @@ slug: "reconcile-delivered-lifecycle-artifacts"
 context: "dotfiles_ai_distribution"
 title: "Reconcile delivered lifecycle artifacts"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
@@ -25,8 +25,9 @@ validation:
   - "Canonical ticket validation, focused unavailable-cost characterization, lifecycle audit, and Git whitespace validation"
 created: "2026-08-25"
 updated: "2026-08-25"
-completed: null
-commits: []
+completed: "2026-08-25"
+commits:
+  - "d67435d377bfdc1cf084d81b896a490dd33896bc"
 jira_publications: []
 migration: null
 ---
@@ -78,3 +79,6 @@ completion or retirement based only on age.
   retired with disposition `empty`.
 - AUTH-014 was clean with no ahead commits, but typed retirement rejected its
   `finalizing` state; no direct cycle-record mutation was made.
+- All 160 focused `dbsctrctl` tests, canonical ticket validation with zero
+  findings, lifecycle artifact checks, and Git whitespace validation passed.
+- Development Kernel Gate Commit: `d67435d377bfdc1cf084d81b896a490dd33896bc`.
