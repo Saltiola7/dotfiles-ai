@@ -6,6 +6,7 @@
     <string>dev.dotfiles-ai.herdr-server</string>
     <key>ProgramArguments</key>
     <array>
+        <string>{{ printf "%s/.local/bin/herdr-launchagent-supervisor" .chezmoi.homeDir | html }}</string>
         <string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
         <string>{{ printf "%s/.local/bin/herdr-server-owner" .chezmoi.homeDir | html }}</string>
     </array>

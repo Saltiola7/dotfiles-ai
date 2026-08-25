@@ -1,6 +1,7 @@
 #!/bin/bash
 # Keep Herdr in Aqua so persistent panes can access the login Keychain.
 # plist hash: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl" | sha256sum }}
+# responsibility supervisor: {{ include ".chezmoitemplates/herdr-launchagent-supervisor.c" | sha256sum }}
 # owner wrapper: {{ include "dot_local/bin/executable_herdr-server-owner.tmpl" | sha256sum }}
 # enabled: {{ .dotfiles_ai.herdr.launchagent }}
 
@@ -11,6 +12,7 @@ PLIST="$HOME/Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
 DOMAIN="gui/$(id -u)"
 LABEL="dev.dotfiles-ai.herdr-server"
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+SUPERVISOR="$HOME/.local/bin/herdr-launchagent-supervisor"
 case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 
 herdr_server_running() {
@@ -43,6 +45,7 @@ exit 0
 {{ end -}}
 
 [[ -f "$PLIST" ]] || exit 0
+[[ -x "$SUPERVISOR" ]] || { echo "[herdr-launchagent] native responsibility supervisor is unavailable" >&2; exit 1; }
 mkdir -p "$HOME/Library/Logs"
 
 if herdr_server_running || managed_job_running; then

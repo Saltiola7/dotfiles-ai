@@ -1,0 +1,21 @@
+#!/bin/bash
+# source hash: {{ include ".chezmoitemplates/herdr-launchagent-supervisor.c" | sha256sum }}
+
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+TARGET="$HOME/.local/bin/herdr-launchagent-supervisor"
+[[ -x /usr/bin/clang ]] || { echo "clang is required to build the Herdr LaunchAgent supervisor" >&2; exit 1; }
+
+/bin/mkdir -p "${TARGET%/*}"
+tmp=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/herdr-supervisor.XXXXXX")
+trap '/bin/rm -rf "$tmp"' EXIT
+source="$tmp/herdr-launchagent-supervisor.c"
+staged="$tmp/herdr-launchagent-supervisor"
+/bin/cat > "$source" <<'HERDR_SUPERVISOR_SOURCE'
+{{ include ".chezmoitemplates/herdr-launchagent-supervisor.c" -}}
+HERDR_SUPERVISOR_SOURCE
+/usr/bin/clang -std=c11 -Os -Wall -Wextra -Werror "$source" -o "$staged"
+/usr/bin/codesign --force --sign - --identifier dev.dotfiles-ai.herdr-launchagent-supervisor "$staged"
+/bin/chmod 755 "$staged"
+/bin/mv -f "$staged" "$TARGET"
