@@ -38,14 +38,16 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True).stdout.strip()
 
 
-def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/lmstudio") -> str:
+def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/lmstudio",
+           quality_model_root: str = "/Volumes/ext/state/models",
+           state_root: str = "/Volumes/ext/state") -> str:
     values = {
         "dotfiles_ai": {
-            "state": {"root": "/Volumes/ext/state"},
+            "state": {"root": state_root},
             "knowledge_store": {
                 "enabled": enabled,
                 "model_root": model_root,
-                "quality_model_root": "/Volumes/ext/state/models",
+                "quality_model_root": quality_model_root,
                 "embedding_port": 11435,
                 "embedding_dimensions": 4096,
                 "embedding_context_tokens": 4096,
@@ -219,6 +221,40 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     for name in ("code-embedding", "reranker"):
         manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
         assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
+
+
+def test_quality_installer_verifies_new_and_existing_graphify_runtime(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    state = tmp_path / "state"
+    source = tmp_path / "models"
+    (state / "dbsctr/knowledge/private").mkdir(parents=True)
+    (source / "dbsctr/llama.cpp-0e1d9185/build/bin").mkdir(parents=True)
+    (source / "dbsctr/graphify-sql-0.9.50").mkdir(parents=True)
+    (source / "dbsctr/graphify-sql-0.9.50/valid").write_text("valid")
+    (source / "dbsctr/reranker-venv/bin").mkdir(parents=True)
+    (home / ".local/bin").mkdir(parents=True)
+    for path in (state / "dbsctr/knowledge/private/launch-sha256",
+                 source / "dbsctr/reranker-venv/bin/python",
+                 home / ".local/bin/dbsctr-code-embedding"):
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    verifier = home / ".local/bin/dbsctr-graphify"
+    verifier.write_text(
+        '#!/bin/sh\ntest "$1" = --verify-runtime\nprintf "%s\\n" "$2" >>"$VERIFY_LOG"\ntest -f "$2/valid"\n')
+    verifier.chmod(0o755)
+    rendered = render("run_onchange_after_install-dbsctr-quality-services.sh.tmpl",
+                      quality_model_root=str(source), state_root=str(state))
+    log = tmp_path / "verify.log"
+    env = {**os.environ, "HOME": str(home), "VERIFY_LOG": str(log)}
+
+    subprocess.run(["/bin/bash"], input=rendered, text=True, env=env, check=True)
+    target = home / ".config/dotfiles-ai/runtime/graphify-sql-0.9.50-26b1be94"
+    assert target.is_dir() and len(log.read_text().splitlines()) == 2
+
+    target.chmod(0o700)
+    (target / "valid").unlink()
+    failed = subprocess.run(["/bin/bash"], input=rendered, text=True, env=env)
+    assert failed.returncode != 0 and target.is_dir()
 
 
 def test_reranker_health_requires_memory_contract(monkeypatch) -> None:
@@ -663,6 +699,11 @@ def test_graphify_cache_is_private_atomic_corruption_tolerant_and_stable(tmp_pat
 
     entry.mkdir()
     (entry / "partial").write_text("corrupt")
+    with graphify.cache_lock(namespace):
+        assert graphify.load_cached_extraction(entry, identity) is None
+    assert not entry.exists()
+
+    os.mkfifo(entry, 0o600)
     with graphify.cache_lock(namespace):
         assert graphify.load_cached_extraction(entry, identity) is None
     assert not entry.exists()
@@ -2116,6 +2157,9 @@ def test_git_and_graph_freshness_bind_complete_identities(tmp_path: Path) -> Non
                                   {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
     assert not dks.graph_is_fresh(
         {"graphify": {**graph, "execution_receipt": {**receipt, "cache_hit": "true"}}},
+        {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
+    assert not dks.graph_is_fresh(
+        {"graphify": {**graph, "execution_receipt_sha256": "0" * 64}},
         {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
 
 
