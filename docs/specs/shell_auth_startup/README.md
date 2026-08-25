@@ -1,6 +1,6 @@
 # Shell Auth Startup
 
-**Status:** AUTH-013 deployed and verified in the local macOS Aqua session
+**Status:** AUTH-014 deployed and verified in the local macOS Aqua session
 
 ## Engineering Profile
 
@@ -9,7 +9,7 @@
 | Field | Value |
 |---|---|
 | Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, native Herdr installation, and status-bar polling contracts |
-| Languages/frameworks | Bash, Zsh, Go templates, launchd plist, and Markdown |
+| Languages/frameworks | Bash, Zsh, C, Go templates, launchd plist, and Markdown |
 | Applicable modules | Security |
 | Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, Aqua LaunchAgent, chezmoi, 1Password CLI, and Keychain |
 | Public compatibility | Shell startup remains non-blocking; optional authentication does not become a startup dependency |
@@ -27,6 +27,15 @@
 | Scope | Structured running-state detection, unmanaged-server refusal, bounded managed shutdown, and retryable chezmoi handoff |
 | Overrides | Never stop an unmanaged server; never expose credentials; a blocked handoff remains retryable |
 
+### AUTH-014 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the responsible executable at a macOS removable-volume privacy boundary |
+| Delivery intent | Draft pull request plus approved local deployment and managed server restart |
+| Scope | Native responsibility supervisor, reviewed local build, LaunchAgent ancestry, signal propagation, and TCC-aware operation |
+| Overrides | Preserve live handoff, state-root validation, exact-session recovery, and all active pane processes until an approved restart |
+
 ## Domain
 
 Bounded context: shell authentication startup for interactive panes, agents, and status-bar plugins.
@@ -38,6 +47,7 @@ Entities:
 - `TemplateRenderer`: chezmoi render path that must not require live 1Password access.
 - `HerdrPane`: restored or newly opened Herdr pane with `HERDR_ENV` set.
 - `HerdrServer`: persistent pane owner launched in the macOS Aqua bootstrap context.
+- `HerdrResponsibilitySupervisor`: native process launched directly by launchd so macOS attributes removable-volume access to a user-grantable executable while the handoff-aware shell owner remains its child.
 - `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
 - `OpenCodeSession`: persisted OpenCode identity resumed in its recorded `HerdrPane`.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
@@ -62,6 +72,7 @@ Events:
 - `OpenCodeSessionResumed`
 - `NativeHerdrReleaseApplied`
 - `HerdrLiveHandoffCompleted`
+- `HerdrResponsibilityChanged`
 - `ClockifyPollSkipped`
 
 Glossary:
@@ -73,7 +84,7 @@ Glossary:
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
-| Boundary | required: authentication decision flow | Which shell contexts may use environment, Keychain, cache, or biometric authentication? | Domain and SecretLoader contracts | Shell-auth owner; authentication boundary changes |
+| Boundary | required: authentication decision flow and Herdr responsibility chain | Which executable owns authentication and removable-volume policy decisions? | Domain, HerdrServer scenarios, and contracts | Shell-auth owner; authentication or process-ancestry changes |
 | Interaction | required: authentication decision flow and OpenCode restore sequence | In what order are authentication sources and restored OpenCode sessions started? | Behavior Scenarios | Shell-auth owner; precedence, restore order, or failure changes |
 | State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
 | Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
@@ -117,27 +128,31 @@ One grouped fetch succeeds only after the complete projected secret set validate
 ```mermaid
 flowchart TD
     accTitle: Chezmoi-managed native Herdr upgrade
-    accDescr: Chezmoi verifies the pinned native Herdr release. With no running server it installs directly. With a compatible running server it installs atomically and requests live handoff. A managed owner remains alive for the replacement; a failed handoff restores the prior executable and leaves the old server running.
+    accDescr: Chezmoi verifies the pinned native Herdr release and builds a native responsibility supervisor. Launchd starts the supervisor, which starts the state guard and handoff-aware owner. Compatible upgrades use live handoff while the supervisor remains alive; failed handoff restores the prior executable and leaves the old server running.
+    C[Reviewed supervisor source] --> N[Build and ad-hoc sign native supervisor]
+    N --> A
     A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
     V --> R{Herdr server running?}
     R -->|No| I[Install native executable]
     R -->|Yes, handoff capable| H[Install atomically and request live handoff]
     R -->|Yes, no handoff| F[Fail without replacing or stopping server]
     H --> S{Pinned server responds?}
-    S -->|Yes| O{Managed owner active?}
+    S -->|Yes| O{Native supervisor and managed owner active?}
     S -->|No| B[Restore prior executable and keep old server]
     O -->|Yes| K[Owner remains alive for replacement]
     O -->|No| D[Defer LaunchAgent reload]
     D --> L[LaunchAgent owns next natural start]
 ```
 
-**Text Equivalent:** A release-pin change downloads and verifies the native
-Herdr asset. With no running server, chezmoi installs it directly. A compatible
-running server receives an atomic executable replacement and live-handoff
-request. Unsupported or failed handoff never triggers a stop; failure restores
-the prior executable where present. A managed owner remains alive across the
-handoff. An unmanaged replacement runs detached until the next natural login or
-reboot gives ownership back to the Aqua LaunchAgent.
+**Text Equivalent:** Chezmoi builds and ad-hoc signs the reviewed native
+responsibility supervisor, then downloads and verifies a changed native Herdr
+asset. Launchd starts the native supervisor first; it starts the state guard and
+handoff-aware owner as children. With no running server, chezmoi installs Herdr
+directly. A compatible running server receives an atomic executable replacement
+and live-handoff request. Unsupported or failed handoff never triggers a stop;
+failure restores the prior executable where present. The supervisor and managed
+owner remain alive across handoff. An unmanaged replacement runs detached until
+the next natural login or reboot gives ownership back to the Aqua LaunchAgent.
 The shell-auth owner updates this view when authentication precedence, context,
 or failure behavior changes.
 
@@ -195,6 +210,21 @@ the manifest watcher.
 - And no credential is stored in its plist or environment configuration
 - And restored `HerdrPane` processes can request the login-Keychain service token
 
+**Scenario: Herdr panes access a configured external state root**
+- Given the managed state root and project directories are on a removable macOS volume
+- And the operator has allowed removable-volume access for `HerdrResponsibilitySupervisor`
+- When launchd starts the managed `HerdrServer`
+- Then launchd executes `HerdrResponsibilitySupervisor` as its direct program
+- And the supervisor starts the state-root guard and handoff-aware owner as children
+- And new `HerdrPane` shells inherit the supervisor's responsible process identity
+- And Herdr and pane processes can traverse the configured external volume
+
+**Scenario: Native responsibility supervisor stops**
+- Given `HerdrResponsibilitySupervisor` has started the managed owner
+- When launchd sends termination to the supervisor
+- Then the supervisor forwards termination to the managed owner
+- And it waits for the owner and returns the owner's exit status
+
 **Scenario: Unmanaged Herdr server blocks managed handoff**
 - Given an unmanaged `HerdrServer` owns the Herdr socket
 - And the managed Aqua LaunchAgent is not loaded
@@ -236,7 +266,7 @@ the manifest watcher.
 
 **Scenario: Active Herdr defers LaunchAgent reconciliation**
 - Given any `HerdrServer` is running when chezmoi reconciles the Aqua LaunchAgent
-- When the managed plist or owner wrapper changed
+- When the managed plist, responsibility supervisor, or owner wrapper changed
 - Then deployment does not boot out the LaunchAgent
 - And managed ownership resumes at the next natural login or reboot
 
@@ -371,6 +401,10 @@ the manifest watcher.
 - **Invariant:** Keychain repair is explicit and interactive; `SecretLoader` never mutates Keychain ACLs.
 - **Invariant:** repair guidance does not use `security -w` interactive input because it truncates the service-account token.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
+- **Invariant:** launchd directly executes a native `HerdrResponsibilitySupervisor`; no script or platform shell precedes it in the managed process ancestry.
+- **Invariant:** the responsibility supervisor starts the state-root guard and handoff-aware owner as children, forwards termination, waits for the owner, and preserves its exit status.
+- **Invariant:** supervisor source changes rebuild one ad-hoc-signed Mach-O executable at the fixed managed path; unchanged applies do not replace its TCC identity.
+- **Invariant:** removable-volume access is granted only through macOS privacy controls; managed code never edits the TCC database or grants Full Disk Access.
 - **Invariant:** chezmoi owns the native Herdr version, protocol, asset URL, SHA-256, installation path, and upgrade workflow.
 - **Invariant:** native release bytes are installed only after SHA-256 verification and executable version validation.
 - **Invariant:** chezmoi deployment never stops a running `HerdrServer`; compatible upgrades use live handoff and LaunchAgent reconciliation waits for the next GUI login or reboot.
@@ -441,6 +475,22 @@ the manifest watcher.
 | Deploy | Apply wrapper, helper, and owner | required | passed | Targeted chezmoi apply and verify | - | Primary |
 | Operate | Recover stalled exact sessions | required | passed | 45 recovered; 46 unique exact `--auto` sessions verified | - | Primary |
 | Maintain/Retire | Keep pacing stale-safe and wrapper-owned | required | passed | Stale-lock regression; duplicate pane retained as an open shell | - | Primary |
+
+## Gate Ledger - AUTH-014
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Native macOS responsibility identity and inherited pane access | required | passed | This README and AUTH-014 ticket | - | Primary |
+| Behavior | External-volume access, handoff continuity, and termination | required | passed | 44 affected regressions and deployment preview | - | Primary |
+| Spec | Native supervisor build and LaunchAgent process ancestry | required | passed | README and `AUTH-014-plan.json` | - | Primary |
+| Contract | Narrow TCC grant without pane loss or Full Disk Access | required | passed | Rendered plist and strict Mach-O signature checks | - | Primary |
+| Test-driven implementation | Supervisor and rendering regressions | required | passed | Red: 3 failed; green: 44 passed | - | Primary |
+| Refactor | Reuse existing guard and handoff-aware owner | required | passed | Integrated diff and affected tests | - | Primary |
+| Review/Integrate | Security boundary and process-lifecycle safety | required | passed | Independent review findings resolved; affected QA passed | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No release requested | - | User |
+| Deploy | Install supervisor and managed plist without stopping active Herdr | required | passed | Targeted apply; owner/server PIDs `2974`/`3109` preserved | - | Primary |
+| Operate | Activate supervisor and verify fresh-pane removable-volume access | required | passed | TCC attribution, allowed grant, read/write probe, and no new denial | - | User + Primary |
+| Maintain/Retire | Rebuild only on source change and retain explicit privacy approval | required | passed | On-change embedded-source build and disabled-platform exclusions | - | Primary |
 
 ## Verification
 
