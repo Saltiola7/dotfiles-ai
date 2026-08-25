@@ -161,7 +161,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.27")
+        self.assertEqual(record["method_revision"], "3.28")
         self.assertEqual(record["schema_version"], 4)
         self.assertEqual(record["worktree"]["locator"], {
             "root": "cycle_worktree", "path": ".",
@@ -282,6 +282,89 @@ class DbsctrctlTest(unittest.TestCase):
             input_text=duplicate,
         )
         self.assertIn("duplicate JSON key", result.stderr)
+
+        plan = json.loads(self.plan_path().read_text())
+        plan["unknown"] = True
+        result = run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", "-", ok=False,
+            input_text=json.dumps(plan),
+        )
+        self.assertIn("only profile, gates, and optional graphify", result.stderr)
+
+    def test_graphify_selection_is_committed_and_only_tightens(self):
+        adapter = self.repo / "scripts/graphify"
+        adapter.parent.mkdir()
+        adapter.write_text("#!/bin/sh\nexit 0\n")
+        adapter.chmod(0o755)
+        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
+                       check=True, capture_output=True)
+        plan = json.loads(self.plan_path().read_text())
+        plan["graphify"] = {"adapter": "scripts/graphify", "version": "0.9.50"}
+        run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", "-",
+            input_text=json.dumps(plan),
+        )
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["applicability_plan"]["graphify"]["adapter"], "scripts/graphify")
+        self.assertRegex(record["applicability_plan"]["graphify"]["blob"], r"^[0-9a-f]+$")
+
+        changed = {**plan, "graphify": {**plan["graphify"], "version": "0.9.51"}}
+        result = run(self.repo, "update-plan", "--plan", "-", input_text=json.dumps(changed), ok=False)
+        self.assertIn("Graphify selection cannot change", result.stderr)
+        plan.pop("graphify")
+        result = run(self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan), ok=False)
+        self.assertIn("Graphify selection cannot be removed", result.stderr)
+
+    def test_graphify_check_runs_in_disposable_worktree_and_records_private_receipt(self):
+        invalid_timeout = run(self.repo, "graphify-check", "--timeout", "0", ok=False)
+        self.assertIn("timeout must be 1 through 3600 seconds", invalid_timeout.stderr)
+        adapter = self.repo / "scripts/graphify"
+        adapter.parent.mkdir()
+        adapter.write_text(
+            "#!/bin/sh\nset -eu\n"
+            "test \"$1\" = --output-dir\nmkdir -p \"$2\"\n"
+            "printf 'Built from commit: `%s`\\n' \"$(git rev-parse HEAD)\" > \"$2/GRAPH_REPORT.md\"\n"
+            "printf '{\"schema_version\":1}\\n' > \"$2/manifest.json\"\n"
+            "printf '{\"cache_hits\":2,\"cache_misses\":1}\\n'\n"
+        )
+        adapter.chmod(0o755)
+        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
+                       check=True, capture_output=True)
+        plan = json.loads(self.plan_path().read_text())
+        plan["graphify"] = {"adapter": "scripts/graphify", "version": "0.9.50"}
+        run(
+            self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", "-",
+            input_text=json.dumps(plan),
+        )
+        result = json.loads(run(self.repo, "graphify-check").stdout)
+        record = json.loads(self.record_path().read_text())
+        receipt = self.repo / ".git/dbsctr" / record["graphify_check"]["receipt"]
+        self.assertEqual(result["head"], subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+            check=True, capture_output=True).stdout.strip())
+        self.assertEqual(result["cache"], {"hits": 2, "misses": 1})
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(json.loads(receipt.read_text())["output_files"],
+                         sorted(["GRAPH_REPORT.md", "manifest.json"]))
+        self.assertEqual(subprocess.run(
+            ["git", "worktree", "list", "--porcelain"], cwd=self.repo, text=True,
+            check=True, capture_output=True).stdout.count("worktree "), 1)
+        value = json.loads(receipt.read_text())
+        value["output_files"] = []
+        receipt.write_text(json.dumps(value))
+        record["graphify_check"]["receipt_sha256"] = hashlib.sha256(receipt.read_bytes()).hexdigest()
+        self.record_path().write_text(json.dumps(record))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_receipt", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with self.assertRaisesRegex(RuntimeError, "receipt identity is invalid"):
+            module.require_graphify_check(self.repo, record)
 
     def test_start_rejects_dirty_or_wrong_profile_and_delivery_conflict(self):
         gates = {gate: {"applicability": "required"} for gate in GATES}
@@ -1510,6 +1593,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn(("missing_context_ticket", "docs/tickets/context=incomplete"), findings)
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/CHANGELOG.md"), findings)
         self.assertIn(("stale_graph", "graphify-out/GRAPH_REPORT.md"), findings)
+        self.assertIn(("missing_graph_receipt", "graphify-out/graph.receipt.json"), findings)
 
     def test_audit_accepts_canonical_backlog(self):
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
@@ -1596,6 +1680,43 @@ class DbsctrctlTest(unittest.TestCase):
                        capture_output=True)
         result = json.loads(run(self.repo, "audit", "--json").stdout)
         self.assertIn("unverified_graph_freshness", {item["code"] for item in result["findings"]})
+
+    def test_audit_accepts_receipted_graph_only_descendant(self):
+        adapter = self.repo / "scripts/graphify"
+        adapter.parent.mkdir()
+        adapter.write_text("#!/bin/sh\nexit 0\n")
+        adapter.chmod(0o755)
+        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
+                       check=True, capture_output=True)
+        source = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+                                check=True, capture_output=True).stdout.strip()
+        adapter_blob = subprocess.run(
+            ["git", "rev-parse", "HEAD:scripts/graphify"], cwd=self.repo, text=True,
+            check=True, capture_output=True).stdout.strip()
+        graph = self.repo / "graphify-out"
+        graph.mkdir()
+        report = f"Built from commit: `{source}`\n"
+        manifest = '{"schema_version":1}\n'
+        (graph / "GRAPH_REPORT.md").write_text(report)
+        (graph / "manifest.json").write_text(manifest)
+        (graph / "graph.receipt.json").write_text(json.dumps({
+            "schema_version": 1, "command_contract": "dbsctr-batch-graphify-v1",
+            "batch_id": "batch-1", "source_head": source,
+            "adapter": {"adapter": "scripts/graphify", "version": "0.9.50", "blob": adapter_blob},
+            "output_files": ["GRAPH_REPORT.md", "manifest.json"],
+            "manifest_sha256": hashlib.sha256(manifest.encode()).hexdigest(),
+            "output_sha256": {"GRAPH_REPORT.md": hashlib.sha256(report.encode()).hexdigest(),
+                              "manifest.json": hashlib.sha256(manifest.encode()).hexdigest()},
+            "created_at": "2026-08-25T00:00:00Z",
+        }))
+        subprocess.run(["git", "add", "graphify-out"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "graph only"], cwd=self.repo,
+                       check=True, capture_output=True)
+        result = json.loads(run(self.repo, "audit", "--json").stdout)
+        self.assertFalse(result["graph"]["stale"])
+        self.assertFalse({"stale_graph", "invalid_graph_receipt"}.intersection(
+            item["code"] for item in result["findings"]))
 
     def test_audit_reports_non_utf8_dirty_filename(self):
         raw = os.fsencode(self.repo) + b"/bad-\xff"
@@ -4630,7 +4751,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.27")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.28")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
@@ -5276,6 +5397,96 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("batch tip is not the recorded merge history", unrecorded.stderr)
         subprocess.run(["git", "worktree", "remove", "--force", created["worktree"]],
+                       cwd=self.repo, check=True, capture_output=True)
+
+    def test_batch_finalize_closes_admission_and_requires_current_dvc_evidence(self):
+        adapter = self.repo / "scripts/graphify"
+        adapter.parent.mkdir()
+        adapter.write_text(
+            "#!/bin/sh\nset -eu\ntest \"$1\" = --output-dir\nmkdir -p \"$2\"\n"
+            "printf 'Built from commit: `%s`\\n' \"$(git rev-parse HEAD)\" > \"$2/GRAPH_REPORT.md\"\n"
+            "printf '{\"schema_version\":1}\\n' > \"$2/manifest.json\"\n"
+            "printf 'stages: {}\\n' > \"$2/dvc.yaml\"\n"
+            "printf 'stale\\n' > \"$2/graph.receipt.json\"\n"
+        )
+        adapter.chmod(0o755)
+        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
+                       check=True, capture_output=True)
+        adapter_blob = subprocess.run(
+            ["git", "rev-parse", "HEAD:scripts/graphify"], cwd=self.repo, text=True,
+            check=True, capture_output=True).stdout.strip()
+        bare = Path(self.temp.name) / "graph-origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.repo, check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=self.repo,
+                       check=True, capture_output=True)
+        branch = "dbsctr/test/graph-source"
+        subprocess.run(["git", "switch", "-c", branch], cwd=self.repo, check=True, capture_output=True)
+        (self.repo / "source.txt").write_text("source\n")
+        subprocess.run(["git", "add", "source.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "source"], cwd=self.repo,
+                       check=True, capture_output=True)
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+                             check=True, capture_output=True).stdout.strip()
+        subprocess.run(["git", "push", "origin", branch], cwd=self.repo, check=True, capture_output=True)
+        records = self.repo / ".git/dbsctr/cycles"
+        records.mkdir(parents=True)
+        (records / "graph-source.json").write_text(json.dumps({
+            "state": "completed", "delivery_intent": "draft_pr",
+            "delivery": {"branch": branch, "published_feature_head": sha},
+            "applicability_plan": {"graphify": {
+                "adapter": "scripts/graphify", "version": "0.9.50", "blob": adapter_blob,
+            }},
+        }))
+        subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
+        env = {**isolated_env(), "HOME": str(Path(self.temp.name) / "graph-home")}
+        batch_path = self.repo / ".git/dbsctr/batches/graph-batch.json"
+        run(self.repo, "batch-create", "--batch-id", "graph-batch",
+            "--github-account", "owner", "--github-repository", "owner/repo", env=env)
+        created_metadata = batch_path.read_text()
+        run(self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch, env=env)
+        batch_path.write_text(created_metadata)
+        recovered = json.loads(run(
+            self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch, env=env).stdout)
+        self.assertEqual(recovered["sources"][0]["sha"], sha)
+        plain_branch = "dbsctr/test/plain-source"
+        subprocess.run(["git", "switch", "-c", plain_branch], cwd=self.repo, check=True, capture_output=True)
+        (self.repo / "plain.txt").write_text("plain\n")
+        subprocess.run(["git", "add", "plain.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "plain"], cwd=self.repo, check=True, capture_output=True)
+        plain_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+                                   check=True, capture_output=True).stdout.strip()
+        subprocess.run(["git", "push", "origin", plain_branch], cwd=self.repo, check=True, capture_output=True)
+        (records / "plain-source.json").write_text(json.dumps({
+            "state": "completed", "delivery_intent": "draft_pr",
+            "delivery": {"branch": plain_branch, "published_feature_head": plain_sha},
+        }))
+        subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
+        mixed = run(self.repo, "batch-integrate", "--batch-id", "graph-batch",
+                    "--source", plain_branch, env=env, ok=False)
+        self.assertIn("Graphify selection changed", mixed.stderr)
+        integrated_metadata = batch_path.read_text()
+        finalized = json.loads(run(
+            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env).stdout)
+        self.assertEqual(finalized["state"], "finalized")
+        self.assertTrue(finalized["graph"]["requires_dvc_push"])
+        batch_path.write_text(integrated_metadata)
+        recovered_graph = json.loads(run(
+            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env).stdout)
+        self.assertEqual(recovered_graph["graph"]["commit"], finalized["graph"]["commit"])
+        closed = run(self.repo, "batch-integrate", "--batch-id", "graph-batch",
+                     "--source", branch, env=env, ok=False)
+        self.assertIn("admission is closed", closed.stderr)
+        blocked = run(self.repo, "batch-publish", "--batch-id", "graph-batch",
+                      "--confirm", "graph-batch", env=env, ok=False)
+        self.assertIn("DVC push evidence", blocked.stderr)
+        run(self.repo, "batch-record-dvc-push", "--batch-id", "graph-batch",
+            "--head", finalized["graph"]["commit"], "--evidence", "approved dvc push", env=env)
+        metadata = json.loads((self.repo / ".git/dbsctr/batches/graph-batch.json").read_text())
+        self.assertEqual(metadata["dvc_push"]["head"], finalized["graph"]["commit"])
+        subprocess.run(["git", "worktree", "remove", "--force", metadata["worktree"]],
                        cwd=self.repo, check=True, capture_output=True)
 
     def test_improvement_scope_claims_reject_overlapping_paths(self):

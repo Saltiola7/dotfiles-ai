@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.35 repository documentation authority reconciled; F1 Discovery handoff activated
+**Status:** V3.37 Graphify orchestration implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -132,6 +132,9 @@ Adjacent contexts:
 | Visual Concern | A boundary, interaction, state, data/trust flow, schema, dependency/deployment, or quantitative relationship that may need a diagram or chart. |
 | Visual Evidence Plan | The specification section that records each Visual Concern as a required named visual or reasoned `not_applicable` decision. |
 | Text Equivalent | Adjacent prose or tabular data that preserves every decision-relevant fact without relying on rendering, color, or spatial position. |
+| Graphify Selection | Optional applicability-plan declaration binding one committed executable adapter and extractor version to a cycle. |
+| Graphify Check | Disposable feature-cycle extraction whose private receipt binds the cycle HEAD, profile, adapter, manifest, outputs, and cache counters. |
+| Graph Promotion | Integration-batch finalization that alone updates canonical `graphify-out/` and records a graph-only commit. |
 
 ## Domain Model
 
@@ -548,6 +551,34 @@ ledger.
 - When a lifecycle cycle changes source or artifacts
 - Then Graphify is updated only when explicit Project Policy requires it
 
+### Feature: V3.37 Graphify Orchestration
+
+**Scenario: Check a selected graph without changing canonical output**
+- Given an applicability plan selects a committed executable Graphify adapter and version
+- When the active cycle runs `dbsctrctl graphify-check`
+- Then the adapter runs at the exact cycle HEAD in a disposable detached worktree
+- And a private receipt binds the profile, adapter blob, output manifest, file digests, and cache counters
+- But `graphify-out/` in the cycle worktree remains unchanged
+
+**Scenario: Keep Graphify selection monotonic**
+- Given a cycle has selected Graphify
+- When an updated applicability plan removes or changes its adapter or version
+- Then the update fails
+- And an initially absent selection may be added only with a committed Engineering Profile change
+
+**Scenario: Promote one canonical integration graph**
+- Given a batch contains completed sources with one identical Graphify selection
+- When the integration owner finalizes the batch
+- Then source admission closes before the adapter updates canonical `graphify-out/`
+- And the graph report, manifest, receipt, and DVC metadata enter one graph-only commit
+- And required DVC push evidence remains a separate approval-bound record before publication
+
+**Scenario: Audit graph-only freshness**
+- Given a canonical graph report names its source commit and has a valid receipt
+- When fixed-commit audit examines later commits
+- Then graph-only descendants and tree-neutral merges preserve freshness
+- But source-changing descendants, invalid receipts, and unresolved commit identities fail freshness
+
 ### Feature: V3.18 Exact Runtime Correlation
 
 **Scenario: Prefer the strongest unambiguous identity**
@@ -946,9 +977,18 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.27`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.28`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
+
+### V3.37 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds executable adapter, private receipt, integration commit, and DVC evidence boundaries |
+| Delivery intent | Draft pull request followed by managed local helper and skill deployment |
+| Scope | Strict applicability plans, disposable Graphify checks, canonical batch finalization, receipts, freshness, tests, and guidance |
+| Overrides | Reuse project adapters, Git worktrees, batch locks, and DVC approval; no extractor, daemon, cache implementation, or automatic publication |
 
 ### Provider-Native Harness Initiative Overrides
 
@@ -1851,7 +1891,7 @@ request. If the target is already integrated, reconciliation makes no change.
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
-| Interaction | required: protected-delivery sequence | How does evidence reach protected delivery when the target advances? | Development Kernel and Final Push contracts | Lifecycle owner; gate or delivery ordering changes |
+| Interaction | required: protected-delivery and graph-promotion sequences | How do evidence and one canonical graph reach protected delivery? | Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; gate, graph, or delivery ordering changes |
 | State | required: state diagram | Which gate transitions and reopen paths are legal? | Gate Ledger Contract | Lifecycle owner; gate transition changes |
 | Data/trust | required: context flowchart and Text Equivalent | Which state is public, local, or external? | Artifact Lifecycle and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
 | Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
@@ -1877,6 +1917,34 @@ resolves its path beneath `DBSCTR_WORKTREE_ROOT`. Traversal and registry escape
 fail closed. Schemas 1 through 3 retain their absolute-path read behavior. The
 explicit conversion command saves the exact schema-3 record before writing schema
 4, and explicit rollback restores that record and its active pointer.
+
+```mermaid
+sequenceDiagram
+    accTitle: Feature checks and canonical graph promotion
+    accDescr: Selected feature cycles run Graphify only in disposable worktrees and retain private receipts. Integration closes batch admission, updates canonical graph artifacts once, records a graph-only commit, and requires separate DVC push evidence before publication when applicable.
+    participant F as Feature cycle
+    participant D as DBSCTR
+    participant B as Integration batch
+    participant V as DVC remote
+    F->>D: graphify-check at exact HEAD
+    D->>D: Disposable worktree and private receipt
+    F-->>B: Completed source delivery
+    B->>D: batch-finalize
+    D->>B: Close admission and commit graphify-out only
+    alt DVC metadata changed
+        B->>V: Separately approved dvc push
+        B->>D: Record evidence for graph commit
+    end
+    D-->>B: Publication readiness
+```
+
+**Text Equivalent:** A selected feature cycle runs its committed adapter at the
+exact cycle HEAD in a disposable worktree and retains only private receipt
+evidence. Completed sources enter an integration batch. Finalization closes source
+admission, runs the same selection once against the integrated source tip, and
+commits only canonical `graphify-out/` artifacts. If DVC metadata changed, an
+operator separately approves `dvc push` and its evidence must match that graph
+commit before batch publication.
 
 Mermaid source and Text Equivalents are maintained with this README. The
 `dbsctr_v3_lifecycle` owner reviews them whenever routing, gate state, persistence,
@@ -1966,6 +2034,9 @@ tool and provider examples and load only when useful.
 | `dbsctr_phase_span` | Record helper-timestamped explicit span boundaries | Private detail plus path-free compact profile |
 | `dbsctr_execution_dag` | Validate read/read-only-QA dependencies, ownership, risk, and activation | Concurrent authorization or deterministic serial fallback; no dispatch |
 | `dbsctr_execution_benchmark` | Retain paired fixture timing and quality evidence | Method-bound activation only after the configured threshold passes |
+| `dbsctrctl graphify-check` | Run a selected adapter in a disposable worktree and retain a private receipt | Feature-cycle graph evidence without canonical output mutation |
+| `dbsctrctl batch-finalize` | Close source admission and commit canonical graph output once | Integration-owned Graph Promotion |
+| `dbsctrctl batch-record-dvc-push` | Bind separately approved DVC evidence to the graph commit | Publication readiness for DVC-relevant promotion |
 | `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
 | `docs/_archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
@@ -2033,6 +2104,34 @@ tool and provider examples and load only when useful.
 - **Invariant:** No gate is omitted because its preferred tool is unavailable.
 - A missing Capability Authority is represented as an `unavailable` Gate Result
   with evidence; `pending` never qualifies for a Gate Exception.
+
+### Graphify Orchestration Contract
+
+- Applicability plans allow exactly `profile`, `gates`, and optional `graphify`;
+  Graphify requires exactly repository-relative executable `adapter` and bounded
+  `version`, both bound to committed blobs.
+- A selected cycle cannot remove or change Graphify. Adding a previously absent
+  selection requires a committed Engineering Profile change.
+- `graphify-check` executes without a shell in a disposable detached worktree at
+  exact HEAD. Its private mode-`0600` receipt binds invocation, HEAD, profile and
+  adapter blobs, report, manifest, output digests, and non-negative cache counters.
+- Selecting the committed adapter authorizes that project code for bounded local
+  extraction, not publication. The helper strips secret-like environment names,
+  supplies mode/version, and kills the process group on timeout; Project Policy
+  must review the adapter because portable lifecycle code cannot sandbox all host
+  filesystem or network access. Adapters must not push, publish, or deploy.
+- Final Push rejects selected cycles whose receipt is absent, altered, or stale.
+- Batch schema `2` keeps schema `1` readable, requires identical source
+  selections, and rejects new sources after finalization.
+- `batch-finalize` is the only lifecycle operation that updates canonical
+  `graphify-out/`; its commit has the integrated source tip as sole parent and
+  changes no path outside `graphify-out/`.
+- DVC-relevant promotion requires separately approved push evidence bound to the
+  current graph commit before `batch-publish`; planning or finalization does not
+  authorize the external write.
+- Fixed-commit audit verifies receipt and report identities. Freshness extends
+  only through graph-only descendants and tree-neutral merges; source-changing
+  descendants remain stale.
 
 ### Artifact Lifecycle Contract
 
@@ -2242,8 +2341,9 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.27` retain schema version `3`; new records use
-the helper's single `CURRENT_METHOD_REVISION = "3.27"` constant.
+Method Revisions `3.9` through `3.28` remain compatible with schema-version `3`;
+new records use schema version `4` and the helper's single
+`CURRENT_METHOD_REVISION = "3.28"` constant.
 
 Schema version `4` removes persisted machine paths from new portable records.
 DBSCTR-created worktrees store a traversal-safe path relative to

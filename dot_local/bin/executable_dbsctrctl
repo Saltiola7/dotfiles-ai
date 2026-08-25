@@ -36,7 +36,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.27"
+CURRENT_METHOD_REVISION = "3.28"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -112,6 +112,13 @@ def inspect_git(root, *args, check=True):
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
+
+
+def inspect_git_bytes(root, *args):
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True, env=INSPECT_ENV)
+    if result.returncode:
+        fail(result.stderr.decode(errors="replace").strip() or f"git {' '.join(args)} failed")
+    return result.stdout
 
 
 def now():
@@ -2266,7 +2273,29 @@ def read_plan(source):
     return value
 
 
+def validate_graphify_selection(root, value, commit="HEAD", require_clean=False):
+    allowed = {"adapter", "version"} | ({"blob"} if isinstance(value, dict) and "blob" in value else set())
+    if not isinstance(value, dict) or set(value) != allowed or not {"adapter", "version"} <= set(value):
+        fail("graphify selection requires exactly adapter and version")
+    adapter, version = value["adapter"], value["version"]
+    if (not isinstance(adapter, str) or not adapter or len(adapter.encode()) > 512
+            or PurePosixPath(adapter).is_absolute() or ".." in PurePosixPath(adapter).parts):
+        fail("Graphify adapter must be a repository-relative path")
+    if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", version):
+        fail("Graphify version is invalid")
+    if require_clean and git(root, "status", "--porcelain=v1", "--", adapter).stdout.strip():
+        fail("Graphify adapter must be tracked and committed")
+    entry = git(root, "ls-tree", commit, "--", adapter).stdout.strip().split()
+    if len(entry) < 4 or entry[:2] != ["100755", "blob"] or not re.fullmatch(r"[0-9a-f]+", entry[2]):
+        fail("Graphify adapter must be a committed executable file")
+    if "blob" in value and value["blob"] != entry[2]:
+        fail("Graphify adapter blob does not match the selected commit")
+    return {"adapter": adapter, "version": version, "blob": entry[2]}
+
+
 def validate_plan(root, context, intent, plan):
+    if not set(plan) <= {"profile", "gates", "graphify"}:
+        fail("applicability plan allows only profile, gates, and optional graphify")
     expected_profile = f"docs/specs/{context}/README.md"
     if plan.get("profile") != expected_profile:
         fail(f"Engineering Profile must be {expected_profile}")
@@ -2286,6 +2315,9 @@ def validate_plan(root, context, intent, plan):
         if not isinstance(item, dict) or item.get("applicability") not in ("required", "not_applicable"):
             fail(f"invalid applicability for gate: {name}")
         applicability = item["applicability"]
+        expected_keys = {"applicability", "reason"} if applicability == "not_applicable" else {"applicability"}
+        if set(item) != expected_keys:
+            fail(f"invalid applicability fields for gate: {name}")
         if name in MANDATORY_GATES and applicability != "required":
             fail(f"gate is always required: {name}")
         normalized[name] = {"applicability": applicability}
@@ -2300,7 +2332,10 @@ def validate_plan(root, context, intent, plan):
         fail("release delivery requires the release gate")
     if intent == "deploy" and normalized["deploy"]["applicability"] != "required":
         fail("deploy delivery requires the deploy gate")
-    return expected_profile, blob, normalized
+    graphify = None
+    if "graphify" in plan:
+        graphify = validate_graphify_selection(root, plan["graphify"], require_clean=True)
+    return expected_profile, blob, normalized, graphify
 
 
 def disposed(gate):
@@ -2329,11 +2364,18 @@ def require_current_profile(root, record):
 
 
 def apply_stricter_plan(root, record, plan):
-    profile_path, profile_blob, gates = validate_plan(
+    profile_path, profile_blob, gates, graphify = validate_plan(
         root, record["context"], record["delivery_intent"], plan
     )
     if profile_path != record["engineering_profile"]["path"]:
         fail("Engineering Profile path changed; start a new cycle")
+    previous_graphify = record["applicability_plan"].get("graphify")
+    if previous_graphify and graphify is None:
+        fail("Graphify selection cannot be removed")
+    if previous_graphify and graphify != previous_graphify:
+        fail("Graphify selection cannot change")
+    if previous_graphify is None and graphify is not None and profile_blob == record["engineering_profile"]["blob"]:
+        fail("Graphify selection requires a committed Engineering Profile change")
     for name, new_gate in gates.items():
         if (record["gates"][name]["applicability"] == "required"
                 and new_gate["applicability"] != "required"):
@@ -2353,7 +2395,7 @@ def apply_stricter_plan(root, record, plan):
     record["applicability_plan"] = {"profile": profile_path, "gates": {
         name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
         for name, gate in gates.items()
-    }}
+    }, **({"graphify": graphify} if graphify else {})}
 
 
 def artifact_check(record):
@@ -2395,7 +2437,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
     dirty_paths = status_paths(root)
     if dirty_paths:
         fail("cycle must start with a clean worktree: " + ", ".join(dirty_paths))
-    profile_path, profile_blob, gates = validate_plan(
+    profile_path, profile_blob, gates, graphify = validate_plan(
         root, args.context, args.delivery_intent, plan
     )
     current_branch = branch(root)
@@ -2458,7 +2500,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         "applicability_plan": {"profile": profile_path, "gates": {
             name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
             for name, gate in gates.items()
-        }},
+        }, **({"graphify": graphify} if graphify else {})},
         "git": {"head": git(root, "rev-parse", "HEAD").stdout.strip(), "branch": current_branch,
                 "upstream": current_upstream, "dirty_paths": dirty_paths,
                 "pre_cycle_ahead_commits": pre_cycle_ahead,
@@ -3292,7 +3334,9 @@ def command_audit(args):
             findings.append({"code": "missing_context_ticket", "severity": "medium", "context": context,
                              "path": f"docs/tickets/context={context}"})
     graph_path = "graphify-out/GRAPH_REPORT.md"
-    graph = {"present": graph_path in files, "built_from": None, "stale": None}
+    receipt_path = "graphify-out/graph.receipt.json"
+    graph = {"present": graph_path in files, "built_from": None, "stale": None,
+             "receipt_present": receipt_path in files, "receipt_valid": None}
     if graph["present"]:
         report = inspect_git(root, "show", f"{commit}:{graph_path}").stdout
         match = re.search(r"Built from commit:\s*`([0-9a-f]+)`", report)
@@ -3308,7 +3352,26 @@ def command_audit(args):
                 })
             else:
                 graph["built_from"] = resolved.stdout.strip()
-                graph["stale"] = graph["built_from"] != commit
+                authorized = graph["built_from"] == commit
+                if not authorized and inspect_git(
+                        root, "merge-base", "--is-ancestor", graph["built_from"], commit,
+                        check=False).returncode == 0:
+                    authorized = True
+                    for descendant in inspect_git(
+                            root, "rev-list", "--first-parent", "--reverse", f"{graph['built_from']}..{commit}"
+                    ).stdout.splitlines():
+                        parents = inspect_git(root, "show", "-s", "--format=%P", descendant).stdout.split()
+                        if len(parents) > 1:
+                            authorized = (inspect_git(root, "rev-parse", f"{descendant}^{{tree}}").stdout
+                                          == inspect_git(root, "rev-parse", f"{parents[0]}^{{tree}}").stdout)
+                        else:
+                            changed = inspect_git(
+                                root, "diff-tree", "--no-commit-id", "--name-only", "-r", descendant
+                            ).stdout.splitlines()
+                            authorized = bool(changed) and all(name.startswith("graphify-out/") for name in changed)
+                        if not authorized:
+                            break
+                graph["stale"] = not authorized
                 if graph["stale"]:
                     findings.append({
                         "code": "stale_graph", "severity": "low", "path": graph_path,
@@ -3318,6 +3381,50 @@ def command_audit(args):
             findings.append({
                 "code": "unverified_graph_freshness", "severity": "medium", "path": graph_path,
             })
+        if graph["receipt_present"]:
+            try:
+                receipt = json.loads(inspect_git_bytes(root, "show", f"{commit}:{receipt_path}"),
+                                     object_pairs_hook=no_duplicate_keys)
+                expected_receipt_keys = {
+                    "schema_version", "command_contract", "batch_id", "source_head", "adapter",
+                    "output_files", "output_sha256", "manifest_sha256", "created_at",
+                }
+                manifest = inspect_git_bytes(root, "show", f"{commit}:graphify-out/manifest.json")
+                output = receipt["output_sha256"]
+                output_files = sorted(name.removeprefix("graphify-out/") for name in files
+                                      if name.startswith("graphify-out/") and name != receipt_path)
+                adapter = receipt.get("adapter")
+                adapter_path = adapter.get("adapter") if isinstance(adapter, dict) else None
+                adapter_entry = (inspect_git(
+                    root, "ls-tree", receipt.get("source_head", ""), "--", adapter_path,
+                    check=False).stdout.strip().split() if isinstance(adapter_path, str) else [])
+                valid = (set(receipt) == expected_receipt_keys
+                         and receipt.get("schema_version") == 1
+                         and receipt.get("command_contract") == "dbsctr-batch-graphify-v1"
+                         and receipt.get("source_head") == graph["built_from"]
+                         and isinstance(receipt.get("batch_id"), str)
+                         and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}", receipt["batch_id"])
+                         and isinstance(receipt.get("created_at"), str) and receipt["created_at"]
+                         and isinstance(adapter, dict) and set(adapter) == {"adapter", "version", "blob"}
+                         and len(adapter_entry) >= 4 and adapter_entry[:2] == ["100755", "blob"]
+                         and adapter_entry[2] == adapter["blob"]
+                         and receipt.get("manifest_sha256") == hashlib.sha256(manifest).hexdigest()
+                         and receipt.get("output_files") == output_files
+                         and {"GRAPH_REPORT.md", "manifest.json"} <= set(output_files)
+                         and isinstance(output, dict) and sorted(output) == output_files
+                         and all(re.fullmatch(r"[0-9a-f]{64}", digest or "")
+                                 and hashlib.sha256(inspect_git_bytes(
+                                     root, "show", f"{commit}:graphify-out/{name}"
+                                 )).hexdigest() == digest for name, digest in output.items()))
+            except (KeyError, json.JSONDecodeError, RuntimeError, TypeError, UnicodeDecodeError):
+                valid = False
+            graph["receipt_valid"] = valid
+            if not valid:
+                findings.append({"code": "invalid_graph_receipt", "severity": "medium",
+                                 "path": receipt_path})
+        else:
+            findings.append({"code": "missing_graph_receipt", "severity": "medium",
+                             "path": receipt_path})
     result = {
         "mode": "lifecycle_reconciliation_audit", "commit": commit,
         "dirty_overlay_excluded": status_paths(root, read_only=True), "contexts": inventory,
@@ -8118,6 +8225,167 @@ def command_update_plan(args):
     save(path, record)
 
 
+def graphify_receipt_path(root, cycle_id):
+    return cycle_dir(root) / "graphify" / f"{cycle_id}.json"
+
+
+def graphify_output_identity(output):
+    files, digests, total = [], {}, 0
+    for path in sorted(output.rglob("*")):
+        relative = path.relative_to(output).as_posix()
+        details = path.lstat()
+        if stat.S_IFMT(details.st_mode) == stat.S_IFDIR:
+            continue
+        if stat.S_IFMT(details.st_mode) != stat.S_IFREG or path.is_symlink():
+            fail("Graphify output contains an unsafe file")
+        total += details.st_size
+        if len(files) >= 1024 or total > 256 * 1024 * 1024:
+            fail("Graphify output exceeds bounds")
+        files.append(relative)
+        digests[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not {"GRAPH_REPORT.md", "manifest.json"} <= set(files):
+        fail("Graphify output lacks its report or manifest")
+    return files, digests
+
+
+def run_graphify_adapter(adapter, cwd, output, selection, mode, timeout):
+    environment = {name: value for name, value in os.environ.items()
+                   if not re.search(r"(?:TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL)",
+                                    name, re.I)}
+    environment.update({"DBSCTR_GRAPHIFY_MODE": mode,
+                        "DBSCTR_GRAPHIFY_VERSION": selection["version"]})
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        process = subprocess.Popen(
+            [str(adapter), "--output-dir", str(output)], cwd=cwd, env=environment,
+            stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True,
+        )
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            fail("Graphify adapter timed out")
+        stdout.seek(0)
+        stderr.seek(0)
+        output_text = stdout.read(4097)
+        error_text = stderr.read(2001)
+    if len(output_text) > 4096 or len(error_text) > 2000:
+        fail("Graphify adapter output exceeds bounds")
+    return subprocess.CompletedProcess(
+        [str(adapter), "--output-dir", str(output)], process.returncode,
+        output_text.decode(errors="replace"), error_text.decode(errors="replace"),
+    )
+
+
+def valid_graphify_check_receipt(value, record, head):
+    keys = {"schema_version", "command_contract", "invocation_id", "cycle_id", "head",
+            "profile", "adapter", "output_files", "output_sha256", "manifest_sha256",
+            "cache", "checked_at"}
+    files, digests, cache = value.get("output_files"), value.get("output_sha256"), value.get("cache")
+    return (set(value) == keys and value.get("schema_version") == 1
+            and value.get("command_contract") == "dbsctr-graphify-check-v1"
+            and isinstance(value.get("invocation_id"), str)
+            and re.fullmatch(r"[0-9a-f]{32}", value["invocation_id"])
+            and value.get("cycle_id") == record["cycle_id"] and value.get("head") == head
+            and value.get("profile") == record["engineering_profile"]
+            and value.get("adapter") == record["applicability_plan"]["graphify"]
+            and isinstance(files, list) and files == sorted(set(files))
+            and {"GRAPH_REPORT.md", "manifest.json"} <= set(files)
+            and isinstance(digests, dict) and sorted(digests) == files
+            and all(re.fullmatch(r"[0-9a-f]{64}", digest or "") for digest in digests.values())
+            and value.get("manifest_sha256") == digests.get("manifest.json")
+            and isinstance(cache, dict) and set(cache) == {"hits", "misses"}
+            and all(type(item) is int and item >= 0 for item in cache.values())
+            and isinstance(value.get("checked_at"), str) and value["checked_at"])
+
+
+def require_graphify_check(root, record):
+    selection = record.get("applicability_plan", {}).get("graphify")
+    if selection is None:
+        return
+    binding = record.get("graphify_check")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if not isinstance(binding, dict) or binding.get("head") != head:
+        fail("Graphify check is missing or stale")
+    receipt = graphify_receipt_path(root, record["cycle_id"])
+    if binding.get("receipt") != receipt.relative_to(cycle_dir(root)).as_posix():
+        fail("Graphify check receipt path is invalid")
+    try:
+        details = receipt.lstat()
+        raw = receipt.read_bytes()
+        value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    except (OSError, json.JSONDecodeError):
+        fail("Graphify check receipt is missing or invalid")
+    if (stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid()
+            or receipt.is_symlink() or details.st_mode & 0o077
+            or hashlib.sha256(raw).hexdigest() != binding.get("receipt_sha256")
+            or not valid_graphify_check_receipt(value, record, head)):
+        fail("Graphify check receipt identity is invalid")
+
+
+def command_graphify_check(args):
+    root = root_dir()
+    path, record = load(root)
+    require_active(record)
+    require_current_profile(root, record)
+    selection = record.get("applicability_plan", {}).get("graphify")
+    if selection is None:
+        fail("Graphify is not selected by the applicability plan")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    parent = Path(tempfile.mkdtemp(prefix="dbsctr-graphify-check-"))
+    worktree, output = parent / "worktree", parent / "output"
+    added = False
+    try:
+        git(root, "worktree", "add", "--detach", str(worktree), head)
+        added = True
+        adapter = worktree / selection["adapter"]
+        result = run_graphify_adapter(adapter, worktree, output, selection, "check", args.timeout)
+        if result.returncode:
+            fail(result.stderr[-2000:].strip() or "Graphify check failed")
+        if len(result.stdout.encode()) > 4096:
+            fail("Graphify check summary exceeds bounds")
+        try:
+            summary = json.loads(result.stdout or "{}", object_pairs_hook=no_duplicate_keys)
+            manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"),
+                                  object_pairs_hook=no_duplicate_keys)
+            report = (output / "GRAPH_REPORT.md").read_text(encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            fail("Graphify check output is invalid")
+        if not isinstance(manifest, dict) or f"Built from commit: `{head}`" not in report:
+            fail("Graphify check output does not match current HEAD")
+        cache = {"hits": summary.get("cache_hits", 0), "misses": summary.get("cache_misses", 0)}
+        if any(type(value) is not int or value < 0 for value in cache.values()):
+            fail("Graphify cache counters are invalid")
+        files, digests = graphify_output_identity(output)
+        receipt_value = {
+            "schema_version": 1, "command_contract": "dbsctr-graphify-check-v1",
+            "invocation_id": uuid.uuid4().hex, "cycle_id": record["cycle_id"], "head": head,
+            "profile": record["engineering_profile"], "adapter": selection,
+            "output_files": files, "output_sha256": digests,
+            "manifest_sha256": digests["manifest.json"], "cache": cache, "checked_at": now(),
+        }
+        receipt = graphify_receipt_path(root, record["cycle_id"])
+        private_json(receipt, receipt_value)
+        raw = receipt.read_bytes()
+        relative = receipt.relative_to(cycle_dir(root)).as_posix()
+        record["graphify_check"] = {"head": head, "receipt": relative,
+                                     "receipt_sha256": hashlib.sha256(raw).hexdigest(),
+                                     "checked_at": receipt_value["checked_at"]}
+        save(path, record)
+    finally:
+        if added:
+            removed = git(root, "worktree", "remove", "--force", str(worktree), check=False)
+            if removed.returncode:
+                fail(removed.stderr.strip() or "cannot remove disposable Graphify worktree")
+        shutil.rmtree(parent)
+    print(json.dumps({"head": head, "receipt": relative, "cache": cache},
+                     sort_keys=True, separators=(",", ":")))
+
+
 def command_approve_exception(args):
     root = root_dir()
     path, record = load(root)
@@ -8354,6 +8622,30 @@ def batch_id(value):
     return value
 
 
+@contextlib.contextmanager
+def batch_lock(root, identifier):
+    path = cycle_dir(root) / "locks" / f"batch-{identifier}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        details = os.fstat(descriptor)
+        if stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid():
+            fail("batch lock is unsafe")
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def serialized_batch(function):
+    def command(args):
+        root = root_dir()
+        with batch_lock(root, batch_id(args.batch_id)):
+            return function(args)
+    return command
+
+
 def batch_path(root, identifier):
     return cycle_dir(root) / "batches" / f"{identifier}.json"
 
@@ -8371,11 +8663,15 @@ def load_batch(root, identifier):
         value = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         fail("batch metadata is invalid")
-    if (value.get("schema_version") != 1 or value.get("batch_id") != identifier
+    if (value.get("schema_version") not in (1, 2) or value.get("batch_id") != identifier
             or value.get("branch") != f"rnd/batch/{identifier}"
             or value.get("worktree") != str(batch_worktree(root, identifier))):
         fail("batch metadata is invalid")
     return path, value
+
+
+def batch_source_tip(value):
+    return value["sources"][-1]["merge"] if value["sources"] else value["base"]
 
 
 def validate_batch_tip(worktree, value):
@@ -8391,8 +8687,67 @@ def validate_batch_tip(worktree, value):
                 != [expected, item["sha"]]):
             fail("batch merge history is invalid")
         expected = item["merge"]
+    graph = value.get("graph")
+    if graph is not None:
+        if (not isinstance(graph, dict) or not re.fullmatch(r"[0-9a-f]{40,64}", graph.get("commit", ""))
+                or git(worktree, "show", "-s", "--format=%P", graph["commit"]).stdout.split() != [expected]
+                or any(not name.startswith("graphify-out/") for name in git(
+                    worktree, "diff-tree", "--no-commit-id", "--name-only", "-r", graph["commit"]
+                ).stdout.splitlines())):
+            fail("batch graph history is invalid")
+        expected = graph["commit"]
     if git(worktree, "rev-parse", "HEAD").stdout.strip() != expected:
         fail("batch tip is not the recorded merge history")
+
+
+def recover_batch_merges(worktree, value, source_heads):
+    expected = batch_source_tip(value)
+    head = git(worktree, "rev-parse", "HEAD").stdout.strip()
+    if head == expected:
+        return []
+    candidates = {sha: (source, sha) for source, sha, _record in source_heads}
+    recovered, entries = [], []
+    known = {item["branch"] for item in value["sources"]}
+    for commit in git(worktree, "rev-list", "--first-parent", "--reverse", f"{expected}..{head}").stdout.splitlines():
+        parents = git(worktree, "show", "-s", "--format=%P", commit).stdout.split()
+        candidate = candidates.get(parents[1]) if len(parents) == 2 and parents[0] == expected else None
+        if candidate is None or candidate[0] in known:
+            return []
+        source, sha = candidate
+        entries.append({"branch": source, "sha": sha, "merge": commit})
+        recovered.append(source)
+        known.add(source)
+        expected = commit
+    if expected != head:
+        return []
+    value["sources"].extend(entries)
+    return recovered
+
+
+def batch_graph_value(worktree, value, source_head, commit):
+    changed = git(worktree, "diff-tree", "--no-commit-id", "--name-only", "-r", commit).stdout.splitlines()
+    if (not changed or any(not name.startswith("graphify-out/") for name in changed)
+            or git(worktree, "show", "-s", "--format=%P", commit).stdout.split() != [source_head]):
+        fail("batch graph history is invalid")
+    try:
+        receipt_raw = git(worktree, "show", f"{commit}:graphify-out/graph.receipt.json").stdout.encode()
+        receipt = json.loads(receipt_raw, object_pairs_hook=no_duplicate_keys)
+        report = git(worktree, "show", f"{commit}:graphify-out/GRAPH_REPORT.md").stdout.encode()
+        manifest = git(worktree, "show", f"{commit}:graphify-out/manifest.json").stdout.encode()
+    except (json.JSONDecodeError, RuntimeError):
+        fail("batch graph receipt is invalid")
+    if (receipt.get("command_contract") != "dbsctr-batch-graphify-v1"
+            or receipt.get("batch_id") != value["batch_id"] or receipt.get("source_head") != source_head
+            or receipt.get("adapter") != value.get("graphify")):
+        fail("batch graph receipt identity is invalid")
+    requires_dvc_push = any(name.removeprefix("graphify-out/").endswith(".dvc")
+                            or name.removeprefix("graphify-out/") in (
+                                "dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore") for name in changed)
+    return {"source_head": source_head, "commit": commit,
+            "report_sha256": hashlib.sha256(report).hexdigest(),
+            "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+            "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
+            "requires_dvc_push": requires_dvc_push}
 
 
 def completed_source(root, source, sha):
@@ -8409,8 +8764,10 @@ def completed_source(root, source, sha):
             matches.append(record)
     if len(matches) != 1:
         fail("batch source is not one completed DBSCTR draft-PR delivery")
+    return matches[0]
 
 
+@serialized_batch
 def command_batch_create(args):
     root = root_dir()
     identifier = batch_id(args.batch_id)
@@ -8430,8 +8787,9 @@ def command_batch_create(args):
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git(root, "worktree", "add", "-b", branch_name, str(worktree), base)
     value = {
-        "schema_version": 1, "batch_id": identifier, "branch": branch_name,
+        "schema_version": 2, "batch_id": identifier, "branch": branch_name,
         "base": base, "worktree": str(worktree), "sources": [],
+        "state": "open", "graphify": None, "graphify_policy_set": False,
         "github": {"host": "github.com", "account": args.github_account,
                    "repository": args.github_repository}, "created_at": now(),
     }
@@ -8444,10 +8802,10 @@ def batch_source(root, source):
         fail("invalid batch source branch")
     git(root, "fetch", "origin", source)
     sha = git(root, "rev-parse", f"refs/remotes/origin/{source}").stdout.strip()
-    completed_source(root, source, sha)
-    return sha
+    return sha, completed_source(root, source, sha)
 
 
+@serialized_batch
 def command_batch_integrate(args):
     root = root_dir()
     identifier = batch_id(args.batch_id)
@@ -8455,25 +8813,51 @@ def command_batch_integrate(args):
     if len(sources) != len(args.source):
         fail("batch source is duplicated")
     git(root, "fetch", "origin", "main")
-    source_heads = [(source, batch_source(root, source)) for source in sources]
+    source_heads = [(source, *batch_source(root, source)) for source in sources]
     if args.preview:
         parent = Path(tempfile.mkdtemp(prefix=f"dbsctr-batch-{identifier}-"))
         temporary = parent / "worktree"
+        added = False
         try:
             base = git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip()
             git(root, "worktree", "add", "--detach", str(temporary), base)
-            for _source, sha in source_heads:
+            added = True
+            for _source, sha, _record in source_heads:
                 git(temporary, "merge", "--no-ff", "--no-edit", sha)
             print(json.dumps({"batch_id": identifier, "preview": True,
                               "head": git(temporary, "rev-parse", "HEAD").stdout.strip()}, sort_keys=True))
         finally:
-            git(root, "worktree", "remove", "--force", str(temporary), check=False)
-            shutil.rmtree(parent, ignore_errors=True)
+            if added:
+                removed = git(root, "worktree", "remove", "--force", str(temporary), check=False)
+                if removed.returncode:
+                    fail(removed.stderr.strip() or "cannot remove batch preview worktree")
+            shutil.rmtree(parent)
         return
     path, value = load_batch(root, identifier)
+    if value.get("state", "open") != "open":
+        fail("batch source admission is closed")
     worktree = Path(value["worktree"])
     if not worktree.is_dir() or status_paths(worktree):
         fail("batch worktree is missing or dirty")
+    selections = [record.get("applicability_plan", {}).get("graphify")
+                  for _source, _sha, record in source_heads]
+    selected = [selection for selection in selections if selection is not None]
+    if selected and (len(selected) != len(selections) or any(item != selected[0] for item in selected)):
+        fail("batch sources have incompatible Graphify selections")
+    incoming = selected[0] if selected else None
+    if value.get("graphify_policy_set", bool(value["sources"])) and value.get("graphify") != incoming:
+        fail("batch Graphify selection changed")
+    if selected:
+        for selection, (_source, sha, _record) in zip(selections, source_heads):
+            validate_graphify_selection(root, selection, sha)
+    value.update({"schema_version": 2, "graphify": incoming, "graphify_policy_set": True})
+    recovered = recover_batch_merges(worktree, value, source_heads)
+    if recovered:
+        value["updated_at"] = now()
+        private_json(path, value)
+        if set(recovered) == set(sources):
+            print(json.dumps(value, sort_keys=True))
+            return
     validate_batch_tip(worktree, value)
     if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
         fail("protected base branch drifted")
@@ -8485,15 +8869,98 @@ def command_batch_integrate(args):
         current = git(root, "rev-parse", f"refs/remotes/origin/{item['branch']}").stdout.strip()
         if current != item["sha"]:
             fail("batch source drifted")
-    for source, sha in source_heads:
+    for source, sha, _record in source_heads:
         git(worktree, "merge", "--no-ff", "--no-edit", sha)
         value["sources"].append({"branch": source, "sha": sha,
                                  "merge": git(worktree, "rev-parse", "HEAD").stdout.strip()})
-    value["updated_at"] = now()
-    private_json(path, value)
+        value["updated_at"] = now()
+        private_json(path, value)
     print(json.dumps(value, sort_keys=True))
 
 
+@serialized_batch
+def command_batch_finalize(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    path, value = load_batch(root, identifier)
+    if value.get("state", "open") != "open":
+        fail("batch source admission is closed")
+    selection = value.get("graphify")
+    if not value["sources"] or not isinstance(selection, dict):
+        fail("batch has no selected Graphify adapter")
+    worktree = Path(value["worktree"])
+    if not worktree.is_dir():
+        fail("batch worktree is missing")
+    source_head = batch_source_tip(value)
+    current_head = git(worktree, "rev-parse", "HEAD").stdout.strip()
+    if current_head != source_head:
+        graph = batch_graph_value(worktree, value, source_head, current_head)
+        value.update({"schema_version": 2, "state": "finalized", "finalized_at": now(), "graph": graph})
+        private_json(path, value)
+        print(json.dumps({"batch_id": identifier, "state": value["state"], "graph": graph},
+                         sort_keys=True, separators=(",", ":")))
+        return
+    dirty = status_paths(worktree)
+    if any(not name.startswith("graphify-out/") for name in dirty):
+        fail("batch worktree has unrelated changes")
+    validate_batch_tip(worktree, value)
+    selection = validate_graphify_selection(worktree, selection, source_head)
+    adapter = worktree / selection["adapter"]
+    output = worktree / "graphify-out"
+    result = run_graphify_adapter(adapter, worktree, output, selection, "finalize", args.timeout)
+    if result.returncode:
+        fail(result.stderr[-2000:].strip() or "batch Graphify finalization failed")
+    try:
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"),
+                              object_pairs_hook=no_duplicate_keys)
+        report = (output / "GRAPH_REPORT.md").read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError):
+        fail("batch Graphify output is invalid")
+    if not isinstance(manifest, dict) or f"Built from commit: `{source_head}`" not in report:
+        fail("batch Graphify output does not match its source tip")
+    (output / "graph.receipt.json").unlink(missing_ok=True)
+    files, digests = graphify_output_identity(output)
+    receipted = [name for name in files if git(
+        worktree, "check-ignore", "--quiet", "--", f"graphify-out/{name}", check=False
+    ).returncode != 0]
+    receipt = {
+        "schema_version": 1, "command_contract": "dbsctr-batch-graphify-v1",
+        "batch_id": identifier, "source_head": source_head, "adapter": selection,
+        "output_files": receipted, "output_sha256": {name: digests[name] for name in receipted},
+        "manifest_sha256": digests["manifest.json"], "created_at": now(),
+    }
+    (output / "graph.receipt.json").write_text(
+        json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    git(worktree, "add", "-A", "--", "graphify-out")
+    changed = git(worktree, "diff", "--cached", "--name-only").stdout.splitlines()
+    if not changed or any(not name.startswith("graphify-out/") for name in changed):
+        fail("batch Graphify finalization must change only graphify-out")
+    git(worktree, "commit", "-m", f"chore(graphify): finalize {identifier}")
+    commit = git(worktree, "rev-parse", "HEAD").stdout.strip()
+    graph = batch_graph_value(worktree, value, source_head, commit)
+    value.update({"schema_version": 2, "state": "finalized", "finalized_at": now(),
+                  "graph": graph})
+    private_json(path, value)
+    print(json.dumps({"batch_id": identifier, "state": value["state"], "graph": value["graph"]},
+                     sort_keys=True, separators=(",", ":")))
+
+
+@serialized_batch
+def command_batch_record_dvc_push(args):
+    root = root_dir()
+    identifier = batch_id(args.batch_id)
+    path, value = load_batch(root, identifier)
+    graph = value.get("graph", {})
+    if value.get("state") != "finalized" or not graph.get("requires_dvc_push"):
+        fail("batch does not require DVC push evidence")
+    if args.head != graph.get("commit"):
+        fail("batch DVC push evidence must match the graph commit")
+    value["dvc_push"] = {"head": args.head, "evidence": args.evidence, "recorded_at": now()}
+    private_json(path, value)
+    print(json.dumps(value["dvc_push"], sort_keys=True, separators=(",", ":")))
+
+
+@serialized_batch
 def command_batch_publish(args):
     root = root_dir()
     identifier = batch_id(args.batch_id)
@@ -8503,6 +8970,11 @@ def command_batch_publish(args):
     worktree = Path(value["worktree"])
     if not value["sources"] or not worktree.is_dir() or status_paths(worktree):
         fail("batch is not ready for publication")
+    graph = value.get("graph")
+    if value.get("graphify") and value.get("state") != "finalized":
+        fail("batch Graphify finalization is required")
+    if graph and graph.get("requires_dvc_push") and value.get("dvc_push", {}).get("head") != graph.get("commit"):
+        fail("current DVC push evidence is required")
     validate_batch_tip(worktree, value)
     git(root, "fetch", "origin", "main")
     if git(root, "rev-parse", "refs/remotes/origin/main").stdout.strip() != value["base"]:
@@ -8592,6 +9064,7 @@ def finish_push(root, path, record):
         return
     require_pushable(record)
     require_current_profile(root, record)
+    require_graphify_check(root, record)
     if record.get("schema_version") in (3, 4):
         final_head = git(root, "rev-parse", "HEAD").stdout.strip()
         for name, gate in record["gates"].items():
@@ -9292,6 +9765,16 @@ def command_inference_cost_report(args):
                       "context_count": len(summaries)}, sort_keys=True, separators=(",", ":")))
 
 
+def graphify_timeout(value):
+    try:
+        timeout = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("timeout must be an integer") from error
+    if not 1 <= timeout <= 3600:
+        raise argparse.ArgumentTypeError("timeout must be 1 through 3600 seconds")
+    return timeout
+
+
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
@@ -9598,6 +10081,15 @@ def parser():
     batch_integrate.add_argument("--source", action="append", required=True)
     batch_integrate.add_argument("--preview", action="store_true")
     batch_integrate.set_defaults(func=command_batch_integrate)
+    batch_finalize = commands.add_parser("batch-finalize")
+    batch_finalize.add_argument("--batch-id", required=True)
+    batch_finalize.add_argument("--timeout", type=graphify_timeout, default=900)
+    batch_finalize.set_defaults(func=command_batch_finalize)
+    batch_dvc = commands.add_parser("batch-record-dvc-push")
+    batch_dvc.add_argument("--batch-id", required=True)
+    batch_dvc.add_argument("--head", required=True)
+    batch_dvc.add_argument("--evidence", required=True)
+    batch_dvc.set_defaults(func=command_batch_record_dvc_push)
     batch_publish = commands.add_parser("batch-publish")
     batch_publish.add_argument("--batch-id", required=True)
     batch_publish.add_argument("--confirm", required=True)
@@ -9626,6 +10118,9 @@ def parser():
     update_plan = commands.add_parser("update-plan")
     update_plan.add_argument("--plan", required=True, help="equal or stricter applicability-plan JSON path or - for stdin")
     update_plan.set_defaults(func=command_update_plan)
+    graphify_check = commands.add_parser("graphify-check")
+    graphify_check.add_argument("--timeout", type=graphify_timeout, default=900)
+    graphify_check.set_defaults(func=command_graphify_check)
     exception = commands.add_parser("approve-exception")
     exception.add_argument("gate", choices=GATES)
     exception.add_argument("--kind", required=True, choices=("deferred", "accepted_risk"))

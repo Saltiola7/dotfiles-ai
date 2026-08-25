@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-25 - V3.37 Graphify Orchestration
+
+- Added strict optional Graphify adapter/version selection, disposable feature
+  checks with private HEAD-bound receipts, and Final Push freshness enforcement.
+- Added serialized schema-2 batch finalization, graph-only canonical promotion,
+  merge/commit recovery, strict fixed-commit receipt audit, and separately bound
+  DVC push evidence while retaining schema-1 reads.
+- Affected QA passed 163 helper tests with one existing skip, 68 lifecycle and
+  control-plane tests, Python compilation, Git diff checks, targeted chezmoi
+  apply/idempotence, deployed source identity, and final independent review with
+  no blockers. Gate Exceptions: none. Gate Commits: `16425b3`, `efa71ec`,
+  `2c31369`. Deployment: managed helper and lifecycle skills applied locally.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-20 - DKS-003 Knowledge Export Discovery
 
 - Defined a lifecycle-owned, read-only canonical JSON Lines export for governed
