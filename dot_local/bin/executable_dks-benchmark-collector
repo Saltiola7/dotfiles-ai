@@ -11,7 +11,11 @@ def command(*args):
 
 def main():
     power = command("pmset", "-g", "batt").splitlines()[0]
-    pressure = command("memory_pressure").splitlines()[-1]
+    level = int(command("sysctl", "-n", "kern.memorystatus_vm_pressure_level"))
+    try:
+        pressure = {1: "normal", 2: "warning", 4: "critical"}[level]
+    except KeyError as error:
+        raise RuntimeError("unknown kernel memory pressure level") from error
     print(json.dumps({"schema_version": 1, "captured_at": int(time.time()),
                       "hardware_sku": command("sysctl", "-n", "hw.model"),
                       "os_version": platform.mac_ver()[0], "power_state": power,

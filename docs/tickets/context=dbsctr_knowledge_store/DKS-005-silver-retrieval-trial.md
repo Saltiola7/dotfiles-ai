@@ -5,7 +5,7 @@ slug: silver-retrieval-trial
 context: dbsctr_knowledge_store
 title: Run the frozen silver retrieval trial
 kind: epic
-state: in_progress
+state: completed
 priority: high
 points: 8
 depends_on:
@@ -33,11 +33,32 @@ validation:
   - four-cell quality, citation, determinism, latency, and resource gates
   - exact aggregate recomputation, seven-day trial activation, expiry, and rollback
 created: 2026-08-21
-updated: 2026-08-22
-completed: null
-commits: []
+updated: 2026-08-24
+completed: 2026-08-24
+commits:
+  - 995cfb9
+  - 6d7c2bd
+  - a4eec79
+  - 3c48b54
+  - 201b096
+  - d28d6d6
+  - 5a81814
+  - d3d3a4c
+  - 0dbd84b
+  - edf2515
+  - 9f5f509
+  - ef3a605
+  - d5df601
+  - 88a6bc8
+  - 0ef9ba0
+  - d4d5e61
+  - e956fdb
+  - 1a6e70a
+  - 8d4fb52
+  - 9f30cd9
+  - 4531026
 jira_publications: []
-migration: null
+migration: 6
 ---
 
 ## Outcome
@@ -93,13 +114,24 @@ last-token-only, cache-free, single-document scoring is now a hard precondition.
 
 ## Evidence
 
-DKS-003 specified the quality thresholds and retained the baseline. DKS-004
-delivered evidence validation but no executor. This ticket owns the missing
-executor, explicit silver lineage, bounded trial, and automatic rollback.
+The complete 100-query matrix is bound to aggregate SHA-256
+`837271160639c5148d75984eba53c068fc20fd049e732824be080fd84c3c5b0b` and
+private evidence SHA-256
+`9786d288536c2ac58bef86b4a13ddf2df0c706d9293fa220c10cc3954d6bd4a5`.
+Code vectors regressed relative nDCG@10 by 32.89%, had 29 exact-citation
+regressions, and were nondeterministic. Reranking improved relative nDCG@10 by
+66.76%, but had one exact-citation regression and a 59.74-second warm p95. Both
+candidates also observed 63.95 GiB peak host memory, warning kernel pressure,
+and 2.86 GB swap growth.
+Neither candidate was eligible, so `dks-rrf-v1` remained active and no silver
+trial was created.
 
 ## Review
 
-DKS-004 is delivered. The earlier private TSV increment remains compatible with
-human v2 evidence but does not authorize this trial. Candidate execution remains
-blocked until the committed silver suite is schema-valid and independently
-reviewed.
+The suite passed two independent fixed-commit reviews before execution. Their
+committed hashes are provenance declarations, not cryptographic provider
+attestations; fixed-source citation validation and explicit operator activation
+remain authoritative. The local four-cell matrix completed with warning kernel
+pressure and failed candidate gates without activation. The trial, expiry, drift,
+service-failure, and manual rollback paths remain available for a future eligible
+silver aggregate; permanent quality activation remains denied.

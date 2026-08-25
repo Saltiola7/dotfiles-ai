@@ -38,9 +38,10 @@ A production-independent benchmark decides whether BM25 merits later PostgreSQL
 
 ## Context
 
-DKS-005 must first supply frozen silver evidence. Production evaluation remains
-blocked until Tiger Data publishes official `pg_textsearch` support and an
-artifact for the exact PostgreSQL 19 production major.
+DKS-005 supplied frozen silver evidence, with neither quality candidate eligible.
+Production evaluation remains blocked until Tiger Data publishes official
+`pg_textsearch` support and an artifact for the exact PostgreSQL 19 production
+major.
 
 ## Scope
 
@@ -86,5 +87,5 @@ Official sources:
 
 ## Review
 
-Blocked pending DKS-005 evidence and official exact-major PostgreSQL 19
-`pg_textsearch` support; no production mutation is authorized.
+Blocked pending official exact-major PostgreSQL 19 `pg_textsearch` support;
+DKS-005 evidence is available, and no production mutation is authorized.

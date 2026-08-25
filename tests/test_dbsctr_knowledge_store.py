@@ -180,6 +180,8 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     assert "BATCH_SIZE = 1" in reranker_wrapper and "MAX_MPS_MEMORY_GIB = 20" in reranker_wrapper
     assert "MAX_PROCESS_MEMORY_GIB = 24" in reranker_wrapper
     assert "set_per_process_memory_fraction" in reranker_wrapper
+    assert "resource.getrusage(resource.RUSAGE_SELF).ru_maxrss" in reranker_wrapper
+    assert reranker_wrapper.count("enforce_process_memory()") >= 4
     assert "use_cache=False, logits_to_keep=1" in reranker_wrapper
     assert "ThreadingHTTPServer((\"127.0.0.1\", PORT)" in reranker_wrapper
     assert "build_opener(NoRedirect)" in reranker_wrapper
@@ -204,6 +206,53 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     for name in ("code-embedding", "reranker"):
         manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
         assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
+
+
+def test_reranker_health_requires_memory_contract(monkeypatch) -> None:
+    dksctl = load_dksctl()
+    health = {"ready": True, "model": "qwen3-reranker-4b",
+              "revision": dksctl.RERANKER_REVISION, "batch_size": 1,
+              "max_mps_memory_gib": 20, "max_process_memory_gib": 24}
+
+    class Opener:
+        def open(self, request, timeout):
+            return io.BytesIO(json.dumps(health).encode())
+
+    monkeypatch.setattr(dksctl.urllib.request, "build_opener", lambda *args: Opener())
+    config = {"reranker": {"url": "http://127.0.0.1:11437",
+                           "model": "qwen3-reranker-4b"}}
+    dksctl.validate_service_health(config, "reranker")
+    health["batch_size"] = 8
+    with pytest.raises(RuntimeError, match="reranker health unavailable"):
+        dksctl.validate_service_health(config, "reranker")
+
+
+def test_frozen_chunk_citations_accepts_identical_reuse(monkeypatch) -> None:
+    dksctl = load_dksctl()
+    chunk_id, body_sha = "a" * 64, "b" * 64
+    rows = [json.dumps({"chunk_id": chunk_id, "body_sha256": body_sha})] * 2
+    monkeypatch.setattr(dksctl, "run_psql", lambda *_args: rows)
+    assert dksctl.frozen_chunk_citations({}, "dotfiles-ai", "c" * 40) == {
+        chunk_id: body_sha}
+
+    rows[-1] = json.dumps({"chunk_id": chunk_id, "body_sha256": "d" * 64})
+    with pytest.raises(ValueError, match="frozen projection chunk identity is invalid"):
+        dksctl.frozen_chunk_citations({}, "dotfiles-ai", "c" * 40)
+
+
+def test_memory_pressure_requires_exact_kernel_state(tmp_path: Path, monkeypatch) -> None:
+    dksctl = load_dksctl()
+    collector = tmp_path / "collector"
+    collector.write_text("collector")
+    config = {"benchmark_collector_file": str(collector),
+              "benchmark_collector_sha256": hashlib.sha256(b"collector").hexdigest()}
+    result = subprocess.CompletedProcess([], 0, json.dumps({"memory_pressure": "normal"}), "")
+    monkeypatch.setattr(dksctl.subprocess, "run", lambda *_args, **_kwargs: result)
+    assert dksctl.memory_pressure_state(config) == "normal"
+
+    result.stdout = json.dumps({"memory_pressure": "unknown"})
+    with pytest.raises(RuntimeError, match="memory pressure is invalid"):
+        dksctl.memory_pressure_state(config)
 
 
 def test_loader_bootstraps_only_after_install_and_removes_only_owned_targets() -> None:
@@ -975,6 +1024,78 @@ def test_expired_silver_policy_is_never_returned_as_active() -> None:
     assert dks.active_ranking_policy({}, "dotfiles-ai", Session())["evidence_class"] == "silver"
 
 
+def test_quality_activation_rejects_ineligible_candidates_before_database(monkeypatch) -> None:
+    dks = load_dksctl()
+    monkeypatch.setattr(dks, "PsqlSession", lambda *_args: (_ for _ in ()).throw(
+        AssertionError("database session opened")))
+    aggregate = {"candidates": {"code": {"eligible": False},
+                                "reranker": {"eligible": False}}}
+    with pytest.raises(RuntimeError, match="no benchmark candidate is eligible"):
+        dks.activate_quality_policy(argparse.Namespace(project="dotfiles-ai"), {}, {},
+                                    aggregate, "a" * 64, {}, "b" * 64, "silver")
+
+
+def test_silver_activation_writes_exact_seven_day_lease(monkeypatch) -> None:
+    dks = load_dksctl()
+    revision, privacy = "a" * 40, "b" * 64
+    projection = {"chunks": 1}
+    authority = {"privacy_sequence": "0", "privacy_digest": privacy, "snapshots": []}
+    graph, general, code, reranker = "c" * 64, "d" * 64, "e" * 64, "f" * 64
+    manifest = {
+        "source_revision": revision,
+        "source_profile_sha256": "1" * 64,
+        "source_projection_sha256": dks.digest_json(projection),
+        "authority_snapshot_set_sha256": dks.digest_json([]),
+        "authority_projection_sha256": dks.digest_json(authority),
+        "privacy_sequence": 0, "privacy_digest": privacy,
+        "graph_artifact_sha256": graph,
+        "general_embedding_manifest_sha256": general,
+        "code_embedding_manifest_sha256": code,
+        "reranker_manifest_sha256": reranker,
+    }
+    statements = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, sql):
+            statements.append(sql)
+            if "pg_try_advisory_lock(" in sql:
+                return ["t"]
+            if "SELECT active_revision_id" in sql:
+                return [revision]
+            if sql == "projection":
+                return [json.dumps(projection)]
+            if sql == "authority":
+                return [json.dumps(authority)]
+            if "'source_chunks'" in sql:
+                return [json.dumps({"revision": revision, "source_chunks": 0,
+                                    "code_embeddings": 0, "graph_artifact": graph})]
+            return []
+
+    config = {"embedding": {"manifest_sha256": general},
+              "code_embedding": {"manifest_sha256": code},
+              "reranker": {"manifest_sha256": reranker}}
+    aggregate = {"candidates": {"code": {"eligible": False},
+                                "reranker": {"eligible": True}}}
+    monkeypatch.setattr(dks, "PsqlSession", lambda *_args: Session())
+    monkeypatch.setattr(dks, "projection_payload_sql", lambda *_args: "projection")
+    monkeypatch.setattr(dks, "authority_projection_payload_sql", lambda: "authority")
+    monkeypatch.setattr(dks, "validate_embedding_config", lambda *_args: None)
+    monkeypatch.setattr(dks, "validate_reranker_config", lambda *_args: None)
+    monkeypatch.setattr(dks.time, "time", lambda: 1000)
+    result = dks.activate_quality_policy(
+        argparse.Namespace(project="dotfiles-ai"), config,
+        {"source_profile_sha256": "1" * 64}, aggregate, "2" * 64,
+        manifest, "3" * 64, "silver")
+    assert result["trial_expires_at"] == 605800
+    assert "'silver',to_timestamp(605800)" in "\n".join(statements)
+
+
 def test_silver_evidence_recomputes_metrics_and_binds_resolved_citations(tmp_path: Path,
                                                                         monkeypatch) -> None:
     dks = load_dksctl()
@@ -999,6 +1120,8 @@ def test_silver_evidence_recomputes_metrics_and_binds_resolved_citations(tmp_pat
                         "runs_seconds": {name: [1.0, 1.0] for name in systems},
                         "repeat_rankings": {name: [ranking, ranking]
                                             for name, ranking in rankings.items()}})
+    queries[0]["repeat_rankings"]["code_reranker"][1] = list(
+        reversed(queries[0]["rankings"]["code_reranker"]))
     suite = {"source_revision": dks.DKS_005_SOURCE_REVISION,
              "strata": {name: 20 for name in dks.BENCHMARK_QUERY_STRATA},
              "questions": questions}
@@ -1031,6 +1154,7 @@ def test_silver_evidence_recomputes_metrics_and_binds_resolved_citations(tmp_pat
     aggregate = dks.load_silver_evidence(path, suite, "b" * 64, config, "dotfiles-ai")
     assert aggregate["candidates"]["code"]["eligible"] is True
     assert aggregate["candidates"]["reranker"]["eligible"] is False
+    assert aggregate["candidates"]["reranker"]["deterministic_rank"] is False
 
     valid = json.loads(json.dumps(evidence))
     evidence["receipt_hmac_sha256"] = "0" * 64

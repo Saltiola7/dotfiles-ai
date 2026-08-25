@@ -1183,7 +1183,9 @@ def validate_service_health(config, name):
             raw = response.read(8193)
         body = json.loads(raw)
         expected = ({"status": "ok"} if name in {"embedding", "code_embedding"} else
-                    {"ready": True, "model": service.get("model"), "revision": RERANKER_REVISION})
+                    {"ready": True, "model": service.get("model"), "revision": RERANKER_REVISION,
+                     "batch_size": 1, "max_mps_memory_gib": 20,
+                     "max_process_memory_gib": 24})
         if len(raw) > 8192 or body != expected:
             raise ValueError("invalid health payload")
     except Exception as error:
@@ -2713,7 +2715,8 @@ ORDER BY c.chunk_id;
         item = json.loads(line)
         if (not SHA256_RE.fullmatch(item.get("chunk_id", ""))
                 or not SHA256_RE.fullmatch(item.get("body_sha256", ""))
-                or item["chunk_id"] in values):
+                or (item["chunk_id"] in values
+                    and values[item["chunk_id"]] != item["body_sha256"])):
             raise ValueError("frozen projection chunk identity is invalid")
         values[item["chunk_id"]] = item["body_sha256"]
     if not values:
@@ -2791,8 +2794,12 @@ def load_silver_evidence(path_value, suite, suite_sha, config, project_id):
                        for samples in query["runs_seconds"].values())
                 or set(query.get("repeat_rankings", {})) != systems
                 or any(not isinstance(repeats, list) or len(repeats) != 2
-                       or any(repeat != query["rankings"][system] for repeat in repeats)
-                       for system, repeats in query["repeat_rankings"].items())):
+                        or any(not isinstance(repeat, list) or len(repeat) != 100
+                               or len(repeat) != len(set(repeat))
+                               or any(not SHA256_RE.fullmatch(item)
+                                      or item not in projected_chunks for item in repeat)
+                               for repeat in repeats)
+                        for system, repeats in query["repeat_rankings"].items())):
             raise ValueError("silver query evidence is invalid")
         if any(query["citations"][system] != list(dict.fromkeys(
                 projected_chunks[item] for item in query["rankings"][system][:10]))
@@ -2901,14 +2908,12 @@ def memory_pressure_state(config):
     try:
         raw = subprocess.run([str(collector)], text=True, capture_output=True,
                              check=True, timeout=30).stdout
-        pressure = json.loads(raw)["memory_pressure"].lower()
+        pressure = json.loads(raw)["memory_pressure"]
     except (subprocess.SubprocessError, json.JSONDecodeError, KeyError) as error:
         raise RuntimeError("benchmark telemetry unavailable") from error
-    if "critical" in pressure:
-        return "critical"
-    if "warning" in pressure or "warn" in pressure:
-        return "warning"
-    return "normal"
+    if pressure not in {"normal", "warning", "critical"}:
+        raise RuntimeError("benchmark memory pressure is invalid")
+    return pressure
 
 
 class BenchmarkTelemetry:

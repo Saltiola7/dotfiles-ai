@@ -1227,19 +1227,19 @@ query.
 
 ### DKS-005
 
-| Gate | Applicability | Result | Planned evidence |
+| Gate | Applicability | Result | Evidence |
 |---|---|---|---|
-| Domain | required | pending | Silver evidence, source citation, ranking trial, expiry, fallback event, frozen Git authority, and hosted/local trust boundaries |
-| Behavior | required | pending | Pre-execution generation, four-cell execution, bounded activation, expiry, drift, service failure, manual rollback, and fail-closed lock behavior |
-| Spec | required | pending | `dks-silver-v1`, runner/aggregate JSON, schema 6, `activate-silver-trial`, status/doctor output, and accessible trial lifecycle visual |
-| Contract | required | pending | Committed-Git-only hosted input, explicit provenance, immutable lineage, permanent-activation denial, fixed lease, and atomic fallback invariants |
-| Test-driven implementation | required | pending | Red/green suite validation, execution, migration, activation, status, expiry, drift, service health, and rollback checks |
-| Refactor | required | pending | Preserve human v2 compatibility and reuse ranking, metric, lock, projection-validation, and baseline-fallback paths |
-| Review/Integrate | required | pending | Independent privacy, ML evaluation, retrieval, migration, operations, and upstream review |
+| Domain | required | passed | Silver evidence, source citation, ranking trial, expiry, fallback event, frozen Git authority, and hosted/local trust boundaries |
+| Behavior | required | passed | Pre-execution generation, complete four-cell execution, ineligible-candidate denial, expiry, drift, service failure, manual rollback, and fail-closed locks |
+| Spec | required | passed | `dks-silver-v1`, runner/aggregate JSON, schema 6, `activate-silver-trial`, status/doctor output, and accessible trial lifecycle visual |
+| Contract | required | passed | Committed-Git-only hosted input, explicit provenance, immutable lineage, permanent-activation denial, fixed lease, and atomic fallback invariants |
+| Test-driven implementation | required | passed | 84 focused suite, execution, migration, activation, status, expiry, drift, service-health, telemetry, reused-chunk, repeat-ranking, and rollback checks |
+| Refactor | required | passed | Preserved human v2 compatibility and reused ranking, metric, lock, projection-validation, and baseline-fallback paths |
+| Review/Integrate | required | passed | Two fixed-commit suite reviews plus independent final privacy, retrieval, migration, operations, and upstream review with no findings |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | pending | Schema 6 migration and scoped chezmoi apply of validated silver runner/trial commands |
-| Operate | required | pending | Frozen lineage, local model/runtime telemetry, active lease reporting, guarded query, expiry, and rollback checks |
-| Maintain/Retire | required | pending | Trial expiry, silver invalidation, human v2 compatibility, baseline retention, and tool removal |
+| Deploy | required | passed | Schema 6 migration and scoped chezmoi apply of validated runner, model guard, and trial commands |
+| Operate | required | passed | Complete 100-query matrix, warning-pressure denial, scheduler restoration, and retained `dks-rrf-v1` baseline |
+| Maintain/Retire | required | passed | Trial expiry, silver invalidation, human v2 compatibility, baseline retention, and tool removal checks |
 
 ## Decisions And Risks
 
