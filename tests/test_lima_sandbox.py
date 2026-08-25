@@ -147,6 +147,44 @@ def history_candidate(helper) -> dict:
     }
 
 
+def lens_summary() -> dict:
+    telemetry = {"page_count": 1, "session_count": 1, "review_session_count": 0,
+                 "excluded_review_session_count": 0, "unattributed_session_count": 0}
+    metric_names = {"approval_count", "candidate_count", "child_count", "cost_total",
+                    "cycle_abandoned_count", "cycle_active_count", "cycle_blocked_count",
+                    "cycle_completed_count", "cycle_count", "cycle_unknown_count", "delegation_count",
+                    "elapsed_ms", "gate_failure_count", "gate_reopen_count", "provider_error_count",
+                    "remediation_round_count", "retry_count", "token_total", "tool_call_count",
+                    "tool_count", "tool_error_count"}
+    metrics = {name: {"available_count": 1, "unavailable_count": 0,
+                      "total": 0, "minimum": 0, "maximum": 0} for name in metric_names}
+    metrics["cycle_count"].update(total=1, minimum=1, maximum=1)
+    evidence_metrics = {name: 0 for name in metric_names}
+    evidence_metrics["cycle_count"] = 1
+    return {
+        "schema_version": 1, "capture_id": "d" * 24, "lens": "performance_cost", "scope": "exclude",
+        "snapshot": 10, "session_ceiling": 9, "part_ceiling": 8,
+        "database_digest": "a" * 64, "exclusion_digest": "b" * 64,
+        "query": history_page()["query"], "member_count": 1, "members_digest": "e" * 64,
+        "telemetry": telemetry,
+        "categories": {"cycle_state": {"active": 1}, "risk": {"unavailable": 1},
+                       "delivery_intent": {"unavailable": 1}, "correlation_quality": {"exact": 1},
+                       "reviewed_status": {"unreviewed": 1}, "session_relation": {"primary": 1}},
+        "metrics": metrics,
+        "evidence": [{"session_id": "session-1", "context": "dotfiles_ai_distribution",
+                      "completed_at": "1784900000000", "correlation_quality": "exact",
+                      "cycles": [{"cycle_id": "DAI-007", "state": "active"}],
+                      "metrics": evidence_metrics, "signal_score": [1, 0, 0, 0]}],
+    }
+
+
+def capture_descriptor() -> dict:
+    return {"schema_version": 1, "capture_id": "d" * 24, "created_at": int(time.time() * 1000),
+            "query": history_page()["query"], "snapshot": 10, "session_ceiling": 9,
+            "part_ceiling": 8, "database_digest": "a" * 64, "page_size": 25,
+            "page_count": 1, "member_count": 1}
+
+
 def test_fedora_templates_pin_runtime_and_sparse_disk() -> None:
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
     assert "template:_images/fedora-44" in template
@@ -871,7 +909,7 @@ def test_federation_namespaces_sources_and_restores_stopped_instances(tmp_path: 
             assert kwargs["timeout"] == 120
             return json.dumps(history_page())
         if argv[:2] == ["dbsctrctl", "review-history"]:
-            assert kwargs["timeout"] == 300
+            assert kwargs["timeout"] == 900
             return json.dumps(history_page())
         raise AssertionError(argv)
 
@@ -908,7 +946,7 @@ def test_federation_collects_sources_concurrently_in_configured_order(tmp_path: 
                 {"name": "workspace1-sandbox", "status": "Running"},
                 {"name": "workspace2-sandbox", "status": "Running"},
             ])
-        assert kwargs["timeout"] == (300 if argv[:2] == ["dbsctrctl", "review-history"] else 120)
+        assert kwargs["timeout"] == (900 if argv[:2] == ["dbsctrctl", "review-history"] else 120)
         with lock:
             active += 1
             peak = max(peak, active)
@@ -970,11 +1008,13 @@ def test_federation_rejects_malformed_scalar_values() -> None:
     candidate = history_candidate(helper)
     assert helper._valid_candidate(candidate)
     assert helper._valid_candidate({**candidate, "method_revision": "unavailable"})
+    assert helper._valid_candidate({**candidate, "project_digest": "unavailable"})
     for key, value in (
         ("context", "/etc/passwd"),
         ("context", "person@example.com"),
         ("context", "password=private"),
         ("database_digest", "not-a-digest"),
+        ("project_digest", "not-a-digest"),
         ("session_id", "bad/session"),
         ("snapshot", True),
         ("snapshot", 1.5),
@@ -1050,6 +1090,56 @@ def test_federation_continuation_reuses_each_source_identity(tmp_path: Path) -> 
     helper.federated_review(config(tmp_path), 5, 5, first["source_state"], execute=execute)
     continuation = [call for call in calls if "review-history" in call][-1]
     assert continuation[continuation.index("--capture-id") + 1] == "d" * 24
+
+
+def test_federated_lens_summary_exhausts_captures_server_side(tmp_path: Path) -> None:
+    helper = load_helper()
+
+    def execute(argv, **_kwargs):
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps([
+                {"name": "workspace1-sandbox", "status": "Running"},
+                {"name": "workspace2-sandbox", "status": "Running"},
+            ])
+        if "history-capture-latest" in argv:
+            return json.dumps(capture_descriptor())
+        if "history-capture" in argv:
+            return json.dumps(lens_summary())
+        return json.dumps({**history_page(), "limit": 25})
+
+    result = helper.federated_lens_summary(
+        config(tmp_path), "performance_cost", "exclude", execute=execute)
+    assert result["telemetry"] == {
+        "page_count": 3, "session_count": 3, "review_session_count": 0,
+        "excluded_review_session_count": 0, "unattributed_session_count": 0,
+        "source_count": 3,
+    }
+    assert [source["source_id"] for source in result["sources"]] == ["host", "workspace1", "workspace2"]
+    assert result["sources"][1]["summary"]["evidence"][0]["session_id"] == "workspace1:session-1"
+    assert len(result["manifest_digest"]) == 64
+    stale = lens_summary()
+    stale["capture_id"] = "f" * 24
+    with pytest.raises(ValueError, match="invalid lens summary"):
+        helper._validated_lens_summary(json.dumps(stale), "performance_cost", "exclude",
+                                       history_page()["query"], "d" * 24)
+    unsafe = lens_summary()
+    unsafe["metrics"]["password"] = unsafe["metrics"].pop("cost_total")
+    with pytest.raises(ValueError, match="invalid lens summary"):
+        helper._validated_lens_summary(json.dumps(unsafe), "performance_cost", "exclude",
+                                       history_page()["query"], "d" * 24)
+    for mutation in (
+        lambda value: value.update(lens="correctness_safety"),
+        lambda value: value["categories"]["reviewed_status"].update(password=1),
+        lambda value: [value["categories"][name].clear()
+                       for name in ("cycle_state", "risk", "delivery_intent")],
+        lambda value: value["evidence"][0].update(extra=1),
+        lambda value: value["evidence"][0]["cycles"][0].update(extra=1),
+    ):
+        malformed = lens_summary()
+        mutation(malformed)
+        with pytest.raises(ValueError, match="invalid lens summary"):
+            helper._validated_lens_summary(json.dumps(malformed), "performance_cost", "exclude",
+                                           history_page()["query"], "d" * 24)
 
 
 def test_federation_captures_once_then_pages_immutable_history(tmp_path: Path) -> None:

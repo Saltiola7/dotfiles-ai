@@ -1,5 +1,40 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-24 - OCP-39 Scoped Herdr XDG State
+
+- Removed generic XDG data/state homes from the Herdr LaunchAgent while
+  preserving explicit external state, DBSCTR, Hermes, worktree, OpenCode wrapper,
+  and lifecycle-worker routing.
+- Regression evidence failed on the leaked Herdr variable before implementation;
+  79 affected tests, centralized/native plist lint, and Git whitespace validation
+  passed afterward.
+- Targeted deployment changed only the managed plist and left no diff. The guarded
+  loader preserved the healthy active server on PID `2974`; launchd adopts the
+  corrected environment at the next natural login or reboot. Gate Commit:
+  `39e12a1`. Gate Exceptions: none. Intended Final Push: feature branch and draft
+  pull request into protected `main`.
+
+## 2026-08-24 - OCP-38 Client History Migration
+
+- Added a fail-closed SQLite migration command that retains exactly declared
+  projects and related OpenCode history, rebases approved paths, removes global
+  identity and credential state, validates relationships, and leaves its source
+  unchanged.
+- Migrated three projects and 3,054 sessions into the isolated client guest.
+  SQLite integrity, foreign keys, child-session relationships, todo retention,
+  backup and rollback readiness, database permissions, and direct MacBook Herdr
+  attachment through Tailscale SSH passed. All 56 affected tests, Python
+  compilation, and Git whitespace validation passed. Gate Exceptions: none.
+  Implementation Gate Commit: `e60253a`. Intended Final Push: feature branch and
+  draft pull request into protected `main`.
+
+## 2026-08-23 - Federated Lens Summary
+
+- Added read-only `dbsctr_lens_summary`, which validates complete source-local
+  capture distributions, bounded evidence, source order, terminal manifest and
+  telemetry before writing a lens-bound private receipt. Partial, stale-capture,
+  cross-lens, malformed, and unsafe evidence fails closed.
+
 ## 2026-08-22 - OCP-37 GPT-5.6 Fast Routing
 
 - Routed native Plan and Build, `build-gpt`, Reviewer, and `/dbsctr-gpt` to Sol

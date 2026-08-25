@@ -146,6 +146,69 @@ def test_herdr_server_runs_in_aqua_without_secrets() -> None:
     assert "com" + ".tis" not in plist + loader
 
 
+def test_launchagent_starts_native_responsibility_supervisor() -> None:
+    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl").read_text()
+    builder = (ROOT / "run_onchange_before_build-herdr-launchagent-supervisor.sh.tmpl").read_text()
+    source = (ROOT / ".chezmoitemplates/herdr-launchagent-supervisor.c").read_text()
+
+    supervisor = "{{ printf \"%s/.local/bin/herdr-launchagent-supervisor\" .chezmoi.homeDir | html }}"
+    guard = "{{ printf \"%s/.local/bin/state-root-exec\" .chezmoi.homeDir | html }}"
+    owner = "{{ printf \"%s/.local/bin/herdr-server-owner\" .chezmoi.homeDir | html }}"
+    assert plist.index(supervisor) < plist.index(guard) < plist.index(owner)
+    assert "/usr/bin/clang" in builder
+    assert "/usr/bin/codesign" in builder
+    assert "herdr-launchagent-supervisor.c" in builder
+    assert 'SOURCE="$HOME' not in builder
+    assert "posix_spawn" in source
+    assert "waitpid" in source
+    assert "sigaction" in source
+
+
+def test_native_responsibility_supervisor_propagates_status_and_termination(tmp_path) -> None:
+    home = tmp_path / "home"
+    builder = _render_herdr_script("build-herdr-launchagent-supervisor.sh", {})
+    result = subprocess.run(
+        ["bash"], input=builder, text=True, capture_output=True,
+        env={**os.environ, "HOME": str(home)},
+    )
+    assert result.returncode == 0, result.stderr
+    supervisor = home / ".local/bin/herdr-launchagent-supervisor"
+    subprocess.run(["codesign", "--verify", "--strict", supervisor], check=True)
+    child = tmp_path / "child"
+    ready = tmp_path / "ready"
+    child.write_text(
+        "#!/bin/bash\n"
+        "[[ ${1:-} == status ]] && exit 23\n"
+        "trap 'exit 0' TERM\n"
+        "touch \"$1\"\n"
+        "while :; do sleep 0.05; done\n"
+    )
+    child.chmod(0o755)
+
+    assert subprocess.run([supervisor, child, "status"]).returncode == 23
+    process = subprocess.Popen([supervisor, child, ready])
+    for _ in range(100):
+        if ready.exists():
+            break
+        time.sleep(0.01)
+    assert ready.exists()
+    process.terminate()
+    assert process.wait(timeout=3) == 0
+
+
+def test_disabled_launchagent_does_not_manage_supervisor_builder() -> None:
+    values = {"dotfiles_ai": {"herdr": {
+        "theme": "nord", "launchagent": False, "executable": "/tmp/herdr",
+    }}}
+    managed = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+        "--config-format", "toml", "--override-data", json.dumps(values), "managed",
+    ], text=True, capture_output=True, check=True).stdout
+
+    assert "build-herdr-launchagent-supervisor.sh" not in managed
+    assert "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist" not in managed
+
+
 def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
     defaults = (ROOT / ".chezmoidata.toml").read_text()
     installer = (ROOT / "run_onchange_before_install-herdr.sh.tmpl").read_text()
@@ -280,6 +343,8 @@ def test_herdr_launchagent_renders_valid_plist_and_disable_transition(tmp_path) 
     plist = tmp_path / "herdr.plist"
     plist.write_text(rendered.stdout)
     subprocess.run(["plutil", "-lint", str(plist)], check=True, capture_output=True)
+    assert "/.local/bin/herdr-launchagent-supervisor" in rendered.stdout
+    assert "/.local/bin/state-root-exec" in rendered.stdout
     assert "/.local/bin/herdr-server-owner" in rendered.stdout
     wrapper = subprocess.run(
         [*base, "cat", str(Path.home() / ".local/bin/herdr-server-owner")],
@@ -341,6 +406,9 @@ def test_loaded_owner_defers_launchagent_reload_when_status_fails(tmp_path) -> N
     plist = home / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist"
     plist.parent.mkdir(parents=True)
     plist.touch()
+    supervisor = home / ".local/bin/herdr-launchagent-supervisor"
+    supervisor.parent.mkdir(parents=True)
+    supervisor.touch(mode=0o755)
 
     result = subprocess.run(
         ["bash"], input=loader, text=True, capture_output=True,
@@ -400,8 +468,6 @@ def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
 
     expected = {
         "DOTFILES_AI_STATE_ROOT": "/Volumes/ext/state",
-        "XDG_DATA_HOME": "/Volumes/ext/state/xdg/data",
-        "XDG_STATE_HOME": "/Volumes/ext/state/xdg/state",
         "DBSCTR_STATE_ROOT": "/Volumes/ext/state/dbsctr",
         "DBSCTR_WORKTREE_ROOT": "/Volumes/ext/state/dbsctr/worktrees",
         "DBSCTR_RND_STATE": "/Volumes/ext/state/dbsctr/rnd/dbsctr-rnd.sqlite3",
@@ -414,7 +480,14 @@ def test_centralized_state_renders_herdr_and_launchagent_environment() -> None:
              str(ROOT / f"private_Library/LaunchAgents/dev.dotfiles-ai.{name}.plist.tmpl")],
             text=True, capture_output=True, check=True,
         ).stdout
-        assert plistlib.loads(rendered.encode())["EnvironmentVariables"].items() >= expected.items()
+        environment = plistlib.loads(rendered.encode())["EnvironmentVariables"]
+        assert environment.items() >= expected.items()
+        if name == "herdr-server":
+            assert "XDG_DATA_HOME" not in environment
+            assert "XDG_STATE_HOME" not in environment
+        else:
+            assert environment["XDG_DATA_HOME"] == "/Volumes/ext/state/xdg/data"
+            assert environment["XDG_STATE_HOME"] == "/Volumes/ext/state/xdg/state"
 
 
 def test_native_state_does_not_render_centralized_environment() -> None:

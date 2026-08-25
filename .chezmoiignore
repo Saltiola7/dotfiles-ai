@@ -92,6 +92,7 @@ Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 {{ end }}
 {{ if not .dotfiles_ai.herdr.launchagent }}
 Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
+build-herdr-launchagent-supervisor.sh
 {{ end }}
 {{ if not .dotfiles_ai.hermes.enabled }}
 .hermes/managed
@@ -104,6 +105,7 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ if eq .chezmoi.os "linux" }}
 Library/
 load-herdr-launchagent.sh
+build-herdr-launchagent-supervisor.sh
 load-dbsctr-rnd-launchagents.sh
 .local/bin/sandbox-vm
 .local/bin/opencode

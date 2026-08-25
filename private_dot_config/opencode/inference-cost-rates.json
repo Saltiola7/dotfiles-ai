@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "currency": "USD",
-  "retrieved_at": "2026-07-30",
+  "retrieved_at": "2026-08-23",
   "entries": [
     {
       "provider": "openai",
@@ -29,6 +29,33 @@
       "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
       "max_input_tokens": 272000,
       "usd_per_million_tokens": {"input": "0.2", "output": "1.2", "reasoning": "1.2", "cache_read": "0.02", "cache_write": "0.25"}
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-5.6-sol-fast",
+      "effective_from": 1787443200000,
+      "effective_to": null,
+      "source": "https://openai.com/api/pricing/",
+      "max_input_tokens": 272000,
+      "usd_per_million_tokens": {"input": "10", "output": "60", "reasoning": "60", "cache_read": "1", "cache_write": "12.5"}
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-5.6-terra-fast",
+      "effective_from": 1787443200000,
+      "effective_to": null,
+      "source": "https://openai.com/api/pricing/",
+      "max_input_tokens": 272000,
+      "usd_per_million_tokens": {"input": "4", "output": "24", "reasoning": "24", "cache_read": "0.4", "cache_write": "5"}
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-5.6-luna-fast",
+      "effective_from": 1787443200000,
+      "effective_to": null,
+      "source": "https://openai.com/api/pricing/",
+      "max_input_tokens": 272000,
+      "usd_per_million_tokens": {"input": "0.4", "output": "2.4", "reasoning": "2.4", "cache_read": "0.04", "cache_write": "0.5"}
     },
     {
       "provider": "openai",

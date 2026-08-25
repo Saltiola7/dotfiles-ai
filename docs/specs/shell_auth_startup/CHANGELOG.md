@@ -1,5 +1,20 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-24 - Herdr External-Volume Responsibility
+
+- Added a native LaunchAgent supervisor so macOS attributes Herdr and pane
+  removable-volume access to one narrow, user-grantable executable instead of
+  the platform shell, while retaining the state guard, owner monitor, live
+  handoff, and paced exact-session recovery.
+- Passed 44 affected tests, rendered shell and plist checks, strict Mach-O
+  signature verification, and independent security/process review.
+- Deployed the signed supervisor and one-line plist change without interrupting
+  the old server, then completed the separately approved restart. TCC recorded
+  the supervisor as the responsible allowed subject; a fresh pane read and wrote
+  the external volume with no new System Policy denial.
+- Restored 32 panes with 20 unique detected sessions and closed the temporary
+  probe tab. Gate Exceptions: none. Gate commit: `75e6836`.
+
 ## 2026-08-23 - Paced OpenCode Session Recovery
 
 - Added Herdr-only `--auto`, stale-safe five-second session-start pacing, exact

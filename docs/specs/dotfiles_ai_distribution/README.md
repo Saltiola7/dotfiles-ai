@@ -166,6 +166,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Gateway service refresh and readiness, serialized managed cron replacement, stale-attempt recovery, and one controlled exhaustion pass |
 | Overrides | Preserve one lens per native Build worker and existing cadence; no new scheduler, lens, model authority, merge, release, or remote deployment |
 
+### DAI-021-F2 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: lets critical P0 findings produce isolated implementation drafts and persists new private candidate artifacts |
+| Delivery intent | Repair complete six-lens review, automate evidence-ready P0/P1 Discovery, and publish only draft pull requests |
+| Scope | Federated unavailable-attribution compatibility, verified full-capture lens summaries, candidate kinds, feature measurement plans, Discovery interviews, generated implementation reports, and optional DKS citations |
+| Overrides | P2/P3 wait for promotion; uncertainty blocks; DKS is supplemental and fail-closed; merge, readiness, release, and deployment remain human-controlled |
+
 ### Provider-Native Evaluation Initiative Overrides
 
 | Field | Value |
@@ -276,7 +285,7 @@ flowchart LR
     HR -->|Present sessions| HO
     VH -->|Schedule and refine| VO
     VR -->|Present sessions| VO
-    VC -->|Sanitized bounded evidence| HL
+    VC -->|Full-member digests, distributions, and bounded evidence| HL
     VC -->|Encrypted Atuin records| TS
     KC -->|Selected environment variable, memory only| VC
     VC -->|Explicit project variables only| PD
@@ -288,8 +297,9 @@ flowchart LR
 
 **Text Equivalent:** Host and workspace profiles have independent Hermes,
 OpenCode, Herdr, history, and private state. Herdr presents sessions
-but does not own lifecycle state. Only bounded sanitized evidence crosses from a
-workspace to host review; only an explicitly approved implementation handoff
+but does not own lifecycle state. Only full-member digests, complete sanitized
+distributions, and bounded evidence projections cross from a workspace to host
+review; only an explicitly approved implementation handoff
 crosses from host to workspace. Both OpenCode runtimes produce feature-branch
 evidence governed by DBSCTR and Git. The host may forward its Keychain-backed
 1Password service token to a workspace shell as one environment value without
@@ -303,7 +313,7 @@ container receives no project filesystem mount.
 ```mermaid
 sequenceDiagram
     accTitle: Autonomous improvement approval and delivery
-    accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready noncritical work, critical or uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
+    accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready P0 and P1 work in isolation, uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
     participant H as Hermes
     participant O as OpenCode
     participant U as Operator
@@ -311,9 +321,9 @@ sequenceDiagram
     participant G as GitHub
     H->>O: Fill one eligible lens slot
     O->>O: Review all eligible federated history
-    alt Evidence-ready and noncritical
+    alt Evidence-ready P0 or P1
         O->>O: Complete Discovery autonomously
-    else Critical or materially uncertain
+    else Materially uncertain
         O-->>U: Wait for answers and explicit proceed
         U->>O: Answer and approve implementation
     end
@@ -324,9 +334,8 @@ sequenceDiagram
 ```
 
 **Text Equivalent:** Hermes continuously fills eligible lens slots. OpenCode
-reviews all eligible federated history and may complete Discovery without a
-prompt only when evidence resolves every material question and risk is not
-critical. Critical or materially uncertain work waits for explicit operator
+reviews all eligible federated history and may complete P0/P1 Discovery without a
+prompt only when evidence resolves every material question. Materially uncertain work waits for explicit operator
 approval. DBSCTR still requires an isolated gated cycle and can publish only a
 feature branch with a draft pull request; the operator retains merge authority.
 
@@ -337,8 +346,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Keep optional 1Password integration fail-open for Herdr startup.
 - Provide machine-local opt-in Hermes scheduling, context-isolated backlog
   refinement, and resumable OpenCode R&D workers.
-- Review sanitized global history continuously, autonomously resolve bounded
-  noncritical Discovery, and create only human-merge draft pull requests for this source.
+- Review sanitized global history continuously, autonomously resolve evidence-ready
+  P0/P1 Discovery, and create only human-merge draft pull requests for this source.
 - Keep automatic Gate Commits on feature branches and require draft pull requests
   into configured `main` for ordinary and autonomous DBSCTR delivery.
 
@@ -348,7 +357,7 @@ feature branch with a draft pull request; the operator retains merge authority.
   DAI-016 installs Hermes only when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
-- Guessing unresolved Discovery answers or autonomously handling critical risk.
+- Guessing unresolved Discovery answers or autonomously merging critical fixes.
 - Automatically merging, marking ready, releasing, or deploying.
 - Supporting Windows.
 - Supporting Linux as a general-purpose host; Fedora is supported only as the
@@ -581,18 +590,23 @@ feature branch with a draft pull request; the operator retains merge authority.
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores
   daily cadence without changing another lens or any live claim.
-- Every distinct claim stores exactly one P0-P3 priority. P1-P3 may enter
-  Discovery under a durable `autonomous` readiness authorization only when its
-  canonical receipt names the exact worker, session, and opportunity, declares routine or
-  elevated risk and no unresolved material question, and cites that worker's
-  immutable successful lens-pass manifest. Exact operator confirmation records
-  `operator` authorization. P0, critical risk, unresolved questions, missing
-  evidence, tampering, and replay block. Evidence-ready noncritical work may
-  proceed through DBSCTR to a draft pull request, but never merge or deploy.
+- Every distinct claim stores exactly one P0-P3 priority and `fix`, `feature`, or
+  `process` kind. A feature also stores a version-1 hypothesis, baseline, metric,
+  procedure, success threshold, and repository-relative evidence path. P0/P1 may
+  enter Discovery under durable `autonomous` authorization only when the canonical
+  readiness and Discovery receipts name the exact worker, session, opportunity,
+  and immutable successful lens-pass manifest. P0 requires critical risk; P1
+  requires routine or elevated risk. P2/P3 remain claimed until promotion; promotion
+  atomically changes priority to P1 and enters Discovery, while implementation still
+  requires a persisted interview report.
+  Unresolved questions, missing evidence, tampering, and replay block. Final Push
+  generates a draft URL, changed-path set and diff digest relative to the verified
+  current pull-request base, and passed-gate report;
+  automation never merges or deploys it.
 - `/dbsctr-backlog` never reprioritizes, advances, recovers, abandons, launches,
   or delivers a worker. An operator may explicitly confirm the exact worker ID of
   a P2/P3 claim still in `claimed`; promotion atomically changes it to P1 and
-  `discovery` without launching or resuming a worker. Every other state fails
+  `discovery`, where implementation waits for its persisted interview. Every other state fails
   closed. [`DAI-020.md`](DAI-020.md) owns the detailed contract.
 - Given a worker starts one federated lens pass, then each available source scans
   its database exactly once into a private immutable capture and every continuation
@@ -607,7 +621,7 @@ feature branch with a draft pull request; the operator retains merge authority.
   instance that this collection started. Transitional states fail closed.
 - Given a valid source takes longer than the generic analytics deadline, then the
   typed federation call waits for its source-bounded command instead of killing the
-  aggregate operation. Host history capture has a 300-second bound for the larger
+  aggregate operation. Host history capture has a 900-second bound for the larger
   local database; workspace history and lifecycle commands retain 120-second
   bounds, and every source retains the existing output bound.
 - Given Discovery has unresolved material questions, then the worker waits until
@@ -616,6 +630,16 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given autonomous readiness or explicit operator proceed and passing DBSCTR
   gates, then the worker pushes only its isolated feature branch and creates a
   draft pull request. It never merges, marks ready, releases, or deploys.
+- Given an approved host worker hands implementation to a VM, then the guest
+  registers and claims its current session under the same worker ID before starting
+  the cycle. The handoff exports that worker ID into the guest pane; cycle start
+  fails unless its session is a Discovery-ready projection, records the exact
+  opportunity, and Final Push fails unless that full binding receives the report. Host and guest
+  ledgers never share mutable state.
+- Given a candidate signal may benefit from related source evidence, then the
+  worker may query `dks_context` for bounded untrusted citation metadata, verifies
+  useful citations against source, and continues from authoritative DBSCTR evidence
+  when DKS is stale, locked, or unavailable. It never queries PostgreSQL directly.
 
 ### Recovery And Completion
 
@@ -962,9 +986,35 @@ feature branch with a draft pull request; the operator retains merge authority.
   cursor. Empty databases remain available sources with an immutable empty capture.
   These explicitly mutating private captures are tagged `federated`; unreferenced
   captures older than 24 hours are pruned when the next capture is created.
+- `sandbox-vm review-summary` reuses each source's newest query-compatible,
+  no-exclusion federated capture with any bounded 1-100 page size for up to 24
+  hours, or creates one immutable 25-member-page capture under the existing
+  private writer lock when none is
+  fresh. Page size affects only stored page telemetry, not complete-member
+  distributions or evidence. Concurrent lenses therefore share one complete base snapshot instead
+  of rescanning the source. Current worker-session exclusion is applied after
+  capture lookup and is bound into the scoped summary digest. The adapter then
+  asks that source to inspect every stored member under one
+  versioned lens and exact `only` or `exclude` review-session scope. Each source
+  returns its full selected-members digest, exact fixed-category and numeric
+  distributions, exact page/session telemetry, and at most 20 deterministic
+  sanitized evidence projections. Missing review-session attribution, malformed
+  evidence, an unavailable source, changed identity, or output above 256 KiB
+  fails closed.
+- Read-only `dbsctr_lens_summary` validates configured source order, recomputes
+  the terminal manifest digest and aggregate telemetry, and writes the existing
+  mode-`0600` lens receipt only when every configured source is available. The
+  model ranks proposals from the complete distributions and bounded evidence;
+  it does not stream capture pages through model context.
+- The manifest digest binds the exact compact helper envelope, excluding only
+  its single digest field. The envelope requires strictly sorted unique object
+  keys and no external whitespace, preserves helper numeric tokens across the
+  Python/TypeScript boundary, and is returned unchanged by the typed adapter.
 - The typed federation adapter retains the 256 KiB aggregate output bound but has
-  no aggregate wall-clock timeout. `sandbox-vm` retains a 120-second deadline for
-  each host or guest exporter and bounds concurrent source work to four tasks.
+  no aggregate wall-clock timeout. `sandbox-vm` gives the host exporter 900 seconds
+  and each guest exporter 120 seconds, and bounds concurrent source work to four tasks.
+  A cold host summary capture receives 1,800 seconds; reuse and summary reads keep
+  the ordinary guest source bound.
   The typed adapter reads the managed sandbox config independently and rejects a
   helper manifest whose source membership or order differs from configured federation.
 - Deployment cannot claim federated R&D operational from unit tests or a direct
@@ -1022,9 +1072,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   per-lens attempts, pass telemetry, sanitized outcome references, and cadence
   state. Launchd and Herdr are advisory.
 - The private improvement ledger stores `none`, `autonomous`, or `operator`
-  authorization and the canonical worker/opportunity-bound readiness receipt.
-  Claimed P1-P3 require a matching immutable scheduler `yield` pass or exact
-  confirmation before Discovery; P0 always requires exact operator confirmation.
+  authorization; candidate kind; optional feature measurement plan; canonical
+  worker/opportunity-bound readiness and Discovery receipts; and a generated
+  implementation report. Claimed P0/P1 require a matching immutable scheduler
+  `yield` pass or exact confirmation before Discovery. P2/P3 require promotion.
 - The DBSCTR private ledger adds separately versioned
   `provider_evaluation_reports`, `provider_evaluation_members`,
   `provider_evaluation_receipts`, and `provider_evaluation_sources` storage rather
