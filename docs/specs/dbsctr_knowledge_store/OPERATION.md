@@ -41,6 +41,7 @@ not source text, vectors, prompts, or credentials.
 | `busy` | Let the active run finish; the next interval retries. Investigate only if the lock remains after its owning process exits. |
 | `source_ref_unavailable` | Verify repository, fixed HTTPS remote, configured full remote ref, and network access. Never substitute a worktree revision. |
 | `git_stale`, `code_stale`, `graph_stale`, `authority_stale` | Run one manual reconcile. A failed channel retains prior rows but incompatible code/graph rows stay out of current default retrieval. |
+| `knowledge authority changed before activation` | Let lifecycle writes quiesce, then retry in the same bounded operator window or allow the next scheduled run. The compare-and-swap guard deliberately withholds activation. |
 | `authority_unavailable` | Repair the typed DBSCTR export/privacy boundary. Unavailable-family snapshots are retained but not active. |
 | `embedding_unavailable`, `code_embedding_unavailable`, `reranker_unavailable` | Restart the named model LaunchAgent, verify its immutable manifest, then reconcile. |
 | `schema_unavailable`, `ranking_policy_unavailable`, `database_unavailable` | Stop reconciliation, run the managed schema/PM health path, and restore baseline ranking before rebuild. |
@@ -103,11 +104,35 @@ If PostgreSQL projection identity is corrupt, retain the canonical authorities,
 recreate schema through the managed migration, and reconcile the configured exact
 ref. Do not restore DKS projection rows as source authority.
 
-For Graphify runtime rollback, stop reconciliation, restore the previously
-committed producer and `dksctl` together, retain the installed immutable `0.9.48`
-runtime, apply the managed files, and reconcile the configured exact ref. Do not
-mix producer, importer, or runtime versions. The transaction retains the prior
-active graph if rollback extraction or import fails.
+For Graphify runtime rollback, stop reconciliation. As the migration owner, remove
+only the schema 7 marker before restoring producer and `dksctl` from pre-upgrade
+commit `6f52f61c73100d51a18d32ce7734ddc3d404c750` together:
+
+```sql
+SET ROLE dks_owner;
+DELETE FROM dks.schema_migrations WHERE version = 7;
+```
+
+Restore `dot_local/bin/executable_dbsctr-graphify` and
+`dot_local/bin/executable_dksctl` from that commit. Retain immutable runtime
+`graphify-sql-0.9.48-71cb9828`, whose SHA-256 is
+`71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8`, and
+producer SHA-256
+`7e23d864064906146e20e1c99d343e9bbb22abb5b3f8c913092ed440f2533091`.
+Do not drop the nullable receipt column or mix producer, importer, or runtime
+versions. Reconcile the configured exact ref, then require `dksctl status` to
+report migration marker 6 and Graphify `0.9.48`, and require `dksctl doctor` to be
+healthy. The transaction retains the prior active graph if extraction or import
+fails.
+
+To re-upgrade, reapply current managed `dbsctr-graphify`, `dksctl`, and
+`schema.sql`, run `dks-postgres-migrate`, and reconcile. Require status to report
+marker 7, runtime SHA-256
+`2202db22692c497e3c45fc19b746a9bc36f6409ae92f745cf19aa2e273443307`, and
+producer SHA-256
+`aa1bd96b0d72d4d7182843c0403f021bf21cb2da61c8bc6c9e766f179aa0b622`;
+require doctor healthy before restoring the reconcile LaunchAgent. The validated
+cached `0.9.50` extraction may be reused.
 
 ## Disablement
 

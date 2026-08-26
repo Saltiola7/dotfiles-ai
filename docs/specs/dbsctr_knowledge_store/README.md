@@ -1294,9 +1294,9 @@ query.
 | Refactor | required | passed | Reused the existing sandbox, hashing, locking, atomic-write, import, and fallback paths; no daemon or cache authority added |
 | Review/Integrate | required | passed | Independent fixed-commit review found five issues; remediation and recovery tests passed final re-review with no findings |
 | Release | not_applicable | not_run | No public package, hosted service, model, or registry artifact is published |
-| Deploy | required | pending | Immutable runtime installation and schema 7 migration |
-| Operate | required | pending | Healthy reconcile, cold/warm parity, restart, and bounded diagnostics |
-| Maintain/Retire | required | pending | Retained 0.9.48 runtime, prior graph, cache disposal, and rebuild proof |
+| Deploy | required | passed | Immutable external-volume runtime published, scoped managed files applied, schema 6 migrated to 7, and `0.9.50` graph activated |
+| Operate | required | passed | Cold activation, byte-identical warm cache hit, healthy doctor, bounded authority retry, and unattended LaunchAgent exit 0 |
+| Maintain/Retire | required | passed | Live marker-only schema rollback restored healthy `0.9.48`; managed re-upgrade restored schema 7 and cached `0.9.50` artifact |
 
 ## Decisions And Risks
 

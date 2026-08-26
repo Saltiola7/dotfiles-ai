@@ -5,7 +5,7 @@ slug: upgrade-graphify-and-cache-extractions
 context: dbsctr_knowledge_store
 title: Upgrade Graphify and cache extractions
 kind: task
-state: in_progress
+state: done
 priority: high
 points: 5
 depends_on:
@@ -36,14 +36,16 @@ validation:
   - dksctl doctor --project dotfiles-ai
   - dksctl status --project dotfiles-ai
 created: 2026-08-25
-updated: 2026-08-25
-completed: null
+updated: 2026-08-26
+completed: 2026-08-26
 commits:
   - 066afd0
   - f74b9cd
   - dd67877
   - e67570e
   - 9e54fa5
+  - a75087d
+  - 94a44b7
 jira_publications: []
 migration: null
 ---
@@ -116,6 +118,26 @@ artifacts with pinned runtime SHA-256
 All 88 focused tests and Python/shell syntax checks pass. Repository-wide PM ticket
 validation retains one unrelated V3.37 YAML finding; focused DKS-008 validation
 has no finding.
+
+Approved deployment published and verified the immutable external-volume runtime,
+migrated the live projection from schema 6 to 7, and activated Graphify `0.9.50`
+artifact `9614bff2de4f8b68bd94fc3a4ec8fd7f1ef35a6bfddd9dc543d09333f6ef49ba`.
+The production cold receipt recorded `cache_hit: false`; a direct warm replay and
+the post-rollback reconcile recorded `cache_hit: true`, key
+`43cf9e94fe50e853bea51fc195c96bd133e7c4fff3b2efe0911d5c2055335bc2`,
+and the same artifact identity.
+
+Live rollback removed only schema migration marker 7, restored the committed
+`0.9.48` producer/importer and runtime SHA-256
+`71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8`,
+rebuilt artifact `c423e68abe35f8899a68b3d8122b264f7fc270578cbdeb0d63887a11978b4989`,
+and passed the old doctor. Reapplying managed schema 7 and `0.9.50` restored the
+new artifact from cache and passed doctor. The restored LaunchAgent completed an
+unattended reconcile with exit code 0 and remains scheduled every 900 seconds.
+Interactive lifecycle evidence initially tripped the authority compare-and-swap
+guard; a bounded retry within one operator invocation reused retained embeddings,
+updated only authority, and converged to a healthy doctor without weakening the
+guard.
 
 ## Review
 

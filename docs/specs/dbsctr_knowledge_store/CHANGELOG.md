@@ -1,5 +1,15 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-26 - DKS-008 Delivery
+
+- Published the immutable external-volume Graphify `0.9.50` runtime, migrated the
+  live projection to schema 7, and activated the validated cold extraction.
+- Proved byte-identical production warm reuse, healthy doctor status, and one
+  unattended LaunchAgent run with exit code 0 on its 900-second schedule.
+- Proved rollback by restoring compatibility marker 6, the retained `0.9.48`
+  runtime and prior artifact, then reapplying marker 7 and restoring `0.9.50`
+  from cache.
+
 ## 2026-08-25 - DKS-008 Discovery
 
 - Scoped the pinned Graphify `0.9.50` compatibility upgrade and one disposable,
@@ -19,8 +29,8 @@
   verification, cache recovery, receipt freshness, schema, and prior-active safety.
 - Independent review drove runtime installer, schema constraint, corruption, and
   freshness hardening; final fixed-commit re-review found no remaining issue.
-- Local runtime installation, schema migration, reconciliation, operation, and
-  rollback verification remain pending separate deployment approval.
+- Deployment, schema migration, reconciliation, operation, and rollback were
+  subsequently completed under separate operator approval.
 
 ## 2026-08-25 - DKS-007 Recovery
 
