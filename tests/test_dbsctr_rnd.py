@@ -571,6 +571,18 @@ def load_runner(tmp_path, monkeypatch, name):
     return namespace, state
 
 
+def test_runner_derives_scheduler_paths_from_centralized_state_root(tmp_path, monkeypatch):
+    monkeypatch.delenv("DBSCTR_RND_STATE", raising=False)
+    monkeypatch.delenv("DBSCTR_RND_RECEIPTS", raising=False)
+    monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path))
+    namespace = {"__name__": "dbsctr_rnd_centralized"}
+    source = render("dot_local/bin/executable_dbsctr-rnd.tmpl")
+    exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
+    assert namespace["STATE"] == tmp_path / "dbsctr/rnd/dbsctr-rnd.sqlite3"
+    assert namespace["RECEIPTS"] == tmp_path / "dbsctr/rnd/receipts"
+    assert namespace["STATE_AUTHORITY"] == "centralized"
+
+
 def test_scheduler_caps_workers_halts_and_requires_reset(tmp_path, monkeypatch, capsys):
     runner, state = load_runner(tmp_path, monkeypatch, "safety")
     workers = [{"worker_id": f"worker-{index}", "state": "reviewing"} for index in range(2)]
@@ -962,12 +974,16 @@ def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeyp
     runner["release_reservation"](reservation, "prelaunch_failed")
     health = runner["scheduler_health"]()
     assert health == {
-        "schema_version": 1, "state_schema_version": 7, "lens_count": 6,
+        "schema_version": 2, "state_schema_version": 7, "state_authority": "explicit",
+        "halt_reason": None, "lens_count": 6,
         "reserve_count": 1, "last_reserve_at": now,
         "last_reserve_status": "reserved", "last_lens": lens,
         "release_count": 1, "last_release_at": health["last_release_at"],
         "last_release_reason": "prelaunch_failed", "active_attempt_count": 0,
-        "pass_count": 0,
+        "pass_count": 0, "lenses": [{
+            "name": name, "cadence": "daily", "no_yield_count": 0,
+            "next_eligible_at": now if name == lens else 0, "due": True, "active": False,
+        } for name in runner["LENSES"]],
     }
     connection = sqlite3.connect(state)
     connection.execute("update scheduler_activity set last_reserve_status='bad status'")
