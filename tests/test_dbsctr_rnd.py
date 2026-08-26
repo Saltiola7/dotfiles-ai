@@ -582,6 +582,20 @@ def test_runner_derives_scheduler_paths_from_centralized_state_root(tmp_path, mo
     assert namespace["RECEIPTS"] == tmp_path / "dbsctr/rnd/receipts"
     assert namespace["STATE_AUTHORITY"] == "centralized"
 
+    explicit_state = tmp_path / "explicit/state.sqlite3"
+    monkeypatch.setenv("DBSCTR_RND_STATE", str(explicit_state))
+    mixed = {"__name__": "dbsctr_rnd_mixed_authority"}
+    exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], mixed)
+    assert mixed["STATE"] == explicit_state
+    assert mixed["RECEIPTS"] == tmp_path / "dbsctr/rnd/receipts"
+    assert mixed["STATE_AUTHORITY"] == "explicit"
+
+    explicit_receipts = tmp_path / "explicit/receipts"
+    monkeypatch.setenv("DBSCTR_RND_RECEIPTS", str(explicit_receipts))
+    explicit = {"__name__": "dbsctr_rnd_explicit_authority"}
+    exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], explicit)
+    assert explicit["RECEIPTS"] == explicit_receipts
+
 
 def test_scheduler_caps_workers_halts_and_requires_reset(tmp_path, monkeypatch, capsys):
     runner, state = load_runner(tmp_path, monkeypatch, "safety")
@@ -822,6 +836,50 @@ def test_lens_governance_prevents_duplicate_daily_pass(tmp_path, monkeypatch):
     late = runner["lens_result"](
         "worker-1", "2024-01-01", "a" * 64, "no_yield", now + 86400)
     assert late["capture_day"] == "2024-01-01" and late["no_yield_count"] == 1
+
+
+def test_active_parallel_batch_reserves_without_global_worker_scan(tmp_path, monkeypatch, capsys):
+    runner, _ = load_runner(tmp_path, monkeypatch, "parallel-active-reserve")
+    now = 1_704_067_200
+    assert runner["reserve_parallel_lens"](None, now) == (None, None, "batch_reconcile")
+    reservation, lens, reason = runner["reserve_parallel_lens"]([], now)
+    assert (lens, reason) == ("correctness_safety", "reserved")
+    runner["claim_reservation"](reservation, "worker-1", now)
+    runner["complete_reservation"](reservation, "worker-1", session_id="session-1")
+    runner["command"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("active batch queried global worker state"))
+
+    runner["reserve_action"]()
+
+    assert json.loads(capsys.readouterr().out)["lens"] == "reliability_recovery"
+
+
+def test_pending_and_exhausted_parallel_batches_reconcile_workers(tmp_path, monkeypatch, capsys):
+    pending, _ = load_runner(tmp_path, monkeypatch, "parallel-pending-reserve")
+    now = 1_704_067_200
+    pending["reserve_parallel_lens"]([], now)
+    assert pending["reserve_parallel_lens"](None, now) == (None, None, "batch_reconcile")
+    calls = []
+    pending["command"] = lambda argv, **_kwargs: calls.append(argv) or {"workers": []}
+    pending["reserve_action"]()
+    assert calls == [[pending["DBSCTRCTL"], "improvement-status"]]
+    assert json.loads(capsys.readouterr().out)["lens"] == "correctness_safety"
+
+    exhausted, _ = load_runner(tmp_path, monkeypatch, "parallel-exhausted-reserve")
+    now = 1_704_067_200
+    workers = []
+    for index, _lens in enumerate(exhausted["LENSES"]):
+        reservation, _, _ = exhausted["reserve_parallel_lens"](workers, now)
+        worker = {"worker_id": f"worker-{index}", "state": "reviewing"}
+        exhausted["claim_reservation"](reservation, worker["worker_id"], now)
+        exhausted["complete_reservation"](
+            reservation, worker["worker_id"], session_id=f"session-{index}")
+        workers.append(worker)
+    calls = []
+    exhausted["command"] = lambda argv, **_kwargs: calls.append(argv) or {"workers": workers}
+    exhausted["reserve_action"]()
+    assert calls == [[exhausted["DBSCTRCTL"], "improvement-status"]]
+    assert json.loads(capsys.readouterr().out) == {"status": "no_op", "reason": "no_lens_due"}
 
 
 def test_parallel_lenses_isolate_review_sessions_and_record_telemetry(tmp_path, monkeypatch):

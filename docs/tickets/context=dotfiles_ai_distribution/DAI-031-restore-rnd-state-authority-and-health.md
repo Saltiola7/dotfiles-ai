@@ -20,7 +20,7 @@ parallel_safe: false
 validation:
   - "Focused R&D tests, rendered runner, centralized-state health probe, Hermes cron execution, and six-lens exhaustion"
 created: "2026-08-25"
-updated: "2026-08-25"
+updated: "2026-08-26"
 completed: null
 commits: []
 jira_publications: []
@@ -47,6 +47,8 @@ eligibility, so a healthy cron heartbeat hid the stopped dispatcher.
 - Keep state paths private while reporting the selected authority class.
 - Version the health envelope and expose halt plus bounded per-lens cadence,
   eligibility, and active-attempt state without opening a write transaction.
+- Keep later reservations in an active parallel batch independent of the global
+  review lock held by an already-running lens history scan.
 - Deploy the runner and prove Hermes drains every eligible lens to a bounded no-op.
 
 ## Acceptance Criteria
@@ -58,6 +60,9 @@ eligibility, so a healthy cron heartbeat hid the stopped dispatcher.
 - Health schema 2 reports `state_authority`, `halt_reason`, and exactly six
   validated lens records without exposing a filesystem path.
 - Halted state and overdue lenses are visible before a reservation attempt.
+- A fresh batch reconciles authoritative worker state, while a registered active
+  batch can reserve its remaining due lenses from scheduler-local state and
+  reconciles again before reporting exhaustion.
 - Focused tests pass and one live Hermes run reaches `no_lens_due` after all
   eligible lenses register.
 

@@ -38,7 +38,7 @@ elif CENTRAL_STATE_ROOT:
 else:
     STATE, STATE_AUTHORITY = LOCK.with_name("dbsctr-rnd.sqlite3"), "local"
 RECEIPTS = Path(os.environ.get("DBSCTR_RND_RECEIPTS", str(
-    Path(CENTRAL_STATE_ROOT) / "dbsctr/rnd/receipts" if CENTRAL_STATE_ROOT and STATE_AUTHORITY == "centralized"
+    Path(CENTRAL_STATE_ROOT) / "dbsctr/rnd/receipts" if CENTRAL_STATE_ROOT
     else STATE.parent / "rnd-lens-receipts")))
 SESSION_POLLS = int(os.environ.get("DBSCTR_RND_SESSION_POLLS", "240"))
 COMMAND_TIMEOUT = float(os.environ.get("DBSCTR_RND_COMMAND_TIMEOUT", "180"))
@@ -688,18 +688,26 @@ def reserve_parallel_lens(workers, now):
             "DELETE FROM spawn_reservations WHERE worker_id IS NULL AND created_at<=?",
             (now - RESERVATION_LEASE_SECONDS,),
         )
-        worker_ids = {worker["worker_id"] for worker in workers}
-        for reservation, created_at, worker_id in connection.execute(
-                "SELECT reservation_id,created_at,worker_id FROM spawn_reservations "
-                "WHERE worker_id IS NOT NULL"):
-            if worker_id not in worker_ids and created_at <= now - RESERVATION_LEASE_SECONDS:
-                connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (reservation,))
-        terminal_workers = [worker["worker_id"] for worker in workers if worker.get("state") in TERMINAL]
-        if terminal_workers:
-            connection.execute(
-                f"DELETE FROM spawn_reservations WHERE worker_id IN ({','.join('?' for _ in terminal_workers)})",
-                terminal_workers)
-        sync_worker_outcomes(connection, workers, now)
+        if workers is None:
+            attempts, registered_workers, registered_sessions = connection.execute(
+                "SELECT COUNT(*),COUNT(worker_id),COUNT(session_id) FROM parallel_lens_attempts").fetchone()
+            if attempts == 0 or attempts != registered_workers or attempts != registered_sessions:
+                observe_reserve(connection, now, "batch_reconcile")
+                connection.commit()
+                return None, None, "batch_reconcile"
+        if workers is not None:
+            worker_ids = {worker["worker_id"] for worker in workers}
+            for reservation, created_at, worker_id in connection.execute(
+                    "SELECT reservation_id,created_at,worker_id FROM spawn_reservations "
+                    "WHERE worker_id IS NOT NULL"):
+                if worker_id not in worker_ids and created_at <= now - RESERVATION_LEASE_SECONDS:
+                    connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (reservation,))
+            terminal_workers = [worker["worker_id"] for worker in workers if worker.get("state") in TERMINAL]
+            if terminal_workers:
+                connection.execute(
+                    f"DELETE FROM spawn_reservations WHERE worker_id IN ({','.join('?' for _ in terminal_workers)})",
+                    terminal_workers)
+            sync_worker_outcomes(connection, workers, now)
         if connection.execute(
                 "SELECT halt_reason FROM scheduler_state WHERE singleton=1").fetchone()[0]:
             observe_reserve(connection, now, "halted")
@@ -725,9 +733,10 @@ def reserve_parallel_lens(workers, now):
                 selected = (lens_name, cadence, count, quarter)
                 break
         if selected is None:
-            observe_reserve(connection, now, "no_lens_due")
+            status = "batch_reconcile" if workers is None else "no_lens_due"
+            observe_reserve(connection, now, status)
             connection.commit()
-            return None, None, "no_lens_due"
+            return None, None, status
         lens_name, cadence, count, quarter = selected
         reservation = f"reservation-{uuid.uuid4().hex}"
         connection.execute("INSERT INTO spawn_reservations VALUES (?,?,NULL)", (reservation, now))
@@ -1355,8 +1364,10 @@ def backlog_repositories():
 
 
 def reserve_action():
-    workers = validated_workers(command([DBSCTRCTL, "improvement-status"]))
-    reservation, lens_name, reason = reserve_parallel_lens(workers, int(time.time()))
+    reservation, lens_name, reason = reserve_parallel_lens(None, int(time.time()))
+    if reason == "batch_reconcile":
+        workers = validated_workers(command([DBSCTRCTL, "improvement-status"]))
+        reservation, lens_name, reason = reserve_parallel_lens(workers, int(time.time()))
     if reservation is None:
         print(json.dumps({"status": "no_op", "reason": reason}, separators=(",", ":")))
         return
