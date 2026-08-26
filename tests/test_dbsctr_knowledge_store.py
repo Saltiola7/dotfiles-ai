@@ -248,7 +248,7 @@ def test_quality_installer_verifies_new_and_existing_graphify_runtime(tmp_path: 
     env = {**os.environ, "HOME": str(home), "VERIFY_LOG": str(log)}
 
     subprocess.run(["/bin/bash"], input=rendered, text=True, env=env, check=True)
-    target = home / ".config/dotfiles-ai/runtime/graphify-sql-0.9.50-26b1be94"
+    target = home / ".config/dotfiles-ai/runtime/graphify-sql-0.9.50-2202db22"
     assert target.is_dir() and len(log.read_text().splitlines()) == 2
 
     target.chmod(0o700)

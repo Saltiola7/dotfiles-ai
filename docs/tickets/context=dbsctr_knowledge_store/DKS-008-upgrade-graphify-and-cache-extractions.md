@@ -112,7 +112,7 @@ available as rollback identities until post-deployment operation checks pass.
 
 Implementation produced byte-identical cold, warm, and corruption-recovery graph
 artifacts with pinned runtime SHA-256
-`26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e`.
+`2202db22692c497e3c45fc19b746a9bc36f6409ae92f745cf19aa2e273443307`.
 All 88 focused tests and Python/shell syntax checks pass. Repository-wide PM ticket
 validation retains one unrelated V3.37 YAML finding; focused DKS-008 validation
 has no finding.

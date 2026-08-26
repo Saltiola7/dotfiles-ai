@@ -14,8 +14,8 @@ import sys
 import tempfile
 
 
-RUNTIME_SHA256 = "26b1be946c79b13611ab7e5c1d24cb56cbe80576036147f764a282c1f6fedd5e"
-STAGED_RUNTIME_SHA256 = "0678888dfb1c78b5129825ca999f3a3c2f547c85262efa8d294c3bb72f1dd325"
+RUNTIME_SHA256 = "2202db22692c497e3c45fc19b746a9bc36f6409ae92f745cf19aa2e273443307"
+STAGED_RUNTIME_SHA256 = "1ec4279923eeec86dde3ab7da60de351695db4848578d24ada230c8247be7ce6"
 REVISION = "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e"
 CONFIG = {"extractor": "graphifyy[sql]", "mode": "code-only",
           "normalization": "stable-staged-graph-v1", "version": "0.9.50"}
@@ -288,7 +288,7 @@ def main():
         files[item["path"]] = payload
     runtime = Path(os.environ.get(
         "DBSCTR_GRAPHIFY_RUNTIME",
-        "~/.config/dotfiles-ai/runtime/graphify-sql-0.9.50-26b1be94")).expanduser()
+        "~/.config/dotfiles-ai/runtime/graphify-sql-0.9.50-2202db22")).expanduser()
     if runtime_digest(runtime) != RUNTIME_SHA256:
         raise ValueError("Graphify runtime identity mismatch")
     sandbox = Path("/usr/bin/sandbox-exec")

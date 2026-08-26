@@ -37,7 +37,7 @@ if [[ ! -d $runtime_target ]]; then
     /bin/mv "$stage" "$runtime_target"
     trap - EXIT
 fi
-graphify_target="$HOME/.config/dotfiles-ai/runtime/graphify-sql-0.9.50-26b1be94"
+graphify_target="$HOME/.config/dotfiles-ai/runtime/graphify-sql-0.9.50-2202db22"
 graphify_verifier="$HOME/.local/bin/dbsctr-graphify"
 [[ -x $graphify_verifier && ! -L $graphify_verifier && ! -L $graphify_target ]] || {
     echo "install-dbsctr-quality-services: Graphify verifier or target is unsafe" >&2
