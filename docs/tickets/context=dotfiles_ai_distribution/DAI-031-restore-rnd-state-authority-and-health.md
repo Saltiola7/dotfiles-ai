@@ -5,7 +5,7 @@ slug: "restore-rnd-state-authority-and-health"
 context: "dotfiles_ai_distribution"
 title: "Restore R&D state authority and health"
 kind: "bug"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: 2
 depends_on:
@@ -21,8 +21,10 @@ validation:
   - "Focused R&D tests, rendered runner, centralized-state health probe, Hermes cron execution, and six-lens exhaustion"
 created: "2026-08-25"
 updated: "2026-08-26"
-completed: null
-commits: []
+completed: "2026-08-26"
+commits:
+  - "79ff5fe711d2a905a73e72336f884dc5ee8d218f"
+  - "0ab16f892a745fbb38dcc87978f00754e5f8414d"
 jira_publications: []
 migration: null
 ---
@@ -65,6 +67,13 @@ eligibility, so a healthy cron heartbeat hid the stopped dispatcher.
   reconciles again before reporting exhaustion.
 - Focused tests pass and one live Hermes run reaches `no_lens_due` after all
   eligible lenses register.
+
+## Evidence
+
+All 40 focused tests passed, the rendered and deployed runner had zero targeted
+drift, and independent review found no remaining correctness or safety issue.
+Hermes completed all six lenses, raised retained passes from 19 to 25, reached
+`no_lens_due`, and retained zero active attempts without changing shadow state.
 
 ## Risks
 
