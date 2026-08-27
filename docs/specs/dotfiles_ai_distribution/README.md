@@ -184,6 +184,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Existing weekly worker, immutable source captures, dedicated five-cycle report persistence, replay, retention, and operational evidence |
 | Overrides | Keep weekly unhalted cadence; no second scheduler, source rescan, host-history cohort save, automatic tuning, or guest-to-host PR outcome bridge |
 
+### DAI-031 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the private state authority used by live autonomous dispatch |
+| Delivery intent | Repair and deploy host Hermes scheduling, verify eligible lens exhaustion, then publish a draft pull request |
+| Scope | Centralized R&D state resolution, truthful read-only health, focused regression evidence, and live operation proof |
+| Overrides | Preserve scheduler schema 7, retained cadence, outcome history, and explicit-variable precedence; never merge, delete, or reset shadow state automatically |
+
 ### DAI-023 Cycle Overrides
 
 | Field | Value |
@@ -583,9 +592,12 @@ feature branch with a draft pull request; the operator retains merge authority.
   session differs, even when its state and opportunity would otherwise qualify.
 - `dbsctr-rnd health` reads scheduler activity without opening a write
   transaction. It distinguishes its output-envelope schema from scheduler-state
-  schema 7, reports all six configured lenses, durable reserve and release counts,
-  last sanitized outcomes, active-attempt count, and pass count; pre-launch and
-  launch failures are distinguishable from an ordinary no-op.
+  schema 7. Health schema 2 reports the selected `explicit`, `centralized`, or
+  `local` state authority, current halt reason, all six bounded per-lens cadence,
+  no-yield, next-eligibility, due, and active values, durable reserve and release
+  counts, last sanitized outcomes, active-attempt count, and pass count; it never
+  returns a filesystem path. Pre-launch and launch failures are distinguishable
+  from an ordinary no-op.
 - A yield resets only that lens and makes it immediately eligible for another
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores
@@ -1133,6 +1145,11 @@ feature branch with a draft pull request; the operator retains merge authority.
 - `dbsctr-rnd reset-schedule` is the only halt recovery command; it preserves
   outcome history and cadence while clearing the halt, stale reservations, and
   next-eligible cutoff.
+- Scheduler path resolution prefers explicit `DBSCTR_RND_STATE` and
+  `DBSCTR_RND_RECEIPTS`, then derives `dbsctr/rnd/dbsctr-rnd.sqlite3` and
+  `dbsctr/rnd/receipts` from `DOTFILES_AI_STATE_ROOT`, then retains the local
+  machine default. Every caller therefore reaches one authority without copying
+  state or depending on caller-specific environment expansion.
 - Scheduler state records the current cadence, last
   monthly evaluation, immutable outcome-event cutoff and counters, attempt/event
   identities, halt reason, and next eligible spawn time without private

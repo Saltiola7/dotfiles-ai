@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-26 - DAI-031 R&D State Authority and Health
+
+- Centralized scheduler state and receipt resolution without migrating or
+  deleting the retained local shadow state, and added path-free schema 2 health
+  reporting for authority, halt state, active attempts, and all six lenses.
+- Kept registered parallel batches independent of the global review lock while
+  retaining authoritative reconciliation for fresh, incomplete, and exhausted
+  batches.
+- Forty focused tests, rendering, deployment drift, live health, and independent
+  review passed. Hermes completed all six lenses, increased retained passes from
+  19 to 25, and reached `no_lens_due` with zero active attempts. Gate Exceptions:
+  none. Gate Commits: `79ff5fe`, `0ab16f8`; intended Final Push is the feature
+  branch and draft pull request into protected `main`.
+
 ## 2026-08-25 - DAI-030 Managed OpenCode Runtime Parity
 
 - Centralized the reviewed OpenCode 1.18.23 Linux arm64 release and SHA-256,
