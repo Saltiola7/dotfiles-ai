@@ -580,6 +580,13 @@ ledger.
 - And each project supplies only its committed source, local DVC configuration, and canonical graph artifacts
 - But no target repository needs a Graphify adapter script or adapter tests
 
+**Scenario: Restore a canonical graph without remote DVC access**
+- Given a disposable worktree lacks its local DVC object
+- And the primary worktree's canonical graph exactly matches the committed DVC size and MD5
+- When the managed adapter prepares Graphify
+- Then it copies that owner-controlled local graph before extraction
+- But a missing or mismatched local graph fails before Graphify without DVC pull or network access
+
 **Scenario: Promote one canonical integration graph**
 - Given a batch contains completed sources with one identical Graphify selection
 - When the integration owner finalizes the batch
@@ -2149,6 +2156,9 @@ tool and provider examples and load only when useful.
   not publication. It strips secret-like environment names, supplies mode/version,
   validates local project and DVC boundaries, and is killed as a process group on
   timeout. It must not pull/push DVC, push Git, publish, call providers, or deploy.
+- A missing worktree graph first uses offline DVC checkout. If its local object is
+  unavailable, only an owner-controlled primary-worktree graph whose size and MD5
+  exactly match the committed `graph.json.dvc` pointer may seed the disposable check.
 - Target repositories provide committed source, local `.dvc/config`, and canonical
   `graphify-out/` only. Repository adapter paths and executable blobs are invalid;
   private lifecycle state may retain the selected central executable by digest.

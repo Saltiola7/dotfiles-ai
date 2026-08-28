@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -41,18 +42,24 @@ def project(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     tools.mkdir()
     executable(
         tools / "python3",
-        f'#!/bin/sh\n/usr/bin/env > .git/bootstrap-env.log\nexec "{sys.executable}" "$@"\n',
+        f'#!/bin/sh\ngit_dir=$(/usr/bin/git rev-parse --git-dir 2>/dev/null || printf .git)\n'
+        f'/usr/bin/env > "$git_dir/bootstrap-env.log"\nexec "{sys.executable}" "$@"\n',
     )
     graph = repo / "graphify-out"
     (graph / "cache/ast/v0.9.50-s2").mkdir(parents=True)
     (graph / ".gitignore").write_text("/graph.json\n")
     (graph / "GRAPH_REPORT.md").write_text("# old\n")
     (graph / "cost.json").write_text("{}\n")
-    (graph / "graph.json.dvc").write_text("old\n")
-    (graph / "manifest.json").write_text('{"a.py":{"ast_hash":"warm"}}\n')
-    (graph / "graph.json").write_text(
-        '{"nodes":[{"id":"a"}],"links":[]}\n'
+    graph_content = b'{"nodes":[{"id":"a"}],"links":[]}\n'
+    (graph / "graph.json.dvc").write_text(
+        "outs:\n"
+        f"- md5: {hashlib.md5(graph_content, usedforsecurity=False).hexdigest()}\n"
+        f"  size: {len(graph_content)}\n"
+        "  hash: md5\n"
+        "  path: graph.json\n"
     )
+    (graph / "manifest.json").write_text('{"a.py":{"ast_hash":"warm"}}\n')
+    (graph / "graph.json").write_bytes(graph_content)
     (graph / "cache/ast/v0.9.50-s2/warm.json").write_text('{"nodes":[]}\n')
     (repo / "a.py").write_text("value = 1\n")
     (repo / "outside.txt").write_text("clean\n")
@@ -77,6 +84,10 @@ revision=$(printf '%s' "$head" | cut -c1-8)
 [ ! -f STALE_REPORT ] || revision=deadbeef
 [ ! -f NO_GRAPH_CHANGE ] || {
   printf 'No code-graph changes detected\\n'
+  exit 0
+}
+[ ! -f TOPOLOGY_NO_CHANGE ] || {
+  printf 'No code-graph topology changes detected; outputs left untouched.\\n'
   exit 0
 }
 cat > graphify-out/GRAPH_REPORT.md <<EOF
@@ -164,6 +175,33 @@ def test_check_uses_only_local_dvc(project, tmp_path: Path) -> None:
         "run --frozen --offline dvc checkout graphify-out/graph.json",
         "run --frozen --offline dvc add graphify-out/graph.json",
     ]
+
+
+def test_check_restores_pointer_matched_primary_graph(project, tmp_path: Path) -> None:
+    repo, env = project
+    (repo / "FAIL_DVC_CHECKOUT").write_text("1\n")
+    git(repo, "add", "FAIL_DVC_CHECKOUT")
+    git(repo, "commit", "-qm", "missing local dvc")
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "--detach", str(linked))
+    result = adapter(linked, env, tmp_path / "output")
+    assert result.returncode == 0, result.stderr
+    assert (linked / ".git").is_file()
+
+
+def test_topology_no_change_normalizes_prior_report(project, tmp_path: Path) -> None:
+    repo, env = project
+    prior = git(repo, "rev-parse", "HEAD")
+    (repo / "TOPOLOGY_NO_CHANGE").write_text("1\n")
+    (repo / "graphify-out/GRAPH_REPORT.md").write_text(
+        f"# Graph Report\n- Built from commit: `{prior[:8]}`\n"
+    )
+    git(repo, "add", "TOPOLOGY_NO_CHANGE", "graphify-out/GRAPH_REPORT.md")
+    git(repo, "commit", "-qm", "topology unchanged")
+    output = tmp_path / "output"
+    result = adapter(repo, env, output)
+    assert result.returncode == 0, result.stderr
+    assert git(repo, "rev-parse", "HEAD") in (output / "GRAPH_REPORT.md").read_text()
 
 
 def test_finalize_requires_exact_clean_canonical_path(project) -> None:
