@@ -151,6 +151,15 @@ def adapter(repo: Path, env: dict[str, str], output: Path, mode: str = "check"):
     )
 
 
+def test_adapter_runs_with_platform_bash(project, tmp_path: Path) -> None:
+    repo, env = project
+    result = run(
+        "/bin/bash", ADAPTER, "--output-dir", tmp_path / "output", cwd=repo,
+        env={**env, "DBSCTR_GRAPHIFY_MODE": "check"},
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_check_publishes_bounded_output_and_sanitizes_environment(
     project: tuple[Path, dict[str, str]], tmp_path: Path,
 ) -> None:
