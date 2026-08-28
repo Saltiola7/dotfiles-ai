@@ -554,17 +554,38 @@ ledger.
 ### Feature: V3.37 Graphify Orchestration
 
 **Scenario: Check a selected graph without changing canonical output**
-- Given an applicability plan selects a committed executable Graphify adapter and version
+- Given an applicability plan selects a Graphify version
 - When the active cycle runs `dbsctrctl graphify-check`
-- Then the adapter runs at the exact cycle HEAD in a disposable detached worktree
-- And a private receipt binds the profile, adapter blob, output manifest, file digests, and cache counters
+- Then the managed central adapter runs at the exact cycle HEAD in a disposable detached worktree
+- And a private receipt binds the profile, central adapter digest, output manifest, file digests, and cache counters
 - But `graphify-out/` in the cycle worktree remains unchanged
 
-**Scenario: Keep Graphify selection monotonic**
+**Scenario: Keep central Graphify selection monotonic**
 - Given a cycle has selected Graphify
-- When an updated applicability plan removes or changes its adapter or version
+- When an updated applicability plan removes or changes its version
 - Then the update fails
 - And an initially absent selection may be added only with a committed Engineering Profile change
+
+**Scenario: Complete a selected cycle after a managed adapter upgrade**
+- Given cycle start bound a managed adapter SHA-256
+- And the deployed adapter later changes
+- When the cycle checks its exact HEAD or its batch finalizes
+- Then DBSCTR executes the private content-addressed snapshot matching the selection
+- And the target repository still contains no committed adapter implementation
+
+**Scenario: Keep adapter implementation out of target repositories**
+- Given multiple projects select the same Graphify version
+- When DBSCTR checks or finalizes their graphs
+- Then one managed adapter owns runtime, path, cache, DVC, validation, and publication-safety mechanics
+- And each project supplies only its committed source, local DVC configuration, and canonical graph artifacts
+- But no target repository needs a Graphify adapter script or adapter tests
+
+**Scenario: Restore a canonical graph without remote DVC access**
+- Given a disposable worktree lacks its local DVC object
+- And the primary worktree's canonical graph exactly matches the committed DVC size and MD5
+- When the managed adapter prepares Graphify
+- Then it copies that owner-controlled local graph before extraction
+- But a missing or mismatched local graph fails before Graphify without DVC pull or network access
 
 **Scenario: Promote one canonical integration graph**
 - Given a batch contains completed sources with one identical Graphify selection
@@ -572,6 +593,12 @@ ledger.
 - Then source admission closes before the adapter updates canonical `graphify-out/`
 - And the graph report, manifest, receipt, and DVC metadata enter one graph-only commit
 - And required DVC push evidence remains a separate approval-bound record before publication
+
+**Scenario: Recover failed canonical finalization**
+- Given canonical `graphify-out/` and the Git index are clean
+- When Graphify, validation, DVC staging, or contamination checks fail
+- Then DBSCTR restores the exact graph tree and index baseline
+- And retry does not require a manual cleanup
 
 **Scenario: Audit graph-only freshness**
 - Given a canonical graph report names its source commit and has a valid receipt
@@ -988,7 +1015,16 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Risk | Elevated: adds executable adapter, private receipt, integration commit, and DVC evidence boundaries |
 | Delivery intent | Draft pull request followed by managed local helper and skill deployment |
 | Scope | Strict applicability plans, disposable Graphify checks, canonical batch finalization, receipts, freshness, tests, and guidance |
-| Overrides | Reuse project adapters, Git worktrees, batch locks, and DVC approval; no extractor, daemon, cache implementation, or automatic publication |
+| Overrides | Reuse Git worktrees, batch locks, project DVC configuration, and DVC approval; no project adapter, daemon, second cache manager, or automatic publication |
+
+### V3.37-F1 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: moves security-sensitive Graphify and local DVC execution into one managed cross-repository adapter |
+| Delivery intent | Draft pull request followed by managed local helper and skill deployment |
+| Scope | Central adapter identity, exact runtime, disposable checks, batch finalization, output safety, tests, and guidance |
+| Overrides | Target repositories retain source, `.dvc/config`, and `graphify-out/` only; no repository adapter implementation |
 
 ### Provider-Native Harness Initiative Overrides
 
@@ -1921,7 +1957,7 @@ explicit conversion command saves the exact schema-3 record before writing schem
 ```mermaid
 sequenceDiagram
     accTitle: Feature checks and canonical graph promotion
-    accDescr: Selected feature cycles run Graphify only in disposable worktrees and retain private receipts. Integration closes batch admission, updates canonical graph artifacts once, records a graph-only commit, and requires separate DVC push evidence before publication when applicable.
+    accDescr: Selected feature cycles use one managed central Graphify adapter only in disposable worktrees and retain private receipts. Integration closes batch admission, uses the same adapter to update canonical graph artifacts once, records a graph-only commit, and requires separate DVC push evidence before publication when applicable.
     participant F as Feature cycle
     participant D as DBSCTR
     participant B as Integration batch
@@ -1938,10 +1974,10 @@ sequenceDiagram
     D-->>B: Publication readiness
 ```
 
-**Text Equivalent:** A selected feature cycle runs its committed adapter at the
-exact cycle HEAD in a disposable worktree and retains only private receipt
+**Text Equivalent:** A selected feature cycle runs the digest-bound managed
+central adapter at the exact cycle HEAD in a disposable worktree and retains only private receipt
 evidence. Completed sources enter an integration batch. Finalization closes source
-admission, runs the same selection once against the integrated source tip, and
+admission, runs the same central adapter/version selection once against the integrated source tip, and
 commits only canonical `graphify-out/` artifacts. If DVC metadata changed, an
 operator separately approves `dvc push` and its evidence must match that graph
 commit before batch publication.
@@ -2108,21 +2144,29 @@ tool and provider examples and load only when useful.
 ### Graphify Orchestration Contract
 
 - Applicability plans allow exactly `profile`, `gates`, and optional `graphify`;
-  Graphify requires exactly repository-relative executable `adapter` and bounded
-  `version`, both bound to committed blobs.
+  Graphify requires exactly one bounded `version`. The helper binds it to the
+  exact managed central adapter SHA-256 when the cycle starts and retains a
+  private mode-`0700` content-addressed execution snapshot for upgrade-safe recovery.
 - A selected cycle cannot remove or change Graphify. Adding a previously absent
   selection requires a committed Engineering Profile change.
 - `graphify-check` executes without a shell in a disposable detached worktree at
   exact HEAD. Its private mode-`0600` receipt binds invocation, HEAD, profile and
-  adapter blobs, report, manifest, output digests, and non-negative cache counters.
-- Selecting the committed adapter authorizes that project code for bounded local
-  extraction, not publication. The helper strips secret-like environment names,
-  supplies mode/version, and kills the process group on timeout; Project Policy
-  must review the adapter because portable lifecycle code cannot sandbox all host
-  filesystem or network access. Adapters must not push, publish, or deploy.
+  central adapter digest, report, manifest, output digests, and non-negative cache counters.
+- Selecting a version authorizes the managed adapter for bounded local extraction,
+  not publication. It strips secret-like environment names, supplies mode/version,
+  validates local project and DVC boundaries, and is killed as a process group on
+  timeout. It must not pull/push DVC, push Git, publish, call providers, or deploy.
+- A missing worktree graph first uses offline DVC checkout. If its local object is
+  unavailable, only an owner-controlled primary-worktree graph whose size and MD5
+  exactly match the committed `graph.json.dvc` pointer may seed the disposable check.
+- Target repositories provide committed source, local `.dvc/config`, and canonical
+  `graphify-out/` only. Repository adapter paths and executable blobs are invalid;
+  private lifecycle state may retain the selected central executable by digest.
 - Final Push rejects selected cycles whose receipt is absent, altered, or stale.
 - Batch schema `2` keeps schema `1` readable, requires identical source
   selections, and rejects new sources after finalization.
+- Finalization snapshots canonical `graphify-out/` and the Git index before mutation;
+  every failed update, validation, staging, or contamination check restores both.
 - `batch-finalize` is the only lifecycle operation that updates canonical
   `graphify-out/`; its commit has the integrated source tip as sole parent and
   changes no path outside `graphify-out/`.
