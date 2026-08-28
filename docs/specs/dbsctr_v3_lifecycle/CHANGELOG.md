@@ -4,7 +4,8 @@
 
 - Rewrote report-validation heredoc control flow for the macOS platform Bash 3.2
   used by GitHub Actions and added explicit platform parsing and successful
-  execution regressions. Independent review found no high or medium issues.
+  execution regressions. Independent review found no high or medium issues; the
+  corrected managed helper was deployed with exact source identity.
 
 ## 2026-08-27 - V3.37-F1 Central Graphify Adapter
 
