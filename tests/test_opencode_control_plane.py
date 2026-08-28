@@ -631,6 +631,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
             assert "dbsctr_initiative_launch: ask" in agent.read_text()
         else:
             assert "dbsctr_initiative_launch: deny" in agent.read_text()
+    ignored = (ROOT / ".chezmoiignore").read_text()
+    assert ".config/opencode/plugins/*" in ignored
+    assert "!.config/opencode/plugins/initiative-context.ts" in ignored
     herdr = text("private_dot_config/herdr/config.toml.tmpl")
     assert "pane_history = true" in herdr
     assert "scrollback_limit_bytes = 10000000" in herdr
