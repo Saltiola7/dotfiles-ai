@@ -2262,15 +2262,344 @@ def no_duplicate_keys(pairs):
     return value
 
 
-def read_plan(source):
+def read_plan(source, expected_digest=None):
     try:
-        text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+        raw = sys.stdin.buffer.read() if source == "-" else Path(source).read_bytes()
+        if expected_digest is not None and hashlib.sha256(raw).hexdigest() != expected_digest:
+            fail("applicability plan changed after approval")
+        text = raw.decode("utf-8")
         value = json.loads(text, object_pairs_hook=no_duplicate_keys)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         fail(f"cannot read applicability plan: {error}")
     if not isinstance(value, dict):
         fail("applicability plan must be a JSON object")
     return value
+
+
+def initiative_no_duplicate_keys(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            fail(f"duplicate JSON key in Initiative manifest: {key}")
+        value[key] = item
+    return value
+
+
+def initiative_fields(value, fields, label):
+    if not isinstance(value, dict) or set(value) != fields:
+        fail(f"{label} requires exactly: {', '.join(sorted(fields))}")
+
+
+def initiative_strings(value, label, allow_empty=True):
+    if (not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value)
+            or not allow_empty and not value):
+        fail(f"{label} must be {'a non-empty' if not allow_empty else 'an'} array of strings")
+    if len(value) != len(set(value)):
+        fail(f"{label} contains duplicate values")
+
+
+def initiative_paths(value, label):
+    initiative_strings(value, label)
+    for item in value:
+        path = PurePosixPath(item)
+        if (path.is_absolute() or item != path.as_posix() or "\\" in item
+                or any(part in {"", ".", ".."} for part in path.parts)
+                or any(ord(character) < 32 for character in item)
+                or urlsplit(item).scheme or urlsplit(item).netloc):
+            fail(f"{label} must contain normalized repository-relative paths")
+
+
+def initiative_repository(value, label):
+    if (not isinstance(value, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", value)):
+        fail(f"{label} must be a canonical owner/repository identity")
+
+
+def git_repository_slug(root):
+    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+    scp = re.fullmatch(r"(?:git@)?github\.com:([^/\s]+/[^/\s]+?)(?:\.git)?", url, re.IGNORECASE)
+    if scp:
+        return scp.group(1)
+    parsed = urlsplit(url)
+    if (parsed.scheme not in {"https", "ssh", "git"} or parsed.hostname != "github.com"
+            or parsed.query or parsed.fragment):
+        fail("Initiative repository must have a GitHub origin")
+    match = re.fullmatch(r"/([^/\s]+/[^/\s]+?)(?:\.git)?/?", parsed.path)
+    if not match:
+        fail("Initiative repository must have a GitHub origin")
+    return match.group(1)
+
+
+def initiative_acyclic(dependencies, label):
+    visiting = set()
+    visited = set()
+
+    def visit(node):
+        if node in visiting:
+            fail(f"{label} dependency cycle includes {node}")
+        if node in visited:
+            return
+        visiting.add(node)
+        for dependency in dependencies[node]:
+            visit(dependency)
+        visiting.remove(node)
+        visited.add(node)
+
+    for node in sorted(dependencies):
+        visit(node)
+
+
+def read_initiative_manifest(source):
+    try:
+        raw = Path(source).read_bytes()
+        if len(raw) > 1024 * 1024:
+            fail("Initiative manifest exceeds 1 MiB")
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=initiative_no_duplicate_keys)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail(f"cannot read Initiative manifest: {error}")
+    initiative_fields(value, {
+        "schema_version", "id", "title", "state", "coordinator_repository", "statements",
+        "contexts", "slices", "release_groups",
+    }, "Initiative manifest")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("Initiative manifest schema_version must be 1")
+    if not isinstance(value["id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", value["id"]):
+        fail("Initiative ID is invalid")
+    if not isinstance(value["title"], str) or not value["title"].strip():
+        fail("Initiative title is invalid")
+    initiative_repository(value["coordinator_repository"], "Initiative coordinator_repository")
+    if value["state"] not in {"captured", "discovering", "ready", "building", "delivered",
+                               "blocked", "deferred", "rejected", "complete"}:
+        fail("Initiative state is invalid")
+    for name in ("statements", "contexts", "slices", "release_groups"):
+        if not isinstance(value[name], list):
+            fail(f"Initiative manifest {name} must be an array")
+
+    statement_fields = {"id", "kind", "text", "disposition", "artifacts"}
+    statements = {}
+    for item in value["statements"]:
+        initiative_fields(item, statement_fields, "material statement")
+        identifier = item["id"]
+        if not isinstance(identifier, str) or not re.fullmatch(r"INT-[0-9]{3,}", identifier):
+            fail("material statement ID is invalid")
+        if identifier in statements:
+            fail(f"duplicate material statement ID: {identifier}")
+        if item["kind"] not in {"requirement", "constraint", "decision", "risk", "idea", "non-goal"}:
+            fail(f"material statement kind is invalid: {identifier}")
+        if not isinstance(item["text"], str) or not item["text"].strip():
+            fail(f"material statement text is invalid: {identifier}")
+        if item["disposition"] not in {"open", "blocked", "ready", "delivered", "deferred", "rejected"}:
+            fail(f"material statement disposition is invalid: {identifier}")
+        initiative_paths(item["artifacts"], f"artifacts for {identifier}")
+        statements[identifier] = item
+
+    context_fields = {"id", "repository", "status", "depends_on"}
+    contexts = {}
+    for item in value["contexts"]:
+        initiative_fields(item, context_fields, "context")
+        identifier = item["id"]
+        if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", identifier):
+            fail("context ID is invalid")
+        if identifier in contexts:
+            fail(f"duplicate context ID: {identifier}")
+        initiative_repository(item["repository"], f"repository for {identifier}")
+        initiative_strings(item["depends_on"], f"depends_on for {identifier}")
+        if item["status"] not in {"captured", "approved", "discovering", "ready", "building",
+                                   "delivered", "blocked", "deferred", "rejected"}:
+            fail(f"context state is invalid: {identifier}")
+        contexts[identifier] = item
+
+    context_dependencies = {}
+    for identifier, item in contexts.items():
+        for dependency in item["depends_on"]:
+            if dependency not in contexts:
+                fail(f"unknown context dependency {dependency}: {identifier}")
+        context_dependencies[identifier] = item["depends_on"]
+    initiative_acyclic(context_dependencies, "context")
+
+    slice_fields = {"id", "context", "state", "requirements", "depends_on", "artifacts",
+                    "tickets", "release_group"}
+    slices = {}
+    for item in value["slices"]:
+        initiative_fields(item, slice_fields, "slice")
+        identifier = item["id"]
+        if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
+            fail("slice ID is invalid")
+        if identifier in slices:
+            fail(f"duplicate slice ID: {identifier}")
+        if item["context"] not in contexts:
+            fail(f"unknown context for slice {identifier}: {item['context']}")
+        for field in ("requirements", "depends_on"):
+            initiative_strings(item[field], f"{field} for {identifier}")
+        initiative_paths(item["artifacts"], f"artifacts for {identifier}")
+        initiative_strings(item["tickets"], f"tickets for {identifier}")
+        if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*", ticket)
+               for ticket in item["tickets"]):
+            fail(f"tickets for {identifier} must contain canonical ticket IDs")
+        if not isinstance(item["release_group"], str) or not item["release_group"]:
+            fail(f"release_group is invalid: {identifier}")
+        if item["state"] not in {"captured", "discovering", "ready", "building", "delivered",
+                                    "blocked", "deferred", "rejected"}:
+            fail(f"slice state is invalid: {identifier}")
+        for requirement in item["requirements"]:
+            if requirement not in statements:
+                fail(f"unknown material statement {requirement} required by {identifier}")
+        if item["state"] == "ready":
+            if contexts[item["context"]]["status"] not in {
+                    "approved", "discovering", "ready", "building", "delivered"}:
+                fail(f"ready slice {identifier} context is not promotable: {item['context']}")
+            for field in ("requirements", "artifacts", "tickets"):
+                if not item[field]:
+                    fail(f"ready slice {identifier} requires {field}")
+            blocked = [requirement for requirement in item["requirements"]
+                       if statements[requirement]["disposition"] in {"open", "blocked"}]
+            if blocked:
+                fail(f"ready slice {identifier} has unresolved material statement: {blocked[0]}")
+        slices[identifier] = item
+
+    slice_dependencies = {}
+    for identifier, item in slices.items():
+        for dependency in item["depends_on"]:
+            if dependency not in slices:
+                fail(f"unknown slice dependency {dependency}: {identifier}")
+        slice_dependencies[identifier] = item["depends_on"]
+    initiative_acyclic(slice_dependencies, "slice")
+    for identifier, item in slices.items():
+        if item["state"] != "ready":
+            continue
+        for dependency in item["depends_on"]:
+            if slices[dependency]["state"] != "delivered":
+                fail(f"ready slice {identifier} dependency is not delivered: {dependency}")
+        for dependency in contexts[item["context"]]["depends_on"]:
+            if contexts[dependency]["status"] not in {"ready", "building", "delivered"}:
+                fail(f"ready slice {identifier} context dependency is not ready: {dependency}")
+
+    for identifier, item in statements.items():
+        covered = item["artifacts"] or any(identifier in slice_item["requirements"]
+                                            for slice_item in slices.values())
+        if item["disposition"] not in {"deferred", "rejected"} and not covered:
+            fail(f"uncovered material statement: {identifier}")
+
+    release_fields = {"id", "members", "state"}
+    release_groups = {}
+    slice_release_groups = {}
+    for item in value["release_groups"]:
+        initiative_fields(item, release_fields, "release group")
+        identifier = item["id"]
+        if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
+            fail("release-group ID is invalid")
+        if identifier in release_groups:
+            fail(f"duplicate release-group ID: {identifier}")
+        if item["state"] not in {"planning", "ready", "building", "delivered", "blocked",
+                                   "deferred", "rejected"}:
+            fail(f"release-group state is invalid: {identifier}")
+        initiative_strings(item["members"], f"members for {identifier}")
+        for slice_id in item["members"]:
+            if slice_id not in slices:
+                fail(f"unknown slice {slice_id} in release group {identifier}")
+            if slice_id in slice_release_groups:
+                fail(f"slice {slice_id} belongs to multiple release groups")
+            if slices[slice_id]["release_group"] != identifier:
+                fail(f"release group mismatch for slice {slice_id}")
+            slice_release_groups[slice_id] = identifier
+        release_groups[identifier] = item
+    for identifier, item in slices.items():
+        if item["release_group"] not in release_groups:
+            fail(f"unknown release group {item['release_group']} for slice {identifier}")
+        if identifier not in slice_release_groups:
+            fail(f"slice {identifier} is missing from release group {item['release_group']}")
+
+    if value["state"] == "complete":
+        unresolved = [identifier for identifier, item in statements.items()
+                      if item["disposition"] in {"open", "blocked"}]
+        nonterminal = [identifier for identifier, item in slices.items()
+                       if item["state"] not in {"delivered", "deferred", "rejected"}]
+        if unresolved or nonterminal:
+            fail("Initiative cannot complete with open or blocked material or nonterminal slices")
+
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return value, statements, contexts, slices, slice_release_groups, hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def initiative_summary(source):
+    value, _, contexts, slices, release_groups, digest = read_initiative_manifest(source)
+    return {
+        "schema_version": 1,
+        "initiative_id": value["id"],
+        "state": value["state"],
+        "manifest_digest": digest,
+        "ready_slices": sorted(identifier for identifier, item in slices.items() if item["state"] == "ready"),
+        "counts": {
+            "statements": len(value["statements"]),
+            "contexts": len(contexts),
+            "slices": len(slices),
+            "release_groups": len(value["release_groups"]),
+        },
+    }
+
+
+def command_initiative_check(args):
+    print(json.dumps(initiative_summary(args.manifest), sort_keys=True, separators=(",", ":")))
+
+
+def initiative_receipt(source, slice_id, root=None):
+    value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source)
+    item = slices.get(slice_id)
+    if item is None:
+        fail(f"unknown Initiative slice: {slice_id}")
+    if item["state"] != "ready":
+        fail(f"Initiative slice is not ready: {slice_id}")
+    identity = {}
+    artifacts = sorted(set(item["artifacts"]).union(
+        *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
+    if root is not None:
+        try:
+            relative = Path(source).resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            fail("Initiative manifest must be inside the current repository")
+        if git(root, "status", "--porcelain=v1", "--", relative).stdout.strip():
+            fail("Initiative manifest must be committed and clean before receipt")
+        blob = git(root, "rev-parse", f"HEAD:{relative}", check=False).stdout.strip()
+        if not re.fullmatch(r"[0-9a-f]{40,64}", blob):
+            fail("Initiative manifest must be committed at HEAD before receipt")
+        identity = {
+            "manifest_blob": blob,
+            "manifest_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
+        }
+        if git_repository_slug(root).lower() != value["coordinator_repository"].lower():
+            fail("Initiative coordinator repository does not match the source Git repository")
+        for artifact in artifacts:
+            if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
+                    or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
+                fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
+        for ticket in item["tickets"]:
+            matches = sorted(root.glob(f"docs/tickets/context=*/{ticket}-*.md"))
+            if len(matches) != 1:
+                fail(f"Initiative ticket must resolve to one canonical ticket: {ticket}")
+            ticket_path = matches[0].relative_to(root).as_posix()
+            if (git(root, "status", "--porcelain=v1", "--", ticket_path).stdout.strip()
+                    or git(root, "cat-file", "-e", f"HEAD:{ticket_path}", check=False).returncode):
+                fail(f"Initiative ticket must be committed and clean before receipt: {ticket}")
+    return {
+        "schema_version": 1,
+        "initiative_id": value["id"],
+        "slice_id": slice_id,
+        "manifest_digest": digest,
+        "coordinator_repository": value["coordinator_repository"],
+        "context": item["context"],
+        "repository": contexts[item["context"]]["repository"],
+        "requirements": item["requirements"],
+        "depends_on": item["depends_on"],
+        "artifacts": artifacts,
+        "tickets": item["tickets"],
+        "release_group": release_groups.get(slice_id),
+        **identity,
+    }
+
+
+def command_initiative_receipt(args):
+    print(json.dumps(initiative_receipt(args.manifest, args.slice, root_dir()),
+                     sort_keys=True, separators=(",", ":")))
 
 
 def managed_graphify_adapter():
@@ -2353,10 +2682,13 @@ def validate_graphify_selection(root, value, commit="HEAD", require_clean=False)
     return normalized
 
 
-def validate_plan(root, context, intent, plan):
+def validate_plan(root, context, intent, plan, recorded_profile=None):
     if not set(plan) <= {"profile", "gates", "graphify"}:
         fail("applicability plan allows only profile, gates, and optional graphify")
-    expected_profile = f"docs/specs/{context}/README.md"
+    profile = f"docs/specs/{context}/PROFILE.md"
+    profile_blob = git(root, "rev-parse", f"HEAD:{profile}", check=False).stdout.strip()
+    expected_profile = recorded_profile or (profile if re.fullmatch(r"[0-9a-f]+", profile_blob)
+                                              else f"docs/specs/{context}/README.md")
     if plan.get("profile") != expected_profile:
         fail(f"Engineering Profile must be {expected_profile}")
     if status := git(root, "status", "--porcelain=v1", "--", expected_profile).stdout.strip():
@@ -2425,7 +2757,8 @@ def require_current_profile(root, record):
 
 def apply_stricter_plan(root, record, plan):
     profile_path, profile_blob, gates, graphify = validate_plan(
-        root, record["context"], record["delivery_intent"], plan
+        root, record["context"], record["delivery_intent"], plan,
+        record["engineering_profile"]["path"],
     )
     if profile_path != record["engineering_profile"]["path"]:
         fail("Engineering Profile path changed; start a new cycle")
@@ -2651,6 +2984,37 @@ def command_begin(args):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
         fail("context must be a simple bounded-context name")
+    initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
+    if any(value is not None for value in initiative_values) and not all(
+            value is not None for value in initiative_values):
+        fail("Initiative begin requires manifest, slice, and digest together")
+    if args.initiative_source is not None and not all(value is not None for value in initiative_values):
+        fail("Initiative source requires manifest, slice, and digest")
+    if args.initiative_manifest is not None:
+        if (not re.fullmatch(r"[0-9a-f]{64}", args.expected_plan_digest or "")
+                or args.expected_repository is None):
+            fail("Initiative begin requires approved plan and repository identities")
+        initiative_repository(args.expected_repository, "expected repository")
+    initiative = None
+    if args.initiative_manifest is not None:
+        if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json",
+                            args.initiative_manifest):
+            fail("Initiative manifest must be a repository-relative docs/initiatives path")
+        initiative_source = repo_root(args.initiative_source) if args.initiative_source else source
+        initiative = initiative_receipt(
+            initiative_source / args.initiative_manifest, args.initiative_slice, initiative_source)
+        initiative["manifest_path"] = args.initiative_manifest
+        if initiative["manifest_digest"] != args.initiative_digest:
+            fail("Initiative manifest changed after approval")
+        if git_repository_slug(source).lower() != initiative["repository"].lower():
+            fail("Initiative context home does not match the target Git repository")
+        if initiative["repository"].lower() != args.expected_repository.lower():
+            fail("Initiative target repository changed after approval")
+    if initiative is not None:
+        if initiative["context"] != args.context:
+            fail("Initiative receipt context does not match the cycle context")
+        if args.cycle_id not in initiative["tickets"]:
+            fail("Initiative receipt does not name the cycle ticket")
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
@@ -2671,7 +3035,7 @@ def command_begin(args):
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
     parent.mkdir(parents=True, exist_ok=True)
-    plan = read_plan(args.plan)
+    plan = read_plan(args.plan, args.expected_plan_digest)
     git(source, "worktree", "add", "-b", branch_name, str(worktree), target)
     worktree = worktree.resolve()
     try:
@@ -2698,6 +3062,8 @@ def command_begin(args):
         portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
                              worktree_locator=locator, portable=portable)
+        if initiative is not None:
+            record["initiative"] = initiative
         if record["schema_version"] == 4:
             source_record.pop("path")
             source_record["locator"] = {"root": "primary_worktree", "path": "."}
@@ -2711,6 +3077,7 @@ def command_begin(args):
         "cycle_id": record["cycle_id"], "branch": branch_name,
         "worktree": str(worktree), "upstream": target,
         "open": ["opencode", str(worktree)],
+        **({"initiative": initiative} if initiative is not None else {}),
     }, sort_keys=True))
 
 
@@ -9945,6 +10312,12 @@ def parser():
     begin.add_argument("--opencode-directory")
     begin.add_argument("--opencode-worktree")
     begin.add_argument("--harness-activation-json")
+    begin.add_argument("--initiative-manifest")
+    begin.add_argument("--initiative-slice")
+    begin.add_argument("--initiative-digest")
+    begin.add_argument("--initiative-source")
+    begin.add_argument("--expected-plan-digest")
+    begin.add_argument("--expected-repository")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")
     portabilize.add_argument("--cycle-id", required=True)
@@ -10236,6 +10609,15 @@ def parser():
     batch_publish.add_argument("--batch-id", required=True)
     batch_publish.add_argument("--confirm", required=True)
     batch_publish.set_defaults(func=command_batch_publish)
+    initiative_check = commands.add_parser("initiative-check")
+    initiative_check.add_argument("--manifest", required=True)
+    initiative_check.add_argument("--json", action="store_true", required=True)
+    initiative_check.set_defaults(func=command_initiative_check)
+    initiative_receipt = commands.add_parser("initiative-receipt")
+    initiative_receipt.add_argument("--manifest", required=True)
+    initiative_receipt.add_argument("--slice", required=True)
+    initiative_receipt.add_argument("--json", action="store_true", required=True)
+    initiative_receipt.set_defaults(func=command_initiative_receipt)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))

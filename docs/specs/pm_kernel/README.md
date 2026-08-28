@@ -403,6 +403,15 @@ consumer tests pass. Re-running the same migration produces the same files.
 - Operations expose version, readiness, last successful projection, source lag,
   failed envelope count, backup age, and schema version without payload content.
 
+## Initiative Ticket Handoff
+
+Initiative discovery creates no speculative intake or refinement tickets. Once a
+delivery-slice specification is ready, its canonical ticket is created in the
+context home and linked from the Initiative manifest. The ticket's identity,
+outcome, scope, acceptance, dependencies, and ownership are stable Build
+contracts. A material revision reopens the slice and invalidates its prior
+manifest digest and readiness receipt before implementation resumes.
+
 ## Validation Strategy
 
 - Unit fixtures cover safe YAML parsing, duplicate keys, identity, states, points,
@@ -412,6 +421,8 @@ consumer tests pass. Re-running the same migration produces the same files.
 - Audit fixtures inspect one fixed Git commit and exclude dirty overlay.
 - Fake Jira adapters prove preview-only behavior, exact confirmation, rollups,
   ambiguous writes, and no automatic retry.
+- Initiative fixtures and lifecycle tests prove specification-ready creation,
+  stable handoff language, and digest-bound reopening.
 - PostgreSQL fixtures prove schema migrations, idempotent projection, graph views,
   disabled behavior, backup/restore, and version mismatch refusal.
 - Distribution validation proves default-off rendering, rootless private service,

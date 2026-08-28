@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "initiative-discovery",
+  "title": "Durable multi-context Initiative Discovery",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id": "INT-001", "kind": "requirement", "text": "Preserve every material requirement, constraint, decision, risk, idea, and non-goal across compaction.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-002", "kind": "requirement", "text": "Decompose broad intent into user-approved bounded contexts with one authoritative home repository each.", "disposition": "ready", "artifacts": ["docs/initiatives/initiative-discovery/README.md"]},
+    {"id": "INT-003", "kind": "requirement", "text": "Run ownership-disjoint Context Discovery lanes concurrently and continue the complete Initiative while ready slices build.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-004", "kind": "requirement", "text": "Create stable executable tickets only after a delivery slice specification is ready.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-005", "kind": "requirement", "text": "Require exact user approval before a ready slice starts a new DBSCTR Build fork.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-006", "kind": "constraint", "text": "Keep raw transcript copies, credentials, machine paths, and transient Herdr identities out of Initiative Git artifacts.", "disposition": "ready", "artifacts": ["docs/initiatives/initiative-discovery/README.md"]},
+    {"id": "INT-007", "kind": "requirement", "text": "Use Explore for local evidence and privacy-safe Scout or Context7 research for unresolved external facts.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-008", "kind": "requirement", "text": "Automatically reanchor after compaction and reject readiness or launch based only on compressed prose.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"]},
+    {"id": "INT-009", "kind": "requirement", "text": "Track independent and coordinated cross-repository release groups without making Herdr lifecycle authority.", "disposition": "ready", "artifacts": ["docs/initiatives/initiative-discovery/README.md"]},
+    {"id": "INT-010", "kind": "constraint", "text": "Do not bulk-migrate legacy contexts; migrate new or materially revised contexts and provide a later iterative migration workflow.", "disposition": "deferred", "artifacts": []}
+  ],
+  "contexts": [
+    {"id": "dbsctr_v3_lifecycle", "repository": "Saltiola7/dotfiles-ai", "status": "discovering", "depends_on": []},
+    {"id": "opencode_control_plane", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["dbsctr_v3_lifecycle"]},
+    {"id": "pm_kernel", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["dbsctr_v3_lifecycle"]},
+    {"id": "dotfiles_ai_distribution", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["opencode_control_plane"]}
+  ],
+  "slices": [
+    {"id": "lifecycle-foundation", "context": "dbsctr_v3_lifecycle", "state": "ready", "requirements": ["INT-001", "INT-002", "INT-003", "INT-005", "INT-008", "INT-009"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/initiative-discovery.md"], "tickets": ["V3.38-1"], "release_group": "initiative-discovery"},
+    {"id": "control-plane-orchestration", "context": "opencode_control_plane", "state": "captured", "requirements": ["INT-003", "INT-005", "INT-007", "INT-008"], "depends_on": ["lifecycle-foundation"], "artifacts": [], "tickets": [], "release_group": "initiative-discovery"},
+    {"id": "pm-ticket-handoff", "context": "pm_kernel", "state": "captured", "requirements": ["INT-004"], "depends_on": ["lifecycle-foundation"], "artifacts": [], "tickets": [], "release_group": "initiative-discovery"},
+    {"id": "herdr-skill-deployment", "context": "dotfiles_ai_distribution", "state": "captured", "requirements": ["INT-003", "INT-005", "INT-006"], "depends_on": ["control-plane-orchestration"], "artifacts": [], "tickets": [], "release_group": "initiative-discovery"}
+  ],
+  "release_groups": [
+    {"id": "initiative-discovery", "members": ["lifecycle-foundation", "control-plane-orchestration", "pm-ticket-handoff", "herdr-skill-deployment"], "state": "planning"}
+  ]
+}

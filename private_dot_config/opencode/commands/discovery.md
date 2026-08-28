@@ -1,5 +1,6 @@
 ---
 description: Discover a DBSCTR-ready bounded context
+agent: discovery-coordinator
 ---
 
 Use the skill tool to load `discovery`, then execute it against the arguments

@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fixedCommitInspect, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -474,6 +474,72 @@ export const begin = tool({
       directory: context.directory,
       worktree: context.worktree,
     }))
+  },
+})
+
+export const initiative_launch = tool({
+  description: "Validate one ready Initiative slice, require exact approval, and launch its isolated DBSCTR Build fork.",
+  args: {
+    manifestPath: tool.schema.string(),
+    sliceId: tool.schema.string(),
+    proceed: tool.schema.literal(true),
+    cycleId: tool.schema.string(),
+    context: tool.schema.string(),
+    risk: tool.schema.enum(["routine", "elevated", "critical"]),
+    deliveryIntent: tool.schema.enum(["local", "merge", "release", "deploy", "draft_pr"]),
+    planPath: tool.schema.string(),
+    githubAccount: tool.schema.string().optional(),
+    githubRepository: tool.schema.string().optional(),
+    targetRepository: tool.schema.string().optional(),
+  },
+  async execute(args, context) {
+    const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+    if (receipt.context !== args.context)
+      throw new Error("Initiative receipt context does not match the requested DBSCTR context")
+    if (!receipt.tickets.includes(args.cycleId))
+      throw new Error("Initiative receipt does not name the requested cycle ticket")
+    const target = args.targetRepository ?? context.worktree
+    const targetRepository = await gitRepositorySlug(target)
+    if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())
+      throw new Error("Initiative context home does not match the target repository")
+    const planDigest = await fileDigest(args.planPath, target)
+    const approval = JSON.stringify({
+      initiative_id: receipt.initiative_id,
+      slice_id: receipt.slice_id,
+      manifest_digest: receipt.manifest_digest,
+      manifest_blob: receipt.manifest_blob,
+      manifest_commit: receipt.manifest_commit,
+      coordinator_repository: receipt.coordinator_repository,
+      repository: receipt.repository,
+      target_repository: targetRepository,
+      cycle_id: args.cycleId,
+      context: args.context,
+      risk: args.risk,
+      delivery_intent: args.deliveryIntent,
+      plan_path: args.planPath,
+      plan_digest: planDigest,
+      github_account: args.githubAccount ?? null,
+      github_repository: args.githubRepository ?? null,
+    })
+    await context.ask({
+      permission: "dbsctr_initiative_launch",
+      patterns: [approval],
+      always: [],
+    })
+    const current = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+    if (JSON.stringify(current) !== JSON.stringify(receipt))
+      throw new Error("Initiative readiness changed after approval; request approval for the new digest")
+    if ((await gitRepositorySlug(target)).toLowerCase() !== targetRepository.toLowerCase())
+      throw new Error("Initiative target repository changed after approval")
+    if (await fileDigest(args.planPath, target) !== planDigest)
+      throw new Error("DBSCTR applicability plan changed after approval")
+    const result = await beginCycle(args, target, true, process.env, {
+      sessionID: context.sessionID,
+      messageID: context.messageID,
+      directory: context.directory,
+      worktree: context.worktree,
+    }, receipt, context.worktree, { planDigest, targetRepository })
+    return JSON.stringify(result)
   },
 })
 

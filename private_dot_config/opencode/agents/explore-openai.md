@@ -5,6 +5,7 @@ model: openai/gpt-5.6-luna-fast
 variant: low
 permission:
   dbsctr_vm_handoff: deny
+  dbsctr_initiative_launch: deny
   dbsctr_review_history_save: deny
   edit: deny
   bash: deny
