@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-28 - Initiative Runtime Distribution
+
+- Added separate context profiles, managed Initiative control-plane deployment,
+  and atomic release-matched Herdr skill installation from `herdr --skill`.
+- Targeted Chezmoi deployment, exact source identity, idempotence, Herdr skill
+  identity, and deployed helper/plugin smokes passed.
+
 ## 2026-08-26 - DAI-031 R&D State Authority and Health
 
 - Centralized scheduler state and receipt resolution without migrating or

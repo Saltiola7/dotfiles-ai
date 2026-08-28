@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-28 - Initiative Discovery Orchestration
+
+- Added a docs-only Discovery coordinator, normal/compaction durable context,
+  exact digest/plan/repository-bound launch approval, cross-repository targets,
+  current Herdr tab/agent syntax, and fork-specific fresh fallback.
+- Targeted deployment is source-identical and idempotent; the deployed plugin
+  smoke passed. Initiative launch is denied outside the coordinator.
+
 ## 2026-08-25 - Managed VM Handoff Runtime Parity
 
 - Required exact managed host/guest OpenCode parity before VM handoff creates a

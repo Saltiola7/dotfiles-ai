@@ -132,7 +132,7 @@
 - Close integration-batch admission before one canonical graph-only promotion commit.
 - Keep DVC push separately authorized and verify graph-only freshness at fixed commits.
 
-### V3.38 — Initiative Discovery (active)
+### V3.38 — Initiative Discovery (delivered)
 
 - Capture material intent in a validated coordinator-repository manifest before
   multi-context interview expansion or implementation.
