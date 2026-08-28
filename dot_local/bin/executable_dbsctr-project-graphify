@@ -1,0 +1,596 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  printf 'managed Graphify adapter: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${1:-} == "--output-dir" && $# == 2 ]] ||
+  die "usage: dbsctr-project-graphify --output-dir ABSOLUTE_PATH"
+[[ ${DBSCTR_GRAPHIFY_MODE:-} == "check" || ${DBSCTR_GRAPHIFY_MODE:-} == "finalize" ]] ||
+  die "DBSCTR_GRAPHIFY_MODE must be check or finalize"
+[[ ${DBSCTR_GRAPHIFY_VERSION:-} =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]] ||
+  die "DBSCTR_GRAPHIFY_VERSION is invalid"
+
+python_command=$(type -P python3) || die "python3 is required"
+[[ $python_command == /* && -f $python_command ]] || die "python3 must be an executable file"
+PYTHON=$(
+  /usr/bin/env -i HOME="${HOME:?}" TMPDIR="${TMPDIR:-/tmp}" PATH=/usr/bin:/bin \
+    LANG=C.UTF-8 LC_ALL=C "$python_command" \
+    -c 'import os, sys; print(os.path.realpath(sys.executable))'
+) || die "cannot resolve python3"
+
+run_bootstrap() {
+  /usr/bin/env -i HOME="${HOME:?}" TMPDIR="${TMPDIR:-/tmp}" PATH=/usr/bin:/bin \
+    LANG=C.UTF-8 LC_ALL=C "$PYTHON" "$@"
+}
+
+resolve_tool() {
+  local raw
+  if [[ $1 == */* ]]; then
+    raw=$1
+  else
+    raw=$(type -P "$1") || die "$1 is required"
+  fi
+  [[ $raw == /* ]] || die "$1 must resolve to an absolute path"
+  run_bootstrap - "$raw" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(os.path.realpath(sys.argv[1]))
+details = path.stat()
+if not stat.S_ISREG(details.st_mode):
+    raise SystemExit(1)
+print(path)
+PY
+}
+
+GRAPHIFY=$(resolve_tool graphify) || die "cannot resolve graphify"
+GIT=$(resolve_tool git) || die "cannot resolve git"
+UV=$(resolve_tool uv) || die "cannot resolve uv"
+GRAPHIFY_PYTHON=${GRAPHIFY%/*}/python
+resolve_tool "$GRAPHIFY_PYTHON" >/dev/null || die "cannot resolve the Graphify Python runtime"
+LOCAL_PATH=$(printf '%s:%s:%s:%s:/usr/bin:/bin' \
+  "${GRAPHIFY%/*}" "${GIT%/*}" "${UV%/*}" "${PYTHON%/*}")
+
+run_local() {
+  /usr/bin/env -i \
+    HOME="${HOME:?}" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    PATH="$LOCAL_PATH" \
+    UV_CACHE_DIR="${UV_CACHE_DIR:-$HOME/.cache/uv}" \
+    LANG=C.UTF-8 \
+    LC_ALL=C \
+    DVC_NO_ANALYTICS=1 \
+    GRAPHIFY_LLM_TEMPERATURE=none \
+    GRAPHIFY_OUT=graphify-out \
+    "$@"
+}
+
+run_checked() {
+  local label=$1 output status
+  shift
+  set +e
+  output=$(run_local "$@" 2>&1)
+  status=$?
+  LAST_OUTPUT=$output
+  set -e
+  if ((status != 0)); then
+    printf '%s: %s\n' "$label" "${output: -1200}" >&2
+  fi
+  return "$status"
+}
+
+LAST_OUTPUT=""
+run_checked "cannot read Graphify version" "$GRAPHIFY" --version ||
+  die "cannot read Graphify version"
+version_matches=0
+while IFS= read -r line; do
+  if [[ $line == "graphify $DBSCTR_GRAPHIFY_VERSION" || $line == "$DBSCTR_GRAPHIFY_VERSION" ]]; then
+    ((++version_matches))
+  fi
+done <<<"$LAST_OUTPUT"
+((version_matches == 1)) || die "Graphify version mismatch: ${LAST_OUTPUT: -1000}"
+run_local "$GRAPHIFY_PYTHON" -c \
+  'import boto3, tree_sitter_hcl, tree_sitter_language_pack, tree_sitter_sql' >/dev/null 2>&1 ||
+  die "Graphify runtime additions are missing"
+
+repo_root=$(run_local "$GIT" rev-parse --show-toplevel) || die "not a Git worktree"
+git_dir=$(run_local "$GIT" rev-parse --absolute-git-dir) || die "cannot resolve Git directory"
+common_dir=$(run_local "$GIT" rev-parse --git-common-dir) || die "cannot resolve Git common directory"
+common_dir=$(run_local "$PYTHON" - "$common_dir" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)
+
+output=$(run_local "$PYTHON" - "$1" "$2" "$DBSCTR_GRAPHIFY_MODE" \
+  "$repo_root" "$git_dir" "$common_dir" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+_flag, raw, mode, repo_raw, git_raw, common_raw = sys.argv[1:]
+path = Path(raw)
+if not path.is_absolute():
+    raise SystemExit("output path must be absolute")
+repo = Path(repo_raw).resolve()
+git_dir = Path(git_raw).resolve()
+common = Path(common_raw).resolve()
+
+if mode == "finalize":
+    if not os.path.lexists(path) or path.is_symlink():
+        raise SystemExit("finalize output must be an existing non-symlink directory")
+    if not stat.S_ISDIR(path.lstat().st_mode) or path.resolve() != repo / "graphify-out":
+        raise SystemExit("finalize output must be the worktree graphify-out directory")
+    print(path.resolve())
+    raise SystemExit
+
+parent = path.parent
+if not os.path.lexists(parent) or parent.is_symlink():
+    raise SystemExit("check output parent must be an existing non-symlink directory")
+details = parent.lstat()
+if not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid() or details.st_mode & 0o022:
+    raise SystemExit("check output parent must be private and owner-controlled")
+parent = parent.resolve()
+candidate = parent / path.name
+if os.path.lexists(candidate):
+    raise SystemExit("check output target already exists")
+
+def overlaps(left: Path, right: Path) -> bool:
+    return left == right or left in right.parents or right in left.parents
+
+if any(overlaps(candidate, protected) for protected in (repo, git_dir, common)):
+    raise SystemExit("check output overlaps the source or Git directories")
+print(candidate)
+PY
+) || die "unsafe output path"
+
+validate_tree() {
+  run_local "$PYTHON" - "$1" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+if not os.path.lexists(root):
+    raise SystemExit
+details = root.lstat()
+if (root.is_symlink() or not stat.S_ISDIR(details.st_mode)
+        or details.st_uid != os.getuid() or details.st_mode & 0o022):
+    raise SystemExit(1)
+pending = [root]
+while pending:
+    current = pending.pop()
+    with os.scandir(current) as entries:
+        for entry in entries:
+            details = entry.stat(follow_symlinks=False)
+            if (entry.is_symlink() or details.st_uid != os.getuid()
+                    or details.st_mode & 0o022):
+                raise SystemExit(1)
+            if stat.S_ISDIR(details.st_mode):
+                pending.append(Path(entry.path))
+            elif not stat.S_ISREG(details.st_mode):
+                raise SystemExit(1)
+PY
+}
+validate_tree graphify-out || die "graphify-out contains an unsafe path"
+
+if [[ $DBSCTR_GRAPHIFY_MODE == "finalize" ]]; then
+  [[ -z $(run_local "$GIT" status --porcelain=v1 --untracked-files=all -- graphify-out) ]] ||
+    die "finalize requires a clean graphify-out baseline"
+fi
+outside_before=$(run_local "$GIT" status --porcelain=v1 --untracked-files=all -- . \
+  ':(exclude)graphify-out') || die "cannot inspect worktree baseline"
+
+stage=""
+stage_device=""
+stage_inode=""
+finalize_backup=""
+finalize_index=""
+success=0
+if [[ $DBSCTR_GRAPHIFY_MODE == "finalize" && ${DBSCTR_GRAPHIFY_TRANSACTION:-} != "controller" ]]; then
+  finalize_index=$(run_local "$GIT" rev-parse --git-path index) || die "cannot resolve Git index"
+  finalize_backup=$(run_local "$PYTHON" - "$finalize_index" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+
+index = Path(sys.argv[1])
+backup = Path(tempfile.mkdtemp(prefix="dbsctr-graphify-finalize-"))
+shutil.copytree("graphify-out", backup / "graphify-out", symlinks=True)
+shutil.copy2(index, backup / "index")
+print(backup)
+PY
+  ) || die "cannot snapshot Graphify finalization baseline"
+fi
+
+cleanup() {
+  if [[ $DBSCTR_GRAPHIFY_MODE == "finalize" && $success == 0 && -n $finalize_backup ]]; then
+    rollback_error=$(run_local "$PYTHON" - "$finalize_backup" "$finalize_index" 2>&1 <<'PY'
+from pathlib import Path
+import os
+import shutil
+import sys
+
+backup, index = map(Path, sys.argv[1:])
+graph = Path("graphify-out")
+if graph.exists() and not graph.is_symlink():
+    shutil.rmtree(graph)
+elif os.path.lexists(graph):
+    graph.unlink()
+os.replace(backup / "graphify-out", graph)
+os.replace(backup / "index", index)
+shutil.rmtree(backup, ignore_errors=True)
+PY
+    ) || {
+      printf 'managed Graphify adapter: rollback failed: %s\n' "${rollback_error: -1200}" >&2
+      return 1
+    }
+  elif [[ -n $finalize_backup ]]; then
+    run_local "$PYTHON" - "$finalize_backup" <<'PY' >/dev/null 2>&1 || true
+from pathlib import Path
+import shutil
+import sys
+shutil.rmtree(Path(sys.argv[1]), ignore_errors=True)
+PY
+  fi
+  [[ $DBSCTR_GRAPHIFY_MODE == "check" && $success == 0 ]] || return 0
+  run_local "$PYTHON" - "$stage" "$output" "$stage_device" "$stage_inode" <<'PY' >/dev/null 2>&1 || true
+from pathlib import Path
+import shutil
+import sys
+
+stage_raw, output_raw, device_raw, inode_raw = sys.argv[1:]
+for raw, published in ((stage_raw, False), (output_raw, True)):
+    if not raw:
+        continue
+    path = Path(raw)
+    try:
+        details = path.lstat()
+    except FileNotFoundError:
+        continue
+    if published and (not device_raw or not inode_raw):
+        continue
+    if device_raw and inode_raw and (details.st_dev, details.st_ino) != (int(device_raw), int(inode_raw)):
+        continue
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+PY
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+primary_root=$(run_local "$GIT" worktree list --porcelain -z | run_local "$PYTHON" -c '
+import os, sys
+fields = sys.stdin.buffer.read().split(b"\0")
+if not fields or not fields[0].startswith(b"worktree "):
+    raise SystemExit(1)
+path = os.fsdecode(fields[0].removeprefix(b"worktree "))
+if not os.path.isabs(path):
+    raise SystemExit(1)
+print(path)
+') || die "cannot resolve primary worktree"
+if [[ -f graphify-out/graph.json.dvc && ! -f graphify-out/graph.json ]]; then
+  if ! run_local "$UV" run --frozen --offline dvc checkout graphify-out/graph.json >/dev/null 2>&1; then
+    run_local "$PYTHON" - "$primary_root" <<'PY' || die "local DVC checkout failed"
+from pathlib import Path
+import hashlib
+import os
+import re
+import stat
+import sys
+import tempfile
+
+pointer = Path("graphify-out/graph.json.dvc").read_text(encoding="utf-8")
+match = re.fullmatch(
+    r"outs:\n- md5: ([0-9a-f]{32})\n  size: ([0-9]+)\n"
+    r"  hash: md5\n  path: graph\.json\n?",
+    pointer,
+)
+if match is None:
+    raise SystemExit("invalid graph.json.dvc pointer")
+expected_digest, expected_size = match.groups()
+
+directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+try:
+    for part in Path(sys.argv[1]).parts[1:]:
+        child = os.open(
+            part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        os.close(directory)
+        directory = child
+    details = os.fstat(directory)
+    if details.st_uid != os.getuid() or details.st_mode & 0o022:
+        raise OSError("unsafe primary worktree")
+    graph_directory = os.open(
+        "graphify-out", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+finally:
+    os.close(directory)
+try:
+    details = os.fstat(graph_directory)
+    if details.st_uid != os.getuid() or details.st_mode & 0o022:
+        raise OSError("unsafe primary graph directory")
+    descriptor = os.open("graph.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=graph_directory)
+finally:
+    os.close(graph_directory)
+details = os.fstat(descriptor)
+if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+        or details.st_mode & 0o022 or details.st_size != int(expected_size)):
+    os.close(descriptor)
+    raise SystemExit("unsafe or mismatched primary graph")
+target = Path("graphify-out/graph.json")
+temporary_descriptor, temporary_raw = tempfile.mkstemp(prefix=".graph.json.", dir=target.parent)
+temporary = Path(temporary_raw)
+digest = hashlib.md5(usedforsecurity=False)
+try:
+    with os.fdopen(descriptor, "rb") as reader, os.fdopen(temporary_descriptor, "wb") as writer:
+        while block := reader.read(1024 * 1024):
+            digest.update(block)
+            writer.write(block)
+    if digest.hexdigest() != expected_digest:
+        raise SystemExit("primary graph digest mismatch")
+    os.replace(temporary, target)
+finally:
+    temporary.unlink(missing_ok=True)
+PY
+  fi
+  validate_tree graphify-out || die "local DVC checkout created an unsafe path"
+fi
+
+if [[ ! -d graphify-out/cache ]]; then
+  primary_cache=$primary_root/graphify-out/cache
+  if [[ -d $primary_cache && $primary_cache != "$repo_root/graphify-out/cache" ]]; then
+    validate_tree "$primary_cache" || die "primary Graphify cache contains an unsafe path"
+    run_local "$PYTHON" - "$primary_cache" <<'PY' || die "cannot copy Graphify cache"
+import os
+from pathlib import Path
+import stat
+import sys
+
+source = Path(sys.argv[1])
+target = Path("graphify-out/cache")
+target.parent.mkdir(parents=True, exist_ok=True)
+target.mkdir()
+root = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+details = os.fstat(root)
+if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+        or details.st_mode & 0o022):
+    os.close(root)
+    raise OSError("unsafe cache root")
+pending = [(root, target)]
+try:
+    while pending:
+        directory, destination = pending.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    details = entry.stat(follow_symlinks=False)
+                    if (entry.is_symlink() or details.st_uid != os.getuid()
+                            or details.st_mode & 0o022):
+                        raise OSError("unsafe cache entry")
+                    child = destination / entry.name
+                    if stat.S_ISDIR(details.st_mode):
+                        child.mkdir()
+                        opened = os.open(
+                            entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=directory,
+                        )
+                        pending.append((opened, child))
+                    elif stat.S_ISREG(details.st_mode):
+                        opened = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+                        with os.fdopen(opened, "rb") as reader, child.open("xb") as writer:
+                            while block := reader.read(1024 * 1024):
+                                writer.write(block)
+                    else:
+                        raise OSError("unsafe cache entry")
+        finally:
+            os.close(directory)
+except BaseException:
+    for directory, _destination in pending:
+        os.close(directory)
+    raise
+PY
+    validate_tree graphify-out/cache || die "copied Graphify cache contains an unsafe path"
+  fi
+fi
+
+cache_snapshot=$(run_local "$PYTHON" - "$DBSCTR_GRAPHIFY_VERSION" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+accepted = []
+for path in Path(f"graphify-out/cache/ast/v{sys.argv[1]}-s2").glob("*.json"):
+    try:
+        if path.is_symlink() or not path.is_file():
+            continue
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    if isinstance(value, dict) and value.get("partial"):
+        continue
+    accepted.append(path.stem)
+print(json.dumps(accepted, separators=(",", ":")))
+PY
+) || die "cannot inspect Graphify cache"
+
+LAST_OUTPUT=""
+run_checked "Graphify update failed" "$GRAPHIFY" update . || die "Graphify update failed"
+validate_tree graphify-out || die "Graphify created an unsafe path"
+no_change=0
+[[ $LAST_OUTPUT == *"No code-graph"*"changes detected"* ]] && no_change=1
+head=$(run_local "$GIT" rev-parse HEAD) || die "cannot read current HEAD"
+prior_revision=$(run_local "$PYTHON" - <<'PY'
+from pathlib import Path
+import re
+
+text = Path("graphify-out/GRAPH_REPORT.md").read_text(encoding="utf-8")
+matches = re.findall(r"^- Built from commit: `([^`]+)`$", text, re.MULTILINE)
+if len(matches) != 1:
+    raise SystemExit(1)
+print(matches[0])
+PY
+) || die "Graphify report identity is stale or malformed"
+if ((no_change)); then
+  [[ $prior_revision =~ ^[0-9a-f]{8}$ || $prior_revision =~ ^[0-9a-f]{40}$ ]] ||
+    die "Graphify prior report identity is invalid"
+  run_local "$GIT" rev-parse --verify "${prior_revision}^{commit}" >/dev/null 2>&1 ||
+    die "Graphify prior report commit does not exist: $prior_revision"
+  run_local "$GIT" merge-base --is-ancestor "$prior_revision" "$head" ||
+    die "Graphify prior report commit is not an ancestor of HEAD"
+fi
+
+run_local "$PYTHON" - <<'PY' || die "Graphify graph is malformed or empty"
+from pathlib import Path
+import json
+
+value = json.loads(Path("graphify-out/graph.json").read_text(encoding="utf-8"))
+if not isinstance(value, dict):
+    raise SystemExit(1)
+nodes = value.get("nodes")
+links = value.get("links")
+if not isinstance(nodes, list) or not nodes or not isinstance(links, list):
+    raise SystemExit(1)
+if any(not isinstance(node, dict) or "id" not in node for node in nodes):
+    raise SystemExit(1)
+if any(not isinstance(link, dict) or not {"source", "target"} <= link.keys() for link in links):
+    raise SystemExit(1)
+PY
+run_local "$PYTHON" - "$head" "$no_change" <<'PY' || die "Graphify report identity is stale or malformed"
+from pathlib import Path
+import re
+import sys
+
+path = Path("graphify-out/GRAPH_REPORT.md")
+text = path.read_text(encoding="utf-8")
+matches = list(re.finditer(r"^- Built from commit: `([^`]+)`$", text, re.MULTILINE))
+head = sys.argv[1]
+no_change = sys.argv[2] == "1"
+if len(matches) != 1:
+    raise SystemExit(1)
+revision = matches[0].group(1)
+if revision != head[:8] and not (no_change and re.fullmatch(r"[0-9a-f]{8}|[0-9a-f]{40}", revision)):
+    raise SystemExit(1)
+start, end = matches[0].span(1)
+temporary = path.with_name(path.name + ".tmp")
+temporary.write_text(text[:start] + head + text[end:], encoding="utf-8")
+temporary.replace(path)
+PY
+
+run_checked "DVC metadata staging failed" \
+  "$UV" run --frozen --offline dvc add graphify-out/graph.json ||
+  die "DVC metadata staging failed"
+while IFS= read -r staged; do
+  [[ -z $staged || $staged == graphify-out/* ]] || die "DVC staged a path outside graphify-out"
+done < <(run_local "$GIT" diff --cached --name-only)
+outside_after=$(run_local "$GIT" status --porcelain=v1 --untracked-files=all -- . \
+  ':(exclude)graphify-out') || die "cannot inspect worktree result"
+[[ $outside_after == "$outside_before" ]] || die "Graphify changed a path outside graphify-out"
+
+counters=$(run_local "$PYTHON" - "$cache_snapshot" <<'PY'
+import json
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+root = Path("graphify-out")
+required = {".gitignore", "GRAPH_REPORT.md", "cost.json", "graph.json", "graph.json.dvc", "manifest.json"}
+accepted = set(json.loads(sys.argv[1]))
+manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+if not isinstance(manifest, dict):
+    raise SystemExit(1)
+hashes = [entry.get("ast_hash") for entry in manifest.values() if isinstance(entry, dict)]
+hashes = [value for value in hashes if isinstance(value, str) and value]
+hits = sum(value in accepted for value in hashes)
+misses = len(hashes) - hits
+
+for path in list(root.iterdir()):
+    if path.name in required:
+        continue
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+total = 0
+if {path.name for path in root.iterdir()} != required:
+    raise SystemExit(1)
+for path in root.iterdir():
+    details = path.lstat()
+    if path.is_symlink() or not stat.S_ISREG(details.st_mode):
+        raise SystemExit(1)
+    total += details.st_size
+if total > 256 * 1024 * 1024:
+    raise SystemExit(1)
+print(hits, misses)
+PY
+) || die "Graphify output is malformed"
+read -r cache_hits cache_misses <<<"$counters"
+
+summary=$(run_local "$PYTHON" - "$cache_hits" "$cache_misses" <<'PY'
+import json
+import sys
+print(json.dumps({"cache_hits": int(sys.argv[1]), "cache_misses": int(sys.argv[2])}, separators=(",", ":")))
+PY
+) || die "cannot encode Graphify summary"
+
+if [[ $DBSCTR_GRAPHIFY_MODE == "check" ]]; then
+  parent=${output%/*}
+  stage="$parent/.dbsctr-graphify.$$.$RANDOM.$RANDOM"
+  stage_info=$(run_local "$PYTHON" - "$stage" <<'PY'
+from pathlib import Path
+import shutil
+import signal
+import sys
+
+stage = Path(sys.argv[1])
+stage.mkdir(mode=0o700)
+
+def abort(*_args):
+    shutil.rmtree(stage, ignore_errors=True)
+    raise SystemExit(1)
+
+signal.signal(signal.SIGINT, abort)
+signal.signal(signal.SIGTERM, abort)
+for name in (".gitignore", "GRAPH_REPORT.md", "cost.json", "graph.json", "graph.json.dvc", "manifest.json"):
+    shutil.copy2(Path("graphify-out") / name, stage / name)
+details = stage.stat()
+print(details.st_dev, details.st_ino, sep="\t")
+PY
+  ) || die "cannot create private output"
+  IFS=$'\t' read -r stage_device stage_inode <<<"$stage_info"
+  trap '' INT TERM
+  if ! run_local "$PYTHON" - "$stage" "$output" <<'PY'
+import ctypes
+import os
+import sys
+
+source, target = (os.fsencode(value) for value in sys.argv[1:])
+libc = ctypes.CDLL(None, use_errno=True)
+if sys.platform == "darwin":
+    result = libc.renamex_np(source, target, 4)
+elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+    result = libc.renameat2(-100, source, -100, target, 1)
+else:
+    raise SystemExit("atomic no-replace rename is unavailable")
+if result != 0:
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error), os.fsdecode(target))
+PY
+  then
+    trap 'exit 1' INT TERM
+    die "check output publication failed"
+  fi
+fi
+
+printf '%s\n' "$summary"
+success=1

@@ -183,11 +183,14 @@ in the new worktree. Herdr state is presentation only and never gate evidence.
 
 When the applicability plan contains `graphify`, run `dbsctrctl graphify-check`
 after the final affected source change and before Final Push. The helper runs the
-committed project adapter in a disposable detached worktree and retains private
-receipt evidence; feature cycles never update canonical `graphify-out/`. Adapter
-or version changes require a new cycle selection and Engineering Profile change.
-Selection authorizes bounded local execution of that committed project code only;
-review it under Project Policy and never embed push, publish, or deploy behavior.
+digest-bound managed central adapter in a disposable detached worktree and retains
+private receipt evidence; feature cycles never update canonical `graphify-out/`.
+Version changes require a new cycle selection and Engineering Profile change.
+Selection authorizes bounded local execution only; the adapter never pulls or
+pushes DVC, pushes Git, publishes, calls providers, or deploys. Target repositories
+provide source, local DVC configuration, and canonical graph artifacts, not adapter code.
+Private lifecycle state retains the digest-selected central executable so active
+cycles and batches survive a later managed adapter upgrade.
 
 Before final artifact closure, use `dbsctr_reconcile` preview when the recorded
 upstream may have advanced. If it reports `diverged`, prepare the no-commit merge,

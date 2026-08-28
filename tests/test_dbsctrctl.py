@@ -7,6 +7,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -40,9 +41,9 @@ def discovery_report(digest="d" * 64):
         "evidence_digest": digest})
 
 
-def run(repo, *args, ok=True, env=None, input_text=None):
+def run(repo, *args, ok=True, env=None, input_text=None, script=SCRIPT):
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), *args], cwd=repo, text=True, capture_output=True,
+        [sys.executable, str(script), *args], cwd=repo, text=True, capture_output=True,
         env=isolated_env() if env is None else env, input=input_text,
     )
     if ok and result.returncode:
@@ -292,24 +293,23 @@ class DbsctrctlTest(unittest.TestCase):
         )
         self.assertIn("only profile, gates, and optional graphify", result.stderr)
 
-    def test_graphify_selection_is_committed_and_only_tightens(self):
-        adapter = self.repo / "scripts/graphify"
-        adapter.parent.mkdir()
-        adapter.write_text("#!/bin/sh\nexit 0\n")
-        adapter.chmod(0o755)
-        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
-                       check=True, capture_output=True)
+    def test_graphify_selection_binds_managed_adapter_and_only_tightens(self):
         plan = json.loads(self.plan_path().read_text())
-        plan["graphify"] = {"adapter": "scripts/graphify", "version": "0.9.50"}
+        plan["graphify"] = {"version": "0.9.50"}
         run(
             self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", "-",
             input_text=json.dumps(plan),
         )
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["applicability_plan"]["graphify"]["adapter"], "scripts/graphify")
-        self.assertRegex(record["applicability_plan"]["graphify"]["blob"], r"^[0-9a-f]+$")
+        selection = record["applicability_plan"]["graphify"]
+        self.assertEqual(selection["version"], "0.9.50")
+        self.assertEqual(selection["adapter_contract"], "dbsctr-project-graphify-v1")
+        self.assertRegex(selection["adapter_sha256"], r"^[0-9a-f]{64}$")
+        snapshot = self.repo / ".git/dbsctr/graphify/adapters" / selection["adapter_sha256"]
+        self.assertEqual(snapshot.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+                         selection["adapter_sha256"])
 
         changed = {**plan, "graphify": {**plan["graphify"], "version": "0.9.51"}}
         result = run(self.repo, "update-plan", "--plan", "-", input_text=json.dumps(changed), ok=False)
@@ -317,12 +317,22 @@ class DbsctrctlTest(unittest.TestCase):
         plan.pop("graphify")
         result = run(self.repo, "update-plan", "--plan", "-", input_text=json.dumps(plan), ok=False)
         self.assertIn("Graphify selection cannot be removed", result.stderr)
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_selection", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with self.assertRaisesRegex(RuntimeError, "requires exactly version"):
+            module.validate_graphify_selection(
+                self.repo, {"adapter": "scripts/graphify", "version": "0.9.50"})
 
     def test_graphify_check_runs_in_disposable_worktree_and_records_private_receipt(self):
         invalid_timeout = run(self.repo, "graphify-check", "--timeout", "0", ok=False)
         self.assertIn("timeout must be 1 through 3600 seconds", invalid_timeout.stderr)
-        adapter = self.repo / "scripts/graphify"
-        adapter.parent.mkdir()
+        managed = Path(self.temp.name) / "managed"
+        managed.mkdir()
+        controller = managed / "dbsctrctl"
+        shutil.copy2(SCRIPT, controller)
+        adapter = managed / "dbsctr-project-graphify"
         adapter.write_text(
             "#!/bin/sh\nset -eu\n"
             "test \"$1\" = --output-dir\nmkdir -p \"$2\"\n"
@@ -331,17 +341,14 @@ class DbsctrctlTest(unittest.TestCase):
             "printf '{\"cache_hits\":2,\"cache_misses\":1}\\n'\n"
         )
         adapter.chmod(0o755)
-        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
-                       check=True, capture_output=True)
         plan = json.loads(self.plan_path().read_text())
-        plan["graphify"] = {"adapter": "scripts/graphify", "version": "0.9.50"}
+        plan["graphify"] = {"version": "0.9.50"}
         run(
             self.repo, "start", "--cycle-id", "cycle-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", "-",
-            input_text=json.dumps(plan),
+            input_text=json.dumps(plan), script=controller,
         )
-        result = json.loads(run(self.repo, "graphify-check").stdout)
+        result = json.loads(run(self.repo, "graphify-check", script=controller).stdout)
         record = json.loads(self.record_path().read_text())
         receipt = self.repo / ".git/dbsctr" / record["graphify_check"]["receipt"]
         self.assertEqual(result["head"], subprocess.run(
@@ -354,17 +361,86 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(subprocess.run(
             ["git", "worktree", "list", "--porcelain"], cwd=self.repo, text=True,
             check=True, capture_output=True).stdout.count("worktree "), 1)
+        adapter.write_text(adapter.read_text() + "# changed\n")
+        changed = json.loads(run(self.repo, "graphify-check", script=controller).stdout)
+        self.assertEqual(changed["cache"], {"hits": 2, "misses": 1})
+        tools = Path(self.temp.name) / "cleanup-tools"
+        scratch = Path(self.temp.name) / "cleanup-scratch"
+        tools.mkdir()
+        scratch.mkdir()
+        fake_git = tools / "git"
+        fake_git.write_text(
+            "#!/bin/sh\n"
+            "if [ \"${1:-} ${2:-}\" = \"worktree remove\" ]; then\n"
+            "  printf 'forced removal failure\\n' >&2\n  exit 9\nfi\n"
+            f'exec "{shutil.which("git")}" "$@"\n'
+        )
+        fake_git.chmod(0o755)
+        failed_cleanup = run(
+            self.repo, "graphify-check", script=controller, ok=False,
+            env={**isolated_env(), "PATH": f"{tools}:{os.environ['PATH']}", "TMPDIR": str(scratch)},
+        )
+        self.assertIn("forced removal failure", failed_cleanup.stderr)
+        self.assertFalse(list(scratch.iterdir()))
+        subprocess.run(["git", "worktree", "prune"], cwd=self.repo, check=True)
         value = json.loads(receipt.read_text())
         value["output_files"] = []
         receipt.write_text(json.dumps(value))
         record["graphify_check"]["receipt_sha256"] = hashlib.sha256(receipt.read_bytes()).hexdigest()
         self.record_path().write_text(json.dumps(record))
-        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_receipt", str(SCRIPT))
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_receipt", str(controller))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
         with self.assertRaisesRegex(RuntimeError, "receipt identity is invalid"):
             module.require_graphify_check(self.repo, record)
+
+    def test_graphify_finalization_reports_and_preserves_failed_rollback(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_rollback", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        output = self.repo / "graphify-out"
+        output.mkdir()
+        (output / "manifest.json").write_text("{}\n")
+        backup = Path(self.temp.name) / "failed-rollback"
+        backup.mkdir()
+        with mock.patch.object(module.tempfile, "mkdtemp", return_value=str(backup)), \
+                mock.patch.object(module.os, "replace", side_effect=OSError("restore denied")):
+            with self.assertRaisesRegex(RuntimeError, "batch Graphify rollback failed: restore denied"):
+                with module.graphify_finalization_transaction(self.repo, output):
+                    (output / "manifest.json").write_text('{"changed":true}\n')
+                    raise RuntimeError("operation failed")
+        self.assertTrue((backup / "graphify-out/manifest.json").exists())
+
+    def test_graphify_finalization_retains_interrupted_output_on_index_restore_failure(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_graphify_index_rollback", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        output = self.repo / "graphify-out"
+        output.mkdir()
+        (output / "manifest.json").write_text("baseline\n")
+        backup = Path(self.temp.name) / "failed-index-rollback"
+        backup.mkdir()
+        replace = module.os.replace
+        calls = 0
+
+        def fail_index_restore(source, destination):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise OSError("index restore denied")
+            return replace(source, destination)
+
+        with mock.patch.object(module.tempfile, "mkdtemp", return_value=str(backup)), \
+                mock.patch.object(module.os, "replace", side_effect=fail_index_restore):
+            with self.assertRaisesRegex(RuntimeError, "index restore denied"):
+                with module.graphify_finalization_transaction(self.repo, output):
+                    (output / "manifest.json").write_text("interrupted\n")
+                    raise RuntimeError("operation failed")
+        self.assertEqual((output / "manifest.json").read_text(), "baseline\n")
+        self.assertEqual((backup / "interrupted/manifest.json").read_text(), "interrupted\n")
 
     def test_start_rejects_dirty_or_wrong_profile_and_delivery_conflict(self):
         gates = {gate: {"applicability": "required"} for gate in GATES}
@@ -5400,8 +5476,11 @@ class DbsctrctlTest(unittest.TestCase):
                        cwd=self.repo, check=True, capture_output=True)
 
     def test_batch_finalize_closes_admission_and_requires_current_dvc_evidence(self):
-        adapter = self.repo / "scripts/graphify"
-        adapter.parent.mkdir()
+        managed = Path(self.temp.name) / "batch-managed"
+        managed.mkdir()
+        controller = managed / "dbsctrctl"
+        shutil.copy2(SCRIPT, controller)
+        adapter = managed / "dbsctr-project-graphify"
         adapter.write_text(
             "#!/bin/sh\nset -eu\ntest \"$1\" = --output-dir\nmkdir -p \"$2\"\n"
             "printf 'Built from commit: `%s`\\n' \"$(git rev-parse HEAD)\" > \"$2/GRAPH_REPORT.md\"\n"
@@ -5410,12 +5489,23 @@ class DbsctrctlTest(unittest.TestCase):
             "printf 'stale\\n' > \"$2/graph.receipt.json\"\n"
         )
         adapter.chmod(0o755)
-        subprocess.run(["git", "add", "scripts/graphify"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-m", "adapter"], cwd=self.repo,
+        selection = {
+            "version": "0.9.50",
+            "adapter_contract": "dbsctr-project-graphify-v1",
+            "adapter_sha256": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+        }
+        archive = self.repo / ".git/dbsctr/graphify/adapters"
+        archive.mkdir(parents=True)
+        snapshot = archive / selection["adapter_sha256"]
+        shutil.copy2(adapter, snapshot)
+        snapshot.chmod(0o700)
+        graph = self.repo / "graphify-out"
+        graph.mkdir()
+        (graph / "GRAPH_REPORT.md").write_text("old report\n")
+        (graph / "manifest.json").write_text("{}\n")
+        subprocess.run(["git", "add", "graphify-out"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "graph baseline"], cwd=self.repo,
                        check=True, capture_output=True)
-        adapter_blob = subprocess.run(
-            ["git", "rev-parse", "HEAD:scripts/graphify"], cwd=self.repo, text=True,
-            check=True, capture_output=True).stdout.strip()
         bare = Path(self.temp.name) / "graph-origin.git"
         subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
         subprocess.run(["git", "branch", "-M", "main"], cwd=self.repo, check=True)
@@ -5436,20 +5526,21 @@ class DbsctrctlTest(unittest.TestCase):
         (records / "graph-source.json").write_text(json.dumps({
             "state": "completed", "delivery_intent": "draft_pr",
             "delivery": {"branch": branch, "published_feature_head": sha},
-            "applicability_plan": {"graphify": {
-                "adapter": "scripts/graphify", "version": "0.9.50", "blob": adapter_blob,
-            }},
+            "applicability_plan": {"graphify": selection},
         }))
         subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
         env = {**isolated_env(), "HOME": str(Path(self.temp.name) / "graph-home")}
         batch_path = self.repo / ".git/dbsctr/batches/graph-batch.json"
         run(self.repo, "batch-create", "--batch-id", "graph-batch",
-            "--github-account", "owner", "--github-repository", "owner/repo", env=env)
+            "--github-account", "owner", "--github-repository", "owner/repo", env=env,
+            script=controller)
         created_metadata = batch_path.read_text()
-        run(self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch, env=env)
+        run(self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch,
+            env=env, script=controller)
         batch_path.write_text(created_metadata)
         recovered = json.loads(run(
-            self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch, env=env).stdout)
+            self.repo, "batch-integrate", "--batch-id", "graph-batch", "--source", branch,
+            env=env, script=controller).stdout)
         self.assertEqual(recovered["sources"][0]["sha"], sha)
         plain_branch = "dbsctr/test/plain-source"
         subprocess.run(["git", "switch", "-c", plain_branch], cwd=self.repo, check=True, capture_output=True)
@@ -5465,25 +5556,52 @@ class DbsctrctlTest(unittest.TestCase):
         }))
         subprocess.run(["git", "switch", "main"], cwd=self.repo, check=True, capture_output=True)
         mixed = run(self.repo, "batch-integrate", "--batch-id", "graph-batch",
-                    "--source", plain_branch, env=env, ok=False)
+                    "--source", plain_branch, env=env, ok=False, script=controller)
         self.assertIn("Graphify selection changed", mixed.stderr)
         integrated_metadata = batch_path.read_text()
+        batch_worktree = Path(recovered["worktree"])
+        batch_graph = batch_worktree / "graphify-out"
+        before = {path.relative_to(batch_graph): path.read_bytes()
+                  for path in batch_graph.rglob("*") if path.is_file()}
+        tools = Path(self.temp.name) / "batch-tools"
+        tools.mkdir()
+        fake_git = tools / "git"
+        fake_git.write_text(
+            "#!/bin/sh\nif [ \"${1:-}\" = commit ]; then\n"
+            "  printf 'forced commit failure\\n' >&2\n  exit 9\nfi\n"
+            f'exec "{shutil.which("git")}" "$@"\n'
+        )
+        fake_git.chmod(0o755)
+        failed = run(
+            self.repo, "batch-finalize", "--batch-id", "graph-batch", ok=False,
+            env={**env, "PATH": f"{tools}:{os.environ['PATH']}"}, script=controller,
+        )
+        self.assertIn("forced commit failure", failed.stderr)
+        after = {path.relative_to(batch_graph): path.read_bytes()
+                 for path in batch_graph.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        self.assertFalse(subprocess.run(
+            ["git", "status", "--porcelain=v1"], cwd=batch_worktree, text=True,
+            check=True, capture_output=True).stdout)
         finalized = json.loads(run(
-            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env).stdout)
+            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env,
+            script=controller).stdout)
         self.assertEqual(finalized["state"], "finalized")
         self.assertTrue(finalized["graph"]["requires_dvc_push"])
         batch_path.write_text(integrated_metadata)
         recovered_graph = json.loads(run(
-            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env).stdout)
+            self.repo, "batch-finalize", "--batch-id", "graph-batch", env=env,
+            script=controller).stdout)
         self.assertEqual(recovered_graph["graph"]["commit"], finalized["graph"]["commit"])
         closed = run(self.repo, "batch-integrate", "--batch-id", "graph-batch",
-                     "--source", branch, env=env, ok=False)
+                     "--source", branch, env=env, ok=False, script=controller)
         self.assertIn("admission is closed", closed.stderr)
         blocked = run(self.repo, "batch-publish", "--batch-id", "graph-batch",
-                      "--confirm", "graph-batch", env=env, ok=False)
+                      "--confirm", "graph-batch", env=env, ok=False, script=controller)
         self.assertIn("DVC push evidence", blocked.stderr)
         run(self.repo, "batch-record-dvc-push", "--batch-id", "graph-batch",
-            "--head", finalized["graph"]["commit"], "--evidence", "approved dvc push", env=env)
+            "--head", finalized["graph"]["commit"], "--evidence", "approved dvc push", env=env,
+            script=controller)
         metadata = json.loads((self.repo / ".git/dbsctr/batches/graph-batch.json").read_text())
         self.assertEqual(metadata["dvc_push"]["head"], finalized["graph"]["commit"])
         subprocess.run(["git", "worktree", "remove", "--force", metadata["worktree"]],
