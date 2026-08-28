@@ -10,6 +10,7 @@ config.example.toml
 **/__pycache__/
 graphify-out/
 .agents/.skill-lock.json
+Brewfile
 
 # Runtime/vendor-managed OpenCode artifacts.
 .config/opencode/node_modules
