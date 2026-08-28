@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-28 - V3.37-F2 Platform Bash Compatibility
+
+- Rewrote report-validation heredoc control flow for the macOS platform Bash 3.2
+  used by GitHub Actions and added explicit platform parsing and successful
+  execution regressions. Independent review found no high or medium issues; the
+  corrected managed helper was deployed with exact source identity and passes
+  the platform Bash parser health check. Gate Exceptions: none. Gate Commits:
+  `c654f1a`, `fbb210d`, `b605f90`, `1d5b6d9`, `37c28ef`, `ce8d758`,
+  `9b1576f`, `289c892`, `a65e05b`. Intended Final Push: replacement feature
+  branch and draft pull request into protected `main`. PR 58 merged as
+  `32e325e`; the remediation reconciled cleanly onto that target.
+
 ## 2026-08-27 - V3.37-F1 Central Graphify Adapter
 
 - Replaced repository-owned Graphify adapters with one managed, digest-bound

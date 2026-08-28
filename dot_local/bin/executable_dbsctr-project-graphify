@@ -434,7 +434,7 @@ from pathlib import Path
 import re
 
 text = Path("graphify-out/GRAPH_REPORT.md").read_text(encoding="utf-8")
-matches = re.findall(r"^- Built from commit: `([^`]+)`$", text, re.MULTILINE)
+matches = re.findall(r"^- Built from commit: \x60([^\x60]+)\x60$", text, re.MULTILINE)
 if len(matches) != 1:
     raise SystemExit(1)
 print(matches[0])
@@ -465,14 +465,14 @@ if any(not isinstance(node, dict) or "id" not in node for node in nodes):
 if any(not isinstance(link, dict) or not {"source", "target"} <= link.keys() for link in links):
     raise SystemExit(1)
 PY
-run_local "$PYTHON" - "$head" "$no_change" <<'PY' || die "Graphify report identity is stale or malformed"
+if ! run_local "$PYTHON" - "$head" "$no_change" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 path = Path("graphify-out/GRAPH_REPORT.md")
 text = path.read_text(encoding="utf-8")
-matches = list(re.finditer(r"^- Built from commit: `([^`]+)`$", text, re.MULTILINE))
+matches = list(re.finditer(r"^- Built from commit: \x60([^\x60]+)\x60$", text, re.MULTILINE))
 head = sys.argv[1]
 no_change = sys.argv[2] == "1"
 if len(matches) != 1:
@@ -485,6 +485,9 @@ temporary = path.with_name(path.name + ".tmp")
 temporary.write_text(text[:start] + head + text[end:], encoding="utf-8")
 temporary.replace(path)
 PY
+then
+  die "Graphify report identity is stale or malformed"
+fi
 
 run_checked "DVC metadata staging failed" \
   "$UV" run --frozen --offline dvc add graphify-out/graph.json ||

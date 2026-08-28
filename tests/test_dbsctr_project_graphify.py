@@ -34,6 +34,11 @@ def executable(path: Path, text: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def test_adapter_parses_with_platform_bash() -> None:
+    result = run("/bin/bash", "-n", ADAPTER, cwd=ADAPTER.parent)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     tmp_path.chmod(0o700)
@@ -144,6 +149,15 @@ def adapter(repo: Path, env: dict[str, str], output: Path, mode: str = "check"):
         ADAPTER, "--output-dir", output, cwd=repo,
         env={**env, "DBSCTR_GRAPHIFY_MODE": mode},
     )
+
+
+def test_adapter_runs_with_platform_bash(project, tmp_path: Path) -> None:
+    repo, env = project
+    result = run(
+        "/bin/bash", ADAPTER, "--output-dir", tmp_path / "output", cwd=repo,
+        env={**env, "DBSCTR_GRAPHIFY_MODE": "check"},
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_check_publishes_bounded_output_and_sanitizes_environment(
