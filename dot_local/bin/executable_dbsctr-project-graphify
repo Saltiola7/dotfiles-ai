@@ -270,10 +270,19 @@ PY
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 
-primary_root=${common_dir%/*}
+primary_root=$(run_local "$GIT" worktree list --porcelain -z | run_local "$PYTHON" -c '
+import os, sys
+fields = sys.stdin.buffer.read().split(b"\0")
+if not fields or not fields[0].startswith(b"worktree "):
+    raise SystemExit(1)
+path = os.fsdecode(fields[0].removeprefix(b"worktree "))
+if not os.path.isabs(path):
+    raise SystemExit(1)
+print(path)
+') || die "cannot resolve primary worktree"
 if [[ -f graphify-out/graph.json.dvc && ! -f graphify-out/graph.json ]]; then
   if ! run_local "$UV" run --frozen --offline dvc checkout graphify-out/graph.json >/dev/null 2>&1; then
-    run_local "$PYTHON" - "$primary_root/graphify-out/graph.json" <<'PY' || die "local DVC checkout failed"
+    run_local "$PYTHON" - "$primary_root" <<'PY' || die "local DVC checkout failed"
 from pathlib import Path
 import hashlib
 import os
@@ -282,17 +291,40 @@ import stat
 import sys
 import tempfile
 
-source = Path(sys.argv[1])
 pointer = Path("graphify-out/graph.json.dvc").read_text(encoding="utf-8")
-digests = re.findall(r"^\s*-\s*md5:\s*([0-9a-f]{32})\s*$", pointer, re.MULTILINE)
-sizes = re.findall(r"^\s*size:\s*([0-9]+)\s*$", pointer, re.MULTILINE)
-paths = re.findall(r"^\s*path:\s*(\S+)\s*$", pointer, re.MULTILINE)
-if len(digests) != 1 or len(sizes) != 1 or paths != ["graph.json"]:
+match = re.fullmatch(
+    r"outs:\n- md5: ([0-9a-f]{32})\n  size: ([0-9]+)\n"
+    r"  hash: md5\n  path: graph\.json\n?",
+    pointer,
+)
+if match is None:
     raise SystemExit("invalid graph.json.dvc pointer")
-descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+expected_digest, expected_size = match.groups()
+
+directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+try:
+    for part in Path(sys.argv[1]).parts[1:]:
+        child = os.open(
+            part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        os.close(directory)
+        directory = child
+    details = os.fstat(directory)
+    if details.st_uid != os.getuid() or details.st_mode & 0o022:
+        raise OSError("unsafe primary worktree")
+    graph_directory = os.open(
+        "graphify-out", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+finally:
+    os.close(directory)
+try:
+    details = os.fstat(graph_directory)
+    if details.st_uid != os.getuid() or details.st_mode & 0o022:
+        raise OSError("unsafe primary graph directory")
+    descriptor = os.open("graph.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=graph_directory)
+finally:
+    os.close(graph_directory)
 details = os.fstat(descriptor)
 if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
-        or details.st_mode & 0o022 or details.st_size != int(sizes[0])):
+        or details.st_mode & 0o022 or details.st_size != int(expected_size)):
     os.close(descriptor)
     raise SystemExit("unsafe or mismatched primary graph")
 target = Path("graphify-out/graph.json")
@@ -304,7 +336,7 @@ try:
         while block := reader.read(1024 * 1024):
             digest.update(block)
             writer.write(block)
-    if digest.hexdigest() != digests[0]:
+    if digest.hexdigest() != expected_digest:
         raise SystemExit("primary graph digest mismatch")
     os.replace(temporary, target)
 finally:

@@ -189,6 +189,46 @@ def test_check_restores_pointer_matched_primary_graph(project, tmp_path: Path) -
     assert (linked / ".git").is_file()
 
 
+@pytest.mark.parametrize("case", ["duplicate", "misassociated"])
+def test_primary_graph_fallback_rejects_malformed_pointer(project, tmp_path: Path, case: str) -> None:
+    repo, env = project
+    (repo / "FAIL_DVC_CHECKOUT").write_text("1\n")
+    git(repo, "add", "FAIL_DVC_CHECKOUT")
+    git(repo, "commit", "-qm", "missing local dvc")
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "--detach", str(linked))
+    pointer = linked / "graphify-out/graph.json.dvc"
+    if case == "duplicate":
+        pointer.write_text(pointer.read_text() + pointer.read_text())
+    else:
+        pointer.write_text(pointer.read_text().replace("path: graph.json", "path: other.json"))
+    result = adapter(linked, env, tmp_path / "output")
+    assert result.returncode != 0
+    assert "invalid graph.json.dvc pointer" in result.stderr
+    assert not (linked / ".git/graphify.log").exists()
+
+
+@pytest.mark.parametrize("case", ["symlink", "writable"])
+def test_primary_graph_fallback_rejects_unsafe_parent(project, tmp_path: Path, case: str) -> None:
+    repo, env = project
+    (repo / "FAIL_DVC_CHECKOUT").write_text("1\n")
+    git(repo, "add", "FAIL_DVC_CHECKOUT")
+    git(repo, "commit", "-qm", "missing local dvc")
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "--detach", str(linked))
+    graph = repo / "graphify-out"
+    if case == "symlink":
+        moved = tmp_path / "primary-graph"
+        graph.rename(moved)
+        graph.symlink_to(moved, target_is_directory=True)
+    else:
+        graph.chmod(0o777)
+    result = adapter(linked, env, tmp_path / "output")
+    assert result.returncode != 0
+    assert "local DVC checkout failed" in result.stderr
+    assert not (linked / ".git/graphify.log").exists()
+
+
 def test_topology_no_change_normalizes_prior_report(project, tmp_path: Path) -> None:
     repo, env = project
     prior = git(repo, "rev-parse", "HEAD")
