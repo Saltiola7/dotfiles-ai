@@ -193,6 +193,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Centralized R&D state resolution, truthful read-only health, focused regression evidence, and live operation proof |
 | Overrides | Preserve scheduler schema 7, retained cadence, outcome history, and explicit-variable precedence; never merge, delete, or reset shadow state automatically |
 
+### DAI-032 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes public workstation package ownership and the first-apply dependency path |
+| Delivery intent | Install OpenCode through this source, remove duplicate personal ownership, and deliver a draft pull request |
+| Scope | Official Homebrew formula, hash-triggered installer, migration guidance, regression coverage, and live macOS verification |
+| Overrides | Homebrew remains a documented macOS prerequisite; Herdr and unrelated developer tools remain externally installed; Linux guests keep their existing OpenCode provisioner |
+
 ### DAI-023 Cycle Overrides
 
 | Field | Value |
@@ -269,6 +278,9 @@ OpenCode control-plane behavior, and shell authentication.
 DAI-024 adds the optional personal Atuin service and host loopback ingress shown
 below. It does not change approval or delivery handoff, so the existing sequence
 and its Text Equivalent remain current.
+
+DAI-032 changes host package ownership without changing runtime placement or a
+trust boundary, so the same topology and sequence remain current.
 
 ```mermaid
 flowchart LR
@@ -362,8 +374,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Non-goals
 
-- Installing OpenCode, Herdr, provider credentials, or unrelated developer tools;
-  DAI-016 installs Hermes only when orchestration is explicitly enabled.
+- Installing Herdr, provider credentials, or unrelated developer tools; OpenCode
+  is the only required host package installed by this source, and DAI-016 installs
+  Hermes only when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
 - Guessing unresolved Discovery answers or autonomously merging critical fixes.
@@ -376,6 +389,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ### Installation And Opt-in Scheduling
 
+- Given Homebrew on macOS, when the source first applies or its Brewfile changes,
+  then `anomalyco/tap/opencode` is installed idempotently before managed OpenCode
+  configuration is applied; a missing Homebrew installation fails with guidance.
 - Given a valid local TOML, when the source renders and applies, then complete
   OpenCode, DBSCTR, and Herdr targets contain no personal identifiers.
 - Given `[data.dotfiles_ai.rnd].enabled=false`, when the source applies, then no
@@ -878,6 +894,10 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Interfaces And Contracts
 
+- `Brewfile` declares only `anomalyco/tap/opencode`. Its hash-bound
+  `run_onchange_before_install-opencode.sh` runs on macOS before other apply scripts,
+  fails when Homebrew is unavailable, and delegates package idempotency and
+  upgrades to `brew bundle`.
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
 - `vertex-reauth` derives its isolated `CLOUDSDK_CONFIG` from configured
   canonical `application_default_credentials.json`, rejects any other basename,
