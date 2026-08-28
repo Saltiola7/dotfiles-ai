@@ -2273,24 +2273,84 @@ def read_plan(source):
     return value
 
 
+def managed_graphify_adapter():
+    directory = Path(__file__).resolve().parent
+    for name in ("dbsctr-project-graphify", "executable_dbsctr-project-graphify"):
+        path = directory / name
+        try:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except FileNotFoundError:
+            continue
+        try:
+            details = os.fstat(descriptor)
+            content = os.read(descriptor, details.st_size + 1)
+        finally:
+            os.close(descriptor)
+        if (stat.S_IFMT(details.st_mode) != stat.S_IFREG or details.st_uid != os.getuid()
+                or not details.st_mode & stat.S_IXUSR or len(content) != details.st_size):
+            fail("managed Graphify adapter is unsafe")
+        return path, hashlib.sha256(content).hexdigest()
+    fail("managed Graphify adapter is missing")
+
+
+def archived_graphify_adapter(root, digest, source=None):
+    directory = cycle_dir(root) / "graphify" / "adapters"
+    managed_directory(root, directory, create=True)
+    path = directory / digest
+    if source is not None and not path.exists():
+        descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            content = os.fdopen(descriptor, "rb").read()
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+        if hashlib.sha256(content).hexdigest() != digest:
+            fail("managed Graphify adapter identity changed")
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+    try:
+        details = path.lstat()
+        content = path.read_bytes()
+    except OSError:
+        fail("managed Graphify adapter snapshot is missing")
+    if (path.is_symlink() or stat.S_IFMT(details.st_mode) != stat.S_IFREG
+            or details.st_uid != os.getuid() or details.st_mode & 0o077
+            or not details.st_mode & stat.S_IXUSR
+            or hashlib.sha256(content).hexdigest() != digest):
+        fail("managed Graphify adapter snapshot is unsafe")
+    return path
+
+
 def validate_graphify_selection(root, value, commit="HEAD", require_clean=False):
-    allowed = {"adapter", "version"} | ({"blob"} if isinstance(value, dict) and "blob" in value else set())
-    if not isinstance(value, dict) or set(value) != allowed or not {"adapter", "version"} <= set(value):
-        fail("graphify selection requires exactly adapter and version")
-    adapter, version = value["adapter"], value["version"]
-    if (not isinstance(adapter, str) or not adapter or len(adapter.encode()) > 512
-            or PurePosixPath(adapter).is_absolute() or ".." in PurePosixPath(adapter).parts):
-        fail("Graphify adapter must be a repository-relative path")
+    del commit, require_clean
+    if not isinstance(value, dict) or set(value) not in (
+            {"version"}, {"version", "adapter_contract", "adapter_sha256"}):
+        fail("graphify selection requires exactly version")
+    version = value["version"]
     if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", version):
         fail("Graphify version is invalid")
-    if require_clean and git(root, "status", "--porcelain=v1", "--", adapter).stdout.strip():
-        fail("Graphify adapter must be tracked and committed")
-    entry = git(root, "ls-tree", commit, "--", adapter).stdout.strip().split()
-    if len(entry) < 4 or entry[:2] != ["100755", "blob"] or not re.fullmatch(r"[0-9a-f]+", entry[2]):
-        fail("Graphify adapter must be a committed executable file")
-    if "blob" in value and value["blob"] != entry[2]:
-        fail("Graphify adapter blob does not match the selected commit")
-    return {"adapter": adapter, "version": version, "blob": entry[2]}
+    if len(value) == 1:
+        adapter, digest = managed_graphify_adapter()
+        archived_graphify_adapter(root, digest, adapter)
+        normalized = {
+            "version": version,
+            "adapter_contract": "dbsctr-project-graphify-v1",
+            "adapter_sha256": digest,
+        }
+    else:
+        normalized = value
+        if (value.get("adapter_contract") != "dbsctr-project-graphify-v1"
+                or not re.fullmatch(r"[0-9a-f]{64}", value.get("adapter_sha256", ""))):
+            fail("managed Graphify adapter identity is invalid")
+        archived_graphify_adapter(root, value["adapter_sha256"])
+    return normalized
 
 
 def validate_plan(root, context, intent, plan):
@@ -3398,6 +3458,19 @@ def command_audit(args):
                 adapter_entry = (inspect_git(
                     root, "ls-tree", receipt.get("source_head", ""), "--", adapter_path,
                     check=False).stdout.strip().split() if isinstance(adapter_path, str) else [])
+                legacy_adapter = (isinstance(adapter, dict)
+                                  and set(adapter) == {"adapter", "version", "blob"}
+                                  and len(adapter_entry) >= 4
+                                  and adapter_entry[:2] == ["100755", "blob"]
+                                  and adapter_entry[2] == adapter["blob"])
+                managed_adapter = (isinstance(adapter, dict)
+                                   and set(adapter) == {
+                                       "version", "adapter_contract", "adapter_sha256"}
+                                   and adapter.get("adapter_contract") == "dbsctr-project-graphify-v1"
+                                   and re.fullmatch(r"[0-9a-f]{64}", adapter.get("adapter_sha256", ""))
+                                   and isinstance(adapter.get("version"), str)
+                                   and re.fullmatch(
+                                       r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", adapter["version"]))
                 valid = (set(receipt) == expected_receipt_keys
                          and receipt.get("schema_version") == 1
                          and receipt.get("command_contract") == "dbsctr-batch-graphify-v1"
@@ -3405,9 +3478,7 @@ def command_audit(args):
                          and isinstance(receipt.get("batch_id"), str)
                          and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}", receipt["batch_id"])
                          and isinstance(receipt.get("created_at"), str) and receipt["created_at"]
-                         and isinstance(adapter, dict) and set(adapter) == {"adapter", "version", "blob"}
-                         and len(adapter_entry) >= 4 and adapter_entry[:2] == ["100755", "blob"]
-                         and adapter_entry[2] == adapter["blob"]
+                         and (legacy_adapter or managed_adapter)
                          and receipt.get("manifest_sha256") == hashlib.sha256(manifest).hexdigest()
                          and receipt.get("output_files") == output_files
                          and {"GRAPH_REPORT.md", "manifest.json"} <= set(output_files)
@@ -8254,6 +8325,25 @@ def run_graphify_adapter(adapter, cwd, output, selection, mode, timeout):
                                     name, re.I)}
     environment.update({"DBSCTR_GRAPHIFY_MODE": mode,
                         "DBSCTR_GRAPHIFY_VERSION": selection["version"]})
+    if mode == "finalize":
+        environment["DBSCTR_GRAPHIFY_TRANSACTION"] = "controller"
+    descriptor = os.open(adapter, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        details = os.fstat(descriptor)
+        content = os.read(descriptor, details.st_size + 1)
+    finally:
+        os.close(descriptor)
+    if (stat.S_IFMT(details.st_mode) != stat.S_IFREG or len(content) != details.st_size
+            or hashlib.sha256(content).hexdigest() != selection["adapter_sha256"]):
+        fail("managed Graphify adapter identity changed")
+    with tempfile.TemporaryDirectory(prefix="dbsctr-managed-graphify-") as private:
+        executable = Path(private) / "adapter"
+        executable.write_bytes(content)
+        executable.chmod(0o700)
+        return run_graphify_process(executable, cwd, output, environment, timeout)
+
+
+def run_graphify_process(adapter, cwd, output, environment, timeout):
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         process = subprocess.Popen(
             [str(adapter), "--output-dir", str(output)], cwd=cwd, env=environment,
@@ -8342,7 +8432,8 @@ def command_graphify_check(args):
     try:
         git(root, "worktree", "add", "--detach", str(worktree), head)
         added = True
-        adapter = worktree / selection["adapter"]
+        selection = validate_graphify_selection(root, selection)
+        adapter = archived_graphify_adapter(root, selection["adapter_sha256"])
         result = run_graphify_adapter(adapter, worktree, output, selection, "check", args.timeout)
         if result.returncode:
             fail(result.stderr[-2000:].strip() or "Graphify check failed")
@@ -8377,11 +8468,15 @@ def command_graphify_check(args):
                                      "checked_at": receipt_value["checked_at"]}
         save(path, record)
     finally:
+        had_error = sys.exc_info()[0] is not None
+        cleanup_error = None
         if added:
             removed = git(root, "worktree", "remove", "--force", str(worktree), check=False)
             if removed.returncode:
-                fail(removed.stderr.strip() or "cannot remove disposable Graphify worktree")
+                cleanup_error = removed.stderr.strip() or "cannot remove disposable Graphify worktree"
         shutil.rmtree(parent)
+        if cleanup_error and not had_error:
+            fail(cleanup_error)
     print(json.dumps({"head": head, "receipt": relative, "cache": cache},
                      sort_keys=True, separators=(",", ":")))
 
@@ -8750,6 +8845,52 @@ def batch_graph_value(worktree, value, source_head, commit):
             "requires_dvc_push": requires_dvc_push}
 
 
+@contextlib.contextmanager
+def graphify_finalization_transaction(worktree, output):
+    parent = Path(tempfile.mkdtemp(prefix="dbsctr-batch-graphify-", dir=worktree.parent))
+    preserve = False
+    backup = parent / "graphify-out"
+    index_raw = git(worktree, "rev-parse", "--git-path", "index").stdout.strip()
+    index = Path(index_raw)
+    if not index.is_absolute():
+        index = worktree / index
+    descriptor, index_backup_raw = tempfile.mkstemp(
+        prefix=".dbsctr-graphify-index-", dir=index.parent)
+    os.close(descriptor)
+    index_backup = Path(index_backup_raw)
+    try:
+        details = output.lstat()
+        if output.is_symlink() or stat.S_IFMT(details.st_mode) != stat.S_IFDIR:
+            fail("canonical graph output is unsafe")
+        if sys.platform == "darwin":
+            result = subprocess.run(
+                ["/bin/cp", "-cR", str(output), str(backup)],
+                text=True, capture_output=True,
+            )
+            if result.returncode:
+                fail(result.stderr.strip() or "cannot clone canonical graph baseline")
+        else:
+            shutil.copytree(output, backup, symlinks=True)
+        shutil.copy2(index, index_backup)
+        try:
+            yield
+        except BaseException:
+            try:
+                interrupted = parent / "interrupted"
+                os.replace(output, interrupted)
+                os.replace(backup, output)
+                os.replace(index_backup, index)
+                shutil.rmtree(interrupted)
+            except BaseException as rollback_error:
+                preserve = True
+                fail(f"batch Graphify rollback failed: {rollback_error}")
+            raise
+    finally:
+        if not preserve:
+            shutil.rmtree(parent, ignore_errors=True)
+            index_backup.unlink(missing_ok=True)
+
+
 def completed_source(root, source, sha):
     matches = []
     for path in (cycle_dir(root) / "cycles").glob("*.json"):
@@ -8887,7 +9028,7 @@ def command_batch_finalize(args):
         fail("batch source admission is closed")
     selection = value.get("graphify")
     if not value["sources"] or not isinstance(selection, dict):
-        fail("batch has no selected Graphify adapter")
+        fail("batch has no selected Graphify version")
     worktree = Path(value["worktree"])
     if not worktree.is_dir():
         fail("batch worktree is missing")
@@ -8905,37 +9046,38 @@ def command_batch_finalize(args):
         fail("batch worktree has unrelated changes")
     validate_batch_tip(worktree, value)
     selection = validate_graphify_selection(worktree, selection, source_head)
-    adapter = worktree / selection["adapter"]
+    adapter = archived_graphify_adapter(root, selection["adapter_sha256"])
     output = worktree / "graphify-out"
-    result = run_graphify_adapter(adapter, worktree, output, selection, "finalize", args.timeout)
-    if result.returncode:
-        fail(result.stderr[-2000:].strip() or "batch Graphify finalization failed")
-    try:
-        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"),
-                              object_pairs_hook=no_duplicate_keys)
-        report = (output / "GRAPH_REPORT.md").read_text(encoding="utf-8")
-    except (OSError, json.JSONDecodeError):
-        fail("batch Graphify output is invalid")
-    if not isinstance(manifest, dict) or f"Built from commit: `{source_head}`" not in report:
-        fail("batch Graphify output does not match its source tip")
-    (output / "graph.receipt.json").unlink(missing_ok=True)
-    files, digests = graphify_output_identity(output)
-    receipted = [name for name in files if git(
-        worktree, "check-ignore", "--quiet", "--", f"graphify-out/{name}", check=False
-    ).returncode != 0]
-    receipt = {
-        "schema_version": 1, "command_contract": "dbsctr-batch-graphify-v1",
-        "batch_id": identifier, "source_head": source_head, "adapter": selection,
-        "output_files": receipted, "output_sha256": {name: digests[name] for name in receipted},
-        "manifest_sha256": digests["manifest.json"], "created_at": now(),
-    }
-    (output / "graph.receipt.json").write_text(
-        json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    git(worktree, "add", "-A", "--", "graphify-out")
-    changed = git(worktree, "diff", "--cached", "--name-only").stdout.splitlines()
-    if not changed or any(not name.startswith("graphify-out/") for name in changed):
-        fail("batch Graphify finalization must change only graphify-out")
-    git(worktree, "commit", "-m", f"chore(graphify): finalize {identifier}")
+    with graphify_finalization_transaction(worktree, output):
+        result = run_graphify_adapter(adapter, worktree, output, selection, "finalize", args.timeout)
+        if result.returncode:
+            fail(result.stderr[-2000:].strip() or "batch Graphify finalization failed")
+        try:
+            manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"),
+                                  object_pairs_hook=no_duplicate_keys)
+            report = (output / "GRAPH_REPORT.md").read_text(encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            fail("batch Graphify output is invalid")
+        if not isinstance(manifest, dict) or f"Built from commit: `{source_head}`" not in report:
+            fail("batch Graphify output does not match its source tip")
+        (output / "graph.receipt.json").unlink(missing_ok=True)
+        files, digests = graphify_output_identity(output)
+        receipted = [name for name in files if git(
+            worktree, "check-ignore", "--quiet", "--", f"graphify-out/{name}", check=False
+        ).returncode != 0]
+        receipt = {
+            "schema_version": 1, "command_contract": "dbsctr-batch-graphify-v1",
+            "batch_id": identifier, "source_head": source_head, "adapter": selection,
+            "output_files": receipted, "output_sha256": {name: digests[name] for name in receipted},
+            "manifest_sha256": digests["manifest.json"], "created_at": now(),
+        }
+        (output / "graph.receipt.json").write_text(
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        git(worktree, "add", "-A", "--", "graphify-out")
+        changed = git(worktree, "diff", "--cached", "--name-only").stdout.splitlines()
+        if not changed or any(not name.startswith("graphify-out/") for name in changed):
+            fail("batch Graphify finalization must change only graphify-out")
+        git(worktree, "commit", "-m", f"chore(graphify): finalize {identifier}")
     commit = git(worktree, "rev-parse", "HEAD").stdout.strip()
     graph = batch_graph_value(worktree, value, source_head, commit)
     value.update({"schema_version": 2, "state": "finalized", "finalized_at": now(),

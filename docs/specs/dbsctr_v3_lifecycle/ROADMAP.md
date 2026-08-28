@@ -127,7 +127,7 @@
 
 ### V3.37 — Graphify Orchestration (implementation complete)
 
-- Bind an optional committed Graphify adapter and version in strict applicability plans.
+- Bind an optional Graphify version to one digest-identified managed adapter; target repositories contain no adapter implementation.
 - Run feature-cycle checks in disposable worktrees with private HEAD-bound receipts.
 - Close integration-batch admission before one canonical graph-only promotion commit.
 - Keep DVC push separately authorized and verify graph-only freshness at fixed commits.
