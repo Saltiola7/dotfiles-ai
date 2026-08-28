@@ -3,7 +3,8 @@
 ## 2026-08-28 - V3.37-F2 Platform Bash Compatibility
 
 - Rewrote report-validation heredoc control flow for the macOS platform Bash 3.2
-  used by GitHub Actions and added an explicit platform-parser regression check.
+  used by GitHub Actions and added explicit platform parsing and successful
+  execution regressions. Independent review found no high or medium issues.
 
 ## 2026-08-27 - V3.37-F1 Central Graphify Adapter
 
