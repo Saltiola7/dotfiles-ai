@@ -9,7 +9,8 @@
   the platform Bash parser health check. Gate Exceptions: none. Gate Commits:
   `c654f1a`, `fbb210d`, `b605f90`, `1d5b6d9`, `37c28ef`, `ce8d758`,
   `9b1576f`, `289c892`, `a65e05b`. Intended Final Push: replacement feature
-  branch and draft pull request into protected `main`.
+  branch and draft pull request into protected `main`. PR 58 merged as
+  `32e325e`; the remediation reconciled cleanly onto that target.
 
 ## 2026-08-27 - V3.37-F1 Central Graphify Adapter
 
