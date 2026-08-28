@@ -1,5 +1,26 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-28 - V3.37-F2 Platform Bash Compatibility
+
+- Rewrote report-validation heredoc control flow for the macOS platform Bash 3.2
+  used by GitHub Actions and added an explicit platform-parser regression check.
+
+## 2026-08-27 - V3.37-F1 Central Graphify Adapter
+
+- Replaced repository-owned Graphify adapters with one managed, digest-bound
+  adapter selected by version-only applicability plans. Private content-addressed
+  snapshots keep active cycles and batches executable across managed upgrades.
+- Added exact runtime and environment isolation, owner-controlled no-follow graph
+  and cache boundaries, offline DVC plus pointer-matched primary canonical fallback,
+  atomic check publication, bounded receipts, and transactional graph/index rollback.
+- Scoped QA passed 280 tests with one existing skip, Bash/Python syntax and Git
+  whitespace checks. A detached external exact-HEAD smoke produced 24,161 nodes,
+  42,369 links, and 2,004 manifest files without remote DVC access or canonical
+  project changes. Targeted deployment was source-identical and idempotent; final
+  independent review found no high or medium issues. Gate Exceptions: none. Gate
+  Commits: `c4e3777`, `a456697`, `330c23d`, `df0bf16`, `792c4f4`, `892b67a`.
+  Intended Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-25 - V3.37 Graphify Orchestration
 
 - Added strict optional Graphify adapter/version selection, disposable feature
