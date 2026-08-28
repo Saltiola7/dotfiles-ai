@@ -165,7 +165,8 @@ def render_writing_targets(tmp_path):
         check=False,
     )
     assert render.returncode == 0, render.stderr
-    return {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
+    env = {key: value for key, value in os.environ.items() if key != "HERDR_ENV"}
+    return {**env, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
 
 
 def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):

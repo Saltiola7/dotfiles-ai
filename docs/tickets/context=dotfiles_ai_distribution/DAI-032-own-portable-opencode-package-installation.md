@@ -5,7 +5,7 @@ slug: own-portable-opencode-package-installation
 context: dotfiles_ai_distribution
 title: Own portable OpenCode package installation
 kind: story
-state: ready
+state: done
 priority: high
 points: 3
 depends_on: []
@@ -16,18 +16,22 @@ owns:
   - README.md
   - .chezmoiignore
   - tests/test_portable_distribution.py
+  - tests/test_writing_skills.py
   - docs/specs/dotfiles_ai_distribution
 reads:
   - /Volumes/ext/git/Personal/dotfiles/Brewfile
 parallel_safe: false
 validation:
   - uv run --group test pytest tests/test_portable_distribution.py -q
+  - uv run --group test pytest tests/test_writing_skills.py -q
   - rendered macOS and Linux installer checks
   - live Homebrew OpenCode version check
 created: 2026-08-27
 updated: 2026-08-27
-completed: null
-commits: []
+completed: 2026-08-27
+commits:
+  - 4efa7f2a0e943ada53fe11769e2b149814bf6886
+  - 90bcb95e7e8039155f2888777325c09759a347e8
 jira_publications: []
 migration: null
 ---
@@ -65,8 +69,14 @@ tools. Do not change guest OpenCode provisioning.
 
 ## Evidence
 
-Record red-first tests, rendered installer checks, the live OpenCode version,
-and the personal ownership cleanup commit.
+- Red-first evidence `ev-668d1d6e75984e6b941d1dc2399c83f0` failed before
+  implementation; all 17 portable-distribution tests pass afterward.
+- The rendered macOS installer passes Bash syntax and an idempotent live
+  `brew bundle`; OpenCode `1.18.23` remains installed from the official formula.
+- The isolated config-resolution test excludes ambient Herdr launch state and
+  resolves every managed writing command with OpenCode `1.18.23`.
+- `Saltiola7/dotfiles#9` merged personal cleanup commit `25bcdfa`, removing the
+  duplicate CLI tap and formula while retaining `opencode-desktop`.
 
 ## Risks
 
@@ -75,4 +85,5 @@ follow Homebrew and rerun only when the managed Brewfile changes.
 
 ## Review
 
-Confirm ordering, idempotency, platform boundaries, and single ownership.
+Ordering, idempotency, platform boundaries, missing-Homebrew failure, and single
+package ownership were reviewed.
