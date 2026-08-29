@@ -115,6 +115,10 @@ Adjacent contexts:
 | Product Intent | Conditional product-facing context held in `PRODUCT.md` and referenced by an Engineering Profile. |
 | Review Run | One bounded analysis of unreviewed DBSCTR and adjacent OpenCode sessions. |
 | Review Candidate | A session or correlated cycle eligible for a Review Run. |
+| Incident Signal | One persisted failed OpenCode tool call in the DBSCTR review family that has not been promoted or dismissed. |
+| Incident | One operator-defined operational case whose OpenCode fork preserves the investigation boundary. |
+| Incident Evidence | Source-local bounded text and diagnostics retained only after deterministic credential redaction. |
+| Incident Fork | A child OpenCode session registered as exactly one Incident and conventionally titled `INCIDENT: <summary>`. |
 | Sanitized Review Report | Private structured findings that exclude raw transcripts, secrets, unsafe URLs, and machine paths. |
 | Review Marker | Atomic local evidence that a Sanitized Review Report was persisted successfully. |
 | Original Checkout Sync | Best-effort post-push synchronization result for the checkout that began an isolated cycle. |
@@ -550,6 +554,38 @@ ledger.
 - Given Graphify is a routing hint
 - When a lifecycle cycle changes source or artifacts
 - Then Graphify is updated only when explicit Project Policy requires it
+
+### Feature: V3.39 Fork-Defined Incident Capture
+
+**Scenario: Gather failed calls without interrupting development**
+- Given a persisted OpenCode tool part in the DBSCTR, Discovery, or QA session family has status `error` or `failed`
+- When the private Incident inbox scans that family
+- Then it returns one bounded redacted Incident Signal without writing review state
+- And a later successful call to the same tool lowers that signal's priority without erasing it
+
+**Scenario: Register one fork as one incident**
+- Given the operator forks a DBSCTR-family session and invokes `/incident`
+- When the operator confirms a kind, `INCIDENT:` title, summary, selected signals, and category diagnostics
+- Then one private Incident is created for that fork and selected signals are promoted atomically
+- But a root session, foreign message, duplicate fork, unsafe evidence, or malformed signal fails without a write
+
+**Scenario: Route investigation without hijacking feature work**
+- Given a registered Incident is open
+- When the operator resumes its fork
+- Then defects route to root-cause analysis, behavior gaps compare actual and desired behavior, and capability ideas route to Discovery
+- And implementation begins only in one separately linked DBSCTR fix cycle
+
+**Scenario: Resolve only verified activated fixes**
+- Given an Incident links exactly one fix cycle
+- When resolution is requested
+- Then the helper requires one unambiguous completed Cycle Record whose required Deploy and Operate gates passed
+- And explicit forget removes Incident Evidence while leaving the OpenCode fork untouched
+
+**Scenario: Keep ordinary review and incident state separate**
+- Given `/dbsctr-review` runs
+- When it reads private observability
+- Then it presents registered Incidents before unclaimed Incident Signals and existing session Review Candidates
+- And completing an ordinary review page never closes, dismisses, or forgets an Incident
 
 ### Feature: V3.37 Graphify Orchestration
 
@@ -1693,6 +1729,45 @@ historical table row and fixed-commit identity.
 - Authoritative cost is retained only as reportable telemetry. Missing or high
   cost does not halt workers or change cadence under this program.
 
+### V3.39 Incident Contract
+
+- Incident Signals are a separate read-only projection over persisted OpenCode
+  tool parts in the existing DBSCTR review family. They do not alter V3.21
+  telemetry, ordinary review pagination, reviewed markers, history, or federation.
+- A stable signal identity binds source session, message, part, and tool-call
+  identity. Signals are ordered unrecovered before recovered and then newest
+  first. Promotion and dismissal are private dispositions; neither mutates the
+  OpenCode database.
+- `dbsctrctl incident-register` requires an existing child session and a message
+  belonging to that session. One session can own exactly one Incident. Kind is
+  `defect`, `friction`, `behavior_gap`, or `capability_idea`; title begins
+  `INCIDENT:`; human fields and arrays are bounded.
+- Incident Evidence is deterministically redacted before persistence and again
+  before output. Known credentials, secret-bearing options, secret references,
+  high-entropy values, and control characters never enter the ledger. Paths and
+  ordinary diagnostic text may remain because the operator explicitly invoked
+  the Incident workflow and approved provider use for this bounded evidence.
+- Incident schema is an additive versioned extension to the existing owner-only
+  SQLite review ledger. Read-only scans create no state. Registration, update,
+  dismissal, and forget serialize under the existing private review lock and
+  preserve ledger integrity on failure.
+- Incident states are `open`, `investigating`, `fixing`, `resolved`, and
+  `dismissed`. A fixing Incident has exactly one immutable cycle ID. Resolution
+  requires one unambiguous global Cycle Record in `completed` state and every
+  required Deploy and Operate gate passed. Ordinary review completion has no
+  Incident lifecycle authority.
+- Incident forget deletes source-local payload and linked evidence while
+  retaining an opaque suppression disposition so forgotten data is not
+  re-derived. It does not delete or rewrite the OpenCode session.
+- `/incident` owns operator confirmation, route selection, and category-specific
+  diagnostics. It never implements a fix in the Incident fork. `/dbsctr-review`
+  reports Incidents and Signals as separate leading sections, and any remediation
+  remains one separately authorized DBSCTR cycle.
+- First-release non-goals are live event hooks, automatic forks, session-title
+  mutation, cross-workspace raw evidence federation, model scanning of successful
+  turns, and Incident-triggered autonomous remediation. Sanitized outcomes may
+  inform later R&D only through a separately specified projection.
+
 ### V3.22 Longitudinal Effect Contract
 
 - A benchmark binds a versioned metric definition, immutable capture inputs,
@@ -1871,6 +1946,50 @@ feature-branch Gate Commits and a draft pull request; Git remains integration
 authority and automation never writes directly to the protected base branch.
 
 ```mermaid
+sequenceDiagram
+    accTitle: Fork-defined incident capture and repair
+    accDescr: Persisted failed calls are discovered without writes. The operator forks a session, confirms one incident registration, investigates in that fork, and links one separate DBSCTR fix cycle. Resolution requires completed activation gates.
+    participant F as Feature session
+    participant O as Operator
+    participant I as Incident fork
+    participant L as Private ledger
+    participant C as Fix cycle
+    F-->>L: Persisted failed tool part
+    O->>I: Fork session and invoke /incident
+    I->>L: Register redacted evidence and diagnostics
+    I->>I: RCA or behavior discovery
+    I->>C: Link one separate DBSCTR cycle
+    C-->>L: Completed deploy and operate evidence
+    L-->>I: Resolve incident
+```
+
+**Text Equivalent:** OpenCode persistence supplies read-only failed-call signals.
+The operator decides which case matters by forking the session and confirming one
+Incident registration. The Incident fork owns investigation only. One separate
+DBSCTR cycle owns implementation, and the Incident resolves only after its
+completed Cycle Record proves every required Deploy and Operate gate passed.
+
+```mermaid
+stateDiagram-v2
+    accTitle: Incident lifecycle
+    accDescr: A registered incident starts open, may enter investigation and fixing, resolves only through verified cycle evidence, or is dismissed. Forget removes evidence independently of lifecycle state.
+    [*] --> Open: register fork
+    Open --> Investigating: begin RCA or discovery
+    Investigating --> Open: defer
+    Investigating --> Fixing: link fix cycle
+    Open --> Dismissed: non-actionable
+    Investigating --> Dismissed: non-actionable
+    Fixing --> Resolved: verified activation
+    Dismissed --> [*]
+    Resolved --> [*]
+```
+
+**Text Equivalent:** Registration creates an Open Incident. Investigation may be
+deferred back to Open, dismissed as non-actionable, or linked to one fix cycle as
+Fixing. Only verified completed activation moves Fixing to Resolved. Forget is a
+separate privacy action that removes evidence without deleting the OpenCode fork.
+
+```mermaid
 stateDiagram-v2
     accTitle: DBSCTR gate lifecycle
     accDescr: A required gate starts pending, may fail or become unavailable, passes only with evidence, and may reopen when applicability or profile truth tightens. Explicit user exceptions dispose only failed or unavailable evidence.
@@ -1927,9 +2046,9 @@ request. If the target is already integrated, reconciliation makes no change.
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
-| Interaction | required: protected-delivery and graph-promotion sequences | How do evidence and one canonical graph reach protected delivery? | Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; gate, graph, or delivery ordering changes |
-| State | required: state diagram | Which gate transitions and reopen paths are legal? | Gate Ledger Contract | Lifecycle owner; gate transition changes |
-| Data/trust | required: context flowchart and Text Equivalent | Which state is public, local, or external? | Artifact Lifecycle and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
+| Interaction | required: incident-capture, protected-delivery, and graph-promotion sequences | How do operational evidence, fixes, and one canonical graph reach protected delivery? | Incident, Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; incident, gate, graph, or delivery ordering changes |
+| State | required: gate and Incident state diagrams | Which gate and Incident transitions are legal? | Gate Ledger and Incident contracts | Lifecycle owner; gate or Incident transition changes |
+| Data/trust | required: context flowchart, incident sequence, and Text Equivalents | Which state is public, source-local private, or external? | Incident, Artifact Lifecycle, and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
 | Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
 | Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
 | Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
@@ -2062,6 +2181,8 @@ tool and provider examples and load only when useful.
 | `dot_agents/skills/dbsctr/references/{openai,anthropic}.md` | Conditional current provider guidance | Provider-native execution without core duplication |
 | `dot_agents/skills/dbsctr-review/SKILL.md` | Private lifecycle observability review protocol | V3.11 review scenarios |
 | `private_dot_config/opencode/commands/dbsctr-review.md` | Stable review command surface | V3.11 review scenarios |
+| `dot_agents/skills/dbsctr-incident/SKILL.md` | Fork-defined Incident registration, diagnosis, routing, and closure protocol | V3.39 Incident scenarios |
+| `private_dot_config/opencode/commands/incident.md` | Stable Incident command surface | V3.39 Incident scenarios |
 | `private_dot_config/opencode/tools/dbsctr.ts` | Typed scan and completion adapters | Bounded read and permissioned private-state write |
 | `dbsctr_phase_span` | Record helper-timestamped explicit span boundaries | Private detail plus path-free compact profile |
 | `dbsctr_execution_dag` | Validate read/read-only-QA dependencies, ownership, risk, and activation | Concurrent authorization or deterministic serial fallback; no dispatch |
@@ -2085,8 +2206,12 @@ tool and provider examples and load only when useful.
 - `/qa $ARGUMENTS` loads `qa`; DBSCTR supplies affected scope and required
   capabilities, while an explicit user request may run a full audit.
 - `/dbsctr-review $ARGUMENTS` loads `dbsctr-review`, inventories every unreviewed
-  candidate, reports ranked findings, and marks exact candidates reviewed only
-  after permission-gated sanitized report persistence succeeds.
+  Incident and candidate, reports registered Incidents before unclaimed Signals
+  and ranked findings, and marks exact candidates reviewed only after
+  permission-gated sanitized report persistence succeeds.
+- `/incident $ARGUMENTS` loads `dbsctr-incident`, requires the invoking session to
+  be a fork, confirms bounded registration input, and routes investigation without
+  implementing the fix in that fork.
 - Plan remains read-only and produces a Build Handoff. Build verifies freshness,
   owns integration, and alone invokes safe Gate Commit or Final Push operations.
 

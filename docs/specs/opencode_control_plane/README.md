@@ -134,8 +134,8 @@ weekly scheduling, private report persistence, and operational deployment.
 |---|---|---|---|---|
 | Boundary | required: provider-affine control flowchart | Which surfaces own routing, permissions, lifecycle, and provider selection? | Overview and Contracts | Control-plane owner; ownership or permission changes |
 | Interaction | required: provider-affine control flowchart | How do Plan, Build, and bounded subagents hand work off? | Plan and Build behavior | Control-plane owner; handoff or delegation changes |
-| State | required: optional centralized-state flowchart | Which durable paths move when a state root is configured, and what remains native by default? | OCP-32 behavior and contracts | Control-plane owner; state-root or persistence changes |
-| Data/trust | required: provider-affine control flowchart | Where are local, external, and provider boundaries enforced? | Permission and provider-affinity contracts | Control-plane owner; trust boundary changes |
+| State | required: optional centralized-state flowchart and lifecycle Incident state diagram | Which durable paths and private Incident states change, and what remains native by default? | OCP-32 behavior and V3.39 lifecycle contracts | Control-plane owner; state-root or Incident persistence changes |
+| Data/trust | required: provider-affine control flowchart and lifecycle Incident sequence | Where are local, redacted model-visible, external, and provider boundaries enforced? | Permission, provider-affinity, and V3.39 Incident contracts | Control-plane owner; trust boundary changes |
 | Schema | not_applicable: JSON configuration and typed adapter schemas remain authoritative | - | Managed configuration and tests | Control-plane owner |
 | Dependency/deployment | required: provider-affine control flowchart | Which managed surfaces are loaded into OpenCode? | Engineering Profile and File contracts | Control-plane owner; loaded surface changes |
 | Quantitative | not_applicable: evaluation metrics are persisted evidence, but this specification makes no comparative decision from a current dataset | - | Evaluation contracts | Control-plane owner |
@@ -147,7 +147,7 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. Build may use only same-provider bounded subagents and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
@@ -159,6 +159,8 @@ flowchart TD
     B --> S[Shared DBSCTR, Discovery, and QA skills]
     G --> S
     C --> S
+    U -->|Confirm fork-defined incident| I[Incident skill]
+    I -->|Bounded credential-redacted evidence| T
     S --> T[Typed local adapters]
     T -->|Local validated effects| W[Worktree and private local state]
     T -->|Permission required| E[External or destructive boundary]
@@ -172,7 +174,9 @@ Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
 lifecycle skills and typed local adapters. Validated local effects may reach the
 worktree or private local state; external or destructive effects remain
-permission-gated. Host Build may request official 1Password Environment
+permission-gated. An operator-confirmed Incident fork may send only bounded,
+credential-redacted Incident Evidence through typed adapters to the active model
+and private local state. Host Build may request official 1Password Environment
 operations, but the desktop app retains approval and the MCP never returns secret
 values or manages Password Manager vaults. The control-plane owner updates this view when routing,
 delegation, loaded skills, adapters, permissions, or provider boundaries change.
@@ -447,6 +451,17 @@ Given detailed reports exceed 90 days, completion or explicit maintenance prunes
 them while compact private reviewed-ID tombstones preserve review progress.
 Candidates expose independent Cycle Record states and page-local urgency without
 inventing an aggregate state.
+
+Given `/incident` runs in an OpenCode fork, it loads the unversioned Incident
+skill and uses a read-only typed scan before asking separately to register or
+update private Incident state. Registration requires the invoking child session,
+bounded credential-redacted evidence, and operator-confirmed classification.
+The typed write grants no repository mutation or automatic remediation.
+
+Given `/dbsctr-review` scans the operational inbox, it presents registered
+Incidents and unclaimed automatic Signals before ordinary Review Candidates.
+Incident lifecycle writes remain separate from ordinary review completion and
+remain denied to Plan and subagents.
 
 ### Autonomous R&D worker
 
@@ -754,8 +769,12 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   `agent: build-claude` and
   `model: amazon-bedrock/global.anthropic.claude-opus-5`.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.
+- `/incident` contains no fixed agent field and loads `dbsctr-incident`.
 - `dbsctr_review` is read-only and allowed; `dbsctr_review_complete` asks before
   writing private operational state and remains denied to Builder subagents.
+- `dbsctr_incident_scan` is read-only and allowed. `dbsctr_incident_register`,
+  `dbsctr_incident_update`, and `dbsctr_incident_forget` ask before changing the
+  private ledger and remain denied to Plan and subagents.
 - `dbsctr_review_history` is read-only and allowed. `dbsctr_review_history_save`
   is allowed only for validated private history reports and remains denied to
   Builder subagents.
