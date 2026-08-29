@@ -126,6 +126,15 @@
 | Scope | Interactive local CLI, API, notebook-kernel, and private-system investigation during single-context and Initiative Discovery |
 | Overrides | Native CLI/API access is preferred over browser automation; source edits remain out of role, and external, destructive, costly, or irreversible actions still require explicit user confirmation |
 
+### OCP-43 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Routine: changes only reversible managed compaction retention |
+| Delivery intent | Merge source through a pull request without applying managed configuration |
+| Scope | Preserve 65,536 recent tokens verbatim after automatic compaction |
+| Overrides | Optimize the global budget for the normal Sol route; keep OpenCode trigger, pruning, and turn defaults |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -441,6 +450,15 @@ reasoning mode. The ChatGPT OAuth backend rejects base Sol requests containing
 Given managed defaults are rendered, `small_model` resolves to GPT-5.6 Luna for
 automatic title generation. This setting does not claim to route compaction,
 summary generation, implementation, or review through Luna.
+
+### Managed compaction retention
+
+Given managed defaults are rendered, automatic compaction preserves up to
+65,536 tokens from the most recent turns verbatim. OpenCode continues to own the
+automatic trigger, safety reserve, pruning, and turn-count defaults. Older
+conversation content remains summary-backed, so durable specifications and cycle
+evidence remain authoritative for requirements and raw evidence outside the
+recent tail.
 
 Given `build-gpt` delegates bounded source discovery, `explore-openai` uses
 GPT-5.6 Luna with low reasoning effort and remains read-only. Scout and Builder
@@ -777,6 +795,8 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
   the current schema/runtime parser.
+- `compaction.preserve_recent_tokens` is `65536`; `auto`, `prune`, `tail_turns`,
+  and `reserved` remain omitted so OpenCode defaults govern them.
 - Direct provider `anthropic` is denied; `amazon-bedrock` is not.
 - Raw `lmstudio` remains configured; `headroom` and `headroom-lmstudio` do not.
 - Native Plan remains the startup default and native Build stays enabled as the
