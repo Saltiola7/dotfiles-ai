@@ -163,14 +163,15 @@ def validate_markdown(data: bytes) -> str:
 
 def accepted_path(path: str) -> bool:
     parts = path.split("/")
-    return (path.endswith(".md") and
-            (path.startswith("docs/specs/") or path.startswith("docs/tickets/")) and
+    return (path.endswith(".md") and path.startswith("docs/specs/") and
             "_archive" not in parts)
 
 
 def accepted_source_path(path: str, profile: dict) -> bool:
     if (not isinstance(path, str) or not path or path.startswith("/") or "\\" in path
             or any(part in ("", ".", "..") for part in path.split("/"))):
+        return False
+    if path.startswith(("docs/tickets/", "data/backlog/tickets/")):
         return False
     parts = path.split("/")
     if (any(part in profile.get("excluded_components", []) for part in parts)
@@ -199,7 +200,7 @@ def git_documents(repository: Path, commit: str, expected_remote: str, source_pr
         raise ValueError("repository remote mismatch")
     if run_git(repository, "cat-file", "-t", commit).strip() != "commit":
         raise ValueError("revision is not a commit")
-    selectors = () if source_profile else ("docs/specs", "docs/tickets")
+    selectors = () if source_profile else ("docs/specs",)
     tree = run_git(repository, "ls-tree", "-rz", "--full-tree", "-r", commit, "--",
                    *selectors, binary=True)
     documents = []
@@ -647,15 +648,6 @@ def build_graph(project_id: str, revision_id: str, documents, chunks):
         }
 
     path_nodes = {path: add_node("path", path, path=path) for path in sorted(paths)}
-    ticket_nodes = {}
-    for document in documents:
-        if not document["path"].startswith("docs/tickets/"):
-            continue
-        metadata = ticket_metadata(validate_markdown(document["data"]))
-        ticket_id = metadata.get("id")
-        if isinstance(ticket_id, str) and ticket_id:
-            ticket_nodes[ticket_id] = add_node("ticket", ticket_id, path=document["path"])
-
     for document in documents:
         path = document["path"]
         for start, end, heading_path in markdown_headings(document["data"]):
@@ -676,23 +668,6 @@ def build_graph(project_id: str, revision_id: str, documents, chunks):
         else:
             source = path_nodes[path]
         add_edge("contains", source, chunk_node, chunk["start_byte"], chunk["end_byte"])
-
-    for document in documents:
-        metadata, ranges = ticket_metadata_ranges(document["data"])
-        source = ticket_nodes.get(metadata.get("id"))
-        if not source:
-            continue
-        for dependency in metadata.get("depends_on", []) if isinstance(metadata.get("depends_on"), list) else []:
-            target = ticket_nodes.get(dependency) or add_node("ticket", dependency)
-            add_edge("depends_on", source, target, *ranges[("depends_on", dependency)])
-        for edge_type in ("owns", "reads"):
-            values = metadata.get(edge_type, [])
-            for value in values if isinstance(values, list) else []:
-                normalized = posixpath.normpath(value)
-                if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
-                    raise ValueError("ticket path escapes project")
-                target = path_nodes.get(normalized) or add_node("path", normalized, path=normalized)
-                add_edge(edge_type, source, target, *ranges[(edge_type, value)])
 
     link_pattern = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
     for chunk in chunks:

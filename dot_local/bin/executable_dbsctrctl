@@ -2550,10 +2550,11 @@ def read_initiative_manifest(source):
     initiative_acyclic(context_dependencies, "context")
 
     slice_fields = {"id", "context", "state", "requirements", "depends_on", "artifacts",
-                    "tickets", "release_group"}
+                    "release_group"}
     slices = {}
     for item in value["slices"]:
-        initiative_fields(item, slice_fields, "slice")
+        initiative_fields(item, slice_fields | ({"tickets"} if isinstance(item, dict)
+                                                   and "tickets" in item else set()), "slice")
         identifier = item["id"]
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
             fail("slice ID is invalid")
@@ -2564,10 +2565,6 @@ def read_initiative_manifest(source):
         for field in ("requirements", "depends_on"):
             initiative_strings(item[field], f"{field} for {identifier}")
         initiative_paths(item["artifacts"], f"artifacts for {identifier}")
-        initiative_strings(item["tickets"], f"tickets for {identifier}")
-        if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*", ticket)
-               for ticket in item["tickets"]):
-            fail(f"tickets for {identifier} must contain canonical ticket IDs")
         if not isinstance(item["release_group"], str) or not item["release_group"]:
             fail(f"release_group is invalid: {identifier}")
         if item["state"] not in {"captured", "discovering", "ready", "building", "delivered",
@@ -2580,7 +2577,7 @@ def read_initiative_manifest(source):
             if contexts[item["context"]]["status"] not in {
                     "approved", "discovering", "ready", "building", "delivered"}:
                 fail(f"ready slice {identifier} context is not promotable: {item['context']}")
-            for field in ("requirements", "artifacts", "tickets"):
+            for field in ("requirements", "artifacts"):
                 if not item[field]:
                     fail(f"ready slice {identifier} requires {field}")
             blocked = [requirement for requirement in item["requirements"]
@@ -2649,7 +2646,11 @@ def read_initiative_manifest(source):
         if unresolved or nonterminal:
             fail("Initiative cannot complete with open or blocked material or nonterminal slices")
 
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    identity_value = {**value, "slices": [
+        {key: field for key, field in item.items() if key != "tickets"}
+        for item in value["slices"]
+    ]}
+    canonical = json.dumps(identity_value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return value, statements, contexts, slices, slice_release_groups, hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -2704,14 +2705,6 @@ def initiative_receipt(source, slice_id, root=None):
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
-        for ticket in item["tickets"]:
-            matches = sorted(root.glob(f"docs/tickets/context=*/{ticket}-*.md"))
-            if len(matches) != 1:
-                fail(f"Initiative ticket must resolve to one canonical ticket: {ticket}")
-            ticket_path = matches[0].relative_to(root).as_posix()
-            if (git(root, "status", "--porcelain=v1", "--", ticket_path).stdout.strip()
-                    or git(root, "cat-file", "-e", f"HEAD:{ticket_path}", check=False).returncode):
-                fail(f"Initiative ticket must be committed and clean before receipt: {ticket}")
     return {
         "schema_version": 1,
         "initiative_id": value["id"],
@@ -2723,7 +2716,6 @@ def initiative_receipt(source, slice_id, root=None):
         "requirements": item["requirements"],
         "depends_on": item["depends_on"],
         "artifacts": artifacts,
-        "tickets": item["tickets"],
         "release_group": release_groups.get(slice_id),
         **identity,
     }
@@ -3142,11 +3134,8 @@ def command_begin(args):
             fail("Initiative context home does not match the target Git repository")
         if initiative["repository"].lower() != args.expected_repository.lower():
             fail("Initiative target repository changed after approval")
-    if initiative is not None:
-        if initiative["context"] != args.context:
-            fail("Initiative receipt context does not match the cycle context")
-        if args.cycle_id not in initiative["tickets"]:
-            fail("Initiative receipt does not name the cycle ticket")
+    if initiative is not None and initiative["context"] != args.context:
+        fail("Initiative receipt context does not match the cycle context")
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
@@ -3872,26 +3861,17 @@ def command_audit(args):
         ):
             contexts.setdefault(parts[2], set()).add(parts[3])
     expected = {"README.md", "CHANGELOG.md"}
-    ticket_counts = {}
-    for name in files:
-        parts = PurePosixPath(name).parts
-        if len(parts) == 4 and parts[:2] == ("docs", "tickets") and parts[2].startswith("context=") and name.endswith(".md"):
-            ticket_counts[parts[2].removeprefix("context=")] = ticket_counts.get(parts[2].removeprefix("context="), 0) + 1
     findings = []
     inventory = []
     for context in sorted(contexts):
         present = contexts[context]
         missing = sorted(expected - present)
-        inventory.append({"context": context, "present": sorted(present), "missing": missing,
-                          "tickets": ticket_counts.get(context, 0)})
+        inventory.append({"context": context, "present": sorted(present), "missing": missing})
         for artifact in missing:
             findings.append({
                 "code": "missing_lifecycle_artifact", "severity": "medium", "context": context,
                 "path": f"docs/specs/{context}/{artifact}",
             })
-        if ticket_counts.get(context, 0) == 0:
-            findings.append({"code": "missing_context_ticket", "severity": "medium", "context": context,
-                             "path": f"docs/tickets/context={context}"})
     graph_path = "graphify-out/GRAPH_REPORT.md"
     receipt_path = "graphify-out/graph.receipt.json"
     graph = {"present": graph_path in files, "built_from": None, "stale": None,
