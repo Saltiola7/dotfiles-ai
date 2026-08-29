@@ -17,6 +17,13 @@ rebuildable cache.
 2. Use `pmctl tickets check --root ROOT --json`; malformed authority blocks work.
 3. Resolve outcome, evidence, scope, non-goals, dependencies, ownership,
    acceptance, priority, and estimate before `ready`.
+   For Initiative work, do not create intake or refining tickets. Create the
+   canonical ticket only after its delivery-slice specification is ready and
+   record it in the Initiative manifest before issuing a readiness receipt.
+   At creation, the ticket's ID, outcome, scope, acceptance, dependencies, and
+   ownership become the stable contract bound by the manifest digest. A material
+   change must reopen the slice, revise its specifications and ticket, and issue
+   a new digest-bound receipt before Build can resume.
 4. For Jira wording, load `jira-ticket` and refine a complete standalone issue.
 5. A Jira write requires an exact payload preview and explicit confirmation bound
    to its digest. An unknown adapter outcome must be reconciled before another

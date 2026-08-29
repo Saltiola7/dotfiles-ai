@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-28 - V3.38 Initiative Discovery
+
+- Added validated durable Initiative manifests, dependency-safe readiness,
+  committed content-free receipts, exact approval/begin identity binding, and
+  legacy-profile compatibility for active cycles.
+- Affected QA passed 286 tests with one expected skip; compilation, rendering,
+  local deployment, live helper/plugin smokes, and independent review passed.
+  Gate Exceptions: none. Gate Commits: `67f3dc2`, `dc40327`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-28 - V3.37-F2 Platform Bash Compatibility
 
 - Rewrote report-validation heredoc control flow for the macOS platform Bash 3.2

@@ -11,6 +11,16 @@ If intent is unclear or no matching `docs/specs/` context exists, run
 `discovery` until no unresolved question can materially change implementation before DBSCTR. Keep affected specs,
 contracts, tests, backlogs, and changelogs current in the same cycle.
 
+Discovery auto-triages broad multi-context, multi-repository, independently
+deliverable, or release-grouped intent into a durable Initiative under
+`docs/initiatives/<slug>/`. Git material-statement coverage, context homes,
+specifications, tickets, and fresh readiness receipts are authoritative across
+compaction; Herdr and OpenCode identities are advisory only. Context Discovery
+may run concurrently only with disjoint ownership and satisfied dependencies.
+Create Initiative tickets only after their slice specification is ready. Require
+exact user approval for the current digest-bound slice before invoking
+`dbsctr_initiative_launch`; late material intent reopens affected readiness.
+
 Use `qa` for DBSCTR touched-scope gates. Run repository-wide QA only when the
 user explicitly requests it; Dependabot alerts are QA inputs.
 
@@ -86,6 +96,10 @@ silently. For other selected models, use generic inheriting subagents.
 Treat a graph as a routing hint, not a mandatory dependency. Check its recorded
 commit and whether the query matches the task; fall back immediately when stale,
 weak, or irrelevant. Source remains authoritative.
+
+Explore owns local Initiative research. Scout or Context7 may research bounded
+privacy-safe external facts without repeated approval, but governed private
+content must never leave the local boundary.
 
 ## Lifecycle Version
 

@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - DAI-032 R&D Launch Health
+
+- Cut machine-local review and backlog authority over to the moved public
+  source, migrated retained scheduler state to schema 8, and added path-free
+  health schema 3 with bounded 5-minute through 6-hour launch backoff.
+- Preserved exact guarded Hermes gateway commands, launchd readiness, cadence,
+  25 retained passes, and schema 7/8 autonomous readiness compatibility; also
+  normalized the pre-existing canonical V3.37 ticket that blocked dispatch.
+- Fifty-five affected R&D and PM tests, canonical tickets, rendered deployment,
+  drift checks, schema migration, and guarded launchd health passed. The operator
+  approved deferring pass 26 until the draft merges and the dirty configured
+  source is reconciled. Gate Commits: `39cd463`, `12bf51e`; intended Final Push is the feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-28 - Initiative Runtime Distribution
+
+- Added separate context profiles, managed Initiative control-plane deployment,
+  and atomic release-matched Herdr skill installation from `herdr --skill`.
+- Targeted Chezmoi deployment, exact source identity, idempotence, Herdr skill
+  identity, and deployed helper/plugin smokes passed.
+
 ## 2026-08-26 - DAI-031 R&D State Authority and Health
 
 - Centralized scheduler state and receipt resolution without migrating or

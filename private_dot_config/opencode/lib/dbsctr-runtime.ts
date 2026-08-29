@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
-import { isAbsolute, join, relative, sep } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
@@ -162,6 +162,24 @@ export async function run(argv: string[], cwd: string) {
   ])
   if (exitCode !== 0) throw new Error(stderr.trim() || `${argv[0]} exited ${exitCode}`)
   return stdout.trim()
+}
+
+export async function gitRepositorySlug(cwd: string) {
+  const url = await run(["git", "remote", "get-url", "origin"], cwd)
+  const scp = url.match(/^(?:git@)?github\.com:([^/\s]+\/[^/\s]+?)(?:\.git)?$/i)
+  if (scp !== null) return scp[1]
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw new Error("target repository must have a GitHub origin") }
+  if (!["https:", "ssh:", "git:"].includes(parsed.protocol) || parsed.hostname !== "github.com"
+      || parsed.search || parsed.hash)
+    throw new Error("target repository must have a GitHub origin")
+  const match = parsed.pathname.match(/^\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/)
+  if (match === null) throw new Error("target repository must have a GitHub origin")
+  return match[1]
+}
+
+export async function fileDigest(path: string, cwd = process.cwd()) {
+  return createHash("sha256").update(await readFile(resolve(cwd, path))).digest("hex")
 }
 
 export async function knowledgeContext(text: string, limit: number, cwd: string) {
@@ -1331,8 +1349,30 @@ export async function beginCycle(args: {
   messageID: string
   directory: string
   worktree: string
-}) {
-  const runtimeArgv = runtime ? [
+}, initiative?: {
+  schema_version: 1
+  manifest_path: string
+  manifest_blob: string
+  manifest_commit: string
+  coordinator_repository: string
+  initiative_id: string
+  slice_id: string
+  manifest_digest: string
+  context: string
+  repository: string
+  requirements: string[]
+  depends_on: string[]
+  artifacts: string[]
+  tickets: string[]
+  release_group: string | null
+}, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string }) {
+  if (initiative !== undefined && approved === undefined)
+    throw new Error("Initiative launch requires approved plan and repository identities")
+  const commonDirectory = async (directory: string) => realpath(await run([
+    "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+  ], directory))
+  const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
+  const runtimeArgv = runtime && sameRepository ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1348,34 +1388,123 @@ export async function beginCycle(args: {
     "--plan", args.planPath,
     ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
     ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
+    ...(initiative === undefined ? [] : [
+      "--initiative-manifest", initiative.manifest_path, "--initiative-slice", initiative.slice_id,
+      "--initiative-digest", initiative.manifest_digest,
+      "--expected-plan-digest", approved!.planDigest,
+      "--expected-repository", approved!.targetRepository,
+      ...(sameRepository ? [] : ["--initiative-source", initiativeSourceCwd]),
+    ]),
     ...runtimeArgv,
   ], cwd)
   const handoff = JSON.parse(output)
+  if (initiative !== undefined) {
+    const canonical = (value: Record<string, unknown>) => JSON.stringify(
+      Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))),
+    )
+    if (handoff.initiative === undefined || canonical(handoff.initiative) !== canonical(initiative))
+      throw new Error("dbsctrctl did not bind the approved Initiative receipt to the cycle")
+    const current = await initiativeReceipt(initiative.manifest_path, initiative.slice_id, initiativeSourceCwd)
+    if (canonical(current) !== canonical(initiative))
+      throw new Error("Initiative readiness changed while the cycle was created; Build was not launched")
+  }
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
   try {
-    const started = await run([
-      "herdr", "agent", "start", "opencode",
+    const createTab = async () => JSON.parse(await run([
+      "herdr", "tab", "create",
       "--cwd", handoff.worktree,
-      "--no-focus", "--", "opencode", handoff.worktree,
+      "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
+      "--no-focus",
+    ], cwd))
+    let tab = await createTab()
+    let paneID = tab?.result?.root_pane?.pane_id
+    if (typeof paneID !== "string") throw new Error("Herdr tab creation returned no root pane")
+    const prompt = initiative === undefined ? [] : [
+      "--prompt",
+      `Start only the approved DBSCTR slice. Re-read its Git artifacts, revalidate the manifest digest before acting, and attach this runtime to the cycle. Readiness receipt: ${JSON.stringify(initiative)}`,
+    ]
+    const fresh = [handoff.worktree, ...prompt]
+    let opencode = fresh
+    let forked = false
+    if (runtime !== undefined) {
+      let supportsFork = false
+      try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
+      if (supportsFork) {
+        forked = true
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...prompt]
+      }
+    }
+    const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
+      .slice(0, 23).replace(/[-_]$/, "")
+    const agentName = `${agentBase}-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`
+    const start = (name: string, pane: string, argv: string[]) => run([
+      "herdr", "agent", "start", name, "--kind", "opencode", "--pane", pane, "--", ...argv,
     ], cwd)
+    let started: string
+    let sessionMode = forked ? "fork" : "fresh"
+    try {
+      started = await start(agentName, paneID, opencode)
+    } catch (error) {
+      const failure = String(error)
+      if (!forked || !/(?:--fork|\bfork(?:ing)?\b|(?:invalid|unknown|not.?found|expired).{0,32}\bsession\b|\bsession\b.{0,32}(?:invalid|unknown|not.?found|expired))/i.test(failure)) throw error
+      tab = await createTab()
+      paneID = tab?.result?.root_pane?.pane_id
+      if (typeof paneID !== "string") throw new Error("Herdr fallback tab creation returned no root pane")
+      started = await start(`${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`,
+        paneID, fresh)
+      sessionMode = "fresh_fallback"
+    }
     try {
       const value = JSON.parse(started)
       const agent = value?.result?.agent ?? value?.agent ?? value
-      const terminalID = agent?.terminal_id
       const sessionID = agent?.agent_session?.value
-      if (typeof terminalID === "string") return {
+      const launchedPaneID = agent?.pane_id ?? paneID
+      if (typeof launchedPaneID === "string") return {
         ...handoff,
+        ...(initiative === undefined ? {} : { initiative }),
         herdr: "launched",
-        herdr_terminal_id: terminalID,
+        herdr_session_mode: sessionMode,
+        herdr_pane_id: launchedPaneID,
+        ...((agent?.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
+          : { herdr_tab_id: agent?.tab_id ?? tab.result.tab.tab_id }),
+        ...(agent?.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
         ...(typeof sessionID === "string" ? { herdr_opencode_session_id: sessionID } : {}),
       }
     } catch {
       // Herdr launch is useful even when this version emits no structured metadata.
     }
-    return { ...handoff, herdr: "launched" }
+    return { ...handoff, ...(initiative === undefined ? {} : { initiative }), herdr: "launched",
+      herdr_session_mode: sessionMode }
   } catch (error) {
     return { ...handoff, herdr: `launch_failed: ${error}` }
   }
+}
+
+export async function initiativeReceipt(manifestPath: string, sliceID: string, cwd = process.cwd()) {
+  if (!/^docs\/initiatives\/[a-z0-9][a-z0-9-]*\/MANIFEST\.json$/.test(manifestPath))
+    throw new Error("Initiative manifest must be a repository-relative docs/initiatives path")
+  const value = JSON.parse(await run([
+    "dbsctrctl", "initiative-receipt", "--manifest", manifestPath, "--slice", sliceID, "--json",
+  ], cwd))
+  const keys = ["schema_version", "initiative_id", "slice_id", "manifest_digest", "manifest_blob",
+    "manifest_commit", "coordinator_repository", "context", "repository",
+    "requirements", "depends_on", "artifacts", "tickets", "release_group"]
+  const strings = (name: string) => Array.isArray(value[name])
+    && value[name].every((item: unknown) => typeof item === "string")
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).sort().join("\0") !== [...keys].sort().join("\0")
+      || value.schema_version !== 1 || typeof value.initiative_id !== "string"
+      || value.slice_id !== sliceID || !/^[0-9a-f]{64}$/.test(value.manifest_digest)
+      || !/^[0-9a-f]{40,64}$/.test(value.manifest_blob)
+      || !/^[0-9a-f]{40,64}$/.test(value.manifest_commit)
+      || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value.coordinator_repository)
+      || typeof value.context !== "string"
+      || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value.repository)
+      || !strings("requirements") || !strings("depends_on")
+      || !strings("artifacts") || !strings("tickets")
+      || !(value.release_group === null || typeof value.release_group === "string"))
+    throw new Error("dbsctrctl returned an invalid Initiative readiness receipt")
+  return { ...value, manifest_path: manifestPath }
 }
 
 async function boundedReconciliationWorktree(cwd: string, worktree?: string,

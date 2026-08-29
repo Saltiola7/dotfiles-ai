@@ -17,7 +17,8 @@ graphify-out/
 .config/opencode/package-lock.json
 .config/opencode/bun.lock
 .config/opencode/.gitignore
-.config/opencode/plugins
+.config/opencode/plugins/*
+!.config/opencode/plugins/initiative-context.ts
 .config/opencode/skills
 
 {{ if eq .chezmoi.os "darwin" }}

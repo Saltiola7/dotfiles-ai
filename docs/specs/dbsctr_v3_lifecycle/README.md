@@ -1994,10 +1994,14 @@ would duplicate the contracts above rather than answer a new review question.
 
 ## Engineering Profile Shape
 
-The matching bounded-context README contains this compact shape:
+New or materially revised contexts store stable defaults in
+`docs/specs/<context>/PROFILE.md`; the context README retains domain behavior,
+Gate Ledgers, and cycle overrides. Existing README-bound profiles remain valid
+until deliberate migration, and active Cycle Records continue using their
+recorded profile path. The separate profile contains this compact shape:
 
 ```markdown
-## Engineering Profile
+# <Context> Engineering Profile
 
 ### Defaults
 | Field | Value |
@@ -2010,17 +2014,6 @@ The matching bounded-context README contains this compact shape:
 | Trust/data classification | boundaries and sensitivity |
 | Operational owner | accountable owner or not applicable |
 
-### Cycle Overrides
-| Field | Value |
-|---|---|
-| Risk | routine, elevated, critical |
-| Delivery intent | local, merge, release, deploy |
-| Scope | affected artifacts and downstreams |
-| Overrides | only values differing from defaults |
-
-## Gate Ledger
-| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
-|---|---|---|---|---|---|---|
 ```
 
 ## Module Layout
@@ -2056,6 +2049,9 @@ tool and provider examples and load only when useful.
 | Interface | Purpose | Behaviors |
 |---|---|---|
 | `dot_agents/skills/discovery/SKILL.md` | V3 intent discovery and Engineering Profile creation | Engineering Profile, OpenCode-native state |
+| `docs/initiatives/<slug>/MANIFEST.json` | Durable multi-context intent, coverage, dependencies, slices, and release groups | Initiative Discovery authority across compaction |
+| `dbsctrctl initiative-check` / `initiative-receipt` | Validate total coverage and bind one ready slice to a canonical digest | Deterministic readiness; no transcript or runtime identity |
+| `dbsctr_initiative_launch` | Exact approval and capability-probed Build fork/fallback | User-approved digest-bound promotion only |
 | `dot_agents/skills/dbsctr/SKILL.md` | V3 development kernel and completion-gate orchestration | Development and completion, progressive modules |
 | `dot_agents/skills/dbsctr/modules/*.md` | Language, domain, and risk extensions | Progressive modules |
 | `dot_agents/skills/dbsctr/references/*.md` | Optional non-normative examples | Keep examples non-normative |
@@ -2103,6 +2099,8 @@ tool and provider examples and load only when useful.
   configured validation have been inspected.
 - **Post:** Defaults record deliverable, languages/frameworks, modules,
   runtime/platform support, compatibility, trust/data classification, and owner.
+- **Post:** New or materially revised contexts store defaults in `PROFILE.md`;
+  legacy and active cycles retain their recorded README path.
 - **Post:** Current-cycle overrides record risk, delivery intent, affected scope,
   and only values that differ from defaults.
 - **Invariant:** Missing information that changes gate applicability prevents a
