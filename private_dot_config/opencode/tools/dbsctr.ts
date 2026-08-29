@@ -169,7 +169,8 @@ export const incident_update = tool({
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_incident_update", patterns: ["*"], always: [],
       metadata: { state: args.state } })
-    return await incidentUpdate(args.incidentId, args.state, context.worktree, args.cycleId)
+    return await incidentUpdate(context.sessionID, context.messageID, args.incidentId, args.state,
+      context.worktree, args.cycleId)
   },
 })
 
@@ -179,7 +180,7 @@ export const incident_forget = tool({
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_incident_forget", patterns: ["*"], always: [],
       metadata: { incident: args.incidentId } })
-    return await incidentForget(args.incidentId, context.worktree)
+    return await incidentForget(context.sessionID, context.messageID, args.incidentId, context.worktree)
   },
 })
 

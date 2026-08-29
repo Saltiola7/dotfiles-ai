@@ -3181,9 +3181,11 @@ class DbsctrctlTest(unittest.TestCase):
             insert into session values ('root-1', null, 'DBSCTR cycle', 1784073600000);
             insert into session values ('fork-1', 'root-1', 'Incident fork', 1784073601000);
             insert into session values ('foreign-1', null, 'QA cycle', 1784073602000);
+            insert into session values ('foreign-child', 'foreign-1', 'Other fork', 1784073603000);
             insert into message values ('message-root', 'root-1', 1784073600000, '{}');
             insert into message values ('message-fork', 'fork-1', 1784073601000, '{}');
             insert into message values ('message-foreign', 'foreign-1', 1784073602000, '{}');
+            insert into message values ('message-other', 'foreign-child', 1784073603000, '{}');
             insert into part values ('part-root', 'message-root', 'root-1', 1784073600000,
                                      '{"type":"text","text":"DBSCTR cycle"}');
         """)
@@ -3237,12 +3239,22 @@ class DbsctrctlTest(unittest.TestCase):
             "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
             "--title", "INCIDENT: failed read", "--summary", "Preserve token=secret-value and diagnose.",
             "--signal-id", selected, "--diagnostic", "Expected readable input.",
-            "--evidence", "Bearer private-token at /tmp/input",
+            "--evidence", 'Bearer "private phrase" --password "secret phrase" '
+                          "op://vault/item/field\nAuthorization: Basic dXNlcjpwYXNz\n"
+                          'Proxy-Authorization: Digest username="admin", response="abc123"\n'
+                          '{"Authorization":"Basic c3RydWN0dXJlZA==","password":"abc\\\"remaining-secret"}'
+                          "\n/tmp/input",
         ).stdout)
         incident_id = registered["incident"]["incident_id"]
         self.assertEqual(registered["incident"]["state"], "open")
         self.assertNotIn("secret-value", ledger_text(state))
-        self.assertNotIn("private-token", ledger_text(state))
+        self.assertNotIn("private phrase", ledger_text(state))
+        self.assertNotIn("secret phrase", ledger_text(state))
+        self.assertNotIn("vault/item/field", ledger_text(state))
+        self.assertNotIn("dXNlcjpwYXNz", ledger_text(state))
+        self.assertNotIn("admin", ledger_text(state))
+        self.assertNotIn("c3RydWN0dXJlZA==", ledger_text(state))
+        self.assertNotIn("remaining-secret", ledger_text(state))
         self.assertEqual((state / "reviews/ledger.sqlite3").stat().st_mode & 0o777, 0o600)
         duplicate = run(
             self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
@@ -3250,47 +3262,187 @@ class DbsctrctlTest(unittest.TestCase):
             "--title", "INCIDENT: duplicate", "--summary", "duplicate", ok=False,
         )
         self.assertIn("already registered", duplicate.stderr)
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        ledger.execute("update incidents set summary='token=restored-secret' where incident_id=?", (incident_id,))
+        ledger.commit()
+        ledger.close()
         inbox = json.loads(run(self.repo, "incident-scan", "--database", str(database),
                                "--state-root", str(state)).stdout)
         self.assertEqual([item["incident_id"] for item in inbox["incidents"]], [incident_id])
+        self.assertNotIn("restored-secret", json.dumps(inbox))
         self.assertNotIn(selected, [item["signal_id"] for item in inbox["signals"]])
         backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
-        self.assertTrue((state / "reviews/backups" / backup["backup"]).is_file())
+        backup_path = state / "reviews/backups" / backup["backup"]
+        self.assertTrue(backup_path.is_file())
+        external_backup = Path(self.temp.name) / "pre-forget.sqlite3"
+        shutil.copyfile(backup_path, external_backup)
 
-        run(self.repo, "incident-update", "--state-root", str(state), "--incident-id", incident_id,
+        actor = ("--database", str(database), "--session-id", "fork-1", "--message-id", "message-fork")
+        cross_fork = run(self.repo, "incident-update", "--state-root", str(state),
+                         "--database", str(database), "--session-id", "foreign-child",
+                         "--message-id", "message-other", "--incident-id", incident_id,
+                         "--state", "investigating", ok=False)
+        self.assertIn("another fork", cross_fork.stderr)
+        run(self.repo, "incident-update", "--state-root", str(state), *actor, "--incident-id", incident_id,
             "--state", "investigating")
-        records = self.repo / ".git/dbsctr/cycles"
-        records.mkdir(parents=True)
-        cycle = {"cycle_id": "fix-1", "state": "active", "gates": {
-            "deploy": {"applicability": "required", "result": "pending"},
-            "operate": {"applicability": "required", "result": "pending"},
-        }}
-        (records / "fix-1.json").write_text(json.dumps(cycle))
-        run(self.repo, "incident-update", "--state-root", str(state), "--incident-id", incident_id,
-            "--state", "fixing", "--cycle-id", "fix-1")
-        unresolved = run(self.repo, "incident-update", "--state-root", str(state),
+        self.start()
+        cycle = json.loads(self.record_path().read_text())
+        cycle.update({"source": {
+            "head": cycle["git"]["head"], "branch": cycle["git"]["branch"],
+            "upstream": cycle["git"]["upstream"], "dirty_paths": [],
+            "remote": cycle["git"]["remote"], "locator": {"root": "primary_worktree", "path": "."},
+        }, "runtime": {}})
+        self.record_path().write_text(json.dumps(cycle))
+        active_cycle = json.loads(json.dumps(cycle))
+        run(self.repo, "incident-update", "--state-root", str(state), *actor, "--incident-id", incident_id,
+            "--state", "fixing", "--cycle-id", "cycle-1")
+        unresolved = run(self.repo, "incident-update", "--state-root", str(state), *actor,
                          "--incident-id", incident_id, "--state", "resolved", ok=False)
         self.assertIn("verified activation", unresolved.stderr)
         cycle.update({"state": "completed", "gates": {}})
-        (records / "fix-1.json").write_text(json.dumps(cycle))
-        missing_gates = run(self.repo, "incident-update", "--state-root", str(state),
+        self.record_path().write_text(json.dumps(cycle))
+        missing_gates = run(self.repo, "incident-update", "--state-root", str(state), *actor,
                             "--incident-id", incident_id, "--state", "resolved", ok=False)
-        self.assertIn("verified activation", missing_gates.stderr)
-        cycle.update({"state": "completed", "gates": {
-            "deploy": {"applicability": "required", "result": "passed"},
-            "operate": {"applicability": "required", "result": "passed"},
-        }})
-        (records / "fix-1.json").write_text(json.dumps(cycle))
-        resolved = json.loads(run(self.repo, "incident-update", "--state-root", str(state),
+        self.assertIn("Cycle Record", missing_gates.stderr)
+        cycle = active_cycle
+        evidence = {}
+        completed_gates = {}
+        for gate in GATES:
+            if gate == "release":
+                completed_gates[gate] = {"applicability": "not_applicable", "result": "not_run"}
+                continue
+            evidence_id = f"ev-{gate}"
+            completed_gates[gate] = {"applicability": "required", "result": "passed",
+                                     "evidence": evidence_id}
+            evidence[evidence_id] = {"id": evidence_id, "gate": gate, "result": "passed",
+                                     "authority": "test", "paths": {}, "head": cycle["git"]["head"],
+                                     "argv": [], "summary": "passed", "urls": [],
+                                     "started_at": cycle["created_at"], "finished_at": cycle["created_at"],
+                                     "raw": {"byte_count": 0, "lower_bound": False, "truncated": False},
+                                     "content": {"status": "no_content"}}
+        for review in cycle["artifact_reviews"].values():
+            review.update({"result": "unchanged", "reason": "verified", "reviewed_at": cycle["created_at"]})
+        cycle.update({"state": "completed", "completed_at": cycle["created_at"],
+                      "gates": completed_gates, "evidence": {"version": 1, "items": evidence}})
+        invalid_exception = json.loads(json.dumps(cycle))
+        invalid_exception["gates"]["domain"] = {
+            "applicability": "required", "result": "pending", "exception": {
+                "kind": "accepted_risk", "rationale": "invalid pending disposition", "owner": "test",
+                "review_condition": "never", "approved_at": cycle["created_at"],
+            },
+        }
+        self.record_path().write_text(json.dumps(invalid_exception))
+        pending_exception = run(self.repo, "incident-update", "--state-root", str(state), *actor,
+                                "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("incomplete gate", pending_exception.stderr)
+        self.record_path().write_text(json.dumps(cycle))
+        resolved = json.loads(run(self.repo, "incident-update", "--state-root", str(state), *actor,
                                   "--incident-id", incident_id, "--state", "resolved").stdout)
         self.assertEqual(resolved["incident"]["state"], "resolved")
 
-        run(self.repo, "incident-forget", "--state-root", str(state), "--incident-id", incident_id)
+        run(self.repo, "incident-forget", "--state-root", str(state), *actor, "--incident-id", incident_id)
         forgotten = json.loads(run(self.repo, "incident-scan", "--database", str(database),
                                    "--state-root", str(state), "--session-id", "fork-1").stdout)
         self.assertEqual(forgotten["incidents"], [])
         self.assertNotIn(selected, [item["signal_id"] for item in forgotten["signals"]])
         self.assertFalse((state / "reviews/backups").exists())
+        restored_backups = state / "reviews/backups"
+        restored_backups.mkdir(mode=0o700)
+        restored_backup = restored_backups / backup["backup"]
+        shutil.copyfile(external_backup, restored_backup)
+        os.chmod(restored_backup, 0o600)
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        after_restore = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                       "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(after_restore["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in after_restore["signals"]])
+        legacy_backup = restored_backups / "legacy.sqlite3"
+        shutil.copyfile(external_backup, legacy_backup)
+        legacy = sqlite3.connect(legacy_backup)
+        legacy.executescript("""
+            drop table incident_signal_dispositions;
+            drop table incidents;
+            delete from ledger_meta where key='incident_schema';
+        """)
+        legacy.commit()
+        legacy.close()
+        os.chmod(legacy_backup, 0o600)
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", "legacy.sqlite3")
+        legacy_restored = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                         "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(legacy_restored["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in legacy_restored["signals"]])
+
+    def test_incident_scan_bounds_registered_inbox(self):
+        database = Path(self.temp.name) / "incident-cap.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('root-1', null, 'DBSCTR cycle', 1784073600000);
+            insert into session values ('fork-1', 'root-1', 'Incident fork', 1784073601000);
+            insert into message values ('message-root', 'root-1', 1784073600000, '{}');
+            insert into message values ('message-1', 'fork-1', 1784073601000, '{}');
+            insert into part values ('part-1', 'message-root', 'root-1', 1784073600000,
+                                     '{"type":"text","text":"DBSCTR cycle"}');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "incident-cap-state"
+        run(self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-1", "--kind", "defect",
+            "--title", "INCIDENT: first", "--summary", "first")
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        seed = ledger.execute("select * from incidents").fetchone()
+        base_timestamp = seed[-1]
+        ledger.executemany(
+            "insert into incidents values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(f"{index:024x}", f"fork-{index}", seed[2], seed[3], *seed[4:-2],
+              base_timestamp + index, base_timestamp + index)
+             for index in range(2, 102)],
+        )
+        ledger.commit()
+        ledger.close()
+        source = sqlite3.connect(database)
+        source.executemany(
+            "insert into part values (?,?,?,?,?)",
+            [(f"failed-{index:03}", "message-1", "fork-1", 1784073602000 + index,
+              json.dumps({"type": "tool", "tool": "read",
+                          "state": {"status": "failed", "error": f"failure {index}"}}))
+             for index in range(101)],
+        )
+        source.commit()
+        source.close()
+
+        inbox = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                               "--state-root", str(state)).stdout)
+        self.assertEqual(len(inbox["incidents"]), 100)
+        self.assertTrue(inbox["incident_overflow"])
+        self.assertEqual(inbox["incidents"][0]["incident_id"], f"{101:024x}")
+        self.assertEqual(len(inbox["signals"]), 100)
+        self.assertTrue(inbox["signal_overflow"])
+        self.assertEqual(inbox["signals"][0]["part_id"], "failed-100")
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        ledger.executemany(
+            "insert into incident_signal_dispositions values (?,null,'forgotten',1784073603000)",
+            [(hashlib.sha256(f"fork-1\0message-1\0failed-{index:03}\0read".encode()).hexdigest()[:24],)
+             for index in range(101)],
+        )
+        ledger.commit()
+        ledger.close()
+        source = sqlite3.connect(database)
+        source.execute("insert into part values (?,?,?,?,?)", (
+            "older-unclaimed", "message-1", "fork-1", 1784073601500,
+            json.dumps({"type": "tool", "tool": "read",
+                        "state": {"status": "failed", "error": "older unclaimed"}}),
+        ))
+        source.commit()
+        source.close()
+        undisposed = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                    "--state-root", str(state)).stdout)
+        self.assertEqual([item["part_id"] for item in undisposed["signals"]], ["older-unclaimed"])
+        self.assertFalse(undisposed["signal_overflow"])
 
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"

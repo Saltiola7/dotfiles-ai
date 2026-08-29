@@ -77,7 +77,7 @@ INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS"
 EVIDENCE_RAW_CAP = 1024 * 1024
 EVIDENCE_SIDECAR_CAP = 256 * 1024
 SECRET_OPTION = re.compile(r"(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie)", re.I)
-SECRET_VALUE = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+|\w+://[^\s/@:]+:[^\s/@]+@)", re.I)
+SECRET_VALUE = re.compile(r"(?:op://\S+|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+|\w+://[^\s/@:]+:[^\s/@]+@)", re.I)
 HIGH_ENTROPY = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 SAFE_EVIDENCE_LINE = re.compile(r"(?:ok|pass(?:ed)?|success|succeeded|\d+ (?:passed|failed)(?:, \d+ skipped)?)", re.I)
 BACKLOG_COLUMNS = {
@@ -685,7 +685,7 @@ def ledger_schema(connection):
         CREATE TABLE incident_signal_dispositions (
             signal_id TEXT PRIMARY KEY,
             incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
-            disposition TEXT NOT NULL CHECK (disposition IN ('promoted','dismissed','forgotten')),
+            disposition TEXT NOT NULL CHECK (disposition IN ('promoted','forgotten')),
             timestamp INTEGER NOT NULL
         ) WITHOUT ROWID;
     """)
@@ -754,7 +754,7 @@ def ledger_semantic_integrity(connection):
                 "SELECT signal_id,incident_id,disposition,timestamp FROM incident_signal_dispositions"):
             if (not re.fullmatch(r"[0-9a-f]{24}", signal_id)
                     or incident_id is not None and not re.fullmatch(r"[0-9a-f]{24}", incident_id)
-                    or disposition not in ("promoted", "dismissed", "forgotten")
+                    or disposition not in ("promoted", "forgotten")
                     or type(timestamp) is not int or timestamp < REVIEW_START_MS):
                 fail("private review ledger incident signal is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
@@ -1761,7 +1761,7 @@ def ensure_incident_schema(connection):
             CREATE TABLE incident_signal_dispositions (
                 signal_id TEXT PRIMARY KEY,
                 incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
-                disposition TEXT NOT NULL CHECK (disposition IN ('promoted','dismissed','forgotten')),
+                disposition TEXT NOT NULL CHECK (disposition IN ('promoted','forgotten')),
                 timestamp INTEGER NOT NULL
             ) WITHOUT ROWID;
         """)
@@ -1799,8 +1799,11 @@ def incident_record(row):
     return {
         "incident_id": incident_id, "session_id": session_id,
         "parent_session_id": parent_id, "message_id": message_id,
-        "kind": kind, "title": title, "summary": summary, "state": state,
-        "cycle_id": cycle_id, "diagnostics": diagnostics, "evidence": evidence,
+        "kind": kind, "title": incident_redact(title, 128),
+        "summary": incident_redact(summary, 1024), "state": state,
+        "cycle_id": cycle_id,
+        "diagnostics": [incident_redact(value) for value in diagnostics],
+        "evidence": [incident_redact(value) for value in evidence],
         "created_at": created_at, "updated_at": updated_at,
     }
 
@@ -5310,8 +5313,17 @@ def command_review_scan(args):
 def incident_redact(value, limit=2048):
     text = str(value).replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[^\x09\x0a\x20-\x7e]", " ", text)
-    text = re.sub(r"(--?(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie)"
-                  r"(?:=|\s+))\S+", r"\1[REDACTED]", text, flags=re.I)
+    text = re.sub(r"(?i)\b(?:proxy-)?authorization\s*[:=]\s*[^\n]+",
+                  "authorization=[REDACTED]", text)
+    secret = r"(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie|api[_-]?key)"
+    quoted = r'''(?:"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\S+)'''
+    field = rf'''(?:"{secret}"|'{secret}'|\b{secret}\b)'''
+    text = re.sub(rf"(--?{secret}(?:=|\s+)){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
+    text = re.sub(rf"({field}\s*[:=]\s*){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
+    text = re.sub(rf"(\bBearer\s+){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
     text = SECRET_VALUE.sub("[REDACTED]", text)
     text = HIGH_ENTROPY.sub("[REDACTED]", text)
     return text.strip()[:limit]
@@ -5337,6 +5349,10 @@ def incident_scope(candidates, session_id):
     return family
 
 
+def incident_signal_id(session_id, message_id, part_id, tool):
+    return hashlib.sha256(f"{session_id}\0{message_id}\0{part_id}\0{tool}".encode()).hexdigest()[:24]
+
+
 def incident_scan_data(args):
     session_id = getattr(args, "session_id", None)
     if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
@@ -5350,9 +5366,20 @@ def incident_scan_data(args):
     ))
     candidate_ids = {item["session_id"] for item in scan["candidates"]}
     scope = incident_scope(scan["candidates"], session_id) if session_id else candidate_ids
+    root = review_root(args.state_root)
+    dispositions = set()
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
+                dispositions = {row[0] for row in ledger.execute(
+                    "SELECT signal_id FROM incident_signal_dispositions")}
     database = opencode_database(args.database)
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection.create_function("incident_signal_id", 4, incident_signal_id, deterministic=True)
+        connection.execute("CREATE TEMP TABLE incident_dispositions(signal_id TEXT PRIMARY KEY)")
+        connection.executemany("INSERT INTO incident_dispositions VALUES (?)",
+                               ((signal_id,) for signal_id in dispositions))
         tables = {row[0].lower(): row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         message, part = tables["message"], tables["part"]
@@ -5365,12 +5392,30 @@ def incident_scan_data(args):
         rows = []
         if scope:
             placeholders = ",".join("?" for _ in scope)
+            body = f'''CASE WHEN json_valid(p."{pbody}") THEN p."{pbody}" ELSE '{{}}' END'''
+            success_body = f'''CASE WHEN json_valid(sp."{pbody}") THEN sp."{pbody}" ELSE '{{}}' END'''
+            tool = f'''coalesce(json_extract({body},'$.tool'),json_extract({body},'$.name'),
+                                json_extract({body},'$.state.tool'),'unknown')'''
+            success_tool = f'''coalesce(json_extract({success_body},'$.tool'),
+                    json_extract({success_body},'$.name'),json_extract({success_body},'$.state.tool'),'unknown')'''
             rows = connection.execute(
-                f'SELECT m."{msession}",m."{mid}",p."{pid}",p."{ptime}",p."{pbody}" '
-                f'FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}" '
-                f'WHERE m."{msession}" IN ({placeholders}) AND p.rowid <= ? AND p."{ptime}" <= ? '
-                f'ORDER BY p."{ptime}",p."{pid}"',
-                (*sorted(scope), scan["part_ceiling"], scan["snapshot"]),
+                f'''SELECT m."{msession}",m."{mid}",p."{pid}",p."{ptime}",p."{pbody}",
+                    EXISTS (SELECT 1 FROM "{message}" sm JOIN "{part}" sp
+                            ON sp."{pmessage}"=sm."{mid}"
+                            WHERE sm."{msession}"=m."{msession}" AND sp.rowid <= ?
+                              AND sp."{ptime}" <= ? AND sp."{ptime}" > p."{ptime}"
+                              AND json_extract({success_body},'$.type')='tool'
+                              AND lower(json_extract({success_body},'$.state.status')) IN ('completed','success')
+                              AND {success_tool}={tool}) AS recovered
+                    FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}"
+                    WHERE m."{msession}" IN ({placeholders}) AND p.rowid <= ? AND p."{ptime}" <= ?
+                      AND json_extract({body},'$.type')='tool'
+                      AND lower(json_extract({body},'$.state.status')) IN ('error','failed')
+                      AND incident_signal_id(m."{msession}",m."{mid}",p."{pid}",{tool})
+                          NOT IN (SELECT signal_id FROM incident_dispositions)
+                    ORDER BY recovered,p."{ptime}" DESC,p."{pid}" LIMIT 101''',
+                (scan["part_ceiling"], scan["snapshot"], *sorted(scope),
+                 scan["part_ceiling"], scan["snapshot"]),
             ).fetchall()
     except (KeyError, sqlite3.Error) as error:
         fail(f"cannot read OpenCode incidents: {error}")
@@ -5378,7 +5423,7 @@ def incident_scan_data(args):
         if "connection" in locals():
             connection.close()
     calls = []
-    for source_session, message_id, part_id, timestamp, raw in rows:
+    for source_session, message_id, part_id, timestamp, raw, recovered in rows:
         try:
             payload = json.loads(raw, object_pairs_hook=no_duplicate_keys)
         except (TypeError, json.JSONDecodeError, RuntimeError):
@@ -5394,36 +5439,31 @@ def incident_scan_data(args):
             continue
         calls.append({"session_id": str(source_session), "message_id": str(message_id),
                       "part_id": str(part_id), "timestamp": int(timestamp),
-                      "tool": tool_name, "status": status.lower(), "state": state})
-    dispositions = set()
+                      "tool": tool_name, "status": status.lower(), "state": state,
+                      "recovered": bool(recovered)})
     incidents = []
-    root = review_root(args.state_root)
     if ledger_exists(root):
         with ledger_connection(root) as ledger:
             if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
-                dispositions = {row[0] for row in ledger.execute(
-                    "SELECT signal_id FROM incident_signal_dispositions")}
-                for row in ledger.execute(
-                        "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
-                        "diagnostics,evidence,created_at,updated_at FROM incidents ORDER BY updated_at DESC,incident_id"):
+                incident_sql = (
+                    "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                    "diagnostics,evidence,created_at,updated_at FROM incidents")
+                incident_args = ()
+                if session_id is not None:
+                    placeholders = ",".join("?" for _ in scope)
+                    incident_sql += f" WHERE session_id IN ({placeholders})"
+                    incident_args = tuple(sorted(scope))
+                incident_sql += " ORDER BY updated_at DESC,incident_id LIMIT 101"
+                for row in ledger.execute(incident_sql, incident_args):
                     item = incident_record(row)
-                    if session_id is None or item["session_id"] in scope:
-                        item["signal_ids"] = [value[0] for value in ledger.execute(
-                            "SELECT signal_id FROM incident_signal_dispositions "
-                            "WHERE incident_id=? AND disposition='promoted' ORDER BY signal_id",
-                            (item["incident_id"],))]
-                        incidents.append(item)
+                    item["signal_ids"] = [value[0] for value in ledger.execute(
+                        "SELECT signal_id FROM incident_signal_dispositions "
+                        "WHERE incident_id=? AND disposition='promoted' ORDER BY signal_id",
+                        (item["incident_id"],))]
+                    incidents.append(item)
     signals = []
-    successes = {(item["session_id"], item["tool"]): item["timestamp"] for item in calls
-                 if item["status"] in ("completed", "success")}
     for item in calls:
-        if item["status"] not in ("error", "failed"):
-            continue
-        signal_id = hashlib.sha256(
-            f'{item["session_id"]}\0{item["message_id"]}\0{item["part_id"]}\0{item["tool"]}'.encode()
-        ).hexdigest()[:24]
-        if signal_id in dispositions:
-            continue
+        signal_id = incident_signal_id(item["session_id"], item["message_id"], item["part_id"], item["tool"])
         detail = item["state"].get("error", item["status"])
         if not isinstance(detail, str):
             detail = json.dumps(detail, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -5431,11 +5471,12 @@ def incident_scan_data(args):
             "signal_id": signal_id, "session_id": item["session_id"],
             "message_id": item["message_id"], "part_id": item["part_id"],
             "timestamp": item["timestamp"], "tool": item["tool"], "status": item["status"],
-            "recovered": successes.get((item["session_id"], item["tool"]), -1) > item["timestamp"],
+            "recovered": item["recovered"],
             "evidence": incident_redact(detail, 1024),
         })
     signals.sort(key=lambda item: (item["recovered"], -item["timestamp"], item["signal_id"]))
-    result = {"schema_version": 1, "incidents": incidents, "signals": signals[:100],
+    result = {"schema_version": 1, "incidents": incidents[:100], "signals": signals[:100],
+              "incident_overflow": len(incidents) > 100, "signal_overflow": len(rows) > 100,
               "snapshot": scan["snapshot"], "session_ceiling": scan["session_ceiling"],
               "part_ceiling": scan["part_ceiling"], "database_digest": scan["database_digest"]}
     if len(json.dumps(result, ensure_ascii=True).encode()) > REVIEW_SCAN_HARD:
@@ -5527,11 +5568,131 @@ def command_incident_register(args):
     print(json.dumps({"incident": item}, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
+def validate_incident_cycle_record(repository, record, cycle_id):
+    required = {
+        "schema_version", "method_revision", "cycle_id", "context", "risk", "delivery_intent",
+        "created_at", "state", "worktree", "source", "git", "delivery", "engineering_profile",
+        "applicability_plan", "gates", "evidence", "artifact_reviews", "commits", "metrics", "runtime",
+    }
+    if (not isinstance(record, dict) or not required.issubset(record)
+            or record.get("schema_version") != 4
+            or record.get("cycle_id") != cycle_id
+            or not OPAQUE_ID.fullmatch(str(record.get("method_revision", "")))
+            or not OPAQUE_ID.fullmatch(str(record.get("context", "")))
+            or record.get("risk") not in ("routine", "elevated", "critical")
+            or record.get("delivery_intent") not in DELIVERY_INTENTS
+            or record.get("state") not in ("active", "blocked", "abandoned", "completed")
+            or not all(isinstance(record.get(name), dict) for name in (
+                "worktree", "source", "git", "delivery", "engineering_profile", "applicability_plan",
+                "evidence", "artifact_reviews", "metrics", "runtime"))
+            or not isinstance(record.get("commits"), list)):
+        fail("incident fix Cycle Record is invalid")
+    try:
+        created = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        fail("incident fix Cycle Record is invalid")
+    if created.utcoffset() != timedelta(0):
+        fail("incident fix Cycle Record is invalid")
+    worktree = record["worktree"]
+    source = record["source"]
+    git_record = record["git"]
+    profile = record["engineering_profile"]
+    metrics = record["metrics"]
+    if (not re.fullmatch(r"[0-9a-f]{16}", str(worktree.get("id", "")))
+            or not re.fullmatch(r"[0-9a-f]{40}", str(worktree.get("base_commit", "")))
+            or not isinstance(worktree.get("branch"), str)
+            or type(worktree.get("created_by_dbsctr")) is not bool
+            or not isinstance(worktree.get("locator"), dict)
+            or set(worktree["locator"]) != {"root", "path"}
+            or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("head", "")))
+            or not isinstance(source.get("locator"), dict)
+            or not isinstance(source.get("dirty_paths"), list)
+            or not re.fullmatch(r"[0-9a-f]{40}", str(git_record.get("head", "")))
+            or not isinstance(git_record.get("dirty_paths"), list)
+            or not isinstance(git_record.get("pre_cycle_ahead_commits"), list)
+            or not isinstance(git_record.get("remote"), dict)
+            or not isinstance(profile.get("path"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", str(profile.get("blob", "")))
+            or set(metrics) != {"gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+            or any(type(value) is not int or value < 0 for value in metrics.values())
+            or record["evidence"].get("version") != 1
+            or any(not isinstance(commit, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(commit.get("id", "")))
+                   or not isinstance(commit.get("gates"), list) or not set(commit["gates"]).issubset(GATES)
+                   for commit in record["commits"])):
+        fail("incident fix Cycle Record is invalid")
+    gates = record.get("gates")
+    items = record.get("evidence", {}).get("items")
+    plan_gates = record["applicability_plan"].get("gates")
+    if (not isinstance(gates, dict) or set(gates) != set(GATES) or not isinstance(items, dict)
+            or not isinstance(plan_gates, dict) or set(plan_gates) != set(GATES)
+            or record["applicability_plan"].get("profile") != profile["path"]):
+        fail("incident fix Cycle Record is invalid")
+    for name in GATES:
+        gate = gates[name]
+        plan_gate = plan_gates[name]
+        if (not isinstance(gate, dict) or gate.get("applicability") not in ("required", "not_applicable")
+                or not isinstance(plan_gate, dict) or plan_gate.get("applicability") != gate["applicability"]
+                or gate.get("result") not in ("pending", "passed", "failed", "unavailable", "not_run")
+                or gate["applicability"] == "not_applicable" and gate["result"] != "not_run"
+                or gate["applicability"] == "required" and gate["result"] == "not_run"):
+            fail("incident fix Cycle Record is invalid")
+        if gate["result"] in ("passed", "failed", "unavailable"):
+            evidence_id = gate.get("evidence")
+            evidence = items.get(evidence_id) if isinstance(evidence_id, str) else None
+            if (not isinstance(evidence, dict) or evidence.get("id") != evidence_id
+                    or evidence.get("gate") != name or evidence.get("result") != gate["result"]
+                    or not isinstance(evidence.get("authority"), str) or not evidence["authority"].strip()
+                    or not isinstance(evidence.get("argv"), list)
+                    or not all(isinstance(value, str) for value in evidence["argv"])
+                    or not isinstance(evidence.get("paths"), dict)
+                    or any(not isinstance(path, str) or not path or PurePosixPath(path).is_absolute()
+                           or ".." in PurePosixPath(path).parts
+                           or not re.fullmatch(r"[0-9a-f]{40}", str(digest))
+                           for path, digest in evidence["paths"].items())
+                    or evidence.get("head") != record["git"]["head"]
+                    or not isinstance(evidence.get("summary"), str)
+                    or not isinstance(evidence.get("urls"), list)
+                    or not all(isinstance(value, str) for value in evidence["urls"])
+                    or not isinstance(evidence.get("raw"), dict)
+                    or set(evidence["raw"]) != {"byte_count", "lower_bound", "truncated"}
+                    or type(evidence["raw"]["byte_count"]) is not int or evidence["raw"]["byte_count"] < 0
+                    or type(evidence["raw"]["lower_bound"]) is not bool
+                    or type(evidence["raw"]["truncated"]) is not bool):
+                fail("incident fix Cycle Record evidence is invalid")
+            try:
+                started = datetime.fromisoformat(evidence["started_at"].replace("Z", "+00:00"))
+                finished = datetime.fromisoformat(evidence["finished_at"].replace("Z", "+00:00"))
+            except (AttributeError, KeyError, ValueError):
+                fail("incident fix Cycle Record evidence is invalid")
+            if started.utcoffset() != timedelta(0) or finished.utcoffset() != timedelta(0) or finished < started:
+                fail("incident fix Cycle Record evidence is invalid")
+            verify_envelope(repository, record, name, require_head=False)
+        if (record["state"] == "completed" and gate["applicability"] == "required"
+                and gate["result"] != "passed"
+                and not (gate["result"] in ("failed", "unavailable") and valid_gate_exception(gate))):
+            fail("incident completed Cycle Record has an incomplete gate")
+    if record["state"] == "completed":
+        try:
+            completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+        except (AttributeError, KeyError, ValueError):
+            fail("incident completed Cycle Record is invalid")
+        if completed.utcoffset() != timedelta(0) or completed < created:
+            fail("incident completed Cycle Record is invalid")
+        if (set(record["artifact_reviews"]) != {"README", "BACKLOG", "CHANGELOG"}
+                or any(review.get("result") not in ("changed", "unchanged")
+                       for review in record["artifact_reviews"].values())):
+            fail("incident completed Cycle Record artifact reviews are invalid")
+    return record
+
+
 def global_cycle_record(cycle_id):
     if not OPAQUE_ID.fullmatch(cycle_id):
         fail("invalid incident cycle ID")
     roots = [root_dir()]
-    roots.extend(item[1] for item in global_worktree_roots()[0])
+    repositories, failures = global_worktree_roots()
+    if failures:
+        fail("incident fix cycle registry is incomplete")
+    roots.extend(item[1] for item in repositories)
     found, seen = [], set()
     for repository in roots:
         try:
@@ -5547,17 +5708,17 @@ def global_cycle_record(cycle_id):
                 record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
             except (OSError, json.JSONDecodeError) as error:
                 fail(f"cannot read incident Cycle Record: {error}")
-            if record.get("cycle_id") != cycle_id:
-                fail("incident Cycle Record identity mismatch")
-            found.append(record)
+            found.append(validate_incident_cycle_record(repository, record, cycle_id))
     if len(found) != 1:
         fail("incident fix cycle is missing or ambiguous")
     return found[0]
 
 
 def command_incident_update(args):
-    if not re.fullmatch(r"[0-9a-f]{24}", args.incident_id):
+    if (not re.fullmatch(r"[0-9a-f]{24}", args.incident_id)
+            or not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)):
         fail("invalid incident ID")
+    incident_session_parent(args.database, args.session_id, args.message_id)
     root = review_root(args.state_root)
     require_review_lock_safe(root)
     with review_lock(root) as lock:
@@ -5571,6 +5732,8 @@ def command_incident_update(args):
             if row is None:
                 fail("incident is missing")
             item = incident_record(row)
+            if item["session_id"] != args.session_id:
+                fail("incident lifecycle write belongs to another fork")
             transitions = {"open": {"investigating", "dismissed"},
                            "investigating": {"open", "fixing", "dismissed"},
                            "fixing": {"resolved"}, "resolved": set(), "dismissed": set()}
@@ -5618,8 +5781,10 @@ def command_incident_update(args):
 
 
 def command_incident_forget(args):
-    if not re.fullmatch(r"[0-9a-f]{24}", args.incident_id):
+    if (not re.fullmatch(r"[0-9a-f]{24}", args.incident_id)
+            or not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)):
         fail("invalid incident ID")
+    incident_session_parent(args.database, args.session_id, args.message_id)
     root = review_root(args.state_root)
     require_review_lock_safe(root)
     with review_lock(root) as lock:
@@ -5629,6 +5794,8 @@ def command_incident_forget(args):
                                  (args.incident_id,)).fetchone()
         if row is None:
             fail("incident is missing")
+        if row[0] != args.session_id:
+            fail("incident lifecycle write belongs to another fork")
         signal_ids = [item[0] for item in connection.execute(
             "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id=?", (args.incident_id,))]
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -7924,7 +8091,7 @@ def command_review_restore(args):
                 tombstones = knowledge_privacy_rows(restored)
                 unknown = {row[0] for row in tombstones} - {
                     "telemetry", "review", "history_report", "history_capture", "benchmark",
-                    "provider_evaluation"}
+                    "provider_evaluation", "incident", "incident_signal"}
                 if unknown:
                     fail("private review restore contains unsupported privacy tombstones")
                 for family, session_id, _, timestamp in tombstones:
@@ -7980,6 +8147,15 @@ def command_review_restore(args):
                     restored.execute("DELETE FROM provider_evaluation_reports WHERE report_id IN "
                                      "(SELECT item_id FROM knowledge_privacy_tombstones "
                                      "WHERE family='provider_evaluation')")
+                restored.execute("DELETE FROM incidents WHERE incident_id IN "
+                                 "(SELECT item_id FROM knowledge_privacy_tombstones "
+                                 "WHERE family='incident')")
+                restored.execute(
+                    "INSERT INTO incident_signal_dispositions(signal_id,incident_id,disposition,timestamp) "
+                    "SELECT item_id,NULL,'forgotten',timestamp FROM knowledge_privacy_tombstones "
+                    "WHERE family='incident_signal' "
+                    "ON CONFLICT(signal_id) DO UPDATE SET incident_id=NULL,disposition='forgotten',"
+                    "timestamp=max(timestamp,excluded.timestamp)")
                 merged_rows = knowledge_privacy_rows(restored)
                 added = len({tuple(row) for row in merged_rows} - {tuple(row) for row in privacy_rows})
                 sequence = max(privacy_sequence, restored_sequence) + added
@@ -10900,13 +11076,19 @@ def parser():
     incident_register.add_argument("--evidence", action="append", default=[])
     incident_register.set_defaults(func=command_incident_register)
     incident_update = commands.add_parser("incident-update")
+    incident_update.add_argument("--database")
     incident_update.add_argument("--state-root")
+    incident_update.add_argument("--session-id", required=True)
+    incident_update.add_argument("--message-id", required=True)
     incident_update.add_argument("--incident-id", required=True)
     incident_update.add_argument("--state", required=True, choices=INCIDENT_STATES)
     incident_update.add_argument("--cycle-id")
     incident_update.set_defaults(func=command_incident_update)
     incident_forget = commands.add_parser("incident-forget")
+    incident_forget.add_argument("--database")
     incident_forget.add_argument("--state-root")
+    incident_forget.add_argument("--session-id", required=True)
+    incident_forget.add_argument("--message-id", required=True)
     incident_forget.add_argument("--incident-id", required=True)
     incident_forget.set_defaults(func=command_incident_forget)
     review_history = commands.add_parser("review-history")

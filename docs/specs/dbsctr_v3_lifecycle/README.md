@@ -1736,8 +1736,9 @@ historical table row and fixed-commit identity.
   telemetry, ordinary review pagination, reviewed markers, history, or federation.
 - A stable signal identity binds source session, message, part, and tool-call
   identity. Signals are ordered unrecovered before recovered and then newest
-  first. Promotion and dismissal are private dispositions; neither mutates the
-  OpenCode database.
+  first. Promotion and privacy forget are private dispositions; neither mutates
+  the OpenCode database. A scan returns at most 100 registered Incidents and 100
+  Signals with explicit overflow indicators.
 - `dbsctrctl incident-register` requires an existing child session and a message
   belonging to that session. One session can own exactly one Incident. Kind is
   `defect`, `friction`, `behavior_gap`, or `capability_idea`; title begins
@@ -1750,19 +1751,26 @@ historical table row and fixed-commit identity.
 - Incident schema is an additive versioned extension to the existing owner-only
   SQLite review ledger. Read-only scans create no state. Registration, update,
   dismissal, and forget serialize under the existing private review lock and
-  preserve ledger integrity on failure.
+  preserve ledger integrity on failure. Update and forget require an invoking
+  message in the same child session that owns the Incident.
 - Incident states are `open`, `investigating`, `fixing`, `resolved`, and
   `dismissed`. A fixing Incident has exactly one immutable cycle ID. Resolution
-  requires one unambiguous global Cycle Record in `completed` state and every
-  required Deploy and Operate gate passed. Ordinary review completion has no
-  Incident lifecycle authority.
+  requires one unambiguous canonical global Cycle Record with its complete gate
+  set and matching evidence, in `completed` state, with every required gate
+  disposed and required Deploy and Operate gates passed. Ordinary review
+  completion has no Incident lifecycle authority.
 - Incident forget deletes source-local payload and linked evidence while
   retaining an opaque suppression disposition so forgotten data is not
-  re-derived. It does not delete or rewrite the OpenCode session.
+  re-derived or resurrected by backup restore. It does not delete or rewrite the
+  OpenCode session.
 - `/incident` owns operator confirmation, route selection, and category-specific
   diagnostics. It never implements a fix in the Incident fork. `/dbsctr-review`
   reports Incidents and Signals as separate leading sections, and any remediation
   remains one separately authorized DBSCTR cycle.
+- Typed-tool and shell-pattern denials are control-plane policy, not OS privilege
+  separation. Same-user agents with unrestricted shell remain trusted to respect
+  declared ownership; stronger adversarial isolation requires a separate identity
+  or separately held cryptographic authority.
 - First-release non-goals are live event hooks, automatic forks, session-title
   mutation, cross-workspace raw evidence federation, model scanning of successful
   turns, and Incident-triggered autonomous remediation. Sanitized outcomes may

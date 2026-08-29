@@ -481,13 +481,15 @@ export async function incidentRegister(input: {
   return await run(argv, cwd)
 }
 
-export async function incidentUpdate(incidentID: string, state: "open" | "investigating" | "fixing" | "resolved" | "dismissed", cwd = process.cwd(), cycleID?: string) {
-  return await run(["dbsctrctl", "incident-update", "--incident-id", incidentID, "--state", state,
+export async function incidentUpdate(sessionID: string, messageID: string, incidentID: string, state: "open" | "investigating" | "fixing" | "resolved" | "dismissed", cwd = process.cwd(), cycleID?: string) {
+  return await run(["dbsctrctl", "incident-update", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID, "--state", state,
     ...(cycleID === undefined ? [] : ["--cycle-id", cycleID])], cwd)
 }
 
-export async function incidentForget(incidentID: string, cwd = process.cwd()) {
-  return await run(["dbsctrctl", "incident-forget", "--incident-id", incidentID], cwd)
+export async function incidentForget(sessionID: string, messageID: string, incidentID: string, cwd = process.cwd()) {
+  return await run(["dbsctrctl", "incident-forget", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID], cwd)
 }
 
 export async function reviewComplete(report: {

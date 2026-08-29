@@ -39,6 +39,9 @@ permission:
     "*/dbsctrctl incident-forget*": deny
     "env *dbsctrctl incident-forget*": deny
     "command *dbsctrctl incident-forget*": deny
+    "*incident-register*": deny
+    "*incident-update*": deny
+    "*incident-forget*": deny
     "dbsctrctl review-history-save*": deny
     "*/dbsctrctl review-history-save*": deny
     "env *dbsctrctl review-history-save*": deny

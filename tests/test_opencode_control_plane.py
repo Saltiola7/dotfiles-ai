@@ -361,6 +361,7 @@ def test_builder_boundaries():
             "env *dbsctrctl review-complete*", "command *dbsctrctl review-complete*",
             *(form.format(command) for command in ("incident-register", "incident-update", "incident-forget")
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
+            "*incident-register*", "*incident-update*", "*incident-forget*",
             *(form.format(command) for command in
               ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget")
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
@@ -1132,8 +1133,8 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
         'await incidentRegister({sessionID:"fork-1",messageID:"message-1",kind:"defect",'
         'title:"INCIDENT: failed read",summary:"literal; no shell",signalIDs:["a".repeat(24)],'
         'diagnostics:["expected input"],evidence:["/tmp/input"]},process.cwd());'
-        'await incidentUpdate("b".repeat(24),"fixing",process.cwd(),"cycle-1");'
-        'await incidentForget("b".repeat(24),process.cwd());'
+        'await incidentUpdate("fork-1","message-1","b".repeat(24),"fixing",process.cwd(),"cycle-1");'
+        'await incidentForget("fork-1","message-1","b".repeat(24),process.cwd());'
     )
     subprocess.run(["bun", "-e", script], cwd=ROOT,
                    env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log)},
@@ -1145,9 +1146,11 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
         "<--title>", "<INCIDENT: failed read>", "<--summary>", "<literal; no shell>",
         "<--signal-id>", f'<{"a" * 24}>', "<--diagnostic>", "<expected input>",
         "<--evidence>", "</tmp/input>",
-        "CALL", "<incident-update>", "<--incident-id>", f'<{"b" * 24}>',
+        "CALL", "<incident-update>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
+        "<--incident-id>", f'<{"b" * 24}>',
         "<--state>", "<fixing>", "<--cycle-id>", "<cycle-1>",
-        "CALL", "<incident-forget>", "<--incident-id>", f'<{"b" * 24}>',
+        "CALL", "<incident-forget>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
+        "<--incident-id>", f'<{"b" * 24}>',
     ]
 
 
