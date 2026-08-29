@@ -63,6 +63,64 @@ The approved purge permanently deletes every Colima image, container, and volume
 Any consumer appearing after preflight blocks deletion. Lima, Podman, QEMU, and
 managed workspace state are outside deletion scope.
 
+## Execution Safety
+
+Run the following sequence from the host. Any failed assertion stops retirement.
+
+1. Prove both replacements before changing host state:
+
+   ```sh
+   workspace_a=${WORKSPACE_A:?}
+   workspace_b=${WORKSPACE_B:?}
+   sandbox-vm shell "$workspace_a" -- docker compose version
+   sandbox-vm shell "$workspace_a" -- podman info --format '{{.Host.Security.Rootless}}'
+   sandbox-vm shell "$workspace_b" -- docker compose version
+   sandbox-vm shell "$workspace_b" -- podman info --format '{{.Host.Security.Rootless}}'
+   curl -fsS http://127.0.0.1:8889/healthz
+   ```
+
+2. Require exactly the known idle Camplan database and Redis containers, no
+   external database clients, no Redis client beyond the probe itself, and no
+   established host-port connection:
+
+   ```sh
+   test "$(docker context show)" = colima
+   test "$(docker ps --format '{{.Names}}' | sort)" = "$(printf '%s\n' camplan-consumer-001-db-1 camplan-consumer-001-redis-1 | sort)"
+   test "$(docker exec camplan-consumer-001-db-1 psql -U postgres -d enterprise_seo_tools -Atc "select count(*) from pg_stat_activity where pid <> pg_backend_pid() and backend_type = 'client backend'")" = 0
+   test "$(docker exec camplan-consumer-001-redis-1 redis-cli --raw client list | wc -l | tr -d ' ')" = 1
+   ! lsof -nP -iTCP:5433 -iTCP:6380 -sTCP:ESTABLISHED
+   ```
+
+3. Prevent automatic restart, stop the exact project without a volume flag, and
+   prove no container remains running:
+
+   ```sh
+   launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
+   camplan_compose=$(docker inspect camplan-consumer-001-db-1 --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}')
+   test -f "$camplan_compose"
+   docker compose -f "$camplan_compose" -p camplan-consumer-001 down --remove-orphans
+   test -z "$(docker ps -q)"
+   ```
+
+4. Remove only the host fallback. Both configured managed workspace directories
+   must still exist before and after deletion:
+
+   ```sh
+   test -d "${LIMA_HOME:?}/${WORKSPACE_INSTANCE_A:?}"
+   test -d "$LIMA_HOME/${WORKSPACE_INSTANCE_B:?}"
+   docker context use default
+   docker context rm colima
+   colima delete --data --force
+   rm -rf "$LIMA_HOME/colima" "${DOTFILES_AI_STATE_ROOT:?}/colima"
+   rm -f "$HOME/.local/bin/start-colima-atuin" "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist" "$HOME/Library/Logs/colima-atuin.log"
+   brew uninstall colima docker docker-compose docker-buildx docker-credential-helper
+   ```
+
+5. Verify no retired process, package, path, context, socket, or listener remains;
+   then repeat the replacement and Atuin probes from step 1. The absence of host
+   Docker is intentional. Do not remove Lima, Podman, QEMU, or either managed
+   workspace.
+
 ## Review
 
 Review must reject deletion before consumer and guest-runtime proof, removal of
