@@ -24,6 +24,74 @@ def _render_herdr_script(name: str, values: dict) -> str:
     ).stdout
 
 
+def _build_herdr_host_fixture(
+    tmp_path: Path,
+    *,
+    expected_volume_uuid: str | None = None,
+    probe_interval_seconds: int = 5,
+    testing_define: str = "HERDR_HOST_TESTING",
+) -> tuple[Path, Path, Path]:
+    app = tmp_path / "Herdr Host.app"
+    executable = app / "Contents/MacOS/herdr-host"
+    resources = app / "Contents/Resources"
+    launch_agents = app / "Contents/Library/LaunchAgents"
+    executable.parent.mkdir(parents=True)
+    resources.mkdir(parents=True)
+    launch_agents.mkdir(parents=True)
+    (app / "Contents/Info.plist").write_text(
+        (ROOT / ".chezmoitemplates/herdr-host-Info.plist").read_text()
+    )
+    (launch_agents / "dev.dotfiles-ai.herdr-host-agent.plist").write_text(
+        (ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist").read_text()
+    )
+    subprocess.run(
+        [
+            "swiftc", "-D", testing_define, "-warnings-as-errors",
+            "-framework", "ServiceManagement",
+            "-framework", "Security",
+            str(ROOT / ".chezmoitemplates/herdr-host.swift"), "-o", str(executable),
+        ],
+        check=True, capture_output=True, text=True,
+    )
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".dotfiles-ai-state").touch()
+    device = subprocess.run(
+        ["df", "-P", str(state)],
+        check=True, capture_output=True, text=True,
+    ).stdout.splitlines()[-1].split()[0]
+    disk = plistlib.loads(subprocess.run(
+        ["diskutil", "info", "-plist", device],
+        check=True, capture_output=True,
+    ).stdout)
+    volume_uuid = disk.get("VolumeUUID")
+    assert isinstance(volume_uuid, str) and volume_uuid
+    health_root = tmp_path / "health"
+    (resources / "herdr-host-config.json").write_text(json.dumps({
+        "schema_version": 1,
+        "state_root": str(state),
+        "expected_volume_uuid": expected_volume_uuid or volume_uuid,
+        "state_root_exec": "/usr/bin/true",
+        "owner_executable": "/usr/bin/true",
+        "herdr_executable": "/usr/bin/false",
+        "host_wrapper": str(executable),
+        "health_root": str(health_root),
+        "probe_interval_seconds": probe_interval_seconds,
+        "health_max_age_seconds": max(30, probe_interval_seconds),
+        "signing_identity_sha256": "a" * 64,
+        "activation_supported": False,
+    }) + "\n")
+    subprocess.run(
+        [
+            "codesign", "--force", "--sign", "-",
+            "--identifier", "dev.dotfiles-ai.herdr-host", str(app),
+        ],
+        check=True, capture_output=True, text=True,
+    )
+    subprocess.run([executable, "initialize-probe-only"], check=True)
+    return executable, state, health_root
+
+
 def _run_native_installer(
     tmp_path: Path,
     *,
@@ -219,6 +287,501 @@ def test_native_responsibility_supervisor_propagates_status_and_termination(tmp_
     assert ready.exists()
     process.terminate()
     assert process.wait(timeout=3) == 0
+
+
+def test_herdr_host_defaults_are_opt_in_and_machine_bound() -> None:
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    ignore = (ROOT / ".chezmoiignore").read_text()
+
+    assert "host_enabled = false" in defaults
+    assert 'signing_identity_sha256 = ""' in defaults
+    assert 'state_volume_uuid = ""' in defaults
+    assert "host_enabled = false" in example
+    assert "Herdr Host.app" in example
+    assert "build-herdr-host.sh" in ignore
+    assert ".local/bin/herdr-host" in ignore
+
+
+def test_herdr_host_managed_set_tracks_opt_in() -> None:
+    values = {"dotfiles_ai": {"herdr": {
+        "host_enabled": True,
+        "signing_identity_sha256": "a" * 64,
+        "state_volume_uuid": "00000000-0000-0000-0000-000000000000",
+    }}}
+    base = [
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+        "--config-format", "toml", "--override-data", json.dumps(values),
+    ]
+    enabled = subprocess.run(
+        [*base, "managed"], capture_output=True, text=True, check=True,
+    ).stdout
+    assert "build-herdr-host.sh" in enabled
+    assert ".local/bin/herdr-host" in enabled
+
+    values["dotfiles_ai"]["herdr"]["host_enabled"] = False
+    disabled = subprocess.run(
+        [*base[:-1], json.dumps(values), "managed"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "build-herdr-host.sh" not in disabled
+    assert ".local/bin/herdr-host" not in disabled
+
+
+def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None:
+    source = (ROOT / ".chezmoitemplates/herdr-host.swift").read_text()
+    info = (ROOT / ".chezmoitemplates/herdr-host-Info.plist").read_text()
+    agent = (ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist").read_text()
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+
+    assert "SMAppService.agent(plistName:" in source
+    assert "dev.dotfiles-ai.herdr-host-agent.plist" in source
+    assert "preflight" in source and "--if-active" in source
+    assert "probe_only" in source
+    assert "xpc_connection_create_mach_service" in source
+    assert "XPC_CONNECTION_MACH_SERVICE_LISTENER" in source
+    assert "xpc_connection_get_euid(peer) == geteuid()" in source
+    assert "coalesceBurst: true" in source
+    assert "validateExclusiveControlServiceCheckIn()" in source
+    assert "Darwin.lstat(url.path, &information)" in source
+    assert "information.st_mode & S_IFMT == S_IFDIR" in source
+    assert "information.st_mode & mode_t(0o022) == 0" in source
+    same_filesystem_check = source.index("sameFilesystem(rootDescriptor, probeDirectory)")
+    probe_create = source.index("let probeDescriptor = Darwin.openat", same_filesystem_check)
+    assert same_filesystem_check < probe_create
+    assert "dev.dotfiles-ai.herdr-host" in info
+    assert "dev.dotfiles-ai.herdr-host-agent" in agent
+    assert "dev.dotfiles-ai.herdr-server" not in agent
+    assert "<key>BundleProgram</key>" in agent
+    assert "Contents/MacOS/herdr-host" in agent
+    assert "<key>AssociatedBundleIdentifiers</key>" in agent
+    assert "SMAppService" in builder
+    assert "--sign -" not in builder
+    assert '--keychain "$KEYCHAIN"' in builder
+    assert "tccutil" not in source + builder
+    assert 'PENDING_PREFIX="$HOME/Applications/Herdr Host.pending"' in builder
+    assert 'PENDING_APP="$PENDING_PREFIX.$pending_stamp.$$.app"' in builder
+    assert "previous-pending.app" not in builder
+    create_config = builder.index('/usr/bin/plutil -create xml1 "$CONFIG"')
+    insert_config = builder.index('/usr/bin/plutil -insert schema_version', create_config)
+    convert_config = builder.index('/usr/bin/plutil -convert json "$CONFIG"', insert_config)
+    assert create_config < insert_config < convert_config
+    assert '/usr/bin/plutil -create json "$CONFIG"' not in builder
+
+
+def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
+    output = tmp_path / "herdr-host"
+    subprocess.run(
+        [
+            "swiftc", "-warnings-as-errors", "-framework", "ServiceManagement",
+            "-framework", "Security",
+            str(ROOT / ".chezmoitemplates/herdr-host.swift"), "-o", str(output),
+        ],
+        check=True, capture_output=True, text=True,
+    )
+    assert output.is_file()
+    production_strings = subprocess.run(
+        ["strings", str(output)], check=True, capture_output=True, text=True,
+    ).stdout
+    assert "HERDR_HOST_TEST_MODE" not in production_strings
+    assert "HERDR_HOST_TEST_FAULT" not in production_strings
+    assert "HERDR_HOST_TEST_NOTIFICATION_LOG" not in production_strings
+
+
+def test_herdr_host_builder_config_pipeline_emits_json(tmp_path) -> None:
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+    start = builder.index('CONFIG="$CONTENTS/Resources/herdr-host-config.json"')
+    final_command = '/bin/chmod 600 "$CONFIG"'
+    end = builder.index(final_command, start) + len(final_command)
+    contents = tmp_path / "Herdr Host.app/Contents"
+    (contents / "Resources").mkdir(parents=True)
+    app = tmp_path / "Herdr Host.app"
+
+    subprocess.run(
+        ["bash"],
+        input="set -euo pipefail\n" + builder[start:end],
+        text=True,
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "APP": str(app),
+            "CONTENTS": str(contents),
+            "EXPECTED_VOLUME_UUID": "00000000-0000-0000-0000-000000000000",
+            "HEALTH_MAX_AGE": "90",
+            "HERDR": str(tmp_path / "herdr"),
+            "HOME": str(tmp_path),
+            "PROBE_INTERVAL": "30",
+            "SIGNING_SHA256": "A" * 64,
+            "STATE_ROOT": str(tmp_path / "state"),
+        },
+    )
+
+    config = contents / "Resources/herdr-host-config.json"
+    document = json.loads(config.read_text())
+    assert document == {
+        "activation_supported": False,
+        "expected_volume_uuid": "00000000-0000-0000-0000-000000000000",
+        "health_max_age_seconds": 90,
+        "health_root": str(tmp_path / "Library/Application Support/Herdr Host"),
+        "herdr_executable": str(tmp_path / "herdr"),
+        "host_wrapper": str(app / "Contents/MacOS/herdr-host"),
+        "owner_executable": str(tmp_path / ".local/bin/herdr-server-owner"),
+        "probe_interval_seconds": 30,
+        "schema_version": 1,
+        "signing_identity_sha256": "A" * 64,
+        "state_root": str(tmp_path / "state"),
+        "state_root_exec": str(tmp_path / ".local/bin/state-root-exec"),
+    }
+    assert config.stat().st_mode & 0o777 == 0o600
+
+
+def test_herdr_host_rejects_tampered_sealed_config(tmp_path) -> None:
+    executable, _, _ = _build_herdr_host_fixture(tmp_path)
+    config = executable.parents[1] / "Resources/herdr-host-config.json"
+    document = json.loads(config.read_text())
+    document["probe_interval_seconds"] = 6
+    config.write_text(json.dumps(document) + "\n")
+
+    result = subprocess.run(
+        [executable, "status", "--json"], capture_output=True, text=True,
+    )
+
+    assert result.returncode == 78
+    assert "signature or sealed resources are invalid" in result.stderr
+
+
+def test_herdr_host_rejects_double_forked_agent_origin_spoof(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(
+        tmp_path,
+        testing_define="HERDR_HOST_ORIGIN_TESTING",
+    )
+    result_path = tmp_path / "agent-origin.json"
+    stderr_path = tmp_path / "agent-stderr"
+    helper = r'''
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+executable, output, error_output = sys.argv[1:]
+first = os.fork()
+if first:
+    os.waitpid(first, 0)
+    raise SystemExit(0)
+second = os.fork()
+if second:
+    os._exit(0)
+deadline = time.time() + 2
+while os.getppid() != 1 and time.time() < deadline:
+    time.sleep(0.01)
+environment = dict(os.environ)
+environment["XPC_SERVICE_NAME"] = "dev.dotfiles-ai.herdr-host-agent"
+temporary = Path(output + ".tmp")
+temporary.write_text(json.dumps({"pid": os.getpid(), "parent_pid": os.getppid()}))
+os.replace(temporary, output)
+error_descriptor = os.open(error_output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.dup2(error_descriptor, 2)
+os.close(error_descriptor)
+os.execve(executable, [executable, "agent"], environment)
+'''
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            helper,
+            str(executable),
+            str(result_path),
+            str(stderr_path),
+        ],
+        check=True,
+    )
+    for _ in range(140):
+        if result_path.is_file() and stderr_path.is_file() and stderr_path.stat().st_size:
+            break
+        time.sleep(0.05)
+
+    assert result_path.is_file()
+    result = json.loads(result_path.read_text())
+    assert result["parent_pid"] == 1
+    assert "exclusive launchd control-service check-in" in stderr_path.read_text()
+    for _ in range(100):
+        try:
+            os.kill(result["pid"], 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError("spoofed agent did not exit")
+    assert not (health_root / "health.json").exists()
+
+
+def test_herdr_host_builder_fails_closed_without_signing_identity(tmp_path) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".dotfiles-ai-state").touch()
+    values = {"dotfiles_ai": {
+        "state": {"root": str(state)},
+        "herdr": {
+            "host_enabled": True,
+            "signing_identity_sha256": "",
+            "state_volume_uuid": "00000000-0000-0000-0000-000000000000",
+            "executable": "/usr/bin/false",
+        },
+    }}
+    builder = _render_herdr_script("build-herdr-host.sh", values)
+
+    result = subprocess.run(
+        ["bash"], input=builder, text=True, capture_output=True,
+        env={**os.environ, "HOME": str(tmp_path / "home")},
+    )
+
+    assert result.returncode != 0
+    assert "exact Herdr Host signing identity SHA-256 is required" in result.stderr
+    assert not (tmp_path / "home/Applications/Herdr Host.app").exists()
+
+
+def test_herdr_host_probe_classifies_permission_wrong_volume_and_recovery(tmp_path) -> None:
+    executable, state, health_root = _build_herdr_host_fixture(tmp_path)
+    base_env = {**os.environ, "HERDR_HOST_TEST_MODE": "1"}
+
+    denied = subprocess.run(
+        [executable, "probe"], text=True, capture_output=True, check=True,
+        env={**base_env, "HERDR_HOST_TEST_FAULT": "permission"},
+    )
+    denied_status = json.loads(denied.stdout)
+    assert denied_status["state"] == "degraded_permission"
+    assert denied_status["error_category"] == "permission"
+    assert not (state / ".herdr-host-health").exists()
+
+    wrong = subprocess.run(
+        [executable, "probe"], text=True, capture_output=True, check=True,
+        env={**base_env, "HERDR_HOST_TEST_FAULT": "wrong_volume"},
+    )
+    wrong_status = json.loads(wrong.stdout)
+    assert wrong_status["state"] == "degraded_unavailable"
+    assert wrong_status["error_category"] == "wrong_volume"
+    assert not (state / ".herdr-host-health").exists()
+
+    recovered = subprocess.run(
+        [executable, "probe"], text=True, capture_output=True, check=True,
+        env=base_env,
+    )
+    recovered_status = json.loads(recovered.stdout)
+    assert recovered_status["state"] == "healthy"
+    assert recovered_status["writable"] is True
+    assert list((state / ".herdr-host-health").iterdir()) == []
+    persisted = json.loads((health_root / "health.json").read_text())
+    assert persisted == recovered_status
+    assert not ({"prompt", "response", "session_id", "state_root"} & persisted.keys())
+    assert (health_root.stat().st_mode & 0o777) == 0o700
+    assert ((health_root / "health.json").stat().st_mode & 0o777) == 0o600
+
+
+def test_herdr_host_real_uuid_mismatch_performs_zero_state_root_writes(tmp_path) -> None:
+    executable, state, _ = _build_herdr_host_fixture(
+        tmp_path,
+        expected_volume_uuid="00000000-0000-0000-0000-000000000000",
+    )
+    before = {
+        path.relative_to(state): (path.stat().st_mode, path.read_bytes() if path.is_file() else None)
+        for path in state.rglob("*")
+    }
+
+    result = subprocess.run(
+        [executable, "probe"], check=True, capture_output=True, text=True,
+    )
+    status = json.loads(result.stdout)
+    after = {
+        path.relative_to(state): (path.stat().st_mode, path.read_bytes() if path.is_file() else None)
+        for path in state.rglob("*")
+    }
+
+    assert status["state"] == "degraded_unavailable"
+    assert status["error_category"] == "wrong_volume"
+    assert before == after
+    assert not (state / ".herdr-host-health").exists()
+
+
+def test_herdr_host_ownership_marker_is_atomic_private_and_fail_closed(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(tmp_path)
+    ownership = health_root / "ownership.json"
+    document = json.loads(ownership.read_text())
+
+    assert document["schema_version"] == 1
+    assert document["mode"] == "probe_only"
+    assert set(document) == {"schema_version", "mode", "changed_at"}
+    assert (ownership.stat().st_mode & 0o777) == 0o600
+    assert subprocess.run(
+        [executable, "preflight", "--if-active"], capture_output=True, text=True,
+    ).returncode == 0
+
+    ownership.unlink()
+    missing = subprocess.run(
+        [executable, "preflight", "--if-active"], capture_output=True, text=True,
+    )
+    assert missing.returncode == 78
+    assert "ownership marker is missing" in missing.stderr
+
+    outside = tmp_path / "outside"
+    outside.write_text("do not read\n")
+    ownership.symlink_to(outside)
+    linked = subprocess.run(
+        [executable, "preflight", "--if-active"], capture_output=True, text=True,
+    )
+    assert linked.returncode == 78
+    assert outside.read_text() == "do not read\n"
+
+
+def test_herdr_host_probe_only_build_rejects_unapproved_active_marker(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(tmp_path)
+    ownership = health_root / "ownership.json"
+    ownership.write_text(json.dumps({
+        "schema_version": 1,
+        "mode": "active",
+        "changed_at": "2026-08-28T00:00:00Z",
+    }) + "\n")
+    ownership.chmod(0o600)
+
+    preflight = subprocess.run(
+        [executable, "preflight", "--if-active", "--cached"],
+        capture_output=True, text=True,
+    )
+    assert preflight.returncode == 78
+    assert "unsupported by this probe-only build" in preflight.stderr
+    agent = subprocess.run(
+        [executable, "agent"],
+        capture_output=True, text=True,
+    )
+    assert agent.returncode == 78
+    assert "unsupported by this probe-only build" in agent.stderr
+
+
+def test_herdr_host_agent_stays_probe_only_and_stops_cleanly(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(tmp_path)
+    health = health_root / "health.json"
+    process = subprocess.Popen(
+        [executable, "agent"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        for _ in range(100):
+            if health.is_file():
+                break
+            time.sleep(0.05)
+        assert health.is_file()
+        status = json.loads(health.read_text())
+        assert status["state"] == "healthy"
+        assert status["activation"] == "probe_only"
+        assert status["child_running"] is False
+        assert status["restart_required"] is False
+    finally:
+        process.terminate()
+        assert process.wait(timeout=3) == 0
+
+
+def test_herdr_host_agent_deduplicates_incident_notification(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(
+        tmp_path,
+        probe_interval_seconds=1,
+    )
+    notification_log = tmp_path / "notifications"
+    process = subprocess.Popen(
+        [executable, "agent"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={
+            **os.environ,
+            "HERDR_HOST_TEST_MODE": "1",
+            "HERDR_HOST_TEST_FAULT": "permission",
+            "HERDR_HOST_TEST_NOTIFICATION_LOG": str(notification_log),
+        },
+    )
+    try:
+        for _ in range(100):
+            health = health_root / "health.json"
+            if health.is_file() and json.loads(health.read_text())["notification_sent"]:
+                break
+            time.sleep(0.05)
+        assert health.is_file()
+        assert json.loads(health.read_text())["state"] == "degraded_permission"
+        time.sleep(2.3)
+        assert notification_log.read_text().splitlines() == ["degraded_permission"]
+    finally:
+        process.terminate()
+        assert process.wait(timeout=3) == 0
+
+
+def test_herdr_host_direct_symlink_resolves_bundle_without_cwd_dependency(tmp_path) -> None:
+    executable, _, _ = _build_herdr_host_fixture(tmp_path)
+    link = tmp_path / "bin/herdr-host"
+    link.parent.mkdir()
+    link.symlink_to(executable)
+
+    result = subprocess.run(
+        [link, "status", "--json"], cwd="/", capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["activation"] == "probe_only"
+
+
+def test_herdr_host_rejects_symlinked_or_public_health_record(tmp_path) -> None:
+    executable, _, health_root = _build_herdr_host_fixture(tmp_path)
+    subprocess.run(
+        [executable, "probe"], check=True, capture_output=True, text=True,
+        env={**os.environ, "HERDR_HOST_TEST_MODE": "1"},
+    )
+    health = health_root / "health.json"
+    valid = health.read_text()
+    health.chmod(0o644)
+    public = subprocess.run(
+        [executable, "status", "--json"], capture_output=True, text=True,
+    )
+    assert public.returncode == 78
+    assert "private bounded regular file" in public.stderr
+
+    health.unlink()
+    outside = tmp_path / "outside-health.json"
+    outside.write_text(valid)
+    health.symlink_to(outside)
+    linked = subprocess.run(
+        [executable, "status", "--json"], capture_output=True, text=True,
+    )
+    assert linked.returncode == 78
+    assert outside.read_text() == valid
+
+
+def test_herdr_host_probe_faults_never_restart_or_touch_processes() -> None:
+    source = (ROOT / ".chezmoitemplates/herdr-host.swift").read_text()
+
+    assert "#if HERDR_HOST_TESTING" in source
+    assert "HERDR_HOST_TEST_FAULT" in source
+    assert "restartRequired" in source
+    assert "hadDegradation" in source
+    assert "degraded_permission" in source
+    assert "degraded_unavailable" in source
+    assert "kickstart" not in source
+    assert "server stop" not in source
+
+
+def test_opencode_restore_and_owner_preflight_active_herdr_host() -> None:
+    wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
+    restore = (ROOT / "dot_local/bin/executable_herdr-opencode-restore").read_text()
+    owner = (ROOT / "dot_local/bin/executable_herdr-server-owner.tmpl").read_text()
+    guard = (ROOT / "dot_local/bin/executable_state-root-exec").read_text()
+
+    assert "preflight --if-active" in wrapper
+    assert wrapper.index("preflight --if-active") < wrapper.index(".dotfiles-ai-state")
+    assert "preflight_host" in restore
+    assert restore.index("preflight_host") < restore.index("opencode-sessions.json")
+    assert "preflight --if-active" in owner
+    assert "preflight --if-active --cached" in owner
+    assert "preflight --if-active --cached" in guard
+    assert "launchctl" not in wrapper + restore + owner + guard
 
 
 def test_disabled_launchagent_does_not_manage_supervisor_builder() -> None:
@@ -622,7 +1185,7 @@ def test_session_watcher_survives_capture_failure(monkeypatch, capsys, tmp_path)
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise RuntimeError("temporary failure")
+            raise RuntimeError("prompt=secret session=ses_private project=hidden")
         raise KeyboardInterrupt
 
     monkeypatch.setitem(script_globals, "capture", capture)
@@ -635,7 +1198,11 @@ def test_session_watcher_survives_capture_failure(monkeypatch, capsys, tmp_path)
         pass
 
     assert calls == 2
-    assert "OpenCode session capture failed: temporary failure" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "OpenCode session capture failed: unexpected internal error" in error
+    assert "secret" not in error
+    assert "ses_private" not in error
+    assert "hidden" not in error
 
 
 def test_centralized_state_guard_fails_closed() -> None:
@@ -730,6 +1297,50 @@ def test_herdr_owner_tolerates_transient_monitor_probe_failure(tmp_path) -> None
     process.stdin.close()
     time.sleep(0.5)
     assert process.poll() is None
+    process.terminate()
+    assert process.wait(timeout=3) == 0
+
+
+def test_herdr_owner_live_health_latches_before_five_server_failures(tmp_path) -> None:
+    home = tmp_path / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    herdr_calls = tmp_path / "herdr-calls"
+    host_calls = tmp_path / "host-calls"
+    herdr = tmp_path / "herdr"
+    herdr.write_text(
+        '#!/bin/bash\n'
+        f'calls=$(cat "{herdr_calls}" 2>/dev/null || printf 0)\n'
+        'calls=$((calls + 1))\n'
+        f'printf %s "$calls" > "{herdr_calls}"\n'
+        '[[ $calls == 1 ]] && printf \'{"running":true}\\n\'\n'
+    )
+    herdr.chmod(0o755)
+    restore = home / ".local/bin/herdr-opencode-restore"
+    restore.write_text("#!/bin/bash\nexit 1\n")
+    restore.chmod(0o755)
+    host = tmp_path / "herdr-host"
+    host.write_text(
+        '#!/bin/bash\n'
+        f'printf "%s\\n" "$*" >> "{host_calls}"\n'
+        '[[ "$*" == preflight\\ --if-active* ]] && exit 75\n'
+        'exit 0\n'
+    )
+    host.chmod(0o755)
+    owner = _render_herdr_script(".local/bin/herdr-server-owner", {
+        "dotfiles_ai": {"herdr": {"executable": str(herdr)}}
+    })
+
+    process = subprocess.Popen(
+        ["bash"], stdin=subprocess.PIPE, text=True,
+        env={**os.environ, "HOME": str(home), "HERDR_HOST_BIN": str(host)},
+    )
+    process.stdin.write(owner)
+    process.stdin.close()
+    time.sleep(7.2)
+    assert process.poll() is None
+    calls = host_calls.read_text().splitlines()
+    assert calls.count("preflight --if-active") == 1
+    assert calls.count("preflight --if-active --cached") == 1
     process.terminate()
     assert process.wait(timeout=3) == 0
 

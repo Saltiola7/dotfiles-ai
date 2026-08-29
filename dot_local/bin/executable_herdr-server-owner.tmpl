@@ -3,8 +3,23 @@
 set -u
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
+HERDR_HOST=${HERDR_HOST_BIN:-"$HOME/.local/bin/herdr-host"}
 herdr_server_running() {
     "$HERDR" status server --json 2>/dev/null | /usr/bin/grep -q '"running":true'
+}
+host_live_health_allows_monitor_failure() {
+    if [[ ! -x $HERDR_HOST ]]; then
+        [[ ${HERDR_HOST_ACTIVE:-0} == 1 ]] && return 1
+        return 0
+    fi
+    "$HERDR_HOST" preflight --if-active >/dev/null 2>&1
+}
+host_cached_health_allows_monitor_failure() {
+    if [[ ! -x $HERDR_HOST ]]; then
+        [[ ${HERDR_HOST_ACTIVE:-0} == 1 ]] && return 1
+        return 0
+    fi
+    "$HERDR_HOST" preflight --if-active --cached >/dev/null 2>&1
 }
 start_capture() {
     if herdr_server_running; then
@@ -51,10 +66,38 @@ else
 fi
 if [[ $monitor_server == 1 ]]; then
     failures=0
+    health_latched=0
+    health_poll_ticks=0
     while [[ $stopping == 0 && $failures -lt 5 ]]; do
         sleep 1
         if herdr_server_running; then
             failures=0
+            if [[ $health_latched == 1 ]]; then
+                ((health_poll_ticks++))
+                if [[ $health_poll_ticks -ge 5 ]]; then
+                    health_poll_ticks=0
+                    if host_cached_health_allows_monitor_failure; then
+                        health_latched=0
+                    fi
+                fi
+            fi
+        elif [[ $health_latched == 1 ]]; then
+            failures=0
+            ((health_poll_ticks++))
+            if [[ $health_poll_ticks -ge 5 ]]; then
+                health_poll_ticks=0
+                if host_cached_health_allows_monitor_failure; then
+                    health_latched=0
+                fi
+            fi
+        elif [[ $failures == 0 || $failures == 4 ]]; then
+            if host_live_health_allows_monitor_failure; then
+                ((failures++))
+            else
+                health_latched=1
+                health_poll_ticks=0
+                failures=0
+            fi
         else
             ((failures++))
         fi

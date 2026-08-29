@@ -8,6 +8,18 @@ export DBSCTR_WORKTREE_ROOT={{ printf "%s/dbsctr/worktrees" .dotfiles_ai.state.r
 export DBSCTR_RND_STATE={{ printf "%s/dbsctr/rnd/dbsctr-rnd.sqlite3" .dotfiles_ai.state.root | quote }}
 export DBSCTR_RND_RECEIPTS={{ printf "%s/dbsctr/rnd/receipts" .dotfiles_ai.state.root | quote }}
 export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
+{{ if .dotfiles_ai.herdr.host_enabled -}}
+if [[ -n ${HERDR_ENV:-} ]]; then
+    herdr_host=${HERDR_HOST_BIN:-"$HOME/.local/bin/herdr-host"}
+    [[ -x $herdr_host ]] || {
+        echo "OpenCode start blocked: Herdr Host health preflight is unavailable; run herdr-host doctor" >&2
+        exit 75
+    }
+    "$herdr_host" preflight --if-active
+    preflight_status=$?
+    (( preflight_status == 0 )) || exit "$preflight_status"
+fi
+{{ end -}}
 [[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]] || {
     echo "centralized state root is unavailable" >&2
     exit 75
@@ -25,22 +37,55 @@ if [[ -n ${HERDR_ENV:-} ]]; then
 
     if [[ $session == 1 ]]; then
         startup_dir=${DOTFILES_AI_STATE_ROOT:-${TMPDIR:-/tmp}}/herdr
-        /bin/mkdir -p "$startup_dir"
+        /bin/mkdir -p "$startup_dir" || {
+            echo "OpenCode start blocked: centralized state pacing directory is unavailable; run herdr-host doctor" >&2
+            exit 75
+        }
         lock=$startup_dir/opencode-startup.lock
-        while ! /usr/bin/shlock -p $$ -f "$lock" 2>/dev/null; do sleep 0.1; done
+        lock_attempts=0
+        while ! /usr/bin/shlock -p $$ -f "$lock" 2>/dev/null; do
+            ((lock_attempts++))
+            if (( lock_attempts >= 200 )); then
+                echo "OpenCode start blocked: centralized state pacing lock is unavailable; run herdr-host doctor" >&2
+                exit 75
+            fi
+            sleep 0.1
+        done
         trap '/bin/rm -f "$lock"' EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
 
         last=0
-        [[ -f $startup_dir/opencode-startup.timestamp ]] && read -r last < "$startup_dir/opencode-startup.timestamp"
+        timestamp=$startup_dir/opencode-startup.timestamp
+        if [[ -e $timestamp || -L $timestamp ]]; then
+            [[ -f $timestamp && ! -L $timestamp ]] || {
+                echo "OpenCode start blocked: centralized state pacing timestamp is unsafe; run herdr-host doctor" >&2
+                exit 75
+            }
+            last=$(<"$timestamp") || {
+                echo "OpenCode start blocked: centralized state pacing timestamp is unreadable; run herdr-host doctor" >&2
+                exit 75
+            }
+        fi
         [[ $last =~ ^[0-9]+$ ]] || last=0
         now=$(/bin/date +%s)
         (( last <= now )) || last=0
         (( now - last > 5 )) || sleep "$((6 - now + last))"
-        /bin/date +%s > "$startup_dir/opencode-startup.timestamp"
+        timestamp_tmp=$(/usr/bin/mktemp "$startup_dir/.opencode-startup.timestamp.XXXXXX") || {
+            echo "OpenCode start blocked: centralized state pacing timestamp cannot be staged; run herdr-host doctor" >&2
+            exit 75
+        }
+        /bin/chmod 600 "$timestamp_tmp"
+        /bin/date +%s > "$timestamp_tmp" && /bin/mv -f "$timestamp_tmp" "$timestamp" || {
+            /bin/rm -f "$timestamp_tmp"
+            echo "OpenCode start blocked: centralized state pacing timestamp is unwritable; run herdr-host doctor" >&2
+            exit 75
+        }
 
-        /bin/rm -f "$lock"
+        /bin/rm -f "$lock" || {
+            echo "OpenCode start blocked: centralized state pacing lock cannot be released; run herdr-host doctor" >&2
+            exit 75
+        }
         trap - EXIT INT TERM
     fi
 fi

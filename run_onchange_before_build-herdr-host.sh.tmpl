@@ -1,0 +1,175 @@
+#!/bin/bash
+# Build the SMAppService-backed Herdr Host without registering or activating it.
+# source hash: {{ include ".chezmoitemplates/herdr-host.swift" | sha256sum }}
+# info hash: {{ include ".chezmoitemplates/herdr-host-Info.plist" | sha256sum }}
+# agent hash: {{ include ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist" | sha256sum }}
+
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+SIGNING_SHA256={{ .dotfiles_ai.herdr.signing_identity_sha256 | quote }}
+STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+EXPECTED_VOLUME_UUID={{ .dotfiles_ai.herdr.state_volume_uuid | quote }}
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+PROBE_INTERVAL={{ .dotfiles_ai.herdr.probe_interval_seconds }}
+HEALTH_MAX_AGE={{ .dotfiles_ai.herdr.health_max_age_seconds }}
+APP="$HOME/Applications/Herdr Host.app"
+PENDING_PREFIX="$HOME/Applications/Herdr Host.pending"
+KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+SIGNING_SHA256=$(printf '%s' "$SIGNING_SHA256" | /usr/bin/tr '[:lower:]' '[:upper:]')
+[[ "$SIGNING_SHA256" =~ ^[0-9A-F]{64}$ ]] || {
+    echo "exact Herdr Host signing identity SHA-256 is required" >&2
+    exit 1
+}
+[[ "$STATE_ROOT" == /* ]] || { echo "Herdr Host state root must be absolute" >&2; exit 1; }
+[[ "$EXPECTED_VOLUME_UUID" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
+    echo "Herdr Host state volume UUID is invalid" >&2
+    exit 1
+}
+[[ "$PROBE_INTERVAL" =~ ^[0-9]+$ ]] && (( PROBE_INTERVAL >= 5 && PROBE_INTERVAL <= 300 )) || {
+    echo "Herdr Host probe interval must be between 5 and 300 seconds" >&2
+    exit 1
+}
+[[ "$HEALTH_MAX_AGE" =~ ^[0-9]+$ ]] && (( HEALTH_MAX_AGE >= PROBE_INTERVAL && HEALTH_MAX_AGE <= 900 )) || {
+    echo "Herdr Host health max age must be between the probe interval and 900 seconds" >&2
+    exit 1
+}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
+[[ "$HERDR" == /* ]] || { echo "Herdr executable must be absolute or start with ~/" >&2; exit 1; }
+[[ -f "$KEYCHAIN" ]] || { echo "login Keychain is unavailable" >&2; exit 1; }
+
+certificate_hashes=$(/usr/bin/security find-certificate -a -Z "$KEYCHAIN" 2>/dev/null) || {
+    echo "could not inspect login-Keychain certificates" >&2
+    exit 1
+}
+set +e
+SIGNING_SHA1=$(/usr/bin/awk -v target="$SIGNING_SHA256" '
+    /^SHA-256 hash:/ { sha256 = toupper($3) }
+    /^SHA-1 hash:/ && sha256 == target { print toupper($3); matches++ }
+    END { if (matches != 1) exit 1 }
+' <<<"$certificate_hashes")
+hash_status=$?
+set -e
+[[ $hash_status -eq 0 && "$SIGNING_SHA1" =~ ^[0-9A-F]{40}$ ]] || {
+    echo "exact Herdr Host signing certificate SHA-256 was not found once in the login Keychain" >&2
+    exit 1
+}
+identity_count=$(/usr/bin/security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null \
+    | /usr/bin/awk -v target="$SIGNING_SHA1" 'toupper($0) ~ target { count++ } END { print count + 0 }')
+[[ "$identity_count" == 1 ]] || {
+    echo "exact Herdr Host certificate does not map to one valid code-signing identity with a private key" >&2
+    exit 1
+}
+
+command -v swiftc >/dev/null || { echo "swiftc is required to build Herdr Host" >&2; exit 1; }
+for tool in /usr/bin/codesign /usr/bin/csreq /usr/bin/plutil; do
+    [[ -x "$tool" ]] || { echo "required tool is missing: $tool" >&2; exit 1; }
+done
+
+/bin/mkdir -p "$HOME/Applications"
+applications_mode=$(/usr/bin/stat -f '%Lp' "$HOME/Applications")
+applications_uid=$(/usr/bin/stat -f '%u' "$HOME/Applications")
+[[ -d "$HOME/Applications" && ! -L "$HOME/Applications" \
+    && "$applications_uid" == "$(/usr/bin/id -u)" \
+    && $(( 8#$applications_mode & 8#022 )) -eq 0 ]] || {
+    echo "~/Applications must be a real user-owned directory without group/world write access" >&2
+    exit 1
+}
+tmp=$(/usr/bin/mktemp -d "$HOME/Applications/.herdr-host-build.XXXXXX")
+trap '/bin/rm -rf "$tmp"' EXIT
+STAGED_APP="$tmp/Herdr Host.app"
+CONTENTS="$STAGED_APP/Contents"
+/bin/mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Library/LaunchAgents"
+
+/bin/cat > "$tmp/herdr-host.swift" <<'HERDR_HOST_SWIFT'
+{{ include ".chezmoitemplates/herdr-host.swift" -}}
+HERDR_HOST_SWIFT
+/bin/cat > "$CONTENTS/Info.plist" <<'HERDR_HOST_INFO'
+{{ include ".chezmoitemplates/herdr-host-Info.plist" -}}
+HERDR_HOST_INFO
+/bin/cat > "$CONTENTS/Library/LaunchAgents/dev.dotfiles-ai.herdr-host-agent.plist" <<'HERDR_HOST_AGENT'
+{{ include ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist" -}}
+HERDR_HOST_AGENT
+
+CONFIG="$CONTENTS/Resources/herdr-host-config.json"
+/usr/bin/plutil -create xml1 "$CONFIG"
+/usr/bin/plutil -insert schema_version -integer 1 "$CONFIG"
+/usr/bin/plutil -insert state_root -string "$STATE_ROOT" "$CONFIG"
+/usr/bin/plutil -insert expected_volume_uuid -string "$EXPECTED_VOLUME_UUID" "$CONFIG"
+/usr/bin/plutil -insert state_root_exec -string "$HOME/.local/bin/state-root-exec" "$CONFIG"
+/usr/bin/plutil -insert owner_executable -string "$HOME/.local/bin/herdr-server-owner" "$CONFIG"
+/usr/bin/plutil -insert herdr_executable -string "$HERDR" "$CONFIG"
+/usr/bin/plutil -insert host_wrapper -string "$APP/Contents/MacOS/herdr-host" "$CONFIG"
+/usr/bin/plutil -insert health_root -string "$HOME/Library/Application Support/Herdr Host" "$CONFIG"
+/usr/bin/plutil -insert probe_interval_seconds -integer "$PROBE_INTERVAL" "$CONFIG"
+/usr/bin/plutil -insert health_max_age_seconds -integer "$HEALTH_MAX_AGE" "$CONFIG"
+/usr/bin/plutil -insert signing_identity_sha256 -string "$SIGNING_SHA256" "$CONFIG"
+/usr/bin/plutil -insert activation_supported -bool false "$CONFIG"
+/usr/bin/plutil -convert json "$CONFIG"
+/bin/chmod 600 "$CONFIG"
+
+/usr/bin/plutil -lint "$CONTENTS/Info.plist" >/dev/null
+/usr/bin/plutil -lint "$CONTENTS/Library/LaunchAgents/dev.dotfiles-ai.herdr-host-agent.plist" >/dev/null
+swiftc -O -warnings-as-errors -framework ServiceManagement -framework Security \
+    "$tmp/herdr-host.swift" -o "$CONTENTS/MacOS/herdr-host"
+/bin/chmod 755 "$CONTENTS/MacOS/herdr-host"
+
+requirement_expression="identifier \"dev.dotfiles-ai.herdr-host\" and certificate leaf = H\"$SIGNING_SHA1\""
+designated_requirement="designated => $requirement_expression"
+/usr/bin/csreq -r "=$designated_requirement" -b "$tmp/herdr-host.csreq"
+/usr/bin/codesign --force --sign "$SIGNING_SHA1" --keychain "$KEYCHAIN" \
+    --identifier dev.dotfiles-ai.herdr-host \
+    --options runtime --timestamp=none --requirements "=$designated_requirement" "$STAGED_APP"
+/usr/bin/codesign --verify --strict --verbose=2 "$STAGED_APP"
+/usr/bin/codesign --verify -R "=$requirement_expression" "$STAGED_APP"
+
+existing_app=false
+[[ ! -L "$APP" ]] || {
+    echo "Herdr Host app path must not be a symbolic link" >&2
+    exit 1
+}
+if [[ -e "$APP" ]]; then
+    existing_app=true
+    [[ -d "$APP" && -x "$APP/Contents/MacOS/herdr-host" ]] || {
+        echo "existing Herdr Host path has an unexpected layout; refusing overwrite" >&2
+        exit 1
+    }
+    old_requirement=$(/usr/bin/codesign -d -r- "$APP" 2>&1 \
+        | /usr/bin/sed -n 's/^designated => //p')
+    [[ -n "$old_requirement" ]] || {
+        echo "existing Herdr Host has no designated requirement; refusing overwrite" >&2
+        exit 1
+    }
+    /usr/bin/codesign --verify --strict "$APP"
+    /usr/bin/codesign --verify -R "=$old_requirement" "$STAGED_APP"
+    /usr/bin/codesign --verify -R "=$requirement_expression" "$APP"
+    registration=$("$APP/Contents/MacOS/herdr-host" registration-status --json 2>/dev/null) || {
+        echo "existing Herdr Host registration status is unavailable; staging state is unknown" >&2
+        exit 1
+    }
+    if ! /usr/bin/grep -Eq '"status"[[:space:]]*:[[:space:]]*"(enabled|requires_approval|not_registered)"' <<<"$registration"; then
+        echo "existing Herdr Host returned an unknown registration status; refusing overwrite" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$existing_app" == true ]]; then
+    pending_stamp=$(/bin/date -u '+%Y%m%dT%H%M%SZ')
+    PENDING_APP="$PENDING_PREFIX.$pending_stamp.$$.app"
+    [[ ! -e "$PENDING_APP" && ! -L "$PENDING_APP" ]] || {
+        echo "unique Herdr Host pending path already exists; refusing replacement" >&2
+        exit 1
+    }
+    /bin/mv "$STAGED_APP" "$PENDING_APP"
+    echo "[herdr-host] signed update staged at $PENDING_APP; prior pending builds, existing app, service, and running Herdr were not changed" >&2
+else
+    if ! /bin/mv "$STAGED_APP" "$APP"; then
+        exit 1
+    fi
+    if ! "$APP/Contents/MacOS/herdr-host" initialize-probe-only; then
+        /bin/mv "$APP" "$tmp/failed.app"
+        exit 1
+    fi
+    echo "[herdr-host] signed probe-only app installed; SMAppService was not registered or activated" >&2
+fi

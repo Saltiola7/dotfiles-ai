@@ -47,6 +47,11 @@ def refresh_gateway(profile):
         if not isinstance(environment, dict):
             raise RuntimeError("invalid Hermes project gateway environment")
         environment["DOTFILES_AI_STATE_ROOT"] = STATE_ROOT
+    offset = 1 if STATE_ROOT else 0
+    if (len(arguments) != offset + 8 or not Path(arguments[offset]).is_absolute()
+            or arguments[offset + 1:] != ["-m", "hermes_cli.main", "--profile", profile,
+                                          "gateway", "run", "--replace"]):
+        raise RuntimeError("invalid Hermes project gateway command")
     payload.pop("WorkingDirectory", None)
     logs = HOME / "Library/Logs"
     logs.mkdir(parents=True, exist_ok=True)
