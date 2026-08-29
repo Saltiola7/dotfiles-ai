@@ -285,6 +285,28 @@ def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
     assert 'exec podman compose "$@"' in shim
 
 
+def test_guest_docker_shim_forwards_compose(tmp_path: Path) -> None:
+    podman = tmp_path / "podman"
+    result_file = tmp_path / "result"
+    podman.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PODMAN_COMPOSE_PROVIDER" "$*" > "$RESULT_FILE"\n')
+    podman.chmod(0o755)
+
+    subprocess.run(
+        ["/bin/sh", str(ROOT / "dot_local/bin/executable_docker"), "compose", "up", "-d"],
+        env={
+            "HOME": str(tmp_path),
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "RESULT_FILE": str(result_file),
+        },
+        check=True,
+    )
+
+    assert result_file.read_text().splitlines() == [
+        f"{tmp_path}/.docker/cli-plugins/docker-compose",
+        "compose up -d",
+    ]
+
+
 def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
     container = (ROOT / "private_dot_config/containers/systemd/atuin.container").read_text()
     volume = (ROOT / "private_dot_config/containers/systemd/atuin-data.volume").read_text()
