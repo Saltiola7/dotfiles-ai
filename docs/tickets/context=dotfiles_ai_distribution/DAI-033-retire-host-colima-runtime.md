@@ -5,7 +5,7 @@ slug: "retire-host-colima-runtime"
 context: "dotfiles_ai_distribution"
 title: "Retire the host Colima runtime"
 kind: "chore"
-state: "active"
+state: "done"
 priority: "high"
 points: 3
 depends_on:
@@ -20,8 +20,18 @@ validation:
   - "Focused distribution tests, rendered guest profile, live rootless Podman/Compose probes, zero active host consumers, deleted runtime state, absent packages, and healthy Atuin"
 created: "2026-08-28"
 updated: "2026-08-28"
-completed: null
-commits: []
+completed: "2026-08-28"
+commits:
+  - "9d7e750b5e96493696df14f08adc08e726434442"
+  - "97ca69fd73f038e9a55ea6c592a25a86b3c8ebae"
+  - "564d0337ec0d3a8740f8064f49d1d335e5a05e06"
+  - "d021521305aa5d24f9892dd8e3366d18fc634f78"
+  - "cc37c05798e6b866062dafc6b0a1a179ecbb2c38"
+  - "205b620282d33a951bf57d2d2299c5d24af08966"
+  - "0e8cfa33b2d8b0b16a88142203d9bf1521090200"
+  - "80ccdd8d90ddd3a6520ac21042f321e1a159292c"
+  - "9feb34d6cc611c0b5a0e7c4f85ca663c535b8fa9"
+  - "e00ad538b488ce2650c3b5282201f6d8573c83c3"
 jira_publications: []
 migration: null
 ---
@@ -62,6 +72,28 @@ resolved only by absolute path because its profile rendered the macOS home.
 The approved purge permanently deletes every Colima image, container, and volume.
 Any consumer appearing after preflight blocks deletion. Lima, Podman, QEMU, and
 managed workspace state are outside deletion scope.
+
+## Evidence
+
+- All 78 focused distribution and Lima tests, Ruff, ticket validation, and Git
+  whitespace checks passed. Independent review found no remaining issue.
+- Both configured guests resolved `docker compose` through runtime `$HOME`,
+  reported Docker Compose v2.40.3 and rootless Podman `true`, and remained running.
+- Immediately before teardown, only the expected Camplan database and Redis
+  containers ran; PostgreSQL had zero client backends, Redis had only the probe
+  client, and no process, scheduler, cron, or established port connection existed.
+- The restart agent was disabled before the probes were repeated. The exact
+  Compose project stopped cleanly with no volume flag, then all runtime data was
+  deleted under the approved no-backup policy. The final gate found the
+  plist-less job still cached with its old Colima process; an explicit `bootout`
+  removed both before the gate was repeated.
+- The host profile, context, startup artifacts, state paths, Docker CLI, Compose,
+  Buildx, and credential helper are absent. Ports 5433, 6380, and 8888 have no
+  listener; authoritative Atuin health on port 8889 remains healthy. The final
+  expanded gate also found and removed inactive legacy state at `~/.colima`.
+- Homebrew unexpectedly autoremoved Lima 2.2.0 and `usage` 6.1.0 with Colima.
+  Lima 2.2.0 was restored immediately; `usage` was restored at current 6.5.0.
+  Podman 6.1.0 and QEMU 11.1.0 remained installed.
 
 ## Execution Safety
 
@@ -113,39 +145,52 @@ done
 
 replacement_probes
 consumer_probes
-pgrep -af 'CAMPLAN-CONSUMER-001|camplan-consumer-001' && abort "Camplan process found"
+pgrep -af '[C]AMPLAN-CONSUMER-001|[c]amplan-consumer-001' && abort "Camplan process found"
 launchctl list | grep -qi camplan && abort "Camplan LaunchAgent found"
 crontab -l 2>/dev/null | grep -qi camplan && abort "Camplan cron found"
 
 launchctl disable "gui/$(id -u)/dev.dotfiles.colima-atuin"
 launchctl print-disabled "gui/$(id -u)" | grep -q '"dev.dotfiles.colima-atuin" => true'
 consumer_probes
+pgrep -af '[C]AMPLAN-CONSUMER-001|[c]amplan-consumer-001' && abort "Camplan process found"
+launchctl list | grep -qi camplan && abort "Camplan LaunchAgent found"
+crontab -l 2>/dev/null | grep -qi camplan && abort "Camplan cron found"
 camplan_compose=$(docker inspect camplan-consumer-001-db-1 \
     --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}')
 test -f "$camplan_compose"
 docker compose -f "$camplan_compose" -p camplan-consumer-001 down --remove-orphans
 test -z "$(docker ps -q)"
-launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
+if launchctl print "gui/$(id -u)/dev.dotfiles.colima-atuin" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
+fi
 
 docker context use default
 colima delete --data --force
 if docker context inspect colima >/dev/null 2>&1; then docker context rm colima; fi
 ! docker context inspect colima >/dev/null 2>&1
-rm -rf "$colima_vm" "$colima_state"
+rm -rf "$colima_vm" "$colima_state" "$HOME/.colima"
 rm -f "$HOME/.local/bin/start-colima-atuin" \
     "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist" \
     "$HOME/Library/Logs/colima-atuin.log"
-brew uninstall colima docker docker-compose docker-buildx docker-credential-helper
+HOMEBREW_NO_AUTOREMOVE=1 brew uninstall \
+    colima docker docker-compose docker-buildx docker-credential-helper
 
 ! launchctl print "gui/$(id -u)/dev.dotfiles.colima-atuin" >/dev/null 2>&1
+! pgrep -x colima
 test ! -e "$colima_vm" && test ! -e "$colima_state"
 test ! -e "$HOME/.local/bin/start-colima-atuin"
 test ! -e "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist"
+test ! -S /var/run/docker.sock && test ! -e "$HOME/.colima"
+test ! -e "$HOME/.docker/cli-plugins/docker-compose"
 ! command -v colima && ! command -v docker && ! command -v docker-compose
+! command -v docker-buildx && ! command -v docker-credential-osxkeychain
+for formula in colima docker docker-compose docker-buildx docker-credential-helper; do
+    ! brew list --formula "$formula" >/dev/null 2>&1
+done
 ! limactl list --json | grep -q '"name":"colima"'
 ! lsof -nP -iTCP:5433 -iTCP:6380 -iTCP:8888 -sTCP:LISTEN
 test -d "$protected_a" && test -d "$protected_b"
-brew list --versions lima podman qemu
+brew list --versions lima podman qemu usage
 replacement_probes
 ```
 
