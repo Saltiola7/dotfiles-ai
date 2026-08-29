@@ -16,6 +16,13 @@ def run(root, *args, check=True):
                           text=True, capture_output=True, check=check)
 
 
+def test_initiative_tickets_start_specification_ready_and_remain_stable():
+    skill = (ROOT / "dot_agents/skills/pm-kernel/SKILL.md").read_text()
+    for term in ("Initiative", "specification is ready", "Do not create intake",
+                 "manifest digest", "stable contract", "reopen"):
+        assert term.lower() in skill.lower()
+
+
 def test_jira_adf_text_preserves_structure():
     loader = importlib.machinery.SourceFileLoader("pmctl_module", str(PMCTL))
     spec = importlib.util.spec_from_loader(loader.name, loader)

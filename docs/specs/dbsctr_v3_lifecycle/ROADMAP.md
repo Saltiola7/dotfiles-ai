@@ -132,6 +132,17 @@
 - Close integration-batch admission before one canonical graph-only promotion commit.
 - Keep DVC push separately authorized and verify graph-only freshness at fixed commits.
 
+### V3.38 — Initiative Discovery (delivered)
+
+- Capture material intent in a validated coordinator-repository manifest before
+  multi-context interview expansion or implementation.
+- Fork ownership-disjoint Context Discovery lanes and explicitly approved Build
+  slices while the coordinator completes the Initiative.
+- Bind readiness to committed specifications, contracts, tickets, dependencies,
+  risk, validation, and exact manifest identity.
+- Reanchor compaction to durable state, use current Herdr session controls, and
+  keep Git artifacts and Cycle Records authoritative.
+
 ## Delivery Order
 
 Persist this roadmap first, then deliver V3.7, V3.8, V3.9, and V3.10 as

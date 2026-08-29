@@ -5,6 +5,7 @@ model: google-vertex-anthropic/claude-opus-5@default
 variant: high
 permission:
   dbsctr_vm_handoff: deny
+  dbsctr_initiative_launch: deny
   dbsctr_begin: allow
   dbsctr_attach: allow
   dbsctr_reconcile: allow

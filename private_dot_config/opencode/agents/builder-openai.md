@@ -5,6 +5,7 @@ model: openai/gpt-5.6-terra-fast
 variant: medium
 permission:
   dbsctr_vm_handoff: deny
+  dbsctr_initiative_launch: deny
   dbsctr_begin: deny
   dbsctr_attach: deny
   dbsctr_review_complete: deny

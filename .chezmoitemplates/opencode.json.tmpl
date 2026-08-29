@@ -106,6 +106,7 @@
   "agent": {
     "build": {
       "permission": {
+        "dbsctr_initiative_launch": "deny",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -176,6 +177,7 @@
           "acli jira workitem search *--filter*": "deny"
         },
         "dbsctr_begin": "deny",
+        "dbsctr_initiative_launch": "deny",
         "dbsctr_attach": "deny",
         "dbsctr_reconcile": "deny",
         "dbsctr_phase_span": "deny",
@@ -196,6 +198,7 @@
   "plugin": ["@dietrichgebert/ponytail@4.8.4"],
   "permission": {
     "dbsctr_status": "allow",
+    "dbsctr_initiative_launch": "ask",
     "dks_context": "allow",
     "dbsctr_begin": "deny",
     "dbsctr_attach": "deny",

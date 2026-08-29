@@ -830,6 +830,21 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   archived outside deployed skill paths.
 - Runtime cleanup is irreversible and was explicitly approved.
 
+### Initiative Discovery Orchestration
+
+`/discovery` routes to a docs-only coordinator. A global OpenCode plugin reads
+repository-relative Initiative manifests, invokes deterministic validation, and
+injects only the durable path, digest, state, and ready-slice IDs into normal and
+pre-compaction context. Invalid manifests block readiness rather than falling
+back to compressed prose.
+
+`dbsctr_initiative_launch` validates a fresh readiness receipt before requesting
+approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+and starts a named OpenCode agent in its root pane. The adapter capability-probes
+OpenCode `--fork`; supported parents fork into the target worktree, while older
+clients start fresh. Both paths receive the same content-free receipt prompt.
+Herdr identities remain private advisory correlation only.
+
 ## Validation Strategy
 
 | Authority | Scope | Command | Availability |
@@ -847,6 +862,7 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
+| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch | Plugin, helper, fork/fallback, and typed-approval fixtures | Required when Initiative orchestration changes |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 

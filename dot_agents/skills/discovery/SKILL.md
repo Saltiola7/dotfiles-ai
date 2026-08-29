@@ -1,6 +1,6 @@
 ---
 name: discovery
-description: Discover and persist a DBSCTR-ready bounded context, Engineering Profile, behaviors, contracts, backlog, risks, and validation strategy.
+description: Discover and persist a DBSCTR-ready bounded context or multi-context Initiative, profiles, behaviors, contracts, risks, and validation strategy.
 trigger: /discovery
 ---
 
@@ -8,13 +8,40 @@ trigger: /discovery
 
 ## Outcome
 
-Reach implementation readiness, then create or update
-`docs/specs/{bounded_context}/README.md`, `docs/tickets/context={bounded_context}/*.md`, and `CHANGELOG.md` so
-DBSCTR can proceed without repeating discovery.
+Reach implementation readiness for one bounded context or an Initiative delivery
+slice, then persist the authoritative specifications so DBSCTR can proceed
+without repeating discovery.
 
 Readiness means no unresolved question can materially change scope, behavior,
 interfaces, safety, delivery, or validation. Skip the interview when existing
 artifacts satisfy that test. Do not use for tiny unrelated changes.
+
+## Initiative Triage
+
+Route broad input into Initiative Discovery when it spans multiple bounded
+contexts or repositories, needs independent delivery slices or release groups,
+or cannot be made compaction-safe in one context artifact. Otherwise retain the
+single-context workflow.
+
+For an Initiative, the current coordinator repository owns
+`docs/initiatives/<slug>/README.md` and `MANIFEST.json`. Assign every material
+requirement, constraint, decision, risk, idea, and non-goal a stable `INT-NNN`
+ID. Record its kind, disposition, and artifact or slice coverage; never copy raw
+transcripts, credentials, URLs, machine paths, or transient Herdr identities.
+Propose one home repository and dependencies for each bounded context, then get
+user approval for the complete context map before starting Context Discovery
+lanes. No material statement may remain uncovered unless explicitly deferred or
+rejected.
+
+Use `dbsctrctl initiative-check --manifest PATH --json` after every material
+manifest change. A slice is ready only when it has stable requirements,
+dependencies, artifacts, and at least one canonical ticket. Immediately before
+promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
+A changed manifest digest invalidates earlier readiness. Require exact user approval
+for that digest-bound slice and launch only through
+`dbsctr_initiative_launch`; compressed prose and Herdr state are never readiness
+authority. Discovery continues for unfinished slices while approved,
+ownership-disjoint slices build.
 
 ## Retrieve
 
@@ -32,7 +59,9 @@ authority, or downstream contract.
 
 ## Engineering Profile
 
-Persist stable defaults in the bounded-context README:
+For new or materially revised contexts, persist stable defaults in
+`docs/specs/<context>/PROFILE.md`. Existing README-based profiles remain valid
+until that context is deliberately migrated. Persist:
 
 - deliverable kind and accountable owner
 - languages, frameworks, and applicable modules
@@ -50,7 +79,7 @@ For the current cycle, record only overrides:
 - changed profile values and candidate Gate Statuses
 
 Before Build starts a new DBSCTR V3 cycle, produce an artifact-ready applicability
-plan naming the committed bounded-context README and every gate. Kernel gates and
+plan naming the committed Engineering Profile and every gate. Kernel gates and
 Review/Integrate are required; each `not_applicable` completion gate has a reason
 tied to the Engineering Profile. Build persists this JSON outside the repository
 and passes it to `dbsctrctl start --plan PATH`; Discovery does not parse Markdown
@@ -124,6 +153,7 @@ separate Gate Applicability (`required` or reasoned `not_applicable`), Gate
 Result, and optional user-approved Gate Exception (`deferred` or
 `accepted_risk` with rationale, owner, and expiry/review condition).
 
+Create a canonical ticket only after its delivery-slice specification is ready.
 Each executable or completed work item has one canonical ticket under
 `docs/tickets/context=<bounded_context>/<id>-<frozen-slug>.md`. YAML frontmatter
 follows the PM Kernel schema; the Markdown body retains outcome, context, scope,
@@ -140,8 +170,11 @@ assumptions, non-goals, and open risks distinct. Active Cycle Records live under
 ## OpenCode Execution
 
 Use todos for current interview/artifact state and specs/Git for durable state.
-Delegate only independent research. Log agent/model routes and trust sourced
-research unless uncertain, contradictory, or controlling a risky decision.
+Delegate only independent research or ownership-disjoint Context Discovery.
+Explore handles local evidence. Scout or Context7 has standing approval only for
+bounded privacy-safe external facts and never receives governed private content.
+Log agent/model routes and trust sourced research unless uncertain,
+contradictory, or controlling a risky decision.
 
 Plan is read-only. When writes are unavailable, return artifact-ready decisions
 and a Build Handoff without claiming files changed. Build verifies freshness
