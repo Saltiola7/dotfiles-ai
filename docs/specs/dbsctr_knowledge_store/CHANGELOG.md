@@ -1,5 +1,37 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-26 - DKS-008 Delivery
+
+- Published the immutable external-volume Graphify `0.9.50` runtime, migrated the
+  live projection to schema 7, and activated the validated cold extraction.
+- Proved byte-identical production warm reuse, healthy doctor status, and one
+  unattended LaunchAgent run with exit code 0 on its 900-second schedule.
+- Proved rollback by restoring compatibility marker 6, the retained `0.9.48`
+  runtime and prior artifact, then reapplying marker 7 and restoring `0.9.50`
+  from cache.
+
+## 2026-08-25 - DKS-008 Discovery
+
+- Scoped the pinned Graphify `0.9.50` compatibility upgrade and one disposable,
+  owner-private, identity-namespaced whole-extraction cache.
+- Required external locking, atomic publication, corruption fallback, cold/warm
+  normalized parity, retained sanitized execution receipts, and prior-active graph
+  preservation while keeping Git authoritative and PostgreSQL rebuildable.
+- Retained immutable `0.9.48` runtime material for rollback and deferred deployment,
+  schema migration, and live reconciliation to separate operator approval.
+
+## 2026-08-25 - DKS-008 Implementation
+
+- Pinned and verified Graphify `0.9.50`, added an owner-private locked atomic
+  whole-extraction cache, and retained validated sanitized receipts in schema 7.
+- Proved byte-identical cold, warm, and corruption-recovery artifacts against the
+  real runtime; 88 focused tests cover compatibility, permissions, installer
+  verification, cache recovery, receipt freshness, schema, and prior-active safety.
+- Independent review drove runtime installer, schema constraint, corruption, and
+  freshness hardening; final fixed-commit re-review found no remaining issue.
+- Deployment, schema migration, reconciliation, operation, and rollback were
+  subsequently completed under separate operator approval.
+
 ## 2026-08-25 - DKS-007 Recovery
 
 - Accepted upstream PR #50's canonical DKS-005 state correction after affected

@@ -14,10 +14,19 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 DKSCTL = ROOT / "dot_local/bin/executable_dksctl"
+GRAPHIFY = ROOT / "dot_local/bin/executable_dbsctr-graphify"
 
 
 def load_dksctl():
     loader = importlib.machinery.SourceFileLoader("dksctl_module", str(DKSCTL))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def load_graphify():
+    loader = importlib.machinery.SourceFileLoader("graphify_module", str(GRAPHIFY))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
@@ -29,14 +38,16 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True).stdout.strip()
 
 
-def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/lmstudio") -> str:
+def render(path: str, *, enabled: bool = True, model_root: str = "/Volumes/ext/lmstudio",
+           quality_model_root: str = "/Volumes/ext/state/models",
+           state_root: str = "/Volumes/ext/state") -> str:
     values = {
         "dotfiles_ai": {
-            "state": {"root": "/Volumes/ext/state"},
+            "state": {"root": state_root},
             "knowledge_store": {
                 "enabled": enabled,
                 "model_root": model_root,
-                "quality_model_root": "/Volumes/ext/state/models",
+                "quality_model_root": quality_model_root,
                 "embedding_port": 11435,
                 "embedding_dimensions": 4096,
                 "embedding_context_tokens": 4096,
@@ -189,14 +200,18 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     graphify_wrapper = (ROOT / "dot_local/bin/executable_dbsctr-graphify").read_text()
     compile(graphify_wrapper, "dbsctr-graphify", "exec")
     assert "(deny network*)" in graphify_wrapper
-    assert "71cb98287d1e526a8f8be9f60d10462de2df8c547bb1c5bfca2376e07a056be8" in graphify_wrapper
     models = json.loads((ROOT / "docs/specs/dbsctr_knowledge_store/DKS-003.models.json").read_text())
+    assert models["graphify"]["package"] == "graphifyy[sql]==0.9.50"
+    assert models["graphify"]["revision"] == "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e"
     assert models["graphify"]["runtime_sha256"] in graphify_wrapper
     assert models["graphify"]["producer_sha256"] == \
         hashlib.sha256(graphify_wrapper.encode()).hexdigest()
     assert "(deny default)" in graphify_wrapper and "(deny network*)" in graphify_wrapper
     installer = (ROOT / "run_onchange_after_install-dbsctr-quality-services.sh.tmpl").read_text()
-    assert "graphify-sql-0.9.48-71cb9828" in installer
+    assert "graphify-sql-0.9.50-" in installer
+    assert 'graphify_verifier="$HOME/.local/bin/dbsctr-graphify"' in installer
+    assert installer.count('--verify-runtime "$graphify_target"') == 2
+    assert '--verify-runtime "$stage"' in installer and '! -L $graphify_target' in installer
     assert 'candidate_root="$HOME/.config/dotfiles-ai/models' not in installer
     for name in ("code-embedding", "reranker"):
         plist = render(f"private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-{name}.plist.tmpl")
@@ -206,6 +221,40 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     for name in ("code-embedding", "reranker"):
         manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
         assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
+
+
+def test_quality_installer_verifies_new_and_existing_graphify_runtime(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    state = tmp_path / "state"
+    source = tmp_path / "models"
+    (state / "dbsctr/knowledge/private").mkdir(parents=True)
+    (source / "dbsctr/llama.cpp-0e1d9185/build/bin").mkdir(parents=True)
+    (source / "dbsctr/graphify-sql-0.9.50").mkdir(parents=True)
+    (source / "dbsctr/graphify-sql-0.9.50/valid").write_text("valid")
+    (source / "dbsctr/reranker-venv/bin").mkdir(parents=True)
+    (home / ".local/bin").mkdir(parents=True)
+    for path in (state / "dbsctr/knowledge/private/launch-sha256",
+                 source / "dbsctr/reranker-venv/bin/python",
+                 home / ".local/bin/dbsctr-code-embedding"):
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    verifier = home / ".local/bin/dbsctr-graphify"
+    verifier.write_text(
+        '#!/bin/sh\ntest "$1" = --verify-runtime\nprintf "%s\\n" "$2" >>"$VERIFY_LOG"\ntest -f "$2/valid"\n')
+    verifier.chmod(0o755)
+    rendered = render("run_onchange_after_install-dbsctr-quality-services.sh.tmpl",
+                      quality_model_root=str(source), state_root=str(state))
+    log = tmp_path / "verify.log"
+    env = {**os.environ, "HOME": str(home), "VERIFY_LOG": str(log)}
+
+    subprocess.run(["/bin/bash"], input=rendered, text=True, env=env, check=True)
+    target = home / ".config/dotfiles-ai/runtime/graphify-sql-0.9.50-2202db22"
+    assert target.is_dir() and len(log.read_text().splitlines()) == 2
+
+    target.chmod(0o700)
+    (target / "valid").unlink()
+    failed = subprocess.run(["/bin/bash"], input=rendered, text=True, env=env)
+    assert failed.returncode != 0 and target.is_dir()
 
 
 def test_reranker_health_requires_memory_contract(monkeypatch) -> None:
@@ -509,7 +558,7 @@ def test_graphify_import_requires_exact_source_provenance() -> None:
               "output_tokens": 0}
     validated = dks.validate_graphify_graph(
         graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
-        "b" * 40, "0.9.48", "c" * 64)
+        "b" * 40, "0.9.50", "c" * 64)
     assert validated["nodes"][0]["id"] == "answer"
     assert validated["excluded_external_nodes"] == 1 and validated["links"] == []
     assert validated["excluded_dangling_edges"] == 1
@@ -518,12 +567,12 @@ def test_graphify_import_requires_exact_source_provenance() -> None:
     with pytest.raises(ValueError, match="source location"):
         dks.validate_graphify_graph(
             graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
-            "b" * 40, "0.9.48", "c" * 64)
+            "b" * 40, "0.9.50", "c" * 64)
     graph["nodes"][0]["source_location"] = None
     with pytest.raises(ValueError, match="source location"):
         dks.validate_graphify_graph(
             graph, {"example.py": {"path": "example.py", "blob_id": "a" * 40, "data": data}},
-            "b" * 40, "0.9.48", "c" * 64)
+            "b" * 40, "0.9.50", "c" * 64)
 
 
 def test_graphify_locations_parse_each_document_once(monkeypatch) -> None:
@@ -543,10 +592,27 @@ def test_graphify_locations_parse_each_document_once(monkeypatch) -> None:
     assert calls == 1
 
 
+def test_graphify_0950_accepts_enum_case_relations() -> None:
+    dks = load_dksctl()
+    data = b"enum Color { Red }\n"
+    graph = {"nodes": [
+        {"id": "Color", "source_file": "example.ts", "source_location": "L1", "_origin": "ast"},
+        {"id": "Color.Red", "source_file": "example.ts", "source_location": "L1", "_origin": "ast"},
+    ], "edges": [{"source": "Color.Red", "target": "Color", "relation": "case_of",
+                    "source_file": "example.ts", "source_location": "L1", "_origin": "ast"}],
+             "hyperedges": [], "input_tokens": 0, "output_tokens": 0}
+
+    validated = dks.validate_graphify_graph(
+        graph, {"example.ts": {"path": "example.ts", "blob_id": "a" * 40, "data": data}},
+        "b" * 40, "0.9.50")
+
+    assert validated["links"][0]["relation"] == "case_of"
+
+
 def test_graphify_import_sql_binds_identity_citations_and_completeness() -> None:
     dks = load_dksctl()
     graph = {"artifact_sha256": "a" * 64, "normalized_sha256": "b" * 64,
-             "version": "0.9.48", "excluded_external_nodes": 2,
+             "version": "0.9.50", "excluded_external_nodes": 2,
              "excluded_dangling_edges": 3,
               "nodes": [{"id": "one", "label": "one", "confidence": "EXTRACTED",
                          "source_location": {"path": "a.py", "start_byte": 0, "end_byte": 4}},
@@ -560,7 +626,7 @@ def test_graphify_import_sql_binds_identity_citations_and_completeness() -> None
                          "source_location": {"path": "a.py", "start_byte": 4, "end_byte": 8}}]}
     sql = "\n".join(dks.graph_import_statements(
         "dotfiles-ai", "c" * 40, graph, "d" * 64, "e" * 64, "f" * 64))
-    assert "b2cd36267456c166788c95be6e68574064a92a42" in sql
+    assert "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e" in sql
     assert "normalized_sha256" in sql and "source_profile_sha256" in sql
     assert "corpus_manifest_sha256" in sql
     assert "execution_receipt_sha256" in sql
@@ -578,27 +644,95 @@ def test_graphify_import_sql_binds_identity_citations_and_completeness() -> None
 def test_graphify_receipt_binds_runtime_corpus_and_artifact(tmp_path: Path) -> None:
     dks = load_dksctl()
     config_sha = dks.digest_json(dks.GRAPHIFY_CONFIG)
-    receipt = {"schema_version": 1, "command_contract": "dks-graphify-code-v1",
-               "package": "graphifyy[sql]", "extractor_version": "0.9.48",
-               "extractor_revision": "b2cd36267456c166788c95be6e68574064a92a42",
+    cache_key = dks.digest_json({"project": "dotfiles-ai", "config_sha256": config_sha,
+                                 "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+                                 "corpus_manifest_sha256": "b" * 64})
+    receipt = {"schema_version": 2, "command_contract": "dks-graphify-code-v2",
+               "package": "graphifyy[sql]", "extractor_version": "0.9.50",
+               "extractor_revision": "43d54acbfa9e731f7a592bb582c1f4b9d48ed73e",
                "python_version": "3.13.2", "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
                "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256,
                "config_sha256": config_sha, "corpus_manifest_sha256": "b" * 64,
                "artifact_sha256": "c" * 64, "network_disabled": True,
-               "raw_extraction_sha256": "d" * 64, "excluded_missing_locations": 2,
+               "raw_extraction_sha256": "d" * 64, "cache_schema_version": 1,
+               "cache_key_sha256": cache_key, "cache_hit": False,
+               "excluded_missing_locations": 2,
                "excluded_missing_location_ids_sha256": "e" * 64}
     path = tmp_path / "receipt.json"
     path.write_text(json.dumps(receipt))
     path.chmod(0o600)
-    assert dks.load_graphify_receipt(path, "c" * 64, "b" * 64) == \
-        hashlib.sha256(path.read_bytes()).hexdigest()
+    receipt_sha, receipt_value = dks.load_graphify_receipt(
+        path, "dotfiles-ai", "c" * 64, "b" * 64)
+    assert receipt_sha == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert receipt_value == receipt
     with pytest.raises(ValueError, match="identity mismatch"):
-        dks.load_graphify_receipt(path, "d" * 64, "b" * 64)
+        dks.load_graphify_receipt(path, "dotfiles-ai", "d" * 64, "b" * 64)
     source = DKSCTL.read_text()
     import_command = source[source.index("def command_import_graph"):source.index("def load_benchmark_aggregate")]
     assert "producer_sha != GRAPHIFY_PRODUCER_SHA256" in import_command
     assert "producer_copy.write_bytes(producer_raw)" in import_command
     assert "subprocess.run([sys.executable, str(producer_copy)" in import_command
+
+
+def test_graphify_cache_is_private_atomic_corruption_tolerant_and_stable(tmp_path: Path) -> None:
+    graphify = load_graphify()
+    identity = {"project": "dotfiles-ai", "config_sha256": "a" * 64,
+                "runtime_sha256": "b" * 64, "corpus_manifest_sha256": "c" * 64}
+    extraction = {"nodes": [{"id": "one"}], "edges": [], "failed_sources": []}
+    namespace = graphify.cache_namespace(tmp_path / "cache", identity)
+    entry = graphify.cache_entry(namespace, identity)
+
+    with graphify.cache_lock(namespace):
+        graphify.store_cached_extraction(entry, identity, extraction)
+        warm = graphify.load_cached_extraction(entry, identity)
+
+    assert warm == extraction
+    assert graphify.canonical(warm) == graphify.canonical(extraction)
+    assert namespace.stat().st_mode & 0o777 == 0o700
+    assert entry.stat().st_mode & 0o777 == 0o600
+    assert (namespace / "cache.lock").stat().st_mode & 0o777 == 0o600
+
+    entry.write_text("corrupt")
+    with graphify.cache_lock(namespace):
+        assert graphify.load_cached_extraction(entry, identity) is None
+    assert not entry.exists()
+
+    entry.mkdir()
+    (entry / "partial").write_text("corrupt")
+    with graphify.cache_lock(namespace):
+        assert graphify.load_cached_extraction(entry, identity) is None
+    assert not entry.exists()
+
+    os.mkfifo(entry, 0o600)
+    with graphify.cache_lock(namespace):
+        assert graphify.load_cached_extraction(entry, identity) is None
+    assert not entry.exists()
+
+    target = tmp_path / "linked-target"
+    target.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="unsafe"):
+        graphify.cache_namespace(linked / "cache", identity)
+
+
+def test_graphify_schema_retains_validated_execution_receipt() -> None:
+    schema = (ROOT / "dot_local/share/dbsctr-knowledge/schema.sql").read_text()
+    migrator = (ROOT / "dot_local/bin/executable_dks-postgres-migrate.tmpl").read_text()
+    dks = load_dksctl()
+
+    assert "execution_receipt jsonb" in schema
+    assert "graph_imports_receipt_v7_check" in schema
+    assert "extractor_version <> '0.9.50'" in schema
+    assert "VALUES (7)" in schema and "version=7" in migrator
+    assert "status.get(\"migration\") != 7" in DKSCTL.read_text()
+    graph = {"artifact_sha256": "a" * 64, "normalized_sha256": "b" * 64,
+             "version": "0.9.50", "excluded_external_nodes": 0,
+             "excluded_dangling_edges": 0, "nodes": [], "links": []}
+    receipt = {"schema_version": 1, "cache_hit": False}
+    sql = "\n".join(dks.graph_import_statements(
+        "dotfiles-ai", "c" * 40, graph, "d" * 64, "e" * 64, "f" * 64, receipt))
+    assert "execution_receipt" in sql and dks.sql_literal(dks.canonical_json(receipt)) in sql
 
 
 def test_knowledge_export_validation_and_authority_sql_are_atomic() -> None:
@@ -993,7 +1127,7 @@ def test_schema_six_records_trial_class_and_expiry() -> None:
     backfill = schema.index("UPDATE dks.ranking_policies SET evidence_class")
     force = schema.index("ranking_policies FORCE ROW LEVEL SECURITY", backfill)
     assert no_force < backfill < force
-    assert "VALUES (6)" in migration and "version=6" in migration
+    assert "VALUES (6)" in migration and "VALUES (7)" in migration and "version=7" in migration
     assert 'commands.add_parser("activate-silver-trial"' in source
     assert "604800" in source and "ensure_quality_policy" in source
     assert "silver trial reranker unavailable" in source
@@ -1992,17 +2126,41 @@ def test_git_and_graph_freshness_bind_complete_identities(tmp_path: Path) -> Non
     producer = tmp_path / "producer"
     producer.write_text("producer\n")
     dks.GRAPHIFY_PRODUCER_SHA256 = hashlib.sha256(producer.read_bytes()).hexdigest()
-    graph = {"revision": commit, "source_profile_sha256": project["source_profile_sha256"],
+    corpus_sha = dks.expected_corpus_manifest_sha("dotfiles-ai", project, commit)
+    artifact_sha = "9" * 64
+    config_sha = dks.digest_json(dks.GRAPHIFY_CONFIG)
+    receipt = {"schema_version": 2, "command_contract": "dks-graphify-code-v2",
+               "package": "graphifyy[sql]", "extractor_version": "0.9.50",
+               "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
+               "python_version": "3.13.2", "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+               "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256, "config_sha256": config_sha,
+               "raw_extraction_sha256": "8" * 64, "corpus_manifest_sha256": corpus_sha,
+               "artifact_sha256": artifact_sha, "network_disabled": True,
+               "cache_schema_version": 1, "cache_key_sha256": dks.digest_json({
+                   "project": "dotfiles-ai", "config_sha256": config_sha,
+                   "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+                   "corpus_manifest_sha256": corpus_sha}), "cache_hit": True,
+               "excluded_missing_locations": 0,
+               "excluded_missing_location_ids_sha256": "7" * 64}
+    receipt_sha = hashlib.sha256((dks.canonical_json(receipt) + "\n").encode()).hexdigest()
+    graph = {"revision": commit, "artifact_sha256": artifact_sha,
+             "source_profile_sha256": project["source_profile_sha256"],
              "extractor_version": dks.GRAPHIFY_CONFIG["version"],
              "extractor_revision": dks.GRAPHIFY_EXTRACTOR_REVISION,
-             "config_sha256": dks.digest_json(dks.GRAPHIFY_CONFIG),
-             "corpus_manifest_sha256": dks.expected_corpus_manifest_sha("dotfiles-ai", project, commit),
-             "execution_receipt_sha256": "b" * 64, "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
+             "config_sha256": config_sha, "corpus_manifest_sha256": corpus_sha,
+             "execution_receipt_sha256": receipt_sha, "execution_receipt": receipt,
+             "runtime_sha256": dks.GRAPHIFY_RUNTIME_SHA256,
              "producer_sha256": dks.GRAPHIFY_PRODUCER_SHA256}
     assert dks.graph_is_fresh({"graphify": graph}, {"graphify_producer": str(producer)},
                               "dotfiles-ai", project, commit)
     assert not dks.graph_is_fresh({"graphify": {**graph, "runtime_sha256": "0" * 64}},
                                   {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
+    assert not dks.graph_is_fresh(
+        {"graphify": {**graph, "execution_receipt": {**receipt, "cache_hit": "true"}}},
+        {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
+    assert not dks.graph_is_fresh(
+        {"graphify": {**graph, "execution_receipt_sha256": "0" * 64}},
+        {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
 
 
 def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:
