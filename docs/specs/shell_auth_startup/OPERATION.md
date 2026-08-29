@@ -11,6 +11,14 @@ ServiceManagement registration, health interface, fault tests, and controlled
 activation have all passed the gates below. Until then, the existing native
 supervisor is the rollback path.
 
+The repository currently delivers the **probe-only staging slice**. Its signed
+configuration sets `activation_supported=false`; a manually edited `active`
+ownership marker is rejected. Building or applying this slice does not register
+the Login Item, grant Full Disk Access, replace the AUTH-014 owner, or restart any
+Herdr/OpenCode process. Durable ownership remains intentionally unavailable until
+a separately reviewed activation command, process-preservation tests, and an
+explicit maintenance-restart approval exist.
+
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
@@ -61,7 +69,7 @@ per-user operating-system decision. It is not a Unix mode-bit grant and cannot
 be made durable by `chmod`, `sudo`, or a larger file-descriptor limit.
 
 The current FDA entry for
-`/Users/tis/.local/bin/herdr-launchagent-supervisor` is an approved stopgap. Keep
+`~/.local/bin/herdr-launchagent-supervisor` is an approved stopgap. Keep
 it enabled through durable-host activation and the rollback soak. Do not remove
 it automatically.
 
@@ -94,6 +102,8 @@ AUTH-016 must install these non-mutating operator interfaces before activation:
 ```sh
 herdr-host status --json
 herdr-host doctor
+herdr-host registration-status --json
+herdr-host preflight --if-active
 ```
 
 `status --json` reports the last completed host-owned probe. `doctor` validates
@@ -106,7 +116,7 @@ and current read/write access. Neither command starts, stops, or restarts Herdr.
 | `healthy` | Expected UUID, mount, sentinel, and atomic read/write probe all pass | Permit managed Herdr/OpenCode starts and capture | No action |
 | `degraded_permission` | The responsible host received `EPERM` or a macOS System Policy denial | Circuit-break new starts, restores, capture writes, and other state-root writes; preserve every existing process | Verify FDA identity and wait for a bounded retry; do not restart |
 | `degraded_unavailable` | The configured volume or state root is absent, or the probe returns an availability/I/O failure | Fail closed and preserve existing processes | Restore the correct device or investigate storage; do not create replacement directories at the mount path |
-| `degraded_wrong_volume` | `/Volumes/ext` exists but its UUID or sentinel does not match | Never read or write managed state | Unmount the replacement and mount the expected volume; do not recreate the sentinel |
+| `degraded_unavailable` with `error_category=wrong_volume` | `/Volumes/ext` exists but its UUID does not match | Stop before the sentinel or write probe; never read or write managed state | Unmount the replacement and mount the expected volume; do not recreate the sentinel |
 | `recovering` | A degraded host has regained preliminary access but has not completed the full identity and atomic read/write sequence | Continue blocking new starts and writes | Wait for the complete probe; investigate flapping if it returns to a degraded state |
 
 The host probes at startup and periodically. A failure enters the matching
@@ -289,6 +299,60 @@ it must not silently fall back to killing the server. The legacy plist,
 supervisor, and FDA entry remain intact through the soak even when they are no
 longer active.
 
+### Probe-Only Staging Commands
+
+Set `data.dotfiles_ai.herdr.host_enabled = true`, the exact
+`signing_identity_sha256`, and `state_volume_uuid` in the machine-local chezmoi
+configuration. Then preview and apply the managed build:
+
+```sh
+chezmoi diff
+chezmoi apply
+herdr-host registration-status --json
+herdr-host register
+herdr-host open-login-items
+```
+
+Approve the registered background item and grant FDA to the exact
+`~/Applications/Herdr Host.app` identity using the manual steps above. Only after
+ServiceManagement reports `enabled` can the registered agent own valid probe
+evidence:
+
+```sh
+herdr-host registration-status --json
+herdr-host probe
+herdr-host doctor
+herdr-host status --json
+```
+
+The build creates a signed `Herdr Host.app`, direct `herdr-host` symlink, and a
+mode-`0600` `probe_only` ownership record. It does not call `register`, alter the
+legacy LaunchAgent, or restart a process. `register` uses the distinct
+`dev.dotfiles-ai.herdr-host-agent` label. ServiceManagement starts that agent in
+probe-only mode; it still may not spawn or take ownership of Herdr. Stop after
+the probe-only health and consent gates unless a separately reviewed activation
+command and explicit restart approval are both available.
+
+If the canonical app already exists, a rebuild preserves it and every earlier
+candidate, then writes a new versioned
+`~/Applications/Herdr Host.pending.<UTC>-<pid>.app`. Inspect candidates without
+executing them:
+
+```sh
+find ~/Applications -maxdepth 1 -name 'Herdr Host.pending.*.app' -prune -print
+codesign --verify --strict --verbose=4 \
+  ~/Applications/'Herdr Host.pending.<exact-candidate>.app'
+codesign --display --requirements - \
+  ~/Applications/'Herdr Host.pending.<exact-candidate>.app'
+```
+
+There is no approved pending-to-canonical promotion command in this probe-only
+slice. Do not replace a registered canonical bundle by hand. After review, an
+unwanted exact candidate may be moved to Trash for recovery; never use a broad
+glob for removal. A future updater must preserve the canonical bundle for
+rollback, prove mutual designated requirements, and separately coordinate
+probe-only unregister/promote/re-register before activation is available.
+
 ## Manual Recovery and Restart Policy
 
 Health recovery is automatic; process recovery is manual. The host may retry its
@@ -397,14 +461,15 @@ The host may persist only minimal, non-authoritative health metadata under:
 
 ```text
 ~/Library/Application Support/Herdr Host/health.json
-~/Library/Logs/Herdr Host/
+~/Library/Application Support/Herdr Host/ownership.json
 ```
 
 Allowed fields are host version, bundle identifier, public signing fingerprint,
-configured mount point, expected and observed volume UUID, sentinel result,
-health state, coarse error category or errno, state-transition timestamps, and
-probe duration. The status directory must be mode `0700`; regular status files
-must be mode `0600` and replaced atomically.
+expected and observed volume UUID, sentinel result, health state, coarse error
+category or errno, state-transition timestamps, probe duration, and the
+`probe_only` or `active` ownership mode. The status directory must be mode
+`0700`; regular status files must be mode `0600` and replaced atomically. The
+records never include the configured state-root path.
 
 The internal record must never contain:
 

@@ -1,6 +1,8 @@
 # Shell Auth Startup
 
-**Status:** AUTH-016 discovery complete; AUTH-014 remains deployed as rollback
+**Status:** AUTH-016 probe-only host implemented and under review; AUTH-014 remains
+deployed and authoritative. Registration, FDA consent, activation, and restart
+have not been performed.
 
 ## Engineering Profile
 
@@ -278,9 +280,11 @@ the manifest watcher.
 - Given the operator has explicitly provisioned the configured `StableSigningIdentity`
 - And AUTH-014 currently owns a live `HerdrServer`
 - When chezmoi builds and installs `HerdrHostApplication`
-- Then every nested executable and the outer bundle are signed inside-out with that identity
+- Then its executable and outer bundle are signed with that identity
 - And strict signature and designated-requirement checks pass
-- And the bundled agent is registered through SMAppService
+- And the build initializes only a `probe_only` ownership record
+- When the operator separately runs `herdr-host register`
+- Then the distinct bundled agent is registered through SMAppService and remains `probe_only`
 - And the active Herdr server and every pane remain untouched until a separately approved activation
 
 **Scenario: External-volume permission becomes degraded**
@@ -482,10 +486,13 @@ the manifest watcher.
 - **Pre:** signing-identity creation, trust, rotation, and removal are explicit interactive operator actions documented in `OPERATION.md`; managed code never silently creates or trusts a certificate.
 - **Pre:** activation requires the operator to approve the app's Login Items entry and Full Disk Access before a maintenance restart.
 - **Invariant:** the host app, nested agent, and responsible executable use the configured stable signing identity and pass strict signature plus designated-requirement verification before registration.
-- **Invariant:** the bundled agent is registered through SMAppService; the deployed design does not rely on a raw ad-hoc-signed executable as its durable privacy identity.
+- **Invariant:** build and install never register, unregister, activate, stop, or restart a service; registration is an explicit operator command.
+- **Invariant:** the bundled agent uses the distinct `dev.dotfiles-ai.herdr-host-agent` label and is registered through SMAppService in `probe_only` mode; registration cannot assume Herdr ownership.
+- **Invariant:** the durable design does not rely on a raw ad-hoc-signed executable as its privacy identity.
 - **Invariant:** managed code never reads, writes, resets, or attempts to grant entries in the macOS TCC database.
 - **Invariant:** authoritative Herdr and OpenCode state remains on `/Volumes/ext`; no OpenCode database, session manifest, or prompt content is copied to the internal disk.
 - **Invariant:** internal `ExternalVolumeHealthStatus` is atomic, non-authoritative, and limited to state, transition timestamps, errno class, expected and observed volume identity, and probe outcome.
+- **Invariant:** internal ownership is either `probe_only` or `active`; a missing, malformed, symlinked, or mode-unsafe ownership record fails closed, and only an explicit activation may change it to `active`.
 - **Invariant:** health probes verify the expected volume UUID and sentinel before any write and use a bounded atomic read/write probe only on the verified volume.
 - **Invariant:** a missing volume, unexpected identity, `EPERM`, `EACCES`, or I/O failure fails closed for new OpenCode starts, restores, and capture writes.
 - **Invariant:** degraded health never terminates or restarts the Herdr server, an OpenCode process, or a pane.
@@ -603,18 +610,23 @@ the manifest watcher.
 | Behavior | Degradation, fail-closed operation, non-disruptive recovery, and rollback | required | passed | Behavior scenarios and `OPERATION.md` | - | Primary |
 | Spec | Signed app bundle, SMAppService agent, status interface, and exact-volume probe | required | passed | AUTH-016 ticket and visual/text equivalents | - | Primary |
 | Contract | Preserve external authoritative state and every active process | required | passed | `HerdrHostApplication` invariants | - | Primary |
-| Test-driven implementation | Fault injection, identity checks, build checks, and focused regressions | required | not_run | Planned in AUTH-016 validation | - | Primary |
-| Refactor | Retire raw supervisor as primary path after rollback window | required | not_run | Requires implemented and soaked replacement | - | Primary |
-| Review/Integrate | Privacy identity, process lifecycle, and migration safety | required | not_run | Requires implementation review | - | Primary |
+| Test-driven implementation | Probe-only host, fault injection, identity checks, build refusal, circuit breakers, and affected regressions | required | passed | 100 affected tests; production/test Swift compiles; rendered shell and plist checks | - | Primary |
+| Refactor | Coherent probe-only staging boundary, private health authority, and durable runbook | required | passed | Integrated diff, canonical ticket, CHANGELOG, and `git diff --check` | - | Primary |
+| Review/Integrate | Privacy identity, process lifecycle, and migration safety | required | failed | Independent review found active-mode serialization, exit, and restart blockers; probe-only slice otherwise clean | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No public release requested | - | User |
-| Deploy | Install and register signed host without stopping active Herdr | required | not_run | Requires explicit local deployment approval | - | User + Primary |
-| Operate | Grant FDA, activate in maintenance window, inject faults, and soak | required | not_run | Requires explicit restart and fault-injection approval | - | User + Primary |
+| Deploy | Provision identity, prove two mutually compatible signed builds, install, and register without stopping active Herdr | required | not_run | No valid signing identity exists; requires explicit local provisioning and deployment approval | - | User + Primary |
+| Operate | Grant FDA, activate in maintenance window, inject faults, and soak | required | not_run | Activation is sealed off and unsafe lifecycle findings remain; requires explicit restart and fault-injection approval | - | User + Primary |
 | Maintain/Retire | Document certificate rotation, rollback, FDA cleanup, and legacy retirement | required | not_run | `OPERATION.md` defines procedure; execution follows successful soak | - | Primary |
 
 ## Verification
 
 - AUTH-016 Discovery records the 2026-08-28 TCC attribution-chain failure, System Policy denials, healthy mounted APFS volume, and spontaneous recovery without a Herdr or Kitty restart.
-- AUTH-016 implementation and deployment checks remain intentionally not run.
+- AUTH-016 probe-only implementation passed 100 affected tests plus Swift,
+  rendered-shell, plist, privacy, and diff checks. Independent security review
+  found no remaining probe-only defect.
+- Trusted two-build signing, real SMAppService registration, FDA, active ownership,
+  sleep/wake, and rebuild soak remain intentionally not run. The ticket stays open,
+  AUTH-014 remains authoritative, and the signed config rejects active ownership.
 - Shell syntax checks pass for edited scripts.
 - Static search confirms no Herdr profile auto-`secret` block remains.
 - Static search confirms Clockify poller has no `op read` call.

@@ -1,5 +1,12 @@
 #!/bin/bash
 set -e
+herdr_host=${HERDR_HOST_BIN:-"$HOME/.local/bin/herdr-host"}
+if [[ -x $herdr_host ]]; then
+    "$herdr_host" preflight --if-active --cached
+elif [[ ${HERDR_HOST_ACTIVE:-0} == 1 ]]; then
+    echo "Herdr Host health preflight is unavailable; run herdr-host doctor" >&2
+    exit 75
+fi
 if [[ -n ${DOTFILES_AI_STATE_ROOT:-} && ! -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]]; then
     echo "centralized state root is unavailable" >&2
     exit 75

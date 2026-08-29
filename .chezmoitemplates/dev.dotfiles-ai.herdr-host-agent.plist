@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.dotfiles-ai.herdr-host-agent</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/herdr-host</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>herdr-host</string>
+        <string>agent</string>
+    </array>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>dev.dotfiles-ai.herdr-host</string>
+    </array>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>MachServices</key>
+    <dict>
+        <key>dev.dotfiles-ai.herdr-host.control</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

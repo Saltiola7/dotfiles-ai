@@ -5,7 +5,7 @@ slug: "make-herdr-external-volume-access-durable"
 context: "shell_auth_startup"
 title: "Make Herdr external-volume access durable"
 kind: "bug"
-state: "intake"
+state: "in_progress"
 priority: "high"
 points: null
 depends_on: []
@@ -18,15 +18,18 @@ relations:
 owns:
   - "docs/specs/shell_auth_startup/README.md"
   - "docs/specs/shell_auth_startup/OPERATION.md"
+  - ".chezmoidata.toml"
+  - ".chezmoiignore"
+  - "config.example.toml"
   - ".chezmoitemplates/herdr-host.swift"
   - ".chezmoitemplates/herdr-host-Info.plist"
-  - ".chezmoitemplates/dev.dotfiles-ai.herdr-server.plist"
+  - ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist"
   - "run_onchange_before_build-herdr-host.sh.tmpl"
-  - "run_onchange_load-herdr-host.sh.tmpl"
-  - "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl"
+  - "dot_local/bin/symlink_herdr-host.tmpl"
   - "dot_local/bin/executable_herdr-server-owner.tmpl"
   - "dot_local/bin/executable_herdr-opencode-restore"
   - "dot_local/bin/executable_opencode.tmpl"
+  - "dot_local/bin/executable_state-root-exec"
   - "tests/test_herdr_launchagent.py"
   - "tests/test_opencode_control_plane.py"
   - "tests/test_portable_distribution.py"
@@ -38,7 +41,7 @@ reads:
 parallel_safe: false
 validation:
   - "uv run --group test pytest -q tests/test_herdr_launchagent.py tests/test_opencode_control_plane.py tests/test_portable_distribution.py"
-  - "Compile Swift and C with warnings as errors; verify the installed bundle and nested executables with codesign --verify --deep --strict"
+  - "Compile Swift and C with warnings as errors; verify the installed bundle and each nested executable independently with codesign --verify --strict"
   - "Build twice and prove the two signed versions satisfy the same designated requirement"
   - "Run bash -n on changed shell templates and plutil -lint on every rendered plist"
   - "Preview installation without replacing the active Herdr server, then perform an explicitly approved activation and external-volume fault-injection soak"
@@ -256,9 +259,20 @@ Required validation evidence:
 
 ## Review
 
-Discovery is complete and this ticket is implementation-ready. It records the
-accepted stable-signing and FDA design, external-only authoritative state,
-manual restart policy, minimal internal health boundary, fail-closed volume
-identity checks, and reversible activation. Remaining choices are bounded
-engineering details; none may weaken the acceptance criteria or trigger a
-process restart without explicit operator approval.
+Discovery and the probe-only implementation slice are complete. The staged host
+implements the stable-signing boundary, sealed configuration, exact-volume
+health checks, private health metadata, ServiceManagement registration command,
+and runtime circuit breakers. It deliberately rejects active ownership and does
+not register, grant FDA, replace AUTH-014, or restart a process during build.
+
+This ticket remains `in_progress`: durable runtime ownership still requires an
+operator-provisioned signing identity, probe-only registration and FDA evidence,
+a separately reviewed activation/handoff command with process-preservation tests,
+explicit maintenance-restart approval, live fault injection, and soak. None of
+those deployment/operation gates may be inferred from repository tests.
+
+Probe-only checkpoint evidence: 100 affected tests passed; production/test Swift
+compilation, rendered shell syntax, plist lint, privacy scans, and diff checks
+passed. Independent review found the staged boundary clean, while confirming
+that active-mode probe serialization, child-exit handling, and error unwinding
+must be redesigned before `activation_supported` can ever become true.
