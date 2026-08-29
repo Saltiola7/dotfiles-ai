@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.37 Graphify orchestration implemented
+**Status:** V3.40 ticket-blind lifecycle in progress
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -17,6 +17,19 @@ OpenCode is the first harness because its skills, commands, todos, agents,
 permissions, and Plan/Build separation should shape the workflow directly.
 Future harnesses may implement adapters to the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
+
+### V3.40 Authority Boundary
+
+Discovery and DBSCTR use specifications, Initiative manifests when applicable,
+private Cycle Records, configured validation, and changelogs. They never create,
+read, update, validate, or require PM Kernel tickets. PM Kernel is a separate
+reporting workflow activated only by direct `pmctl`, `/pm-kernel`, or
+`/jira-ticket` invocation; its files cannot affect lifecycle readiness, gates,
+receipts, audits, DKS, or autonomous R&D.
+
+Applicability plans are checkout-local inputs under Git-ignored
+`.dbsctr/plans/`. Managed cycle state remains under the Git common directory at
+`.git/dbsctr/` so worktrees share one safe lifecycle registry.
 
 ## Problem
 
@@ -103,7 +116,7 @@ Adjacent contexts:
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
 | Worktree Identity | Stable hash of repository history identity and branch, used to isolate a cycle's active pointer without encoding a machine path. |
 | Delivery Target Lock | Nonblocking local lock serializing readiness checks and delivery to one upstream target. |
-| Artifact Review | A recorded decision that README, affected canonical tickets, and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key. |
+| Artifact Review | A recorded decision that README and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key without reading a backlog or ticket file. |
 | Gate Applicability | Whether a gate is `required` or `not_applicable`, with rationale. |
 | Gate Result | `pending`, `passed`, `failed`, `unavailable`, or `not_run`; separate from applicability. |
 | Gate Exception | A user-approved `deferred` or `accepted_risk` disposition with owner and review condition. |
@@ -431,10 +444,11 @@ ledger.
 - Then it stores that operational state beneath `.git/dbsctr/`
 - And durable specifications contain only stable context and completed evidence
 
-**Scenario: Review every lifecycle artifact without meaningless edits**
+**Scenario: Review lifecycle authority without PM duplication**
 - Given a Lifecycle Cycle is active
 - When its Artifact Review runs
-- Then README, affected canonical tickets, and CHANGELOG are each marked reviewed
+- Then README and CHANGELOG are each marked reviewed
+- And the private Cycle Record retains live execution state without a PM copy
 - And README changes only when durable domain, behavior, interface, contract,
   profile, or validation truth changed
 
@@ -980,8 +994,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 - Explicit phase spans and execution DAGs are diagnostic optimization tools, not
   mandatory evidence for ordinary cycles. Existing helper safety contracts remain
   authoritative when either tool is used.
-- README, affected canonical tickets, and CHANGELOG remain universally reviewed; they change only
-  when durable truth, executable work, or completed evidence changes.
+- README and CHANGELOG remain universally reviewed; they change only when durable
+  truth or completed evidence changes.
 
 ### Decisions And Risks
 
@@ -2312,10 +2326,10 @@ tool and provider examples and load only when useful.
 
 - Every cycle has one BACKLOG item before implementation and updates its state as
   work progresses.
-- README, affected canonical tickets, and CHANGELOG each receive an Artifact Review before completion.
+- README and CHANGELOG each receive an Artifact Review before completion.
 - Cycle Record schema compatibility retains the internal `BACKLOG` artifact-review
-  key until an explicit state migration; it records the ticket review and does not
-  make a deleted table authoritative.
+  key until an explicit state migration; it is a no-file compatibility slot and
+  does not authorize reading PM tickets or a deleted backlog table.
 - Applicable Product Intent is reviewed when affected; it is not a fourth
   universal lifecycle artifact and does not alter the helper's fixed reviews.
 - README changes only when durable truth changes; a no-change review is valid.
