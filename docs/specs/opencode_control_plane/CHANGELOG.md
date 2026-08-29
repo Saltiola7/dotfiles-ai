@@ -10,6 +10,21 @@
   bundle passes. Same-user unrestricted shell remains a documented trust boundary,
   not OS privilege separation.
 
+## 2026-08-28 - Interactive Discovery Shell
+
+- Granted only Discovery Coordinator unrestricted Bash for native CLI, API,
+  notebook-kernel, and private-system investigation while retaining docs-scoped
+  structured edits, shell-denied Explore/Scout, and ask-gated Initiative launch.
+- Added native-interface preference, no browser-as-shell-proxy behavior, local
+  governed-result filtering, and explicit confirmation boundaries for consequential
+  effects. Focused lifecycle/control-plane validation passed 72 tests; independent
+  elevated-risk review found no remaining issue.
+- Targeted deployment changed only the coordinator and is source-identical and
+  idempotent. A fresh OpenCode process resolved `bash: allow` and passed a shell
+  smoke; existing processes require restart. Gate Commit: `71ae564`. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
 ## 2026-08-28 - Initiative Discovery Orchestration
 
 - Added a docs-only Discovery coordinator, normal/compaction durable context,

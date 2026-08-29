@@ -1,11 +1,11 @@
-# Atuin Podman Migration
+# Atuin Podman Operations
 
 The selected personal Fedora workspace runs Atuin as a rootless Podman Quadlet.
 The public tailnet URL remains unchanged: macOS Tailscale Serve forwards it to
 host loopback port `8889`, and Lima forwards that port to guest loopback `8888`.
 SQLite stays in the guest's `atuin-data` named volume, never a VirtioFS mount.
 
-## Prepare
+## Configure
 
 Set `atuin_workspace` to the personal workspace name in machine-local TOML,
 render and validate both workspaces, then apply the stored port forward to the
@@ -26,48 +26,18 @@ restarts a previously running VM with its prior configuration. A guarded
 LaunchAgent supplies the configured external `LIMA_HOME`; Lima's generated
 autostart plist cannot represent that non-default home.
 
-## Cold Cutover
+## Operate
 
-Clients do not dual-write. Complete a final sync first, then keep the Colima
-container stopped until rollback or retirement. Choose a new dated archive path
-outside Git and preserve its checksum.
-
-```sh
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup="/Volumes/ext/archive/atuin-colima-final-$stamp.tgz"
-test ! -e "$backup" && test ! -e "$backup.sha256"
-docker compose -f ~/.config/atuin-server/compose.yaml stop
-docker run --rm --user 0 --entrypoint sh \
-  -v atuin-server_atuin-data:/config:ro \
-  ghcr.io/atuinsh/atuin:18.17.1@sha256:b2567e0d80a5622dba8d6c5319b198a94ef5166003c2559b91a5406ac688aac7 \
-  -c 'tar -czf - -C /config .' > "$backup"
-shasum -a 256 "$backup" > "$backup.sha256"
-shasum -a 256 -c "$backup.sha256"
-sandbox-vm shell workspace1 -- systemctl --user stop atuin.service
-sandbox-vm shell workspace1 -- podman volume rm atuin-data
-sandbox-vm shell workspace1 -- podman volume create atuin-data
-sandbox-vm shell workspace1 -- podman volume import atuin-data - < "$backup"
-sandbox-vm shell workspace1 -- podman run --rm --user 0 --entrypoint chown \
-  -v atuin-data:/config \
-  ghcr.io/atuinsh/atuin:18.17.1@sha256:b2567e0d80a5622dba8d6c5319b198a94ef5166003c2559b91a5406ac688aac7 \
-  1000:1000 /config
-sandbox-vm shell workspace1 -- systemctl --user start atuin.service
-curl -fsS http://127.0.0.1:8889/healthz
-```
-
-Abort before switching ingress if import, health, authentication, representative
-decryption, or three-client sync fails. After those pass, move only the
-Tailscale backend:
+The selected workspace is the only Atuin server authority. Verify its service,
+host forwarding, and Tailscale backend without exposing account data:
 
 ```sh
 tailscale serve --bg --https=443 http://127.0.0.1:8889
 tailscale serve status
 ```
 
-Verify closed registration, restart the selected workspace, recheck host and tailnet
-health, and take a stopped Podman volume export. Retain the Colima profile,
-Compose file, original named volume, final archive, and checksum during the
-confidence period.
+Verify closed registration after guest or Tailscale changes. Restart the selected
+workspace and recheck host and tailnet health before declaring recovery complete.
 
 Before selecting a different Atuin workspace, first clear `atuin_workspace` and
 apply this source. Managed reconciliation disables the former guest service,
@@ -75,17 +45,10 @@ removes its exact owned forward and unit definitions, preserves its named volume
 and prior VM running state, and unloads/removes host startup. Only then select and apply the new workspace. This prevents two
 instances from claiming host port `8889`.
 
-## Roll Back
+## Retire
 
-```sh
-tailscale serve --bg --https=443 http://127.0.0.1:8888
-sandbox-vm shell workspace1 -- systemctl --user stop atuin.service
-colima start
-docker compose -f ~/.config/atuin-server/compose.yaml start
-curl -fsS http://127.0.0.1:8888/healthz
-```
-
-Clients retain records captured while either server is unavailable and reconcile
-after service returns. Never start both stores behind the production endpoint.
-Before a later Colima retirement, take another cold Podman export and separately
-verify that no project still requires the host Docker socket.
+Before retiring the selected workspace, complete client sync, stop Atuin, export
+the stopped `atuin-data` Podman volume when retention is required, remove the
+owned host forwarding, and verify the tailnet endpoint no longer routes to it.
+Clients retain locally captured records while the service is unavailable and
+reconcile after a replacement authority is healthy.

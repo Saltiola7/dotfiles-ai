@@ -256,6 +256,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Shared Fedora `make` provisioning, exact existing-guest package repair, clean enterprise image rebuild, five-service operation, volume preservation, and serialized Colima fallback |
 | Overrides | Dotfiles owns runtime tooling and switching evidence only; project UID/path portability and intermittent Django Redis health remain application-owned follow-up |
 
+### DAI-033 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: permanently deletes the host container VM and its unexported runtime data |
+| Delivery intent | Retire the host container runtime, deploy portable guest shell paths, and deliver a draft pull request |
+| Scope | Current distribution contracts, guest profile portability, live consumer checks, host package and state deletion, and post-retirement probes |
+| Overrides | Historical records remain truthful; the approved host purge has no data backup; managed Fedora workspaces with rootless Podman are the only local container runtime |
+
 ## Bounded Context
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
@@ -468,12 +477,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given the selected workspace is configured, when guarded login startup runs,
   then it verifies the external-state sentinel and starts `limactl --foreground`
   with the configured external `LIMA_HOME`.
-- Given Colima still serves production during migration, when Podman validation
-  runs, then it uses host loopback port `8889`; the stable tailnet endpoint moves
-  only after cold restore, health, authentication, decryption, and sync pass.
-- Given Podman cutover fails, when rollback is requested, then Tailscale Serve can
-  return to Colima on host port `8888` while clients retain unsynchronized local
-  records.
+- Given the selected Podman service is healthy, when Tailscale Serve is configured,
+  then the stable tailnet endpoint targets host loopback port `8889` only.
 - Given the selector is cleared, when managed reconciliation runs, then it stops
   and removes the owned Quadlet definitions, unloads and removes the owned
   LaunchAgent, removes only the exact Atuin forward, and retains the named volume.
@@ -850,9 +855,12 @@ feature branch with a draft pull request; the operator retains merge authority.
   running state without applying unrelated guest dotfiles.
 - Given guest Chezmoi state survives source upgrades, generated guest config
   declares `data.machine_type = "guest"` before applying the updated source.
+- Given the portable common profile renders on macOS or in a guest, when a login
+  shell initializes, then user binary paths derive from runtime `$HOME` rather
+  than a source-machine absolute home.
 - Given a guest invokes `docker compose`, when the compatibility command routes
   it, then Docker Compose v2 targets the rootless Podman engine and existing
-  project Make targets retain their Colima-compatible command surface.
+  project Make targets retain their Compose command surface.
 - Given the host Keychain contains the configured service-account token, when a
   workspace shell or generated alias starts, then the controller validates and
   forwards only `OP_SERVICE_ACCOUNT_TOKEN` in process memory. It never writes the
@@ -867,15 +875,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   it uses the same non-secret project, location, and account with a canonical ADC
   path on guest-private storage. `vertex-reauth` uses hosted code entry and proves
   the renewed token without relying on host credentials or mounted files.
-- Given Colima compatibility is checked, when the Podman project stack is stopped,
-  then the unchanged project command surface may run against Colima. Colima never
-  becomes the Atuin authority while the Podman Atuin service is active.
-- Given a project requires machine-local path or identity overrides to run on both
-  runtimes, when fallback is validated, then those values remain project-owned
-  process or environment configuration and are not embedded in the Lima runtime.
-- Given Podman and Colima are switched around a project with persistent data,
-  when validation completes, then neither runtime runs that project concurrently,
-  no Compose command uses `--volumes`, and the original Podman stack is restored.
+- Given a project needs local containers, when an operator starts its Compose
+  services, then commands run inside its configured Fedora workspace and target
+  that guest's rootless Podman socket. A host container runtime is unsupported.
 
 ### Federated Host R&D
 
@@ -1212,13 +1214,11 @@ stale copy of Herdr command syntax in the repository.
 
 ## Risks And Maintenance
 
-- Atuin cutover is cold because SQLite WAL cannot be copied safely while active.
-  Retain a checksummed stopped-volume backup and the stopped Colima profile until
-  Podman restart, three-client sync, denied registration, and isolated restore
-  pass. Never run both stores as writable production authorities.
-- The selected Atuin workspace is intentionally always-on. Colima remains an
-  installed rollback dependency until a later explicit retirement verifies no
-  host Docker consumers remain.
+- Atuin volume exports must be taken while the service is stopped because copying
+  a live SQLite WAL database is invalid. Only the selected Podman service may be
+  the writable authority.
+- The selected Atuin workspace is intentionally always-on. Host container VMs,
+  sockets, CLIs, and compatibility fallbacks are not maintained.
 - Existing guests cannot install system packages through their restricted user.
   Adding a missing managed package requires one exact root repair through the
   host-owned Lima boundary; recreation remains unnecessary and named volumes must

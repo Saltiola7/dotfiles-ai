@@ -45,9 +45,15 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "mode: primary" in coordinator
     assert '"docs/**": allow' in coordinator
     assert '"*": deny' in coordinator
+    assert "bash: allow" in coordinator
+    assert "native CLI, API, or notebook kernel" in coordinator
+    assert "shell proxy when a direct interface exists" in coordinator
+    assert "keep governed private result bodies local" in coordinator
     assert "dbsctr_initiative_launch: ask" in coordinator
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
+    for agent in ("explore-openai", "scout-openai"):
+        assert "bash: deny" in text(f"private_dot_config/opencode/agents/{agent}.md")
 
     assert "name: dbsctr" in dbsctr
     assert "trigger: /dbsctr" in dbsctr

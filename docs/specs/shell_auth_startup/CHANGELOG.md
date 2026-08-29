@@ -1,5 +1,23 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-28 - AUTH-016 Probe-Only Local Deployment
+
+- Provisioned one machine-local signing identity whose trust is limited to Code
+  Signing, then proved two strict-valid host builds share the same designated
+  requirement before installing the canonical `~/Applications/Herdr Host.app`.
+- Registered the bundled agent through ServiceManagement and verified its status
+  is `enabled`. The operator added the exact `Herdr Host.app` entry to Full Disk
+  Access and enabled it.
+- Verified the registered-agent probe is healthy against the configured volume
+  UUID: the sentinel and atomic read/write checks pass, the strict bundle
+  signature and designated requirement pass, and no matching new TCC denial was
+  observed in the verification window.
+- Preserved the existing process coalition without a restart: host PID `7028`,
+  Herdr PIDs `15287`, `27922`, and `92506`, and all 35 OpenCode processes were
+  unchanged. The deployed host remains sealed in probe-only mode with
+  `activation_supported=false` and `child_running=false`; AUTH-014 remains
+  authoritative, while activation, fault injection, and soak remain not run.
+
 ## 2026-08-28 - AUTH-016 Probe-Only Herdr Host
 
 - Added an opt-in, signed `~/Applications/Herdr Host.app` with a bundled,

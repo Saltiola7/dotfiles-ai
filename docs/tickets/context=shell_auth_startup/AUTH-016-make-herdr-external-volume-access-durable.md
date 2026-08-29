@@ -265,11 +265,17 @@ health checks, private health metadata, ServiceManagement registration command,
 and runtime circuit breakers. It deliberately rejects active ownership and does
 not register, grant FDA, replace AUTH-014, or restart a process during build.
 
-This ticket remains `in_progress`: durable runtime ownership still requires an
-operator-provisioned signing identity, probe-only registration and FDA evidence,
-a separately reviewed activation/handoff command with process-preservation tests,
-explicit maintenance-restart approval, live fault injection, and soak. None of
-those deployment/operation gates may be inferred from repository tests.
+The approved probe-only local deployment provisioned a Code-Signing-only identity,
+proved two strict-valid builds share the same designated requirement, installed
+the canonical host, registered its bundled agent with `enabled` status, and added
+the exact `Herdr Host.app` FDA entry. The registered-agent UUID, sentinel, and
+atomic read/write probe is healthy. Host PID `7028`, Herdr PIDs `15287`, `27922`,
+and `92506`, and all 35 OpenCode processes were preserved without restart.
+
+This ticket remains `in_progress`: durable runtime ownership still requires a
+separately reviewed activation/handoff command with process-preservation tests,
+explicit maintenance-restart approval, live fault injection, and soak. Those
+operation gates may not be inferred from probe-only deployment evidence.
 
 Probe-only checkpoint evidence: 100 affected tests passed; production/test Swift
 compilation, rendered shell syntax, plist lint, privacy scans, and diff checks
