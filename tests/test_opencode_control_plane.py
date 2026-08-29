@@ -244,6 +244,10 @@ def test_provider_and_primary_contracts():
     )
 
 
+def test_managed_compaction_preserves_recent_context():
+    assert rendered_config()["compaction"] == {"preserve_recent_tokens": 65536}
+
+
 def test_context7_is_remote_optional_key_and_scout_only():
     anonymous = rendered_config({"CONTEXT7_API_KEY": ""})
     context7 = anonymous["mcp"]["context7"]
