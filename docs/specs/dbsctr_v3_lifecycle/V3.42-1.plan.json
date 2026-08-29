@@ -1,6 +1,5 @@
 {
   "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
-  "risk": "elevated",
   "gates": {
     "domain": {"applicability": "required"},
     "behavior": {"applicability": "required"},
