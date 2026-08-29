@@ -201,6 +201,9 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(atuin init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
     assert (ROOT / "dot_common_profile.tmpl").exists()
+    profile = (ROOT / "dot_common_profile.tmpl").read_text()
+    assert 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' in profile
+    assert "/Users/" not in profile
     assert (ROOT / "private_dot_config/starship.toml").exists()
     atuin = (ROOT / "private_dot_config/atuin/private_config.toml.tmpl").read_text()
     assert "{{ .dotfiles_ai.atuin.sync_address | quote }}" in atuin
@@ -230,6 +233,19 @@ def test_portable_terminal_config_is_guest_only() -> None:
     bashrc = (ROOT / "dot_bashrc").read_text()
     assert 'source "$HOME/.local/share/bash-preexec/bash-preexec.sh"' in bashrc
     assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
+
+
+def test_current_distribution_contract_has_no_colima_fallback() -> None:
+    current_docs = [
+        ROOT / "config.example.toml",
+        ROOT / "docs/LIMA_SANDBOX.md",
+        ROOT / "docs/ATUIN_PODMAN.md",
+    ]
+    assert all("colima" not in path.read_text().lower() for path in current_docs)
+
+    spec = (ROOT / "docs/specs/dotfiles_ai_distribution/README.md").read_text()
+    current_contract = spec.split("## Bounded Context", 1)[1]
+    assert "colima" not in current_contract.lower()
 
 
 def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
