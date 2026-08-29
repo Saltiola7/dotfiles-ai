@@ -458,6 +458,40 @@ export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd 
   return await run(argv, cwd)
 }
 
+export async function incidentScan(cwd = process.cwd(), sessionID?: string) {
+  return await run(["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID])], cwd)
+}
+
+export async function incidentRegister(input: {
+  sessionID: string
+  messageID: string
+  kind: "defect" | "friction" | "behavior_gap" | "capability_idea"
+  title: string
+  summary: string
+  signalIDs: string[]
+  diagnostics: string[]
+  evidence: string[]
+}, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "incident-register", "--session-id", input.sessionID,
+    "--message-id", input.messageID, "--kind", input.kind, "--title", input.title,
+    "--summary", input.summary]
+  for (const value of input.signalIDs) argv.push("--signal-id", value)
+  for (const value of input.diagnostics) argv.push("--diagnostic", value)
+  for (const value of input.evidence) argv.push("--evidence", value)
+  return await run(argv, cwd)
+}
+
+export async function incidentUpdate(sessionID: string, messageID: string, incidentID: string, state: "open" | "investigating" | "fixing" | "resolved" | "dismissed", cwd = process.cwd(), cycleID?: string) {
+  return await run(["dbsctrctl", "incident-update", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID, "--state", state,
+    ...(cycleID === undefined ? [] : ["--cycle-id", cycleID])], cwd)
+}
+
+export async function incidentForget(sessionID: string, messageID: string, incidentID: string, cwd = process.cwd()) {
+  return await run(["dbsctrctl", "incident-forget", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID], cwd)
+}
+
 export async function reviewComplete(report: {
   session_ids: string[]
   cycle_ids: string[]

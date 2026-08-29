@@ -8,6 +8,9 @@ permission:
   dbsctr_initiative_launch: deny
   context7_*: allow
   dbsctr_review_history_save: deny
+  dbsctr_incident_register: deny
+  dbsctr_incident_update: deny
+  dbsctr_incident_forget: deny
   edit: deny
   bash: deny
   task: deny
