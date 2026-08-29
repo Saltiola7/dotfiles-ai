@@ -25,7 +25,7 @@
     {"id": "dbsctr_knowledge_store", "repository": "Saltiola7/dotfiles-ai", "status": "approved", "depends_on": []}
   ],
   "slices": [
-    {"id": "lifecycle-runtime-summary", "context": "dbsctr_v3_lifecycle", "state": "ready", "requirements": ["INT-001", "INT-002", "INT-003", "INT-005", "INT-007", "INT-010", "INT-012"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md", "docs/specs/dbsctr_v3_lifecycle/V3.40-F1.plan.json"], "tickets": ["V3.40-F1"], "release_group": "measurement-foundation"},
+    {"id": "lifecycle-runtime-summary", "context": "dbsctr_v3_lifecycle", "state": "ready", "requirements": ["INT-001", "INT-002", "INT-003", "INT-005", "INT-007", "INT-010", "INT-012"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md", "docs/specs/dbsctr_v3_lifecycle/V3.40-F2.plan.json"], "tickets": ["V3.40-F2"], "release_group": "measurement-foundation"},
     {"id": "opencode-runtime-adapter", "context": "opencode_control_plane", "state": "captured", "requirements": ["INT-001", "INT-005", "INT-007", "INT-008"], "depends_on": ["lifecycle-runtime-summary"], "artifacts": [], "tickets": [], "release_group": "measurement-foundation"},
     {"id": "federated-cycle-trends", "context": "dotfiles_ai_distribution", "state": "captured", "requirements": ["INT-003", "INT-004", "INT-007", "INT-008"], "depends_on": ["opencode-runtime-adapter"], "artifacts": [], "tickets": [], "release_group": "measurement-foundation"},
     {"id": "dks-fast-fallback", "context": "dbsctr_knowledge_store", "state": "captured", "requirements": ["INT-005", "INT-009"], "depends_on": [], "artifacts": [], "tickets": [], "release_group": "execution-speed"},

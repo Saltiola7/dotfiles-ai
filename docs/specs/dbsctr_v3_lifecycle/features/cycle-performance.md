@@ -94,6 +94,11 @@ The command reads completed local Cycle Records and the private phase ledger. It
 does not create or migrate the ledger, mutate review state, scan `opencode.db`,
 or federate sources. No filters means all retained source-local completed cycles.
 
+The existing `phase-span` command additionally accepts `operator_wait` and
+`external_wait` operations. Those operations are Excluded Pauses. Every other
+operation is an Autonomous Interval. Existing operation values retain their
+meaning and need no migration.
+
 The response is schema version `1`:
 
 ```json
@@ -112,6 +117,11 @@ The response is schema version `1`:
     "p50": "unavailable",
     "p90": "unavailable"
   },
+  "calendar_elapsed_ms": {
+    "mean": "unavailable",
+    "p50": "unavailable",
+    "p90": "unavailable"
+  },
   "quality": {
     "gate_failures": 0,
     "gate_reopenings": 0,
@@ -120,19 +130,24 @@ The response is schema version `1`:
 }
 ```
 
-Empty populations return unavailable aggregates and zero counts. The response
-contains aggregate values only; per-cycle timing remains in the private store.
+Empty populations return unavailable aggregates and zero counts. Calendar
+aggregates include every selected completed cycle with a valid creation and
+completion interval; autonomous aggregates include only complete timing. The
+response contains aggregate values only; per-cycle timing remains private.
 
 ## Contracts
 
 - Helper timestamps are authoritative; message persistence times are prohibited.
 - Autonomous runtime uses an interval union, never a sum that double-counts
   nested or concurrent work.
+- `operator_wait` and `external_wait` are the only Excluded Pause operations;
+  every other Phase Span operation is autonomous.
 - Explicit pauses must not overlap Autonomous Intervals. Overlap fails closed as
   partial rather than subtracting guessed time.
 - Internal provider, tool, QA, and dependency waits remain in autonomous runtime.
-- Percentiles use deterministic nearest rank: `ceil(p * n) - 1`, clamped to the
-  sorted sample bounds. Mean uses integer floor division.
+- Autonomous and calendar percentiles use deterministic nearest rank:
+  `ceil(p * n) - 1`, clamped to the sorted sample bounds. Means use integer floor
+  division.
 - Coverage is integer basis points: `complete * 10000 // completed`.
 - Existing Phase Span and Cycle Record schemas remain readable. Missing new
   evidence normalizes to unavailable without migration.
