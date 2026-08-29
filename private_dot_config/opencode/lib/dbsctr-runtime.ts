@@ -344,7 +344,14 @@ export async function phaseSpan(args: {
   ownershipPaths?: string[]
   attribution?: "explicit" | "adapter" | "unavailable"
   result?: "passed" | "failed" | "blocked" | "abandoned" | "unavailable"
-}, cwd = process.cwd()) {
+}, cwd = process.cwd(), timeoutMs = 30_000) {
+  if (args.event === "start" && (args.phase === undefined || args.operation === undefined
+      || args.attribution === undefined || args.result !== undefined))
+    throw new Error("phase span start requires phase, operation, and attribution only")
+  if (args.event === "finish" && (args.result === undefined || args.parentSpanID !== undefined
+      || args.phase !== undefined || args.operation !== undefined || args.attribution !== undefined
+      || (args.dependencies?.length ?? 0) > 0 || (args.ownershipPaths?.length ?? 0) > 0))
+    throw new Error("phase span finish requires only span ID and result")
   const argv = ["dbsctrctl", "phase-span", "--span-id", args.spanID, "--event", args.event]
   const values: [string, string | undefined][] = [
     ["parent-span-id", args.parentSpanID], ["phase", args.phase], ["operation", args.operation],
@@ -353,7 +360,7 @@ export async function phaseSpan(args: {
   for (const [name, value] of values) if (value !== undefined) argv.push(`--${name}`, value)
   for (const dependency of args.dependencies ?? []) argv.push("--dependency", dependency)
   for (const path of args.ownershipPaths ?? []) argv.push("--path", path)
-  return await run(argv, cwd)
+  return await runBounded(argv, cwd, timeoutMs)
 }
 
 export async function validateExecutionDag(nodes: {

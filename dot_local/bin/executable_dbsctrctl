@@ -7656,6 +7656,15 @@ def command_phase_span(args):
     record_path, record = load(root_dir())
     require_active(record)
     cycle_id = record["cycle_id"]
+    if args.event == "start":
+        if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
+            fail("phase span start requires phase, operation, and attribution only")
+        dependencies = sorted(set(args.dependency or []))
+        ownership = sorted(set(phase_path(item) for item in (args.path or [])))
+    else:
+        if args.result is None or any(value is not None for value in (
+                args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
+            fail("phase span finish requires only span ID and result")
     root = review_root(args.state_root)
     if not OPAQUE_ID.fullmatch(args.span_id):
         fail("invalid phase span ID")
@@ -7668,10 +7677,6 @@ def command_phase_span(args):
         try:
             connection.execute("BEGIN IMMEDIATE")
             if args.event == "start":
-                if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
-                    fail("phase span start requires phase, operation, and attribution only")
-                dependencies = sorted(set(args.dependency or []))
-                ownership = sorted(set(phase_path(item) for item in (args.path or [])))
                 row = (cycle_id, args.span_id, args.parent_span_id, args.phase, args.operation,
                        args.attribution, ledger_payload(dependencies), ledger_payload(ownership),
                        timestamp, None, None)
@@ -7704,9 +7709,6 @@ def command_phase_span(args):
                     if any(existing[name] != expected[name] for name in comparable):
                         fail("phase span ID conflicts with existing marker")
             else:
-                if args.result is None or any(value is not None for value in (
-                        args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
-                    fail("phase span finish requires only span ID and result")
                 row = connection.execute(
                     "SELECT started_at, finished_at, result FROM phase_spans WHERE cycle_id=? AND span_id=?",
                     (cycle_id, args.span_id),
