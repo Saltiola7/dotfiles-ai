@@ -202,6 +202,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Official Homebrew formula, hash-triggered installer, migration guidance, regression coverage, and live macOS verification |
 | Overrides | Homebrew remains a documented macOS prerequisite; Herdr and unrelated developer tools remain externally installed; Linux guests keep their existing OpenCode provisioner |
 
+### DAI-035 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the private state authority used by live autonomous dispatch |
+| Delivery intent | Repair and deploy host Hermes scheduling, verify eligible lens exhaustion, then publish a draft pull request |
+| Scope | R&D launch retry state, readiness compatibility, guarded Hermes health, moved-source cutover, focused tests, deployment, and operation proof |
+| Overrides | Preserve scheduler schema 8, retained cadence, outcome history, and external-state validation; historical delivery artifacts retain their original DAI-032 names |
+
 ### DAI-023 Cycle Overrides
 
 | Field | Value |
@@ -288,9 +297,9 @@ DAI-024 adds the optional personal Atuin service and host loopback ingress shown
 below. It does not change approval or delivery handoff, so the existing sequence
 and its Text Equivalent remain current.
 
-DAI-032 changes host package ownership, launch recovery, and machine-local source
-selection without changing topology, approval, or trust boundaries; the same
-visuals remain current.
+DAI-032 changes host package ownership, while DAI-035 changes launch recovery and
+machine-local source selection. Neither changes topology, approval, or trust
+boundaries; the same visuals remain current.
 
 ```mermaid
 flowchart LR
