@@ -21,6 +21,18 @@
 - Targeted Chezmoi deployment, exact source identity, idempotence, Herdr skill
   identity, and deployed helper/plugin smokes passed.
 
+## 2026-08-27 - Portable OpenCode Package Ownership
+
+- Made `dotfiles-ai` the sole OpenCode package owner through the official
+  `anomalyco/tap/opencode` Homebrew formula and a hash-triggered, fail-loud
+  chezmoi installer.
+- Removed the duplicate personal Brewfile declaration in
+  `Saltiola7/dotfiles#9` while retaining the existing native-binary wrapper,
+  centralized state, and update authority.
+- Validation: 17 portable-distribution tests, rendered Bash syntax, idempotent
+  `brew bundle`, live OpenCode `1.18.23` checks, and the full suite of 486 tests
+  pass. Gate Commits: `4efa7f2`, `90bcb95`. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
 ## 2026-08-26 - DAI-031 R&D State Authority and Health
 
 - Centralized scheduler state and receipt resolution without migrating or
