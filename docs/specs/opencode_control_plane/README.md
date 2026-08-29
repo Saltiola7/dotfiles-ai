@@ -117,6 +117,15 @@
 | Scope | Remove generic XDG paths from the Herdr LaunchAgent while preserving explicit state roots and OpenCode wrapper routing |
 | Overrides | Existing panes remain active; the managed plist takes effect at the next natural server start; no data moves or permissions change |
 
+### OCP-40 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: unrestricted coordinator Bash can mutate local or external systems and bypass the structured `docs/**` edit boundary |
+| Delivery intent | Deploy the managed Discovery coordinator permission and deliver a draft pull request |
+| Scope | Interactive local CLI, API, notebook-kernel, and private-system investigation during single-context and Initiative Discovery |
+| Overrides | Native CLI/API access is preferred over browser automation; source edits remain out of role, and external, destructive, costly, or irreversible actions still require explicit user confirmation |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -147,12 +156,17 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Thin commands select native, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
+    P -->|Discovery command or tab| D[Discovery Coordinator]
+    D -->|Interactive investigation| I[Local CLI, APIs, and notebook kernels]
+    D -->|Policy-gated, locally filtered queries| E
+    D -->|Structured edits| Q[Durable docs artifacts]
+    D -->|Privacy-safe public facts| R[Scout]
     B -->|Generic bounded work| X[Inheriting subagents]
     G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
     C -->|Bedrock only| A[Bedrock subagents]
@@ -165,14 +179,21 @@ flowchart TD
     B -->|Desktop approval required| M[Official 1Password Environment MCP]
 ```
 
-**Text Equivalent:** Thin commands select a native or provider-affine primary.
+**Text Equivalent:** Thin commands select a native, Discovery, or provider-affine primary.
 Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents. `build-gpt` routes read-only Explore to Luna, Scout and
+inheriting subagents. The Discovery Coordinator may investigate through unrestricted
+local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
+through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy-safe
+public facts. Governed private result bodies remain local; only locally filtered,
+privacy-safe metadata enters model context. Unrestricted Discovery Bash can reach
+the external boundary under prompt and standing policy rather than OpenCode command
+matching. `build-gpt` routes read-only Explore to Luna, Scout and
 Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
 lifecycle skills and typed local adapters. Validated local effects may reach the
 worktree or private local state; external or destructive effects remain
-permission-gated. Host Build may request official 1Password Environment
+permission-gated for Build and confirmation-gated by policy for unrestricted
+Discovery Bash. Host Build may request official 1Password Environment
 operations, but the desktop app retains approval and the MCP never returns secret
 values or manages Password Manager vaults. The control-plane owner updates this view when routing,
 delegation, loaded skills, adapters, permissions, or provider boundaries change.
@@ -260,6 +281,7 @@ database. Any failed guest smoke check restores that backup.
 | Integration Evidence | Tests, contracts, diff coherence, and downstream checks; not a generic request for the model to review itself again. |
 | Evaluation Cohort | Five comparable completed cycles evaluated under one versioned rubric without automatic remediation authority. |
 | Scoped Runtime Environment | Component-specific state variables exported only to the runtime that owns their paths, rather than inherited by every child process. |
+| Discovery Coordinator | User-facing primary that investigates and coordinates Discovery, persists durable `docs/**` artifacts, and requests exact approval before launching a ready slice. |
 
 ## Behavior
 
@@ -273,6 +295,18 @@ the command uses that primary and does not force OpenAI.
 Given a Plan primary, edits are denied and Bash requires approval. Given a Build
 primary, local commands run by default while known external, destructive,
 deployment, publishing, and Git-write commands require approval.
+
+### Interactive Discovery permissions
+
+Given the Discovery Coordinator needs live local or private-system evidence, when
+it investigates a bounded question, then unrestricted Bash is available for the
+native CLI, API, or notebook-kernel path. It does not use browser automation as a
+shell proxy when a direct interface exists. Its structured edit permission remains
+limited to `docs/**`, but Bash is not a filesystem or side-effect sandbox; external,
+destructive, costly, irreversible, and material scope-expansion actions retain the
+user-confirmation boundary. Governed private result bodies remain local and only
+locally filtered, privacy-safe metadata or bounded typed-adapter output may enter
+hosted-model context.
 
 ### Scoped centralized state
 
@@ -832,7 +866,12 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 ### Initiative Discovery Orchestration
 
-`/discovery` routes to a docs-only coordinator. A global OpenCode plugin reads
+`/discovery` routes to an interactive coordinator with unrestricted Bash and a
+`docs/**`-scoped structured edit tool. The coordinator prefers native CLI, API,
+and notebook-kernel interfaces over browser automation, while user confirmation
+remains required for external, destructive, costly, irreversible, or materially
+expanded effects. It keeps governed private result bodies local and admits only
+locally filtered, privacy-safe evidence to model context. A global OpenCode plugin reads
 repository-relative Initiative manifests, invokes deterministic validation, and
 injects only the durable path, digest, state, and ready-slice IDs into normal and
 pre-compaction context. Invalid manifests block readiness rather than falling
@@ -862,13 +901,17 @@ Herdr identities remain private advisory correlation only.
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
-| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch | Plugin, helper, fork/fallback, and typed-approval fixtures | Required when Initiative orchestration changes |
+| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 
 ## Risks
 
 - Bash patterns are guardrails, not an OS sandbox.
+- Discovery Coordinator Bash is unrestricted and can bypass its structured
+  `docs/**` edit boundary. Its role prompt and the standing confirmation policy,
+  not OpenCode command matching, guard source, external, destructive, costly, and
+  irreversible effects.
 - A same-user host agent may request 1Password Environment mutations. The desktop
   app's explicit approval and lock state remain the authorization boundary; review
   prompts before approving writes and disable the MCP integration to revoke access.
