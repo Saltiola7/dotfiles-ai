@@ -65,61 +65,92 @@ managed workspace state are outside deletion scope.
 
 ## Execution Safety
 
-Run the following sequence from the host. Any failed assertion stops retirement.
+Run the following as one strict-mode shell after setting the four workspace
+variables from machine-local configuration. Any failed assertion stops the
+sequence. An unexpected process, scheduler, container, client, path, or root is
+an abort condition.
 
-1. Prove both replacements before changing host state:
+```sh
+set -euo pipefail
+: "${WORKSPACE_A:?}" "${WORKSPACE_B:?}"
+: "${WORKSPACE_INSTANCE_A:?}" "${WORKSPACE_INSTANCE_B:?}"
+: "${LIMA_HOME:?}" "${DOTFILES_AI_STATE_ROOT:?}"
 
-   ```sh
-   workspace_a=${WORKSPACE_A:?}
-   workspace_b=${WORKSPACE_B:?}
-   sandbox-vm shell "$workspace_a" -- docker compose version
-   sandbox-vm shell "$workspace_a" -- podman info --format '{{.Host.Security.Rootless}}'
-   sandbox-vm shell "$workspace_b" -- docker compose version
-   sandbox-vm shell "$workspace_b" -- podman info --format '{{.Host.Security.Rootless}}'
-   curl -fsS http://127.0.0.1:8889/healthz
-   ```
+abort() { printf 'retirement blocked: %s\n' "$1" >&2; exit 1; }
+replacement_probes() {
+    sandbox-vm shell "$WORKSPACE_A" -- docker compose version
+    test "$(sandbox-vm shell "$WORKSPACE_A" -- podman info --format '{{.Host.Security.Rootless}}')" = true
+    sandbox-vm shell "$WORKSPACE_B" -- docker compose version
+    test "$(sandbox-vm shell "$WORKSPACE_B" -- podman info --format '{{.Host.Security.Rootless}}')" = true
+    test "$(curl -fsS http://127.0.0.1:8889/healthz)" = '{"status":"healthy"}'
+}
+consumer_probes() {
+    test "$(docker context show)" = colima
+    expected=$(printf '%s\n' camplan-consumer-001-db-1 camplan-consumer-001-redis-1 | sort)
+    test "$(docker ps --format '{{.Names}}' | sort)" = "$expected"
+    clients=$(docker exec camplan-consumer-001-db-1 psql -U postgres \
+        -d enterprise_seo_tools -Atc \
+        "select count(*) from pg_stat_activity where pid <> pg_backend_pid() and backend_type = 'client backend'")
+    test "$clients" = 0
+    test "$(docker exec camplan-consumer-001-redis-1 redis-cli --raw client list | wc -l | tr -d ' ')" = 1
+    ! lsof -nP -iTCP:5433 -iTCP:6380 -sTCP:ESTABLISHED
+}
 
-2. Require exactly the known idle Camplan database and Redis containers, no
-   external database clients, no Redis client beyond the probe itself, and no
-   established host-port connection:
+lima_home=$(cd "$LIMA_HOME" && pwd -P)
+state_root=$(cd "$DOTFILES_AI_STATE_ROOT" && pwd -P)
+test "$lima_home" != / && test "$state_root" != /
+test "$lima_home" != "$HOME" && test "$state_root" != "$HOME"
+test -f "$state_root/.dotfiles-ai-state"
+colima_vm="$lima_home/colima"
+colima_state="$state_root/colima"
+protected_a="$lima_home/$WORKSPACE_INSTANCE_A"
+protected_b="$lima_home/$WORKSPACE_INSTANCE_B"
+test -d "$protected_a" && test -d "$protected_b"
+for protected in "$protected_a" "$protected_b"; do
+    case "$colima_vm" in "$protected"|"$protected"/*) abort "overlapping Lima path" ;; esac
+    case "$colima_state" in "$protected"|"$protected"/*) abort "overlapping state path" ;; esac
+done
 
-   ```sh
-   test "$(docker context show)" = colima
-   test "$(docker ps --format '{{.Names}}' | sort)" = "$(printf '%s\n' camplan-consumer-001-db-1 camplan-consumer-001-redis-1 | sort)"
-   test "$(docker exec camplan-consumer-001-db-1 psql -U postgres -d enterprise_seo_tools -Atc "select count(*) from pg_stat_activity where pid <> pg_backend_pid() and backend_type = 'client backend'")" = 0
-   test "$(docker exec camplan-consumer-001-redis-1 redis-cli --raw client list | wc -l | tr -d ' ')" = 1
-   ! lsof -nP -iTCP:5433 -iTCP:6380 -sTCP:ESTABLISHED
-   ```
+replacement_probes
+consumer_probes
+pgrep -af 'CAMPLAN-CONSUMER-001|camplan-consumer-001' && abort "Camplan process found"
+launchctl list | grep -qi camplan && abort "Camplan LaunchAgent found"
+crontab -l 2>/dev/null | grep -qi camplan && abort "Camplan cron found"
 
-3. Prevent automatic restart, stop the exact project without a volume flag, and
-   prove no container remains running:
+launchctl disable "gui/$(id -u)/dev.dotfiles.colima-atuin"
+launchctl print-disabled "gui/$(id -u)" | grep -q '"dev.dotfiles.colima-atuin" => true'
+consumer_probes
+camplan_compose=$(docker inspect camplan-consumer-001-db-1 \
+    --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}')
+test -f "$camplan_compose"
+docker compose -f "$camplan_compose" -p camplan-consumer-001 down --remove-orphans
+test -z "$(docker ps -q)"
+launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
 
-   ```sh
-   launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
-   camplan_compose=$(docker inspect camplan-consumer-001-db-1 --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}')
-   test -f "$camplan_compose"
-   docker compose -f "$camplan_compose" -p camplan-consumer-001 down --remove-orphans
-   test -z "$(docker ps -q)"
-   ```
+docker context use default
+colima delete --data --force
+if docker context inspect colima >/dev/null 2>&1; then docker context rm colima; fi
+! docker context inspect colima >/dev/null 2>&1
+rm -rf "$colima_vm" "$colima_state"
+rm -f "$HOME/.local/bin/start-colima-atuin" \
+    "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist" \
+    "$HOME/Library/Logs/colima-atuin.log"
+brew uninstall colima docker docker-compose docker-buildx docker-credential-helper
 
-4. Remove only the host fallback. Both configured managed workspace directories
-   must still exist before and after deletion:
+! launchctl print "gui/$(id -u)/dev.dotfiles.colima-atuin" >/dev/null 2>&1
+test ! -e "$colima_vm" && test ! -e "$colima_state"
+test ! -e "$HOME/.local/bin/start-colima-atuin"
+test ! -e "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist"
+! command -v colima && ! command -v docker && ! command -v docker-compose
+! limactl list --json | grep -q '"name":"colima"'
+! lsof -nP -iTCP:5433 -iTCP:6380 -iTCP:8888 -sTCP:LISTEN
+test -d "$protected_a" && test -d "$protected_b"
+brew list --versions lima podman qemu
+replacement_probes
+```
 
-   ```sh
-   test -d "${LIMA_HOME:?}/${WORKSPACE_INSTANCE_A:?}"
-   test -d "$LIMA_HOME/${WORKSPACE_INSTANCE_B:?}"
-   docker context use default
-   docker context rm colima
-   colima delete --data --force
-   rm -rf "$LIMA_HOME/colima" "${DOTFILES_AI_STATE_ROOT:?}/colima"
-   rm -f "$HOME/.local/bin/start-colima-atuin" "$HOME/Library/LaunchAgents/dev.dotfiles.colima-atuin.plist" "$HOME/Library/Logs/colima-atuin.log"
-   brew uninstall colima docker docker-compose docker-buildx docker-credential-helper
-   ```
-
-5. Verify no retired process, package, path, context, socket, or listener remains;
-   then repeat the replacement and Atuin probes from step 1. The absence of host
-   Docker is intentional. Do not remove Lima, Podman, QEMU, or either managed
-   workspace.
+The absence of host Docker is intentional. Do not remove Lima, Podman, QEMU, or
+either managed workspace.
 
 ## Review
 
