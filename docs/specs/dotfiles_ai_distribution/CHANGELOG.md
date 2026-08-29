@@ -11,7 +11,7 @@
 - Fifty-five affected R&D and PM tests, canonical tickets, rendered deployment,
   drift checks, schema migration, and guarded launchd health passed. The operator
   approved deferring pass 26 until the draft merges and the dirty configured
-  source is reconciled. Gate Commit: `39cd463`; intended Final Push is the feature
+  source is reconciled. Gate Commits: `39cd463`, `12bf51e`; intended Final Push is the feature
   branch and draft pull request into protected `main`.
 
 ## 2026-08-28 - Initiative Runtime Distribution

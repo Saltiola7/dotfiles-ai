@@ -24,6 +24,7 @@ updated: "2026-08-29"
 completed: "2026-08-29"
 commits:
   - "39cd463"
+  - "12bf51e"
 jira_publications: []
 migration: null
 ---
@@ -81,7 +82,7 @@ validation, and claims based on a partial federated history source set.
 
 ## Evidence
 
-The first Gate Commit added scheduler schema 8, health schema 3, bounded launch
+The Gate Commits added scheduler schema 8, health schema 3, bounded launch
 backoff, guarded launchd readiness, and schema-compatible autonomous evidence.
 All 41 R&D tests and the direct readiness consumer pass. Targeted deployment is
 drift-free, retained cadence and 25 passes survived migration, and launchd runs
