@@ -5,7 +5,7 @@ slug: "enable-interactive-discovery-shell"
 context: "opencode_control_plane"
 title: "Enable interactive Discovery Coordinator shell research"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
@@ -22,8 +22,9 @@ validation:
   - "Focused lifecycle and control-plane tests, resolved configuration, targeted chezmoi deployment, and a fresh coordinator shell smoke pass"
 created: "2026-08-28"
 updated: "2026-08-28"
-completed: null
-commits: []
+completed: "2026-08-28"
+commits:
+  - "71ae56454b7c7d22701288ced46e066cf1cc64f8"
 jira_publications: []
 migration: null
 ---
@@ -70,8 +71,20 @@ effective safeguards.
 
 ## Evidence
 
-Pending implementation.
+- The focused regression first failed on the coordinator's missing `bash: allow`,
+  then the lifecycle and control-plane suites passed 72 tests.
+- Canonical ticket validation reports only the pre-existing duplicate `DAI-032`
+  baseline; OCP-40 has no finding.
+- Independent elevated-risk review found no remaining issue after the private-result
+  boundary and explicit external-shell trust edge were added.
+- Targeted chezmoi preview changed only the coordinator, apply completed, managed
+  diff is empty, and deployed source identity matches the Gate Commit.
+- A fresh OpenCode process resolved `bash: allow`, retained ordered `docs/**` edit
+  rules and ask-gated Initiative launch, and executed a coordinator `pwd` shell smoke.
+- Existing OpenCode processes require restart to load the changed agent definition.
 
 ## Review
 
-Pending implementation and deployment.
+Unrestricted Bash is deliberate and user-selected. The prompt cannot sandbox the
+shell, so governed private bodies stay local, consequential effects retain explicit
+confirmation policy, and least-privileged system controls remain authoritative.
