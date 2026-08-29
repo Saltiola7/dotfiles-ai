@@ -7,6 +7,15 @@
   the provider-neutral Build primary for fork and fresh fallback paths.
 - Failed launch recovery preserves delivery intent and requires fresh exact
   approval for any semantic change.
+- Affected control-plane/lifecycle validation passed 72 tests. Independent
+  elevated-risk review found no remaining high or medium issue after removing
+  caller control of the inferred protected base.
+- Targeted chezmoi preview/apply changed only the runtime adapter, typed tools,
+  coordinator, and Discovery skill; deployed files are source-identical and the
+  deployed resolver plus a fresh coordinator shell smoke passed. Existing
+  OpenCode processes require restart. Gate Commit: `43dda62`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
 
 ## 2026-08-28 - Interactive Discovery Shell
 

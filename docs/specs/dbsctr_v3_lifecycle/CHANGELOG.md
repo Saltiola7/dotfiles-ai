@@ -5,6 +5,11 @@
 - Bound the target origin's resolved default branch into Initiative approval and
   cycle creation, separated Discovery coordination from Build activation, and
   preserved approved delivery intent across failure recovery.
+- Fork, fresh fallback, approval-time branch drift, and ordinary Build attachment
+  regressions pass in the 72-test affected suite. Independent elevated-risk
+  review found no remaining high or medium issue. Gate Commit: `43dda62`. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
 
 ## 2026-08-28 - V3.38 Initiative Discovery
 
