@@ -11,7 +11,27 @@
 - Fifty-five affected R&D and PM tests, canonical tickets, rendered deployment,
   drift checks, schema migration, and guarded launchd health passed. The operator
   approved deferring pass 26 until the draft merges and the dirty configured
-  source is reconciled. Gate Commits: `39cd463`, `12bf51e`; intended Final Push is the feature
+  source is reconciled. Gate Commits: `39cd463`, `12bf51e`; intended Final Push
+  is the feature branch and draft pull request into protected `main`.
+
+## 2026-08-28 - DAI-033-1 Host Container Runtime Retirement
+
+- Made managed Fedora Lima workspaces with rootless Podman the only supported
+  local container runtime and changed portable shell paths to derive from runtime
+  `$HOME`.
+- Removed host-runtime fallback guidance from current configuration, operations,
+  behavior, and maintenance contracts while preserving historical records.
+- Proved both guest Compose paths, zero active Camplan consumers, and healthy
+  Atuin before disabling stale startup and permanently deleting the approved
+  no-backup host runtime state.
+- Removed the host Docker CLI, Compose, Buildx, and credential helper. Homebrew
+  unexpectedly autoremoved Lima and `usage`; Lima was restored at 2.2.0 and
+  `usage` at 6.5.0 before final managed-workspace and Atuin probes passed.
+- Affected QA passed 78 tests, Ruff, ticket validation, Git whitespace checks,
+  live runtime postconditions, and independent review. Gate Exceptions: none.
+  Gate Commits: `9d7e750`, `97ca69f`, `564d033`, `d021521`, `cc37c05`,
+  `205b620`, `0e8cfa3`, `80ccdd8`, `9feb34d`, `e00ad53`, `12742be`,
+  `fe731c0`, `402a943`, `7dd64ed`, `1f5e038`. Intended Final Push: feature
   branch and draft pull request into protected `main`.
 
 ## 2026-08-28 - Initiative Runtime Distribution

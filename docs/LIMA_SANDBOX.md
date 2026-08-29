@@ -244,8 +244,7 @@ Lima home with sparse-disk preservation. Validate each disk and start instances
 from the new home before removing the old tree. Roll back by stopping instances,
 restoring the prior `lima_home`, and restarting from the retained source copy.
 
-To verify Colima compatibility, first stop the guest project stack, start Colima,
-and run the project command on macOS with any required project-owned host path or
-identity overrides. Never use `down --volumes`, run both project stacks at once,
-or start the retained Colima Atuin service while the Lima Podman Atuin service is
-authoritative. Stop Colima and restore the Podman stack when validation ends.
+Host container runtimes are unsupported. Run project Compose commands inside the
+configured workspace, where the guest-only `docker` command targets rootless
+Podman. Before deleting a workspace, stop project services and handle named-volume
+data according to that project's retention contract.

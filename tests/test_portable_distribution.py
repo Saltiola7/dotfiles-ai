@@ -213,6 +213,9 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert (ROOT / "dot_bashrc").read_text().count('eval "$(atuin init bash)"') == 1
     assert (ROOT / "dot_bash_profile").exists()
     assert (ROOT / "dot_common_profile.tmpl").exists()
+    profile = (ROOT / "dot_common_profile.tmpl").read_text()
+    assert 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' in profile
+    assert "/Users/" not in profile
     assert (ROOT / "private_dot_config/starship.toml").exists()
     atuin = (ROOT / "private_dot_config/atuin/private_config.toml.tmpl").read_text()
     assert "{{ .dotfiles_ai.atuin.sync_address | quote }}" in atuin
@@ -244,6 +247,41 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
 
 
+def test_guest_profile_resolves_runtime_home_tools(tmp_path: Path) -> None:
+    docker = tmp_path / ".local/bin/docker"
+    docker.parent.mkdir(parents=True)
+    docker.write_text("#!/bin/sh\n")
+    docker.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", "-c", f'source "{ROOT / "dot_common_profile.tmpl"}"; command -v docker'],
+        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == str(docker)
+
+
+def test_current_distribution_contract_has_no_colima_fallback() -> None:
+    current_docs = [
+        ROOT / "config.example.toml",
+        ROOT / "docs/LIMA_SANDBOX.md",
+        ROOT / "docs/ATUIN_PODMAN.md",
+    ]
+    assert all("colima" not in path.read_text().lower() for path in current_docs)
+
+    spec = (ROOT / "docs/specs/dotfiles_ai_distribution/README.md").read_text()
+    current_contract = spec.split("## Bounded Context", 1)[1]
+    assert "colima" not in current_contract.lower()
+
+    assert "Colima remains installed and retained" in spec
+    changelog = (ROOT / "docs/specs/dotfiles_ai_distribution/CHANGELOG.md").read_text()
+    assert "Colima remains stopped as" in changelog
+    assert (ROOT / "docs/tickets/context=dotfiles_ai_distribution/DAI-024-moved-self-hosted-atuin-from-colima-to-pinned-rootless-podman-in-the-sel.md").exists()
+
+
 def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
     installer = (ROOT / "run_onchange_after_install-guest-development-tools.sh.tmpl").read_text()
     shim = (ROOT / "dot_local/bin/executable_docker").read_text()
@@ -257,6 +295,28 @@ def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
     assert "a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71" in installer
     assert 'PODMAN_COMPOSE_PROVIDER="$HOME/.docker/cli-plugins/docker-compose"' in shim
     assert 'exec podman compose "$@"' in shim
+
+
+def test_guest_docker_shim_forwards_compose(tmp_path: Path) -> None:
+    podman = tmp_path / "podman"
+    result_file = tmp_path / "result"
+    podman.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PODMAN_COMPOSE_PROVIDER" "$*" > "$RESULT_FILE"\n')
+    podman.chmod(0o755)
+
+    subprocess.run(
+        ["/bin/sh", str(ROOT / "dot_local/bin/executable_docker"), "compose", "up", "-d"],
+        env={
+            "HOME": str(tmp_path),
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "RESULT_FILE": str(result_file),
+        },
+        check=True,
+    )
+
+    assert result_file.read_text().splitlines() == [
+        f"{tmp_path}/.docker/cli-plugins/docker-compose",
+        "compose up -d",
+    ]
 
 
 def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
