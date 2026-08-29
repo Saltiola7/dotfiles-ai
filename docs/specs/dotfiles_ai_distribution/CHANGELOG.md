@@ -13,6 +13,12 @@
 - Removed the host Docker CLI, Compose, Buildx, and credential helper. Homebrew
   unexpectedly autoremoved Lima and `usage`; Lima was restored at 2.2.0 and
   `usage` at 6.5.0 before final managed-workspace and Atuin probes passed.
+- Affected QA passed 78 tests, Ruff, ticket validation, Git whitespace checks,
+  live runtime postconditions, and independent review. Gate Exceptions: none.
+  Gate Commits: `9d7e750`, `97ca69f`, `564d033`, `d021521`, `cc37c05`,
+  `205b620`, `0e8cfa3`, `80ccdd8`, `9feb34d`, `e00ad53`, `12742be`,
+  `fe731c0`, `402a943`, `7dd64ed`, `1f5e038`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
 
 ## 2026-08-28 - Initiative Runtime Distribution
 
