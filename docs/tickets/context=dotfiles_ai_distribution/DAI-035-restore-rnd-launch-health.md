@@ -1,6 +1,6 @@
 ---
 schema_version: 1
-id: "DAI-032"
+id: "DAI-035"
 slug: "restore-rnd-launch-health"
 context: "dotfiles_ai_distribution"
 title: "Restore R&D launch health"
@@ -26,7 +26,7 @@ commits:
   - "39cd463"
   - "12bf51e"
 jira_publications: []
-migration: null
+migration: "canonical-id:DAI-032"
 ---
 
 ## Outcome
@@ -36,6 +36,10 @@ external-state guard, and backs off repeated OpenCode launch failures without
 advancing lens cadence or creating an unbounded retry storm.
 
 ## Context
+
+This ticket was originally delivered as `DAI-032`, which collided with the
+canonical portable OpenCode package ticket. Its identity is now `DAI-035`;
+historical branch, pull-request, and commit references remain unchanged.
 
 The dotfiles source moved while the deployed runner and configured backlog root
 still selected the old checkout. The five-minute Hermes job continued reserving

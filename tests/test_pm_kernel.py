@@ -101,6 +101,11 @@ def test_ticket_check_rejects_duplicate_yaml_and_wrong_identity(tmp_path):
     assert json.loads(failed.stdout)["findings"][0]["code"] == "invalid_ticket_yaml"
 
 
+def test_repository_tickets_are_canonical():
+    checked = run(ROOT, "tickets", "check", check=False)
+    assert checked.returncode == 0, checked.stdout
+
+
 def test_migration_refuses_all_outputs_before_destination_conflict(tmp_path):
     init_git(tmp_path)
     backlog(tmp_path, "| EX-1 | Refine work | high | pending | - | code | docs | no | Needed | S | pytest |\n")
