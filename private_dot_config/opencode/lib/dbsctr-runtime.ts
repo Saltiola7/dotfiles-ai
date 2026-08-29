@@ -1378,6 +1378,7 @@ export async function beginCycle(args: {
   planPath: string
   githubAccount?: string
   githubRepository?: string
+  baseBranch?: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
   messageID: string
@@ -1422,6 +1423,7 @@ export async function beginCycle(args: {
     "--plan", args.planPath,
     ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
     ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
+    ...(args.baseBranch === undefined ? [] : ["--base-branch", args.baseBranch]),
     ...(initiative === undefined ? [] : [
       "--initiative-manifest", initiative.manifest_path, "--initiative-slice", initiative.slice_id,
       "--initiative-digest", initiative.manifest_digest,

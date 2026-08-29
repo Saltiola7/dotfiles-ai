@@ -1261,8 +1261,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   feature branch, creates a draft pull request, verifies draft state, and records
   its number and URL. It never updates the base branch or source checkout.
 - GitHub authentication is selected by configured non-secret account through a
-  project-owned wrapper. Tokens remain in the credential store and are never
-  accepted as helper arguments or persisted evidence.
+  project-owned wrapper. Tokens are resolved just in time into a process-local
+  environment and are never accepted as helper arguments or persisted evidence.
 - Human merge or close is an observed terminal outcome, not an authority granted
   to DBSCTR. Pull-request comments and revisions are outside the first slice.
 
@@ -1293,6 +1293,28 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   current evidence must descend from that merge; stale evidence blocks delivery.
   The verified reconciliation merge is the only non-Gate Commit admitted between
   the cycle baseline and Final Push.
+
+### V3.41 Deterministic Draft Delivery Contract
+
+- `begin` normalizes `merge` to `draft_pr` only when the configured delivery
+  branch is the declared Protected Base Branch. Other non-PR intents still fail
+  before fetch or worktree creation; low-level `start` remains explicit.
+- Draft begin derives the canonical `owner/repository` identity from the GitHub
+  `origin`. Omitted or matching bare repository input is canonicalized; a
+  mismatched full or bare identity fails before remote access.
+- The configured upstream fetch and push URLs must identify that same repository
+  and must not contain credentials. Authenticated network operations use its
+  canonical GitHub HTTPS URL, so SSH agents and ambient credential helpers cannot
+  select another account. URL rewriting fails closed; command-scoped credential
+  and empty extra-header settings override ambient authentication configuration.
+- Draft begin validates the explicit non-secret GitHub account before creating a
+  worktree. It never infers an account from the active GitHub CLI identity.
+- Draft begin and Final Push resolve that recorded account into a process-local
+  credential environment for Git fetch, remote inspection, feature-branch push,
+  and GitHub pull-request operations. They do not change the globally active
+  account or persist, print, or place the token in an argument.
+- Existing Cycle Records and low-level draft starts retain their recorded account
+  and repository semantics without migration.
 
 ### V3.20-V3.22 Analytics Program Overrides
 
@@ -2022,9 +2044,10 @@ exception. Tightened applicability or profile truth can reopen a passed gate.
 ```mermaid
 sequenceDiagram
     accTitle: Protected Final Push with target reconciliation
-    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, then pushes only the feature branch and creates a draft pull request.
+    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, resolves the recorded GitHub account, then pushes only the feature branch and creates a draft pull request.
     participant P as Primary
     participant D as DBSCTR helper
+    participant C as Credential store
     participant T as Protected target
     participant G as GitHub
     P->>D: Preview target reconciliation
@@ -2039,15 +2062,19 @@ sequenceDiagram
     end
     P->>D: Request Final Push
     D->>D: Revalidate lineage, evidence, branch, and clean state
-    D->>G: Push feature branch and create draft PR
+    D->>C: Resolve recorded GitHub account
+    C-->>D: Return process-local token
+    D->>G: Fetch, push feature branch, and create draft PR
 ```
 
 **Text Equivalent:** The primary previews the protected target before delivery.
 If it advanced, DBSCTR prepares only a no-commit merge; the primary resolves
 explicit conflicts, reruns validation over both change sets, and records the
 merge through Review/Integrate. Final Push revalidates lineage, evidence, branch,
-and cleanliness, then pushes only the feature branch and creates a draft pull
-request. If the target is already integrated, reconciliation makes no change.
+and cleanliness, resolves the account recorded by the cycle without changing the
+active global account, then uses that process-local credential to fetch, push
+only the feature branch, and create a draft pull request. If the target is already
+integrated, reconciliation makes no change.
 
 ## Visual Evidence
 
@@ -2056,7 +2083,7 @@ request. If the target is already integrated, reconciliation makes no change.
 | Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
 | Interaction | required: incident-capture, protected-delivery, and graph-promotion sequences | How do operational evidence, fixes, and one canonical graph reach protected delivery? | Incident, Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; incident, gate, graph, or delivery ordering changes |
 | State | required: gate and Incident state diagrams | Which gate and Incident transitions are legal? | Gate Ledger and Incident contracts | Lifecycle owner; gate or Incident transition changes |
-| Data/trust | required: context flowchart, incident sequence, and Text Equivalents | Which state is public, source-local private, or external? | Incident, Artifact Lifecycle, and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
+| Data/trust | required: context flowchart, incident and protected-delivery sequences, and Text Equivalents | Which state or credential is public, source-local private, or external? | Incident, Artifact Lifecycle, Evidence, and Final Push contracts | Lifecycle owner; persistence or trust boundary changes |
 | Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
 | Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
 | Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
@@ -2584,6 +2611,9 @@ the active worktree; they do not implement lifecycle transitions independently.
 `dbsctr_begin` returns the authoritative handoff and, when explicitly enabled in
 a Herdr pane, asks Herdr to start OpenCode in the new cycle worktree. Cycle
 creation remains successful and visible when optional Herdr launch fails.
+Its description directs protected-base merge delivery to `draft_pr`; the optional
+base branch reaches the helper unchanged, which remains authoritative for intent
+normalization and canonical repository derivation.
 
 Herdr is an execution/visibility plane only. It never approves gates, interprets
 agent status as evidence, commits, pushes, or removes worktrees. Chezmoi manages

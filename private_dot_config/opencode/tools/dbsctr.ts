@@ -508,7 +508,7 @@ export const improvement_update = tool({
 })
 
 export const begin = tool({
-  description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr.",
+  description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr. Protected-base merge delivery becomes draft_pr; githubRepository is derived from origin.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
@@ -517,6 +517,7 @@ export const begin = tool({
     planPath: tool.schema.string(),
     githubAccount: tool.schema.string().optional(),
     githubRepository: tool.schema.string().optional(),
+    baseBranch: tool.schema.string().optional(),
     launch: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
@@ -542,6 +543,7 @@ export const initiative_launch = tool({
     planPath: tool.schema.string(),
     githubAccount: tool.schema.string().optional(),
     githubRepository: tool.schema.string().optional(),
+    baseBranch: tool.schema.string().optional(),
     targetRepository: tool.schema.string().optional(),
   },
   async execute(args, context) {
@@ -572,6 +574,7 @@ export const initiative_launch = tool({
       plan_digest: planDigest,
       github_account: args.githubAccount ?? null,
       github_repository: args.githubRepository ?? null,
+      base_branch: args.baseBranch ?? null,
     })
     await context.ask({
       permission: "dbsctr_initiative_launch",

@@ -660,6 +660,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
 
 
 def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    assert tools.count("baseBranch: tool.schema.string().optional()") == 2
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     dbsctr_log = tmp_path / "dbsctr.log"
@@ -690,7 +692,7 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     script = (
         f'import {{ beginCycle }} from {json.dumps(str(runtime))};'
         'console.log(JSON.stringify(await beginCycle({cycleId:"x;touch nope",context:"ctx",risk:"routine",'
-        'deliveryIntent:"local",planPath:"/tmp/plan with spaces"},process.cwd(),'
+        'deliveryIntent:"local",planPath:"/tmp/plan with spaces",baseBranch:"develop"},process.cwd(),'
         'process.argv[1] === "launch",process.env)));'
     )
     env = {
@@ -711,7 +713,7 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     assert dbsctr_log.read_text().splitlines() == [
         "<begin>", "<--cycle-id>", "<x;touch nope>", "<--context>", "<ctx>",
         "<--risk>", "<routine>", "<--delivery-intent>", "<local>",
-        "<--plan>", "</tmp/plan with spaces>",
+        "<--plan>", "</tmp/plan with spaces>", "<--base-branch>", "<develop>",
     ]
     launched = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT, env=env, text=True,
                               capture_output=True, check=True)
@@ -1760,7 +1762,7 @@ const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"parent
 ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;}}}};
 console.log(await initiative_launch.execute({{
 manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,
-cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},
+cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},baseBranch:"develop",
 ...(process.env.TARGET ? {{targetRepository:process.env.TARGET}} : {{}})
 }},context));'''
     result = subprocess.run(
@@ -1780,7 +1782,7 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
-        "github_account": None, "github_repository": None,
+        "github_account": None, "github_repository": None, "base_branch": "develop",
     }
     assert calls.read_text().splitlines()[0:6] == [
         "<initiative-receipt>", "<--manifest>", "<docs/initiatives/test/MANIFEST.json>",
@@ -1788,6 +1790,7 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert "<--base-branch>\n<develop>" in calls.read_text()
     log = herdr_calls.read_text()
     assert "<--session>\n<parent-session>\n<--fork>" in log
     assert f'"manifest_digest":"{digest}"' in log
