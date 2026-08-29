@@ -5,7 +5,7 @@ slug: "preserve-recent-context-through-compaction"
 context: "opencode_control_plane"
 title: "Preserve recent context through OpenCode compaction"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
@@ -22,8 +22,9 @@ validation:
   - "Rendered JSON, OpenCode parser, focused control-plane tests, and affected-scope QA"
 created: "2026-08-29"
 updated: "2026-08-29"
-completed: null
-commits: []
+completed: "2026-08-29"
+commits:
+  - "4bb382bf3ae0df1fee6101c6cb3374a04cc8c4b0"
 jira_publications: []
 migration: null
 ---
@@ -62,8 +63,15 @@ recent tail remains dependent on compaction summaries or durable artifacts.
 
 ## Evidence
 
-Pending implementation.
+- The focused regression failed with `KeyError: 'compaction'` before the managed
+  block was added.
+- All 44 focused control-plane tests pass.
+- Rendered JSON, OpenCode 1.18.25 resolved configuration, canonical validation
+  of 178 tickets, and Git whitespace checks pass.
+- No managed configuration was applied and no OpenCode process was restarted.
 
 ## Review
 
-Pending final diff and affected-scope validation.
+The diff adds one managed value plus its direct specification and regression
+coverage. It deliberately leaves trigger, pruning, turn-count, reserve, model
+routing, and live runtime behavior unchanged until a future managed apply.

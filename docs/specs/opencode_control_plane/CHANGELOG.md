@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Managed Compaction Retention
+
+- Configured managed OpenCode sessions to preserve 65,536 recent tokens
+  verbatim after automatic compaction while inheriting OpenCode's trigger,
+  pruning, turn-count, and safety-reserve defaults.
+- The focused regression failed with missing `compaction` before implementation.
+  All 44 control-plane tests, rendered JSON, OpenCode 1.18.25 resolution, 178
+  canonical tickets, and Git whitespace validation pass. No managed config was
+  applied; a future apply requires an OpenCode restart. Gate Commit: `4bb382b`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull
+  request into protected `main`.
+
 ## 2026-08-29 - Fork-Defined Operational Incidents
 
 - Added `/incident` and provider-neutral typed scan, register, update, and forget
