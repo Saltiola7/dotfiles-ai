@@ -2553,8 +2553,9 @@ def read_initiative_manifest(source):
                     "release_group"}
     slices = {}
     for item in value["slices"]:
-        initiative_fields(item, slice_fields | ({"tickets"} if isinstance(item, dict)
-                                                   and "tickets" in item else set()), "slice")
+        optional = {field for field in ("tickets", "execution_owner")
+                    if isinstance(item, dict) and field in item}
+        initiative_fields(item, slice_fields | optional, "slice")
         identifier = item["id"]
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
             fail("slice ID is invalid")
@@ -2567,6 +2568,8 @@ def read_initiative_manifest(source):
         initiative_paths(item["artifacts"], f"artifacts for {identifier}")
         if not isinstance(item["release_group"], str) or not item["release_group"]:
             fail(f"release_group is invalid: {identifier}")
+        if item.get("execution_owner", "build") not in {"build", "discovery"}:
+            fail(f"execution_owner is invalid: {identifier}")
         if item["state"] not in {"captured", "discovering", "ready", "building", "delivered",
                                     "blocked", "deferred", "rejected"}:
             fail(f"slice state is invalid: {identifier}")
@@ -2682,6 +2685,8 @@ def initiative_receipt(source, slice_id, root=None):
         fail(f"unknown Initiative slice: {slice_id}")
     if item["state"] != "ready":
         fail(f"Initiative slice is not ready: {slice_id}")
+    if item.get("execution_owner", "build") != "build":
+        fail(f"Initiative slice is owned by Discovery and cannot issue a Build receipt: {slice_id}")
     identity = {}
     artifacts = sorted(set(item["artifacts"]).union(
         *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
@@ -2717,6 +2722,7 @@ def initiative_receipt(source, slice_id, root=None):
         "depends_on": item["depends_on"],
         "artifacts": artifacts,
         "release_group": release_groups.get(slice_id),
+        "execution_owner": "build",
         **identity,
     }
 
@@ -3134,8 +3140,12 @@ def command_begin(args):
             fail("Initiative context home does not match the target Git repository")
         if initiative["repository"].lower() != args.expected_repository.lower():
             fail("Initiative target repository changed after approval")
-    if initiative is not None and initiative["context"] != args.context:
-        fail("Initiative receipt context does not match the cycle context")
+    if initiative is not None:
+        if initiative["context"] != args.context:
+            fail("Initiative receipt context does not match the cycle context")
+    if args.resume_existing and initiative is None:
+        fail("resume-existing is limited to approved Initiative begin")
+    plan = read_plan(args.plan, args.expected_plan_digest)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
@@ -3148,7 +3158,49 @@ def command_begin(args):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
     if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
-        fail(f"cycle branch already exists: {branch_name}")
+        if not args.resume_existing:
+            fail(f"cycle branch already exists: {branch_name}")
+        record_path = cycle_dir(source) / "cycles" / f"{args.cycle_id}.json"
+        if not record_path.is_file():
+            fail("existing Initiative cycle record is missing")
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        worktree = record_worktree(source, record)
+        _, active_record = load(worktree)
+        require_active(active_record)
+        profile_path, profile_blob, gates, graphify = validate_plan(
+            worktree, args.context, args.delivery_intent, plan)
+        expected_plan = {"profile": profile_path, "gates": {
+            name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
+            for name, gate in gates.items()
+        }, **({"graphify": graphify} if graphify else {})}
+        protected_base = record.get("delivery", {}).get(
+            "base_branch" if args.delivery_intent == "draft_pr" else "protected_base_branch")
+        expected_github = ({"host": "github.com", "account": args.github_account,
+                            "repository": args.github_repository}
+                           if args.delivery_intent == "draft_pr" else None)
+        if (active_record != record or record.get("cycle_id") != args.cycle_id
+                or record.get("context") != args.context or record.get("risk") != args.risk
+                or record.get("delivery_intent") != args.delivery_intent
+                or record.get("initiative") != initiative
+                or record.get("git", {}).get("upstream") != target
+                or record.get("worktree", {}).get("created_by_dbsctr") is not True
+                or record.get("worktree", {}).get("branch") != branch_name
+                or not record_worktree_matches(source, record, worktree)
+                or branch(worktree) != branch_name or protected_base != args.base_branch
+                or (expected_github is not None
+                    and record.get("delivery", {}).get("github") != expected_github)
+                or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
+                or record.get("applicability_plan") != expected_plan):
+            fail("existing Initiative cycle does not match the approved launch")
+        opencode = record.get("runtime", {}).get("opencode", {})
+        print(json.dumps({
+            "cycle_id": record["cycle_id"], "branch": branch_name,
+            "worktree": str(worktree), "upstream": target,
+            "open": ["opencode", str(worktree)], "initiative": initiative,
+            "resumed": True,
+            "runtime_attached": bool(opencode.get("session_ids")),
+        }, sort_keys=True))
+        return
     repo_id = hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
     registry = worktree_registry_root()
     parent = Path(args.worktree_root).expanduser() if args.worktree_root else registry / repo_id
@@ -3156,7 +3208,6 @@ def command_begin(args):
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
     parent.mkdir(parents=True, exist_ok=True)
-    plan = read_plan(args.plan, args.expected_plan_digest)
     git(source, "worktree", "add", "-b", branch_name, str(worktree), target)
     worktree = worktree.resolve()
     try:
@@ -10972,6 +11023,7 @@ def parser():
     begin.add_argument("--initiative-source")
     begin.add_argument("--expected-plan-digest")
     begin.add_argument("--expected-repository")
+    begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")
     portabilize.add_argument("--cycle-id", required=True)
