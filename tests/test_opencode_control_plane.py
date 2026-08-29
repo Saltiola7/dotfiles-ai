@@ -660,6 +660,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
 
 
 def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    assert tools.count("baseBranch: tool.schema.string().optional()") == 1
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     dbsctr_log = tmp_path / "dbsctr.log"
@@ -690,7 +692,7 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     script = (
         f'import {{ beginCycle }} from {json.dumps(str(runtime))};'
         'console.log(JSON.stringify(await beginCycle({cycleId:"x;touch nope",context:"ctx",risk:"routine",'
-        'deliveryIntent:"local",planPath:"/tmp/plan with spaces"},process.cwd(),'
+        'deliveryIntent:"local",planPath:"/tmp/plan with spaces",baseBranch:"develop"},process.cwd(),'
         'process.argv[1] === "launch",process.env)));'
     )
     env = {
@@ -711,7 +713,7 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     assert dbsctr_log.read_text().splitlines() == [
         "<begin>", "<--cycle-id>", "<x;touch nope>", "<--context>", "<ctx>",
         "<--risk>", "<routine>", "<--delivery-intent>", "<local>",
-        "<--plan>", "</tmp/plan with spaces>",
+        "<--plan>", "</tmp/plan with spaces>", "<--base-branch>", "<develop>",
     ]
     launched = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT, env=env, text=True,
                               capture_output=True, check=True)
@@ -1794,6 +1796,7 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert "<--base-branch>\n<main>" in calls.read_text()
     log = herdr_calls.read_text()
     assert "<--session>\n<parent-session>\n<--fork>" in log
     assert f'"manifest_digest":"{digest}"' in log

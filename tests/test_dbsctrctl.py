@@ -140,14 +140,14 @@ class DbsctrctlTest(unittest.TestCase):
         return plan
 
     def start(self, intent="local", base_branch="main", account="example-user",
-              repository="example-user/dotfiles-ai"):
+              repository="example-user/dotfiles-ai", env=None):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
                    "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
                    "--base-branch", base_branch]
         if intent == "draft_pr":
             command += ["--github-account", account, "--github-repository", repository]
-        return run(self.repo, *command)
+        return run(self.repo, *command, env=env)
 
     def record_path(self, repo=None):
         return (repo or self.repo) / ".git/dbsctr/cycles/cycle-1.json"
@@ -1006,6 +1006,45 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-structured"])
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
+
+    def test_begin_normalizes_protected_merge_and_repository_identity(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_begin_delivery", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = SimpleNamespace(
+            delivery_intent="merge", base_branch="develop", github_account="Saltiola7",
+            github_repository=None,
+        )
+        with mock.patch.object(module, "git_repository_slug",
+                               return_value="Saltiola7/dotfiles-ai"):
+            module.normalize_begin_delivery(self.repo, args, "develop")
+        self.assertEqual(args.delivery_intent, "draft_pr")
+        self.assertEqual(args.github_repository, "Saltiola7/dotfiles-ai")
+
+        args.github_repository = "other/dotfiles-ai"
+        with mock.patch.object(module, "git_repository_slug",
+                               return_value="Saltiola7/dotfiles-ai"), \
+                self.assertRaisesRegex(RuntimeError, "must match configured GitHub repository"):
+            module.normalize_begin_delivery(self.repo, args, "develop")
+
+        with self.assertRaisesRegex(RuntimeError, "invalid remote"):
+            module.github_repository_from_url(
+                "https://token@github.com/Saltiola7/dotfiles-ai.git", "invalid remote"
+            )
+        destinations = [
+            SimpleNamespace(stdout="https://github.com/Saltiola7/dotfiles-ai.git\n"),
+            SimpleNamespace(stdout="git@github.com:other/dotfiles-ai.git\n"),
+        ]
+        with mock.patch.object(module, "git", side_effect=destinations), \
+                self.assertRaisesRegex(RuntimeError, "remote must match"):
+            module.github_remote_url(self.repo, "origin", "Saltiola7/dotfiles-ai")
+        local = SimpleNamespace(
+            delivery_intent="local", base_branch="develop", github_account=None,
+            github_repository=None,
+        )
+        with self.assertRaisesRegex(RuntimeError, "protected base branch"):
+            module.normalize_begin_delivery(self.repo, local, "develop")
 
     def test_begin_binds_fresh_initiative_receipt_to_cycle_record(self):
         remote = Path(self.temp.name) / "initiative-remote.git"
@@ -2869,6 +2908,7 @@ class DbsctrctlTest(unittest.TestCase):
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
+        github_url = "https://github.com/example-org/dotfiles-ai.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
@@ -2885,12 +2925,41 @@ class DbsctrctlTest(unittest.TestCase):
                        capture_output=True)
         subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
                        capture_output=True)
+        subprocess.run(["git", "remote", "set-url", "origin", github_url], cwd=self.repo, check=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
-        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
+        fake_bin = Path(self.temp.name) / "bin"
+        fake_bin.mkdir()
+        git_wrapper = fake_bin / "git"
+        git_wrapper.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "values = sys.argv[1:]\n"
+            "with open(os.environ['GIT_WRAPPER_LOG'], 'a') as log: log.write(repr(values) + '\\n')\n"
+            "rewrite = not (values[:2] == ['ls-remote', '--get-url'])\n"
+            "network = values and values[0] in {'fetch', 'ls-remote', 'push'}\n"
+            "args = [os.environ['REAL_GIT'], *[os.environ['LOCAL_GIT_REMOTE'] if rewrite and "
+            "(value == os.environ['GITHUB_GIT_URL'] or network and value == 'origin') else value "
+            "for value in values]]\n"
+            "os.execv(args[0], args)\n"
+        )
+        git_wrapper.chmod(0o755)
+        git_env = {
+            **isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "REAL_GIT": shutil.which("git"), "LOCAL_GIT_REMOTE": str(remote),
+            "GITHUB_GIT_URL": github_url,
+            "GIT_WRAPPER_LOG": str(Path(self.temp.name) / "git-wrapper.log"),
+        }
+        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai",
+                   env=git_env)
+        git_log_path = Path(git_env["GIT_WRAPPER_LOG"])
+        start_git_log = git_log_path.read_text()
+        self.assertIn("'origin'", start_git_log)
+        self.assertNotIn(github_url, start_git_log)
+        git_log_path.write_text("")
         home = Path(self.temp.name) / "home"
         home.mkdir()
-        worker_env = {**isolated_env(), "HOME": str(home)}
+        worker_env = {**git_env, "HOME": str(home)}
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         claim = json.loads(run(self.repo, "improvement-claim", "--session-id", "session-1",
@@ -2915,8 +2984,6 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
             "--path", "docs/specs/test/CHANGELOG.md")
         self.pass_gates()
-        fake_bin = Path(self.temp.name) / "bin"
-        fake_bin.mkdir()
         gh_log = Path(self.temp.name) / "gh.log"
         gh = fake_bin / "gh"
         gh.write_text(
@@ -2932,8 +2999,41 @@ class DbsctrctlTest(unittest.TestCase):
         )
         gh.chmod(0o755)
         env = {**worker_env, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GH_LOG": str(gh_log)}
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_github_env", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with mock.patch.dict(os.environ, {
+            **env, "GH_TOKEN": "ambient-wrong",
+            "GIT_CONFIG_PARAMETERS": "'http.extraHeader=Authorization: wrong'",
+            "GIT_TRACE": "1",
+        }, clear=True):
+            credential_env = module.github_environment("example-user")
+        self.assertNotIn("GIT_CONFIG_PARAMETERS", credential_env)
+        self.assertNotIn("GIT_TRACE", credential_env)
+        self.assertEqual(credential_env["GIT_CONFIG_KEY_2"], "http.extraHeader")
+        self.assertEqual(credential_env["GIT_CONFIG_VALUE_2"], "")
+        credentials = subprocess.run(
+            [shutil.which("git"), "credential", "fill"], text=True, capture_output=True,
+            input="protocol=https\nhost=github.com\n\n", env=credential_env, check=True,
+        ).stdout
+        self.assertIn("username=x-access-token", credentials)
+        self.assertIn("password=test-token", credentials)
+        self.assertNotIn("test-token", credential_env["GIT_CONFIG_VALUE_1"])
+        rewrite_key = f"url.{remote}.insteadOf"
+        subprocess.run([git_env["REAL_GIT"], "config", rewrite_key, github_url], cwd=self.repo,
+                       check=True)
+        with self.assertRaisesRegex(RuntimeError, "URL rewriting"):
+            module.require_canonical_github_url(self.repo, github_url, credential_env)
+        subprocess.run([git_env["REAL_GIT"], "config", "--unset-all", rewrite_key], cwd=self.repo,
+                       check=True)
         result = run(self.repo, "final-push", env=env)
         self.assertIn("draft_pr", result.stdout)
+        self.assertNotIn("test-token", result.stdout + result.stderr + self.record_path().read_text())
+        git_log = git_log_path.read_text()
+        self.assertIn(github_url, git_log)
+        self.assertIn("'fetch'", git_log)
+        self.assertIn("'push'", git_log)
         feature = subprocess.run(["git", "rev-parse", "refs/heads/dbsctr/test/cycle-1"], cwd=remote,
                                  check=True, text=True, capture_output=True).stdout.strip()
         main = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,

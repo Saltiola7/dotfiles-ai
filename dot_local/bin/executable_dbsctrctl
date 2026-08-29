@@ -93,8 +93,8 @@ def fail(message):
     raise RuntimeError(message)
 
 
-def git(root, *args, check=True):
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True)
+def git(root, *args, check=True, env=None):
+    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, env=env)
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
@@ -2447,19 +2447,80 @@ def initiative_repository(value, label):
         fail(f"{label} must be a canonical owner/repository identity")
 
 
-def git_repository_slug(root):
-    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+def github_repository_from_url(url, error):
     scp = re.fullmatch(r"(?:git@)?github\.com:([^/\s]+/[^/\s]+?)(?:\.git)?", url, re.IGNORECASE)
     if scp:
         return scp.group(1)
-    parsed = urlsplit(url)
-    if (parsed.scheme not in {"https", "ssh", "git"} or parsed.hostname != "github.com"
-            or parsed.query or parsed.fragment):
-        fail("Initiative repository must have a GitHub origin")
+    try:
+        parsed = urlsplit(url)
+        valid_user = parsed.username is None or parsed.scheme == "ssh" and parsed.username == "git"
+        valid = (parsed.scheme in {"https", "ssh", "git"} and parsed.hostname == "github.com"
+                 and valid_user and parsed.password is None and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        fail(error)
     match = re.fullmatch(r"/([^/\s]+/[^/\s]+?)(?:\.git)?/?", parsed.path)
     if not match:
-        fail("Initiative repository must have a GitHub origin")
+        fail(error)
     return match.group(1)
+
+
+def git_repository_slug(root):
+    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+    return github_repository_from_url(url, "Initiative repository must have a GitHub origin")
+
+
+def github_remote_url(root, remote, repository):
+    for push in (False, True):
+        args = ("remote", "get-url", "--push", remote) if push else ("remote", "get-url", remote)
+        url = git(root, *args, check=False).stdout.strip()
+        if not url or github_repository_from_url(
+                url, "draft_pr delivery requires GitHub fetch and push remotes"
+        ).lower() != repository.lower():
+            fail("draft_pr remote must match configured GitHub repository: " + repository)
+    return f"https://github.com/{repository}.git"
+
+
+def require_canonical_github_url(root, url, env):
+    effective = git(root, "ls-remote", "--get-url", url, env=env).stdout.strip()
+    if effective != url:
+        fail("Git URL rewriting is not allowed for draft_pr delivery")
+
+
+def fetch_github_branch(root, remote, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "fetch", url,
+        f"+refs/heads/{remote_branch}:refs/remotes/{remote}/{remote_branch}", env=env)
+
+
+def github_remote_head(root, url, remote_ref, env):
+    require_canonical_github_url(root, url, env)
+    return git(root, "ls-remote", "--heads", url, remote_ref, env=env).stdout.split()
+
+
+def push_github_branch(root, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "push", url, f"HEAD:{remote_branch}", env=env)
+
+
+def normalize_begin_delivery(root, args, delivery_branch):
+    if args.delivery_intent == "merge" and delivery_branch == args.base_branch:
+        args.delivery_intent = "draft_pr"
+    elif args.delivery_intent != "draft_pr" and delivery_branch == args.base_branch:
+        fail("direct delivery to the protected base branch requires draft_pr")
+    if args.delivery_intent != "draft_pr":
+        return
+    account = getattr(args, "github_account", None)
+    if not account or not OPAQUE_ID.fullmatch(account):
+        fail("draft_pr delivery requires a valid GitHub account")
+    repository = git_repository_slug(root)
+    supplied = getattr(args, "github_repository", None)
+    if supplied:
+        expected = repository if "/" in supplied else repository.rsplit("/", 1)[1]
+        if supplied.lower() != expected.lower():
+            fail("GitHub repository must match configured GitHub repository: " + repository)
+    args.github_repository = repository
 
 
 def initiative_acyclic(dependencies, label):
@@ -2945,7 +3006,7 @@ def completion_artifact_check(record):
 
 
 def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True):
+                portable=True, git_env=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -2980,11 +3041,21 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             fail("draft_pr delivery requires a feature branch distinct from its base")
         if not delivery_remote:
             fail("draft_pr delivery requires a configured remote")
-        git(root, "fetch", delivery_remote, protected_base_branch)
+        if git_env is None:
+            delivery_url = delivery_remote
+            git(root, "fetch", delivery_remote, protected_base_branch)
+        else:
+            delivery_url = github_remote_url(root, delivery_remote, repository)
+            fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
-        published_head = git(
-            root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
-        ).stdout.split()
+        if git_env is None:
+            published_head = git(
+                root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
+            ).stdout.split()
+        else:
+            published_head = github_remote_head(
+                root, delivery_url, f"refs/heads/{current_branch}", git_env
+            )
         if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
             fail("pre-cycle commits are not published on the feature branch")
         delivery = {
@@ -2992,8 +3063,11 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
             **({"published_feature_head": published_head[0]} if published_head else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
-            "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
-                                        remote_branch=current_branch),
+            "lock_id": delivery_lock_id(
+                (remote_destination(root, current_upstream).get("push_url")
+                 if git_env is None else delivery_url),
+                remote_branch=current_branch,
+            ),
         }
     else:
         if delivery_branch == protected_base_branch:
@@ -3150,10 +3224,19 @@ def command_begin(args):
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
+    normalize_begin_delivery(source, args, remote_branch)
+    if args.delivery_intent == "draft_pr":
+        remote_url = github_remote_url(source, remote, args.github_repository)
+        delivery_env = github_environment(args.github_account)
+    else:
+        remote_url, delivery_env = remote, None
     source_record = {"path": str(source.resolve()), "branch": branch(source), "upstream": upstream(source),
-                     "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
-                     "remote": remote_destination(source, upstream(source))}
-    git(source, "fetch", remote, remote_branch)
+                      "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
+                      "remote": remote_destination(source, upstream(source))}
+    if args.delivery_intent == "draft_pr":
+        fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
+    else:
+        git(source, "fetch", remote, remote_branch)
     if ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
@@ -3233,7 +3316,7 @@ def command_begin(args):
         locator = relative_locator(worktree, registry, "dbsctr_worktrees")
         portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                             worktree_locator=locator, portable=portable)
+                             worktree_locator=locator, portable=portable, git_env=delivery_env)
         if initiative is not None:
             record["initiative"] = initiative
         if record["schema_version"] == 4:
@@ -9715,14 +9798,34 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
 
 
 def github_environment(account):
+    lookup_env = {key: value for key, value in os.environ.items()
+                  if key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
     result = subprocess.run(
         ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
-        text=True, capture_output=True,
+        text=True, capture_output=True, env=lookup_env,
     )
     token = result.stdout.strip()
     if result.returncode or not token:
         fail(result.stderr.strip() or f"GitHub account is not authenticated: {account}")
-    return {**os.environ, "GH_TOKEN": token}
+    env = {**os.environ, "GH_TOKEN": token, "GIT_TERMINAL_PROMPT": "0",
+           "GCM_INTERACTIVE": "Never"}
+    for key in tuple(env):
+        if (key in {"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CURL_VERBOSE"}
+                or re.fullmatch(r"GIT_CONFIG_(?:KEY|VALUE)_\d+", key)
+                or key.startswith("GIT_TRACE")):
+            del env[key]
+    env.update({
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": (
+            "!f() { printf '%s\\n' username=x-access-token \"password=$GH_TOKEN\"; }; f"
+        ),
+        "GIT_CONFIG_KEY_2": "http.extraHeader",
+        "GIT_CONFIG_VALUE_2": "",
+    })
+    return env
 
 
 def github_json(root, env, *args):
@@ -9735,10 +9838,10 @@ def github_json(root, env, *args):
         fail("GitHub CLI returned invalid JSON")
 
 
-def deliver_draft_pr(root, record):
+def deliver_draft_pr(root, record, env=None):
     delivery = record["delivery"]
     github = delivery["github"]
-    env = github_environment(github["account"])
+    env = env or github_environment(github["account"])
     fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
     owner = github["repository"].partition("/")[0]
     head = f"{owner}:{delivery['branch']}"
@@ -10302,6 +10405,8 @@ def finish_push(root, path, record):
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
     delivery = record.get("delivery", {})
+    delivery_env = (github_environment(delivery["github"]["account"])
+                    if record["delivery_intent"] == "draft_pr" else None)
     if (baseline["pre_cycle_ahead_commits"] and not (
             record["delivery_intent"] == "draft_pr"
             and delivery.get("published_feature_head") == baseline["head"])):
@@ -10320,7 +10425,12 @@ def finish_push(root, path, record):
                    if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
-    git(root, "fetch", remote, base_branch)
+    if record["delivery_intent"] == "draft_pr":
+        remote_url = github_remote_url(root, remote, delivery["github"]["repository"])
+        fetch_github_branch(root, remote, remote_url, base_branch, delivery_env)
+    else:
+        remote_url = remote
+        git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
     target_ref = (f"refs/remotes/{remote}/{base_branch}"
                   if record["delivery_intent"] == "draft_pr" else current_upstream)
@@ -10390,15 +10500,20 @@ def finish_push(root, path, record):
         save(path, record)
         if record["delivery_intent"] == "draft_pr":
             remote_ref = f"refs/heads/{remote_branch}"
-            existing = git(root, "ls-remote", "--heads", remote, remote_ref).stdout.split()
+            existing = github_remote_head(root, remote_url, remote_ref, delivery_env)
             if existing and git(root, "merge-base", "--is-ancestor", existing[0], "HEAD", check=False).returncode:
                 fail("feature branch changed remotely; normal push would not be safe")
-        git(root, "push", remote, f"HEAD:{remote_branch}")
+        if record["delivery_intent"] == "draft_pr":
+            push_github_branch(root, remote_url, remote_branch, delivery_env)
+        else:
+            git(root, "push", remote_url, f"HEAD:{remote_branch}")
     if record["delivery_intent"] == "draft_pr":
-        remote_head = git(root, "ls-remote", "--heads", remote, f"refs/heads/{remote_branch}").stdout.split()
+        remote_head = github_remote_head(
+            root, remote_url, f"refs/heads/{remote_branch}", delivery_env
+        )
         if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
             fail("push did not synchronize feature branch")
-        record["delivery"]["pull_request"] = deliver_draft_pr(root, record)
+        record["delivery"]["pull_request"] = deliver_draft_pr(root, record, delivery_env)
         link_improvement_pull_request(record, record["delivery"]["pull_request"], root, target_head)
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")

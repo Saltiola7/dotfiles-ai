@@ -508,7 +508,7 @@ export const improvement_update = tool({
 })
 
 export const begin = tool({
-  description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr.",
+  description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr. Protected-base merge delivery becomes draft_pr; githubRepository is derived from origin.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
