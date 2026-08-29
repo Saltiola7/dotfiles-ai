@@ -11398,7 +11398,7 @@ def parser():
     evidence = commands.add_parser("record-evidence")
     evidence.add_argument("gate", choices=GATES)
     evidence.add_argument("--authority", required=True)
-    evidence.add_argument("--timeout", type=int, default=120, choices=range(1, 601))
+    evidence.add_argument("--timeout", type=int, default=600, choices=range(1, 601))
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)

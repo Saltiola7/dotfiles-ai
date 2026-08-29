@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.40-T1 Evidence Timeout Budget
+
+- Raised the default evidence authority timeout from two to ten minutes while
+  retaining explicit shorter budgets and the existing ten-minute hard limit.
+- The controller contract passed 174 tests with one expected skip in 5:49;
+  focused timeout and process-group termination regressions also passed.
+
 ## 2026-08-29 - V3.40 Ticket-Blind Lifecycle Authority
 
 - Removed PM tickets from Discovery, DBSCTR, Initiative readiness and receipts,

@@ -2660,7 +2660,7 @@ Method Revision `3.8` adds
 `dbsctrctl record-evidence GATE --authority NAME [--path FILE ...] -- PROGRAM ...`.
 The command asks before nested authority execution. It executes an
 argument vector without a shell, closes stdin, inherits but never serializes the
-process environment, applies a 120-second default/600-second hard timeout and 1
+process environment, applies a 600-second default/hard timeout and 1
 MiB raw-output cap, and terminates the whole process group on timeout or overflow.
 
 ### V3.8 Evidence Envelope Contract

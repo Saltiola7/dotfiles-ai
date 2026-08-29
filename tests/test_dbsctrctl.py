@@ -835,6 +835,17 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(envelope["content"], {"status": "withheld", "reason": "timeout"})
         self.assertNotIn(script, json.dumps(envelope))
 
+    def test_record_evidence_defaults_to_ten_minutes(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_evidence_timeout", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = module.parser().parse_args([
+            "record-evidence", "domain", "--authority", "unit", "--",
+            sys.executable, "-c", "pass",
+        ])
+        self.assertEqual(args.timeout, 600)
+
     def test_risk_and_applicability_only_tighten(self):
         self.start()
         record_path = self.record_path()
