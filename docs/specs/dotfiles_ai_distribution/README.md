@@ -191,7 +191,7 @@ The completed DAI-016-F1 applicability plan is retained at
 | Risk | Elevated: changes the private state authority used by live autonomous dispatch |
 | Delivery intent | Repair and deploy host Hermes scheduling, verify eligible lens exhaustion, then publish a draft pull request |
 | Scope | Centralized R&D state resolution, truthful read-only health, focused regression evidence, and live operation proof |
-| Overrides | Preserve scheduler schema 7, retained cadence, outcome history, and explicit-variable precedence; never merge, delete, or reset shadow state automatically |
+| Overrides | Preserve scheduler schema 8, retained cadence, outcome history, and explicit-variable precedence; never merge, delete, or reset shadow state automatically |
 
 ### DAI-023 Cycle Overrides
 
@@ -269,6 +269,9 @@ OpenCode control-plane behavior, and shell authentication.
 DAI-024 adds the optional personal Atuin service and host loopback ingress shown
 below. It does not change approval or delivery handoff, so the existing sequence
 and its Text Equivalent remain current.
+
+DAI-032 changes launch recovery and machine-local source selection without
+changing topology, approval, or trust boundaries; the same visuals remain current.
 
 ```mermaid
 flowchart LR
@@ -547,8 +550,10 @@ feature branch with a draft pull request; the operator retains merge authority.
   configuration force-refreshes the service definition and records cutover readiness
   only after launchd reports the profile gateway running. When the runtime lives on
   the centralized external state volume, launchd enters through the existing local
-  state-root trampoline before executing Hermes. Concurrent configuration exits
-  without creating duplicate managed cron jobs.
+  state-root trampoline before executing Hermes. The guarded managed plist is the
+  macOS readiness authority because Hermes treats any supported post-install guard
+  as definition drift. Concurrent configuration exits without creating duplicate
+  managed cron jobs.
 - Given a pending lens attempt is older than its lease and its worker is absent from
   the authoritative improvement ledger, then the next reservation tick removes that
   stale ownership before selecting eligible lenses. `no_lens_due` therefore follows
@@ -556,6 +561,10 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Failed dispatch releases its reservation without advancing cadence. Successful
   registration preserves exactly one active review attempt per lens; concurrent
   ticks cannot duplicate a lens slot.
+- A failed OpenCode launch increments scheduler-owned consecutive failure state and
+  defers every new reservation by a bounded exponential retry interval. A successful
+  registration or explicit schedule reset clears that state. Backoff never advances
+  lens cadence, and provider error text never enters scheduler health.
 - Session discovery invokes OpenCode's plugin-free CLI path because listing stored
   session metadata does not require project plugins. OpenCode's successful empty
   stdout means no stored sessions; non-empty malformed JSON is a bounded dispatch
@@ -592,12 +601,12 @@ feature branch with a draft pull request; the operator retains merge authority.
   session differs, even when its state and opportunity would otherwise qualify.
 - `dbsctr-rnd health` reads scheduler activity without opening a write
   transaction. It distinguishes its output-envelope schema from scheduler-state
-  schema 7. Health schema 2 reports the selected `explicit`, `centralized`, or
+  schema 8. Health schema 3 reports the selected `explicit`, `centralized`, or
   `local` state authority, current halt reason, all six bounded per-lens cadence,
   no-yield, next-eligibility, due, and active values, durable reserve and release
-  counts, last sanitized outcomes, active-attempt count, and pass count; it never
-  returns a filesystem path. Pre-launch and launch failures are distinguishable
-  from an ordinary no-op.
+  counts, last sanitized outcomes, launch-failure count, retry time, active backoff,
+  active-attempt count, and pass count; it never returns a filesystem path.
+  Pre-launch, launch, and backoff outcomes are distinguishable from an ordinary no-op.
 - A yield resets only that lens and makes it immediately eligible for another
   pass. A no-yield waits one day; three daily no-yields move that lens to weekly,
   and four weekly no-yields move it to monthly. UTC quarter rollover restores

@@ -52,6 +52,7 @@ LENSES = (*LEGACY_LENSES, REVIEW_SESSION_LENS)
 LENS_VERSION = 1
 MONTH_SECONDS = 30 * 86400
 RESERVATION_LEASE_SECONDS = 15 * 60
+LAUNCH_RETRY_SECONDS = (5 * 60, 15 * 60, 60 * 60, 6 * 60 * 60)
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
 ACTIVE_TICKET_STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review"}
 
@@ -92,7 +93,8 @@ def validate_parallel_state(connection):
                                  "session_count", "review_session_count", "excluded_review_session_count",
                                  "unattributed_session_count", "source_count", "opportunity_id", "session_id"),
         "scheduler_activity": ("singleton", "reserve_count", "last_reserve_at", "last_reserve_status",
-                               "last_lens", "release_count", "last_release_at", "last_release_reason"),
+                               "last_lens", "release_count", "last_release_at", "last_release_reason",
+                               "launch_failure_count", "launch_retry_at"),
     }
     expected_tables = {"scheduler_meta", "scheduler_state", "spawn_reservations", "outcome_events",
                        "lens_state", "lens_attempts", "lens_passes", "parallel_lens_state",
@@ -109,7 +111,8 @@ def validate_parallel_state(connection):
         wanted = tuple((name, "INTEGER" if name in {
             "singleton", "reserve_count", "last_reserve_at", "release_count", "last_release_at",
             "no_yield_count", "recorded_at", "next_eligible_at", "page_count", "session_count",
-            "review_session_count", "excluded_review_session_count", "unattributed_session_count", "source_count"
+            "review_session_count", "excluded_review_session_count", "unattributed_session_count", "source_count",
+            "launch_failure_count", "launch_retry_at"
         } else "TEXT", 0 if name in nullable[table]
         or table == "scheduler_activity" and name == "singleton" else 1,
                         1 if name == expected[0] else 0)
@@ -126,12 +129,14 @@ def validate_parallel_state(connection):
         raise RuntimeError("parallel lens state is malformed")
     activity = connection.execute(
         "SELECT reserve_count,last_reserve_at,last_reserve_status,last_lens,release_count,"
-        "last_release_at,last_release_reason FROM scheduler_activity WHERE singleton=1"
+        "last_release_at,last_release_reason,launch_failure_count,launch_retry_at "
+        "FROM scheduler_activity WHERE singleton=1"
     ).fetchall()
     if (len(activity) != 1 or any(type(value) is not int or value < 0
-                                   for value in (activity[0][0], activity[0][1], activity[0][4], activity[0][5]))
+                                   for value in (activity[0][0], activity[0][1], activity[0][4], activity[0][5],
+                                                 activity[0][7], activity[0][8]))
             or not safe_id(activity[0][2]) or activity[0][3] is not None and activity[0][3] not in LENSES
-            or not safe_id(activity[0][6])):
+            or not safe_id(activity[0][6]) or (activity[0][7] == 0) != (activity[0][8] == 0)):
         raise RuntimeError("scheduler activity is malformed")
     for reservation, lens_name, worker_id, session_id, day, cadence, count, quarter in connection.execute(
             "SELECT reservation_id,lens_name,worker_id,session_id,capture_day,cadence,no_yield_count,quarter "
@@ -335,7 +340,9 @@ def state_connection():
             last_lens TEXT,
             release_count INTEGER NOT NULL CHECK (release_count>=0),
             last_release_at INTEGER NOT NULL CHECK (last_release_at>=0),
-            last_release_reason TEXT NOT NULL
+            last_release_reason TEXT NOT NULL,
+            launch_failure_count INTEGER NOT NULL CHECK (launch_failure_count>=0),
+            launch_retry_at INTEGER NOT NULL CHECK (launch_retry_at>=0)
         );
         """)
     if migrating:
@@ -376,10 +383,10 @@ def state_connection():
     version = existing_version if migrating else connection.execute(
         "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:
-        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','7')")
+        connection.execute("INSERT INTO scheduler_meta VALUES ('schema_version','8')")
         connection.execute("INSERT INTO scheduler_state VALUES (1,'weekly',0,0,'',NULL,0,0)")
         connection.execute("INSERT INTO lens_state VALUES (1,'daily',0,'',0)")
-        version = ("7",)
+        version = ("8",)
     elif version == ("1",):
         connection.execute("INSERT OR IGNORE INTO lens_state VALUES (1,'daily',0,'',0)")
         connection.execute("UPDATE scheduler_meta SET value='7' WHERE key='schema_version'")
@@ -435,7 +442,21 @@ def state_connection():
             connection.execute("ALTER TABLE parallel_lens_passes ADD COLUMN session_id TEXT")
         connection.execute("UPDATE scheduler_meta SET value='7' WHERE key='schema_version'")
         version = ("7",)
-    if version != ("7",):
+    if version == ("7",):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(scheduler_activity)")}
+        if "launch_failure_count" not in columns:
+            connection.execute(
+                "ALTER TABLE scheduler_activity ADD COLUMN launch_failure_count "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (launch_failure_count>=0)"
+            )
+        if "launch_retry_at" not in columns:
+            connection.execute(
+                "ALTER TABLE scheduler_activity ADD COLUMN launch_retry_at "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (launch_retry_at>=0)"
+            )
+        connection.execute("UPDATE scheduler_meta SET value='8' WHERE key='schema_version'")
+        version = ("8",)
+    if version != ("8",):
         connection.close()
         persist_malformed_halt()
         raise RuntimeError("scheduler state has an unsupported schema")
@@ -443,7 +464,9 @@ def state_connection():
         "INSERT OR IGNORE INTO parallel_lens_state VALUES (?,'daily',0,'',0)",
         ((name,) for name in LENSES),
     )
-    connection.execute("INSERT OR IGNORE INTO scheduler_activity VALUES (1,0,0,'never',NULL,0,0,'never')")
+    connection.execute(
+        "INSERT OR IGNORE INTO scheduler_activity VALUES (1,0,0,'never',NULL,0,0,'never',0,0)"
+    )
     os.chmod(STATE, 0o600)
     if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
         connection.close()
@@ -688,6 +711,12 @@ def reserve_parallel_lens(workers, now):
             "DELETE FROM spawn_reservations WHERE worker_id IS NULL AND created_at<=?",
             (now - RESERVATION_LEASE_SECONDS,),
         )
+        retry_at = connection.execute(
+            "SELECT launch_retry_at FROM scheduler_activity WHERE singleton=1").fetchone()[0]
+        if now < retry_at:
+            observe_reserve(connection, now, "launch_backoff")
+            connection.commit()
+            return None, None, "launch_backoff"
         if workers is None:
             attempts, registered_workers, registered_sessions = connection.execute(
                 "SELECT COUNT(*),COUNT(worker_id),COUNT(session_id) FROM parallel_lens_attempts").fetchone()
@@ -763,11 +792,23 @@ def release_reservation(reservation, reason="operator_release"):
         ).fetchone()
         connection.execute("DELETE FROM spawn_reservations WHERE reservation_id=?", (reservation,))
         if existing is not None:
-            connection.execute(
-                "UPDATE scheduler_activity SET release_count=release_count+1,last_release_at=?,"
-                "last_release_reason=? WHERE singleton=1",
-                (int(time.time()), reason),
-            )
+            released_at = int(time.time())
+            if reason == "launch_failed":
+                failures = connection.execute(
+                    "SELECT launch_failure_count FROM scheduler_activity WHERE singleton=1"
+                ).fetchone()[0] + 1
+                retry_at = released_at + LAUNCH_RETRY_SECONDS[min(failures, len(LAUNCH_RETRY_SECONDS)) - 1]
+                connection.execute(
+                    "UPDATE scheduler_activity SET release_count=release_count+1,last_release_at=?,"
+                    "last_release_reason=?,launch_failure_count=?,launch_retry_at=? WHERE singleton=1",
+                    (released_at, reason, failures, retry_at),
+                )
+            else:
+                connection.execute(
+                    "UPDATE scheduler_activity SET release_count=release_count+1,last_release_at=?,"
+                    "last_release_reason=? WHERE singleton=1",
+                    (released_at, reason),
+                )
         connection.commit()
     finally:
         connection.close()
@@ -839,6 +880,17 @@ def complete_reservation(reservation, worker_id, completed_at=None, session_id=N
         connection.close()
 
 
+def record_launch_success():
+    connection = state_connection()
+    try:
+        connection.execute(
+            "UPDATE scheduler_activity SET launch_failure_count=0,launch_retry_at=0 WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def scheduler_health():
     if STATE.parent.is_symlink() or STATE.is_symlink() or not STATE.exists():
         raise RuntimeError("scheduler state path is unsafe")
@@ -855,12 +907,13 @@ def scheduler_health():
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise RuntimeError("scheduler state foreign-key check failed")
         if connection.execute(
-                "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone() != ("7",):
+                "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone() != ("8",):
             raise RuntimeError("scheduler state has an unsupported schema")
         validate_parallel_state(connection)
         activity = connection.execute(
             "SELECT reserve_count,last_reserve_at,last_reserve_status,last_lens,release_count,"
-            "last_release_at,last_release_reason FROM scheduler_activity WHERE singleton=1"
+            "last_release_at,last_release_reason,launch_failure_count,launch_retry_at "
+            "FROM scheduler_activity WHERE singleton=1"
         ).fetchone()
         attempts = connection.execute("SELECT COUNT(*) FROM parallel_lens_attempts").fetchone()[0]
         passes = connection.execute("SELECT COUNT(*) FROM parallel_lens_passes").fetchone()[0]
@@ -874,20 +927,24 @@ def scheduler_health():
     finally:
         connection.close()
     if (activity is None or any(type(value) is not int or value < 0
-                                for value in (activity[0], activity[1], activity[4], activity[5], attempts, passes))
+                                for value in (activity[0], activity[1], activity[4], activity[5],
+                                              activity[7], activity[8], attempts, passes))
             or not safe_id(activity[2]) or activity[3] is not None and activity[3] not in LENSES
-            or not safe_id(activity[6]) or halt_reason is not None and not safe_id(halt_reason)):
+            or not safe_id(activity[6]) or (activity[7] == 0) != (activity[8] == 0)
+            or halt_reason is not None and not safe_id(halt_reason)):
         raise RuntimeError("scheduler activity is malformed")
     now = int(time.time())
     lenses = [{"name": name, "cadence": states[name][0], "no_yield_count": states[name][1],
                "next_eligible_at": states[name][2], "due": name not in active and now >= states[name][2],
                "active": name in active} for name in LENSES]
-    return {"schema_version": 2, "state_schema_version": 7, "state_authority": STATE_AUTHORITY,
+    return {"schema_version": 3, "state_schema_version": 8, "state_authority": STATE_AUTHORITY,
             "halt_reason": halt_reason, "lens_count": len(LENSES),
             "reserve_count": activity[0], "last_reserve_at": activity[1],
             "last_reserve_status": activity[2], "last_lens": activity[3],
             "release_count": activity[4], "last_release_at": activity[5],
-            "last_release_reason": activity[6], "active_attempt_count": attempts,
+            "last_release_reason": activity[6], "launch_failure_count": activity[7],
+            "launch_retry_at": activity[8], "launch_backoff": now < activity[8],
+            "active_attempt_count": attempts,
             "pass_count": passes, "lenses": lenses}
 
 
@@ -1295,6 +1352,9 @@ def reset_schedule():
         connection.execute("UPDATE scheduler_state SET halt_reason=NULL,halt_reset_at=?,next_eligible_at=0 "
                            "WHERE singleton=1", (int(time.time()),))
         connection.execute("DELETE FROM spawn_reservations")
+        connection.execute(
+            "UPDATE scheduler_activity SET launch_failure_count=0,launch_retry_at=0 WHERE singleton=1"
+        )
         connection.commit()
     finally:
         connection.close()
@@ -1381,6 +1441,7 @@ def complete_action(reservation, worker_id):
     if len(workers) != 1 or workers[0].get("worker_id") != worker_id:
         raise RuntimeError("registered worker identity is missing")
     complete_reservation(reservation, worker_id, session_id=workers[0].get("session_id"))
+    record_launch_success()
     print(json.dumps({"status": "completed", "worker_id": worker_id}, separators=(",", ":")))
 
 
@@ -1439,6 +1500,7 @@ def launch_action(reservation, worker_id, repository_id):
                     or worker.get("session_id") != session_id):
                 raise RuntimeError("direct launch registration identity mismatch")
             registered = True
+            record_launch_success()
             print(json.dumps({"session_id": session_id, "status": "started",
                               "worker_id": worker_id}, separators=(",", ":")))
     except Exception as launch_error:
@@ -1625,6 +1687,7 @@ def spawn():
         if (not isinstance(worker, dict) or worker.get("worker_id") != worker_id
                 or worker.get("session_id") != session_id):
             raise RuntimeError("registered worker identity mismatch")
+        record_launch_success()
     except Exception:
         if all(value is not None for value in (workspace_id, tab_id, pane_id)):
             close_pending_launch(workspace_id, tab_id, pane_id)

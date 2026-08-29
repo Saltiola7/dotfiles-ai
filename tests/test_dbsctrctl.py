@@ -5532,7 +5532,7 @@ class DbsctrctlTest(unittest.TestCase):
         connection = sqlite3.connect(scheduler)
         connection.executescript("""
             CREATE TABLE scheduler_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
-            INSERT INTO scheduler_meta VALUES ('schema_version','7');
+            INSERT INTO scheduler_meta VALUES ('schema_version','8');
             CREATE TABLE parallel_lens_passes (
                 worker_id TEXT PRIMARY KEY, lens_name TEXT NOT NULL, capture_day TEXT NOT NULL,
                 manifest_digest TEXT NOT NULL, outcome TEXT NOT NULL, recorded_at INTEGER NOT NULL,

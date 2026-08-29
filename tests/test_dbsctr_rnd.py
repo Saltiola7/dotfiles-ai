@@ -140,6 +140,10 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "config get model.default" in configure
     assert "gateway install --force" in configure
     assert "state-root-exec" in configure and "plistlib" in configure
+    assert "guarded_gateway_ready" in configure
+    assert "arguments.count(wrapper) != 1" in configure
+    assert 'payload.get("Label") != f"ai.hermes.gateway-{profile}"' in configure
+    assert 'environment.get("DOTFILES_AI_STATE_ROOT") != state_root' in configure
     assert 'payload.pop("WorkingDirectory", None)' in configure
     assert 'payload["StandardOutPath"]' in configure and 'payload["StandardErrorPath"]' in configure
     assert "launchctl bootout" in configure and "launchctl bootstrap" in configure
@@ -705,7 +709,7 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     connection = runner["state_connection"]()
-    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("7",)
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("8",)
     assert connection.execute("select cadence,no_yield_count from lens_state").fetchone() == ("daily", 0)
     assert connection.execute("select cadence,next_eligible_at from scheduler_state").fetchone() == ("daily", 123)
     assert connection.execute(
@@ -789,9 +793,12 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     connection.commit()
     connection.close()
     connection = migrated["state_connection"]()
-    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("7",)
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("8",)
     columns = {row[1] for row in connection.execute("pragma table_info(parallel_lens_passes)")}
     assert {"unattributed_session_count", "opportunity_id", "session_id"} <= columns
+    assert {"launch_failure_count", "launch_retry_at"} <= {
+        row[1] for row in connection.execute("pragma table_info(scheduler_activity)")
+    }
     assert connection.execute("select count(*) from parallel_lens_attempts").fetchone() == (0,)
     assert connection.execute(
         "select count(*) from spawn_reservations where reservation_id='reservation-old'"
@@ -1032,12 +1039,13 @@ def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeyp
     runner["release_reservation"](reservation, "prelaunch_failed")
     health = runner["scheduler_health"]()
     assert health == {
-        "schema_version": 2, "state_schema_version": 7, "state_authority": "explicit",
+        "schema_version": 3, "state_schema_version": 8, "state_authority": "explicit",
         "halt_reason": None, "lens_count": 6,
         "reserve_count": 1, "last_reserve_at": now,
         "last_reserve_status": "reserved", "last_lens": lens,
         "release_count": 1, "last_release_at": health["last_release_at"],
-        "last_release_reason": "prelaunch_failed", "active_attempt_count": 0,
+        "last_release_reason": "prelaunch_failed", "launch_failure_count": 0,
+        "launch_retry_at": 0, "launch_backoff": False, "active_attempt_count": 0,
         "pass_count": 0, "lenses": [{
             "name": name, "cadence": "daily", "no_yield_count": 0,
             "next_eligible_at": now if name == lens else 0, "due": True, "active": False,
@@ -1065,7 +1073,7 @@ def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeyp
     else:
         raise AssertionError("old scheduler health schema was accepted")
     connection = sqlite3.connect(state)
-    connection.execute("update scheduler_meta set value='7' where key='schema_version'")
+    connection.execute("update scheduler_meta set value='8' where key='schema_version'")
     connection.execute("pragma foreign_keys=off")
     connection.execute("insert into parallel_lens_attempts values "
                        "('missing','correctness_safety',NULL,'2024-01-01','daily',0,'2024-Q1',NULL)")
@@ -1126,6 +1134,45 @@ def test_scheduler_health_records_reserve_and_release_outcomes(tmp_path, monkeyp
         assert "path is unsafe" in str(error)
     else:
         raise AssertionError("missing scheduler health state was accepted")
+
+
+def test_launch_failures_back_off_and_success_or_reset_clears_state(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "launch-backoff")
+    now = 1_704_067_200
+    monkeypatch.setattr(runner["time"], "time", lambda: now)
+
+    reservation, lens, reason = runner["reserve_parallel_lens"]([], now)
+    assert reason == "reserved"
+    runner["release_reservation"](reservation, "launch_failed")
+    assert runner["reserve_parallel_lens"]([], now + 299) == (None, None, "launch_backoff")
+    health = runner["scheduler_health"]()
+    assert health["launch_failure_count"] == 1
+    assert health["launch_retry_at"] == now + 300
+    assert health["launch_backoff"]
+
+    now += 300
+    reservation, retried_lens, reason = runner["reserve_parallel_lens"]([], now)
+    assert (retried_lens, reason) == (lens, "reserved")
+    runner["release_reservation"](reservation, "launch_failed")
+    connection = sqlite3.connect(state)
+    assert connection.execute(
+        "select launch_failure_count,launch_retry_at from scheduler_activity"
+    ).fetchone() == (2, now + 900)
+    connection.close()
+
+    now += 900
+    reservation, _, reason = runner["reserve_parallel_lens"]([], now)
+    assert reason == "reserved"
+    runner["claim_reservation"](reservation, "worker-1", now)
+    runner["complete_reservation"](reservation, "worker-1", session_id="session-1")
+    runner["record_launch_success"]()
+    health = runner["scheduler_health"]()
+    assert (health["launch_failure_count"], health["launch_retry_at"], health["launch_backoff"]) == (0, 0, False)
+
+    runner["release_reservation"](reservation, "launch_failed")
+    assert runner["scheduler_health"]()["launch_failure_count"] == 1
+    runner["reset_schedule"]()
+    assert runner["scheduler_health"]()["launch_failure_count"] == 0
 
     corrupt_runner, corrupt_state = load_runner(tmp_path, monkeypatch, "scheduler-health-corrupt")
     corrupt_state.write_bytes(b"not a sqlite database")
