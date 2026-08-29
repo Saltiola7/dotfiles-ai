@@ -12,7 +12,8 @@ def text(path: Path | str) -> str:
 
 
 def test_public_lifecycle_commands_are_unversioned_and_thin():
-    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa", "dbsctr-review": "dbsctr-review"}
+    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa",
+                "dbsctr-review": "dbsctr-review", "incident": "dbsctr-incident"}
     for command, skill in expected.items():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
@@ -78,6 +79,18 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
     assert "DVC-relevant" in dbsctr
     assert "original checkout" in dbsctr
     assert "explicit project policy" in dbsctr.lower()
+
+
+def test_v339_incident_skill_is_fork_bounded_and_separately_remediated():
+    incident = text(SKILLS / "dbsctr-incident/SKILL.md")
+    review = text(SKILLS / "dbsctr-review/SKILL.md")
+    for term in ("dbsctr_incident_scan", "dbsctr_incident_register", "INCIDENT:",
+                 "defect", "friction", "behavior_gap", "capability_idea",
+                 "root-cause", "separate DBSCTR cycle", "verified activation"):
+        assert term.lower() in incident.lower()
+    assert review.lower().index("registered incidents") < review.lower().index("incident signals")
+    assert review.lower().index("incident signals") < review.lower().index("review candidates")
+    assert "never perform automatic remediation" in review.lower()
 
 
 def test_v2_is_archived_and_not_deployable():

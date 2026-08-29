@@ -88,8 +88,12 @@ def ledger_text(state):
     try:
         values = []
         for table, column in (("review_reports", "payload"), ("history_evidence", "payload"),
-                              ("history_reports", "payload"), ("ledger_entries", "text")):
+                               ("history_reports", "payload"), ("ledger_entries", "text")):
             values.extend(row[0] for row in connection.execute(f"SELECT {column} FROM {table}"))
+        if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='incidents'").fetchone():
+            values.extend("".join(str(value or "") for value in row) for row in connection.execute(
+                "SELECT title,summary,diagnostics,evidence FROM incidents"))
         return "".join(values)
     finally:
         connection.close()
@@ -3166,6 +3170,127 @@ class DbsctrctlTest(unittest.TestCase):
                                   "--part-ceiling", str(page_one["part_ceiling"]),
                                   "--database-digest", page_one["database_digest"]).stdout)
         self.assertEqual(page_two["cycle_ids"], [])
+
+    def test_incident_workflow_preserves_redacted_fork_evidence_and_verified_fix(self):
+        database = Path(self.temp.name) / "incidents.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('root-1', null, 'DBSCTR cycle', 1784073600000);
+            insert into session values ('fork-1', 'root-1', 'Incident fork', 1784073601000);
+            insert into session values ('foreign-1', null, 'QA cycle', 1784073602000);
+            insert into message values ('message-root', 'root-1', 1784073600000, '{}');
+            insert into message values ('message-fork', 'fork-1', 1784073601000, '{}');
+            insert into message values ('message-foreign', 'foreign-1', 1784073602000, '{}');
+            insert into part values ('part-root', 'message-root', 'root-1', 1784073600000,
+                                     '{"type":"text","text":"DBSCTR cycle"}');
+        """)
+        parts = [
+            ("part-bash-error", "message-fork", "fork-1", 1784073601001,
+             {"type": "tool", "tool": "bash", "state": {"status": "error", "error": "password=hunter2 /tmp/build"}}),
+            ("part-bash-ok", "message-fork", "fork-1", 1784073601002,
+             {"type": "tool", "tool": "bash", "state": {"status": "completed", "output": "ok"}}),
+            ("part-read-error", "message-fork", "fork-1", 1784073601003,
+             {"type": "tool", "tool": "read", "state": {"status": "failed", "error": "api_key=abcdefghijklmnop /tmp/input"}}),
+            ("part-foreign-seed", "message-foreign", "foreign-1", 1784073602000,
+             {"type": "text", "text": "/qa cycle"}),
+            ("part-foreign", "message-foreign", "foreign-1", 1784073602001,
+             {"type": "tool", "tool": "read", "state": {"status": "error", "error": "foreign"}}),
+        ]
+        connection.executemany("insert into part values (?, ?, ?, ?, ?)",
+                               [(*row[:4], json.dumps(row[4])) for row in parts])
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "incident-state"
+
+        scan = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                              "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertFalse((state / "reviews/ledger.sqlite3").exists())
+        self.assertEqual(scan["schema_version"], 1)
+        self.assertEqual([(item["tool"], item["recovered"]) for item in scan["signals"]],
+                         [("read", False), ("bash", True)])
+        self.assertNotIn("hunter2", json.dumps(scan))
+        self.assertNotIn("abcdefghijklmnop", json.dumps(scan))
+        self.assertIn("/tmp/input", json.dumps(scan))
+
+        root_registration = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "root-1", "--message-id", "message-root", "--kind", "defect",
+            "--title", "INCIDENT: root", "--summary", "not a fork", ok=False,
+        )
+        self.assertIn("child session", root_registration.stderr)
+        foreign = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                 "--state-root", str(state), "--session-id", "foreign-1").stdout)
+        invalid_signal = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: failed read", "--summary", "Preserve the failed read.",
+            "--signal-id", foreign["signals"][0]["signal_id"], ok=False,
+        )
+        self.assertIn("outside the incident family", invalid_signal.stderr)
+
+        selected = scan["signals"][0]["signal_id"]
+        registered = json.loads(run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: failed read", "--summary", "Preserve token=secret-value and diagnose.",
+            "--signal-id", selected, "--diagnostic", "Expected readable input.",
+            "--evidence", "Bearer private-token at /tmp/input",
+        ).stdout)
+        incident_id = registered["incident"]["incident_id"]
+        self.assertEqual(registered["incident"]["state"], "open")
+        self.assertNotIn("secret-value", ledger_text(state))
+        self.assertNotIn("private-token", ledger_text(state))
+        self.assertEqual((state / "reviews/ledger.sqlite3").stat().st_mode & 0o777, 0o600)
+        duplicate = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: duplicate", "--summary", "duplicate", ok=False,
+        )
+        self.assertIn("already registered", duplicate.stderr)
+        inbox = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                               "--state-root", str(state)).stdout)
+        self.assertEqual([item["incident_id"] for item in inbox["incidents"]], [incident_id])
+        self.assertNotIn(selected, [item["signal_id"] for item in inbox["signals"]])
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        self.assertTrue((state / "reviews/backups" / backup["backup"]).is_file())
+
+        run(self.repo, "incident-update", "--state-root", str(state), "--incident-id", incident_id,
+            "--state", "investigating")
+        records = self.repo / ".git/dbsctr/cycles"
+        records.mkdir(parents=True)
+        cycle = {"cycle_id": "fix-1", "state": "active", "gates": {
+            "deploy": {"applicability": "required", "result": "pending"},
+            "operate": {"applicability": "required", "result": "pending"},
+        }}
+        (records / "fix-1.json").write_text(json.dumps(cycle))
+        run(self.repo, "incident-update", "--state-root", str(state), "--incident-id", incident_id,
+            "--state", "fixing", "--cycle-id", "fix-1")
+        unresolved = run(self.repo, "incident-update", "--state-root", str(state),
+                         "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("verified activation", unresolved.stderr)
+        cycle.update({"state": "completed", "gates": {}})
+        (records / "fix-1.json").write_text(json.dumps(cycle))
+        missing_gates = run(self.repo, "incident-update", "--state-root", str(state),
+                            "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("verified activation", missing_gates.stderr)
+        cycle.update({"state": "completed", "gates": {
+            "deploy": {"applicability": "required", "result": "passed"},
+            "operate": {"applicability": "required", "result": "passed"},
+        }})
+        (records / "fix-1.json").write_text(json.dumps(cycle))
+        resolved = json.loads(run(self.repo, "incident-update", "--state-root", str(state),
+                                  "--incident-id", incident_id, "--state", "resolved").stdout)
+        self.assertEqual(resolved["incident"]["state"], "resolved")
+
+        run(self.repo, "incident-forget", "--state-root", str(state), "--incident-id", incident_id)
+        forgotten = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                   "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(forgotten["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in forgotten["signals"]])
+        self.assertFalse((state / "reviews/backups").exists())
 
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"

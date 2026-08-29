@@ -318,7 +318,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review"):
+    for name in ("dbsctr", "qa", "dbsctr-review", "incident"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
     exact = {
@@ -359,6 +359,8 @@ def test_builder_boundaries():
             "git *", "gh *", "chezmoi apply*", "dvc push*", "npm publish*",
             "dbsctrctl review-complete*", "*/dbsctrctl review-complete*",
             "env *dbsctrctl review-complete*", "command *dbsctrctl review-complete*",
+            *(form.format(command) for command in ("incident-register", "incident-update", "incident-forget")
+              for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
             *(form.format(command) for command in
               ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget")
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
@@ -459,6 +461,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["*/dbsctrctl review-complete*"] == "ask"
     assert bash["env *dbsctrctl review-complete*"] == "ask"
     assert bash["command *dbsctrctl review-complete*"] == "ask"
+    for command, permission in (("incident-scan", "allow"), ("incident-register", "ask"),
+                                ("incident-update", "ask"), ("incident-forget", "ask")):
+        for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
+            assert bash[form.format(command)] == permission
     for command in ("dbsctrctl review-history*", "*/dbsctrctl review-history*",
                     "env *dbsctrctl review-history*", "command *dbsctrctl review-history*"):
         assert bash[command] == "allow"
@@ -496,6 +502,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_review_history"] == "allow"
     assert config["permission"]["dbsctr_review_history_save"] == "allow"
     assert config["permission"]["dbsctr_review_federated"] == "allow"
+    assert config["permission"]["dbsctr_incident_scan"] == "allow"
+    for permission in ("dbsctr_incident_register", "dbsctr_incident_update", "dbsctr_incident_forget"):
+        assert config["permission"][permission] == "ask"
+        assert config["agent"]["plan"]["permission"][permission] == "deny"
     assert bash["gh *"] == "ask"
     assert bash["gh issue list *"] == "allow"
     assert bash["gh pr list *"] == "allow"
@@ -539,8 +549,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_improvement_claim: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_improvement_update: deny" in (OC / "agents" / name).read_text()
     for name in ("reviewer-openai.md", "explore-openai.md", "explore-vertex.md",
-                 "scout-openai.md", "scout-vertex.md", "scout.md"):
+                  "scout-openai.md", "scout-vertex.md", "scout.md"):
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
+        for permission in ("dbsctr_incident_register", "dbsctr_incident_update", "dbsctr_incident_forget"):
+            assert f"{permission}: deny" in (OC / "agents" / name).read_text()
 
 
 def test_dbsctr_tools_and_herdr_config_are_managed():
@@ -562,6 +574,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const review_history = tool({' in tools
     assert 'export const review_history_save = tool({' in tools
     assert 'export const review_federated = tool({' in tools
+    for name in ("incident_scan", "incident_register", "incident_update", "incident_forget"):
+        assert f'export const {name} = tool({{' in tools
     assert 'export const vm_handoff = tool({' in tools
     assert 'export const history_capture = tool({' in tools
     assert 'export const history_telemetry = tool({' in tools
@@ -1101,6 +1115,39 @@ def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>",
         "<--excluded-session-id>", "<active-tool>",
+    ]
+
+
+def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "incident.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ incidentScan, incidentRegister, incidentUpdate, incidentForget }} from {json.dumps(str(runtime))};'
+        'await incidentScan(process.cwd(),"fork-1");'
+        'await incidentRegister({sessionID:"fork-1",messageID:"message-1",kind:"defect",'
+        'title:"INCIDENT: failed read",summary:"literal; no shell",signalIDs:["a".repeat(24)],'
+        'diagnostics:["expected input"],evidence:["/tmp/input"]},process.cwd());'
+        'await incidentUpdate("b".repeat(24),"fixing",process.cwd(),"cycle-1");'
+        'await incidentForget("b".repeat(24),process.cwd());'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>",
+        "CALL", "<incident-register>", "<--session-id>", "<fork-1>",
+        "<--message-id>", "<message-1>", "<--kind>", "<defect>",
+        "<--title>", "<INCIDENT: failed read>", "<--summary>", "<literal; no shell>",
+        "<--signal-id>", f'<{"a" * 24}>', "<--diagnostic>", "<expected input>",
+        "<--evidence>", "</tmp/input>",
+        "CALL", "<incident-update>", "<--incident-id>", f'<{"b" * 24}>',
+        "<--state>", "<fixing>", "<--cycle-id>", "<cycle-1>",
+        "CALL", "<incident-forget>", "<--incident-id>", f'<{"b" * 24}>',
     ]
 
 

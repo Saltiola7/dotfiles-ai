@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -129,6 +129,57 @@ export const review = tool({
   },
   async execute(args, context) {
     return await reviewScan(args.limit, args.cursor, args.snapshot, context.worktree, args.sessionCeiling, args.partCeiling, args.databaseDigest, context.sessionID, context.messageID, args.exclusionDigest)
+  },
+})
+
+export const incident_scan = tool({
+  description: "Read registered incidents and bounded redacted failed-call signals without changing state.",
+  args: { scope: tool.schema.enum(["global", "current"]).optional().default("global") },
+  async execute(args, context) {
+    return await incidentScan(context.worktree, args.scope === "current" ? context.sessionID : undefined)
+  },
+})
+
+export const incident_register = tool({
+  description: "Register the invoking OpenCode fork as one private incident.",
+  args: {
+    kind: tool.schema.enum(["defect", "friction", "behavior_gap", "capability_idea"]),
+    title: tool.schema.string().min(11).max(128),
+    summary: tool.schema.string().min(1).max(1024),
+    signalIds: tool.schema.array(tool.schema.string().regex(/^[0-9a-f]{24}$/)).max(20),
+    diagnostics: tool.schema.array(tool.schema.string().min(1).max(2048)).max(20),
+    evidence: tool.schema.array(tool.schema.string().min(1).max(2048)).max(20),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_incident_register", patterns: ["*"], always: [],
+      metadata: { kind: args.kind, signals: args.signalIds.length } })
+    return await incidentRegister({ sessionID: context.sessionID, messageID: context.messageID,
+      kind: args.kind, title: args.title, summary: args.summary, signalIDs: args.signalIds,
+      diagnostics: args.diagnostics, evidence: args.evidence }, context.worktree)
+  },
+})
+
+export const incident_update = tool({
+  description: "Advance one private incident without changing repository state.",
+  args: {
+    incidentId: tool.schema.string().regex(/^[0-9a-f]{24}$/),
+    state: tool.schema.enum(["open", "investigating", "fixing", "resolved", "dismissed"]),
+    cycleId: tool.schema.string().optional(),
+  },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_incident_update", patterns: ["*"], always: [],
+      metadata: { state: args.state } })
+    return await incidentUpdate(args.incidentId, args.state, context.worktree, args.cycleId)
+  },
+})
+
+export const incident_forget = tool({
+  description: "Delete one incident's private evidence while preserving its OpenCode fork.",
+  args: { incidentId: tool.schema.string().regex(/^[0-9a-f]{24}$/) },
+  async execute(args, context) {
+    await context.ask({ permission: "dbsctr_incident_forget", patterns: ["*"], always: [],
+      metadata: { incident: args.incidentId } })
+    return await incidentForget(args.incidentId, context.worktree)
   },
 })
 

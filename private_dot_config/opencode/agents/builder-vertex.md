@@ -10,6 +10,9 @@ permission:
   dbsctr_attach: deny
   dbsctr_review_complete: deny
   dbsctr_review_history_save: deny
+  dbsctr_incident_register: deny
+  dbsctr_incident_update: deny
+  dbsctr_incident_forget: deny
   dbsctr_improvement_claim: deny
   dbsctr_improvement_update: deny
   task: deny
@@ -24,6 +27,18 @@ permission:
     "*/dbsctrctl review-complete*": deny
     "env *dbsctrctl review-complete*": deny
     "command *dbsctrctl review-complete*": deny
+    "dbsctrctl incident-register*": deny
+    "*/dbsctrctl incident-register*": deny
+    "env *dbsctrctl incident-register*": deny
+    "command *dbsctrctl incident-register*": deny
+    "dbsctrctl incident-update*": deny
+    "*/dbsctrctl incident-update*": deny
+    "env *dbsctrctl incident-update*": deny
+    "command *dbsctrctl incident-update*": deny
+    "dbsctrctl incident-forget*": deny
+    "*/dbsctrctl incident-forget*": deny
+    "env *dbsctrctl incident-forget*": deny
+    "command *dbsctrctl incident-forget*": deny
     "dbsctrctl review-history-save*": deny
     "*/dbsctrctl review-history-save*": deny
     "env *dbsctrctl review-history-save*": deny

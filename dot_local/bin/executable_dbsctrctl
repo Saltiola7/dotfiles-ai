@@ -44,6 +44,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
+INCIDENT_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 5
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
@@ -69,6 +70,8 @@ IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementi
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+INCIDENT_KINDS = ("defect", "friction", "behavior_gap", "capability_idea")
+INCIDENT_STATES = ("open", "investigating", "fixing", "resolved", "dismissed")
 INSPECT_RESPONSE_HARD = 128 * 1024
 INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
@@ -593,6 +596,7 @@ def ledger_connection(root, write=False, path=None):
         ledger_integrity(connection)
         if write:
             ensure_knowledge_privacy_schema(connection)
+            ensure_incident_schema(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
         if "connection" in locals():
@@ -663,8 +667,30 @@ def ledger_schema(connection):
             timestamp INTEGER NOT NULL,
             PRIMARY KEY (family, item_id)
         ) WITHOUT ROWID;
+        CREATE TABLE incidents (
+            incident_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL UNIQUE,
+            parent_session_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('defect','friction','behavior_gap','capability_idea')),
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('open','investigating','fixing','resolved','dismissed')),
+            cycle_id TEXT,
+            diagnostics TEXT NOT NULL,
+            evidence TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE incident_signal_dispositions (
+            signal_id TEXT PRIMARY KEY,
+            incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN ('promoted','dismissed','forgotten')),
+            timestamp INTEGER NOT NULL
+        ) WITHOUT ROWID;
     """)
     connection.execute("INSERT INTO ledger_meta VALUES ('schema_version', ?)", (str(REVIEW_LEDGER_SCHEMA),))
+    connection.execute("INSERT INTO ledger_meta VALUES ('incident_schema', ?)", (str(INCIDENT_SCHEMA),))
     empty = hashlib.sha256(ledger_payload(
         {"schema_version": 1, "tombstones": []}).encode()).hexdigest()
     connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_sequence', '0')")
@@ -681,7 +707,7 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "incident_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
@@ -692,6 +718,7 @@ def ledger_semantic_integrity(connection):
             or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)
             or "provider_evaluation_schema" in meta
             and meta["provider_evaluation_schema"] != str(PROVIDER_EVALUATION_SCHEMA)
+            or "incident_schema" in meta and meta["incident_schema"] != str(INCIDENT_SCHEMA)
             or "knowledge_privacy_sequence" in meta
             and (not meta["knowledge_privacy_sequence"].isdigit()
                  or not 0 <= int(meta["knowledge_privacy_sequence"]) < 2**64)
@@ -712,6 +739,24 @@ def ledger_semantic_integrity(connection):
                 fail("private review ledger contains an invalid privacy tombstone")
         if meta["knowledge_privacy_digest"] != knowledge_privacy_digest(connection):
             fail("private review ledger privacy digest mismatch")
+    incident_tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('incidents','incident_signal_dispositions')")}
+    if (incident_tables not in (set(), {"incidents", "incident_signal_dispositions"})
+            or bool(incident_tables) != (meta.get("incident_schema") == str(INCIDENT_SCHEMA))):
+        fail("private review ledger incident schema is incomplete")
+    if incident_tables:
+        for row in connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents"):
+            incident_record(row)
+        for signal_id, incident_id, disposition, timestamp in connection.execute(
+                "SELECT signal_id,incident_id,disposition,timestamp FROM incident_signal_dispositions"):
+            if (not re.fullmatch(r"[0-9a-f]{24}", signal_id)
+                    or incident_id is not None and not re.fullmatch(r"[0-9a-f]{24}", incident_id)
+                    or disposition not in ("promoted", "dismissed", "forgotten")
+                    or type(timestamp) is not int or timestamp < REVIEW_START_MS):
+                fail("private review ledger incident signal is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
     for kind, item_id, timestamp in connection.execute(
@@ -1686,6 +1731,80 @@ def ensure_knowledge_privacy_schema(connection):
         raise
 
 
+def ensure_incident_schema(connection):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone()
+    tables = {item[0] for item in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('incidents','incident_signal_dispositions')")}
+    if row == (str(INCIDENT_SCHEMA),) and tables == {"incidents", "incident_signal_dispositions"}:
+        return
+    if row is not None or tables:
+        fail("incident schema is incomplete")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.executescript("""
+            CREATE TABLE incidents (
+                incident_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                parent_session_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('defect','friction','behavior_gap','capability_idea')),
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('open','investigating','fixing','resolved','dismissed')),
+                cycle_id TEXT,
+                diagnostics TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE TABLE incident_signal_dispositions (
+                signal_id TEXT PRIMARY KEY,
+                incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
+                disposition TEXT NOT NULL CHECK (disposition IN ('promoted','dismissed','forgotten')),
+                timestamp INTEGER NOT NULL
+            ) WITHOUT ROWID;
+        """)
+        connection.execute("INSERT INTO ledger_meta VALUES ('incident_schema', ?)",
+                           (str(INCIDENT_SCHEMA),))
+        connection.commit()
+        ledger_integrity(connection)
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def incident_record(row):
+    (incident_id, session_id, parent_id, message_id, kind, title, summary, state,
+     cycle_id, diagnostics_raw, evidence_raw, created_at, updated_at) = row
+    try:
+        diagnostics = json.loads(diagnostics_raw, object_pairs_hook=no_duplicate_keys)
+        evidence = json.loads(evidence_raw, object_pairs_hook=no_duplicate_keys)
+    except (TypeError, json.JSONDecodeError):
+        fail("private review ledger incident payload is invalid")
+    if (not re.fullmatch(r"[0-9a-f]{24}", incident_id)
+            or not all(isinstance(value, str) and OPAQUE_ID.fullmatch(value)
+                       for value in (session_id, parent_id, message_id))
+            or kind not in INCIDENT_KINDS or state not in INCIDENT_STATES
+            or not isinstance(title, str) or not title.startswith("INCIDENT: ") or len(title) > 128
+            or not isinstance(summary, str) or not 1 <= len(summary) <= 1024
+            or cycle_id is not None and (not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id))
+            or not isinstance(diagnostics, list) or len(diagnostics) > 20
+            or not isinstance(evidence, list) or len(evidence) > 20
+            or not all(isinstance(value, str) and 1 <= len(value) <= 2048
+                       for value in diagnostics + evidence)
+            or type(created_at) is not int or type(updated_at) is not int
+            or created_at < REVIEW_START_MS or updated_at < created_at):
+        fail("private review ledger incident payload is invalid")
+    return {
+        "incident_id": incident_id, "session_id": session_id,
+        "parent_session_id": parent_id, "message_id": message_id,
+        "kind": kind, "title": title, "summary": summary, "state": state,
+        "cycle_id": cycle_id, "diagnostics": diagnostics, "evidence": evidence,
+        "created_at": created_at, "updated_at": updated_at,
+    }
+
+
 def record_knowledge_privacy_tombstone(connection, family, item_id, reason, timestamp):
     if (not OPAQUE_ID.fullmatch(family) or not OPAQUE_ID.fullmatch(item_id)
             or not OPAQUE_ID.fullmatch(reason) or not isinstance(timestamp, int)
@@ -1783,6 +1902,16 @@ def ledger_content(connection):
                 "ownership_paths, started_at, finished_at, result FROM phase_spans ORDER BY cycle_id, span_id")]
         result["execution_activations"] = payloads(
             "SELECT method_revision, payload FROM execution_activation ORDER BY method_revision")
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone() is not None:
+        incidents = [incident_record(row) for row in connection.execute(
+            "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+            "diagnostics,evidence,created_at,updated_at FROM incidents ORDER BY incident_id")]
+        dispositions = [list(row) for row in connection.execute(
+            "SELECT signal_id,incident_id,disposition,timestamp FROM incident_signal_dispositions "
+            "ORDER BY signal_id")]
+        if incidents or dispositions:
+            result["incidents"] = incidents
+            result["incident_signal_dispositions"] = dispositions
     return result
 
 
@@ -5178,6 +5307,358 @@ def command_review_scan(args):
     print(json.dumps(scan, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
+def incident_redact(value, limit=2048):
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[^\x09\x0a\x20-\x7e]", " ", text)
+    text = re.sub(r"(--?(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie)"
+                  r"(?:=|\s+))\S+", r"\1[REDACTED]", text, flags=re.I)
+    text = SECRET_VALUE.sub("[REDACTED]", text)
+    text = HIGH_ENTROPY.sub("[REDACTED]", text)
+    return text.strip()[:limit]
+
+
+def incident_scope(candidates, session_id):
+    by_id = {item["session_id"]: item for item in candidates}
+    if session_id not in by_id:
+        fail("incident session is outside the DBSCTR review family")
+    adjacency = {item_id: set() for item_id in by_id}
+    for item_id, item in by_id.items():
+        related = [item.get("parent_session_id"), *item.get("child_session_ids", [])]
+        for value in related:
+            if value in adjacency:
+                adjacency[item_id].add(value)
+                adjacency[value].add(item_id)
+    family, pending = {session_id}, [session_id]
+    while pending:
+        current = pending.pop()
+        new = adjacency[current] - family
+        family.update(new)
+        pending.extend(new)
+    return family
+
+
+def incident_scan_data(args):
+    session_id = getattr(args, "session_id", None)
+    if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
+        fail("invalid incident session ID")
+    scan = review_scan(argparse.Namespace(
+        database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT, cursor=0,
+        snapshot=None, session_ceiling=None, part_ceiling=None, database_digest=None,
+        excluded_session_id=None, excluded_message_id=None, exclusion_digest=None,
+        history_metrics=True, history_all=True, include_reviewed=True, bind_history=False,
+        lock_held=False,
+    ))
+    candidate_ids = {item["session_id"] for item in scan["candidates"]}
+    scope = incident_scope(scan["candidates"], session_id) if session_id else candidate_ids
+    database = opencode_database(args.database)
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        tables = {row[0].lower(): row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        message, part = tables["message"], tables["part"]
+        mid = sqlite_name(connection, message, ("id",))
+        msession = sqlite_name(connection, message, ("sessionid",))
+        pid = sqlite_name(connection, part, ("id",))
+        pmessage = sqlite_name(connection, part, ("messageid",))
+        ptime = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        pbody = sqlite_name(connection, part, ("data", "text", "content"))
+        rows = []
+        if scope:
+            placeholders = ",".join("?" for _ in scope)
+            rows = connection.execute(
+                f'SELECT m."{msession}",m."{mid}",p."{pid}",p."{ptime}",p."{pbody}" '
+                f'FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}" '
+                f'WHERE m."{msession}" IN ({placeholders}) AND p.rowid <= ? AND p."{ptime}" <= ? '
+                f'ORDER BY p."{ptime}",p."{pid}"',
+                (*sorted(scope), scan["part_ceiling"], scan["snapshot"]),
+            ).fetchall()
+    except (KeyError, sqlite3.Error) as error:
+        fail(f"cannot read OpenCode incidents: {error}")
+    finally:
+        if "connection" in locals():
+            connection.close()
+    calls = []
+    for source_session, message_id, part_id, timestamp, raw in rows:
+        try:
+            payload = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        except (TypeError, json.JSONDecodeError, RuntimeError):
+            continue
+        state = payload.get("state") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) or payload.get("type") != "tool" or not isinstance(state, dict):
+            continue
+        tool_name = payload.get("tool") or payload.get("name") or state.get("tool") or "unknown"
+        if not isinstance(tool_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", tool_name):
+            tool_name = "unknown"
+        status = state.get("status")
+        if not isinstance(status, str):
+            continue
+        calls.append({"session_id": str(source_session), "message_id": str(message_id),
+                      "part_id": str(part_id), "timestamp": int(timestamp),
+                      "tool": tool_name, "status": status.lower(), "state": state})
+    dispositions = set()
+    incidents = []
+    root = review_root(args.state_root)
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
+                dispositions = {row[0] for row in ledger.execute(
+                    "SELECT signal_id FROM incident_signal_dispositions")}
+                for row in ledger.execute(
+                        "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                        "diagnostics,evidence,created_at,updated_at FROM incidents ORDER BY updated_at DESC,incident_id"):
+                    item = incident_record(row)
+                    if session_id is None or item["session_id"] in scope:
+                        item["signal_ids"] = [value[0] for value in ledger.execute(
+                            "SELECT signal_id FROM incident_signal_dispositions "
+                            "WHERE incident_id=? AND disposition='promoted' ORDER BY signal_id",
+                            (item["incident_id"],))]
+                        incidents.append(item)
+    signals = []
+    successes = {(item["session_id"], item["tool"]): item["timestamp"] for item in calls
+                 if item["status"] in ("completed", "success")}
+    for item in calls:
+        if item["status"] not in ("error", "failed"):
+            continue
+        signal_id = hashlib.sha256(
+            f'{item["session_id"]}\0{item["message_id"]}\0{item["part_id"]}\0{item["tool"]}'.encode()
+        ).hexdigest()[:24]
+        if signal_id in dispositions:
+            continue
+        detail = item["state"].get("error", item["status"])
+        if not isinstance(detail, str):
+            detail = json.dumps(detail, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        signals.append({
+            "signal_id": signal_id, "session_id": item["session_id"],
+            "message_id": item["message_id"], "part_id": item["part_id"],
+            "timestamp": item["timestamp"], "tool": item["tool"], "status": item["status"],
+            "recovered": successes.get((item["session_id"], item["tool"]), -1) > item["timestamp"],
+            "evidence": incident_redact(detail, 1024),
+        })
+    signals.sort(key=lambda item: (item["recovered"], -item["timestamp"], item["signal_id"]))
+    result = {"schema_version": 1, "incidents": incidents, "signals": signals[:100],
+              "snapshot": scan["snapshot"], "session_ceiling": scan["session_ceiling"],
+              "part_ceiling": scan["part_ceiling"], "database_digest": scan["database_digest"]}
+    if len(json.dumps(result, ensure_ascii=True).encode()) > REVIEW_SCAN_HARD:
+        fail("incident scan response exceeds bound")
+    return result
+
+
+def command_incident_scan(args):
+    print(json.dumps(incident_scan_data(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def incident_session_parent(database, session_id, message_id):
+    if session_for_message(database, message_id) != session_id:
+        fail("incident message belongs to another session")
+    path = opencode_database(database)
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        table = next(row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'") if row[0].lower() == "session")
+        sid = sqlite_name(connection, table, ("id",))
+        parent = sqlite_name(connection, table, ("parentid", "parent"))
+        row = connection.execute(f'SELECT "{parent}" FROM "{table}" WHERE "{sid}"=?',
+                                 (session_id,)).fetchone()
+    except (StopIteration, sqlite3.Error) as error:
+        fail(f"cannot validate incident session: {error}")
+    finally:
+        if "connection" in locals():
+            connection.close()
+    if row is None or row[0] is None or not OPAQUE_ID.fullmatch(str(row[0])):
+        fail("incident registration requires a child session")
+    return str(row[0])
+
+
+def command_incident_register(args):
+    if (not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)
+            or args.kind not in INCIDENT_KINDS or not args.title.startswith("INCIDENT: ")
+            or not 11 <= len(args.title) <= 128 or not 1 <= len(args.summary) <= 1024
+            or len(args.signal_id) > 20 or len(args.diagnostic) > 20 or len(args.evidence) > 20
+            or len(args.signal_id) + len(args.evidence) > 20
+            or not all(re.fullmatch(r"[0-9a-f]{24}", value) for value in args.signal_id)):
+        fail("invalid incident registration")
+    parent_id = incident_session_parent(args.database, args.session_id, args.message_id)
+    scan = incident_scan_data(argparse.Namespace(
+        database=args.database, state_root=args.state_root, session_id=args.session_id))
+    available = {item["signal_id"]: item for item in scan["signals"]}
+    missing = set(args.signal_id) - set(available)
+    if missing:
+        fail("incident signal is outside the incident family or already disposed")
+    diagnostics = [incident_redact(value) for value in args.diagnostic]
+    evidence = [incident_redact(value) for value in args.evidence]
+    evidence.extend(incident_redact(f'{available[value]["tool"]}: {available[value]["evidence"]}')
+                    for value in args.signal_id)
+    if any(not value for value in diagnostics + evidence):
+        fail("invalid incident evidence")
+    title, summary = incident_redact(args.title, 128), incident_redact(args.summary, 1024)
+    if not title.startswith("INCIDENT: ") or not summary:
+        fail("invalid incident registration")
+    incident_id = hashlib.sha256(f"incident\0{args.session_id}".encode()).hexdigest()[:24]
+    timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM incidents WHERE session_id=?", (args.session_id,)).fetchone():
+                fail("incident fork is already registered")
+            connection.execute(
+                "INSERT INTO incidents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (incident_id, args.session_id, parent_id, args.message_id, args.kind, title, summary,
+                 "open", None, ledger_payload(diagnostics), ledger_payload(evidence), timestamp, timestamp),
+            )
+            connection.executemany(
+                "INSERT INTO incident_signal_dispositions VALUES (?,?,'promoted',?)",
+                ((value, incident_id, timestamp) for value in args.signal_id),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    item = {"incident_id": incident_id, "session_id": args.session_id,
+            "parent_session_id": parent_id, "message_id": args.message_id, "kind": args.kind,
+            "title": title, "summary": summary, "state": "open", "cycle_id": None,
+            "diagnostics": diagnostics, "evidence": evidence, "created_at": timestamp,
+            "updated_at": timestamp, "signal_ids": args.signal_id}
+    print(json.dumps({"incident": item}, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def global_cycle_record(cycle_id):
+    if not OPAQUE_ID.fullmatch(cycle_id):
+        fail("invalid incident cycle ID")
+    roots = [root_dir()]
+    roots.extend(item[1] for item in global_worktree_roots()[0])
+    found, seen = [], set()
+    for repository in roots:
+        try:
+            common = common_git_dir(repository).resolve()
+        except RuntimeError:
+            continue
+        if common in seen:
+            continue
+        seen.add(common)
+        path = common / "dbsctr/cycles" / f"{cycle_id}.json"
+        if path.is_file() and not path.is_symlink():
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+            except (OSError, json.JSONDecodeError) as error:
+                fail(f"cannot read incident Cycle Record: {error}")
+            if record.get("cycle_id") != cycle_id:
+                fail("incident Cycle Record identity mismatch")
+            found.append(record)
+    if len(found) != 1:
+        fail("incident fix cycle is missing or ambiguous")
+    return found[0]
+
+
+def command_incident_update(args):
+    if not re.fullmatch(r"[0-9a-f]{24}", args.incident_id):
+        fail("invalid incident ID")
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        try:
+            row = connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents WHERE incident_id=?",
+                (args.incident_id,)).fetchone()
+            if row is None:
+                fail("incident is missing")
+            item = incident_record(row)
+            transitions = {"open": {"investigating", "dismissed"},
+                           "investigating": {"open", "fixing", "dismissed"},
+                           "fixing": {"resolved"}, "resolved": set(), "dismissed": set()}
+            if args.state != item["state"] and args.state not in transitions[item["state"]]:
+                fail("invalid incident state transition")
+            cycle_id = item["cycle_id"]
+            if args.state == "fixing":
+                requested = args.cycle_id or cycle_id
+                if requested is None:
+                    fail("fixing incident requires one cycle ID")
+                if cycle_id is not None and requested != cycle_id:
+                    fail("incident fix cycle is immutable")
+                global_cycle_record(requested)
+                cycle_id = requested
+            elif args.cycle_id is not None and args.cycle_id != cycle_id:
+                fail("incident fix cycle is immutable")
+            if args.state == "resolved":
+                if cycle_id is None:
+                    fail("incident resolution requires verified activation")
+                cycle = global_cycle_record(cycle_id)
+                gates = cycle.get("gates", {})
+                activation = [gates.get(name) for name in ("deploy", "operate")]
+                if (cycle.get("state") != "completed" or any(
+                        not isinstance(gate, dict)
+                        or gate.get("applicability") not in ("required", "not_applicable")
+                        or gate.get("applicability") == "required" and gate.get("result") != "passed"
+                        for gate in activation)):
+                    fail("incident resolution requires verified activation")
+            timestamp = max(int(datetime.now(timezone.utc).timestamp() * 1000), item["updated_at"] + 1)
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("UPDATE incidents SET state=?,cycle_id=?,updated_at=? WHERE incident_id=?",
+                               (args.state, cycle_id, timestamp, args.incident_id))
+            connection.commit()
+            updated = connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents WHERE incident_id=?",
+                (args.incident_id,)).fetchone()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps({"incident": incident_record(updated)}, sort_keys=True,
+                     separators=(",", ":"), ensure_ascii=True))
+
+
+def command_incident_forget(args):
+    if not re.fullmatch(r"[0-9a-f]{24}", args.incident_id):
+        fail("invalid incident ID")
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        row = connection.execute("SELECT session_id FROM incidents WHERE incident_id=?",
+                                 (args.incident_id,)).fetchone()
+        if row is None:
+            fail("incident is missing")
+        signal_ids = [item[0] for item in connection.execute(
+            "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id=?", (args.incident_id,))]
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        staged = None
+        quarantine_name = f".forget-{uuid.uuid4().hex}"
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE incident_signal_dispositions SET incident_id=NULL,disposition='forgotten',timestamp=? "
+                "WHERE incident_id=?", (timestamp, args.incident_id))
+            connection.execute("DELETE FROM incidents WHERE incident_id=?", (args.incident_id,))
+            record_knowledge_privacy_tombstone(connection, "incident", args.incident_id, "forgotten", timestamp)
+            for signal_id in signal_ids:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident_signal", signal_id, "forgotten", timestamp)
+            connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
+                               (quarantine_name,))
+            staged = stage_pre_forget_state(root, quarantine_name)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            if staged is not None:
+                restore_staged_forget(*staged)
+            connection.close()
+            raise
+        recover_forget_state(root, connection)
+        connection.close()
+    print(json.dumps({"forgotten": True}, sort_keys=True, separators=(",", ":")))
+
+
 def history_telemetry(candidate, metrics):
     families = metrics.get("model_families", "unavailable")
     if isinstance(families, list):
@@ -8260,7 +8741,12 @@ def command_review_forget(args):
         session_times = [timestamp for _, report, timestamp in review_reports(root)
                          if args.session_id in report["session_ids"]]
         session_times.append(value["sessions"].get(args.session_id, 0))
-        removed = args.session_id in reviewed_ids_unlocked(root)[0]
+        incident_ids = [row[0] for row in connection.execute(
+            "SELECT incident_id FROM incidents WHERE session_id=?", (args.session_id,))]
+        incident_signals = [row[0] for row in connection.execute(
+            "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id IN "
+            "(SELECT incident_id FROM incidents WHERE session_id=?)", (args.session_id,))]
+        removed = args.session_id in reviewed_ids_unlocked(root)[0] or bool(incident_ids)
         forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
         staged = None
         quarantine_name = f".forget-{uuid.uuid4().hex}"
@@ -8275,6 +8761,12 @@ def command_review_forget(args):
                 delete_capture_benchmarks(connection, capture_dependent, forgotten_at)
                 connection.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                        ((capture_id,) for capture_id in capture_dependent))
+            if incident_ids:
+                connection.execute(
+                    "UPDATE incident_signal_dispositions SET incident_id=NULL,disposition='forgotten',timestamp=? "
+                    "WHERE incident_id IN (SELECT incident_id FROM incidents WHERE session_id=?)",
+                    (forgotten_at, args.session_id))
+                connection.execute("DELETE FROM incidents WHERE session_id=?", (args.session_id,))
             connection.execute(
                 "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
@@ -8288,6 +8780,12 @@ def command_review_forget(args):
             for capture_id in capture_dependent:
                 record_knowledge_privacy_tombstone(
                     connection, "history_capture", capture_id, "forgotten", forgotten_at)
+            for incident_id in incident_ids:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident", incident_id, "forgotten", forgotten_at)
+            for signal_id in incident_signals:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident_signal", signal_id, "forgotten", forgotten_at)
             connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                (quarantine_name,))
             staged = stage_pre_forget_state(root, quarantine_name)
@@ -10384,6 +10882,33 @@ def parser():
     review_scan.add_argument("--excluded-message-id")
     review_scan.add_argument("--exclusion-digest")
     review_scan.set_defaults(func=command_review_scan)
+    incident_scan = commands.add_parser("incident-scan")
+    incident_scan.add_argument("--database")
+    incident_scan.add_argument("--state-root")
+    incident_scan.add_argument("--session-id")
+    incident_scan.set_defaults(func=command_incident_scan)
+    incident_register = commands.add_parser("incident-register")
+    incident_register.add_argument("--database")
+    incident_register.add_argument("--state-root")
+    incident_register.add_argument("--session-id", required=True)
+    incident_register.add_argument("--message-id", required=True)
+    incident_register.add_argument("--kind", required=True, choices=INCIDENT_KINDS)
+    incident_register.add_argument("--title", required=True)
+    incident_register.add_argument("--summary", required=True)
+    incident_register.add_argument("--signal-id", action="append", default=[])
+    incident_register.add_argument("--diagnostic", action="append", default=[])
+    incident_register.add_argument("--evidence", action="append", default=[])
+    incident_register.set_defaults(func=command_incident_register)
+    incident_update = commands.add_parser("incident-update")
+    incident_update.add_argument("--state-root")
+    incident_update.add_argument("--incident-id", required=True)
+    incident_update.add_argument("--state", required=True, choices=INCIDENT_STATES)
+    incident_update.add_argument("--cycle-id")
+    incident_update.set_defaults(func=command_incident_update)
+    incident_forget = commands.add_parser("incident-forget")
+    incident_forget.add_argument("--state-root")
+    incident_forget.add_argument("--incident-id", required=True)
+    incident_forget.set_defaults(func=command_incident_forget)
     review_history = commands.add_parser("review-history")
     review_history.add_argument("--database")
     review_history.add_argument("--archive-only", action="store_true")
