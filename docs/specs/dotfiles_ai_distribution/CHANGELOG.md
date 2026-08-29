@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-28 - Host Container Runtime Retirement
+
+- Made managed Fedora Lima workspaces with rootless Podman the only supported
+  local container runtime and changed portable shell paths to derive from runtime
+  `$HOME`.
+- Removed host-runtime fallback guidance from current configuration, operations,
+  behavior, and maintenance contracts while preserving historical records.
+- Proved both guest Compose paths, zero active Camplan consumers, and healthy
+  Atuin before disabling stale startup and permanently deleting the approved
+  no-backup host runtime state.
+- Removed the host Docker CLI, Compose, Buildx, and credential helper. Homebrew
+  unexpectedly autoremoved Lima and `usage`; Lima was restored at 2.2.0 and
+  `usage` at 6.5.0 before final managed-workspace and Atuin probes passed.
+
 ## 2026-08-28 - Initiative Runtime Distribution
 
 - Added separate context profiles, managed Initiative control-plane deployment,
