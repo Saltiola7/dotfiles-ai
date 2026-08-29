@@ -117,6 +117,18 @@ def chezmoi(
     )
 
 
+def test_macos_installs_official_opencode_tap() -> None:
+    brewfile = (ROOT / "Brewfile").read_text()
+    installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
+
+    assert 'tap "anomalyco/tap"' in brewfile
+    assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert '{{ include "Brewfile" | sha256sum }}' in installer
+    assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
+    assert "Homebrew is required to install OpenCode" in installer
+    assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+
+
 def test_local_data_renders_complete_configs() -> None:
     config = json.loads(
         chezmoi("cat", str(Path.home() / ".config/opencode/opencode.json")).stdout

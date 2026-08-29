@@ -15,7 +15,8 @@ target files.
 
 1. A developer copies the documented local TOML example, supplies machine-local
    values, initializes the independent chezmoi source, previews, and applies it.
-2. OpenCode loads the managed control plane and DBSCTR tools from complete,
+2. On macOS, the source installs OpenCode from its official Homebrew formula;
+   OpenCode then loads the managed control plane and DBSCTR tools from complete,
    rendered configuration.
 3. Herdr runs on macOS with optional 1Password integration; absence of
    1Password never blocks Herdr or shell startup.

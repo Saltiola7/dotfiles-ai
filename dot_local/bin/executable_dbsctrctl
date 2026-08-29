@@ -7755,7 +7755,7 @@ def improvement_readiness(value, worker_id, session_id, opportunity_id, validate
                         "excluded_review_session_count", "unattributed_session_count", "source_count",
                          "opportunity_id", "session_id")
             if (connection.execute(
-                    "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone() != ("7",)
+                    "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone() not in {("7",), ("8",)}
                     or columns != expected):
                 fail("autonomous readiness evidence is unavailable")
             evidence = connection.execute(

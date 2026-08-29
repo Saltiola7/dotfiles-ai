@@ -3,9 +3,9 @@
 Portable macOS configuration for DBSCTR, OpenCode, Herdr, and optional Hermes
 orchestration, managed as an independent chezmoi source repository.
 
-This repository configures those tools. It does not install OpenCode or Herdr,
-store provider credentials, or replace the DBSCTR specifications as lifecycle
-authority.
+This repository installs OpenCode from its official Homebrew tap and configures
+the AI workbench. It does not install Herdr, store provider credentials, or
+replace the DBSCTR specifications as lifecycle authority.
 
 ## Choose Your Path
 
@@ -20,8 +20,8 @@ authority.
 ## Requirements
 
 - macOS
+- [Homebrew](https://brew.sh/)
 - [chezmoi](https://www.chezmoi.io/)
-- [OpenCode](https://opencode.ai/)
 - [Herdr](https://herdr.dev/)
 - Python 3.12+ and `uv` for repository validation
 - Optional: 1Password CLI for `op-session`
@@ -48,6 +48,9 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 The real TOML stays outside the checkout. Its `[data.dotfiles_ai]` values
 override public defaults without entering Git history. Restart OpenCode after an
 apply because it loads configuration only at startup.
+The first macOS apply installs the native OpenCode release from
+`anomalyco/tap/opencode`; later applies rerun Homebrew only when the Brewfile
+changes.
 
 ## Configuration
 
