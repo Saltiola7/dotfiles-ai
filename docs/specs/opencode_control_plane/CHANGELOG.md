@@ -1,5 +1,22 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Durable Initiative Build Handoff
+
+- Initiative launch now resolves and approval-binds the target origin's default
+  branch, omits Discovery runtime attachment during cycle creation, and selects
+  the provider-neutral Build primary for fork and fresh fallback paths.
+- Failed launch recovery preserves delivery intent and requires fresh exact
+  approval for any semantic change.
+- Affected control-plane/lifecycle validation passed 72 tests. Independent
+  elevated-risk review found no remaining high or medium issue after removing
+  caller control of the inferred protected base.
+- Targeted chezmoi preview/apply changed only the runtime adapter, typed tools,
+  coordinator, and Discovery skill; deployed files are source-identical and the
+  deployed resolver plus a fresh coordinator shell smoke passed. Existing
+  OpenCode processes require restart. Gate Commit: `43dda62`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-28 - Interactive Discovery Shell
 
 - Granted only Discovery Coordinator unrestricted Bash for native CLI, API,

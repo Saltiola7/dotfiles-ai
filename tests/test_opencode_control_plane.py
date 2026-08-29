@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -1237,7 +1238,7 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.30","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1652,7 +1653,7 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.30","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1694,8 +1695,15 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_CALLS"\n'
         'case "$1 $2" in\n'
         "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'agent start') case \" $* \" in *' --fork '*) if [ \"$FAIL_FORK\" = 1 ]; then printf 'invalid session\\n' >&2; exit 1; fi ;; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
         'esac\n'
+    )
+    real_git = shutil.which("git")
+    git = bin_dir / "git"
+    git.write_text(
+        '#!/bin/sh\nif [ "$1 $2 $3" = "ls-remote --symref origin" ] && [ "$4" = HEAD ]; '
+        'then branch="$DEFAULT_BRANCH"; if [ -f "$BRANCH_FILE" ]; then IFS= read -r branch < "$BRANCH_FILE"; fi; printf "ref: refs/heads/%s\\tHEAD\\n%s\\tHEAD\\n" "$branch" "dddddddddddddddddddddddddddddddddddddddd"; '
+        'else exec "$REAL_GIT" "$@"; fi\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
     for executable in bin_dir.iterdir():
@@ -1703,7 +1711,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ initiative_launch }} from {json.dumps(str(tools))};
 const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"parent-session",messageID:"message",
-ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;}}}};
+ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;if(process.env.MUTATE_BRANCH==="1")await Bun.write(process.env.BRANCH_FILE,"develop");}}}};
 console.log(await initiative_launch.execute({{
 manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,
 cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},
@@ -1712,7 +1720,8 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
-             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "DEFAULT_BRANCH": "main", "REAL_GIT": real_git},
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["initiative"]["manifest_digest"] == digest
@@ -1726,6 +1735,7 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "base_branch": "main",
         "github_account": None, "github_repository": None,
     }
     assert calls.read_text().splitlines()[0:6] == [
@@ -1734,17 +1744,51 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert "<--base-branch>\n<main>" in calls.read_text()
+    assert "<--opencode-message-id>" not in calls.read_text()
     log = herdr_calls.read_text()
-    assert "<--session>\n<parent-session>\n<--fork>" in log
+    assert "<--session>\n<parent-session>\n<--fork>\n<--agent>\n<build>" in log
     assert f'"manifest_digest":"{digest}"' in log
     assert "<--prompt>" in log
+
+    master = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "TARGET": str(target), "DEFAULT_BRANCH": "master", "REAL_GIT": real_git},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(json.loads(approval.read_text())["patterns"][0])["base_branch"] == "master"
+    assert "<--base-branch>\n<master>" in calls.read_text()
+
+    fallback = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "DEFAULT_BRANCH": "main", "REAL_GIT": real_git, "FAIL_FORK": "1"},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(fallback.stdout)["herdr_session_mode"] == "fresh_fallback"
+    assert f"<{cycle}>\n<--agent>\n<build>\n<--prompt>" in herdr_calls.read_text()
+
+    branch_file = tmp_path / "branch"
+    branch_changed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "DEFAULT_BRANCH": "main", "BRANCH_FILE": str(branch_file), "REAL_GIT": real_git,
+             "MUTATE_BRANCH": "1"},
+        text=True, capture_output=True,
+    )
+    assert branch_changed.returncode != 0 and "default branch changed after approval" in branch_changed.stderr
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
              "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
-             "APPROVAL": str(approval), "MUTATE_PLAN": "1"},
+             "APPROVAL": str(approval), "MUTATE_PLAN": "1", "DEFAULT_BRANCH": "main",
+             "REAL_GIT": real_git},
         text=True, capture_output=True,
     )
     assert changed.returncode != 0 and "plan changed after approval" in changed.stderr
@@ -1754,7 +1798,8 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
              "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
-             "APPROVAL": str(approval), "TARGET": str(target), "MUTATE_TARGET": "1"},
+             "APPROVAL": str(approval), "TARGET": str(target), "MUTATE_TARGET": "1",
+             "DEFAULT_BRANCH": "master", "REAL_GIT": real_git},
         text=True, capture_output=True,
     )
     assert target_changed.returncode != 0 and "target repository changed" in target_changed.stderr

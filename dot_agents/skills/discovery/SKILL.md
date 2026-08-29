@@ -41,7 +41,9 @@ A changed manifest digest invalidates earlier readiness. Require exact user appr
 for that digest-bound slice and launch only through
 `dbsctr_initiative_launch`; compressed prose and Herdr state are never readiness
 authority. Discovery continues for unfinished slices while approved,
-ownership-disjoint slices build.
+ownership-disjoint slices build. Let the launcher resolve the target default
+branch. A failed launch does not loosen or replace the approved delivery intent;
+retry unchanged after diagnosis or request fresh exact approval.
 
 ## Retrieve
 

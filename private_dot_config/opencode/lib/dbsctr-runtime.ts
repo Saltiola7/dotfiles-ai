@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
-  core_revision: "3.29",
+  core_revision: "3.30",
   overlays: { build: "neutral-2026-07-26", "build-gpt": "openai-2026-07-26", "build-claude": "anthropic-2026-07-26" },
 }
 
@@ -175,6 +175,14 @@ export async function gitRepositorySlug(cwd: string) {
     throw new Error("target repository must have a GitHub origin")
   const match = parsed.pathname.match(/^\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/)
   if (match === null) throw new Error("target repository must have a GitHub origin")
+  return match[1]
+}
+
+export async function gitDefaultBranch(cwd: string) {
+  const output = await run(["git", "ls-remote", "--symref", "origin", "HEAD"], cwd)
+  const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)
+  if (match === null) throw new Error("target repository origin has no default branch")
+  await run(["git", "check-ref-format", "--branch", match[1]], cwd)
   return match[1]
 }
 
@@ -1344,6 +1352,7 @@ export async function beginCycle(args: {
   planPath: string
   githubAccount?: string
   githubRepository?: string
+  baseBranch?: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
   messageID: string
@@ -1372,7 +1381,7 @@ export async function beginCycle(args: {
     "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
   ], directory))
   const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
-  const runtimeArgv = runtime && sameRepository ? [
+  const runtimeArgv = runtime && sameRepository && initiative === undefined ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1388,6 +1397,7 @@ export async function beginCycle(args: {
     "--plan", args.planPath,
     ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
     ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
+    ...(args.baseBranch === undefined ? [] : ["--base-branch", args.baseBranch]),
     ...(initiative === undefined ? [] : [
       "--initiative-manifest", initiative.manifest_path, "--initiative-slice", initiative.slice_id,
       "--initiative-digest", initiative.manifest_digest,
@@ -1423,7 +1433,8 @@ export async function beginCycle(args: {
       "--prompt",
       `Start only the approved DBSCTR slice. Re-read its Git artifacts, revalidate the manifest digest before acting, and attach this runtime to the cycle. Readiness receipt: ${JSON.stringify(initiative)}`,
     ]
-    const fresh = [handoff.worktree, ...prompt]
+    const buildAgent = initiative === undefined ? [] : ["--agent", "build"]
+    const fresh = [handoff.worktree, ...buildAgent, ...prompt]
     let opencode = fresh
     let forked = false
     if (runtime !== undefined) {
@@ -1431,7 +1442,7 @@ export async function beginCycle(args: {
       try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
       if (supportsFork) {
         forked = true
-        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...prompt]
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent, ...prompt]
       }
     }
     const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
