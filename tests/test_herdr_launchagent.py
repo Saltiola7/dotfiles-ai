@@ -364,6 +364,11 @@ def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None
     assert 'PENDING_PREFIX="$HOME/Applications/Herdr Host.pending"' in builder
     assert 'PENDING_APP="$PENDING_PREFIX.$pending_stamp.$$.app"' in builder
     assert "previous-pending.app" not in builder
+    create_config = builder.index('/usr/bin/plutil -create xml1 "$CONFIG"')
+    insert_config = builder.index('/usr/bin/plutil -insert schema_version', create_config)
+    convert_config = builder.index('/usr/bin/plutil -convert json "$CONFIG"', insert_config)
+    assert create_config < insert_config < convert_config
+    assert '/usr/bin/plutil -create json "$CONFIG"' not in builder
 
 
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
@@ -383,6 +388,54 @@ def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> N
     assert "HERDR_HOST_TEST_MODE" not in production_strings
     assert "HERDR_HOST_TEST_FAULT" not in production_strings
     assert "HERDR_HOST_TEST_NOTIFICATION_LOG" not in production_strings
+
+
+def test_herdr_host_builder_config_pipeline_emits_json(tmp_path) -> None:
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+    start = builder.index('CONFIG="$CONTENTS/Resources/herdr-host-config.json"')
+    final_command = '/bin/chmod 600 "$CONFIG"'
+    end = builder.index(final_command, start) + len(final_command)
+    contents = tmp_path / "Herdr Host.app/Contents"
+    (contents / "Resources").mkdir(parents=True)
+    app = tmp_path / "Herdr Host.app"
+
+    subprocess.run(
+        ["bash"],
+        input="set -euo pipefail\n" + builder[start:end],
+        text=True,
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "APP": str(app),
+            "CONTENTS": str(contents),
+            "EXPECTED_VOLUME_UUID": "00000000-0000-0000-0000-000000000000",
+            "HEALTH_MAX_AGE": "90",
+            "HERDR": str(tmp_path / "herdr"),
+            "HOME": str(tmp_path),
+            "PROBE_INTERVAL": "30",
+            "SIGNING_SHA256": "A" * 64,
+            "STATE_ROOT": str(tmp_path / "state"),
+        },
+    )
+
+    config = contents / "Resources/herdr-host-config.json"
+    document = json.loads(config.read_text())
+    assert document == {
+        "activation_supported": False,
+        "expected_volume_uuid": "00000000-0000-0000-0000-000000000000",
+        "health_max_age_seconds": 90,
+        "health_root": str(tmp_path / "Library/Application Support/Herdr Host"),
+        "herdr_executable": str(tmp_path / "herdr"),
+        "host_wrapper": str(app / "Contents/MacOS/herdr-host"),
+        "owner_executable": str(tmp_path / ".local/bin/herdr-server-owner"),
+        "probe_interval_seconds": 30,
+        "schema_version": 1,
+        "signing_identity_sha256": "A" * 64,
+        "state_root": str(tmp_path / "state"),
+        "state_root_exec": str(tmp_path / ".local/bin/state-root-exec"),
+    }
+    assert config.stat().st_mode & 0o777 == 0o600
 
 
 def test_herdr_host_rejects_tampered_sealed_config(tmp_path) -> None:

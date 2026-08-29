@@ -93,7 +93,7 @@ HERDR_HOST_INFO
 HERDR_HOST_AGENT
 
 CONFIG="$CONTENTS/Resources/herdr-host-config.json"
-/usr/bin/plutil -create json "$CONFIG"
+/usr/bin/plutil -create xml1 "$CONFIG"
 /usr/bin/plutil -insert schema_version -integer 1 "$CONFIG"
 /usr/bin/plutil -insert state_root -string "$STATE_ROOT" "$CONFIG"
 /usr/bin/plutil -insert expected_volume_uuid -string "$EXPECTED_VOLUME_UUID" "$CONFIG"
@@ -106,6 +106,7 @@ CONFIG="$CONTENTS/Resources/herdr-host-config.json"
 /usr/bin/plutil -insert health_max_age_seconds -integer "$HEALTH_MAX_AGE" "$CONFIG"
 /usr/bin/plutil -insert signing_identity_sha256 -string "$SIGNING_SHA256" "$CONFIG"
 /usr/bin/plutil -insert activation_supported -bool false "$CONFIG"
+/usr/bin/plutil -convert json "$CONFIG"
 /bin/chmod 600 "$CONFIG"
 
 /usr/bin/plutil -lint "$CONTENTS/Info.plist" >/dev/null
