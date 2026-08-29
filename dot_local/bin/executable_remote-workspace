@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+env_file=${DOTFILES_AI_REMOTE_WORKSPACE_ENV:-$HOME/.config/dotfiles-ai/remote-workspace.env}
+[ -f "$env_file" ] || {
+    echo "remote workspace is not configured" >&2
+    exit 1
+}
+. "$env_file"
+
+if [ "${1:-}" = doctor ]; then
+    exec remote-workspace-doctor
+fi
+[ "$#" -gt 0 ] || {
+    echo "usage: remote-workspace doctor|TASK [ARG ...]" >&2
+    exit 2
+}
+
+: "${REMOTE_DEV_REPOSITORY:?remote workspace repository is not configured}"
+cd "$REMOTE_DEV_REPOSITORY"
+exec mise run "$@"

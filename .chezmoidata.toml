@@ -45,6 +45,15 @@ server_enabled = false
 enabled = false
 ssh = false
 
+[dotfiles_ai.remote_workspace]
+enabled = false
+repository = ""
+project = ""
+zone = ""
+instance = ""
+account = ""
+tailscale_host = ""
+
 [dotfiles_ai.rnd]
 enabled = false
 backend = "native"

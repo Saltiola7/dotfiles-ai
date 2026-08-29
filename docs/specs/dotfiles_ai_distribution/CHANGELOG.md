@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - DAI-034 Portable Remote Workspace Client
+
+- Added an opt-in machine-local remote-workspace profile, private environment
+  rendering, and prerequisite doctor without embedding endpoint identity or
+  credentials in public source.
+- Added mise and Google Cloud CLI to the managed macOS packages while preserving
+  repository-owned lifecycle tasks as the sole remote-operation interface.
+
 ## 2026-08-29 - DAI-032 R&D Launch Health
 
 - Cut machine-local review and backlog authority over to the moved public

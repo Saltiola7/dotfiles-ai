@@ -41,6 +41,11 @@ install-guest-development-tools.sh
 .config/containers/systemd/atuin.container
 .config/containers/systemd/atuin-data.volume
 {{ end }}
+{{ if not .dotfiles_ai.remote_workspace.enabled }}
+.config/dotfiles-ai/remote-workspace.env
+.local/bin/remote-workspace
+.local/bin/remote-workspace-doctor
+{{ end }}
 {{ if not (and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled) }}
 .config/containers/systemd/pm-postgres.container
 .config/containers/systemd/pm-postgres-data.volume

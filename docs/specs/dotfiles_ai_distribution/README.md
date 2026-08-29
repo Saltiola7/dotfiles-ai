@@ -903,10 +903,24 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Interfaces And Contracts
 
-- `Brewfile` declares only `anomalyco/tap/opencode`. Its hash-bound
+- `Brewfile` declares OpenCode, mise, and Google Cloud CLI. Its hash-bound
   `run_onchange_before_install-opencode.sh` runs on macOS before other apply scripts,
   fails when Homebrew is unavailable, and delegates package idempotency and
   upgrades to `brew bundle`.
+- `[dotfiles_ai.remote_workspace]` is disabled by default and contains only a
+  local repository path plus non-secret project, zone, instance, optional account,
+  and optional alternate host values. When enabled, chezmoi renders them into a
+  private local environment file.
+- `remote-workspace TASK [ARG ...]` sources that file and forwards unchanged to
+  `mise run` in the configured repository; `remote-workspace doctor` invokes the
+  prerequisite check.
+- `remote-workspace-doctor` verifies the local gcloud, mise, SSH, and Herdr
+  commands, requires the configured repository and endpoint coordinates,
+  resolves an omitted account from gcloud, and requires the Tailscale client only
+  when an alternate host is configured. It performs no remote mutation.
+- Remote lifecycle behavior remains owned by the configured repository's mise
+  tasks. This repository does not duplicate infrastructure commands, store
+  credentials, enroll a node, or define tailnet policy.
 - Shared `.chezmoidata.toml` defaults `[dotfiles_ai.rnd].enabled=false`.
 - `vertex-reauth` derives its isolated `CLOUDSDK_CONFIG` from configured
   canonical `application_default_credentials.json`, rejects any other basename,
