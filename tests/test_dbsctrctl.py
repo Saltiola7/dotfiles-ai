@@ -244,6 +244,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(receipt["manifest_commit"], r"^[0-9a-f]{40,64}$")
         self.assertEqual(receipt["release_group"], "release-a")
         self.assertNotIn("tickets", receipt)
+        self.assertEqual(receipt["execution_owner"], "build")
         self.assertEqual(receipt["requirements"], ["INT-001"])
         self.assertEqual(receipt["artifacts"], [
             "docs/specs/test/CHANGELOG.md", "docs/specs/test/README.md",
