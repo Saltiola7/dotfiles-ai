@@ -1,7 +1,7 @@
 # Shell Auth Startup
 
-**Status:** AUTH-016 probe-only host implemented and under review; AUTH-014 remains
-deployed and authoritative. Registration, FDA consent, activation, and restart
+**Status:** AUTH-016 probe-only host is signed, installed, registered, FDA-approved,
+and healthy; AUTH-014 remains deployed and authoritative. Activation and restart
 have not been performed.
 
 ## Engineering Profile
@@ -612,10 +612,10 @@ the manifest watcher.
 | Contract | Preserve external authoritative state and every active process | required | passed | `HerdrHostApplication` invariants | - | Primary |
 | Test-driven implementation | Probe-only host, fault injection, identity checks, build refusal, circuit breakers, and affected regressions | required | passed | 100 affected tests; production/test Swift compiles; rendered shell and plist checks | - | Primary |
 | Refactor | Coherent probe-only staging boundary, private health authority, and durable runbook | required | passed | Integrated diff, canonical ticket, CHANGELOG, and `git diff --check` | - | Primary |
-| Review/Integrate | Privacy identity, process lifecycle, and migration safety | required | failed | Independent review found active-mode serialization, exit, and restart blockers; probe-only slice otherwise clean | - | Primary |
+| Review/Integrate | Probe-only privacy identity and process-preservation boundary | required | passed | Independent review found the probe-only slice clean; merged PRs 63-65 retain active-mode blockers as excluded follow-up scope | - | Primary |
 | Release | Publish a versioned artifact | not_applicable | not_run | No public release requested | - | User |
-| Deploy | Provision identity, prove two mutually compatible signed builds, install, and register without stopping active Herdr | required | not_run | No valid signing identity exists; requires explicit local provisioning and deployment approval | - | User + Primary |
-| Operate | Grant FDA, activate in maintenance window, inject faults, and soak | required | not_run | Activation is sealed off and unsafe lifecycle findings remain; requires explicit restart and fault-injection approval | - | User + Primary |
+| Deploy | Provision identity, prove two mutually compatible signed builds, install, register, grant FDA, and probe without stopping active Herdr | required | passed | Code-Signing-only identity; strict two-build proof; ServiceManagement `enabled`; exact `Herdr Host.app` FDA entry on; registered-agent UUID, sentinel, and read/write probe healthy; host, Herdr, and OpenCode processes preserved | - | User + Primary |
+| Operate | Activate in a maintenance window, inject faults, and soak | required | not_run | Activation remains sealed off and unsafe lifecycle findings remain; requires explicit restart and fault-injection approval | - | User + Primary |
 | Maintain/Retire | Document certificate rotation, rollback, FDA cleanup, and legacy retirement | required | not_run | `OPERATION.md` defines procedure; execution follows successful soak | - | Primary |
 
 ## Verification
@@ -624,9 +624,12 @@ the manifest watcher.
 - AUTH-016 probe-only implementation passed 100 affected tests plus Swift,
   rendered-shell, plist, privacy, and diff checks. Independent security review
   found no remaining probe-only defect.
-- Trusted two-build signing, real SMAppService registration, FDA, active ownership,
-  sleep/wake, and rebuild soak remain intentionally not run. The ticket stays open,
-  AUTH-014 remains authoritative, and the signed config rejects active ownership.
+- Trusted two-build signing, real SMAppService registration, exact-app FDA, and
+  the registered-agent external-volume probe passed without changing the host,
+  Herdr, or OpenCode process coalition. Active ownership, fault injection,
+  sleep/wake, and rebuild soak remain intentionally not run. The ticket stays
+  open, AUTH-014 remains authoritative, and the signed config rejects active
+  ownership.
 - Shell syntax checks pass for edited scripts.
 - Static search confirms no Herdr profile auto-`secret` block remains.
 - Static search confirms Clockify poller has no `op read` call.
