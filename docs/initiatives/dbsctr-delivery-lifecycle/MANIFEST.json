@@ -22,7 +22,7 @@
     {"id": "opencode_control_plane", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["dbsctr_v3_lifecycle", "dotfiles_ai_distribution"]}
   ],
   "slices": [
-    {"id": "verified-merge-core", "context": "dbsctr_v3_lifecycle", "state": "ready", "execution_owner": "build", "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-007", "INT-008", "INT-010"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md", "docs/specs/dbsctr_v3_lifecycle/V3.41-1.plan.json"], "tickets": ["V3.41-1"], "release_group": "verified-delivery"},
+    {"id": "verified-merge-core", "context": "dbsctr_v3_lifecycle", "state": "ready", "execution_owner": "build", "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-007", "INT-008", "INT-010"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md", "docs/specs/dbsctr_v3_lifecycle/V3.42-1.plan.json"], "tickets": ["V3.42-1"], "release_group": "verified-delivery"},
     {"id": "chezmoi-delivery-policy", "context": "dotfiles_ai_distribution", "state": "captured", "execution_owner": "build", "requirements": ["INT-003", "INT-006", "INT-007"], "depends_on": ["verified-merge-core"], "artifacts": [], "tickets": [], "release_group": "verified-delivery"},
     {"id": "base-session-handoff", "context": "opencode_control_plane", "state": "captured", "execution_owner": "build", "requirements": ["INT-004", "INT-005", "INT-007", "INT-009"], "depends_on": ["chezmoi-delivery-policy"], "artifacts": [], "tickets": [], "release_group": "session-convergence"}
   ],
