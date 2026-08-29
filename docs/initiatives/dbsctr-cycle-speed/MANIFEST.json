@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "dbsctr-cycle-speed",
+  "title": "Faster quality-equivalent DBSCTR cycles",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id": "INT-001", "kind": "requirement", "text": "Use autonomous runtime as the primary cycle-speed metric.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md", "docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-002", "kind": "requirement", "text": "Report calendar elapsed time separately from autonomous runtime.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-003", "kind": "requirement", "text": "Report mean, p50, p90, sample count, attribution coverage, and unavailable count.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-004", "kind": "requirement", "text": "Aggregate host and configured VM sources with explicit per-source availability.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md"]},
+    {"id": "INT-005", "kind": "constraint", "text": "Do not remove, weaken, skip, or infer any required quality or safety evidence.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md", "docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-006", "kind": "decision", "text": "Permit only benchmark-qualified concurrency with equivalent gate evidence and no added remediation.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md"]},
+    {"id": "INT-007", "kind": "constraint", "text": "Keep timing and trend evidence private, bounded, sanitized, and source-local until federation.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md", "docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-008", "kind": "requirement", "text": "Avoid repeated full OpenCode database scans when reporting cycle trends.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md"]},
+    {"id": "INT-009", "kind": "requirement", "text": "Remediate DKS query lock contention and repeated fallback failures without weakening source verification.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md"]},
+    {"id": "INT-010", "kind": "non-goal", "text": "Do not add a tracing backend, hosted telemetry service, or new workflow engine.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]},
+    {"id": "INT-011", "kind": "decision", "text": "Use the approved lifecycle, OpenCode control-plane, distribution, and DKS context map.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md"]},
+    {"id": "INT-012", "kind": "risk", "text": "Historical calendar and sparse phase timing are not an autonomous-runtime baseline.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-cycle-speed/README.md", "docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md"]}
+  ],
+  "contexts": [
+    {"id": "dbsctr_v3_lifecycle", "repository": "Saltiola7/dotfiles-ai", "status": "ready", "depends_on": []},
+    {"id": "opencode_control_plane", "repository": "Saltiola7/dotfiles-ai", "status": "approved", "depends_on": ["dbsctr_v3_lifecycle"]},
+    {"id": "dotfiles_ai_distribution", "repository": "Saltiola7/dotfiles-ai", "status": "approved", "depends_on": ["opencode_control_plane"]},
+    {"id": "dbsctr_knowledge_store", "repository": "Saltiola7/dotfiles-ai", "status": "approved", "depends_on": []}
+  ],
+  "slices": [
+    {"id": "lifecycle-runtime-summary", "context": "dbsctr_v3_lifecycle", "state": "ready", "requirements": ["INT-001", "INT-002", "INT-003", "INT-005", "INT-007", "INT-010", "INT-012"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/cycle-performance.md", "docs/specs/dbsctr_v3_lifecycle/V3.40-1.plan.json"], "tickets": ["V3.40-1"], "release_group": "measurement-foundation"},
+    {"id": "opencode-runtime-adapter", "context": "opencode_control_plane", "state": "captured", "requirements": ["INT-001", "INT-005", "INT-007", "INT-008"], "depends_on": ["lifecycle-runtime-summary"], "artifacts": [], "tickets": [], "release_group": "measurement-foundation"},
+    {"id": "federated-cycle-trends", "context": "dotfiles_ai_distribution", "state": "captured", "requirements": ["INT-003", "INT-004", "INT-007", "INT-008"], "depends_on": ["opencode-runtime-adapter"], "artifacts": [], "tickets": [], "release_group": "measurement-foundation"},
+    {"id": "dks-fast-fallback", "context": "dbsctr_knowledge_store", "state": "captured", "requirements": ["INT-005", "INT-009"], "depends_on": [], "artifacts": [], "tickets": [], "release_group": "execution-speed"},
+    {"id": "safe-cycle-concurrency", "context": "dbsctr_v3_lifecycle", "state": "captured", "requirements": ["INT-005", "INT-006"], "depends_on": ["federated-cycle-trends"], "artifacts": [], "tickets": [], "release_group": "execution-speed"}
+  ],
+  "release_groups": [
+    {"id": "measurement-foundation", "members": ["lifecycle-runtime-summary", "opencode-runtime-adapter", "federated-cycle-trends"], "state": "planning"},
+    {"id": "execution-speed", "members": ["dks-fast-fallback", "safe-cycle-concurrency"], "state": "planning"}
+  ]
+}
