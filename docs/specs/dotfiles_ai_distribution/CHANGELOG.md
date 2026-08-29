@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
+
+- Added managed global Git excludes for `.dbsctr/`, legacy plan JSON,
+  `data/backlog/`, and `docs/tickets/`.
+- Retired autonomous PM ticket discovery; PM now runs only by direct invocation.
+
 ## 2026-08-29 - DAI-035 R&D Launch Health
 
 - Corrected the delivered launch-health ticket from the duplicate `DAI-032`

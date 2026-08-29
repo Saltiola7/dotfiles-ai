@@ -34,6 +34,7 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
     Record. A validated Build primary resuming an active cycle calls typed
     `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
     subagents never attach. For a new write cycle, create an explicit JSON applicability plan
+    under the checkout's Git-ignored `.dbsctr/plans/` directory
     bound to the committed Engineering Profile, then use the standing authorization for validated Build-primary
     begin with typed `dbsctr_begin` or
    `dbsctrctl begin --plan PATH` to create an upstream-based branch/worktree and
@@ -127,7 +128,7 @@ managed config or skills when applicable.
 ### 6. Refactor
 
 With affected behavior passing, remove duplication and stale notes, simplify,
-align names with Domain language, update docs/tickets/changelog, and preserve
+align names with Domain language, update specifications/changelog, and preserve
 contracts and evidence. Finish with only intended worktree changes.
 
 ## Gate Ledger
@@ -154,10 +155,10 @@ V3.1 records continue under their legacy transition rules.
 
 ## Artifact Lifecycle
 
-Every cycle reviews README, affected canonical tickets, and CHANGELOG. README holds stable truth and
+Every cycle reviews README and CHANGELOG. README holds stable truth and
 changes only when durable domain, behavior, interface, contract, Engineering
-Profile, or validation truth changes. One ticket owns the live cycle and retains
-its completion evidence. CHANGELOG gets one compact entry
+Profile, or validation truth changes. The private Cycle Record owns live execution
+state and evidence. CHANGELOG gets one compact entry
 at completion with outcome, validation, exceptions, commits, deployment, and
 intended Final Push target. The Cycle Record and final response capture the
 actual push result. Record each review with `dbsctrctl review-artifact`; validate with

@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.40 Ticket-Blind Lifecycle Authority
+
+- Removed PM tickets from Discovery, DBSCTR, Initiative readiness and receipts,
+  fixed-commit audits, DKS, and autonomous R&D.
+- Kept historical manifest `tickets` arrays readable but ignored, and moved
+  checkout-local applicability plans under Git-ignored `.dbsctr/plans/`.
+
 ## 2026-08-29 - V3.39 Operational Incident Capture
 
 - Added explicit child-fork Incident registration, bounded persisted failure
