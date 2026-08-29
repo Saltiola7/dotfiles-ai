@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+VERSION={{ .dotfiles_ai.herdr.version | quote }}
+case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
+[[ -x "$HERDR" ]] || { echo "Herdr executable is unavailable" >&2; exit 1; }
+[[ "$("$HERDR" --version)" == "herdr $VERSION" ]] \
+    || { echo "Herdr executable does not match the configured release" >&2; exit 1; }
+
+destination="$HOME/.agents/skills/herdr/SKILL.md"
+temporary=$(/usr/bin/mktemp "${TMPDIR:-/tmp}/herdr-skill.XXXXXX")
+trap '/bin/rm -f "$temporary"' EXIT
+"$HERDR" --skill > "$temporary"
+/usr/bin/grep -Eq '^name: herdr$' "$temporary" \
+    || { echo "Herdr returned an invalid skill" >&2; exit 1; }
+/bin/mkdir -p "${destination%/*}"
+/bin/chmod 0644 "$temporary"
+if [[ -f "$destination" ]] && /usr/bin/cmp -s "$temporary" "$destination"; then
+    exit 0
+fi
+/bin/mv -f "$temporary" "$destination"

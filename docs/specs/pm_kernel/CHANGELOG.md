@@ -1,5 +1,13 @@
 # PM Kernel Changelog
 
+## 2026-08-28 - Initiative Ticket Handoff
+
+- Required specification-ready Initiative slices before stable PM ticket
+  creation, with fixed outcome, scope, acceptance, ownership, dependencies, and
+  validation contracts while lifecycle evidence may continue evolving.
+- Scoped ticket validation passed; full inventory retains one unrelated malformed
+  historical `V3.37-1` ticket.
+
 ## 2026-08-19 - PMK-003 Operational Workflow Proof
 
 - Changed OpenCode configuration to a private semantic chezmoi merge that retains

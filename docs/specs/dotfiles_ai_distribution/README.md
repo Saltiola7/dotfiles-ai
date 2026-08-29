@@ -1182,6 +1182,14 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Public templates contain no usernames, home paths, account IDs, credentials,
   private repository names, or traceable review provenance.
 
+### Release-Matched Herdr Skill
+
+After installing the pinned native Herdr release, chezmoi invokes that exact
+binary's `herdr --skill` interface and atomically installs the returned skill at
+`~/.agents/skills/herdr/SKILL.md`. Version mismatch or malformed skill output
+fails closed and preserves the prior file. This avoids maintaining a second,
+stale copy of Herdr command syntax in the repository.
+
 ## Validation Strategy
 
 | Authority | Scope |
@@ -1192,6 +1200,7 @@ feature branch with a draft pull request; the operator retains merge authority.
 | `python -m py_compile`, `bash -n`, `plutil -lint` | Runner, loader, and LaunchAgents |
 | Guest runtime probes | Rootless Podman, GNU Make, exact Compose provider, Docker shim, bounded Keychain forwarding, 1Password denial/success, Vertex hosted reauthentication, and absence of implicit container credentials |
 | Runtime probes | LaunchAgent state and exit status, large-session exact recovery, one fresh worker, exact registration, no-op healthy watchdog, and retained Discovery boundary |
+| Herdr skill deployment | Pinned binary identity, release-matched `--skill` output, atomic replacement, and preserved prior copy on failure |
 | Tailscale probes | Disabled rendering, bounded stdin, client/service health, peer registration, policy-denied unauthorized access, SSH commands, and Herdr detach/reattach from each authorized macOS host |
 
 ## Risks And Maintenance

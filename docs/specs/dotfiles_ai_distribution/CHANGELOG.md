@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-28 - Initiative Runtime Distribution
+
+- Added separate context profiles, managed Initiative control-plane deployment,
+  and atomic release-matched Herdr skill installation from `herdr --skill`.
+- Targeted Chezmoi deployment, exact source identity, idempotence, Herdr skill
+  identity, and deployed helper/plugin smokes passed.
+
 ## 2026-08-27 - Portable OpenCode Package Ownership
 
 - Made `dotfiles-ai` the sole OpenCode package owner through the official
@@ -12,7 +19,6 @@
   `brew bundle`, live OpenCode `1.18.23` checks, and the full suite of 486 tests
   pass. Gate Commits: `4efa7f2`, `90bcb95`. Gate Exceptions: none. Intended
   Final Push: feature branch and draft pull request into protected `main`.
-
 ## 2026-08-26 - DAI-031 R&D State Authority and Health
 
 - Centralized scheduler state and receipt resolution without migrating or

@@ -3,6 +3,7 @@ description: Read-only external research inheriting the active model.
 mode: subagent
 permission:
   dbsctr_vm_handoff: deny
+  dbsctr_initiative_launch: deny
   context7_*: allow
   dbsctr_review_history_save: deny
   edit: deny

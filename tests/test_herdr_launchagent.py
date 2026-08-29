@@ -127,6 +127,31 @@ def _run_native_installer(
     return result, asset.read_bytes(), previous_bytes
 
 
+def test_release_matched_herdr_skill_is_deployed_atomically(tmp_path) -> None:
+    home = tmp_path / "home"
+    target = home / ".local/bin/herdr"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "#!/bin/bash\ncase \"$1\" in --version) printf 'herdr 0.8.2\\n';; "
+        "--skill) printf '%s\\n' '---' 'name: herdr' 'description: release matched' '---' '# Herdr';; esac\n"
+    )
+    target.chmod(0o755)
+    values = {"dotfiles_ai": {"herdr": {
+        "theme": "nord", "launchagent": True, "executable": str(target),
+        "version": "0.8.2", "protocol": 20,
+        "asset_url": "https://example.invalid/herdr", "asset_sha256": "0" * 64,
+    }}}
+    script = _render_herdr_script("install-herdr-skill.sh", values)
+    result = subprocess.run(
+        ["bash"], input=script, text=True, capture_output=True,
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 0, result.stderr
+    skill = home / ".agents/skills/herdr/SKILL.md"
+    assert skill.read_text() == "---\nname: herdr\ndescription: release matched\n---\n# Herdr\n"
+    assert skill.stat().st_mode & 0o777 == 0o644
+
+
 def test_herdr_server_runs_in_aqua_without_secrets() -> None:
     plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist.tmpl").read_text()
     loader = (ROOT / "run_onchange_load-herdr-launchagent.sh.tmpl").read_text()
