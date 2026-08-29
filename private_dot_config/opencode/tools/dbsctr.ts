@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -517,6 +517,7 @@ export const begin = tool({
     planPath: tool.schema.string(),
     githubAccount: tool.schema.string().optional(),
     githubRepository: tool.schema.string().optional(),
+    baseBranch: tool.schema.string().optional(),
     launch: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
@@ -552,6 +553,7 @@ export const initiative_launch = tool({
     const targetRepository = await gitRepositorySlug(target)
     if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())
       throw new Error("Initiative context home does not match the target repository")
+    const baseBranch = await gitDefaultBranch(target)
     const planDigest = await fileDigest(args.planPath, target)
     const approval = JSON.stringify({
       initiative_id: receipt.initiative_id,
@@ -561,6 +563,7 @@ export const initiative_launch = tool({
       manifest_commit: receipt.manifest_commit,
       coordinator_repository: receipt.coordinator_repository,
       repository: receipt.repository,
+      execution_owner: receipt.execution_owner,
       target_repository: targetRepository,
       cycle_id: args.cycleId,
       context: args.context,
@@ -568,6 +571,7 @@ export const initiative_launch = tool({
       delivery_intent: args.deliveryIntent,
       plan_path: args.planPath,
       plan_digest: planDigest,
+      base_branch: baseBranch,
       github_account: args.githubAccount ?? null,
       github_repository: args.githubRepository ?? null,
     })
@@ -583,7 +587,9 @@ export const initiative_launch = tool({
       throw new Error("Initiative target repository changed after approval")
     if (await fileDigest(args.planPath, target) !== planDigest)
       throw new Error("DBSCTR applicability plan changed after approval")
-    const result = await beginCycle(args, target, true, process.env, {
+    if (await gitDefaultBranch(target) !== baseBranch)
+      throw new Error("Initiative target default branch changed after approval")
+    const result = await beginCycle({ ...args, baseBranch }, target, true, process.env, {
       sessionID: context.sessionID,
       messageID: context.messageID,
       directory: context.directory,
