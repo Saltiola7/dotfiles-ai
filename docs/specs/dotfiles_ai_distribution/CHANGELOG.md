@@ -1,6 +1,6 @@
 # dotfiles-ai Distribution Changelog
 
-## 2026-08-28 - Host Container Runtime Retirement
+## 2026-08-28 - DAI-033 Host Container Runtime Retirement
 
 - Made managed Fedora Lima workspaces with rootless Podman the only supported
   local container runtime and changed portable shell paths to derive from runtime
