@@ -32,13 +32,41 @@ trap 'rm -f "$lock"' EXIT
 
 gateway_ready() {
     if [[ $(uname) == Darwin ]]; then
-        /bin/launchctl print "gui/$(id -u)/ai.hermes.gateway-$PROFILE" 2>/dev/null \
+        guarded_gateway_ready && /bin/launchctl print "gui/$(id -u)/ai.hermes.gateway-$PROFILE" 2>/dev/null \
             | /usr/bin/grep -q 'state = running'
     else
         local status
         status=$("$HERMES" -p "$PROFILE" gateway status --deep 2>&1) || return 1
         ! /usr/bin/grep -Eqi 'not running|will NOT fire|stale' <<<"$status"
     fi
+}
+
+guarded_gateway_ready() {
+    local plist="$HOME/Library/LaunchAgents/ai.hermes.gateway-$PROFILE.plist"
+    local wrapper="$HOME/.local/bin/state-root-exec"
+    /usr/bin/python3 - "$plist" "$wrapper" "$DOTFILES_AI_STATE_ROOT" "$PROFILE" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path, wrapper, state_root, profile = Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+if path.is_symlink() or not path.is_file():
+    raise SystemExit(1)
+payload = plistlib.loads(path.read_bytes())
+arguments = payload.get("ProgramArguments")
+environment = payload.get("EnvironmentVariables")
+label = payload.get("Label")
+logs = Path.home() / "Library/Logs"
+if (payload.get("Label") != f"ai.hermes.gateway-{profile}"
+        or not isinstance(arguments, list) or arguments.count(wrapper) != 1 or arguments[0] != wrapper
+        or len(arguments) != 9 or not Path(arguments[1]).is_absolute()
+        or arguments[2:] != ["-m", "hermes_cli.main", "--profile", profile, "gateway", "run", "--replace"]
+        or not isinstance(environment, dict) or environment.get("DOTFILES_AI_STATE_ROOT") != state_root
+        or "WorkingDirectory" in payload
+        or payload.get("StandardOutPath") != str(logs / f"hermes-gateway-{label}.log")
+        or payload.get("StandardErrorPath") != str(logs / f"hermes-gateway-{label}.err.log")):
+    raise SystemExit(1)
+PY
 }
 
 wrap_gateway_service() {
