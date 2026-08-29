@@ -548,8 +548,6 @@ export const initiative_launch = tool({
     const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
     if (receipt.context !== args.context)
       throw new Error("Initiative receipt context does not match the requested DBSCTR context")
-    if (!receipt.tickets.includes(args.cycleId))
-      throw new Error("Initiative receipt does not name the requested cycle ticket")
     const target = args.targetRepository ?? context.worktree
     const targetRepository = await gitRepositorySlug(target)
     if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())

@@ -1397,7 +1397,6 @@ export async function beginCycle(args: {
   requirements: string[]
   depends_on: string[]
   artifacts: string[]
-  tickets: string[]
   release_group: string | null
 }, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string }) {
   if (initiative !== undefined && approved === undefined)
@@ -1522,7 +1521,7 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
   ], cwd))
   const keys = ["schema_version", "initiative_id", "slice_id", "manifest_digest", "manifest_blob",
     "manifest_commit", "coordinator_repository", "context", "repository",
-    "requirements", "depends_on", "artifacts", "tickets", "release_group"]
+    "requirements", "depends_on", "artifacts", "release_group"]
   const strings = (name: string) => Array.isArray(value[name])
     && value[name].every((item: unknown) => typeof item === "string")
   if (value === null || typeof value !== "object" || Array.isArray(value)
@@ -1535,7 +1534,7 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
       || typeof value.context !== "string"
       || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value.repository)
       || !strings("requirements") || !strings("depends_on")
-      || !strings("artifacts") || !strings("tickets")
+      || !strings("artifacts")
       || !(value.release_group === null || typeof value.release_group === "string"))
     throw new Error("dbsctrctl returned an invalid Initiative readiness receipt")
   return { ...value, manifest_path: manifestPath }
