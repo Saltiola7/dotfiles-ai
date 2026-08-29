@@ -148,7 +148,7 @@ if [[ -e "$APP" ]]; then
         echo "existing Herdr Host registration status is unavailable; staging state is unknown" >&2
         exit 1
     }
-    if ! /usr/bin/grep -Eq '"status"[[:space:]]*:[[:space:]]*"(enabled|requires_approval|not_registered)"' <<<"$registration"; then
+    if ! /usr/bin/grep -Eq '"status"[[:space:]]*:[[:space:]]*"(enabled|requires_approval|not_registered|not_found)"' <<<"$registration"; then
         echo "existing Herdr Host returned an unknown registration status; refusing overwrite" >&2
         exit 1
     fi
