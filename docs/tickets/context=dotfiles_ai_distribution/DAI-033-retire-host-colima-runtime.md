@@ -4,7 +4,7 @@ id: "DAI-033"
 slug: "retire-host-colima-runtime"
 context: "dotfiles_ai_distribution"
 title: "Retire the host Colima runtime"
-kind: "chore"
+kind: "task"
 state: "done"
 priority: "high"
 points: 3
