@@ -59,6 +59,8 @@ label = payload.get("Label")
 logs = Path.home() / "Library/Logs"
 if (payload.get("Label") != f"ai.hermes.gateway-{profile}"
         or not isinstance(arguments, list) or arguments.count(wrapper) != 1 or arguments[0] != wrapper
+        or len(arguments) != 9 or not Path(arguments[1]).is_absolute()
+        or arguments[2:] != ["-m", "hermes_cli.main", "--profile", profile, "gateway", "run", "--replace"]
         or not isinstance(environment, dict) or environment.get("DOTFILES_AI_STATE_ROOT") != state_root
         or "WorkingDirectory" in payload
         or payload.get("StandardOutPath") != str(logs / f"hermes-gateway-{label}.log")

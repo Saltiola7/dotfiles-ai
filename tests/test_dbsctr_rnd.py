@@ -142,6 +142,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert "state-root-exec" in configure and "plistlib" in configure
     assert "guarded_gateway_ready" in configure
     assert "arguments.count(wrapper) != 1" in configure
+    assert 'arguments[2:] != ["-m", "hermes_cli.main", "--profile", profile, "gateway", "run", "--replace"]' in configure
     assert 'payload.get("Label") != f"ai.hermes.gateway-{profile}"' in configure
     assert 'environment.get("DOTFILES_AI_STATE_ROOT") != state_root' in configure
     assert 'payload.pop("WorkingDirectory", None)' in configure
@@ -158,6 +159,7 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert '"gateway", "install", "--force", "--no-start-now"' in catalog
     assert 'payload.pop("WorkingDirectory", None)' in catalog
     assert '"state = running" in status.stdout' in catalog
+    assert 'arguments[offset + 1:] != ["-m", "hermes_cli.main", "--profile", profile' in catalog
     maintenance = (ROOT / "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-maintain.py").read_text()
     assert '["herdr-history-maintain"]' in maintenance
     assert '["dbsctrctl", "cleanup", "--completed", "--all"]' in maintenance
@@ -803,6 +805,20 @@ def test_lens_governance_migrates_and_applies_adaptive_cadence(tmp_path, monkeyp
     assert connection.execute(
         "select count(*) from spawn_reservations where reservation_id='reservation-old'"
     ).fetchone() == (0,)
+    connection.close()
+
+    schema7, _ = load_runner(tmp_path, monkeypatch, "schema7-migration")
+    connection = schema7["state_connection"]()
+    connection.execute("alter table scheduler_activity drop column launch_retry_at")
+    connection.execute("alter table scheduler_activity drop column launch_failure_count")
+    connection.execute("update scheduler_meta set value='7' where key='schema_version'")
+    connection.commit()
+    connection.close()
+    connection = schema7["state_connection"]()
+    assert connection.execute("select value from scheduler_meta where key='schema_version'").fetchone() == ("8",)
+    assert connection.execute(
+        "select launch_failure_count,launch_retry_at from scheduler_activity"
+    ).fetchone() == (0, 0)
     connection.close()
 
 

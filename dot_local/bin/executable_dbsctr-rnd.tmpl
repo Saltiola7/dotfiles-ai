@@ -227,7 +227,7 @@ def state_connection():
     existing_version = (connection.execute(
         "SELECT value FROM scheduler_meta WHERE key='schema_version'"
     ).fetchone() if has_meta else None)
-    migrating = existing_version in (("3",), ("4",), ("5",), ("6",))
+    migrating = existing_version in (("3",), ("4",), ("5",), ("6",), ("7",))
     if migrating:
         connection.execute("BEGIN IMMEDIATE")
     else:

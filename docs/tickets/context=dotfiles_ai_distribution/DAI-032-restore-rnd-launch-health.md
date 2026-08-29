@@ -5,7 +5,7 @@ slug: "restore-rnd-launch-health"
 context: "dotfiles_ai_distribution"
 title: "Restore R&D launch health"
 kind: "bug"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: 3
 depends_on:
@@ -13,7 +13,7 @@ depends_on:
 relations:
   - "related:DAI-021-F1"
 owns:
-  - "R&D launch retry state, readiness evidence compatibility, guarded Hermes health, moved-source cutover, focused tests, deployment, and operation proof"
+  - "R&D launch retry state, readiness evidence compatibility, guarded base and project Hermes health, moved-source cutover, focused tests, deployment, and operation proof"
 reads:
   - "Machine-local review and backlog roots, authoritative scheduler schema 7, Hermes LaunchAgent, and sanitized launch outcomes"
 parallel_safe: false
@@ -21,8 +21,9 @@ validation:
   - "Focused R&D tests, rendered runner and Hermes configuration, schema migration, targeted chezmoi deployment, guarded gateway readiness, and one live overdue-lens pass"
 created: "2026-08-29"
 updated: "2026-08-29"
-completed: null
-commits: []
+completed: "2026-08-29"
+commits:
+  - "39cd463"
 jira_publications: []
 migration: null
 ---
@@ -77,3 +78,14 @@ OpenCode history database, and never remove the external-state guard.
 Review must reject hard-coded private paths, cadence advancement on launch failure,
 unbounded retries, health writes, provider-error disclosure, weakened state-root
 validation, and claims based on a partial federated history source set.
+
+## Evidence
+
+The first Gate Commit added scheduler schema 8, health schema 3, bounded launch
+backoff, guarded launchd readiness, and schema-compatible autonomous evidence.
+All 41 R&D tests and the direct readiness consumer pass. Targeted deployment is
+drift-free, retained cadence and 25 passes survived migration, and launchd runs
+the guarded Hermes gateway. The moved dirty source exposes one pre-existing
+canonical ticket parse failure; this cycle normalizes that ticket, but does not
+alter the dirty checkout to fabricate a live pass. The operator approved a
+deferred live pass until this draft merges and that checkout is reconciled.
