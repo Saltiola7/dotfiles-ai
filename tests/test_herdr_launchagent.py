@@ -369,6 +369,9 @@ def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None
     convert_config = builder.index('/usr/bin/plutil -convert json "$CONFIG"', insert_config)
     assert create_config < insert_config < convert_config
     assert '/usr/bin/plutil -create json "$CONFIG"' not in builder
+    for known_status in ("enabled", "requires_approval", "not_registered", "not_found"):
+        assert known_status in builder
+    assert '"(enabled|requires_approval|not_registered|not_found)"' in builder
 
 
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
