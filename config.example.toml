@@ -131,7 +131,7 @@ reconcile_fetch = false
 [data.dotfiles_ai.sandbox]
 # Lima disks are sparse maximums; host allocation grows with actual guest use.
 # Every managed Fedora guest uses rootless Podman, pinned Docker Compose v2, and
-# a guest-only `docker` compatibility shim. Colima remains a host fallback.
+# a guest-only `docker` compatibility shim. Host container runtimes are unsupported.
 enabled = false
 build_workspace = "workspace1"
 atuin_workspace = "" # optional always-on workspace for rootless Atuin
