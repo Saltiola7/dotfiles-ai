@@ -27,4 +27,6 @@ filtering or a bounded typed adapter before returning sanitized evidence. Extern
 destructive, costly, irreversible, and material scope-expansion actions still
 require explicit user confirmation. Promote a ready slice only through
 `dbsctr_initiative_launch` after the user explicitly approves that exact
-digest-bound slice.
+digest-bound slice. Let the launcher resolve the target repository's default
+branch. A failed launch never authorizes a different delivery intent: diagnose
+the failure, then retry unchanged or request fresh exact approval.

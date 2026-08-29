@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Durable Initiative Build Handoff
+
+- Initiative launch now resolves and approval-binds the target origin's default
+  branch, omits Discovery runtime attachment during cycle creation, and selects
+  the provider-neutral Build primary for fork and fresh fallback paths.
+- Failed launch recovery preserves delivery intent and requires fresh exact
+  approval for any semantic change.
+
 ## 2026-08-28 - Interactive Discovery Shell
 
 - Granted only Discovery Coordinator unrestricted Bash for native CLI, API,

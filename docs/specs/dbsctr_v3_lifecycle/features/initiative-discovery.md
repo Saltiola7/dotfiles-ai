@@ -116,10 +116,13 @@ before they existed. Its dependent lanes remain non-promotable in the manifest
 until their implementation and deployment evidence is recorded. This exception
 does not apply to later Initiatives or slices.
 
-The OpenCode adapter may fork the current session across repositories only when
-the installed CLI exposes `--fork`. It always reanchors the child to the target
-repository and durable receipt. Unsupported fork behavior falls back to a fresh
-session with the same digest-bound handoff.
+The OpenCode adapter resolves the target origin's symbolic `HEAD` and binds that
+protected base branch into exact approval and cycle creation. It may fork the
+current session across repositories only when the installed CLI exposes
+`--fork`. It always reanchors the child to the target repository and durable
+receipt, explicitly selects the provider-neutral Build primary, and never
+attaches the coordinator runtime as Build evidence. Unsupported fork behavior
+falls back to a fresh Build session with the same digest-bound handoff.
 
 ## Contracts
 
@@ -137,8 +140,11 @@ session with the same digest-bound handoff.
   Receipt issuance verifies the exact GitHub source host and coordinator identity;
   launch verifies the target identity again inside `dbsctrctl begin`.
 - Exact approval binds manifest commit/blob/digest, source and target repository
-  identities, cycle arguments, and the applicability-plan content digest. Begin
-  consumes those expected identities and rejects approval-time mutation.
+  identities, resolved protected base branch, cycle arguments, and the
+  applicability-plan content digest. Begin consumes those expected identities
+  and rejects approval-time mutation.
+- Launch recovery preserves the approved delivery intent. A different intent is
+  a new material request and requires fresh exact approval.
 - Readiness receipts contain no transcript, prompt, secret, URL, machine path, or
   transient Herdr identity.
 - A later manifest digest invalidates every earlier readiness receipt for an

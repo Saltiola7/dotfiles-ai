@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.38 Initiative Launch Handoff
+
+- Bound the target origin's resolved default branch into Initiative approval and
+  cycle creation, separated Discovery coordination from Build activation, and
+  preserved approved delivery intent across failure recovery.
+
 ## 2026-08-28 - V3.38 Initiative Discovery
 
 - Added validated durable Initiative manifests, dependency-safe readiness,

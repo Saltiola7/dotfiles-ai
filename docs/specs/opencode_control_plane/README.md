@@ -877,12 +877,17 @@ injects only the durable path, digest, state, and ready-slice IDs into normal an
 pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
-`dbsctr_initiative_launch` validates a fresh readiness receipt before requesting
-approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
-and starts a named OpenCode agent in its root pane. The adapter capability-probes
-OpenCode `--fork`; supported parents fork into the target worktree, while older
-clients start fresh. Both paths receive the same content-free receipt prompt.
-Herdr identities remain private advisory correlation only.
+`dbsctr_initiative_launch` validates a fresh readiness receipt and resolves the
+target GitHub origin's symbolic `HEAD` before requesting approval. Approval binds
+the resolved protected base branch with the receipt, cycle arguments, repository,
+and plan digest. Initiative cycle creation never attaches the Discovery runtime
+as Build evidence. Herdr 0.8.2 creates a background tab and starts a named
+OpenCode agent in its root pane. The adapter capability-probes OpenCode `--fork`;
+supported parents fork into the target worktree, while older clients start fresh.
+Both paths explicitly select the provider-neutral `build` primary and receive the
+same content-free receipt prompt. A launch failure does not authorize changing
+delivery intent; recovery retries unchanged arguments or requests fresh exact
+approval. Herdr identities remain private advisory correlation only.
 
 ## Validation Strategy
 
