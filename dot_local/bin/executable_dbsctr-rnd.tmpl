@@ -16,7 +16,6 @@ from urllib.parse import quote
 
 
 DBSCTRCTL = os.environ.get("DBSCTRCTL", {{ printf "%s/.local/bin/dbsctrctl" .chezmoi.homeDir | quote }})
-PMCTL = os.environ.get("PMCTL", {{ printf "%s/.local/bin/pmctl" .chezmoi.homeDir | quote }})
 HERDR = os.environ.get("HERDR", str(Path({{ .dotfiles_ai.herdr.executable | quote }}).expanduser()))
 GH = os.environ.get("GH", "gh")
 OPENCODE = os.environ.get("OPENCODE_BIN", "opencode")
@@ -54,7 +53,6 @@ MONTH_SECONDS = 30 * 86400
 RESERVATION_LEASE_SECONDS = 15 * 60
 LAUNCH_RETRY_SECONDS = (5 * 60, 15 * 60, 60 * 60, 6 * 60 * 60)
 NONTERMINAL = {"reviewing", "claimed", "discovery", "implementing", "draft_pr", "blocked"}
-ACTIVE_TICKET_STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review"}
 
 
 def command(argv, *, parse=True, env=None):
@@ -1362,60 +1360,27 @@ def reset_schedule():
 
 
 def canonical_backlogs(repository_filter=None):
-    repositories = []
+    return {"backlogs": [], "schema_version": 1}
+
+
+def backlog_repositories():
+    repositories = {}
     for configured in BACKLOG_ROOTS:
         if configured.is_symlink() or not configured.is_dir():
-            raise RuntimeError("configured backlog root is unavailable or unsafe")
+            raise RuntimeError("configured project root is unavailable or unsafe")
         root = configured.resolve()
         candidates = [root] if (root / ".git").exists() else sorted(root.iterdir())
         if len(candidates) > 128:
-            raise RuntimeError("backlog repository limit exceeded")
+            raise RuntimeError("project repository limit exceeded")
         for candidate in candidates:
             if candidate.is_symlink() or not candidate.is_dir() or not (candidate / ".git").exists():
                 continue
             repository = candidate.resolve()
             if repository != root and repository.parent != root:
-                raise RuntimeError("backlog repository escapes configured root")
+                raise RuntimeError("project repository escapes configured root")
             common = command(["git", "-C", str(repository), "rev-parse", "--path-format=absolute",
                               "--git-common-dir"], parse=False).strip()
-            repositories.append((hashlib.sha256(common.encode()).hexdigest()[:16], repository))
-    if len(repositories) > 128:
-        raise RuntimeError("backlog repository limit exceeded")
-    entries = []
-    for repository_id, repository in sorted(set(repositories)):
-        if not (repository / "docs/tickets").is_dir():
-            continue
-        payload = command([PMCTL, "tickets", "list", "--root", str(repository), "--json"])
-        if payload.get("findings"):
-            raise RuntimeError("canonical ticket validation failed")
-        for ticket in payload.get("tickets", []):
-            if ticket.get("state") not in ACTIVE_TICKET_STATES:
-                continue
-            identity = hashlib.sha256(
-                f"{repository_id}\0{ticket['context']}\0{ticket['id']}".encode()).hexdigest()
-            entries.append({"context": ticket["context"], "idempotency_key": identity,
-                            "repository_id": repository_id, "repository": str(repository),
-                            "id": ticket["id"], "title": ticket["title"],
-                            "priority": ticket["priority"], "status": ticket["state"],
-                            "depends_on": ", ".join(ticket["depends_on"]) or "-",
-                            "owns": ", ".join(ticket["owns"]) or "-",
-                            "reads": ", ".join(ticket["reads"]) or "-",
-                            "parallel_safe": "yes" if ticket["parallel_safe"] else "no",
-                            "reason": ticket["path"], "effort": ticket["points"],
-                            "validation": ", ".join(ticket["validation"])})
-    if repository_filter is not None:
-        entries = [item for item in entries if item["repository_id"] == repository_filter]
-    payload = {"backlogs": entries, "schema_version": 1}
-    if len(json.dumps(payload).encode()) > 256 * 1024:
-        raise RuntimeError("backlog output is oversized")
-    return payload
-
-
-def backlog_repositories():
-    items = canonical_backlogs()["backlogs"]
-    repositories = {}
-    for item in items:
-        repositories[item["repository_id"]] = item["repository"]
+            repositories[hashlib.sha256(common.encode()).hexdigest()[:16]] = str(repository)
     return {"project_profiles": PROJECT_PROFILES, "repositories": [
         {"profile": f"project-{hashlib.sha256(HERMES_PROFILE.encode()).hexdigest()[:8]}-{identifier}",
          "repository": repositories[identifier], "repository_id": identifier}
@@ -1453,7 +1418,7 @@ def release_action(reservation, reason):
 def launch_action(reservation, worker_id, repository_id):
     if not all(safe_id(value) for value in (reservation, worker_id, repository_id)):
         raise RuntimeError("invalid direct launch identity")
-    matches = {item["repository"] for item in canonical_backlogs()["backlogs"]
+    matches = {item["repository"] for item in backlog_repositories()["repositories"]
                if item["repository_id"] == repository_id}
     if len(matches) != 1:
         raise RuntimeError("direct launch repository is missing or ambiguous")

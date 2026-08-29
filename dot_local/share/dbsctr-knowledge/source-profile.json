@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile_id": "dks-source-profile-v1",
-  "roots": ["docs/specs", "docs/tickets", "dot_agents", "dot_local/bin", "dot_local/share", "private_dot_config", "tests"],
+  "roots": ["docs/specs", "dot_agents", "dot_local/bin", "dot_local/share", "private_dot_config", "tests"],
   "root_files": [".chezmoidata.toml", ".chezmoiignore", "config.example.toml", "pyproject.toml"],
   "root_prefix_suffix": [{"prefix": "run_", "suffix": ".sh.tmpl"}],
   "suffixes": [".json", ".md", ".py", ".sh", ".sh.tmpl", ".sql", ".toml", ".tmpl", ".ts", ".yaml", ".yml"],

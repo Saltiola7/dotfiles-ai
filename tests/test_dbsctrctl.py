@@ -215,10 +215,21 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(checked["manifest_digest"], r"^[0-9a-f]{64}$")
         self.assertNotIn("path", json.dumps(checked))
 
-        ticket = self.repo / "docs/tickets/context=test/V3.38-1-test.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("ticket\n")
-        subprocess.run(["git", "add", str(path.relative_to(self.repo)), str(ticket.relative_to(self.repo))],
+        value = initiative_manifest()
+        value["slices"][0]["tickets"] = ["IGNORED-1"]
+        path.write_text(json.dumps(value))
+        ignored = json.loads(run(
+            self.repo, "initiative-check", "--manifest", str(path), "--json",
+        ).stdout)
+        self.assertEqual(ignored["manifest_digest"], checked["manifest_digest"])
+        value["slices"][0].pop("tickets")
+        path.write_text(json.dumps(value))
+        omitted = json.loads(run(
+            self.repo, "initiative-check", "--manifest", str(path), "--json",
+        ).stdout)
+        self.assertEqual(omitted["manifest_digest"], checked["manifest_digest"])
+
+        subprocess.run(["git", "add", str(path.relative_to(self.repo))],
                        cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
                        capture_output=True)
@@ -232,6 +243,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(receipt["manifest_blob"], r"^[0-9a-f]{40,64}$")
         self.assertRegex(receipt["manifest_commit"], r"^[0-9a-f]{40,64}$")
         self.assertEqual(receipt["release_group"], "release-a")
+        self.assertNotIn("tickets", receipt)
+        self.assertEqual(receipt["execution_owner"], "build")
         self.assertEqual(receipt["requirements"], ["INT-001"])
         self.assertEqual(receipt["artifacts"], [
             "docs/specs/test/CHANGELOG.md", "docs/specs/test/README.md",
@@ -822,6 +835,17 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(envelope["content"], {"status": "withheld", "reason": "timeout"})
         self.assertNotIn(script, json.dumps(envelope))
 
+    def test_record_evidence_defaults_to_ten_minutes(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_evidence_timeout", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = module.parser().parse_args([
+            "record-evidence", "domain", "--authority", "unit", "--",
+            sys.executable, "-c", "pass",
+        ])
+        self.assertEqual(args.timeout, 600)
+
     def test_risk_and_applicability_only_tighten(self):
         self.start()
         record_path = self.record_path()
@@ -1026,13 +1050,9 @@ class DbsctrctlTest(unittest.TestCase):
         remote = Path(self.temp.name) / "initiative-remote.git"
         worktrees = Path(self.temp.name) / "initiative-worktrees"
         value = initiative_manifest()
-        value["slices"][0]["tickets"] = ["initiative-1"]
+        value["slices"][0].pop("tickets")
         manifest = self.write_initiative(value)
-        ticket = self.repo / "docs/tickets/context=test/initiative-1-test.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("ticket\n")
-        subprocess.run(["git", "add", str(manifest.relative_to(self.repo)),
-                        str(ticket.relative_to(self.repo))], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", str(manifest.relative_to(self.repo))], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
                        capture_output=True)
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -1945,7 +1965,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("new name.txt", result["dirty_overlay_excluded"])
         self.assertEqual((self.repo / ".git/index").stat().st_mtime_ns, index_mtime)
         findings = {(item["code"], item["path"]) for item in result["findings"]}
-        self.assertIn(("missing_context_ticket", "docs/tickets/context=incomplete"), findings)
+        self.assertFalse(any(code == "missing_context_ticket" for code, _path in findings))
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/CHANGELOG.md"), findings)
         self.assertIn(("stale_graph", "graphify-out/GRAPH_REPORT.md"), findings)
         self.assertIn(("missing_graph_receipt", "graphify-out/graph.receipt.json"), findings)
@@ -1964,12 +1984,9 @@ class DbsctrctlTest(unittest.TestCase):
             "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
             f"| CAN-1 | Shipped | 2026-01-01 | `{base[:7]}` |\n"
         )
-        ticket = self.repo / "docs/tickets/context=canonical/CAN-1-shipped.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("---\nid: CAN-1\n---\n")
         replacement_path = self.repo / "replacement-backlog.md"
         replacement_path.write_text("# Replaced\n")
-        subprocess.run(["git", "add", "docs/specs/canonical", "docs/tickets", "replacement-backlog.md"],
+        subprocess.run(["git", "add", "docs/specs/canonical", "replacement-backlog.md"],
                        cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "canonical backlog"], cwd=self.repo, check=True,
                        capture_output=True)
@@ -2009,7 +2026,7 @@ class DbsctrctlTest(unittest.TestCase):
 
         result = json.loads(run(self.repo, "audit", "--commit", audited, "--json").stdout)
         findings = [item for item in result["findings"] if item.get("context") == "broken"]
-        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
+        self.assertEqual([], findings)
 
     def test_audit_assigns_missing_sections_to_document_line_one(self):
         context = self.repo / "docs/specs/missing_sections"
@@ -2024,7 +2041,7 @@ class DbsctrctlTest(unittest.TestCase):
         result = json.loads(run(self.repo, "audit", "--json").stdout)
         findings = [item for item in result["findings"]
                     if item.get("context") == "missing_sections"]
-        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
+        self.assertEqual([], findings)
 
     def test_audit_flags_unverifiable_graph_metadata(self):
         graph = self.repo / "graphify-out"

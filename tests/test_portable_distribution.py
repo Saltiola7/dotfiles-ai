@@ -129,6 +129,14 @@ def test_macos_installs_official_opencode_tap() -> None:
     assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
 
 
+def test_global_git_ignore_keeps_local_workflows_out_of_repositories() -> None:
+    rendered = chezmoi("cat", str(Path.home() / ".config/git/ignore")).stdout
+    assert rendered.splitlines() == [
+        "**/.claude/settings.local.json", ".dbsctr/", ".dbsctr-*.json",
+        "data/backlog/", "docs/tickets/",
+    ]
+
+
 def test_local_data_renders_complete_configs() -> None:
     config = json.loads(
         chezmoi("cat", str(Path.home() / ".config/opencode/opencode.json")).stdout
