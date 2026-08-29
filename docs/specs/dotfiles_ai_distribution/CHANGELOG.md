@@ -4,7 +4,7 @@
 
 - Corrected the delivered launch-health ticket from the duplicate `DAI-032`
   identity to canonical `DAI-035`; historical branches, pull requests, and Gate
-  Commit identities remain unchanged.
+  Commit identities remain unchanged. Corrective Gate Commit: `d599d9e`.
 - Cut machine-local review and backlog authority over to the moved public
   source, migrated retained scheduler state to schema 8, and added path-free
   health schema 3 with bounded 5-minute through 6-hour launch backoff.
