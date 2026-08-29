@@ -1730,7 +1730,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         "coordinator_repository": "Saltiola7/dotfiles-ai",
         "context": "ctx", "repository": "Saltiola7/dotfiles-ai",
         "requirements": ["INT-001"], "depends_on": [], "artifacts": ["docs/spec.md"],
-        "tickets": ["cycle-a"], "release_group": "rg",
+        "release_group": "rg",
     }
     bound = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
     helper = bin_dir / "dbsctrctl"
