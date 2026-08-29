@@ -1,6 +1,6 @@
 # Shell Auth Startup
 
-**Status:** AUTH-014 deployed and verified in the local macOS Aqua session
+**Status:** AUTH-016 discovery complete; AUTH-014 remains deployed as rollback
 
 ## Engineering Profile
 
@@ -8,15 +8,15 @@
 
 | Field | Value |
 |---|---|
-| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, native Herdr installation, and status-bar polling contracts |
-| Languages/frameworks | Bash, Zsh, C, Go templates, launchd plist, and Markdown |
+| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, durable Herdr host identity, external-volume health handling, native Herdr installation, and status-bar polling contracts |
+| Languages/frameworks | Bash, Zsh, C, Swift, ServiceManagement, Go templates, app bundles, launchd plists, and Markdown |
 | Applicable modules | Security |
-| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, Aqua LaunchAgent, chezmoi, 1Password CLI, and Keychain |
+| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, SMAppService, Full Disk Access, chezmoi, 1Password CLI, and Keychain |
 | Public compatibility | Shell startup remains non-blocking; optional authentication does not become a startup dependency |
-| Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs |
+| Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs. Authoritative OpenCode state remains on the configured external volume; internal health metadata contains no prompt or session content. |
 | Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
-| Release/deployment | No packaged release; managed configuration deploys through explicit chezmoi apply |
-| Maintenance/retirement | Rotate or revoke credentials externally; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
+| Release/deployment | No public release; managed configuration builds and signs a local app bundle, registers its agent explicitly, and deploys through reviewed chezmoi apply |
+| Maintenance/retirement | Rotate or revoke credentials externally; document signing-certificate provisioning and rotation; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
 
 ### AUTH-011 Delivered Overrides
 
@@ -36,6 +36,15 @@
 | Scope | Native responsibility supervisor, reviewed local build, LaunchAgent ancestry, signal propagation, and TCC-aware operation |
 | Overrides | Preserve live handoff, state-root validation, exact-session recovery, and all active pane processes until an approved restart |
 
+### AUTH-016 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: replaces the privacy identity responsible for persistent Herdr and OpenCode access to an external volume |
+| Delivery intent | Merge reviewed implementation, install it locally, and activate it only during an explicitly approved maintenance restart |
+| Scope | Stable signed app identity, SMAppService registration, Full Disk Access setup, exact-volume health checks, degraded-mode circuit breaking, recovery, diagnostics, migration, and rollback |
+| Overrides | Keep all authoritative OpenCode state on `/Volumes/ext`; never restart panes or Herdr automatically; never edit the TCC database; fail closed on a missing or substituted volume; retain the AUTH-014 supervisor until the replacement completes its rollback window |
+
 ## Domain
 
 Bounded context: shell authentication startup for interactive panes, agents, and status-bar plugins.
@@ -48,6 +57,9 @@ Entities:
 - `HerdrPane`: restored or newly opened Herdr pane with `HERDR_ENV` set.
 - `HerdrServer`: persistent pane owner launched in the macOS Aqua bootstrap context.
 - `HerdrResponsibilitySupervisor`: native process launched directly by launchd so macOS attributes removable-volume access to a user-grantable executable while the handoff-aware shell owner remains its child.
+- `HerdrHostApplication`: managed macOS app bundle that supplies the stable privacy identity, registers the bundled Herdr agent, exposes health diagnostics, and owns the external-volume access boundary.
+- `StableSigningIdentity`: machine-local code-signing identity used consistently for the host bundle and nested executables so their designated requirement survives rebuilds.
+- `ExternalVolumeHealthController`: host component that validates the expected volume, detects access degradation, blocks unsafe new work, and confirms recovery without restarting active processes.
 - `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
 - `OpenCodeSession`: persisted OpenCode identity resumed in its recorded `HerdrPane`.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
@@ -63,6 +75,8 @@ Value objects:
 - `OnePasswordItemId`: stable item UUID used to fetch a secret item without title search.
 - `ProjectedSecretSet`: validated JSON object containing every scalar secret and file payload needed by the shell.
 - `CommandTimeout`: maximum wall time for external auth calls.
+- `ExternalVolumeIdentity`: configured volume UUID plus a managed sentinel that distinguishes the intended state volume from another filesystem mounted at the same path.
+- `ExternalVolumeHealthStatus`: non-authoritative internal record containing state, timestamps, errno class, and volume identity but no OpenCode session, prompt, or database content.
 
 Events:
 - `LoginShellStarted`
@@ -73,12 +87,16 @@ Events:
 - `NativeHerdrReleaseApplied`
 - `HerdrLiveHandoffCompleted`
 - `HerdrResponsibilityChanged`
+- `HerdrHostIdentityProvisioned`
+- `ExternalVolumeAccessDegraded`
+- `ExternalVolumeAccessRecovered`
 - `ClockifyPollSkipped`
 
 Glossary:
 - **Startup-safe**: shell/profile path must not block on interactive auth or network credentials.
 - **Fail-fast**: auth command exits with an error after a bounded timeout.
 - **Poll loop**: recurring SketchyBar script execution driven by `update_freq`.
+- **Full Disk Access (FDA)**: the macOS Privacy & Security permission the operator grants to the responsible Herdr host application. It is necessary for the durable design but is never granted or inferred by managed code.
 
 ## Visual Evidence
 
@@ -86,10 +104,10 @@ Glossary:
 |---|---|---|---|---|
 | Boundary | required: authentication decision flow and Herdr responsibility chain | Which executable owns authentication and removable-volume policy decisions? | Domain, HerdrServer scenarios, and contracts | Shell-auth owner; authentication or process-ancestry changes |
 | Interaction | required: authentication decision flow and OpenCode restore sequence | In what order are authentication sources and restored OpenCode sessions started? | Behavior Scenarios | Shell-auth owner; precedence, restore order, or failure changes |
-| State | required: authentication decision flow | Where must loading fail instead of prompting? | OnePasswordSessionCache invariants | Shell-auth owner; session-state changes |
-| Data/trust | required: authentication decision flow | Where can a service-account token originate without entering managed configuration? | SecretLoader and Keychain contracts | Shell-auth owner; credential-source changes |
+| State | required: authentication decision flow and external-volume health state | Where must loading fail instead of prompting, and when must new OpenCode work be circuit-broken without restarting existing processes? | OnePasswordSessionCache and ExternalVolumeHealthController invariants | Shell-auth owner; session-state or volume-health changes |
+| Data/trust | required: authentication decision flow and health-record boundary | Where can a service-account token originate, and what minimal health evidence may remain on the internal disk? | SecretLoader, Keychain, and ExternalVolumeHealthStatus contracts | Shell-auth owner; credential-source or health-data changes |
 | Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
-| Dependency/deployment | required: native install and live handoff sequence | How does chezmoi replace Herdr without terminating pane processes? | HerdrServer scenarios and contracts | Shell-auth owner; release pin or launchd ownership changes |
+| Dependency/deployment | required: signed host install, registration, activation, and live handoff sequence | How does chezmoi replace the privacy identity without terminating pane processes or losing rollback? | HerdrHostApplication and HerdrServer scenarios and contracts | Shell-auth owner; signing identity, registration, release pin, or launchd ownership changes |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
 
 V3.35 adds the missing profile and completion ledger without changing credential
@@ -127,10 +145,18 @@ One grouped fetch succeeds only after the complete projected secret set validate
 
 ```mermaid
 flowchart TD
-    accTitle: Chezmoi-managed native Herdr upgrade
-    accDescr: Chezmoi verifies the pinned native Herdr release and builds a native responsibility supervisor. Launchd starts the supervisor, which starts the state guard and handoff-aware owner. Compatible upgrades use live handoff while the supervisor remains alive; failed handoff restores the prior executable and leaves the old server running.
-    C[Reviewed supervisor source] --> N[Build and ad-hoc sign native supervisor]
-    N --> A
+    accTitle: Chezmoi-managed Herdr host installation and native Herdr upgrade
+    accDescr: An explicitly provisioned signing identity signs the Herdr Host app and its nested agent. The app registers that agent through SMAppService and the operator grants Login Items and Full Disk Access before activation. Chezmoi also verifies the pinned native Herdr release. Compatible upgrades use live handoff; failed activation or handoff preserves the prior supervisor and running server.
+    C[Reviewed host and agent sources] --> N[Build app bundle and nested agent]
+    P[Explicitly provisioned signing identity] --> S[Sign nested code then app bundle]
+    N --> S
+    S --> Q[Verify strict signature and stable designated requirement]
+    Q --> G[Register agent through SMAppService]
+    G --> U[Operator grants Login Items and FDA]
+    U --> X{Approved maintenance activation?}
+    X -->|No| W[Keep current server and AUTH-014 rollback]
+    X -->|Yes| E[Start signed host and validate exact volume]
+    E --> A
     A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
     V --> R{Herdr server running?}
     R -->|No| I[Install native executable]
@@ -144,17 +170,46 @@ flowchart TD
     D --> L[LaunchAgent owns next natural start]
 ```
 
-**Text Equivalent:** Chezmoi builds and ad-hoc signs the reviewed native
-responsibility supervisor, then downloads and verifies a changed native Herdr
-asset. Launchd starts the native supervisor first; it starts the state guard and
-handoff-aware owner as children. With no running server, chezmoi installs Herdr
-directly. A compatible running server receives an atomic executable replacement
-and live-handoff request. Unsupported or failed handoff never triggers a stop;
-failure restores the prior executable where present. The supervisor and managed
-owner remain alive across handoff. An unmanaged replacement runs detached until
-the next natural login or reboot gives ownership back to the Aqua LaunchAgent.
-The shell-auth owner updates this view when authentication precedence, context,
-or failure behavior changes.
+**Text Equivalent:** An operator explicitly provisions the documented local
+signing identity. Chezmoi builds the app bundle and nested agent, signs nested
+code before the outer bundle, verifies both the strict signature and stable
+designated requirement, and asks the app to register its agent through
+SMAppService. The operator grants the visible Login Items and Full Disk Access
+permissions. Installation does not disturb the current server. During an
+approved maintenance window, the signed host validates the exact external
+volume before assuming responsibility; failed activation retains the AUTH-014
+supervisor as rollback. Chezmoi separately downloads and verifies a changed
+native Herdr asset. With no running server it installs directly. A compatible
+running server receives an atomic replacement and live-handoff request.
+Unsupported or failed handoff never triggers a stop and restores the prior
+executable where present.
+
+```mermaid
+stateDiagram-v2
+    accTitle: External-volume health and recovery states
+    accDescr: The Herdr host starts by validating the expected volume identity and read-write access. A healthy host permits new work. Permission errors enter a degraded state that blocks new starts and capture writes but leaves all existing processes untouched. Bounded probes can restore health only after the exact volume and read-write checks pass. A missing, unavailable, or substituted volume remains failed closed.
+    [*] --> Starting
+    Starting --> Healthy: expected UUID, sentinel, and read-write probe pass
+    Starting --> DegradedPermission: EPERM or EACCES
+    Starting --> DegradedUnavailable: missing, I/O failure, or wrong identity
+    Healthy --> DegradedPermission: permission probe fails
+    Healthy --> DegradedUnavailable: volume identity or availability fails
+    DegradedPermission --> Recovering: bounded retry begins
+    DegradedUnavailable --> Recovering: bounded retry begins
+    Recovering --> Healthy: exact identity and read-write probe pass
+    Recovering --> DegradedPermission: permission denial remains
+    Recovering --> DegradedUnavailable: unavailable or wrong identity remains
+```
+
+**Text Equivalent:** The host begins in `Starting` and becomes `Healthy` only
+after the configured volume UUID, sentinel, and atomic read/write probe pass.
+`EPERM` or `EACCES` moves it to `DegradedPermission`; a missing volume, I/O
+failure, or identity mismatch moves it to `DegradedUnavailable`. Either degraded
+state blocks new OpenCode starts, restores, and capture writes while leaving all
+existing Herdr panes and processes untouched. Bounded probes enter `Recovering`.
+Only the exact volume plus a successful read/write probe returns the host to
+`Healthy`; otherwise it remains failed closed. Recovery never restarts Herdr or
+OpenCode automatically.
 
 ```mermaid
 sequenceDiagram
@@ -218,6 +273,38 @@ the manifest watcher.
 - And the supervisor starts the state-root guard and handoff-aware owner as children
 - And new `HerdrPane` shells inherit the supervisor's responsible process identity
 - And Herdr and pane processes can traverse the configured external volume
+
+**Scenario: Durable Herdr host identity is registered without disturbing active panes**
+- Given the operator has explicitly provisioned the configured `StableSigningIdentity`
+- And AUTH-014 currently owns a live `HerdrServer`
+- When chezmoi builds and installs `HerdrHostApplication`
+- Then every nested executable and the outer bundle are signed inside-out with that identity
+- And strict signature and designated-requirement checks pass
+- And the bundled agent is registered through SMAppService
+- And the active Herdr server and every pane remain untouched until a separately approved activation
+
+**Scenario: External-volume permission becomes degraded**
+- Given `HerdrHostApplication` is healthy and the expected external volume is mounted
+- When its access probe receives `EPERM` or `EACCES`
+- Then `ExternalVolumeHealthController` records `degraded_permission` internally without prompt or session content
+- And it blocks new OpenCode starts, session restores, and manifest writes with an actionable macOS permission diagnostic
+- And it emits at most one operator notification for the incident
+- And it leaves the Herdr server, OpenCode processes, and panes untouched
+- And it never edits the TCC database or requests an automatic restart
+
+**Scenario: External-volume access recovers without process restart**
+- Given `ExternalVolumeHealthController` is degraded
+- When a bounded recovery probe confirms the expected volume UUID, sentinel, and read/write access
+- Then it records `healthy` and resumes new starts, restores, and capture writes
+- And it does not restart Herdr, OpenCode, or any pane
+- And a previously failed user prompt remains explicitly retryable by the user
+
+**Scenario: Another filesystem appears at the configured mount path**
+- Given `ExternalVolumeHealthController` expects a configured volume UUID and sentinel
+- When a different filesystem is mounted at the same path
+- Then health remains `degraded_unavailable`
+- And no state, probe artifact, or recovery metadata is written to that filesystem
+- And the operator receives an identity-mismatch diagnostic
 
 **Scenario: Native responsibility supervisor stops**
 - Given `HerdrResponsibilitySupervisor` has started the managed owner
@@ -391,6 +478,22 @@ the manifest watcher.
 - **Invariant:** installed `SecretLoader` sources sibling `op-session` by path so stale shell command hashes cannot select an old broker.
 - **Post:** all required secrets are non-empty before `_SECRETS_LOADED` is set.
 
+### HerdrHostApplication
+- **Pre:** signing-identity creation, trust, rotation, and removal are explicit interactive operator actions documented in `OPERATION.md`; managed code never silently creates or trusts a certificate.
+- **Pre:** activation requires the operator to approve the app's Login Items entry and Full Disk Access before a maintenance restart.
+- **Invariant:** the host app, nested agent, and responsible executable use the configured stable signing identity and pass strict signature plus designated-requirement verification before registration.
+- **Invariant:** the bundled agent is registered through SMAppService; the deployed design does not rely on a raw ad-hoc-signed executable as its durable privacy identity.
+- **Invariant:** managed code never reads, writes, resets, or attempts to grant entries in the macOS TCC database.
+- **Invariant:** authoritative Herdr and OpenCode state remains on `/Volumes/ext`; no OpenCode database, session manifest, or prompt content is copied to the internal disk.
+- **Invariant:** internal `ExternalVolumeHealthStatus` is atomic, non-authoritative, and limited to state, transition timestamps, errno class, expected and observed volume identity, and probe outcome.
+- **Invariant:** health probes verify the expected volume UUID and sentinel before any write and use a bounded atomic read/write probe only on the verified volume.
+- **Invariant:** a missing volume, unexpected identity, `EPERM`, `EACCES`, or I/O failure fails closed for new OpenCode starts, restores, and capture writes.
+- **Invariant:** degraded health never terminates or restarts the Herdr server, an OpenCode process, or a pane.
+- **Invariant:** recovery uses bounded backoff and returns to healthy only after exact-volume identity and read/write validation pass.
+- **Invariant:** permission degradation emits one deduplicated operator notification and one structured incident transition; repeated probes do not create a notification storm.
+- **Post:** successful recovery permits new work but leaves failed prompts and existing process lifecycle under operator control.
+- **Post:** failed activation preserves the running AUTH-014 path and its files until the documented rollback window ends.
+
 ### OnePasswordSessionCache
 - **Invariant:** cached tokens must pass one bounded validity probe before grouped item fetches start.
 - **Invariant:** `OnePasswordServiceAccountToken` takes precedence over cached and biometric session paths.
@@ -403,8 +506,8 @@ the manifest watcher.
 - **Invariant:** `HerdrServer` runs in the Aqua launchd domain without embedding credentials in its plist.
 - **Invariant:** launchd directly executes a native `HerdrResponsibilitySupervisor`; no script or platform shell precedes it in the managed process ancestry.
 - **Invariant:** the responsibility supervisor starts the state-root guard and handoff-aware owner as children, forwards termination, waits for the owner, and preserves its exit status.
-- **Invariant:** supervisor source changes rebuild one ad-hoc-signed Mach-O executable at the fixed managed path; unchanged applies do not replace its TCC identity.
-- **Invariant:** removable-volume access is granted only through macOS privacy controls; managed code never edits the TCC database or grants Full Disk Access.
+- **Invariant:** the legacy AUTH-014 rollback path rebuilds one ad-hoc-signed Mach-O executable at the fixed managed path only when supervisor source changes; unchanged applies do not replace its TCC identity.
+- **Invariant:** removable-volume access is granted only through macOS privacy controls; managed code never edits the TCC database or grants Full Disk Access. The operator-managed AUTH-014 supervisor FDA entry remains a stopgap until AUTH-016 completes its rollback window.
 - **Invariant:** chezmoi owns the native Herdr version, protocol, asset URL, SHA-256, installation path, and upgrade workflow.
 - **Invariant:** native release bytes are installed only after SHA-256 verification and executable version validation.
 - **Invariant:** chezmoi deployment never stops a running `HerdrServer`; compatible upgrades use live handoff and LaunchAgent reconciliation waits for the next GUI login or reboot.
@@ -492,8 +595,26 @@ the manifest watcher.
 | Operate | Activate supervisor and verify fresh-pane removable-volume access | required | passed | TCC attribution, allowed grant, read/write probe, and no new denial | - | User + Primary |
 | Maintain/Retire | Rebuild only on source change and retain explicit privacy approval | required | passed | On-change embedded-source build and disabled-platform exclusions | - | Primary |
 
+## Gate Ledger - AUTH-016
+
+| Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
+|---|---|---|---|---|---|---|
+| Domain | Stable privacy identity and external-volume health boundary | required | passed | This README, AUTH-016 ticket, and 2026-08-28 incident evidence | - | Primary |
+| Behavior | Degradation, fail-closed operation, non-disruptive recovery, and rollback | required | passed | Behavior scenarios and `OPERATION.md` | - | Primary |
+| Spec | Signed app bundle, SMAppService agent, status interface, and exact-volume probe | required | passed | AUTH-016 ticket and visual/text equivalents | - | Primary |
+| Contract | Preserve external authoritative state and every active process | required | passed | `HerdrHostApplication` invariants | - | Primary |
+| Test-driven implementation | Fault injection, identity checks, build checks, and focused regressions | required | not_run | Planned in AUTH-016 validation | - | Primary |
+| Refactor | Retire raw supervisor as primary path after rollback window | required | not_run | Requires implemented and soaked replacement | - | Primary |
+| Review/Integrate | Privacy identity, process lifecycle, and migration safety | required | not_run | Requires implementation review | - | Primary |
+| Release | Publish a versioned artifact | not_applicable | not_run | No public release requested | - | User |
+| Deploy | Install and register signed host without stopping active Herdr | required | not_run | Requires explicit local deployment approval | - | User + Primary |
+| Operate | Grant FDA, activate in maintenance window, inject faults, and soak | required | not_run | Requires explicit restart and fault-injection approval | - | User + Primary |
+| Maintain/Retire | Document certificate rotation, rollback, FDA cleanup, and legacy retirement | required | not_run | `OPERATION.md` defines procedure; execution follows successful soak | - | Primary |
+
 ## Verification
 
+- AUTH-016 Discovery records the 2026-08-28 TCC attribution-chain failure, System Policy denials, healthy mounted APFS volume, and spontaneous recovery without a Herdr or Kitty restart.
+- AUTH-016 implementation and deployment checks remain intentionally not run.
 - Shell syntax checks pass for edited scripts.
 - Static search confirms no Herdr profile auto-`secret` block remains.
 - Static search confirms Clockify poller has no `op read` call.
