@@ -11,6 +11,9 @@
 {{- end -}}
 {
   "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "preserve_recent_tokens": 65536
+  },
   "provider": {
     "openai": {
       "options": {
