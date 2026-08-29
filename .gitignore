@@ -7,3 +7,5 @@ graphify-out/
 /config.local.toml
 /.tailscale/
 data/
+/.dbsctr/
+/.dbsctr-*.json

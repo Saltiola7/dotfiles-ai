@@ -1291,7 +1291,7 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1706,7 +1706,7 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1734,7 +1734,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         "coordinator_repository": "Saltiola7/dotfiles-ai",
         "context": "ctx", "repository": "Saltiola7/dotfiles-ai",
         "requirements": ["INT-001"], "depends_on": [], "artifacts": ["docs/spec.md"],
-        "tickets": ["cycle-a"], "release_group": "rg",
+        "release_group": "rg", "execution_owner": "build",
     }
     bound = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
     helper = bin_dir / "dbsctrctl"
@@ -1752,6 +1752,10 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
+    (bin_dir / "git").write_text(
+        '#!/bin/sh\nif [ "$1 $2 $3 $4" = "ls-remote --symref origin HEAD" ]; then '
+        'printf "ref: refs/heads/main\\tHEAD\\n"; else exec /usr/bin/git "$@"; fi\n'
+    )
     for executable in bin_dir.iterdir():
         executable.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
@@ -1776,10 +1780,12 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "initiative_id": "test", "slice_id": "slice-a", "manifest_digest": digest,
         "manifest_blob": blob, "manifest_commit": commit,
         "coordinator_repository": "Saltiola7/dotfiles-ai",
-        "repository": "Saltiola7/dotfiles-ai", "target_repository": "Saltiola7/dotfiles-ai",
+        "repository": "Saltiola7/dotfiles-ai", "execution_owner": "build",
+        "target_repository": "Saltiola7/dotfiles-ai",
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "base_branch": "main",
         "github_account": None, "github_repository": None,
     }
     assert calls.read_text().splitlines()[0:6] == [

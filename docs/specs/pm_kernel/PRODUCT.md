@@ -3,11 +3,11 @@
 ## Users And Outcomes
 
 The primary user is an OpenCode operator maintaining detailed local engineering
-context while reporting selected outcomes through Jira. Agents need deterministic,
-collision-safe work records and enough evidence to refine, execute, and review
-work without treating an external board as complete project memory.
+context while reporting selected outcomes through Jira. Direct PM invocations need
+deterministic, collision-safe records without treating an external board as
+complete project memory or making reporting data lifecycle authority.
 
-Success means each local ticket is independently readable and queryable, agents
+Success means each local ticket is independently readable and queryable, operators
 can retrieve relevant dependencies and provenance, Jira receives deliberate
 sprint-sized narratives only on request, and Sprint Review reports remain factual
 and reproducible from bounded source selections.
@@ -21,20 +21,18 @@ and reproducible from bounded source selections.
 
 ## Core Journeys
 
-1. An operator or agent records evidence as an intake ticket, resolves material
-   questions, and marks it ready only when the PM gates pass.
-2. A Build agent pulls one ready ticket, uses dependencies and ownership to avoid
-   collisions, and records review evidence before completion.
-3. An operator selects any useful local ticket set, reviews a standalone Jira
+1. An operator directly invokes PM Kernel to record already authoritative evidence
+   as a reporting ticket and refine its reporting readiness.
+2. An operator selects any useful local ticket set, reviews a standalone Jira
    rollup preview, and explicitly approves that exact external write.
-4. An operator selects Done Jira work and optional goals to generate a private,
+3. An operator selects Done Jira work and optional goals to generate a private,
    factual Sprint Review report.
-5. An operator enables PostgreSQL for richer search, graph traversal, provenance,
-   and coordination without changing Git authority.
+4. An operator enables PostgreSQL for richer search, graph traversal, provenance,
+   and coordination without changing lifecycle authority.
 
 ## Constraints
 
-- Ticket files remain useful in ordinary editors, Git diffs, and code review.
+- Ticket files remain useful in ordinary editors and local comparisons.
 - Mutable workflow data cannot cause path churn.
 - Missing evidence remains unknown rather than inferred.
 - Jira project configuration and credentials remain machine-local.
@@ -48,10 +46,10 @@ headings, text equivalents for informative visuals, and no color-only meaning.
 
 ## Compatibility And Retirement
 
-Migration preserves every existing backlog row and its source evidence. The old
-table format is retired only after fixed-commit audit and Hermes refinement read
-ticket files. PostgreSQL or Jira adapters may later retire independently because
-canonical Git tickets preserve work identity and history.
+Migration preserves every selected backlog row and its source evidence in the
+explicit local PM workflow. Discovery, DBSCTR, DKS, Initiative handling, and
+autonomous R&D never read those files. PostgreSQL or Jira adapters may retire
+independently because PM files are reporting inputs rather than lifecycle authority.
 
 ## Visual Evidence
 

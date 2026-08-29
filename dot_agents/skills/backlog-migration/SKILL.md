@@ -13,7 +13,8 @@ pmctl migrate-backlogs --root ROOT --apply --json
 pmctl tickets check --root ROOT --json
 ```
 
-The command writes tickets atomically and never deletes `BACKLOG.md`. Remove old
-files only in the same DBSCTR cycle after Discovery, audit, refinement consumers,
-tests, and documentation use tickets. Preserve original rows in migration
-evidence; never infer points, priority mappings, or missing completion evidence.
+The directly invoked command writes reporting tickets atomically under
+`data/backlog/tickets/` and never deletes `BACKLOG.md`. Discovery and DBSCTR do
+not consume the result. Preserve original rows in migration evidence; never
+infer points, priority mappings, or missing completion evidence. DVC and Git
+metadata remain operator-managed.
