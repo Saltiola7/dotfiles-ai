@@ -235,6 +235,23 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert bashrc.index('eval "$(starship init bash)"') < bashrc.index("bash-preexec.sh")
 
 
+def test_guest_profile_resolves_runtime_home_tools(tmp_path: Path) -> None:
+    docker = tmp_path / ".local/bin/docker"
+    docker.parent.mkdir(parents=True)
+    docker.write_text("#!/bin/sh\n")
+    docker.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", "-c", f'source "{ROOT / "dot_common_profile.tmpl"}"; command -v docker'],
+        env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == str(docker)
+
+
 def test_current_distribution_contract_has_no_colima_fallback() -> None:
     current_docs = [
         ROOT / "config.example.toml",
@@ -246,6 +263,11 @@ def test_current_distribution_contract_has_no_colima_fallback() -> None:
     spec = (ROOT / "docs/specs/dotfiles_ai_distribution/README.md").read_text()
     current_contract = spec.split("## Bounded Context", 1)[1]
     assert "colima" not in current_contract.lower()
+
+    assert "Colima remains installed and retained" in spec
+    changelog = (ROOT / "docs/specs/dotfiles_ai_distribution/CHANGELOG.md").read_text()
+    assert "Colima remains stopped as" in changelog
+    assert (ROOT / "docs/tickets/context=dotfiles_ai_distribution/DAI-024-moved-self-hosted-atuin-from-colima-to-pinned-rootless-podman-in-the-sel.md").exists()
 
 
 def test_guest_development_tools_are_pinned_and_podman_backed() -> None:
