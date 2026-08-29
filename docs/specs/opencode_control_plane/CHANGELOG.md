@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Fork-Defined Operational Incidents
+
+- Added `/incident` and provider-neutral typed scan, register, update, and forget
+  adapters while denying mutation tools and direct command forms to Plan and
+  subagents.
+- Targeted deployment is source-identical and idempotent. The live config parses,
+  the incident helper command is available, and the deployed TypeScript tool
+  bundle passes. Same-user unrestricted shell remains a documented trust boundary,
+  not OS privilege separation.
+
 ## 2026-08-28 - Initiative Discovery Orchestration
 
 - Added a docs-only Discovery coordinator, normal/compaction durable context,

@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.39 Operational Incident Capture
+
+- Added explicit child-fork Incident registration, bounded persisted failure
+  signals, source-local redacted evidence, typed lifecycle tools, private forget,
+  review-first presentation, and canonical fix-cycle activation proof.
+- Affected QA passed 247 tests with one expected skip; advanced-target union QA
+  passed another 112 tests. Python compilation, Bun bundling, Git whitespace,
+  targeted source-identical Chezmoi deployment, idempotence, live parser/config
+  smokes, and independent remediation review passed. Gate Exceptions: none. Gate
+  Commits: `369eab1`, `4b8a447`, `6b621fb`, `bef4f5f`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-28 - V3.38 Initiative Discovery
 
 - Added validated durable Initiative manifests, dependency-safe readiness,
