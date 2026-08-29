@@ -146,7 +146,15 @@ it cannot unmerge an already verified pull request.
 | Quantitative | not_applicable: no numeric comparison or threshold is claimed | - | Validation | Lifecycle owner; threshold added |
 
 ```mermaid
+---
+title: Automatic delivery trust flow
+config:
+  flowchart:
+    htmlLabels: false
+---
 flowchart LR
+  accTitle: Automatic delivery trust flow
+  accDescr: Machine-local policy and Cycle Record identity constrain DBSCTR requests to GitHub before safe base synchronization and cycle worktree cleanup.
   P[Machine-local policy] -->|selects mode| D[DBSCTR helper]
   C[Cycle Record] -->|expected head and identities| D
   D -->|ready or merge request| G[GitHub]
@@ -163,7 +171,12 @@ the separate clean cycle worktree. GitHub never supplies local cleanliness or
 worktree ownership authority.
 
 ```mermaid
+---
+title: Verified delivery sequence
+---
 sequenceDiagram
+  accTitle: Verified delivery sequence
+  accDescr: Final Push binds the expected head, maintenance observes checks and merge state, then the base checkout fast-forwards before cycle worktree removal.
   participant F as Final Push
   participant G as GitHub
   participant M as Delivery Maintenance
