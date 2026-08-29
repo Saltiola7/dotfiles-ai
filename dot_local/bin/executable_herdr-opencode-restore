@@ -12,6 +12,55 @@ from pathlib import Path
 
 HERDR = os.environ.get("HERDR_BIN", "herdr")
 
+
+class HostPreflightError(RuntimeError):
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def preflight_host(*, cached: bool = False) -> None:
+    host = Path(os.environ.get("HERDR_HOST_BIN", Path.home() / ".local/bin/herdr-host"))
+    active = os.environ.get("HERDR_HOST_ACTIVE") == "1"
+    if not host.is_file() or not os.access(host, os.X_OK):
+        if active:
+            raise HostPreflightError(
+                75,
+                "Herdr Host health preflight is unavailable; run herdr-host doctor",
+            )
+        return
+    arguments = [str(host), "preflight", "--if-active"]
+    if cached:
+        arguments.append("--cached")
+    try:
+        result = subprocess.run(
+            arguments,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise HostPreflightError(
+            75,
+            "Herdr Host health preflight is unavailable; run herdr-host doctor",
+        ) from error
+    if result.returncode:
+        message = result.stderr.strip() or (
+            "Herdr Host blocked external-state access; run herdr-host doctor"
+        )
+        raise HostPreflightError(result.returncode, message)
+
+
+def capture_failure_message(error: Exception) -> str:
+    if isinstance(error, OSError):
+        return f"operating-system error {error.errno if error.errno is not None else 'unknown'}"
+    if isinstance(error, subprocess.SubprocessError):
+        return "Herdr command failed"
+    if isinstance(error, (json.JSONDecodeError, ValueError, KeyError, TypeError)):
+        return "invalid structured recovery data"
+    return "unexpected internal error"
+
 def run(*args: str) -> dict:
     return json.loads(subprocess.run((HERDR, *args), check=True, capture_output=True, text=True, timeout=10).stdout)
 
@@ -66,18 +115,43 @@ def main() -> int:
         raise ValueError("usage: herdr-opencode-restore [--check|--capture|--watch]")
     root_value = os.environ.get("DOTFILES_AI_STATE_ROOT")
     if not root_value:
+        if os.environ.get("HERDR_HOST_ACTIVE") == "1":
+            print("Herdr Host active owner has no configured state root", file=sys.stderr)
+            return 78
         return 0
     root = Path(root_value)
     manifest = root / "herdr/opencode-sessions.json"
     if capturing:
+        try:
+            preflight_host()
+        except HostPreflightError as error:
+            print(error, file=sys.stderr)
+            return error.status
         return capture(manifest)
     if watching:
+        blocked = False
         while True:
             time.sleep(60)
             try:
+                preflight_host()
+            except HostPreflightError as error:
+                if not blocked:
+                    print(error, file=sys.stderr)
+                blocked = True
+                continue
+            blocked = False
+            try:
                 capture(manifest)
             except Exception as error:
-                print(f"OpenCode session capture failed: {error}", file=sys.stderr)
+                print(
+                    f"OpenCode session capture failed: {capture_failure_message(error)}",
+                    file=sys.stderr,
+                )
+    try:
+        preflight_host()
+    except HostPreflightError as error:
+        print(error, file=sys.stderr)
+        return error.status
     database = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode/opencode.db"
     opencode = Path.home() / ".local/bin/opencode"
     if not root or not manifest.is_file() or not database.is_file() or not opencode.is_file():
@@ -137,12 +211,16 @@ def main() -> int:
             else:
                 raise RuntimeError("restored session identity mismatch")
         except subprocess.CalledProcessError as error:
-            failures.append(f"{pane} {session}: {(error.stderr or str(error)).strip()}")
+            failures.append("Herdr command failed")
         except Exception as error:
-            failures.append(f"{pane} {session}: {error}")
+            failures.append(capture_failure_message(error))
 
     if failures:
-        print("\n".join(failures), file=sys.stderr)
+        print(
+            f"OpenCode recovery failed for {len(failures)} entr{'y' if len(failures) == 1 else 'ies'}: "
+            f"{failures[0]}",
+            file=sys.stderr,
+        )
         return 1
     if check:
         print(f"validated {len(entries)} OpenCode recovery sessions")
@@ -150,4 +228,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        print(f"OpenCode recovery failed: {capture_failure_message(error)}", file=sys.stderr)
+        raise SystemExit(1)

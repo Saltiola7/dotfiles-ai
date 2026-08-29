@@ -1,5 +1,52 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-28 - AUTH-016 Probe-Only Herdr Host
+
+- Added an opt-in, signed `~/Applications/Herdr Host.app` with a bundled,
+  distinctly labelled `SMAppService` LaunchAgent and a direct managed CLI link.
+  Build, registration, consent, and process activation remain separate gates.
+- Added a host-owned exact-volume probe, private atomic health/ownership records,
+  bounded retry, deduplicated incident notification, signed-resource validation,
+  and fail-closed wrong-volume, permission, unavailable, and I/O states.
+- Added OpenCode, restore/capture, state-root, and Herdr-owner circuit breakers.
+  New work pauses on active-host degradation; existing processes are never
+  restarted by recovery logic.
+- Kept authoritative OpenCode and Herdr state on the external volume. Internal
+  storage contains only bounded health metadata with no prompt, response,
+  session, database, repository, or state-root-path content.
+- This is a probe-only staging slice: `activation_supported=false` is sealed into
+  the signed bundle, manual activation markers are rejected, and no build/apply
+  action registers, grants FDA, replaces AUTH-014, or restarts Herdr/OpenCode.
+- Validation passed 100 affected tests, production/test Swift compilation,
+  rendered shell syntax, plist lint, privacy scans, and independent probe-only
+  security review. No valid signing identity exists, so trusted two-build,
+  ServiceManagement, FDA, activation, and soak gates remain not run.
+
+## 2026-08-28 - AUTH-016 Durable External-Volume Discovery
+
+- Recorded the third observed recurrence of macOS TCC attribution-chain failure:
+  the mounted, healthy `/Volumes/ext` remained accessible to fresh authorized
+  processes while the existing Herdr/OpenCode coalition received System Policy
+  denials. OpenCode's low-file-descriptor suggestion was a generic consequence,
+  not the cause.
+- Chose a stable signed `Herdr Host.app`, bundled SMAppService agent, explicit
+  Login Items approval, and Full Disk Access as the durable privacy identity.
+  The accepted machine-local signing-certificate provisioning, rotation, and
+  removal workflow is an operator-visible lifecycle documented in
+  `OPERATION.md`.
+- Kept all authoritative OpenCode state on `/Volumes/ext`. The internal disk may
+  contain only atomic, non-authoritative health metadata without session,
+  prompt, or database content.
+- Defined exact-volume identity checks, fail-closed degraded operation, bounded
+  recovery probes, deduplicated notification, and manual process lifecycle.
+  Permission loss never automatically restarts Herdr, OpenCode, Kitty, or panes.
+- The operator added the existing AUTH-014 supervisor to Full Disk Access as a
+  stopgap. Access recovered without a Kitty or Herdr restart; denials stopped
+  before the first observed FDA-related registration event, so causation remains
+  unproven.
+- At this discovery checkpoint, no host implementation, registration migration,
+  process restart, TCC reset, or authoritative-state migration was performed.
+
 ## 2026-08-25 - AUTH-014 Lifecycle Reconciliation
 
 - Verified AUTH-014 is clean, fully integrated, and has no commits ahead of

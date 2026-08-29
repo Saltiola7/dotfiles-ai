@@ -96,6 +96,10 @@ Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
 build-herdr-launchagent-supervisor.sh
 {{ end }}
+{{ if not .dotfiles_ai.herdr.host_enabled }}
+build-herdr-host.sh
+.local/bin/herdr-host
+{{ end }}
 {{ if not .dotfiles_ai.hermes.enabled }}
 .hermes/managed
 {{ end }}
@@ -108,6 +112,8 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 Library/
 load-herdr-launchagent.sh
 build-herdr-launchagent-supervisor.sh
+build-herdr-host.sh
+.local/bin/herdr-host
 load-dbsctr-rnd-launchagents.sh
 .local/bin/sandbox-vm
 .local/bin/opencode

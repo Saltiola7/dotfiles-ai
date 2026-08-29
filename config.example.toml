@@ -34,6 +34,18 @@ theme = "catppuccin"
 theme = "catppuccin"
 agent_panel_sort = "priority"
 launchagent = true
+# Opt-in durable macOS TCC responsibility host. Building installs the signed
+# ~/Applications/Herdr Host.app in probe-only mode; it never replaces or
+# restarts a running Herdr server. Activation is a separate manual operation.
+host_enabled = false
+# Exact SHA-256 fingerprint of a valid login-Keychain code-signing identity.
+# Names and ad-hoc signatures are deliberately rejected.
+signing_identity_sha256 = ""
+# Exact Volume UUID containing dotfiles_ai.state.root. The host refuses all
+# writes when the mounted volume does not match.
+state_volume_uuid = ""
+probe_interval_seconds = 30
+health_max_age_seconds = 90
 executable = "~/.local/bin/herdr"
 version = "0.8.2"
 protocol = 20
