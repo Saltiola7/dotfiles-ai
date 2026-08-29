@@ -132,6 +132,8 @@ session with the same digest-bound handoff.
   required material statement's artifacts. The manifest and artifacts must be
   committed and clean at one source commit. Historical `tickets` arrays remain
   parseable but are ignored and omitted from new receipts.
+- Optional `execution_owner` defaults to `build`; Discovery-owned slices cannot
+  issue Build receipts. This ownership remains digest-bound and receipt-visible.
 - Coordinator and context homes use canonical `owner/repository` identities.
   Receipt issuance verifies the exact GitHub source host and coordinator identity;
   launch verifies the target identity again inside `dbsctrctl begin`.
