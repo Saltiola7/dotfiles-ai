@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "dbsctr-delivery-lifecycle",
+  "title": "Automatic verified DBSCTR delivery and cleanup",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id": "INT-001", "kind": "requirement", "text": "Optionally merge DBSCTR pull requests automatically after required CI passes.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-002", "kind": "requirement", "text": "Use ordinary GitHub auto-merge for repositories that do not require administrator bypass.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-003", "kind": "requirement", "text": "Permit administrator merge only for exact machine-local configured repositories and only after required checks pass.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md", "docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-004", "kind": "requirement", "text": "After exact merge verification, fast-forward a compatible clean base checkout and remove only the clean DBSCTR-owned cycle worktree and branch.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-005", "kind": "requirement", "text": "Return operator control to a stable base-checkout session after cycle-session retirement.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md"]},
+    {"id": "INT-006", "kind": "requirement", "text": "Expose automatic merge and administrator repositories as optional Chezmoi configuration.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md"]},
+    {"id": "INT-007", "kind": "constraint", "text": "Never force-push, reset, resolve conflicts, remove dirty work, or bypass failed, pending, missing, or ambiguous required checks.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md", "docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-008", "kind": "decision", "text": "Use merge commits so cycle Gate Commits remain ancestors of the verified base merge.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]},
+    {"id": "INT-009", "kind": "non-goal", "text": "Do not silently rebind one OpenCode session identity to another worktree path.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md"]},
+    {"id": "INT-010", "kind": "risk", "text": "Administrator merge bypasses repository protection when local check verification is wrong or stale.", "disposition": "ready", "artifacts": ["docs/initiatives/dbsctr-delivery-lifecycle/README.md", "docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md"]}
+  ],
+  "contexts": [
+    {"id": "dbsctr_v3_lifecycle", "repository": "Saltiola7/dotfiles-ai", "status": "ready", "depends_on": []},
+    {"id": "dotfiles_ai_distribution", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["dbsctr_v3_lifecycle"]},
+    {"id": "opencode_control_plane", "repository": "Saltiola7/dotfiles-ai", "status": "captured", "depends_on": ["dbsctr_v3_lifecycle", "dotfiles_ai_distribution"]}
+  ],
+  "slices": [
+    {"id": "verified-merge-core", "context": "dbsctr_v3_lifecycle", "state": "ready", "execution_owner": "build", "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-007", "INT-008", "INT-010"], "depends_on": [], "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/automatic-delivery.md", "docs/specs/dbsctr_v3_lifecycle/V3.41-1.plan.json"], "tickets": ["V3.41-1"], "release_group": "verified-delivery"},
+    {"id": "chezmoi-delivery-policy", "context": "dotfiles_ai_distribution", "state": "captured", "execution_owner": "build", "requirements": ["INT-003", "INT-006", "INT-007"], "depends_on": ["verified-merge-core"], "artifacts": [], "tickets": [], "release_group": "verified-delivery"},
+    {"id": "base-session-handoff", "context": "opencode_control_plane", "state": "captured", "execution_owner": "build", "requirements": ["INT-004", "INT-005", "INT-007", "INT-009"], "depends_on": ["chezmoi-delivery-policy"], "artifacts": [], "tickets": [], "release_group": "session-convergence"}
+  ],
+  "release_groups": [
+    {"id": "verified-delivery", "members": ["verified-merge-core", "chezmoi-delivery-policy"], "state": "planning"},
+    {"id": "session-convergence", "members": ["base-session-handoff"], "state": "planning"}
+  ]
+}
