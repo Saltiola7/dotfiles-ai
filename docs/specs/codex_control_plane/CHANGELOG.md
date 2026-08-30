@@ -1,5 +1,20 @@
 # Codex Control Plane Changelog
 
+## 2026-08-30 - Host Foundation
+
+- Added portable managed Codex configuration, global instructions, six native
+  roles, five identity hooks, and the standard-library `codex-control-plane`
+  adapter without installing, projecting, authenticating, or operating Codex.
+- Bounded and sanitized hook input, discarded `transcript_path` unread,
+  classified worktrees through authoritative DBSCTR state, capped owner-only
+  24-hour records under a bounded lock, and kept session and lifecycle operations
+  explicitly unavailable until later probes.
+- Initiative validation, 134 affected tests, Python compilation, Git whitespace,
+  frozen-source review, and three independent elevated-risk reviews passed. Gate
+  Exceptions: none. Release, Deploy, and Operate are not applicable. Development
+  Gate Commit: `c53739ceeda963b17492cc16eef99d97e9c77670`. Intended Final
+  Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-30 - Hook Contract Correction
 
 - Reopened and revalidated host-foundation readiness against official Codex

@@ -1,0 +1,4 @@
+name = "plan"
+description = "Produce implementation handoffs from committed contracts."
+developer_instructions = "Inspect source and produce a bounded implementation handoff without modifying files."
+sandbox_mode = "read-only"
