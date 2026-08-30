@@ -128,17 +128,17 @@ confirmed, the adapter does not destroy it automatically.
 
 | Gate | Applicability | Result | Exception |
 |---|---|---|---|
-| Domain | required | pending | none |
-| Behavior | required | pending | none |
-| Spec | required | pending | none |
-| Contract | required | pending | none |
-| Test-driven implementation | required | pending | none |
-| Refactor | required | pending | none |
-| Review/Integrate | required | pending | none |
+| Domain | required | passed | none |
+| Behavior | required | passed | none |
+| Spec | required | passed | none |
+| Contract | required | passed | none |
+| Test-driven implementation | required | passed | none |
+| Refactor | required | passed | none |
+| Review/Integrate | required | passed | none |
 | Release | not_applicable: no versioned artifact will be published | not_run | none |
-| Deploy | required | pending | none |
-| Operate | required | pending | none |
-| Maintain/Retire | required | pending | none |
+| Deploy | required | passed | none |
+| Operate | required | passed | none |
+| Maintain/Retire | required | passed | none |
 
 ## Visual Evidence
 

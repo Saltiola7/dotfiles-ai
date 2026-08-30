@@ -1,5 +1,20 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-30 - Coordinator Workspace Affinity
+
+- Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's
+  live workspace instead of UI focus, including fresh fallback, and failed closed
+  before retaining malformed or mismatched caller, tab, pane, or agent identity.
+- Preserved previously confirmed agents when a later prompt re-probe fails and
+  retained the existing rule that no pre-existing session is moved or closed.
+- All 47 affected control-plane tests and Bun bundling pass, and independent
+  review found no remaining issue. Deployment applied only the launcher delta on
+  top of a concurrent managed query-summary runtime and preserved that unrelated
+  work. A live cross-focus smoke created the disposable tab in the coordinator
+  workspace while another workspace remained focused, then closed it. Gate
+  Commit: `b623430`. Gate Exceptions: none. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
+
 ## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
 
 - Kept Initiative manifests repository-relative while adding an explicitly
