@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Host foundation ready; implementation and capability probes not started
+**Status:** Host foundation implemented; distribution and capability probes not started
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -472,12 +472,12 @@ Risks:
 
 ```bash
 python3 dot_local/bin/executable_dbsctrctl initiative-check --manifest docs/initiatives/codex-cli-integration/MANIFEST.json --json
-uv run --group test pytest tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py -q
-python3 -m py_compile dot_local/bin/executable_dbsctrctl
+uv run --group test pytest tests/test_codex_control_plane.py tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py -q
+python3 -m py_compile dot_local/bin/executable_codex-control-plane dot_local/bin/executable_dbsctrctl
 git diff --check
 ```
 
-Implementation adds focused `tests/test_codex_control_plane.py` coverage before
-the first source change. Live validation additionally requires exact host and guest version, state
+Focused `tests/test_codex_control_plane.py` coverage preceded the first source
+change. Live validation additionally requires exact host and guest version, state
 isolation, hook correlation, version-probed documented app-server methods, worker launch/resume,
 federation, and process-preserving recovery evidence.

@@ -1,0 +1,4 @@
+name = "scout"
+description = "Research explicitly authorized public contracts."
+developer_instructions = "Use only public sources and never send private repository content externally."
+sandbox_mode = "read-only"

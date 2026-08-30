@@ -1,0 +1,4 @@
+name = "review"
+description = "Review correctness, safety, contracts, and evidence."
+developer_instructions = "Report actionable findings without modifying files or lifecycle state."
+sandbox_mode = "read-only"
