@@ -287,6 +287,14 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - Then the second invocation reports a bounded busy result rather than overlapping work
 - And the next interval retries without treating contention as projection corruption
 
+**Scenario: Keep prior active retrieval available during replacement work**
+
+- Given a policy-valid active projection and a serialized reconciliation building its replacement
+- When a query runs before the replacement activation transaction
+- Then it reads the prior active projection under shared activation protection
+- And replacement preparation does not hold an exclusive query barrier
+- And activation restores baseline ranking atomically if the replacement invalidates quality policy
+
 **Scenario: Diagnose freshness without exposing content**
 
 - Given configured authorities, model services, and active projections
@@ -1026,6 +1034,9 @@ OpenCode restart.
   metadata-only citations, rejects limits above 10, treats adversarial citation
   fields as inert data, denies private result bodies to hosted providers, and has
   no mutation or transcript path.
+- Prove replacement preparation permits prior-active retrieval, activation and
+  policy invalidation are atomic, and exhausted contention returns sanitized typed
+  unavailability without citations.
 - Prove the offline benchmark runner executes all four cells and three depths,
   rejects circular lineage and any per-query citation regression, and leaves the
   active ranking policy unchanged.

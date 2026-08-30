@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - DKS Query Recovery Discovery
+
+- Defined available and unavailable DKS tool envelopes, retained the 35-second
+  deadline and citation validation, and prohibited raw-error disclosure or
+  unavailable-to-citation conversion.
+- Kept upstream parallel-batch finalization and system-message rendering outside
+  the repository-owned recovery contract.
+
 ## 2026-08-29 - Initiative Launch Authority Alignment
 
 - Aligned digest-bound Initiative launch with its coordinator-plus-primary-Build

@@ -1,5 +1,13 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-29 - Query Recovery Discovery
+
+- Separated long replacement preparation from short query-visible activation,
+  required prior-active retrieval during reconciliation, and bound invalidating
+  activation to atomic baseline restoration.
+- Required bounded sanitized contention availability without weakening source,
+  privacy, policy, projection, or citation verification.
+
 ## 2026-08-29 - Exclude PM Reporting Files
 
 - Restricted default and profiled Git ingestion to lifecycle specifications and
