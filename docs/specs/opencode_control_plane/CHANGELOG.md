@@ -5,6 +5,13 @@
 - Aligned digest-bound Initiative launch with its coordinator-plus-primary-Build
   contract while keeping Plan and every subagent denied, and prohibited denied
   launcher probes or VM-handoff substitution.
+- The focused regression failed against the prior Build denies. All 45 control-plane
+  tests and Git whitespace validation pass. A targeted managed apply is source-identical;
+  fresh OpenCode 1.18.25 resolution confirms Plan denies the launcher while native
+  Build, `build-gpt`, `build-claude`, and Discovery Coordinator expose it under
+  `ask`. Existing processes require restart. Implementation Gate Commit: `cc16835`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
 
 ## 2026-08-29 - Managed Compaction Retention
 
