@@ -81,12 +81,10 @@ scope. Build owns only the implementation paths in an approved DBSCTR
 applicability plan and Cycle Record. Late changes to lifecycle semantics, context
 ownership, state isolation, parity meaning, or dependencies reopen readiness.
 
-This Initiative creates no PM Kernel tickets. Every schema-required manifest
-`tickets` array is intentionally empty and no slice is receipt-ready. No
-Initiative Build launch is authorized. Applicability plans and Cycle Records
-govern this Discovery-owned artifact cycle but cannot substitute for an
-Initiative readiness receipt. Future Build work requires a separately approved
-readiness mechanism compatible with the no-ticket constraint.
+This Initiative creates no PM Kernel tickets. The ticket-optional manifest marks
+only `multi-harness-lifecycle` receipt-ready. No other Initiative Build launch is
+authorized. Applicability plans and Cycle Records cannot substitute for an
+Initiative readiness receipt.
 
 ## Release Groups
 

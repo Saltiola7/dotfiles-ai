@@ -267,6 +267,27 @@ class DbsctrctlTest(unittest.TestCase):
                      "--json", ok=False)
         self.assertIn("unknown material statement", result.stderr)
 
+    def test_ticket_free_ready_slice_issues_receipt(self):
+        value = initiative_manifest()
+        value["slices"][0].pop("tickets")
+        value["slices"][0]["execution_owner"] = "build"
+        path = self.write_initiative(value)
+        subprocess.run(["git", "add", str(path.relative_to(self.repo))],
+                       cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "ticket-free initiative"],
+                       cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin",
+                       "https://github.com/example/test.git"], cwd=self.repo, check=True)
+
+        receipt = json.loads(run(
+            self.repo, "initiative-receipt", "--manifest", str(path),
+            "--slice", "slice-a", "--json",
+        ).stdout)
+
+        self.assertEqual(receipt["slice_id"], "slice-a")
+        self.assertEqual(receipt["execution_owner"], "build")
+        self.assertNotIn("tickets", receipt)
+
     def test_initiative_cycle_check_rejects_occupied_identity(self):
         manifest = self.write_initiative()
         subprocess.run(["git", "add", str(manifest.relative_to(self.repo))], cwd=self.repo, check=True)

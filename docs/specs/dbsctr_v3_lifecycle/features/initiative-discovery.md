@@ -21,14 +21,15 @@ dependency-safe delivery slices enter separate DBSCTR cycles.
 - A **Delivery Slice** is the smallest specification-ready outcome that can enter
   one or more repository-local DBSCTR cycles without waiting for unrelated work.
 - A **Readiness Receipt** binds one ready slice to its manifest, requirements,
-  committed artifacts, tickets, dependencies, risk, and validation.
+  committed artifacts, dependencies, execution owner, risk, and validation.
 - A **Runtime Lane** privately correlates a stable Initiative lane with advisory
   OpenCode and Herdr identities. Runtime identity is never Git authority.
 
 The Initiative coordinator owns cross-context decomposition and coverage.
-Context homes own durable domain truth and contracts. PM Kernel tickets own
-repository-local executable work. DBSCTR Cycle Records own implementation and
-delivery evidence. Jira remains an optional projection.
+Context homes own durable domain truth and contracts. Optional PM Kernel tickets
+may refine repository-local executable work when the user selects that workflow.
+DBSCTR Cycle Records own implementation and delivery evidence. Jira remains an
+optional projection.
 
 ## Behavior
 
@@ -55,10 +56,12 @@ delivery evidence. Jira remains an optional projection.
 - Given approved, ownership-disjoint contexts, when their dependencies permit,
   then the coordinator may fork independent Context Discovery sessions into
   child Herdr tabs without a policy concurrency cap.
-- Given a delivery slice has complete specifications, owned contracts, stable
-  tickets, validation, and disposed dependencies, when the user approves its
-  exact readiness digest, then a new Build fork starts a repository-local DBSCTR
-  cycle while the parent Discovery session continues remaining slices.
+- Given a delivery slice has complete specifications, owned contracts,
+  validation, explicit execution ownership, and disposed dependencies, when the
+  user approves its exact readiness digest, then a new Build fork starts a
+  repository-local DBSCTR cycle while the parent Discovery session continues
+  remaining slices. Tickets are optional and never synthesized solely to satisfy
+  readiness.
 - Spikes are isolated evidence cycles. They continue until the named uncertainty
   is resolved or explicitly blocked and do not merge prototype code as production
   implementation.
@@ -77,17 +80,19 @@ delivery evidence. Jira remains an optional projection.
   context. Normal turns also receive current durable context when available.
 - A compressed summary never proves readiness. Validation, receipt creation, and
   launch re-read committed artifacts and reject stale digests.
-- New material intent may tighten or reopen affected specifications, tickets,
-  receipts, and dependent promotion gates. Readiness never remains stale silently.
+- New material intent may tighten or reopen affected specifications, optional
+  tickets, receipts, and dependent promotion gates. Readiness never remains stale
+  silently.
 
 ### Complete truthfully
 
 - Initiative Discovery is complete only when every material statement is ready,
   delivered, deferred, or rejected with coverage and no statement remains open or
   blocked.
-- PM Kernel tickets are created only after their slice specification is ready.
-  Their outcome, scope, acceptance, ownership, reads, dependencies, and validation
-  are stable at creation; lifecycle evidence and approved revisions may evolve.
+- When the user selects PM Kernel tickets, they are created only after their slice
+  specification is ready. Their outcome, scope, acceptance, ownership, reads,
+  dependencies, and validation are stable at creation; lifecycle evidence and
+  approved revisions may evolve. A no-ticket Initiative remains valid.
 
 ## Specification
 
@@ -101,9 +106,9 @@ docs/initiatives/<slug>/
 ```
 
 Context homes store `README.md`, a separate `PROFILE.md` for new or materially
-revised contexts, optional `PRODUCT.md`, `features/*.md`, `contracts/*.md`, and
-canonical PM Kernel tickets. Existing README-based profiles remain valid until
-their context is deliberately migrated.
+revised contexts, optional `PRODUCT.md`, `features/*.md`, and `contracts/*.md`.
+Canonical PM Kernel tickets are optional. Existing README-based profiles remain
+valid until their context is deliberately migrated.
 
 `dbsctrctl initiative-check --manifest PATH --json` validates the complete
 manifest and returns its canonical SHA-256 digest plus ready slices.
@@ -128,11 +133,15 @@ session with the same digest-bound handoff.
   uncovered material statements, and invalid terminal state.
 - `complete` rejects open or blocked statements and nonterminal slices.
 - `ready` slices require a promotable owning context, disposed context and slice
-  dependencies, and at least one requirement, artifact, and ticket. Every
-  requirement names an existing non-open, non-blocked material statement.
+  dependencies, and at least one requirement and artifact. Build receipts require
+  `build` execution ownership. New manifests declare ownership explicitly;
+  legacy omitted ownership defaults to `build`. Every requirement names an
+  existing non-open, non-blocked material statement. Tickets are optional.
 - Receipt artifacts are the deterministic union of slice artifacts and every
-  required material statement's artifacts. The manifest, artifacts, and canonical
-  tickets must be committed and clean at one source commit.
+  required material statement's artifacts. The manifest and artifacts must be
+  committed and clean at one source commit. Optional ticket references are
+  compatibility-only, non-authoritative metadata excluded from Initiative digest
+  and receipt identity; they are not a receipt prerequisite.
 - Coordinator and context homes use canonical `owner/repository` identities.
   Receipt issuance verifies the exact GitHub source host and coordinator identity;
   launch verifies the target identity again inside `dbsctrctl begin`.
@@ -179,18 +188,19 @@ session with the same digest-bound handoff.
 ```mermaid
 flowchart LR
     accTitle: Initiative Discovery authority boundaries
-    accDescr: Git Initiative artifacts own captured intent and cross-context coverage, context-home specifications own domain truth, PM tickets own executable work, DBSCTR Cycle Records own implementation evidence, and private Herdr state only locates sessions.
+    accDescr: Git Initiative artifacts own captured intent and cross-context coverage, context-home specifications own domain truth, optional PM tickets may refine executable work, DBSCTR Cycle Records own implementation evidence, and private Herdr state only locates sessions.
     I[Initiative Git artifacts] --> C[Context-home specifications]
-    C --> T[Repository-local PM tickets]
-    T --> D[DBSCTR Cycle Records]
+    C -. optional .-> T[Repository-local PM tickets]
+    C --> D[DBSCTR Cycle Records]
+    T --> D
     H[Private Herdr and OpenCode state] -. advisory location .-> D
 ```
 
 **Text Equivalent:** The coordinator repository owns material intent and
 cross-context coverage. Each context home owns its profile, features, and
-contracts. Implementation repositories own executable tickets and DBSCTR Cycle
-Records. Private Herdr/OpenCode state locates sessions but cannot approve or
-complete work.
+contracts. Optional PM tickets may refine executable work; DBSCTR Cycle Records
+own implementation evidence. Private Herdr/OpenCode state locates sessions but
+cannot approve or complete work.
 
 ```mermaid
 sequenceDiagram
@@ -202,7 +212,7 @@ sequenceDiagram
     participant B as Build fork
     U->>I: Approve context map
     I->>C: Fork with committed manifest
-    C->>C: Persist specs, contracts, and tickets
+    C->>C: Persist specs and contracts; tickets optional
     C-->>I: Readiness receipt digest
     I->>U: Request exact slice approval
     U->>I: Approve digest

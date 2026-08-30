@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - Ticket-Free Multi-Harness Readiness
+
+- Promoted only the ticket-free `multi-harness-lifecycle` slice after the
+  ticket-optional Initiative schema, complete contracts, execution ownership, and
+  dependency closure validated; every later Codex slice remains captured or
+  blocked.
+- Added ticket-free receipt regression coverage and aligned the Initiative
+  contract with compatibility-only, digest-excluded ticket metadata. Seven
+  focused tests, manifest validation, Python compilation, Git whitespace, and
+  independent review passed. Gate Exceptions: none. Release, Deploy, and Operate:
+  not applicable. Gate Commit: the commit containing this entry.
+
 ## 2026-08-29 - Captured Multi-Harness Contract
 
 - Captured one shared lifecycle with explicit OpenCode and Codex harness adapter
