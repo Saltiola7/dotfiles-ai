@@ -593,7 +593,10 @@ adapter requires `DBSCTR_RND_WORKER_ID` to equal the requested worker, reads one
 authoritative worker from the ledger, and requires the invoking session,
 Discovery state, operator or autonomous authorization, Discovery report, exact
 declared paths, and autonomous readiness risk to match. Missing, placeholder,
-stale, or mismatched evidence fails without running parity or Herdr.
+stale, or mismatched evidence fails without running parity or Herdr. Approval is
+bound to the resolved workspace and VM instance; after approval the adapter
+rereads the worker ledger, runs parity, and requires the instance to remain
+unchanged before any `limactl` call.
 
 Given a Build session remains rooted in the source checkout, typed reconciliation
 may name an isolated linked worktree. The adapter canonicalizes both paths and
