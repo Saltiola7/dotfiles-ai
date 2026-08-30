@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.40 Source-Local Cycle Performance
+
+- Added read-only source-local autonomous and calendar runtime mean, nearest-rank
+  p50, and p90 with explicit operator/external pauses, coverage, quality counters,
+  validated filters, and fail-closed incomplete timing.
+- Preserved canonical and retained legacy records across linked worktrees without
+  migration or private span disclosure. Affected QA passed 249 tests with one
+  expected skip; the helper-only remediation rerun passed 174 tests with the same
+  expected skip. Python compilation, Git whitespace, and independent review passed.
+- Targeted deployment was source-identical and idempotent. The first live summary
+  reported 11 completed cycles, 3 complete timing samples, 27.27% coverage,
+  autonomous p50 1,175,094 ms, and calendar p50 2,691,968 ms. Gate Exceptions:
+  none. Gate Commits: `4946d5a`, `84fdd25`. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
 ## 2026-08-29 - Phase Span Lock Timeout
 
 - Made malformed Phase Span markers fail before private-lock acquisition and

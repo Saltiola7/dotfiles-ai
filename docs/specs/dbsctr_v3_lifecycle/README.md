@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.40 ticket-blind lifecycle in progress
+**Status:** V3.40 ticket-blind lifecycle in progress; source-local cycle performance implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -137,6 +137,8 @@ Adjacent contexts:
 | Original Checkout Sync | Best-effort post-push synchronization result for the checkout that began an isolated cycle. |
 | DVC-Relevant Change | A cycle commit changing DVC metadata or output identity. |
 | Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
+| Autonomous Interval | Complete helper-timestamped work or internal-wait time included in autonomous runtime. |
+| Excluded Pause | Complete helper-timestamped `operator_wait` or `external_wait` time excluded from autonomous runtime. |
 | Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
 | Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
@@ -750,6 +752,34 @@ ledger.
   without more failed gates or remediation rounds
 - Then qualifying routine and elevated operations may activate concurrent mode
 - Otherwise the profiler ships while real-cycle phase concurrency remains disabled
+
+### Feature: V3.40 Source-Local Cycle Performance
+
+**Scenario: Separate autonomous and calendar time**
+- Given retained completed Cycle Records and complete helper-timestamped Phase Spans
+- When `cycle-performance` reads the source-local records and private phase ledger
+- Then it reports separate integer-millisecond mean, nearest-rank p50, and p90 for
+  autonomous interval unions and valid calendar elapsed intervals
+- And it reports timing coverage plus gate-failure, gate-reopening, and remediation
+  totals for the selected cohort
+
+**Scenario: Exclude only explicit pauses**
+- Given Phase Spans may classify `operator_wait` or `external_wait`
+- When autonomous runtime is reduced
+- Then those explicit pauses are excluded and every other operation remains an
+  Autonomous Interval
+- But unfinished, unavailable, or active-overlapping pause evidence makes the
+  autonomous sample partial rather than guessed
+
+**Scenario: Keep performance summaries private and read-only**
+- Given current or compatible retained Cycle Records and optional private phase data
+- When source-local performance is requested with optional context, risk, delivery,
+  or method filters
+- Then only bounded aggregate values are returned without cycle IDs, paths, detailed
+  spans, captured command arguments beyond explicit report filters, URLs,
+  credentials, or raw evidence
+- And missing private state remains absent while existing records, review markers,
+  cycle state, and optimization activation remain unchanged
 
 ### Feature: V3.25 Backlog Integrity (Historical, Superseded By PM Kernel)
 

@@ -4832,6 +4832,113 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "phase-report", "--state-root", str(state),
         ).stdout)["status"], "unavailable")
 
+    def test_cycle_performance_separates_autonomous_calendar_and_incomplete_timing(self):
+        self.start()
+        state = Path(self.temp.name) / "performance-state"
+        run(self.repo, "phase-span", "--state-root", str(state), "--span-id", "seed",
+            "--phase", "domain", "--operation", "operator_wait", "--attribution", "explicit",
+            "--event", "start")
+        run(self.repo, "phase-span", "--state-root", str(state), "--span-id", "seed",
+            "--event", "finish", "--result", "passed")
+
+        records = self.record_path().parent
+        template = json.loads(self.record_path().read_text())
+        linked = Path(self.temp.name) / "linked"
+        subprocess.run(["git", "worktree", "add", "-b", "linked", str(linked)], cwd=self.repo,
+                       check=True, capture_output=True)
+        linked_git = Path(subprocess.run(
+            ["git", "rev-parse", "--git-dir"], cwd=linked, check=True, text=True,
+            capture_output=True,
+        ).stdout.strip())
+        for index in range(1, 7):
+            record = {**template, "cycle_id": f"cycle-{index}", "state": "completed",
+                      "created_at": "2026-08-29T00:00:00Z",
+                      "completed_at": f"2026-08-29T00:{index // 6:02d}:{index * 10 % 60:02d}Z",
+                      "context": "test" if index < 4 else "other" if index == 4 else "legacy",
+                      "method_revision": "3.28", "metrics": {
+                          "gate_failure_count": index,
+                          "gate_reopen_count": index + 1,
+                          "remediation_round_count": index + 2,
+                      }}
+            directory = records if index < 5 else records.parent if index == 5 else linked_git / "dbsctr"
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"cycle-{index}.json").write_text(json.dumps(record))
+        duplicate = records.parent / "cycle-1.json"
+        duplicate.write_bytes((records / "cycle-1.json").read_bytes())
+
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("delete from phase_spans")
+        base = int(time.time() * 1000) - 10000
+        rows = (
+            ("cycle-1", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, base + 1000, "passed"),
+            ("cycle-1", "nested", "active", "behavior", "read", "explicit", "[]", "[]",
+             base + 200, base + 800, "passed"),
+            ("cycle-1", "pause", None, "contract", "operator_wait", "explicit", "[]", "[]",
+             base + 1200, base + 1400, "passed"),
+            ("cycle-2", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, base + 2000, "passed"),
+            ("cycle-2", "pause", None, "contract", "external_wait", "explicit", "[]", "[]",
+             base + 1500, base + 1600, "passed"),
+            ("cycle-3", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, None, None),
+        )
+        connection.executemany("insert into phase_spans values (?,?,?,?,?,?,?,?,?,?,?)", rows)
+        connection.commit()
+        connection.close()
+        before_ledger = ledger.read_bytes()
+        record_paths = list(records.parent.glob("**/*.json")) + list((linked_git / "dbsctr").glob("*.json"))
+        before_records = {path: path.read_bytes() for path in record_paths}
+
+        report = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--json",
+        ).stdout)
+        self.assertEqual(report, {
+            "schema_version": 1, "filters": {},
+            "counts": {"completed": 6, "complete": 1, "partial": 2, "unavailable": 3},
+            "coverage_basis_points": 1666,
+            "autonomous_runtime_ms": {"mean": 1000, "p50": 1000, "p90": 1000},
+            "calendar_elapsed_ms": {"mean": 35000, "p50": 30000, "p90": 60000},
+            "quality": {"gate_failures": 21, "gate_reopenings": 27,
+                        "remediation_rounds": 33},
+        })
+        self.assertNotRegex(json.dumps(report), r"(?:cycle-[1-6]|/Users|span|ownership)")
+        self.assertEqual(ledger.read_bytes(), before_ledger)
+        self.assertEqual({path: path.read_bytes() for path in record_paths}, before_records)
+
+        filtered = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--method-revision", "3.28",
+            "--json",
+        ).stdout)
+        self.assertEqual(filtered["filters"], {
+            "context": "test", "risk": "routine", "delivery_intent": "local",
+            "method_revision": "3.28",
+        })
+        self.assertEqual(filtered["counts"]["completed"], 3)
+        self.assertEqual(filtered["calendar_elapsed_ms"], {
+            "mean": 20000, "p50": 20000, "p90": 30000,
+        })
+
+        empty = Path(self.temp.name) / "no-performance-state"
+        unavailable = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(empty), "--context", "missing",
+            "--json",
+        ).stdout)
+        self.assertEqual(unavailable["counts"]["completed"], 0)
+        self.assertEqual(unavailable["autonomous_runtime_ms"]["mean"], "unavailable")
+        self.assertFalse(empty.exists())
+        self.assertIn("invalid context", run(
+            self.repo, "cycle-performance", "--context", "../private", "--json", ok=False,
+        ).stderr)
+        conflicting = json.loads(duplicate.read_text())
+        conflicting["risk"] = "elevated"
+        duplicate.write_text(json.dumps(conflicting))
+        self.assertIn("identity is ambiguous", run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--json", ok=False,
+        ).stderr)
+
     def test_execution_dag_authorizes_only_proven_independent_work(self):
         safe = {"nodes": [
             {"id": "read-a", "depends_on": [], "operation": "read",
