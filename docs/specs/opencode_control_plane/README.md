@@ -993,8 +993,13 @@ that standalone export is omitted, validates a fresh readiness receipt before
 requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
 and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
-clients start fresh. Both paths receive the same content-free receipt prompt.
-Herdr identities remain private advisory correlation only.
+clients start fresh. Both paths start with bounded receipt-free shell arguments,
+then submit the same content-free cycle instruction through the confirmed agent.
+An optional validated Initiative source checkout resolves cross-worktree relative
+manifests. Failed attempts without an agent close only their launcher-owned tab;
+only a confirmed agent may remain pending. Herdr identities remain private
+advisory correlation only. The complete behavior and failure contract is in
+[`features/initiative-launch-atomicity.md`](features/initiative-launch-atomicity.md).
 
 The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
 agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
