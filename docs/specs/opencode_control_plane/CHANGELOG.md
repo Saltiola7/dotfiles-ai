@@ -20,6 +20,9 @@
 - The remediated live adapter preserves the host's existing Initiative checks;
   fresh Bun imports, the deny/deny/ask permission matrix, scheduler health, and
   explicit instance-bound parity for both managed workspaces pass.
+- Maintenance keeps launch backoff intact after failures and requires an explicit
+  operator reset; rollback denies the handoff before replacing the adapter or
+  agent configuration. No handoff contract is retired by this change.
 
 ## 2026-08-29 - DKS Query Recovery Discovery
 
