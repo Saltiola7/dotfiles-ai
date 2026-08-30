@@ -17,6 +17,24 @@
   Release: not applicable. Implementation Gate Commit: `d3bdd5e`. Intended Final
   Push: feature branch and draft pull request into protected `main`.
 
+
+## 2026-08-29 - V3.43 Reproducible Performance Audit
+
+- Added the report-only `dbsctr-performance-audit` skill and thin OpenCode command
+  with ordered cycle/session/incident evidence, one-shot DKS and telemetry fallback,
+  fixed-commit Explore, public Scout, complete surface mapping, RCA, quality
+  guardrails, and delivery-slice output.
+- Focused red/green contracts and 99 affected lifecycle, control-plane, and portable
+  distribution tests passed with Git whitespace validation. No generic independent
+  reviewer was invoked because the elevated slice was neither explicit review nor
+  critical work.
+- Targeted Chezmoi deployment was source-identical and idempotent for the new skill
+  and command. The installed OpenCode `debug skill` command currently renders help
+  rather than a skill inventory, so managed-file identity and loader contracts are
+  the truthful deployment evidence; a literal installed command-to-skill assertion
+  also passed. Gate Exceptions: none. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-29 - Resolved Schema-5 Readiness
 
 - Resolved all-new-cycle schema-5 creation, empty pre-attach adapter maps,

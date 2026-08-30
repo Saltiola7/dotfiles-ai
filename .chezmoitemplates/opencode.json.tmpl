@@ -123,7 +123,33 @@
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
+        "dbsctr_vm_handoff": "deny",
         "1password_*": "ask",
+        "external_directory": {
+          "~/.local/state/dbsctr/worktrees/**": "allow",
+{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
+          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end }}          "~/.config/dotfiles-ai/**": "allow",
+          "~/.local/share/chezmoi": "allow",
+          "~/.local/share/chezmoi/**": "allow"
+        }
+      }
+    },
+    "build-rnd": {
+      "description": "Runs managed /dbsctr-improve workers and their final ledger-validated VM handoff.",
+      "mode": "primary",
+      "permission": {
+        "dbsctr_initiative_launch": "deny",
+        "dbsctr_begin": "allow",
+        "dbsctr_attach": "allow",
+        "dbsctr_reconcile": "allow",
+        "dbsctr_phase_span": "allow",
+        "dbsctr_execution_benchmark": "allow",
+        "dbsctr_execution_dag": "allow",
+        "dbsctr_improvement_claim": "allow",
+        "dbsctr_improvement_update": "allow",
+        "dbsctr_provider_evaluation_save": "allow",
+        "dbsctr_vm_handoff": "ask",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
 {{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
@@ -228,7 +254,7 @@
     "dbsctr_incident_update": "ask",
     "dbsctr_incident_forget": "ask",
     "dbsctr_lens_summary": "allow",
-    "dbsctr_vm_handoff": "ask",
+    "dbsctr_vm_handoff": "deny",
     "dbsctr_history_capture": "allow",
     "dbsctr_history_telemetry": "allow",
     "dbsctr_benchmark": "allow",

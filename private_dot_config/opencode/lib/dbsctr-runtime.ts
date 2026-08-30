@@ -1019,6 +1019,13 @@ export async function reviewFederatedSummary(lens: "correctness_safety" | "relia
   return rawOutput
 }
 
+function validateVmHandoffContent(value: unknown, paths: string[]) {
+  const serialized = JSON.stringify(value)
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
+  const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
+  if (unsafe.test(serialized) || paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
+}
+
 export async function vmHandoff(report: {
   schema_version: 1
   worker_id: string
@@ -1028,14 +1035,11 @@ export async function vmHandoff(report: {
   summary: string
   paths: string[]
   validation: string[]
-}, cwd = process.cwd()) {
+}, expectedInstance: string, cwd = process.cwd()) {
   const serialized = JSON.stringify(report)
-  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
-  const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
-  if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
+  validateVmHandoffContent(report, report.paths)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(report.target)) throw new Error("invalid handoff workspace")
-  await runBounded(["sandbox-vm", "parity", report.target], cwd, 120_000, 1024)
-  const instance = await runBounded(["sandbox-vm", "instance", report.target], cwd, 2_000, 1024)
+  const instance = expectedInstance
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
@@ -1078,11 +1082,75 @@ export async function vmHandoff(report: {
   return JSON.stringify(result)
 }
 
+export async function validateVmHandoffRequest(request: {
+  workerId: string
+  risk: "routine" | "elevated" | "critical"
+  summary: string
+  paths: string[]
+  validation: string[]
+}, sessionID: string | undefined, cwd = process.cwd()) {
+  const workerID = /^dbsctr-[0-9a-f]{8}$/
+  if (!workerID.test(request.workerId)) throw new Error("invalid improvement worker ID")
+  const environmentWorker = process.env.DBSCTR_RND_WORKER_ID
+  if (!environmentWorker) throw new Error("R&D environment worker is missing")
+  if (environmentWorker !== request.workerId) throw new Error("R&D environment worker does not match request")
+  if (!sessionID) throw new Error("VM handoff session is missing")
+
+  validateVmHandoffContent(request, request.paths)
+
+  let status: any
+  try {
+    status = JSON.parse(await improvementStatus(request.workerId, cwd))
+  } catch {
+    throw new Error("improvement worker status is unavailable")
+  }
+  if (!exactKeys(status, ["workers"]) || !Array.isArray(status.workers))
+    throw new Error("invalid improvement worker status")
+  const workers = status.workers.filter((worker: any) => worker?.worker_id === request.workerId)
+  if (workers.length !== 1) throw new Error("improvement worker is missing")
+  const worker = workers[0]
+  if (worker.session_id !== sessionID) throw new Error("improvement worker session does not match")
+  if (worker.state !== "discovery" || !["operator", "autonomous"].includes(worker.authorization))
+    throw new Error("improvement worker is not Discovery-ready")
+  if (typeof worker.discovery_report !== "string" || !worker.discovery_report)
+    throw new Error("improvement worker Discovery report is missing")
+  const paths = [...request.paths].sort()
+  if (!Array.isArray(worker.paths) || new Set(paths).size !== paths.length
+      || canonicalJSON(worker.paths) !== canonicalJSON(paths))
+    throw new Error("improvement worker paths do not match")
+  if (worker.authorization === "autonomous") {
+    let readiness: any
+    try {
+      readiness = JSON.parse(worker.readiness)
+    } catch {
+      throw new Error("improvement worker readiness is invalid")
+    }
+    if (readiness?.risk !== request.risk) throw new Error("improvement worker risk does not match")
+  }
+}
+
 export async function vmHandoffTarget(cwd = process.cwd()) {
   const target = await runBounded(["sandbox-vm", "build-workspace"], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(target) || target === "host")
     throw new Error("invalid build workspace")
   return target
+}
+
+export async function vmHandoffInstance(target: string, cwd = process.cwd()) {
+  const instance = await runBounded(["sandbox-vm", "instance", target], cwd, 2_000, 1024)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
+  return instance
+}
+
+export async function verifyVmHandoffParity(target: string, instance: string, cwd = process.cwd()) {
+  let value: any
+  try {
+    value = JSON.parse(await runBounded(
+      ["sandbox-vm", "parity", target, "--instance", instance], cwd, 120_000, 1024))
+  } catch {
+    throw new Error("handoff runtime parity failed")
+  }
+  if (value?.instance !== instance) throw new Error("handoff VM instance changed after approval")
 }
 
 function reviewHistoryArgv(args: {

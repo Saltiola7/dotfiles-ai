@@ -1437,7 +1437,7 @@ def launch_action(reservation, worker_id, repository_id):
             child_env = {key: value for key, value in os.environ.items()
                          if not key.startswith("OPENCODE")}
             process = subprocess.Popen(
-                [OPENCODE, "run", "--agent", "build", "--command", "dbsctr-improve",
+                [OPENCODE, "run", "--agent", "build-rnd", "--command", "dbsctr-improve",
                   "--format", "json"], cwd=repository, stdout=output, stderr=subprocess.STDOUT,
                 env={**child_env, "PWD": str(repository), "PATH": MANAGED_PATH,
                      "DBSCTR_RND_WORKER_ID": worker_id},
@@ -1591,8 +1591,8 @@ def launch(workspace_id, worker_id, session_id=None):
     agent_pane = worker_tab = None
     try:
         argv = (["opencode", "--mini", str(REVIEW_WORKDIR), "-s", session_id,
-                 "--agent", "build", "--no-replay"] if session_id else
-                ["opencode", "run", "--agent", "build", "--command", "dbsctr-improve", "--interactive"])
+                  "--agent", "build-rnd", "--no-replay"] if session_id else
+                 ["opencode", "run", "--agent", "build-rnd", "--command", "dbsctr-improve", "--interactive"])
         started = command([
             HERDR, "agent", "start", worker_id, "--cwd", str(REVIEW_WORKDIR),
             "--tab", staging_tab, "--env", f"PATH={MANAGED_PATH}",
@@ -1678,7 +1678,7 @@ def exact_resumed_agent(worker, agents):
     info = result(command([HERDR, "pane", "process-info", "--pane", worker["pane_id"]]))
     processes = info.get("process_info", {}).get("foreground_processes", [])
     expected = ["opencode", "--mini", str(REVIEW_WORKDIR), "-s", worker["session_id"],
-                "--agent", "build", "--no-replay"]
+                "--agent", "build-rnd", "--no-replay"]
     if ([pane.get("pane_id") for pane in tab_panes] == [worker["pane_id"]]
             and len(processes) == 1 and processes[0].get("argv") == expected):
         return recorded

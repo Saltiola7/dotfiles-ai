@@ -311,7 +311,7 @@ required until Codex deployment updates this delivered topology.
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai host and workspace trust boundaries
-    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, private state, and local history. The host may forward its Keychain-backed 1Password service token into a workspace shell only in memory. Every workspace runs rootless Podman with a Docker Compose compatibility provider, and one selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
+    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, private state, and local history. The host may forward its Keychain-backed 1Password service token into a workspace shell only in memory. Every workspace runs rootless Podman with a Docker Compose compatibility provider, and one selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and worker-ledger-validated implementation handoffs from the dedicated build-rnd primary may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
     subgraph H[macOS host trust boundary]
         HH[Host Hermes]
         HO[Host OpenCode]
@@ -337,7 +337,7 @@ flowchart LR
     KC -->|Selected environment variable, memory only| VC
     VC -->|Explicit project variables only| PD
     TS -->|Host loopback only| AS
-    HO -->|Explicit approved handoff| VO
+    HO -->|build-rnd ledger-validated approved handoff| VO
     HO -->|Gate evidence and feature commits| G[DBSCTR and Git authority]
     VO -->|Gate evidence and feature commits| G
 ```
@@ -346,8 +346,9 @@ flowchart LR
 OpenCode, Herdr, history, and private state. Herdr presents sessions
 but does not own lifecycle state. Only full-member digests, complete sanitized
 distributions, and bounded evidence projections cross from a workspace to host
-review; only an explicitly approved implementation handoff
-crosses from host to workspace. Both OpenCode runtimes produce feature-branch
+review; only an explicitly approved implementation handoff whose worker,
+session, Discovery authorization, scope, and risk match the host ledger crosses
+from host to workspace. Both OpenCode runtimes produce feature-branch
 evidence governed by DBSCTR and Git. The host may forward its Keychain-backed
 1Password service token to a workspace shell as one environment value without
 writing it to guest storage. Every workspace runs rootless Podman with a pinned
@@ -363,6 +364,8 @@ sequenceDiagram
     accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready P0 and P1 work in isolation, uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
     participant H as Hermes
     participant O as OpenCode
+    participant L as Worker ledger
+    participant V as Build workspace
     participant U as Operator
     participant D as DBSCTR
     participant G as GitHub
@@ -374,7 +377,10 @@ sequenceDiagram
         O-->>U: Wait for answers and explicit proceed
         U->>O: Answer and approve implementation
     end
-    O->>D: Begin isolated lifecycle cycle
+    O->>L: Validate worker, session, authorization, scope, and risk
+    L-->>O: Exact authorized handoff
+    O->>V: Launch approved VM Build session
+    V->>D: Begin isolated lifecycle cycle
     D->>D: Require gates and Gate Commits
     D->>G: Push feature branch and create draft PR
     G-->>U: Human review and merge authority
@@ -383,7 +389,8 @@ sequenceDiagram
 **Text Equivalent:** Hermes continuously fills eligible lens slots. OpenCode
 reviews all eligible federated history and may complete P0/P1 Discovery without a
 prompt only when evidence resolves every material question. Materially uncertain work waits for explicit operator
-approval. DBSCTR still requires an isolated gated cycle and can publish only a
+approval. Before a VM Build session starts, the host ledger must match the
+worker, OpenCode session, authorization, scope, and risk. DBSCTR still requires an isolated gated cycle and can publish only a
 feature branch with a draft pull request; the operator retains merge authority.
 
 ## Goals
@@ -682,6 +689,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   fails unless its session is a Discovery-ready projection, records the exact
   opportunity, and Final Push fails unless that full binding receives the report. Host and guest
   ledgers never share mutable state.
+- Given a host handoff request, then only the dedicated `build-rnd` primary may
+  ask for it, and only as `/dbsctr-improve`'s final approved step. Before any
+  permission request, parity probe, VM start, or Herdr command, the adapter
+  requires the environment and request worker IDs to match and requires one host
+  ledger worker whose session is the caller, state is `discovery`, authorization
+  is `operator` or `autonomous`, Discovery report exists, declared paths exactly
+  match, and autonomous readiness risk equals the request. Every mismatch fails
+  closed; ordinary Build and all other agents deny the tool. Approval binds the
+  configured workspace and instance, the parity process verifies that same
+  instance, and worker authority is checked again after parity before VM access.
 - Given a candidate signal may benefit from related source evidence, then the
   worker may query `dks_context` for bounded untrusted citation metadata, verifies
   useful citations against source, and continues from authoritative DBSCTR evidence
@@ -1080,8 +1097,11 @@ feature branch with a draft pull request; the operator retains merge authority.
   complete-history phase, and explicitly abandon, forget, and close its test tab.
 - Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
   approved context, risk, affected repository-relative paths, validation, and
-  explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr
-  argument vectors; the general `sandbox-vm` CLI exposes no handoff command.
+  explicit `proceed=true`. Before asking, resolving a workspace, or invoking
+  Lima or Herdr, it requires the dedicated R&D environment identity and the
+  authoritative ledger's worker, session, Discovery authorization/report,
+  paths, and autonomous risk to match exactly. It then asks before directly
+  invoking fixed Lima and Herdr argument vectors; the general `sandbox-vm` CLI exposes no handoff command.
   Text fields use fixed size and unsafe-content bounds. It returns only the target
   source, Herdr presentation IDs, OpenCode session ID when available, and launch
   status.

@@ -13,7 +13,8 @@ def text(path: Path | str) -> str:
 
 def test_public_lifecycle_commands_are_unversioned_and_thin():
     expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa",
-                "dbsctr-review": "dbsctr-review", "incident": "dbsctr-incident"}
+                "dbsctr-review": "dbsctr-review", "incident": "dbsctr-incident",
+                "dbsctr-performance-audit": "dbsctr-performance-audit"}
     for command, skill in expected.items():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
@@ -80,6 +81,26 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
     assert "digest, snapshot" in review.lower()
     assert "without a matched" in review.lower() and "record are unknown" in review.lower()
     assert "never perform automatic remediation" in review.lower()
+
+
+def test_v343_performance_audit_is_reproducible_private_and_report_only():
+    audit = text(SKILLS / "dbsctr-performance-audit/SKILL.md")
+    for term in (
+        "dbsctr_runtime_health", "cycle-performance", "dbsctr_incident_scan",
+        "dbsctr_review_history", "dbsctr_history_telemetry", "dks_context",
+        "graphify-out/graph.json", "Scout", "Explore", "three independent",
+        "measured", "source_backed_unmeasured", "quality guardrails",
+        "delivery slices", "raw session", "one attempt",
+    ):
+        assert term.lower() in audit.lower()
+    for prohibited in (
+        "dbsctr_review_complete", "dbsctr_review_history_save",
+        "dbsctr_incident_register", "dbsctr_improvement_claim", "dbsctr_begin",
+    ):
+        assert prohibited in audit
+        assert re.search(rf"(?:never|do not)[^\n]*`?{prohibited}`?", audit, re.IGNORECASE)
+    assert "reviewer-openai" in audit and "explicit or critical" in audit
+    assert audit.lower().index("executive findings") < audit.lower().index("delivery slices")
 
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     assert "DVC-relevant" in dbsctr
