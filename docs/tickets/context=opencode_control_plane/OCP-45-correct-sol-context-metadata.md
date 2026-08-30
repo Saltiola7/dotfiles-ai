@@ -5,7 +5,7 @@ slug: "correct-sol-context-metadata"
 context: "opencode_control_plane"
 title: "Correct GPT-5.6 Sol context metadata"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on:
@@ -23,8 +23,9 @@ validation:
   - "Rendered JSON, resolved Sol model metadata, focused control-plane tests, targeted deployment smoke, and affected-scope QA"
 created: "2026-08-29"
 updated: "2026-08-29"
-completed: null
-commits: []
+completed: "2026-08-29"
+commits:
+  - "2444897c25802cf9e0f488d3037505d3277a3f0f"
 jira_publications: []
 migration: null
 ---
@@ -57,3 +58,15 @@ supporting a 1,050,000-token context with up to 922,000 input tokens.
 Sessions can consume substantially more input before compaction, increasing
 latency and premium long-context token cost. Provider limit reductions require
 updating or retiring the override before affected requests are sent.
+
+## Evidence
+
+- The focused regression failed with `KeyError: 'limit'` before implementation.
+- All 46 focused control-plane tests pass.
+- Rendered, isolated, and live OpenCode 1.18.25 configuration resolves both Sol
+  routes to context `1050000`, input `922000`, and output `128000`; Fast retains
+  `serviceTier: priority`.
+- The target-only Chezmoi preview contained only the two approved limit objects.
+  Apply succeeded, the target remains mode `0600`, and the source-target diff is
+  clean.
+- Provider authority: https://developers.openai.com/api/docs/models/gpt-5.6-sol

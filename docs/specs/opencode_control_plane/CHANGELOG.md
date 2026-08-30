@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Corrected Sol Context Metadata
+
+- Corrected managed base and Fast GPT-5.6 Sol limits to 1,050,000 context,
+  922,000 input, and 128,000 output tokens while preserving the exact
+  65,536-token recent compaction tail and inherited trigger defaults.
+- The focused regression first failed with missing managed `limit` metadata.
+  All 46 control-plane tests, rendered JSON, isolated and live OpenCode 1.18.25
+  parsing, both resolved model records, canonical tickets, and Git whitespace
+  validation pass. The target-only deploy preview contained only the two limit
+  objects; apply succeeded with mode `0600`, and fresh OpenCode processes resolve
+  the corrected limits. Source Gate Commit: `2444897`. Gate Exceptions: none.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens
