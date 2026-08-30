@@ -14,6 +14,10 @@
   prior runtime if a future ordered update fails.
 - The deployed parity helper now accepts and returns the approved VM instance;
   `personal` and `mgm` both pass that instance-bound 1.18.25 parity check.
+- Two pre-final-deployment launches could not resolve `build-rnd` and entered the
+  bounded retry backoff. Current schema 3 health has no halt or active attempt,
+  and a fresh OpenCode 1.18.25 process resolves `build-rnd` as a primary; the
+  backoff remains intact rather than forcing another autonomous provider call.
 
 ## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
 
