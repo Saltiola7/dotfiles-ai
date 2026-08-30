@@ -917,8 +917,10 @@ pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
 `dbsctr_initiative_launch` validates a fresh readiness receipt before requesting
-approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
-and starts a named OpenCode agent in its root pane. The adapter capability-probes
+approval bound to `initiative:slice:digest`. Launch validation rejects a requested
+cycle ID already occupied by an unbound or differently bound Cycle Record; only an
+active cycle with the exact receipt remains eligible for retry. Herdr 0.8.2 creates a
+background tab and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
 clients start fresh. Both paths receive the same content-free receipt prompt.
 Herdr identities remain private advisory correlation only.

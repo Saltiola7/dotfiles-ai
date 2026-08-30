@@ -78,8 +78,9 @@ available. Raw OpenCode rows are not a source for this summary.
 
 - Given phase rows retain repository-relative ownership for collision checks
 - When a performance summary is returned
-- Then it contains no ownership path, prompt, response, command argument, URL,
-  credential, environment value, absolute path, account identity, or raw row
+- Then it contains no ownership path, prompt, response, captured command argument
+  beyond the explicit report filters, URL, credential, environment value,
+  absolute path, account identity, or raw row
 
 ## Interface
 

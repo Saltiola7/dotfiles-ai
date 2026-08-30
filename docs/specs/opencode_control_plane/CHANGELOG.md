@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Initiative Cycle Occupancy Guard
+
+- Reject Initiative receipts before approval when a named cycle is already
+  unbound, differently bound, or terminal; preserve exact active-cycle retries.
+- Six focused Initiative helper tests and 75 lifecycle/control-plane tests pass,
+  with Python compilation and Git whitespace validation. The complete helper
+  test file exceeded five minutes and remains unavailable. No managed config was
+  applied. Gate Exceptions: none. Intended Final Push: feature branch and draft
+  pull request into the recorded protected branch.
+
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens
