@@ -1011,6 +1011,14 @@ lock identities, or source content. Malformed successful output remains a
 fail-closed contract error. Typed unavailability never authorizes automatic
 cross-project or filesystem search.
 
+### History and Incident query availability
+
+OpenCode validates aggregate, summary, and detailed lifecycle responses as
+separate schemas. Bounded subprocess timeout becomes typed unavailability after
+process-group cleanup, never an empty cohort or zero count. Aggregate and summary
+results exclude private candidate, Signal, cycle, and snapshot identity from
+hosted subagent prompts. Invalid successful or cross-mode output fails closed.
+
 ## Validation Strategy
 
 | Authority | Scope | Command | Availability |
@@ -1030,6 +1038,7 @@ cross-project or filesystem search.
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 | Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
 | DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
+| History/Incident query availability | Mode-specific aggregate, summary, and detailed validation; timeout cleanup; unavailable-without-result; hosted privacy | Focused Bun-backed process fixtures plus fresh local smoke | Required when History/Incident adapters change |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 

@@ -20,8 +20,8 @@ ledger is [`MANIFEST.json`](MANIFEST.json).
 
 | Context | Responsibility | Dependency |
 |---|---|---|
-| `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, quality-equivalence policy, and safe concurrency | None |
-| `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, and bounded DKS availability | Lifecycle timing contract |
+| `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, History/Incident query reduction, quality-equivalence policy, and safe concurrency | None |
+| `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, and bounded DKS, History, and Incident availability | Lifecycle timing contract |
 | `dotfiles_ai_distribution` | Immutable host/VM capture, aggregation, retention, and trend operation | OpenCode adapter |
 | `dbsctr_knowledge_store` | DKS query lock contention and bounded fast fallback | None |
 
@@ -38,6 +38,9 @@ The user approved this complete context map on 2026-08-29.
 | `safe-cycle-concurrency` | `build` | Proven-independent real-cycle work overlaps after benchmark qualification | `federated-cycle-trends` |
 | `performance-audit-workflow` | `build` | Reproducible report-only audit and ranked optimization portfolio | `lifecycle-runtime-summary` |
 | `runtime-query-recovery` | `build` | OpenCode returns typed DKS availability within its existing deadline | `dks-fast-fallback` |
+| `history-incident-query-core` | `build` | Page-first aggregate History and bounded Incident summaries | None |
+| `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `runtime-query-recovery` |
+| `performance-audit-v2` | `build` | Deterministic audit reduction, aggregate evidence, and verified source-absence handling | `performance-audit-workflow`, `history-incident-runtime-recovery` |
 | `validation-evidence-reuse` | `build` | Exact unchanged validation is reused across applicable gates | `performance-audit-workflow` |
 | `agent-context-budget` | `build` | Conditional subagents, reviewer enforcement, and bounded context growth | `performance-audit-workflow` |
 
@@ -98,6 +101,13 @@ The same audit reproduced DKS quality-lock failures, a 30-second history telemet
 timeout, and a direct Incident Scan exceeding 120 seconds. These are reliability
 defects and optimization inputs, not evidence for removing lifecycle gates.
 
+The 2026-08-30 follow-up retained those defects but changed cohort membership:
+12 lifecycle cycles contained four complete timing samples, or 33.33 percent
+coverage. It therefore does not establish improvement over the first audit. DKS
+again failed on quality-lock contention, structured telemetry timed out once,
+and Incident output overflowed. The delivered audit workflow itself followed its
+one-shot fallback and privacy boundaries.
+
 ## Opportunity Portfolio
 
 | Priority | Surface | Delivery boundary | Quality guardrail |
@@ -123,6 +133,11 @@ them indefinitely. It checks for an existing Graphify graph before loading that
 skill, keeps private telemetry out of hosted subagents, and uses at most three
 independent Scout or Explore lanes. Every report separates measured findings,
 source-backed unmeasured opportunities, assumptions, and rejected shortcuts.
+Reports bind conclusions to one fixed source identity, Method Revision,
+sanitized filters, evidence availability, cohort composition, attribution
+quality, and coverage. Equal-priority findings sort by reproduced frequency,
+confidence, lower quality risk, then lower effort. Private snapshot identities
+remain local.
 
 ## DKS Recovery
 
@@ -133,3 +148,9 @@ quality policy restores baseline ranking atomically. OpenCode maps exhausted or
 unsafe retrieval to bounded typed unavailability within the existing 35-second
 deadline; it never turns unavailable retrieval into citations or exposes raw
 database, process, path, or error details.
+
+The DKS CLI preserves successful query JSON. Exhausted activation contention has
+one machine boundary: exit `75`, empty stdout, and stderr exactly
+`projection_busy`. Lock acquisition and one optional policy repair share a
+two-second deadline. OpenCode, not DKS, owns the later model-visible availability
+envelope.

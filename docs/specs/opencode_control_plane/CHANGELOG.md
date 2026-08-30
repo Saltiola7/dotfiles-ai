@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-30 - Query-Recovery Contract Reconciliation
+
+- Bound DKS contention classification to exit `75`, empty stdout, and exact
+  `projection_busy` stderr while retaining OpenCode ownership of typed model
+  availability.
+- Captured mode-specific History/Incident subprocess cleanup, schema validation,
+  typed unavailability, and hosted-private evidence prohibitions.
+- This reconciliation changes durable authority only; implementation and managed
+  deployment remain in separately approved dependent slices.
+
 ## 2026-08-29 - Initiative Launch Registry Fallback
 
 - Added explicit Initiative mode to the always-present `dbsctr_begin` adapter so
