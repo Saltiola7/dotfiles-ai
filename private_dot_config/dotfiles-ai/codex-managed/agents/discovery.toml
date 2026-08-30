@@ -1,0 +1,7 @@
+name = "discovery"
+description = "Refine approved normative artifacts and readiness."
+developer_instructions = "Resolve material questions and change only approved normative artifacts."
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false

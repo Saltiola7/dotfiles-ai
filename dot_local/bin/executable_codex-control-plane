@@ -1,0 +1,544 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+import selectors
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import unicodedata
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+ADAPTER_REVISION = "codex-adapter-1"
+TARGET_VERSION = "0.151.0"
+EVENTS = ("SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "Stop")
+MAX_HOOK_INPUT = 64 * 1024
+MAX_RECORD = 8 * 1024
+MAX_PATH = 4096
+MAX_COMMAND_OUTPUT = 1024 * 1024
+MAX_RECORDS = 1024
+MAX_RECORD_BYTES = 8 * 1024 * 1024
+RECORD_WRITE_RESERVE = 0.5
+ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+CONTENT_FIELDS = {
+    "last_assistant_message", "prompt", "transcript", "tool_input", "tool_output",
+    "environment", "env", "url", "credential", "credentials", "account", "account_id",
+}
+ALLOWED_FIELDS = {
+    "SessionStart": {"session_id", "transcript_path", "cwd", "hook_event_name", "model", "permission_mode", "source"},
+    "SessionEnd": {"session_id", "transcript_path", "cwd", "hook_event_name", "reason"},
+    "SubagentStart": {"session_id", "turn_id", "transcript_path", "cwd", "hook_event_name", "model", "permission_mode", "agent_id", "agent_type"},
+    "SubagentStop": {"session_id", "turn_id", "transcript_path", "cwd", "hook_event_name", "model", "permission_mode", "stop_hook_active", "agent_id", "agent_type"},
+    "Stop": {"session_id", "turn_id", "transcript_path", "cwd", "hook_event_name", "model", "permission_mode", "stop_hook_active"},
+}
+
+
+class InvalidHook(Exception):
+    pass
+
+
+class CommandFailure(Exception):
+    def __init__(self, reason: str):
+        self.reason = reason
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def timestamp(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def state_root() -> Path:
+    if value := os.environ.get("DBSCTR_STATE_ROOT"):
+        path = Path(value).expanduser()
+    elif value := os.environ.get("DOTFILES_AI_STATE_ROOT"):
+        path = Path(value).expanduser() / "dbsctr"
+    elif value := os.environ.get("XDG_STATE_HOME"):
+        path = Path(value).expanduser() / "dbsctr"
+    else:
+        path = Path.home() / ".local/state/dbsctr"
+    if not path.is_absolute():
+        raise OSError("private state root must be absolute")
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise OSError("private state root contains a symlink")
+    existing = path
+    while not existing.exists():
+        existing = existing.parent
+    result = subprocess.run(
+        ["git", "-C", str(existing), "rev-parse", "--is-inside-work-tree"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=1,
+    )
+    if result.returncode == 0 and result.stdout.strip() == b"true":
+        raise OSError("private state root cannot be inside a Git worktree")
+    return path.resolve(strict=False)
+
+
+def private_directory(path: Path) -> None:
+    path.mkdir(parents=True, mode=0o700, exist_ok=True)
+    metadata = path.lstat()
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid():
+        raise OSError("unsafe private directory")
+    path.chmod(0o700)
+
+
+def private_json(path: Path, value: dict) -> None:
+    private_directory(path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=".tmp-", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        try:
+            Path(temporary).unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def prune_records(directory: Path, current: datetime, deadline: float) -> list[Path]:
+    if not directory.exists() or directory.is_symlink():
+        return []
+    retained = []
+    for path in sorted(directory.glob("*.json")):
+        if time.monotonic() >= deadline:
+            raise OSError("private record deadline exceeded")
+        try:
+            metadata = path.lstat()
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o600):
+                continue
+            value = json.loads(path.read_text())
+            expires = datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00"))
+            if expires <= current:
+                path.unlink()
+            else:
+                retained.append(path)
+        except (KeyError, OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return retained
+
+
+def acquire_lock(directory: Path, deadline: float) -> int:
+    private_directory(directory)
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(directory / ".lock", flags, 0o600)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+        os.close(descriptor)
+        raise OSError("unsafe private lock")
+    os.fchmod(descriptor, 0o600)
+    while True:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return descriptor
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                os.close(descriptor)
+                raise OSError("private record lock timeout")
+            time.sleep(0.01)
+
+
+def write_hook_record(value: dict, deadline: float) -> None:
+    directory = state_root() / "codex-hooks"
+    current = now()
+    value["expires_at"] = timestamp(current + timedelta(hours=24))
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    if len(encoded) > MAX_RECORD:
+        raise OSError("record too large")
+    lock = acquire_lock(directory, deadline - RECORD_WRITE_RESERVE)
+    try:
+        if time.monotonic() >= deadline - RECORD_WRITE_RESERVE:
+            raise OSError("private record deadline exceeded")
+        retained = prune_records(directory, current, deadline - RECORD_WRITE_RESERVE)
+        retained_bytes = sum(path.stat().st_size for path in retained)
+        while retained and (
+            len(retained) >= MAX_RECORDS
+            or retained_bytes + len(encoded) + 1 > MAX_RECORD_BYTES
+        ):
+            if time.monotonic() >= deadline - RECORD_WRITE_RESERVE:
+                raise OSError("private record deadline exceeded")
+            oldest = retained.pop(0)
+            retained_bytes -= oldest.stat().st_size
+            oldest.unlink()
+        if time.monotonic() >= deadline - RECORD_WRITE_RESERVE:
+            raise OSError("private record deadline exceeded")
+        private_json(directory / f"{time.time_ns()}-{uuid.uuid4().hex}.json", value)
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        os.close(lock)
+
+
+def terminate(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+
+
+def run_bounded(
+    argv: list[str], timeout: float, maximum: int, check: bool = True, cwd: Path | None = None
+):
+    process = subprocess.Popen(
+        argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
+    )
+    selection = selectors.DefaultSelector()
+    output = {process.stdout: bytearray(), process.stderr: bytearray()}
+    selection.register(process.stdout, selectors.EVENT_READ)
+    selection.register(process.stderr, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    try:
+        while selection.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CommandFailure("timeout")
+            for key, _ in selection.select(min(remaining, 0.1)):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selection.unregister(key.fileobj)
+                    continue
+                output[key.fileobj].extend(chunk)
+                if sum(len(value) for value in output.values()) > maximum:
+                    raise CommandFailure("output_too_large")
+        returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        raise CommandFailure("timeout")
+    finally:
+        terminate(process)
+        selection.close()
+    stdout = bytes(output[process.stdout])
+    stderr = bytes(output[process.stderr])
+    if check and returncode:
+        raise CommandFailure("command_failed")
+    return returncode, stdout, stderr
+
+
+def decoded_command(
+    argv: list[str], check: bool = True, deadline: float | None = None
+) -> tuple[int, str]:
+    timeout = 5.0 if deadline is None else deadline - time.monotonic()
+    if timeout <= 0:
+        raise CommandFailure("timeout")
+    returncode, stdout, _ = run_bounded(argv, timeout, 64 * 1024, check=check)
+    try:
+        return returncode, stdout.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        raise CommandFailure("invalid_utf8")
+
+
+def contained(root: Path, candidate: Path) -> bool:
+    return candidate == root or root in candidate.parents
+
+
+def has_control(value: str) -> bool:
+    return any(unicodedata.category(char) == "Cc" for char in value)
+
+
+def classify_workspace(raw: str, deadline: float) -> str:
+    if not isinstance(raw, str) or not Path(raw).is_absolute():
+        raise InvalidHook("invalid_cwd")
+    if not 1 <= len(raw.encode("utf-8")) <= MAX_PATH or has_control(raw):
+        raise InvalidHook("invalid_cwd")
+    try:
+        candidate = Path(raw).resolve(strict=True)
+        if not candidate.is_dir():
+            raise InvalidHook("invalid_cwd")
+        _, top = decoded_command(
+            ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"], deadline=deadline
+        )
+        worktree = Path(top).resolve(strict=True)
+        if not contained(worktree, candidate):
+            return "unknown"
+        _, listing = decoded_command(
+            ["git", "-C", str(worktree), "worktree", "list", "--porcelain"], deadline=deadline
+        )
+        roots = [Path(line[9:]).resolve() for line in listing.splitlines() if line.startswith("worktree ")]
+        if not roots or worktree not in roots:
+            return "unknown"
+        if worktree == roots[0]:
+            return "primary_worktree"
+        _, shallow = decoded_command(
+            ["git", "-C", str(worktree), "rev-parse", "--is-shallow-repository"],
+            deadline=deadline,
+        )
+        if shallow != "false":
+            return "unknown"
+        _, roots_text = decoded_command(
+            ["git", "-C", str(worktree), "rev-list", "--max-parents=0", "HEAD"],
+            deadline=deadline,
+        )
+        root_commits = roots_text.splitlines()
+        if len(root_commits) != 1:
+            return "unknown"
+        returncode, branch_name = decoded_command(
+            ["git", "-C", str(worktree), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            check=False,
+            deadline=deadline,
+        )
+        identity = f"{root_commits[0]}\0{branch_name if returncode == 0 else 'detached'}"
+        worktree_id = hashlib.sha256(identity.encode()).hexdigest()[:16]
+        helper = shutil.which("dbsctrctl")
+        if not helper:
+            return "unknown"
+        timeout = deadline - time.monotonic()
+        if timeout <= 0:
+            return "unknown"
+        _, status_bytes, _ = run_bounded(
+            [helper, "status", "--json"], timeout, 64 * 1024, cwd=worktree
+        )
+        status_value = json.loads(status_bytes.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
+        if (
+            isinstance(status_value, dict)
+            and status_value.get("state") == "active"
+            and ID.fullmatch(status_value.get("cycle_id", ""))
+            and status_value.get("worktree", {}).get("id") == worktree_id
+            and status_value.get("git", {}).get("branch") == branch_name
+        ):
+            return "cycle_worktree"
+    except (
+        CommandFailure, FileNotFoundError, OSError, RuntimeError, UnicodeDecodeError,
+        json.JSONDecodeError, ValueError,
+    ):
+        return "unknown"
+    return "unknown"
+
+
+def no_duplicate_keys(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate key")
+        value[key] = item
+    return value
+
+
+def bounded_string(value, limit: int, failure: str, ascii_only: bool = False) -> str:
+    if not isinstance(value, str):
+        raise InvalidHook(failure)
+    try:
+        encoded = value.encode("ascii" if ascii_only else "utf-8")
+    except UnicodeEncodeError:
+        raise InvalidHook(failure)
+    if not 1 <= len(encoded) <= limit or has_control(value):
+        raise InvalidHook(failure)
+    return value
+
+
+def normalized_hook(event: str, raw: bytes, deadline: float) -> dict:
+    if len(raw) > MAX_HOOK_INPUT:
+        raise InvalidHook("input_too_large")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise InvalidHook("invalid_utf8")
+    try:
+        value = json.loads(text, object_pairs_hook=no_duplicate_keys)
+    except (json.JSONDecodeError, ValueError):
+        raise InvalidHook("invalid_json")
+    if not isinstance(value, dict):
+        raise InvalidHook("invalid_schema")
+    for key in value:
+        if key in CONTENT_FIELDS:
+            raise InvalidHook("content_field")
+        if key.endswith("_path") and key != "transcript_path":
+            raise InvalidHook("path_field")
+    if set(value) - ALLOWED_FIELDS[event]:
+        raise InvalidHook("unknown_field")
+    required = {"session_id", "transcript_path", "cwd", "hook_event_name"}
+    if event in {"SubagentStart", "SubagentStop", "Stop"}:
+        required.add("turn_id")
+    if required - set(value):
+        raise InvalidHook("missing_field")
+    if value["hook_event_name"] != event:
+        raise InvalidHook("event_mismatch")
+    session_id = bounded_string(value["session_id"], 128, "invalid_identity", True)
+    if not ID.fullmatch(session_id):
+        raise InvalidHook("invalid_identity")
+    transcript_path = bounded_string(value["transcript_path"], MAX_PATH, "invalid_transcript_path")
+    del transcript_path
+    record = {
+        "schema_version": 1,
+        "adapter_revision": ADAPTER_REVISION,
+        "event": event,
+        "session_id": session_id,
+        "workspace": classify_workspace(value["cwd"], deadline),
+        "observed_at": timestamp(now()),
+    }
+    if "turn_id" in value:
+        turn_id = bounded_string(value["turn_id"], 128, "invalid_identity", True)
+        if not ID.fullmatch(turn_id):
+            raise InvalidHook("invalid_identity")
+        record["turn_id"] = turn_id
+    if "model" in value:
+        record["model_id"] = bounded_string(value["model"], 128, "invalid_identity", True)
+    for key in ("permission_mode", "source", "reason", "agent_id", "agent_type"):
+        if key in value:
+            bounded_string(value[key], 128, "invalid_schema", True)
+    if "stop_hook_active" in value and not isinstance(value["stop_hook_active"], bool):
+        raise InvalidHook("invalid_schema")
+    if len(json.dumps(record, separators=(",", ":")).encode()) > MAX_RECORD:
+        raise InvalidHook("record_too_large")
+    return record
+
+
+def command_hook(event: str) -> int:
+    try:
+        deadline = time.monotonic() + 4.5
+        raw = sys.stdin.buffer.read(MAX_HOOK_INPUT + 1)
+        record = normalized_hook(event, raw, deadline)
+        if time.monotonic() >= deadline:
+            raise InvalidHook("timeout")
+        write_hook_record({
+            "schema_version": 1,
+            "adapter_revision": ADAPTER_REVISION,
+            "result": "accepted",
+            "record": record,
+        }, deadline)
+    except InvalidHook as error:
+        try:
+            current = now()
+            write_hook_record({
+                "schema_version": 1,
+                "adapter_revision": ADAPTER_REVISION,
+                "result": "rejected",
+                "failure": str(error)[:256],
+                "observed_at": timestamp(current),
+            }, deadline)
+        except Exception:
+            pass
+    except Exception:
+        try:
+            current = now()
+            write_hook_record({
+                "schema_version": 1,
+                "adapter_revision": ADAPTER_REVISION,
+                "result": "rejected",
+                "failure": "internal_failure",
+                "observed_at": timestamp(current),
+            }, deadline)
+        except Exception:
+            pass
+    return 0
+
+
+def emit(value: dict) -> None:
+    sys.stdout.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def probe_failure(reason: str, version: str | None = None) -> int:
+    runtime = {"status": "unavailable", "reason": reason}
+    if version is not None:
+        runtime["version"] = version
+    emit({
+        "schema_version": 1,
+        "adapter_revision": ADAPTER_REVISION,
+        "release": TARGET_VERSION,
+        "runtime": runtime,
+        "session": {"status": "unavailable", "reason": "capability_not_probed"},
+    })
+    return 1
+
+
+def command_probe() -> int:
+    executable = shutil.which("codex")
+    if not executable:
+        return probe_failure("runtime_missing")
+    try:
+        deadline = time.monotonic() + 30
+        _, version_bytes, _ = run_bounded(
+            [executable, "--version"], deadline - time.monotonic(), MAX_COMMAND_OUTPUT
+        )
+        version = version_bytes.decode("utf-8").strip()
+        version.encode("ascii")
+        if not re.fullmatch(rf"codex-cli {re.escape(TARGET_VERSION)}", version):
+            return probe_failure("version_mismatch", version[:256])
+        remaining_output = MAX_COMMAND_OUTPUT - len(version_bytes)
+        if remaining_output <= 0:
+            return probe_failure("runtime_probe_failed")
+        _, help_bytes, _ = run_bounded(
+            [executable, "--help"], deadline - time.monotonic(), remaining_output
+        )
+        help_text = help_bytes.decode("utf-8")
+        if not help_text.strip():
+            return probe_failure("invalid_help")
+    except (CommandFailure, UnicodeDecodeError, UnicodeEncodeError):
+        return probe_failure("runtime_probe_failed")
+    emit({
+        "schema_version": 1,
+        "adapter_revision": ADAPTER_REVISION,
+        "release": TARGET_VERSION,
+        "runtime": {"status": "available", "version": version},
+        "session": {"status": "unavailable", "reason": "capability_not_probed"},
+    })
+    return 0
+
+
+def command_unavailable() -> int:
+    emit({
+        "schema_version": 1,
+        "adapter_revision": ADAPTER_REVISION,
+        "status": "unavailable",
+        "reason": "capability_not_probed",
+    })
+    return 1
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(prog="codex-control-plane")
+    commands = result.add_subparsers(dest="command", required=True)
+    commands.add_parser("probe")
+    hook = commands.add_parser("hook")
+    hook.add_argument("event", choices=EVENTS)
+    session = commands.add_parser("session")
+    session.add_argument("operation", choices=("list", "read", "resume", "fork"))
+    lifecycle = commands.add_parser("dbsctr")
+    lifecycle.add_argument("operation")
+    return result
+
+
+def main(argv=None) -> int:
+    args = parser().parse_args(argv)
+    if args.command == "hook":
+        return command_hook(args.event)
+    if args.command == "probe":
+        return command_probe()
+    return command_unavailable()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,29 @@
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "codex-control-plane hook SessionStart"
+timeout = 5
+
+[[hooks.SessionEnd]]
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = "codex-control-plane hook SessionEnd"
+timeout = 5
+
+[[hooks.SubagentStart]]
+[[hooks.SubagentStart.hooks]]
+type = "command"
+command = "codex-control-plane hook SubagentStart"
+timeout = 5
+
+[[hooks.SubagentStop]]
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = "codex-control-plane hook SubagentStop"
+timeout = 5
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "codex-control-plane hook Stop"
+timeout = 5
