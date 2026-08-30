@@ -135,6 +135,15 @@
 | Scope | Preserve 65,536 recent tokens verbatim after automatic compaction |
 | Overrides | Optimize the global budget for the normal Sol route; keep OpenCode trigger, pruning, and turn defaults |
 
+### OCP-45 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: longer active Sol context can materially increase latency and token cost |
+| Delivery intent | Deliver a draft pull request, merge after explicit approval, then apply and verify the managed OpenCode target |
+| Scope | Correct base and Fast GPT-5.6 Sol metadata to the provider's 1,050,000 context, 922,000 input, and 128,000 output limits |
+| Overrides | Preserve the 65,536-token recent tail and inherit OpenCode's automatic trigger, 20,000-token safety reserve, pruning, and turn defaults |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -465,6 +474,20 @@ automatic trigger, safety reserve, pruning, and turn-count defaults. Older
 conversation content remains summary-backed, so durable specifications and cycle
 evidence remain authoritative for requirements and raw evidence outside the
 recent tail.
+
+Given either `openai/gpt-5.6-sol` or `openai/gpt-5.6-sol-fast` is resolved, its
+managed provider metadata reports a 1,050,000-token context window partitioned
+into at most 922,000 input tokens and 128,000 output tokens. With OpenCode
+1.18.25's inherited 20,000-token reserve, automatic compaction begins at roughly
+902,000 input tokens instead of the stale roughly 252,000-token threshold. The
+Fast identity continues to select priority processing; model routing and
+reasoning effort do not change.
+
+Given provider metadata later becomes authoritative at or above these limits,
+the managed override may be retired after rendered and resolved configuration
+prove that removing it preserves the same limits. If the provider lowers a
+limit, managed metadata must be corrected before use rather than allowing
+requests beyond the supported boundary.
 
 Given `build-gpt` delegates bounded source discovery, `explore-openai` uses
 GPT-5.6 Luna with low reasoning effort and remains read-only. Scout and Builder
@@ -813,6 +836,9 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   the current schema/runtime parser.
 - `compaction.preserve_recent_tokens` is `65536`; `auto`, `prune`, `tail_turns`,
   and `reserved` remain omitted so OpenCode defaults govern them.
+- Base and Fast GPT-5.6 Sol resolve to context `1050000`, input `922000`, and
+  output `128000`; current inherited reserve behavior yields an approximately
+  `902000`-token automatic compaction threshold.
 - Direct provider `anthropic` is denied; `amazon-bedrock` is not.
 - Raw `lmstudio` remains configured; `headroom` and `headroom-lmstudio` do not.
 - Native Plan remains the startup default and native Build stays enabled as the

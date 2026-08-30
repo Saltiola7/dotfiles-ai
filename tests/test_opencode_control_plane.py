@@ -248,6 +248,14 @@ def test_managed_compaction_preserves_recent_context():
     assert rendered_config()["compaction"] == {"preserve_recent_tokens": 65536}
 
 
+def test_managed_sol_routes_use_current_provider_limits():
+    models = rendered_config()["provider"]["openai"]["models"]
+    limits = {"context": 1050000, "input": 922000, "output": 128000}
+
+    assert models["gpt-5.6-sol"]["limit"] == limits
+    assert models["gpt-5.6-sol-fast"]["limit"] == limits
+
+
 def test_context7_is_remote_optional_key_and_scout_only():
     anonymous = rendered_config({"CONTEXT7_API_KEY": ""})
     context7 = anonymous["mcp"]["context7"]
