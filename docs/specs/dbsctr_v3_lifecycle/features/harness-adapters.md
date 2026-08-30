@@ -1,6 +1,6 @@
 # DBSCTR Harness Adapters
 
-**Status:** Contract captured; implementation not started
+**Status:** Delivered
 **Created:** 2026-08-29
 **Last updated:** 2026-08-29
 
@@ -55,7 +55,7 @@ flowchart LR
     C[Codex native runtime] --> CA[Codex adapter]
     OA --> D[DBSCTR V3 contracts]
     CA --> D
-    D --> R[Proposed Cycle Record schema 5]
+    D --> R[Cycle Record schema 5]
     D --> G[Gates, evidence, and Git delivery]
     O -. unsupported fields .-> U[Explicit unavailable]
     C -. unsupported fields .-> U
@@ -63,10 +63,9 @@ flowchart LR
 
 **Text Equivalent:** OpenCode and Codex own their native sessions, agents,
 approvals, history, and adapter implementations. Both adapters invoke the same
-DBSCTR contracts. DBSCTR owns current records, gates, evidence, and Git delivery;
-schema 5 remains proposed until implementation gates pass. Unsupported native
-fields become explicit unavailable values rather than inferred identity or
-success.
+DBSCTR contracts. DBSCTR owns schema-5 records, gates, evidence, and Git delivery.
+Unsupported native fields become explicit unavailable values rather than inferred
+identity or success.
 
 ```mermaid
 sequenceDiagram
@@ -95,20 +94,19 @@ disagreement.
 ```mermaid
 stateDiagram-v2
     accTitle: Cycle Record compatibility states
-    accDescr: Existing schema-3 and schema-4 records remain readable without rewriting. The captured multi-harness contract proposes schema 5. Older helpers would reject schema 5 before mutation. A future schema-5 helper must validate known adapters and reject unknown or conflicting identity.
+    accDescr: Existing schema-3 and schema-4 records remain readable without rewriting. New cycles use schema 5. Older helpers reject schema 5 before mutation. The schema-5 helper validates known adapters and rejects unknown or conflicting identity.
     [*] --> LegacyReadable: schema 3 or 4
     LegacyReadable --> LegacyReadable: read without migration
-    [*] --> ProposedMultiHarness: proposed schema 5
-    ProposedMultiHarness --> RejectedByOldHelper: helper supports through schema 4
-    ProposedMultiHarness --> Validated: future schema-5 helper and known adapter
-    ProposedMultiHarness --> Rejected: unknown adapter or conflicting identity
+    [*] --> MultiHarness: schema 5
+    MultiHarness --> RejectedByOldHelper: helper supports through schema 4
+    MultiHarness --> Validated: schema-5 helper and known adapter
+    MultiHarness --> Rejected: unknown adapter or conflicting identity
 ```
 
 **Text Equivalent:** Schemas 3 and 4 remain readable and are not rewritten
-implicitly. The captured contract proposes schema 5 for future multi-harness
-records. Helpers supporting only through schema 4 would reject schema 5 before
-mutation. A future schema-5 helper must accept only known, valid adapters and
-reject conflicting identity.
+implicitly. New multi-harness records use schema 5. Helpers supporting only
+through schema 4 reject schema 5 before mutation. The schema-5 helper accepts only
+known, valid adapters and rejects conflicting identity.
 
 ```mermaid
 flowchart LR
@@ -130,9 +128,9 @@ explicitly unavailable.
 
 ```mermaid
 flowchart TD
-    accTitle: Proposed schema-5 adapter relationships
-    accDescr: A proposed schema-5 Cycle Record contains one runtime adapter map keyed by harness. Each adapter declares its revision, one or more opaque sessions, optional turns and family relations, one portable worktree locator, optional activation identity, and field-level availability. Legacy OpenCode identity may coexist only when values agree exactly.
-    R[Proposed schema-5 Cycle Record] --> M[Runtime adapter map]
+    accTitle: Schema-5 adapter relationships
+    accDescr: A schema-5 Cycle Record contains one runtime adapter map keyed by harness. Each adapter declares its revision, one or more opaque sessions, optional turns and family relations, one portable worktree locator, optional activation identity, and field-level availability. Legacy OpenCode identity may coexist only when values agree exactly.
+    R[Schema-5 Cycle Record] --> M[Runtime adapter map]
     M --> H[Harness key and adapter revision]
     M --> S[Opaque session IDs]
     S --> T[Optional turn IDs]
@@ -143,7 +141,7 @@ flowchart TD
     M -. exact agreement only .-> L[Legacy OpenCode compatibility branch]
 ```
 
-**Text Equivalent:** A proposed schema-5 Cycle Record contains a runtime adapter
+**Text Equivalent:** A schema-5 Cycle Record contains a runtime adapter
 map keyed by harness. Each adapter declares its revision, opaque sessions,
 optional turns and family relations, a portable worktree locator, optional
 activation identity, and field-level availability. A legacy OpenCode branch may
@@ -315,7 +313,7 @@ revision change rejects schema 5.
   `3.29` only when implementation and compatibility tests pass; existing cycles
   retain their recorded revision.
 - Schemas 3 and 4 remain readable without implicit migration.
-- Schema 5 is the proposed requirement for future generic adapter identity so old
+- Schema 5 is required for new generic adapter identity so old
   helpers reject it rather than silently ignore unknown runtime semantics.
 - Existing `runtime.opencode` records and typed OpenCode tools remain supported.
 - Portabilization validates every adapter locator and retains no absolute path.
@@ -339,17 +337,17 @@ owning control-plane context; lifecycle fixtures own shared outcomes.
 
 | Gate | Applicability | Result | Authority | Owner |
 |---|---|---|---|---|
-| Domain | required | pending | Harness vocabulary and ownership | Primary |
-| Behavior | required | pending | Shared, identity, compatibility, and availability scenarios | Primary |
-| Spec | required | pending | This feature specification | Primary |
-| Contract | required | pending | Schema-5 and adapter fixtures | Primary |
-| Test-driven implementation | required | pending | `tests/test_dbsctrctl.py` and lifecycle tests | Primary |
-| Refactor | required | pending | Generic readers without duplicated state machines | Primary |
-| Review/Integrate | required | pending | Affected QA and independent review | Primary |
+| Domain | required | passed | Harness vocabulary and ownership | Primary |
+| Behavior | required | passed | Shared, identity, compatibility, and availability scenarios | Primary |
+| Spec | required | passed | This feature specification | Primary |
+| Contract | required | passed | Schema-5 and adapter fixtures | Primary |
+| Test-driven implementation | required | passed | `tests/test_dbsctrctl.py` and lifecycle tests | Primary |
+| Refactor | required | passed | Generic readers without duplicated state machines | Primary |
+| Review/Integrate | required | passed | Affected QA and independent review | Primary |
 | Release | not_applicable: no separately published artifact | not_run | Engineering Profile | Primary |
-| Deploy | required | pending | Managed helper and adapter deployment | Primary |
-| Operate | required | pending | Legacy/current cycle and runtime smokes | Primary |
-| Maintain/Retire | required | pending | Mixed-version rejection and rollback evidence | Primary |
+| Deploy | required | passed | Managed helper and skill source identity | Primary |
+| Operate | required | passed | Deployed schema-5 and legacy runtime smokes | Primary |
+| Maintain/Retire | required | passed | Mixed-version rejection and rollback evidence | Primary |
 
 ## Validation
 

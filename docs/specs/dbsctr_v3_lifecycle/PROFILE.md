@@ -7,7 +7,7 @@
 | Languages/frameworks | Language-neutral Markdown prompts; Python helpers and contract tests; TypeScript OpenCode adapters |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | Delivered OpenCode harness and planned Codex peer on the managed dotfiles environment; Python `>=3.12`; Bun for OpenCode adapters |
-| Compatibility | Unversioned lifecycle skills; current Method Revision `3.28` and record schema 4; the ready multi-harness slice advances new records to schema 5 and Method Revision `3.29` only after implementation gates pass; schemas 3/4 remain readable; V1 removed; V2 source archived |
+| Compatibility | Unversioned lifecycle skills; current Method Revision `3.29` and record schema 5; schemas 3/4 remain readable without implicit migration; V1 removed; V2 source archived |
 | Trust/data | Git specifications contain sanitized durable authority; transcripts, credentials, machine paths, and private runtime identity stay outside Git |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
 | Authorities | Affected `pytest`, Python compilation, Bun execution, rendered chezmoi configuration, Git fixed-commit inspection, and configured runtime smokes |

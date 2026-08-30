@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "codex-cli-integration",
   "title": "Managed Codex CLI and DBSCTR parity",
-  "state": "ready",
+  "state": "building",
   "coordinator_repository": "Saltiola7/dotfiles-ai",
   "statements": [
     {"id":"INT-001","kind":"requirement","text":"Manage Codex CLI and OpenCode as supported peer runtimes from dotfiles-ai.","disposition":"ready","artifacts":["docs/initiatives/codex-cli-integration/README.md","docs/specs/codex_control_plane/README.md"]},
@@ -32,7 +32,7 @@
     {"id":"INT-025","kind":"constraint","text":"Limit the first schema-5 slice to synthetic Codex conformance; native Codex integration remains in later slices.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md"]}
   ],
   "contexts": [
-    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"delivered","depends_on":[]},
     {"id":"codex_control_plane","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":["dbsctr_v3_lifecycle"]},
     {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["codex_control_plane"]},
     {"id":"shell_auth_startup","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["codex_control_plane","dotfiles_ai_distribution"]},
@@ -43,7 +43,7 @@
     {"id":"opencode_inference_cost","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["opencode_control_plane"]}
   ],
   "slices": [
-    {"id":"multi-harness-lifecycle","context":"dbsctr_v3_lifecycle","state":"ready","requirements":["INT-011","INT-012","INT-014","INT-022","INT-023","INT-024","INT-025"],"depends_on":[],"artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"contract-foundation","execution_owner":"build"},
+    {"id":"multi-harness-lifecycle","context":"dbsctr_v3_lifecycle","state":"delivered","requirements":["INT-011","INT-012","INT-014","INT-022","INT-023","INT-024","INT-025"],"depends_on":[],"artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"contract-foundation","execution_owner":"build"},
     {"id":"codex-host-foundation","context":"codex_control_plane","state":"captured","requirements":["INT-001","INT-002","INT-006","INT-009","INT-010","INT-013","INT-014","INT-015","INT-018","INT-019","INT-020"],"depends_on":["multi-harness-lifecycle"],"artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/codex_control_plane/PROFILE.md","docs/specs/codex_control_plane/OPERATION.md"],"release_group":"installable-peer","execution_owner":"build"},
     {"id":"codex-distribution","context":"dotfiles_ai_distribution","state":"captured","requirements":["INT-003","INT-005","INT-006","INT-007","INT-008","INT-016"],"depends_on":["codex-host-foundation"],"artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md"],"release_group":"installable-peer","execution_owner":"build"},
     {"id":"codex-identity-probe","context":"codex_control_plane","state":"blocked","requirements":["INT-017","INT-020"],"depends_on":["codex-distribution"],"artifacts":["docs/specs/codex_control_plane/OPERATION.md"],"release_group":"native-lifecycle","execution_owner":"discovery"},
@@ -54,7 +54,7 @@
     {"id":"codex-parity-readiness","context":"codex_control_plane","state":"blocked","requirements":["INT-001","INT-003","INT-004","INT-009","INT-010","INT-015","INT-017","INT-020","INT-022"],"depends_on":["codex-state-recovery","codex-federation-parity"],"artifacts":["docs/specs/codex_control_plane/README.md","docs/initiatives/codex-cli-integration/README.md"],"release_group":"parity-readiness","execution_owner":"discovery"}
   ],
   "release_groups": [
-    {"id":"contract-foundation","members":["multi-harness-lifecycle"],"state":"ready"},
+    {"id":"contract-foundation","members":["multi-harness-lifecycle"],"state":"delivered"},
     {"id":"installable-peer","members":["codex-host-foundation","codex-distribution"],"state":"planning"},
     {"id":"native-lifecycle","members":["codex-identity-probe","codex-worker-routing","codex-state-recovery"],"state":"blocked"},
     {"id":"history-federation","members":["codex-history-parity","codex-federation-parity"],"state":"planning"},

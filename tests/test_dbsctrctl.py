@@ -152,6 +152,48 @@ class DbsctrctlTest(unittest.TestCase):
     def record_path(self, repo=None):
         return (repo or self.repo) / ".git/dbsctr/cycles/cycle-1.json"
 
+    def make_schema3_fixture(self, cycle_id, worktree):
+        path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+        record = json.loads(path.read_text())
+        current_pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        current_pointer.unlink()
+        worktree = Path(worktree).resolve()
+        git_directory = Path(subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-dir"], cwd=worktree,
+            check=True, text=True, capture_output=True,
+        ).stdout.strip())
+        record["schema_version"] = 3
+        record["method_revision"] = "3.28"
+        record["worktree"] = {
+            **{key: value for key, value in record["worktree"].items()
+               if key not in {"id", "locator", "path", "git_dir"}},
+            "id": hashlib.sha256(str(worktree).encode()).hexdigest()[:16],
+            "path": str(worktree),
+            "git_dir": str(git_directory),
+        }
+        if "source" in record:
+            record["source"] = {
+                **{key: value for key, value in record["source"].items()
+                   if key not in {"locator", "path"}},
+                "path": str(self.repo.resolve()),
+            }
+        opencode = record.get("runtime", {}).get("opencode")
+        if opencode is None:
+            record.pop("runtime", None)
+        else:
+            base = worktree if opencode["path_root"] == "cycle_worktree" else self.repo.resolve()
+            record["runtime"] = {"opencode": {
+                **{key: value for key, value in opencode.items()
+                   if key not in {"path_root", "worktree", "directory"}},
+                "worktree": str(base),
+                "directory": str((Path(base) / opencode["directory"]).resolve()),
+            }}
+        path.write_text(json.dumps(record))
+        pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        pointer.parent.mkdir(parents=True)
+        pointer.write_text(cycle_id + "\n")
+        return record
+
     def review_artifacts(self):
         for name, result, reason in (
             ("README", "unchanged", "no durable truth changed"),
@@ -197,8 +239,9 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.28")
-        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["method_revision"], "3.29")
+        self.assertEqual(record["schema_version"], 5)
+        self.assertEqual(record["runtime"], {"adapters": {}})
         self.assertEqual(record["worktree"]["locator"], {
             "root": "cycle_worktree", "path": ".",
         })
@@ -887,10 +930,145 @@ class DbsctrctlTest(unittest.TestCase):
         self.start()
         record_path = self.record_path()
         record = json.loads(record_path.read_text())
-        record["schema_version"] = 99
-        record_path.write_text(json.dumps(record))
-        result = run(self.repo, "status", ok=False)
-        self.assertIn("unsupported Cycle Record schema", result.stderr)
+        for schema in (99, True, 5.0):
+            with self.subTest(schema=schema):
+                record["schema_version"] = schema
+                record_path.write_text(json.dumps(record))
+                result = run(self.repo, "status", ok=False)
+                self.assertIn("unsupported Cycle Record schema", result.stderr)
+
+    def test_schema5_validates_synthetic_adapters_and_opencode_agreement(self):
+        self.start()
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_schema5", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        availability = {
+            "session": {"status": "available"},
+            "turn": {"status": "not_requested"},
+            "family": {"status": "not_requested"},
+            "activation": {"status": "not_requested"},
+            "history": {"status": "unavailable", "reason": "synthetic_fixture"},
+        }
+        codex = {
+            "schema_version": 1,
+            "harness_id": "codex",
+            "adapter_revision": "codex-adapter-1",
+            "session_ids": ["codex-session"],
+            "worktree": {"root": "cycle_worktree", "path": "."},
+            "availability": availability,
+        }
+        record["runtime"] = {"adapters": {"codex": codex}}
+        path.write_text(json.dumps(record))
+        self.assertEqual(module.validate_schema5_runtime(
+            self.repo, record, allow_synthetic_codex=True)["adapters"]["codex"], codex)
+        production = run(self.repo, "status", "--json", ok=False)
+        self.assertIn("Codex adapter is unavailable", production.stderr)
+
+        invalid = {}
+        invalid["unknown adapter"] = {"adapters": {"other": {**codex, "harness_id": "other"}}}
+        invalid["wrong revision"] = {"adapters": {"codex": {
+            **codex, "adapter_revision": "codex-adapter-2",
+        }}}
+        invalid["boolean adapter schema"] = {"adapters": {"codex": {
+            **codex, "schema_version": True,
+        }}}
+        invalid["float adapter schema"] = {"adapters": {"codex": {
+            **codex, "schema_version": 1.0,
+        }}}
+        invalid["empty sessions"] = {"adapters": {"codex": {**codex, "session_ids": []}}}
+        invalid["unsorted sessions"] = {"adapters": {"codex": {
+            **codex, "session_ids": ["session-b", "session-a"],
+        }}}
+        invalid["too many sessions"] = {"adapters": {"codex": {
+            **codex, "session_ids": [f"session-{index:03d}" for index in range(101)],
+        }}}
+        invalid["invalid session"] = {"adapters": {"codex": {
+            **codex, "session_ids": ["invalid/session"],
+        }}}
+        invalid["unknown field"] = {"adapters": {"codex": {
+            **codex, "native_session": "unproven",
+        }}}
+        invalid["unsafe worktree"] = {"adapters": {"codex": {
+            **codex, "worktree": {"root": "cycle_worktree", "path": "../escape"},
+        }}}
+        invalid["missing reason"] = {"adapters": {"codex": {
+            **codex, "availability": {**availability, "history": {"status": "unavailable"}},
+        }}}
+        invalid["false activation"] = {"adapters": {"codex": {
+            **codex, "availability": {**availability, "activation": {"status": "available"}},
+        }}}
+        opencode = {
+            **codex,
+            "harness_id": "opencode",
+            "adapter_revision": "opencode-adapter-1",
+        }
+        invalid["missing legacy opencode"] = {"adapters": {"opencode": opencode}}
+        invalid["OpenCode disagreement"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["different-session"], "path_root": "cycle_worktree",
+                "worktree": ".", "directory": ".",
+            },
+        }
+        invalid["legacy OpenCode extra field"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["codex-session"], "path_root": "cycle_worktree",
+                "worktree": ".", "directory": ".", "extra": True,
+            },
+        }
+        invalid["legacy OpenCode missing directory"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["codex-session"], "path_root": "cycle_worktree",
+                "worktree": ".",
+            },
+        }
+        for name, runtime in invalid.items():
+            with self.subTest(name=name):
+                record["runtime"] = runtime
+                with self.assertRaisesRegex(RuntimeError, "invalid schema 5 runtime"):
+                    module.validate_schema5_runtime(
+                        self.repo, record, allow_synthetic_codex=True)
+
+    def test_cycle_portabilize_does_not_upgrade_schema5(self):
+        self.start()
+        result = run(self.repo, "cycle-portabilize", "--cycle-id", "cycle-1", ok=False)
+        self.assertIn("cycle is not an unmigrated schema 3 record", result.stderr)
+
+    def test_cycle_portabilize_rejects_noninteger_rollback_schema(self):
+        self.start()
+        legacy = self.make_schema3_fixture("cycle-1", self.repo)
+        backup = self.repo / ".git/dbsctr/migrations/cycle-1.schema3.json"
+        backup.parent.mkdir(parents=True)
+        for schema in (True, 3.0):
+            with self.subTest(schema=schema):
+                backup.write_text(json.dumps({**legacy, "schema_version": schema}))
+                result = run(
+                    self.repo, "cycle-portabilize", "--cycle-id", "cycle-1", ok=False)
+                self.assertIn("unsupported Cycle Record schema", result.stderr)
+
+    def test_schema5_validation_applies_outside_active_load(self):
+        self.start()
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        record["runtime"] = {"opencode": {
+            "session_ids": ["legacy-only"], "path_root": "cycle_worktree",
+            "worktree": ".", "directory": ".",
+        }}
+        path.write_text(json.dumps(record))
+
+        inventory = run(self.repo, "worktree-list", "--json", ok=False)
+        self.assertIn("invalid schema 5 runtime", inventory.stderr)
+        performance = run(self.repo, "cycle-performance", "--json", ok=False)
+        self.assertIn("invalid schema 5 runtime", performance.stderr)
+
+        path.write_text('{"schema_version":5,"schema_version":5}')
+        duplicate = run(self.repo, "worktree-list", "--json", ok=False)
+        self.assertIn("duplicate JSON key", duplicate.stderr)
 
     def test_linked_worktrees_have_isolated_active_cycles_and_global_ids(self):
         second = Path(self.temp.name) / "second"
@@ -1000,10 +1178,20 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual((self.repo / "tracked.txt").read_text(), "unrelated dirty work\n")
         record = json.loads((self.repo / ".git/dbsctr/cycles/isolated-1.json").read_text())
         self.assertTrue(record["worktree"]["created_by_dbsctr"])
-        self.assertEqual(record["worktree"]["path"], str(isolated))
-        self.assertEqual(record["source"]["path"], str(self.repo.resolve()))
+        self.assertEqual(record["worktree"]["locator"], {
+            "root": "cycle_worktree", "path": ".",
+        })
+        self.assertEqual(record["source"]["locator"], {
+            "root": "primary_worktree", "path": ".",
+        })
         self.assertEqual(record["source"]["dirty_paths"], ["tracked.txt"])
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-structured"])
+        adapter = record["runtime"]["adapters"]["opencode"]
+        self.assertEqual(adapter["session_ids"], ["session-structured"])
+        self.assertEqual(adapter["worktree"], {
+            "root": record["runtime"]["opencode"]["path_root"],
+            "path": record["runtime"]["opencode"]["worktree"],
+        })
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
 
@@ -1090,7 +1278,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["initiative"]["manifest_path"],
                          "docs/initiatives/test/MANIFEST.json")
 
-    def test_schema4_managed_worktree_rebinds_to_configured_registry(self):
+    def test_schema5_managed_worktree_rebinds_to_configured_registry(self):
         remote = Path(self.temp.name) / "remote.git"
         registry = Path(self.temp.name) / "registry"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -1105,7 +1293,7 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         record_path = self.repo / ".git/dbsctr/cycles/portable-1.json"
         record = json.loads(record_path.read_text())
-        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["schema_version"], 5)
         self.assertEqual(record["worktree"]["locator"]["root"], "dbsctr_worktrees")
         self.assertFalse(Path(record["worktree"]["locator"]["path"]).is_absolute())
         self.assertNotIn(str(registry), json.dumps(record))
@@ -1246,7 +1434,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--opencode-worktree", str(self.repo), "--opencode-directory", str(self.repo / "docs"),
         ).stdout)
         record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
-        original = json.loads(record_path.read_text())
+        original = self.make_schema3_fixture("legacy-1", handoff["worktree"])
         self.assertEqual(original["schema_version"], 3)
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
 
@@ -1273,9 +1461,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(Path(self.temp.name) / "outside"))
+            "--worktree-root", str(Path(self.temp.name) / "outside")).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(Path(self.temp.name) / "registry")}
         result = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
         self.assertIn("outside configured registry", result.stderr)
@@ -1287,10 +1476,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(registry))
-        record = json.loads((self.repo / ".git/dbsctr/cycles/legacy-1.json").read_text())
+            "--worktree-root", str(registry)).stdout)
+        record = self.make_schema3_fixture("legacy-1", handoff["worktree"])
         pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         pointer.unlink()
@@ -1320,9 +1509,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(registry))
+            "--worktree-root", str(registry)).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_portable_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
@@ -1366,6 +1556,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(registry),
         ).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_retry_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
@@ -1418,6 +1609,13 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["runtime"]["opencode"]["harness_activation"], {
             "schema_version": 1, "provider_id": "openai", "model_id": "gpt-5.6-sol",
             "agent_id": "build-gpt", "core_revision": "3.29", "overlay_revision": "openai-2026-07-26",
+        })
+        adapter = record["runtime"]["adapters"]["opencode"]
+        self.assertEqual(adapter["session_ids"], ["session-resumed"])
+        self.assertEqual(adapter["activation"], record["runtime"]["opencode"]["harness_activation"])
+        self.assertEqual(adapter["worktree"], {
+            "root": record["runtime"]["opencode"]["path_root"],
+            "path": record["runtime"]["opencode"]["worktree"],
         })
         child = run(self.repo, "attach-runtime", "--opencode-session-id", "session-child",
                     "--opencode-message-id", "message-child",
@@ -1855,7 +2053,7 @@ class DbsctrctlTest(unittest.TestCase):
             record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
             (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
             if cycle_id == "changed-identity":
-                record["worktree"]["git_dir"] = str(Path(self.temp.name) / "foreign-git-dir")
+                record["worktree"]["id"] = "0" * 16
                 record_path.write_text(json.dumps(record))
                 result = run(self.repo, "cleanup", "--cycle-id", cycle_id, "--now", ok=False)
                 self.assertIn("identity changed", result.stderr)
@@ -1936,7 +2134,7 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "switch", "-c", "drift"], cwd=self.repo, check=True,
                        capture_output=True)
         result = run(other, "cleanup", "--cycle-id", "cycle-1", "--now", ok=False)
-        self.assertIn("worktree branch", result.stderr)
+        self.assertIn("worktree is missing", result.stderr)
 
     def test_audit_reads_fixed_commit_and_excludes_dirty_overlay(self):
         built_from = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
@@ -2969,8 +3167,26 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
             "--cycle-id", "cycle-1", "--path", "tracked.txt", env=worker_env)
         record = json.loads(self.record_path().read_text())
-        record["runtime"] = {"opencode": {"session_ids": ["session-1"],
-                                              "worktree": str(self.repo), "directory": str(self.repo)}}
+        legacy_runtime = {
+            "session_ids": ["session-1"], "path_root": "cycle_worktree",
+            "worktree": ".", "directory": ".",
+        }
+        record["runtime"] = {
+            "adapters": {"opencode": {
+                "schema_version": 1, "harness_id": "opencode",
+                "adapter_revision": "opencode-adapter-1",
+                "session_ids": ["session-1"],
+                "worktree": {"root": "cycle_worktree", "path": "."},
+                "availability": {
+                    "session": {"status": "available"},
+                    "turn": {"status": "not_requested"},
+                    "family": {"status": "not_requested"},
+                    "activation": {"status": "not_requested"},
+                    "history": {"status": "unavailable", "reason": "not_collected"},
+                },
+            }},
+            "opencode": legacy_runtime,
+        }
         record["improvement"] = {"worker_id": "worker-1", "session_id": "session-1",
                                  "opportunity_id": claim["opportunity_id"]}
         self.record_path().write_text(json.dumps(record))
@@ -3408,7 +3624,7 @@ class DbsctrctlTest(unittest.TestCase):
             "head": cycle["git"]["head"], "branch": cycle["git"]["branch"],
             "upstream": cycle["git"]["upstream"], "dirty_paths": [],
             "remote": cycle["git"]["remote"], "locator": {"root": "primary_worktree", "path": "."},
-        }, "runtime": {}})
+        }, "runtime": {"adapters": {}}})
         self.record_path().write_text(json.dumps(cycle))
         active_cycle = json.loads(json.dumps(cycle))
         run(self.repo, "incident-update", "--state-root", str(state), *actor, "--incident-id", incident_id,
@@ -4042,6 +4258,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlates_structured_session_without_path_match(self):
         self.start()
         record = json.loads(self.record_path().read_text())
+        record["schema_version"] = 4
         record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "other"}
         record["source"] = {"path": str(Path(self.temp.name) / "source")}
         record["runtime"] = {"opencode": {"session_ids": ["session-linked"]}}
@@ -4063,6 +4280,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlation_uses_tiered_unambiguous_identity(self):
         self.start()
         first = json.loads(self.record_path().read_text())
+        first["schema_version"] = 4
         first["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
         first["source"] = {"path": str(self.repo)}
         self.record_path().write_text(json.dumps(first))
@@ -4128,6 +4346,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlates_recursive_family_and_reports_quality(self):
         self.start()
         record = json.loads(self.record_path().read_text())
+        record["schema_version"] = 4
         record["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
         record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "missing"}
         self.record_path().write_text(json.dumps(record))
@@ -5577,7 +5796,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.28")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.29")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
