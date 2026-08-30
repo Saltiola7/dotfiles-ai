@@ -8,8 +8,12 @@
   required strict Herdr launch identity, and made failed pre-agent tab creation
   transactional.
 - Added regressions for source/target separation, terminal-input bounds, malformed
-  launch output, pending-agent proof, cleanup, and fork fallback. Managed adapter
-  activation and fresh-process smoke evidence are required before completion.
+  launch output, pending-agent proof, cleanup, and fork fallback. All 47 focused
+  control-plane tests and Bun bundling pass. The two-file managed apply is
+  source-identical; fresh Bun schema loading exposes both source arguments, and a
+  disposable Herdr 0.8.2 session detected the bounded Build command before being
+  stopped and deleted. Gate Commit: `ee7f8ae`. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
 
 ## 2026-08-30 - Query-Recovery Contract Reconciliation
 
