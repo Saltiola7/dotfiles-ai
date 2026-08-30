@@ -174,10 +174,11 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Thin commands select native, dedicated R&D, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Only the dedicated build-rnd primary may request a ledger-validated VM implementation handoff; ordinary Build and every other agent deny it. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
+    P -->|Scheduled R&D only| BR[build-rnd primary]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
     P -->|Discovery command or tab| D[Discovery Coordinator]
@@ -189,6 +190,7 @@ flowchart TD
     G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
     C -->|Bedrock only| A[Bedrock subagents]
     B --> S[Shared DBSCTR, Discovery, and QA skills]
+    BR -->|Ledger-validated VM handoff only| T
     G --> S
     C --> S
     D -->|Approved Initiative launch| T
@@ -205,7 +207,9 @@ flowchart TD
 
 **Text Equivalent:** Thin commands select a native, Discovery, or provider-affine primary.
 Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents. The Discovery Coordinator may investigate through unrestricted
+inheriting subagents. A separate `build-rnd` primary runs only managed
+`/dbsctr-improve` sessions and alone may request the ledger-validated VM handoff;
+ordinary Build and every other agent deny that launcher. The Discovery Coordinator may investigate through unrestricted
 local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
 through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy-safe
 public facts. Governed private result bodies remain local; only locally filtered,
@@ -546,7 +550,7 @@ remain denied to Plan and subagents.
 
 ### Autonomous R&D worker
 
-Given a fresh scheduled native-Build session, when its managed worker command
+Given a fresh scheduled `build-rnd` primary session, when its managed worker command
 runs, then it applies exactly one assigned lens to all eligible global sanitized
 review evidence, compares it with the
 private improvement ledger, this repository's specs/source/tests and GitHub
@@ -563,6 +567,11 @@ then it edits only the helper-owned isolated worktree for this source and may us
 the typed claim and draft-PR delivery interfaces. Builder and read-only subagents
 remain denied those writes.
 
+Given any agent other than `build-rnd`, when it considers a VM implementation
+handoff, then `dbsctr_vm_handoff` is denied rather than probed. The tool is only
+the final approved step of `/dbsctr-improve`; it is not a dry run, capability
+probe, Initiative launcher, or ordinary host Build operation.
+
 Given no distinct finding under the assigned lens, then the worker records
 no-yield and its exact telemetry. Typed federation removes review-worker session
 families before returning ordinary-lens pages; only `review_session_governance`
@@ -578,6 +587,13 @@ uses the lowercase Herdr agent identity `dbsctr-handoff` and the managed
 OpenCode `run --agent build --interactive` contract. The Build authority remains
 hard-coded rather than caller-controlled, and handoff requires the distribution
 context's exact host/guest OpenCode version parity.
+
+Given `build-rnd` requests that handoff, before permission or VM access the
+adapter requires `DBSCTR_RND_WORKER_ID` to equal the requested worker, reads one
+authoritative worker from the ledger, and requires the invoking session,
+Discovery state, operator or autonomous authorization, Discovery report, exact
+declared paths, and autonomous readiness risk to match. Missing, placeholder,
+stale, or mismatched evidence fails without running parity or Herdr.
 
 Given a Build session remains rooted in the source checkout, typed reconciliation
 may name an isolated linked worktree. The adapter canonicalizes both paths and
@@ -782,7 +798,7 @@ The typed adapter independently reads the managed sandbox configuration and
 rejects changed source membership or order. Federated reads explicitly create
 private transient captures; unreferenced captures expire after 24 hours.
 
-Given an approved host handoff, the configured Build workspace OpenCode receives only the sanitized
+Given an approved and ledger-validated host handoff, the configured Build workspace OpenCode receives only the sanitized
 context and approval identity plus instructions to start a distinct VM-owned
 DBSCTR draft-PR cycle. The typed call returns only bounded Herdr launch
 acceptance and presentation identity; cycle and draft-PR progress remain
@@ -810,10 +826,10 @@ review-session scope. It returns complete fixed distributions and at most 20
 deterministic evidence projections per source, recomputes the terminal manifest
 and telemetry, and writes a private lens receipt only for all-source success.
 The existing provider-affine control flow remains current because this adds a
-validated local adapter without changing routing or trust ownership. The typed write interface is `dbsctr_vm_handoff`; it accepts one
+validated local adapter without changing provider routing. The typed write interface is `dbsctr_vm_handoff`; it accepts one
 schema-versioned sanitized approved report and asks before launching the VM
-session. Plan, read-only agents, and Builder subagents deny handoff. Native Build
-and provider-affine Build primaries may invoke it only after explicit proceed.
+session. Only the dedicated `build-rnd` primary exposes it under `ask`; ordinary
+Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
 
 ## Contracts
 
@@ -824,6 +840,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Recovery accepts only canonical Herdr pane and OpenCode session identifiers,
   shell-quotes the validated wrapper argv, bounds Herdr API calls, and replaces
   captures atomically.
+- VM handoff authorization is fail-closed before permission and VM access: the
+  environment worker, request worker, ledger worker/session/state/authorization,
+  persisted Discovery report, exact scope paths, and autonomous readiness risk
+  must agree. Shape-valid placeholders carry no authority.
 - The Herdr LaunchAgent must not export `XDG_DATA_HOME` or `XDG_STATE_HOME`.
   It retains `DOTFILES_AI_STATE_ROOT`, explicit DBSCTR paths, and `HERMES_HOME`;
   the OpenCode wrapper and scoped lifecycle LaunchAgents remain the owners of
