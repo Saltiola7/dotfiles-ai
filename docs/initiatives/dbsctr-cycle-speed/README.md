@@ -21,7 +21,7 @@ ledger is [`MANIFEST.json`](MANIFEST.json).
 | Context | Responsibility | Dependency |
 |---|---|---|
 | `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, quality-equivalence policy, and safe concurrency | None |
-| `opencode_control_plane` | Typed adapter timing boundaries and runtime correlation | Lifecycle timing contract |
+| `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, and bounded DKS availability | Lifecycle timing contract |
 | `dotfiles_ai_distribution` | Immutable host/VM capture, aggregation, retention, and trend operation | OpenCode adapter |
 | `dbsctr_knowledge_store` | DKS query lock contention and bounded fast fallback | None |
 
@@ -37,7 +37,7 @@ The user approved this complete context map on 2026-08-29.
 | `dks-fast-fallback` | `build` | DKS contention avoids repeated blocking failure | None |
 | `safe-cycle-concurrency` | `build` | Proven-independent real-cycle work overlaps after benchmark qualification | `federated-cycle-trends` |
 | `performance-audit-workflow` | `build` | Reproducible report-only audit and ranked optimization portfolio | `lifecycle-runtime-summary` |
-| `runtime-query-recovery` | `build` | Incident and history telemetry complete within bounded deadlines | `performance-audit-workflow` |
+| `runtime-query-recovery` | `build` | OpenCode returns typed DKS availability within its existing deadline | `dks-fast-fallback` |
 | `validation-evidence-reuse` | `build` | Exact unchanged validation is reused across applicable gates | `performance-audit-workflow` |
 | `agent-context-budget` | `build` | Conditional subagents, reviewer enforcement, and bounded context growth | `performance-audit-workflow` |
 
@@ -123,3 +123,13 @@ them indefinitely. It checks for an existing Graphify graph before loading that
 skill, keeps private telemetry out of hosted subagents, and uses at most three
 independent Scout or Explore lanes. Every report separates measured findings,
 source-backed unmeasured opportunities, assumptions, and rejected shortcuts.
+
+## DKS Recovery
+
+DKS replacement builds retain separate writer serialization while query-visible
+activation locks remain short. Queries continue against the prior policy-valid
+active projection until replacement activation, and an activation that invalidates
+quality policy restores baseline ranking atomically. OpenCode maps exhausted or
+unsafe retrieval to bounded typed unavailability within the existing 35-second
+deadline; it never turns unavailable retrieval into citations or exposes raw
+database, process, path, or error details.
