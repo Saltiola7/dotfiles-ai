@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dotfiles-ai.invalid/dbsctr/history-incident-query-performance/v1",
+  "oneOf": [
+    {"$ref": "#/$defs/historyAggregate"},
+    {"$ref": "#/$defs/incidentSummary"}
+  ],
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "opaque": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+    "nullableDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "metricValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/count"},
+        {"const": "unavailable"}
+      ]
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available_count", "unavailable_count", "mean", "p50", "p90"],
+      "properties": {
+        "available_count": {"$ref": "#/$defs/count"},
+        "unavailable_count": {"$ref": "#/$defs/count"},
+        "mean": {"$ref": "#/$defs/metricValue"},
+        "p50": {"$ref": "#/$defs/metricValue"},
+        "p90": {"$ref": "#/$defs/metricValue"}
+      }
+    },
+    "distributionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "count"],
+      "properties": {
+        "value": {"$ref": "#/$defs/opaque"},
+        "count": {"$ref": "#/$defs/count"}
+      }
+    },
+    "historyQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["after", "before", "method_revision", "cycle_filter_applied", "state", "context", "project_digest", "reviewed_status", "archive_only"],
+      "properties": {
+        "after": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "before": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "method_revision": {"oneOf": [{"type": "string", "pattern": "^3\\.[0-9]+$"}, {"type": "null"}]},
+        "cycle_filter_applied": {"type": "boolean"},
+        "state": {"enum": ["active", "blocked", "abandoned", "completed", "unknown", null]},
+        "context": {"oneOf": [{"$ref": "#/$defs/opaque"}, {"type": "null"}]},
+        "project_digest": {"$ref": "#/$defs/nullableDigest"},
+        "reviewed_status": {"enum": ["reviewed", "unreviewed", null]},
+        "archive_only": {"type": "boolean"}
+      }
+    },
+    "historyAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "mode", "capture_id", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest", "query", "limit", "cursor", "selected_count", "continuation", "digest", "cohort", "metrics", "distributions"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "mode": {"const": "aggregate"},
+        "capture_id": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+        "snapshot": {"$ref": "#/$defs/count"},
+        "session_ceiling": {"$ref": "#/$defs/count"},
+        "part_ceiling": {"$ref": "#/$defs/count"},
+        "database_digest": {"$ref": "#/$defs/digest"},
+        "exclusion_digest": {"$ref": "#/$defs/nullableDigest"},
+        "query": {"$ref": "#/$defs/historyQuery"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "cursor": {"$ref": "#/$defs/count"},
+        "selected_count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "continuation": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "digest": {"$ref": "#/$defs/digest"},
+        "cohort": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessions", "correlation_quality", "cycle_states"],
+          "properties": {
+            "sessions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["relation", "review", "telemetry_available", "telemetry_unavailable"],
+              "properties": {
+                "relation": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["primary", "child", "unavailable"],
+                  "properties": {
+                    "primary": {"$ref": "#/$defs/count"},
+                    "child": {"$ref": "#/$defs/count"},
+                    "unavailable": {"$ref": "#/$defs/count"}
+                  }
+                },
+                "review": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["review", "non_review", "unavailable"],
+                  "properties": {
+                    "review": {"$ref": "#/$defs/count"},
+                    "non_review": {"$ref": "#/$defs/count"},
+                    "unavailable": {"$ref": "#/$defs/count"}
+                  }
+                },
+                "telemetry_available": {"$ref": "#/$defs/count"},
+                "telemetry_unavailable": {"$ref": "#/$defs/count"}
+              }
+            },
+            "correlation_quality": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["exact", "family", "worktree", "source", "ambiguous", "unavailable"],
+              "properties": {
+                "exact": {"$ref": "#/$defs/count"},
+                "family": {"$ref": "#/$defs/count"},
+                "worktree": {"$ref": "#/$defs/count"},
+                "source": {"$ref": "#/$defs/count"},
+                "ambiguous": {"$ref": "#/$defs/count"},
+                "unavailable": {"$ref": "#/$defs/count"}
+              }
+            },
+            "cycle_states": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["active", "blocked", "abandoned", "completed", "unknown"],
+              "properties": {
+                "active": {"$ref": "#/$defs/count"},
+                "blocked": {"$ref": "#/$defs/count"},
+                "abandoned": {"$ref": "#/$defs/count"},
+                "completed": {"$ref": "#/$defs/count"},
+                "unknown": {"$ref": "#/$defs/count"}
+              }
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["elapsed_ms", "tokens", "tool_calls", "tool_errors", "child_sessions", "delegations"],
+          "properties": {
+            "elapsed_ms": {"$ref": "#/$defs/metric"},
+            "tokens": {"$ref": "#/$defs/metric"},
+            "tool_calls": {"$ref": "#/$defs/metric"},
+            "tool_errors": {"$ref": "#/$defs/metric"},
+            "child_sessions": {"$ref": "#/$defs/metric"},
+            "delegations": {"$ref": "#/$defs/metric"}
+          }
+        },
+        "distributions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["agents", "models"],
+          "properties": {
+            "agents": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/distributionRow"}},
+            "models": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/distributionRow"}}
+          }
+        }
+      }
+    },
+    "incidentGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "failure_class", "recovered", "count"],
+      "properties": {
+        "tool": {
+          "oneOf": [
+            {"enum": ["apply_patch", "bash", "glob", "grep", "question", "read", "skill", "task", "todowrite", "webfetch", "unknown"]},
+            {"type": "string", "pattern": "^(?=.{1,128}$)(?:dbsctr_|dks_|herdr_)[A-Za-z0-9._:/-]+$"}
+          ]
+        },
+        "failure_class": {"enum": ["timed_out", "cancelled", "permission_denied", "service_unavailable", "invalid_output", "tool_error", "tool_failed", "unknown"]},
+        "recovered": {"type": "boolean"},
+        "count": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "incidentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "mode", "snapshot", "session_ceiling", "part_ceiling", "database_digest", "incident_count", "incident_overflow", "signal_count", "signal_overflow", "groups"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "mode": {"const": "summary"},
+        "snapshot": {"$ref": "#/$defs/count"},
+        "session_ceiling": {"$ref": "#/$defs/count"},
+        "part_ceiling": {"$ref": "#/$defs/count"},
+        "database_digest": {"$ref": "#/$defs/digest"},
+        "incident_count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "incident_overflow": {"type": "boolean"},
+        "signal_count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "signal_overflow": {"type": "boolean"},
+        "groups": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/incidentGroup"}}
+      }
+    }
+  }
+}
