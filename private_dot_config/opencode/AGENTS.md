@@ -14,12 +14,22 @@ contracts, tests, backlogs, and changelogs current in the same cycle.
 Discovery auto-triages broad multi-context, multi-repository, independently
 deliverable, or release-grouped intent into a durable Initiative under
 `docs/initiatives/<slug>/`. Git material-statement coverage, context homes,
-specifications, tickets, and fresh readiness receipts are authoritative across
+specifications and fresh readiness receipts are authoritative across
 compaction; Herdr and OpenCode identities are advisory only. Context Discovery
 may run concurrently only with disjoint ownership and satisfied dependencies.
-Create Initiative tickets only after their slice specification is ready. Require
-exact user approval for the current digest-bound slice before invoking
+Discovery and DBSCTR never create or read PM Kernel tickets. Require exact user
+approval for the current digest-bound slice before invoking
 `dbsctr_initiative_launch`; late material intent reopens affected readiness.
+Discovery coordinators and primary Build agents may invoke that typed launcher;
+Plan and subagents remain denied. The launcher preserves the same exact approval
+and identity checks regardless of the calling primary.
+Each slice declares `execution_owner` as `discovery` or `build`; only Build-owned
+slices may issue launch receipts. Discovery owns normative contracts, acceptance
+criteria, dependencies, and slice scope. A Build finding that can materially
+change them returns `readiness_reopened` without editing those artifacts; Build
+may record completion evidence only after implementation.
+Reviewer subagents report gaps read-only. Builder ownership excludes normative
+specifications and slice scope, and whole-cycle QA remains with the primary.
 
 Use `qa` for DBSCTR touched-scope gates. Run repository-wide QA only when the
 user explicitly requests it; Dependabot alerts are QA inputs.

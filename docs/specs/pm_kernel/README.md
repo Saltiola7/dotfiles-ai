@@ -17,7 +17,7 @@ last_updated: 2026-08-19
 | Runtime | Python 3.12+, Git, OpenCode; optional rootless Podman and PostgreSQL 19 |
 | Platforms | macOS host and configured Fedora Lima workspaces |
 | Compatibility | Existing lifecycle backlog rows migrate without loss; Jira remains optional and explicitly invoked |
-| Trust/data | Git tickets may contain private project context; Jira payloads and generated reports are private |
+| Trust/data | Local PM files may contain private project context; Jira payloads and generated reports are private |
 | Delivery | Feature branch and draft pull request; local deployment only after affected gates pass |
 | Authorities | `pytest`, Git fixed-commit inspection, chezmoi dry-run/apply, and configured runtime smokes |
 
@@ -30,14 +30,15 @@ change is in scope until a newer official release is independently approved.
 
 ## Overview
 
-PM Kernel turns evidence into locally authoritative work items, reviews their
+PM Kernel turns authoritative evidence into local reporting work items, reviews their
 readiness, optionally publishes deliberate Jira rollups, and produces factual
 Sprint Review reports. It is an agentic pull workflow rather than a copy of Scrum
 ceremonies. Agile fields remain available for Jira and reporting.
 
-Git ticket files are durable authority. PostgreSQL is a rebuildable cache,
-coordination, query, and SQL/PGQ layer. Jira is an explicitly requested external
-projection and need not correspond one-to-one with local tickets.
+PM files are local reporting inputs under `data/backlog/tickets/`. They exist only
+after direct `pmctl`, `/pm-kernel`, or `/jira-ticket` invocation and have no
+Discovery, DBSCTR, Initiative, DKS, or autonomous-R&D authority. PostgreSQL is a
+rebuildable cache and Jira is an explicitly requested external projection.
 
 ## Goals
 
@@ -80,15 +81,15 @@ Adjacent contexts:
 
 | Term | Definition |
 |---|---|
-| Local Ticket | One canonical Markdown file with YAML frontmatter and an evidence body. |
+| Local Ticket | One local reporting Markdown file with YAML frontmatter and an evidence body. |
 | Ticket ID | Context-prefixed monotonic identity assigned before Jira exists. |
 | Frozen Slug | Filename description chosen at creation and never changed when the title changes. |
-| Context Partition | Stable directory `docs/tickets/context=<bounded_context>/`. |
+| Context Partition | Stable directory `data/backlog/tickets/context=<bounded_context>/`. |
 | PM Gate | Evidence decision for outcome, scope, acceptance, readiness, publication, or review. |
 | Jira Publication | Explicit approved creation or update of one standalone Jira issue from selected local tickets. |
 | Rollup | A Jira narrative synthesized from multiple selected local tickets; it duplicates necessary context rather than becoming authority. |
 | Source Envelope | Sanitized versioned JSON plus source authority, identity, digest, and availability. |
-| Projection | Rebuildable PostgreSQL representation of canonical Git or sanitized runtime evidence. |
+| Projection | Rebuildable PostgreSQL representation of local PM or sanitized runtime evidence. |
 | Sprint Review Report | Private factual Markdown report over explicitly selected Done Jira items and optional supplied goals. |
 
 ## Domain Model
@@ -97,7 +98,7 @@ Adjacent contexts:
 
 - **Local Ticket:** owns ID, frozen slug, context, mutable workflow metadata,
   evidence body, relations, completion evidence, and Jira publication references.
-- **Ticket Revision:** identifies one committed ticket blob and projection digest.
+- **Ticket Revision:** identifies one local ticket SHA-256 and tree digest.
 - **Jira Publication Manifest:** selects local ticket revisions, target issue type,
   complete rollup narrative, exact preview, approval, and resulting Jira key.
 - **Source Envelope:** retains sanitized DBSCTR JSON with its original contract and
@@ -121,24 +122,24 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 
 ## Behavior
 
-### Canonical tickets
+### Local reporting tickets
 
 **Scenario: Preserve stable human-readable identity**
 - Given a bounded context and next context sequence
 - When a Local Ticket is created
-- Then its path is `docs/tickets/context=<context>/<id>-<frozen-slug>.md`
+- Then its path is `data/backlog/tickets/context=<context>/<id>-<frozen-slug>.md`
 - And later title, state, priority, estimate, assignee, or Jira changes never rename it
 
 **Scenario: Reject malformed or misplaced work**
 - Given a ticket whose YAML is duplicated, incomplete, unsafe, or inconsistent
   with its partition, ID, slug, or filename
-- When `pmctl tickets check` or fixed-commit audit runs
+- When directly invoked `pmctl tickets check` runs
 - Then it emits a deterministic finding and does not project or publish the ticket
 
 **Scenario: Keep database absence non-blocking**
 - Given PM Kernel or PostgreSQL has never been enabled
 - When an agent reads or updates local work
-- Then Git ticket workflows remain available
+- Then local PM workflows remain available
 - And no PostgreSQL process, network listener, credential, or state is created
 
 **Scenario: Reapply the PostgreSQL schema safely**
@@ -174,7 +175,7 @@ Events include `TicketCreated`, `TicketRefined`, `TicketReady`, `TicketCommitted
 ### Jira publication
 
 **Scenario: Publish an ad hoc rollup**
-- Given the operator selects one or more exact committed Local Ticket revisions
+- Given the operator selects one or more exact content-hashed Local Ticket revisions
 - And `jira-ticket` has produced a standalone complete Jira narrative
 - When `pmctl jira preview` renders the exact project mapping and payload
 - Then no external write occurs
@@ -228,10 +229,10 @@ truthfully use `No Parent` rather than inferring hierarchy.
 - And a scoped post-apply diff proves the intended merge and private file mode
 
 **Scenario: Recover across a workspace restart**
-- Given a verified logical backup and a clean committed ticket tree
+- Given a verified logical backup and a validated local ticket tree
 - When the personal workspace and PostgreSQL service stop and restart
 - Then the retained volume, loopback-only access, schema, and ticket projection recover
-- And the projection checkpoint advances to the exact committed ticket source identity
+- And the projection checkpoint advances to the exact local tree digest
 
 **Scenario: Defer an unavailable PostgreSQL upgrade safely**
 - Given Beta 3 remains the current PostgreSQL 19 prerelease
@@ -249,18 +250,18 @@ truthfully use `No Parent` rather than inferring hierarchy.
 - And with `--apply` it writes one ticket per row only after full validation
 - And source row, section, commit, and original values remain traceable
 
-**Scenario: Avoid dual authority**
-- Given every row has a valid ticket and every consumer reads ticket files
-- When cutover completes
-- Then lifecycle `BACKLOG.md` files are removed
-- And Discovery, audit, Hermes, templates, and documentation no longer require them
+**Scenario: Keep PM separate from lifecycle authority**
+- Given local reporting tickets exist
+- When Discovery, DBSCTR, Initiative validation, DKS, or autonomous R&D runs
+- Then those workflows do not read the PM files
+- And specifications, Cycle Records, validation evidence, and changelogs remain authoritative
 
 ## Interfaces
 
 ### Ticket path and frontmatter
 
 ```text
-docs/tickets/context=<context>/<id>-<frozen-slug>.md
+data/backlog/tickets/context=<context>/<id>-<frozen-slug>.md
 ```
 
 Required YAML keys are `schema_version`, `id`, `slug`, `context`, `title`, `kind`,
@@ -280,14 +281,15 @@ The Markdown body contains `Outcome`, `Context`, `Scope`, `Acceptance Criteria`,
 | `pmctl tickets check --root ROOT --json` | Report deterministic schema, identity, relation, and completion findings. |
 | `pmctl migrate-backlogs --root ROOT [--apply] --json` | Preview or atomically apply legacy migration. |
 | `pmctl project --source TYPE --input FILE --json` | Project an available validated envelope or an explicit bounded unavailable reason. |
-| `pmctl project-tickets --root ROOT --psql COMMAND --json` | Project the exact clean committed ticket tree, including Markdown evidence bodies. |
+| `pmctl project-tickets --root ROOT --psql COMMAND --json` | Project the exact validated local ticket tree, including Markdown evidence bodies and SHA-256 identities. |
 | `pmctl jira preview --manifest FILE --json` | Render exact external payload without writing. |
 | `pmctl jira publish --manifest FILE --preview-digest DIGEST --confirm DIGEST --json` | Invoke configured adapter after exact confirmation. |
 | `pmctl jira reconcile --manifest FILE --preview-digest DIGEST ... --json` | Resolve one private unknown adapter receipt without mutating Jira. |
 | `pmctl jira project-receipt --manifest FILE --preview-digest DIGEST --psql COMMAND --json` | Project one exact successful private receipt without Jira or Git mutation. |
 | `pmctl sprint-review --jql JQL --confirm-jql-digest DIGEST --project KEY ...` | Read one approved bounded Jira selection and generate a private factual report. |
 
-Agents use the skill and CLI. Direct `psql` is operator/debug access only. A
+Only direct CLI or PM/Jira command invocation activates this workflow. PM Kernel
+never runs DVC or Git mutation commands. Direct `psql` is operator/debug access only. A
 future MCP may wrap the same CLI contracts if multiple clients require typed
 remote discovery; it is not required for the first OpenCode workflow.
 
@@ -322,8 +324,8 @@ PostgreSQL 19 Beta 3 is pinned by its canonical Docker Hub name and exact image
 digest when enabled. Tables
 cover contexts, tickets, ticket revisions, typed relations, publication manifests,
 publication members, Jira events, leases, source envelopes, and projection
-checkpoints. Canonical rows retain source commit/blob and digest. Generic JSONB is
-preserved beside typed query columns, including the canonical Markdown evidence
+checkpoints. Compatibility columns retain source tree/file digests. Generic JSONB is
+preserved beside typed query columns, including the local Markdown evidence
 body, so projection never silently loses ticket context or fields.
 The rootless container binds guest loopback `55432`; one owned Lima rule forwards
 host `127.0.0.1:55432` to that guest loopback address. A host client resolves the
@@ -340,8 +342,8 @@ remain authoritative for the cache.
 
 ## Contracts And Invariants
 
-- Git ticket files are canonical. PostgreSQL and Jira can be rebuilt or reconciled
-  without rewriting ticket identity or history.
+- Local PM files are reporting inputs only. Their content hashes provide iterative
+  identity without making them lifecycle authority.
 - Context, ID, and frozen slug in YAML exactly match path identity.
 - IDs are unique repository-wide; filename slugs are unique within a context.
 - `completed` and at least one commit are required for `done`; they are absent for
@@ -358,8 +360,8 @@ remain authoritative for the cache.
   imports raw transcripts, credentials, environment values, arbitrary paths, or
   unclassified payloads.
 - Database writes are transactional and idempotent by source identity and digest.
-- PostgreSQL failure never corrupts Git authority; rebuild begins from committed
-  tickets and retained sanitized sources.
+- PostgreSQL failure never corrupts local PM files; rebuild begins from validated
+  content-hashed files and retained sanitized sources.
 - PostgreSQL beta upgrades require backup, restore proof, schema migration, and
   rollback evidence before replacing the running service.
 
@@ -403,14 +405,12 @@ consumer tests pass. Re-running the same migration produces the same files.
 - Operations expose version, readiness, last successful projection, source lag,
   failed envelope count, backup age, and schema version without payload content.
 
-## Initiative Ticket Handoff
+## Explicit Invocation Boundary
 
-Initiative discovery creates no speculative intake or refinement tickets. Once a
-delivery-slice specification is ready, its canonical ticket is created in the
-context home and linked from the Initiative manifest. The ticket's identity,
-outcome, scope, acceptance, dependencies, and ownership are stable Build
-contracts. A material revision reopens the slice and invalidates its prior
-manifest digest and readiness receipt before implementation resumes.
+Discovery, DBSCTR, Initiative handling, DKS, and autonomous R&D never invoke PM
+Kernel or inspect its files. An operator may directly invoke `pmctl`, `/pm-kernel`,
+or `/jira-ticket` to create reporting material from already authoritative evidence.
+That material does not enter Initiative manifests or Build contracts.
 
 ## Validation Strategy
 
@@ -436,28 +436,28 @@ manifest digest and readiness receipt before implementation resumes.
 | Interaction | required: Jira publication sequence | Which checks precede an external write? | Jira behavior and CLI | PM owner; adapter or approval changes |
 | State | required: Local Ticket lifecycle | Which evidence transitions work? | Domain Model and Behavior | PM owner; state/gate changes |
 | Data/trust | required: authority and trust-boundary flow | Where may private content move? | Security and Operations | PM owner; storage or integration changes |
-| Schema | required: ticket/projection relationship | How do Git identity and projections relate? | Interfaces | PM owner; schema changes |
+| Schema | required: ticket/projection relationship | How do local content identities and projections relate? | Interfaces | PM owner; schema changes |
 | Dependency/deployment | required: optional PostgreSQL topology | What exists when the feature is disabled or enabled? | Configuration and Operations | Distribution owner; runtime changes |
 | Quantitative | not_applicable: point choices and limits are invariants, not comparative evidence | - | Domain Model | PM owner |
 
 ```mermaid
 flowchart LR
     accTitle: PM Kernel authority and trust boundaries
-    accDescr: Git ticket files are canonical; the validated CLI reads and changes local tickets, builds explicit Jira payload previews, and projects sanitized evidence to optional PostgreSQL. Jira and PostgreSQL never become ticket authority.
-    A[Agent via PM skill] --> C[Validated pmctl]
-    C -->|canonical local change| G[(Git ticket files)]
-    G -->|committed revision| C
+    accDescr: Direct operator invocation reaches validated pmctl, which reads local content-hashed PM files, builds explicit Jira payload previews, and optionally projects them to PostgreSQL. No PM component becomes lifecycle authority.
+    A[Direct PM invocation] --> C[Validated pmctl]
+    C -->|local reporting change| G[(data/backlog tickets)]
+    G -->|SHA-256 revision| C
     C -->|sanitized rebuildable projection| P[(Optional PostgreSQL 19)]
     C -->|exact approved payload| J[Jira]
     J -->|key and bounded result| C
     C -->|private snapshot| R[Git-ignored review reports]
 ```
 
-**Text Equivalent:** Agents use PM Kernel guidance and the validated CLI. The CLI
-reads and writes canonical Git ticket files. It may cache committed revisions and
+**Text Equivalent:** Direct PM invocations use PM Kernel guidance and the validated CLI. The CLI
+reads and writes local reporting files. It may cache content-hashed revisions and
 sanitized DBSCTR envelopes in optional PostgreSQL, send an exactly previewed and
 approved payload to Jira, and write private reports beneath the Git-ignored data
-tree. Neither PostgreSQL, Jira, nor reports can replace Git ticket authority.
+tree. Neither PM files, PostgreSQL, Jira, nor reports become lifecycle authority.
 
 ```mermaid
 stateDiagram-v2
@@ -490,10 +490,10 @@ sequenceDiagram
     accDescr: The operator selects exact local revisions, Jira refinement creates a complete standalone rollup, pmctl validates the project mapping and emits a payload digest, and only an exact matching confirmation permits one adapter write and local evidence recording.
     participant O as Operator
     participant P as PM Kernel
-    participant G as Git tickets
+    participant G as Local PM files
     participant J as Jira adapter
     O->>P: Select local ticket revisions
-    P->>G: Validate IDs, blobs, readiness, and evidence
+    P->>G: Validate IDs, SHA-256, readiness, and evidence
     P-->>O: Exact standalone Jira payload and digest
     O->>P: Confirm exact digest
     P->>P: Revalidate source revisions and project mapping
@@ -507,7 +507,7 @@ sequenceDiagram
     end
 ```
 
-**Text Equivalent:** The operator selects exact committed Local Ticket revisions.
+**Text Equivalent:** The operator selects exact content-hashed Local Ticket revisions.
 PM Kernel validates them and produces one complete Jira rollup payload plus a
 digest. Only confirmation of that exact digest permits the configured adapter to
 write. Source drift or invalid mapping blocks the write. An ambiguous response
@@ -518,7 +518,7 @@ provenance without making Jira authoritative.
 ```mermaid
 flowchart TB
     accTitle: Optional PostgreSQL deployment
-    accDescr: Default configuration creates no service. When explicitly enabled for one configured workspace, rootless Podman runs pinned PostgreSQL 19 with private connectivity, persistent storage, health checks, and backup and restore operations while Git remains authoritative.
+    accDescr: Default configuration creates no service. When explicitly enabled for one configured workspace, rootless Podman runs pinned PostgreSQL 19 with private connectivity, persistent storage, health checks, and backup and restore operations while local PM files remain the rebuild source.
     D{pm_kernel and postgres enabled?}
     D -->|Never enabled| N[No container, port, credential, or volume]
     D -->|Disabled after use| RV[Runtime removed; recovery volume retained]
@@ -542,8 +542,8 @@ volume. When both flags are enabled for one configured workspace,
 rootless Podman runs an exact PostgreSQL 19 image. Host access is limited to one
 owned loopback forward; 1Password provisions a guest Podman secret through stdin.
 The named volume has readiness checks and seven external weekly dumps, each
-accepted only after scratch restore verification. Git tickets continue to work
-and remain authoritative if the service is unavailable.
+accepted only after scratch restore verification. Local PM reporting continues to
+work if the service is unavailable; lifecycle authority remains elsewhere.
 
 ## PMK-001 Gate Ledger (Historical)
 

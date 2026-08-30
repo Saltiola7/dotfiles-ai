@@ -1246,7 +1246,7 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
             "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
 
 
-def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
+def test_autonomous_rnd_does_not_read_pm_tickets(tmp_path, monkeypatch):
     root = tmp_path / "projects"
     repo = root / "project"
     context = repo / "docs/specs/example"
@@ -1267,38 +1267,10 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
                     values(review_workdir=str(repo), roots=[str(root)]))
     namespace = {"__name__": "dbsctr_rnd_backlogs"}
     exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
-    namespace["PMCTL"] = str(ROOT / "dot_local/bin/executable_pmctl")
-    subprocess.run(["python3", namespace["PMCTL"], "migrate-backlogs", "--root", str(repo),
-                    "--apply", "--json"], check=True, capture_output=True, text=True)
     discovered = namespace["canonical_backlogs"]()
-    assert len(discovered["backlogs"]) == 1
-    assert discovered["backlogs"][0]["id"] == "X-1"
-    assert discovered["backlogs"][0]["title"] == "Refine | work"
-    assert len(discovered["backlogs"][0]["idempotency_key"]) == 64
-    repository = namespace["backlog_repositories"]()["repositories"][0]
-    assert repository["profile"].startswith("project-")
-    assert len(repository["profile"]) <= 64
-
-    ticket = next((repo / "docs/tickets/context=example").glob("*.md"))
-    valid = ticket.read_text()
-    ticket.write_text(valid.replace("state: \"intake\"", "state: \"unknown\""))
-    try:
-        namespace["canonical_backlogs"]()
-    except RuntimeError as error:
-        assert "failed" in str(error)
-    else:
-        raise AssertionError("malformed ticket was accepted")
-    ticket.write_text(valid)
-
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (repo / "docs/tickets/context=escape").symlink_to(outside, target_is_directory=True)
-    try:
-        namespace["canonical_backlogs"]()
-    except RuntimeError as error:
-        assert "failed" in str(error)
-    else:
-        raise AssertionError("backlog symlink escape was accepted")
+    assert discovered == {"backlogs": [], "schema_version": 1}
+    assert namespace["backlog_repositories"]()["repositories"][0]["repository"] == str(repo)
+    assert "PMCTL" not in namespace
 
 
 def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeypatch, capsys):
@@ -1325,7 +1297,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
         def terminate(self):
             raise AssertionError("registered process was terminated")
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     runner["session_ids"] = lambda _repository: next(sessions)
@@ -1347,7 +1319,7 @@ def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path
     repository.mkdir()
     reservation, reason = runner["reserve_spawn"]([], 100)
     assert reason == "reserved"
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     monkeypatch.setattr(runner["time"], "time", lambda: 100 + runner["RESERVATION_LEASE_SECONDS"] + 1)
@@ -1385,7 +1357,7 @@ def test_direct_launch_reaps_process_when_reservation_cleanup_fails(tmp_path, mo
             events.append(("wait", timeout))
             return 0
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     calls = 0
@@ -1446,7 +1418,7 @@ def test_direct_launch_kills_group_after_leader_exits(tmp_path, monkeypatch):
             assert timeout == 5
             return 0
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     calls = 0
@@ -1497,9 +1469,6 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
     subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repository, check=True)
     subprocess.run(["git", "commit", "-m", "backlog"], cwd=repository, check=True, capture_output=True)
-    subprocess.run(["python3", str(ROOT / "dot_local/bin/executable_pmctl"),
-                    "migrate-backlogs", "--root", str(repository), "--apply", "--json"],
-                   check=True, capture_output=True, text=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     command_log = tmp_path / "commands.log"
@@ -1549,7 +1518,6 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "DBSCTRCTL": str(dbsctrctl),
         "DBSCTR_RND_STATE": str(state),
         "OPENCODE_BIN": str(opencode),
-        "PMCTL": str(ROOT / "dot_local/bin/executable_pmctl"),
         "PID_FILE": str(pid_file),
         "SESSION_MARKER": str(session_marker),
     }

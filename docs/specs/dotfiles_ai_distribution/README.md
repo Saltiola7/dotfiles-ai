@@ -492,26 +492,14 @@ feature branch with a draft pull request; the operator retains merge authority.
   and removes the owned Quadlet definitions, unloads and removes the owned
   LaunchAgent, removes only the exact Atuin forward, and retains the named volume.
 
-### Canonical Backlog Refinement
+### Explicit PM Isolation
 
-- Given a configured discovery root, when reconciliation runs, then it considers
-  only canonical Git paths `REPOSITORY/docs/tickets/context=CONTEXT/*.md` whose real
-  paths stay beneath that root; symlink escapes, malformed tickets, and bounded-scan
-  overflow fail closed.
-- The host system profile reads only its configured managed dotfiles repositories.
-  A client profile scans repositories directly beneath its configured client root;
-  the personal catalog scans its configured personal root and creates one
-  project-local profile and Kanban board only for canonical Active work.
-- Given a valid nonterminal ticket, then repository identity, context, and ticket ID
-  derive one idempotent Kanban identity. Git backlog fields remain authoritative;
-  Hermes enrichment remains task metadata and never edits the source file.
-- Given OpenCode changes a ticket, then the next bounded reconciliation updates
-  or completes its mirrored task. Missing or incompatible active work blocks for
-  review rather than disappearing. A temporarily malformed file preserves the
-  last valid mirror.
-- Personal refinement runs one project at a time. Raw backlog content, memory,
-  generated skills, findings, and task details never cross host, client, or personal
-  profile boundaries.
+- Autonomous R&D and Hermes catalog reconciliation return no PM backlog entries
+  and never invoke `pmctl`.
+- Direct `pmctl`, `/pm-kernel`, or `/jira-ticket` invocation is the only PM entry
+  boundary.
+- The managed global Git excludes file ignores `.dbsctr/`, legacy root plan JSON,
+  `data/backlog/`, and `docs/tickets/` without changing repository-local policy.
 
 ### Optional Workspace Tailnet Access
 

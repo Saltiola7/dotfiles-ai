@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 PMCTL = ROOT / "dot_local/bin/executable_pmctl"
+TICKETS = Path("data/backlog/tickets")
 
 
 def run(root, *args, check=True):
@@ -16,11 +17,16 @@ def run(root, *args, check=True):
                           text=True, capture_output=True, check=check)
 
 
-def test_initiative_tickets_start_specification_ready_and_remain_stable():
+def source_member(root, ticket):
+    path = root / ticket["path"]
+    return {"id": ticket["id"], "path": ticket["path"],
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def test_pm_kernel_is_explicit_and_separate_from_dbsctr():
     skill = (ROOT / "dot_agents/skills/pm-kernel/SKILL.md").read_text()
-    for term in ("Initiative", "specification is ready", "Do not create intake",
-                 "manifest digest", "stable contract", "reopen"):
-        assert term.lower() in skill.lower()
+    assert "only after direct" in skill.lower()
+    assert "Discovery" in skill and "DBSCTR" in skill and "never invoke" in skill
 
 
 def test_jira_adf_text_preserves_structure():
@@ -74,7 +80,7 @@ def test_migration_dry_run_is_deterministic_and_complete(tmp_path):
     second = json.loads(run(tmp_path, "migrate-backlogs").stdout)
     assert first == second
     assert [item["id"] for item in first["tickets"]] == ["EX-0", "EX-1"]
-    assert not (tmp_path / "docs/tickets").exists()
+    assert not (tmp_path / TICKETS).exists()
 
 
 def test_migration_apply_is_idempotent_and_preserves_source(tmp_path):
@@ -101,15 +107,16 @@ def test_ticket_check_rejects_duplicate_yaml_and_wrong_identity(tmp_path):
     assert json.loads(failed.stdout)["findings"][0]["code"] == "invalid_ticket_yaml"
 
 
-def test_repository_tickets_are_canonical():
+def test_repository_has_no_implicit_pm_backlog():
     checked = run(ROOT, "tickets", "check", check=False)
     assert checked.returncode == 0, checked.stdout
+    assert json.loads(checked.stdout)["tickets"] == []
 
 
 def test_migration_refuses_all_outputs_before_destination_conflict(tmp_path):
     init_git(tmp_path)
     backlog(tmp_path, "| EX-1 | Refine work | high | pending | - | code | docs | no | Needed | S | pytest |\n")
-    target = tmp_path / "docs/tickets/context=example/EX-1-refine-work.md"
+    target = tmp_path / TICKETS / "context=example/EX-1-refine-work.md"
     target.parent.mkdir(parents=True)
     target.write_text("foreign\n")
     failed = run(tmp_path, "migrate-backlogs", "--apply", check=False)
@@ -126,15 +133,7 @@ def test_jira_rollup_requires_exact_preview_confirmation(tmp_path):
     for ticket in migrated["tickets"]:
         path = tmp_path / ticket["path"]
         path.write_text(path.read_text().replace('state: "intake"', 'state: "ready"'))
-    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
-                            text=True, capture_output=True).stdout.strip()
-    members = []
-    for ticket in migrated["tickets"]:
-        blob = subprocess.run(["git", "rev-parse", f"HEAD:{ticket['path']}"], cwd=tmp_path,
-                              check=True, text=True, capture_output=True).stdout.strip()
-        members.append({"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob})
+    members = [source_member(tmp_path, ticket) for ticket in migrated["tickets"]]
     manifest = tmp_path / "jira.json"
     manifest.write_text(json.dumps({
         "publication_id": "test-rollup", "target": {"mode": "create"},
@@ -276,18 +275,12 @@ def test_jira_acli_unknown_result_blocks_retry(tmp_path):
     ticket = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)["tickets"][0]
     path = tmp_path / ticket["path"]
     path.write_text(path.read_text().replace('state: "intake"', 'state: "ready"'))
-    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
-                            text=True, capture_output=True).stdout.strip()
-    blob = subprocess.run(["git", "rev-parse", f"HEAD:{ticket['path']}"], cwd=tmp_path,
-                          check=True, text=True, capture_output=True).stdout.strip()
     manifest = tmp_path / "jira.json"
     manifest.write_text(json.dumps({
         "publication_id": "unknown-rollup", "target": {"mode": "create"},
         "project": "TEST", "issue_type": "Story", "summary": "Unknown outcome",
         "description": "Complete context", "source_tickets": [
-            {"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob},
+            source_member(tmp_path, ticket),
         ],
     }))
     digest = json.loads(subprocess.run([
@@ -326,18 +319,12 @@ def test_jira_acli_create_is_locked_by_publication(tmp_path):
     ticket = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)["tickets"][0]
     path = tmp_path / ticket["path"]
     path.write_text(path.read_text().replace('state: "intake"', 'state: "ready"'))
-    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
-                            text=True, capture_output=True).stdout.strip()
-    blob = subprocess.run(["git", "rev-parse", f"HEAD:{ticket['path']}"], cwd=tmp_path, check=True,
-                          text=True, capture_output=True).stdout.strip()
     manifest = tmp_path / "jira.json"
     manifest.write_text(json.dumps({
         "publication_id": "concurrent-rollup", "target": {"mode": "create"},
         "project": "TEST", "issue_type": "Story", "summary": "Concurrent outcome",
         "description": "Complete context", "source_tickets": [
-            {"id": ticket["id"], "path": ticket["path"], "commit": commit, "blob": blob},
+            source_member(tmp_path, ticket),
         ],
     }))
     digest = json.loads(subprocess.run([
@@ -416,12 +403,10 @@ def test_projection_rejects_secrets_and_uses_psql_stdin(tmp_path):
     assert "'unavailable'" in capture.read_text()
 
 
-def test_ticket_projection_requires_committed_tree_and_records_revisions(tmp_path):
+def test_ticket_projection_uses_local_content_identity_and_records_revisions(tmp_path):
     init_git(tmp_path)
     backlog(tmp_path, "| EX-1 | Refine | high | pending | - | code | docs | no | Needed | S | pytest |\n")
     migrated = json.loads(run(tmp_path, "migrate-backlogs", "--apply").stdout)
-    subprocess.run(["git", "add", "docs/tickets"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-m", "tickets"], cwd=tmp_path, check=True, capture_output=True)
     psql = tmp_path / "psql"
     capture = tmp_path / "ticket-sql"
     psql.write_text(f"#!/bin/sh\ncat > {capture}\n")
@@ -431,15 +416,28 @@ def test_ticket_projection_requires_committed_tree_and_records_revisions(tmp_pat
     assert json.loads(projected.stdout)["projected"] == 1
     assert "context.ticket_revisions" in capture.read_text()
     assert '"body":"## Outcome' in capture.read_text()
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
-                          text=True, capture_output=True).stdout.strip()
-    assert json.loads(projected.stdout)["commit"] == head
-    assert f"'tickets','{head}',1" in capture.read_text()
+    identity = json.loads(projected.stdout)["source_identity"]
+    assert len(identity) == 64
+    assert f"'tickets','{identity}',1" in capture.read_text()
     ticket = tmp_path / migrated["tickets"][0]["path"]
     ticket.write_text(ticket.read_text().replace('title: "Refine"', 'title: "Dirty"'))
-    denied = subprocess.run(["python3", str(PMCTL), "project-tickets", "--root", str(tmp_path),
-                             "--psql", str(psql), "--json"], text=True, capture_output=True)
-    assert denied.returncode == 1 and "clean committed ticket tree" in denied.stderr
+    updated = subprocess.run(["python3", str(PMCTL), "project-tickets", "--root", str(tmp_path),
+                              "--psql", str(psql), "--json"], check=True, text=True, capture_output=True)
+    assert json.loads(updated.stdout)["source_identity"] != identity
+
+
+def test_ticket_tree_identity_has_unambiguous_member_framing(tmp_path):
+    loader = importlib.machinery.SourceFileLoader("pmctl_tree_identity", str(PMCTL))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "a").write_bytes(b"b\0content")
+    (second / "a").write_bytes(b"")
+    (second / "b").write_bytes(b"content")
+    assert module.ticket_tree_digest(first) != module.ticket_tree_digest(second)
 
 
 def test_sprint_review_preserves_every_issue_once_and_goals(tmp_path):
