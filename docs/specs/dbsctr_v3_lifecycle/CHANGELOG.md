@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-30 - History/Incident Core Readiness Repair
+
+- Bound aggregate History and Incident summary modes to exact version-1 JSON
+  schemas, metric authorities, cohort semantics, deterministic ordering, bounded
+  tool and failure-class allowlists, and truthful 100-row overflow.
+- Required hidden page identity before bulk metric work and bound immutable
+  continuation and optional cache reuse to exact source and method identity.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-08-30 - Cycle-Speed Contract Reconciliation
 
 - Reconciled the delivered performance-audit workflow, specified deterministic
