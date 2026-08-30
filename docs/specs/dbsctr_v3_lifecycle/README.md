@@ -1848,6 +1848,11 @@ historical table row and fixed-commit identity.
 - Explicit lifecycle markers produce Phase Spans with opaque identity, parent and dependency identity,
   phase or operation class, start/end timing, wait/active duration when available,
   result, attribution status, and repository-relative ownership paths.
+- Phase Span start and finish shapes are validated before private-lock acquisition.
+  Malformed markers fail without waiting for unrelated readers or mutating private
+  state. The typed adapter bounds valid helper execution to 30 seconds, terminates
+  the helper process group on timeout, and reports `command timed out` rather than
+  waiting indefinitely behind private-ledger contention.
 - OpenCode exposes no supported universal tool/subagent timing callback in the
   configured runtime. Unsupported automatic observations remain unavailable;
   message persistence times never substitute for operation boundaries.

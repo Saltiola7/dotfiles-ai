@@ -4737,6 +4737,19 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(unavailable["status"], "unavailable")
         self.assertFalse(state.exists())
 
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True)
+        with (reviews / ".lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            invalid = subprocess.run(
+                [sys.executable, str(SCRIPT), "phase-span", "--state-root", str(state),
+                 "--span-id", "invalid", "--event", "start", "--phase", "domain",
+                 "--operation", "read"],
+                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=1,
+            )
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("phase span start requires phase, operation, and attribution only", invalid.stderr)
+
         common = (
             "--state-root", str(state), "--span-id", "read-a",
             "--phase", "domain", "--operation", "read",

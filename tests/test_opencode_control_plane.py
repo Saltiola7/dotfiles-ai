@@ -1094,6 +1094,39 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
     ]
 
 
+def test_phase_span_adapter_rejects_invalid_input_and_times_out(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "phase-span.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        '#!/bin/sh\nprintf "called\\n" >> "$PHASE_SPAN_LOG"\n'
+        '[ "$PHASE_SPAN_MODE" = "sleep" ] && exec sleep 5\nprintf "{}\\n"\n'
+    )
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PHASE_SPAN_LOG": str(log)}
+    invalid = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"invalid",event:"start",phase:"domain",operation:"read"},process.cwd(),50);'],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+    assert invalid.returncode != 0
+    assert "phase span start requires phase, operation, and attribution only" in invalid.stderr
+    assert not log.exists()
+
+    timed_out = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"slow",event:"start",phase:"domain",operation:"read",'
+         'attribution:"explicit"},process.cwd(),50);'],
+        cwd=ROOT, env={**env, "PHASE_SPAN_MODE": "sleep"}, text=True, capture_output=True,
+    )
+    assert timed_out.returncode != 0
+    assert "command timed out" in timed_out.stderr
+
+
 def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

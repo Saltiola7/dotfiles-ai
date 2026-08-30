@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - Phase Span Lock Timeout
+
+- Made malformed Phase Span markers fail before private-lock acquisition and
+  bounded typed marker execution to 30 seconds with process-group cleanup and an
+  explicit timeout error, preventing silent indefinite waits behind concurrent
+  private-ledger readers.
+- Affected QA passed 249 tests with one expected skip, Python compilation, and
+  Git whitespace validation. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
 ## 2026-08-29 - V3.41 Deterministic Draft Delivery
 
 - Normalized protected-base `merge` begins to `draft_pr`, derived canonical
