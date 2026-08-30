@@ -278,19 +278,20 @@ The completed DAI-016-F1 applicability plan is retained at
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
 rendered targets, installation, migration, rollback, and maintenance for the
-DBSCTR/OpenCode/Herdr workbench. Adjacent contexts own lifecycle semantics,
-OpenCode control-plane behavior, and shell authentication.
+DBSCTR/OpenCode/Codex/Herdr workbench. Adjacent contexts own lifecycle semantics,
+runtime control-plane behavior, and shell authentication. Managed Codex behavior
+is specified in [`features/codex-cli.md`](features/codex-cli.md).
 
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
-| Boundary | required: host/workspace trust flowchart | Which runtime owns orchestration, implementation, presentation, lifecycle, and credentials? | Bounded Context and Constraints in PRODUCT.md | Distribution owner; runtime or trust boundary changes |
+| Boundary | required: host/workspace trust flowchart plus Codex feature topology | Which runtime owns orchestration, implementation, presentation, lifecycle, and credentials? | Bounded Context, Constraints in PRODUCT.md, and `features/codex-cli.md` | Distribution owner; runtime or trust boundary changes |
 | Interaction | required: approval-handoff sequence | Where must automation stop for human authority? | Autonomous R&D Worker and Collaborative Git Delivery | Distribution owner; approval or delivery flow changes |
 | State | not_applicable: claim and cycle states are authoritative in the lifecycle specification | - | `dbsctr_v3_lifecycle` | Lifecycle owner |
-| Data/trust | required: host/workspace trust flowchart | What may cross VM and host boundaries? | Federated Host R&D contracts | Distribution owner; federation changes |
+| Data/trust | required: host/workspace trust flowchart plus Codex feature topology | What may cross VM and host boundaries? | Federated Host R&D contracts and `features/codex-cli.md` | Distribution owner; federation changes |
 | Schema | not_applicable: TOML and generated schema contracts remain authoritative text and tests | - | Interfaces And Contracts | Distribution owner |
-| Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
+| Dependency/deployment | required: delivered host/workspace flowchart plus captured Codex feature flowchart | Which managed components run on host and guests? | Engineering Profile, workspace contracts, and `features/codex-cli.md` | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
 
 DAI-024 adds the optional personal Atuin service and host loopback ingress shown
@@ -300,6 +301,12 @@ and its Text Equivalent remain current.
 DAI-032 changes host package ownership, while DAI-035 changes launch recovery and
 machine-local source selection. Neither changes topology, approval, or trust
 boundaries; the same visuals remain current.
+
+The flowchart below remains canonical for the delivered OpenCode/Hermes/Herdr
+topology. The captured, not-yet-delivered Codex host/guest homes, managed
+launchers, desktop separation, install flow, and target transitions are
+canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
+required until Codex deployment updates this delivered topology.
 
 ```mermaid
 flowchart LR
@@ -383,6 +390,8 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 - Reproduce the maintainer's working AI development configuration without
   committing machine-local identifiers or secrets.
+- Install and configure OpenCode and Codex as independently selectable peer
+  runtimes on the host and managed Fedora guests.
 - Keep optional 1Password integration fail-open for Herdr startup.
 - Provide machine-local opt-in Hermes scheduling, context-isolated backlog
   refinement, and resumable OpenCode R&D workers.
@@ -393,9 +402,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Non-goals
 
-- Installing Herdr, provider credentials, or unrelated developer tools; OpenCode
-  is the only required host package installed by this source, and DAI-016 installs
-  Hermes only when orchestration is explicitly enabled.
+- Installing provider credentials or unrelated developer tools; OpenCode and
+  Codex are the managed host agent packages, while DAI-016 installs Hermes only
+  when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
 - Guessing unresolved Discovery answers or autonomously merging critical fixes.
