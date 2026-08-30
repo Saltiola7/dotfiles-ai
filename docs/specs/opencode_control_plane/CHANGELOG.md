@@ -11,6 +11,9 @@
   host rather than applying their source-side removal; fresh OpenCode processes
   are required to load the new agent and tool bundle. All 147 affected tests,
   rendered JSON, permission assertions, and Git whitespace validation pass.
+- Rollback reapplies the prior managed adapter and config together; keeping the
+  handoff denied is the safe intermediate state if those targets cannot move
+  atomically.
 
 ## 2026-08-29 - DKS Query Recovery Discovery
 

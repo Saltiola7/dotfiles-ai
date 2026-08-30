@@ -8,6 +8,10 @@
 - `sandbox-vm update-all` updated both configured workspaces. Host, `personal`,
   and `mgm` report exact 1.18.25 parity; the targeted scheduler and runtime files
   were deployed, and all 147 affected tests pass.
+- An operator-approved schedule reset cleared the retained `malformed_state`,
+  reservations, and launch backoff. Schema 3 health now reports no halt, no active
+  attempt, and no launch backoff. Existing managed rollback restores each guest's
+  prior runtime if a future ordered update fails.
 
 ## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
 
