@@ -595,8 +595,8 @@ Discovery state, operator or autonomous authorization, Discovery report, exact
 declared paths, and autonomous readiness risk to match. Missing, placeholder,
 stale, or mismatched evidence fails without running parity or Herdr. Approval is
 bound to the resolved workspace and VM instance; after approval the adapter
-rereads the worker ledger, runs parity, and requires the instance to remain
-unchanged before any `limactl` call.
+rereads the worker ledger, runs parity in one process bound to that approved
+instance, and rereads the ledger again immediately before any `limactl` call.
 
 Given a Build session remains rooted in the source checkout, typed reconciliation
 may name an isolated linked worktree. The adapter canonicalizes both paths and
