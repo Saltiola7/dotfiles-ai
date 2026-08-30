@@ -1548,9 +1548,16 @@ def cycle_performance_stats(values):
 
 
 def completed_cycle_records(repository):
-    records = []
-    directory = cycle_dir(repository) / "cycles"
-    for path in sorted(directory.glob("*.json")) if directory.is_dir() else ():
+    records = {}
+    directories = {cycle_dir(repository), cycle_dir(repository) / "cycles",
+                   legacy_cycle_dir(repository)}
+    for line in git(repository, "worktree", "list", "--porcelain").stdout.splitlines():
+        if line.startswith("worktree "):
+            with contextlib.suppress(RuntimeError):
+                directories.add(legacy_cycle_dir(Path(line.removeprefix("worktree "))))
+    paths = sorted({path for directory in directories if directory.is_dir()
+                    for path in directory.glob("*.json")})
+    for path in paths:
         try:
             record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
         except (OSError, json.JSONDecodeError) as error:
@@ -1559,8 +1566,10 @@ def completed_cycle_records(repository):
         if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id) or cycle_id != path.stem:
             fail("Cycle Record contains an invalid cycle ID")
         if record.get("state") == "completed":
-            records.append(record)
-    return records
+            if cycle_id in records and records[cycle_id] != record:
+                fail("Cycle Record identity is ambiguous")
+            records[cycle_id] = record
+    return [records[cycle_id] for cycle_id in sorted(records)]
 
 
 def cycle_performance(records, spans, filters):
@@ -1579,6 +1588,8 @@ def cycle_performance(records, spans, filters):
         if any(values[name] != value for name, value in filters.items()):
             continue
         counters = record.get("metrics", {})
+        if not isinstance(counters, dict):
+            fail("Cycle Record contains invalid metrics")
         cycle_metrics = {output: counters.get(stored, 0) for output, stored in metric_names.items()}
         if any(type(value) is not int or value < 0 for value in cycle_metrics.values()):
             fail("Cycle Record contains invalid metrics")
