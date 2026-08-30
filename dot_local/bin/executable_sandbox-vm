@@ -795,7 +795,7 @@ def verify_opencode_parity(config, workspace, execute=command):
             guest = guest_opencode_version(workspace, execute)
         finally:
             _restore_instance_state(execute, instance, running)
-    return {"host": host, "guest": guest}
+    return {"host": host, "guest": guest, "instance": instance}
 
 
 def update_managed_workspace(config, workspace, execute=command, installer=None, updater=None):
@@ -1583,6 +1583,8 @@ def main(argv=None, invocation=None):
     for name in ("create", "start", "stop", "update", "install-make", "instance", "render", "validate", "shell", "tailscale-enroll", "parity"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
+        if name == "parity":
+            sub.add_argument("--instance")
         if name == "shell":
             sub.add_argument("args", nargs=argparse.REMAINDER)
     review = commands.add_parser("review")
@@ -1678,6 +1680,8 @@ def main(argv=None, invocation=None):
         print(workspace["instance"])
         return
     if args.command == "parity":
+        if args.instance and workspace["instance"] != args.instance:
+            raise SystemExit("workspace instance changed")
         print(json.dumps(verify_opencode_parity(config, workspace), sort_keys=True))
         return
     if args.command == "render":

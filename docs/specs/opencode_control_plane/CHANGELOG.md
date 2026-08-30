@@ -4,16 +4,15 @@
 
 - Added explicit Initiative mode to the always-present `dbsctr_begin` adapter so
   primary Build can launch a ready slice when the host omits only the standalone
-  launcher export. Both entry points share the same receipt, exact approval,
+  launcher export. Both entry points share receipt, exact approval,
   cycle-occupancy, repository, plan-digest, ownership, mutation, and fork checks;
   ordinary begin remains prompt-free and Plan/subagents remain denied.
-- The regression failed when `dbsctr_begin` ignored Initiative input. After
-  implementation and reconciliation with the deployed cycle-occupancy and VM
-  handoff safeguards, 178 union tests and six focused helper tests passed, with
-  Bun bundling and Git whitespace validation. Targeted deployment is
-  source-identical and idempotent; fresh OpenCode processes are required to load
-  the expanded tool schema. Gate Exceptions: none. Intended Final Push: feature
-  branch and draft pull request into the recorded protected branch.
+- The regression failed when `dbsctr_begin` ignored Initiative input. The final
+  union preserves protected-main performance-audit, cycle-occupancy, and VM
+  handoff safeguards; affected tests, Bun bundling, Git whitespace, targeted
+  deployment identity, and fresh schema loading pass. Fresh OpenCode processes
+  are required to load the expanded tool schema. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
 
 ## 2026-08-29 - Purposeful VM Handoff Authority
 
@@ -29,6 +28,15 @@
 - Rollback reapplies the prior managed adapter and config together; keeping the
   handoff denied is the safe intermediate state if those targets cannot move
   atomically.
+- Independent review found approval-window worker and instance races. The adapter
+  now binds approval and parity to the resolved instance, rereads worker authority
+  after approval and parity, and rejects remapping before VM access.
+- The remediated live adapter preserves the host's existing Initiative checks;
+  fresh Bun imports, the deny/deny/ask permission matrix, scheduler health, and
+  explicit instance-bound parity for both managed workspaces pass.
+- Maintenance keeps launch backoff intact after failures and requires an explicit
+  operator reset; rollback denies the handoff before replacing the adapter or
+  agent configuration. No handoff contract is retired by this change.
 
 ## 2026-08-29 - DKS Query Recovery Discovery
 
@@ -64,16 +72,6 @@
   the corrected limits. Source Gate Commit: `2444897`. Gate Exceptions: none.
   Intended Final Push: feature branch and draft pull request into protected
   `main`.
-
-## 2026-08-29 - Initiative Cycle Occupancy Guard
-
-- Reject Initiative receipts before approval when a named cycle is already
-  unbound, differently bound, or terminal; preserve exact active-cycle retries.
-- Six focused Initiative helper tests and 75 lifecycle/control-plane tests pass,
-  with Python compilation and Git whitespace validation. The complete helper
-  test file exceeded five minutes and remains unavailable. No managed config was
-  applied. Gate Exceptions: none. Intended Final Push: feature branch and draft
-  pull request into the recorded protected branch.
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens

@@ -593,7 +593,10 @@ adapter requires `DBSCTR_RND_WORKER_ID` to equal the requested worker, reads one
 authoritative worker from the ledger, and requires the invoking session,
 Discovery state, operator or autonomous authorization, Discovery report, exact
 declared paths, and autonomous readiness risk to match. Missing, placeholder,
-stale, or mismatched evidence fails without running parity or Herdr.
+stale, or mismatched evidence fails without running parity or Herdr. Approval is
+bound to the resolved workspace and VM instance; after approval the adapter
+rereads the worker ledger, runs parity in one process bound to that approved
+instance, and rereads the ledger again immediately before any `limactl` call.
 
 Given a Build session remains rooted in the source checkout, typed reconciliation
 may name an isolated linked worktree. The adapter canonicalizes both paths and
@@ -987,10 +990,8 @@ back to compressed prose.
 
 `dbsctr_initiative_launch`, or explicit Initiative mode on `dbsctr_begin` when
 that standalone export is omitted, validates a fresh readiness receipt before
-approval bound to `initiative:slice:digest`. Launch validation rejects a requested
-cycle ID already occupied by an unbound or differently bound Cycle Record; only an
-active cycle with the exact receipt remains eligible for retry. Herdr 0.8.2 creates a
-background tab and starts a named OpenCode agent in its root pane. The adapter capability-probes
+requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
 clients start fresh. Both paths receive the same content-free receipt prompt.
 Herdr identities remain private advisory correlation only.

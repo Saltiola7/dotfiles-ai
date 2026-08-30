@@ -1,5 +1,34 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - V3.43 Reproducible Performance Audit
+
+- Added the report-only `dbsctr-performance-audit` skill and thin OpenCode command
+  with ordered cycle/session/incident evidence, one-shot DKS and telemetry fallback,
+  fixed-commit Explore, public Scout, complete surface mapping, RCA, quality
+  guardrails, and delivery-slice output.
+- Focused red/green contracts and 99 affected lifecycle, control-plane, and portable
+  distribution tests passed with Git whitespace validation. No generic independent
+  reviewer was invoked because the elevated slice was neither explicit review nor
+  critical work.
+- Targeted Chezmoi deployment was source-identical and idempotent for the new skill
+  and command. The installed OpenCode `debug skill` command currently renders help
+  rather than a skill inventory, so managed-file identity and loader contracts are
+  the truthful deployment evidence; a literal installed command-to-skill assertion
+  also passed. Gate Exceptions: none. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+## 2026-08-29 - Resolved Schema-5 Readiness
+
+- Resolved all-new-cycle schema-5 creation, empty pre-attach adapter maps,
+  status-object availability, exact OpenCode dual-write mapping, immutable adapter
+  revisions, Method Revision `3.29`, unchanged legacy portabilization, and
+  synthetic-only Codex conformance scope.
+- Native Codex installation, identity, hooks, app-server, resume, fork, and
+  history remain deferred to their dependent slices.
+- Thirty-one lifecycle tests, manifest validation, Git whitespace, and
+  independent elevated-risk review passed. Gate Exceptions: none. Release,
+  Deploy, and Operate: not applicable. Gate Commit: the commit containing this
+  entry.
+
 ## 2026-08-29 - Ticket-Free Multi-Harness Readiness
 
 - Promoted only the ticket-free `multi-harness-lifecycle` slice after the

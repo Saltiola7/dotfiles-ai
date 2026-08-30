@@ -696,7 +696,9 @@ feature branch with a draft pull request; the operator retains merge authority.
   ledger worker whose session is the caller, state is `discovery`, authorization
   is `operator` or `autonomous`, Discovery report exists, declared paths exactly
   match, and autonomous readiness risk equals the request. Every mismatch fails
-  closed; ordinary Build and all other agents deny the tool.
+  closed; ordinary Build and all other agents deny the tool. Approval binds the
+  configured workspace and instance, the parity process verifies that same
+  instance, and worker authority is checked again after parity before VM access.
 - Given a candidate signal may benefit from related source evidence, then the
   worker may query `dks_context` for bounded untrusted citation metadata, verifies
   useful citations against source, and continues from authoritative DBSCTR evidence

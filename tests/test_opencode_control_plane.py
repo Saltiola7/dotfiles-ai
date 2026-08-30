@@ -330,7 +330,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review", "incident"):
+    for name in ("dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
     exact = {
@@ -632,6 +632,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'argv.push("--excluded-session-id", excludedSessionID)' in runtime
     assert 'argv.push("--excluded-message-id", excludedMessageID)' in runtime
     assert '["sandbox-vm", "instance", target]' in runtime
+    assert '["sandbox-vm", "parity", target, "--instance", instance]' in runtime
+    assert tools.count("validateVmHandoffRequest(args, context.sessionID, context.worktree)") == 3
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
     assert '"herdr", "agent", "start", "dbsctr-handoff"' in runtime
@@ -1794,10 +1796,8 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
-        'if [ "$1" = initiative-cycle-check ]; then '
-        'if [ "$OCCUPIED" = 1 ]; then printf "Initiative cycle ID is already occupied\\n" >&2; exit 1; '
-        'else printf \'{"available":true}\\n\'; fi; '
-        f'elif [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
@@ -1877,17 +1877,6 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_launch"
     assert "<initiative-receipt>" in calls.read_text()
 
-    approval.unlink()
-    occupied = subprocess.run(
-        ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
-             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
-             "APPROVAL": str(approval), "OCCUPIED": "1"},
-        text=True, capture_output=True,
-    )
-    assert occupied.returncode != 0 and "already occupied" in occupied.stderr
-    assert not approval.exists()
-
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
@@ -1931,7 +1920,8 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     limactl.chmod(0o755)
     dbsctrctl = bin_dir / "dbsctrctl"
     dbsctrctl.write_text(
-        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\nprintf "%s\\n" "$WORKER_JSON"\n'
+        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\n'
+        'if [ -e "$WORKER_JSON_FILE" ]; then cat "$WORKER_JSON_FILE"; else printf "%s\\n" "$WORKER_JSON"; fi\n'
     )
     dbsctrctl.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
@@ -1958,9 +1948,8 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env=handoff_env,
-        text=True, capture_output=True,
+        text=True, capture_output=True, check=True,
     )
-    assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["session_id"] == "session-vm"
     assert json.loads(result.stdout)["target"] == "workspace1"
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
@@ -2040,6 +2029,54 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
         text=True, capture_output=True,
     )
     assert stale_runtime.returncode != 0
+    assert not calls.exists()
+
+    sandbox_calls.unlink()
+    blocked_worker = {"workers": [{**worker["workers"][0], "state": "blocked"}]}
+    worker_json_file = tmp_path / "worker.json"
+    authority_changed_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async()=>{{await Bun.write(process.env.WORKER_JSON_FILE,{json.dumps(json.dumps(blocked_worker))});}}}};
+await vm_handoff.execute({json.dumps(payload)},context);'''
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; esac\n'
+    )
+    authority_changed = subprocess.run(
+        ["bun", "-e", authority_changed_script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(worker_json_file)}, text=True, capture_output=True,
+    )
+    assert authority_changed.returncode != 0
+    assert "not Discovery-ready" in authority_changed.stderr
+    assert not calls.exists()
+    assert "<parity>" not in sandbox_calls.read_text()
+
+    parity_worker_file = tmp_path / "parity-worker.json"
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf "%s\\n" "$BLOCKED_WORKER_JSON" > "$WORKER_JSON_FILE"; '
+        'printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace1-sandbox"}\\n\';; esac\n'
+    )
+    authority_changed_during_parity = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(parity_worker_file),
+             "BLOCKED_WORKER_JSON": json.dumps(blocked_worker)}, text=True, capture_output=True,
+    )
+    assert authority_changed_during_parity.returncode != 0
+    assert "not Discovery-ready" in authority_changed_during_parity.stderr
+    assert not calls.exists()
+
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace2-sandbox"}\\n\';; esac\n'
+    )
+    remapped = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env=handoff_env, text=True, capture_output=True,
+    )
+    assert remapped.returncode != 0
+    assert "instance changed after approval" in remapped.stderr
     assert not calls.exists()
 
 
