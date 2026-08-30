@@ -10,6 +10,20 @@
 - This reconciliation changes durable authority only; implementation and managed
   deployment remain in separately approved dependent slices.
 
+## 2026-08-29 - Initiative Launch Registry Fallback
+
+- Added explicit Initiative mode to the always-present `dbsctr_begin` adapter so
+  primary Build can launch a ready slice when the host omits only the standalone
+  launcher export. Both entry points share receipt, exact approval,
+  cycle-occupancy, repository, plan-digest, ownership, mutation, and fork checks;
+  ordinary begin remains prompt-free and Plan/subagents remain denied.
+- The regression failed when `dbsctr_begin` ignored Initiative input. The final
+  union preserves protected-main performance-audit, cycle-occupancy, and VM
+  handoff safeguards; affected tests, Bun bundling, Git whitespace, targeted
+  deployment identity, and fresh schema loading pass. Fresh OpenCode processes
+  are required to load the expanded tool schema. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-29 - Purposeful VM Handoff Authority
 
 - Restricted VM handoff to the dedicated `build-rnd` primary and made the adapter

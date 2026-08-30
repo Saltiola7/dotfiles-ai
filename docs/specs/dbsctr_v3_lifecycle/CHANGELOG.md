@@ -6,9 +6,13 @@
   audit evidence and ranking, and captured a separate non-blocking audit-v2 slice.
 - Defined page-first aggregate History telemetry and bounded Incident summaries
   with immutable continuation, explicit availability, privacy, and overflow truth.
+- Reconciled concurrent Initiative occupancy and schema-5 delivery by accepting
+  both supported schema-4 and schema-5 Cycle Records without weakening identity
+  validation.
 - Initiative validation, affected tests, protected delivery, and Gate Commit are
-  recorded by the completing cycle. Release, Deploy, and Operate are not
-  applicable to this authority-only reconciliation. Gate Exceptions: none.
+  recorded by the completing cycle. Release is not applicable; targeted helper
+  deployment and an Initiative occupancy smoke are required. Gate Exceptions:
+  none.
 
 ## 2026-08-30 - Multi-Harness Cycle Records
 

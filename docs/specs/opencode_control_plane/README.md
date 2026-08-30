@@ -720,6 +720,13 @@ checks. Plan and all subagents deny the launcher. They return a handoff instead 
 probing a denied tool or substituting `dbsctr_vm_handoff`, which remains a distinct
 sanitized VM implementation workflow.
 
+Given the host registry omits the standalone Initiative launcher export, when a
+primary Build invokes the always-present `dbsctr_begin` with an explicit
+Initiative manifest, slice, and `proceed=true`, then the adapter executes the same
+fresh receipt, exact approval, repository, plan-digest, ownership, mutation, and
+launch checks. Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents
+continue to deny it.
+
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
 when configured, the exact centralized state root. Provider-specific Build
@@ -981,8 +988,9 @@ injects only the durable path, digest, state, and ready-slice IDs into normal an
 pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
-`dbsctr_initiative_launch` validates a fresh readiness receipt before requesting
-approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+`dbsctr_initiative_launch`, or explicit Initiative mode on `dbsctr_begin` when
+that standalone export is omitted, validates a fresh readiness receipt before
+requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
 and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
 clients start fresh. Both paths receive the same content-free receipt prompt.

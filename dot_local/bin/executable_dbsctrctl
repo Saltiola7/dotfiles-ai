@@ -3026,6 +3026,64 @@ def command_initiative_check(args):
     print(json.dumps(initiative_summary(args.manifest), sort_keys=True, separators=(",", ":")))
 
 
+def check_initiative_cycle_occupancy(root, cycle_id, receipt):
+    required_record = {"schema_version", "cycle_id", "context", "state", "delivery",
+                       "delivery_intent", "risk", "worktree", "applicability_plan",
+                       "engineering_profile", "git", "source", "created_at", "gates",
+                       "commits", "evidence", "metrics", "method_revision"}
+    record_path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    if not record_path.exists() and not record_path.is_symlink():
+        return
+    if record_path.is_symlink() or not record_path.is_file():
+        fail(f"Initiative cycle record is unsafe: {cycle_id}")
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"),
+                            object_pairs_hook=no_duplicate_keys)
+    except (OSError, ValueError, json.JSONDecodeError):
+        fail(f"Initiative cycle record is invalid: {cycle_id}")
+    if (not isinstance(record, dict) or not required_record.issubset(record)
+            or record.get("cycle_id") != cycle_id or record.get("schema_version") not in (4, 5)
+            or record.get("context") != receipt["context"]
+            or any(not isinstance(record.get(field), dict) for field in (
+                "applicability_plan", "delivery", "engineering_profile", "evidence", "gates",
+                "git", "metrics", "source", "worktree"))
+            or not isinstance(record.get("commits"), list)
+            or any(not isinstance(record.get(field), str) for field in (
+                "context", "created_at", "delivery_intent", "method_revision", "risk", "state"))
+            or "locator" not in record["worktree"] or "path" in record["worktree"]
+            or not isinstance(record["worktree"].get("branch"), str)):
+        fail(f"Initiative cycle record identity mismatch: {cycle_id}")
+    worktree = record_worktree(root, record)
+    if (not worktree.is_dir() or not record_worktree_matches(root, record, worktree)
+            or branch(worktree) != record["worktree"].get("branch")):
+        fail(f"Initiative cycle worktree identity mismatch: {cycle_id}")
+    if record.get("initiative") is None:
+        fail(f"Initiative cycle ID is already occupied by an unbound cycle: {cycle_id}")
+    if record["initiative"] != receipt:
+        fail(f"Initiative cycle ID is already occupied by a different Initiative receipt: {cycle_id}")
+    if record.get("state") != "active":
+        fail(f"Initiative cycle ID is already occupied by a non-active cycle: {cycle_id}")
+
+
+def command_initiative_cycle_check(args):
+    try:
+        receipt = json.loads(args.receipt_json, object_pairs_hook=no_duplicate_keys)
+    except (ValueError, json.JSONDecodeError):
+        fail("Initiative cycle receipt is invalid")
+    required = {"schema_version", "initiative_id", "slice_id", "manifest_digest",
+                "manifest_blob", "manifest_commit", "manifest_path", "coordinator_repository",
+                "context", "repository", "requirements", "depends_on", "artifacts",
+                "release_group", "execution_owner"}
+    if (not isinstance(receipt, dict) or not required.issubset(receipt)
+            or receipt.get("schema_version") != 1
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id)
+            or not isinstance(receipt.get("context"), str)
+            or git_repository_slug(root_dir()).lower() != str(receipt.get("repository", "")).lower()):
+        fail("Initiative cycle receipt is invalid")
+    check_initiative_cycle_occupancy(root_dir(), args.cycle_id, receipt)
+    print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
+
+
 def initiative_receipt(source, slice_id, root=None):
     value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source)
     item = slices.get(slice_id)
@@ -3058,7 +3116,7 @@ def initiative_receipt(source, slice_id, root=None):
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
-    return {
+    receipt = {
         "schema_version": 1,
         "initiative_id": value["id"],
         "slice_id": slice_id,
@@ -3073,6 +3131,7 @@ def initiative_receipt(source, slice_id, root=None):
         "execution_owner": "build",
         **identity,
     }
+    return receipt
 
 
 def command_initiative_receipt(args):
@@ -3507,6 +3566,7 @@ def command_begin(args):
     if initiative is not None:
         if initiative["context"] != args.context:
             fail("Initiative receipt context does not match the cycle context")
+        check_initiative_cycle_occupancy(source, args.cycle_id, initiative)
     if args.resume_existing and initiative is None:
         fail("resume-existing is limited to approved Initiative begin")
     plan = read_plan(args.plan, args.expected_plan_digest)
@@ -11803,6 +11863,10 @@ def parser():
     initiative_receipt.add_argument("--slice", required=True)
     initiative_receipt.add_argument("--json", action="store_true", required=True)
     initiative_receipt.set_defaults(func=command_initiative_receipt)
+    initiative_cycle_check = commands.add_parser("initiative-cycle-check")
+    initiative_cycle_check.add_argument("--cycle-id", required=True)
+    initiative_cycle_check.add_argument("--receipt-json", required=True)
+    initiative_cycle_check.set_defaults(func=command_initiative_cycle_check)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))
