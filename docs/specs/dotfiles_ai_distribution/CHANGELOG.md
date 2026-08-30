@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-30 - Promoted Codex Distribution Readiness
+
+- Recorded merged host-foundation delivery and promoted only
+  `codex-distribution` to receipt-ready without changing package, configuration,
+  guest, runtime, authentication, or deployment state.
+- Retained Codex `0.151.0`, the Fedora aarch64 musl asset, and its digest as
+  proposed implementation inputs subject to fresh Build verification. Exact
+  version output remains a bounded deployment probe because upstream does not
+  document its stdout shape.
+- Identity, worker, history, recovery, federation, and final parity slices remain
+  dependency-blocked pending fresh evidence from their predecessors.
+
 ## 2026-08-30 - Align Codex Managed Source Projection
 
 - Aligned the captured distribution contract with the approved host-foundation
