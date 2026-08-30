@@ -13,7 +13,8 @@
 - Targeted Chezmoi deployment was source-identical and idempotent for the new skill
   and command. The installed OpenCode `debug skill` command currently renders help
   rather than a skill inventory, so managed-file identity and loader contracts are
-  the truthful deployment evidence. Gate Exceptions: none. Intended Final Push:
+  the truthful deployment evidence; a literal installed command-to-skill assertion
+  also passed. Gate Exceptions: none. Intended Final Push:
   feature branch and draft pull request into protected `main`.
 
 ## 2026-08-29 - V3.40 Source-Local Cycle Performance
