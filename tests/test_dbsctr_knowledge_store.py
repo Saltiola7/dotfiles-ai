@@ -706,7 +706,7 @@ def test_quality_mutation_and_rollback_fail_closed() -> None:
     assert 'rrf({name: channels[name] for name in ("lexical", "vector", "graph")}' in query
     assert 'if policy["policy_id"] == "dks-quality-v2"' in query
     assert 'choices=range(1, 21)' in source
-    assert "pg_try_advisory_lock_shared" in query and "REPEATABLE READ READ ONLY" in query
+    assert "acquire_activation_session" in query and "REPEATABLE READ READ ONLY" in query
     assert "session.execute(sql)" in query
     projection = source[source.index("def validate_quality_projection"):source.index("def projected_payload")]
     assert "expected_manifest = digest_json" in projection and "policy[\"manifest_sha256\"]" in projection
@@ -2004,3 +2004,113 @@ def test_lifecycle_skills_do_not_consume_pm_tickets() -> None:
     assert "Every cycle reviews README and CHANGELOG" in discovery
     assert "ticket" not in dbsctr.lower()
     assert "never creates, reads, updates, or requires PM Kernel tickets" in discovery
+
+
+def test_query_activation_lock_order_partial_cleanup_and_deadline(monkeypatch) -> None:
+    dks = load_dksctl()
+    source = DKSCTL.read_text()
+    assert '@writer_locked("", "project sync already running")\ndef command_sync' in source
+    assert '@writer_locked("code", "code embedding sync already running")' in source
+    assert '@writer_locked("authority", "authority sync already running")' in source
+    sync = source[source.index("def command_sync("):source.index("def command_rebuild")]
+    assert sync.index("documents = git_documents") < sync.index("acquire_activation_locks(session, args.project)")
+    statements, sessions = [], []
+
+    class Session:
+        def execute(self, sql):
+            statements.append(sql)
+            return ["f"] if ":code" in sql else ["t"]
+
+        def close(self):
+            self.closed = True
+
+    clock = iter((0.0, 0.0, 2.0, 2.0))
+    monkeypatch.setattr(dks, "PsqlSession", lambda _config: sessions.append(Session()) or sessions[-1])
+    monkeypatch.setattr(dks.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(dks.time, "sleep", lambda _seconds: None)
+    assert dks.acquire_activation_session({}, "dotfiles-ai", True, 2.0) is None
+    locks = [sql for sql in statements if "pg_try_advisory_lock_shared" in sql]
+    assert ["'dotfiles-ai'", "'dotfiles-ai:code'"] == [
+        item.split("hashtextextended(")[1].split(",", 1)[0] for item in locks]
+    assert sessions[0].closed
+
+
+def test_writer_lock_is_held_before_replacement_preparation(monkeypatch) -> None:
+    dks = load_dksctl()
+    events = []
+
+    class Session:
+        def execute(self, sql):
+            events.append(sql)
+            return ["t"] if "pg_try_advisory_lock" in sql else []
+
+        def close(self):
+            events.append("closed")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.close()
+
+    monkeypatch.setattr(dks, "PsqlSession", lambda _config: Session())
+
+    @dks.writer_locked("authority", "busy")
+    def prepare(_args, _config, _project):
+        events.append("prepared")
+        return "ok"
+
+    args = argparse.Namespace(project="dotfiles-ai")
+    assert prepare(args, {}, {}) == "ok"
+    lock = next(index for index, event in enumerate(events)
+                if isinstance(event, str) and "pg_try_advisory_lock" in event)
+    assert "dotfiles-ai:authority:writer" in events[lock]
+    assert lock < events.index("prepared") < events.index("closed")
+
+
+def test_query_repairs_once_retries_and_preserves_success_payload(monkeypatch) -> None:
+    dks = load_dksctl()
+    statements, sessions = [], []
+
+    class Session:
+        def execute(self, sql):
+            statements.append(sql)
+            return ["t"] if "pg_try_advisory_lock" in sql else []
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(dks, "PsqlSession", lambda _config: sessions.append(Session()) or sessions[-1])
+    monkeypatch.setattr(dks.time, "monotonic", lambda: 0.0)
+    monkeypatch.setattr(dks.time, "sleep", lambda _seconds: None)
+    calls = 0
+
+    def policy(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("invalid")
+        return {"policy_id": "dks-rrf-v1", "evidence_class": "baseline"}
+
+    monkeypatch.setattr(dks, "active_ranking_policy", policy)
+    monkeypatch.setattr(dks, "validate_quality_projection", lambda *_args: None)
+    expected = {"project": "dotfiles-ai", "ranking_policy": "dks-rrf-v1", "results": []}
+    monkeypatch.setattr(dks, "command_query_transaction", lambda *_args: expected)
+    args = argparse.Namespace(project="dotfiles-ai", limit=None)
+    assert dks.command_query(args, {}, {}) == expected
+    assert args.limit == 20 and len(sessions) == 3 and all(session.closed for session in sessions)
+    assert sum("pg_try_advisory_lock_shared" in sql for sql in statements) == 6
+    assert sum("pg_try_advisory_lock(" in sql for sql in statements) == 3
+    repair = "\n".join(statements)
+    assert "activation_id='dks-rrf-v1'" in repair
+    assert "baseline ranking policy unavailable" in repair
+
+
+def test_projection_busy_cli_bytes(monkeypatch, capsys) -> None:
+    dks = load_dksctl()
+    monkeypatch.setattr(dks, "load_config", lambda _path: {"projects": {"dotfiles-ai": {}}})
+    monkeypatch.setattr(dks, "selected_project", lambda *_args: {})
+    monkeypatch.setattr(dks, "command_guarded_query", lambda *_args: (_ for _ in ()).throw(dks.ProjectionBusy()))
+    assert dks.main(["query", "--config", "/config", "--project", "dotfiles-ai", "--text", "query"]) == 75
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "projection_busy\n"

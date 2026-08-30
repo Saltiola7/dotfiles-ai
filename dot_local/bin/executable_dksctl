@@ -49,6 +49,11 @@ BENCHMARK_QUERY_STRATA = (
 )
 DKS_005_SOURCE_REVISION = "45096bb03891e9771a891d53f92b23863ae08a3e"
 SILVER_TRIAL_SECONDS = 604800
+ACTIVATION_LOCK_TIMEOUT_SECONDS = 2
+
+
+class ProjectionBusy(RuntimeError):
+    pass
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -1762,28 +1767,107 @@ FROM GRAPH_TABLE (
             "results": results}
 
 
-def command_query(args, config, project):
-    ensure_quality_policy(config, args.project)
-    with PsqlSession(config) as session:
-        session.execute(f"SET dks.project_id={sql_literal(args.project)};")
-        for lock_name in (args.project, args.project + ":code", args.project + ":authority"):
-            locked = session.execute(
-                f"SELECT pg_try_advisory_lock_shared(hashtextextended({sql_literal(lock_name)}, 0));")
-            if not locked or locked[-1] != "t":
-                raise RuntimeError("quality query lock unavailable")
-        session.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
-        result = command_query_transaction(args, config, project, session)
+def activation_lock_names(project_id):
+    return (project_id, project_id + ":code", project_id + ":authority")
+
+
+def acquire_activation_locks(session, project_id):
+    for lock_name in activation_lock_names(project_id):
+        locked = session.execute(
+            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(lock_name)}, 0));")
+        if not locked or locked[-1] != "t":
+            return False
+    return True
+
+
+def writer_locked(channel, busy_message):
+    def decorate(command):
+        def wrapped(args, config, project):
+            suffix = f":{channel}" if channel else ""
+            lock_name = args.project + suffix + ":writer"
+            with PsqlSession(config) as session:
+                session.execute(f"SET dks.project_id={sql_literal(args.project)};")
+                locked = session.execute(
+                    f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(lock_name)}, 0));")
+                if not locked or locked[-1] != "t":
+                    raise RuntimeError(busy_message)
+                return command(args, config, project)
+        return wrapped
+    return decorate
+
+
+def acquire_activation_session(config, project_id, shared, deadline):
+    while time.monotonic() < deadline:
+        session = PsqlSession(config)
+        try:
+            session.execute(f"SET dks.project_id={sql_literal(project_id)};")
+            function = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
+            for lock_name in activation_lock_names(project_id):
+                locked = session.execute(
+                    f"SELECT {function}(hashtextextended({sql_literal(lock_name)}, 0));")
+                if not locked or locked[-1] != "t":
+                    session.close()
+                    break
+            else:
+                return session
+        except Exception:
+            session.close()
+            raise
+        time.sleep(min(.01, max(0, deadline - time.monotonic())))
+    return None
+
+
+def restore_baseline_before(deadline, config, project_id):
+    session = acquire_activation_session(config, project_id, False, deadline)
+    if session is None:
+        raise ProjectionBusy()
+    try:
+        session.execute("BEGIN;")
+        session.execute("SELECT activation_id FROM dks.ranking_policies "
+                        "WHERE project_id=current_setting('dks.project_id') AND active FOR UPDATE;")
+        session.execute("\n".join(ranking_fallback_statements(project_id)))
         session.execute("COMMIT;")
-    return result
+    finally:
+        session.close()
+
+
+def command_query(args, config, project):
+    deadline = time.monotonic() + ACTIVATION_LOCK_TIMEOUT_SECONDS
+    for attempt in range(2):
+        session = acquire_activation_session(config, args.project, True, deadline)
+        if session is None:
+            raise ProjectionBusy()
+        try:
+            session.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+            try:
+                policy = active_ranking_policy(config, args.project, session)
+                validate_quality_projection(config, args.project, policy, session)
+                if policy["policy_id"] == "dks-quality-v2" and policy["evidence_class"] == "silver":
+                    if policy.get("code_embedding_space_id"):
+                        validate_code_embedding_config(config)
+                        validate_service_health(config, "code_embedding")
+                    if policy.get("reranker_manifest_sha256"):
+                        validate_reranker_config(config, policy["reranker_manifest_sha256"])
+                        validate_service_health(config, "reranker")
+            except (ValueError, RuntimeError):
+                session.close()
+                if attempt:
+                    raise
+                restore_baseline_before(deadline, config, args.project)
+                continue
+            maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
+            args.limit = args.limit if args.limit is not None else maximum
+            if not 1 <= args.limit <= maximum:
+                raise ValueError(f"query limit must be between 1 and {maximum}")
+            result = command_query_transaction(args, config, project, session)
+            session.execute("COMMIT;")
+            return result
+        finally:
+            session.close()
+    raise ProjectionBusy()
 
 
 def command_guarded_query(args, config, project):
-    ensure_quality_policy(config, args.project)
-    policy = active_ranking_policy(config, args.project)
-    maximum = 10 if policy["policy_id"] == "dks-quality-v2" else 20
-    args.limit = args.limit if args.limit is not None else maximum
-    if not 1 <= args.limit <= maximum:
-        raise ValueError(f"query limit must be between 1 and {maximum}")
     lines = run_psql(config, args.project, """
 SELECT json_build_object('privacy_sequence',privacy_sequence::text,
                          'privacy_digest',privacy_digest)::text
@@ -1802,12 +1886,16 @@ FROM dks.privacy_state WHERE project_id=current_setting('dks.project_id');
         "--expected-digest", identity["privacy_digest"], "--",
         sys.executable, str(Path(__file__).resolve()), "_query-core",
         "--config", args.config, "--project", args.project, "--text", args.text,
-        "--limit", str(args.limit),
     ]
+    if args.limit is not None:
+        command.extend(["--limit", str(args.limit)])
     if args.commit:
         command.extend(["--commit", args.commit])
     completed = subprocess.run(command, text=True, capture_output=True, stdin=subprocess.DEVNULL)
-    if completed.returncode and policy.get("evidence_class") == "silver":
+    if (completed.returncode == 75 and not completed.stdout
+            and completed.stderr == "projection_busy\n"):
+        raise ProjectionBusy()
+    if completed.returncode and active_ranking_policy(config, args.project).get("evidence_class") == "silver":
         command_rollback_quality(argparse.Namespace(project=args.project), config, project)
         completed = subprocess.run(command, text=True, capture_output=True, stdin=subprocess.DEVNULL)
     if completed.returncode:
@@ -2240,6 +2328,7 @@ def load_graphify_receipt(path_value, artifact_sha256, corpus_manifest_sha256):
     return hashlib.sha256(raw).hexdigest()
 
 
+@writer_locked("", "project sync already running")
 def command_sync(args, config, project):
     embedding_space = config.get("embedding", {}).get("space_id")
     manifest_sha = config.get("embedding", {}).get("manifest_sha256")
@@ -2248,10 +2337,6 @@ def command_sync(args, config, project):
     repository = Path(project.get("repository", "")).expanduser()
     with PsqlSession(config) as session:
         session.execute(f"SET dks.project_id={sql_literal(args.project)};")
-        locked = session.execute(
-            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project)}, 0));")
-        if not locked or locked[-1] != "t":
-            raise RuntimeError("project sync already running")
         validate_embedding_config(config)
         rebuild_payload = None
         if getattr(args, "rebuild", False):
@@ -2316,8 +2401,9 @@ UPDATE dks.sync_runs SET state='abandoned', finished_at=now() WHERE state IN ('s
         run_id = secrets.token_hex(16)
         statements = sync_statements(args.project, args.commit, run_id, embedding_space,
                                      manifest_sha, documents, chunks, vectors, nodes, edges)
+        if not acquire_activation_locks(session, args.project):
+            raise RuntimeError("project activation unavailable")
         session.execute("\n".join(statements))
-        session.execute(f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project)}, 0));")
     return {"project": args.project, "revision": args.commit, "run_id": run_id,
             "records": len(documents), "chunks": len(chunks), "nodes": len(nodes),
             "edges": len(edges), "state": "active"}
@@ -2331,6 +2417,7 @@ def command_rebuild(args, config, project):
     return result
 
 
+@writer_locked("code", "code embedding sync already running")
 def command_sync_code(args, config, project):
     validate_code_embedding_config(config)
     service = config["code_embedding"]
@@ -2340,10 +2427,6 @@ def command_sync_code(args, config, project):
         raise ValueError("code embedding space configuration invalid")
     with PsqlSession(config) as session:
         session.execute(f"SET dks.project_id={sql_literal(args.project)};")
-        locked = session.execute(
-            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project + ':code')}, 0));")
-        if not locked or locked[-1] != "t":
-            raise RuntimeError("code embedding sync already running")
         rows = [json.loads(line) for line in session.execute(
             "SELECT json_build_object('chunk_id',c.chunk_id,'body',c.body)::text "
             "FROM dks.revision_chunks rc JOIN dks.knowledge_chunks c USING(project_id,chunk_id) "
@@ -2392,6 +2475,8 @@ def command_sync_code(args, config, project):
                     f"{sql_literal(value_sha)}) ON CONFLICT DO NOTHING;")
             statements.append("COMMIT;")
             session.execute("\n".join(statements))
+        if not acquire_activation_locks(session, args.project):
+            raise RuntimeError("code activation unavailable")
         session.execute("\n".join([
             "DO $complete$ DECLARE actual integer; BEGIN SELECT count(*) INTO actual FROM dks.code_embeddings "
             f"WHERE project_id={sql_literal(args.project)} AND embedding_space_id={sql_literal(space)} "
@@ -2399,8 +2484,6 @@ def command_sync_code(args, config, project):
             f"AND revision_id={sql_literal(args.commit)}); IF actual<>{len(rows)} THEN "
             "RAISE EXCEPTION 'code embedding completeness mismatch'; END IF; END $complete$;",
         ]))
-        session.execute(
-            f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project + ':code')}, 0));")
     return {"project": args.project, "commit": args.commit, "embedding_space": space,
             "embeddings": len(rows), "state": "candidate"}
 
@@ -2449,6 +2532,7 @@ def authority_activation_safe(export, current_export, status, current_status):
     return current_export["manifest"] == export["manifest"] and current_status == status
 
 
+@writer_locked("authority", "authority sync already running")
 def command_sync_evidence(args, config, project):
     validate_embedding_config(config)
     raw = lifecycle_output(config, project, "knowledge-export")
@@ -2485,21 +2569,18 @@ def command_sync_evidence(args, config, project):
             raise RuntimeError("knowledge authority changed before activation")
         with PsqlSession(config) as session:
             session.execute(f"SET dks.project_id={sql_literal(args.project)};")
-            locked = session.execute(
-                f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project + ':authority')}, 0));")
-            if not locked or locked[-1] != "t":
-                raise RuntimeError("authority sync already running")
+            if not acquire_activation_locks(session, args.project):
+                raise RuntimeError("authority activation unavailable")
             session.execute("\n".join(privacy_sync_statements(args.project, export)))
             session.execute("\n".join(authority_sync_statements(
                 args.project, export, chunks, vectors, embedding.get("space_id"),
                 embedding.get("manifest_sha256"))))
-            session.execute(
-                f"SELECT pg_advisory_unlock(hashtextextended({sql_literal(args.project + ':authority')}, 0));")
     return {"project": args.project, "snapshot": export["terminal"]["digest"],
             "records": len(export["records"]), "chunks": len(chunks),
             "privacy_sequence": status["privacy_sequence"], "state": "active"}
 
 
+@writer_locked("", "project sync already running")
 def command_import_graph(args, config, project):
     repository = Path(project.get("repository", "")).expanduser()
     documents = git_documents(repository, args.commit, project.get("remote", ""),
@@ -2552,10 +2633,8 @@ def command_import_graph(args, config, project):
         hashlib.sha256(raw).hexdigest(), corpus_sha)
     with PsqlSession(config) as session:
         session.execute(f"SET dks.project_id={sql_literal(args.project)};")
-        locked = session.execute(
-            f"SELECT pg_try_advisory_lock(hashtextextended({sql_literal(args.project)}, 0));")
-        if not locked or locked[-1] != "t":
-            raise RuntimeError("project sync already running")
+        if not acquire_activation_locks(session, args.project):
+            raise RuntimeError("graph activation unavailable")
         session.execute("\n".join(graph_import_statements(
             args.project, args.commit, validated, project.get("source_profile_sha256"), corpus_sha,
             receipt_sha)))
@@ -4080,7 +4159,7 @@ def parser():
     query_core = commands.add_parser("_query-core", parents=[common], help=argparse.SUPPRESS)
     query_core.add_argument("--text", required=True)
     query_core.add_argument("--commit", type=exact_commit)
-    query_core.add_argument("--limit", type=int, choices=range(1, 21), default=10)
+    query_core.add_argument("--limit", type=int, choices=range(1, 21))
     commands.add_parser("status", parents=[common])
     commands.add_parser("doctor", parents=[common])
     reconcile = commands.add_parser("reconcile", parents=[common])
@@ -4132,6 +4211,9 @@ def main(argv=None):
         print(canonical_json(result))
         if args.command == "doctor" and not result["healthy"]:
             return 1
+    except ProjectionBusy:
+        print("projection_busy", file=sys.stderr)
+        return 75
     except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"dksctl: {error}", file=sys.stderr)
         return 1
