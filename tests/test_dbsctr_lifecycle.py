@@ -173,6 +173,9 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     assert statements["INT-027"]["disposition"] == "ready"
     assert statements["INT-028"]["disposition"] == "ready"
     assert statements["INT-029"]["disposition"] == "ready"
+    assert statements["INT-030"]["disposition"] == "ready"
+    assert statements["INT-031"]["disposition"] == "ready"
+    assert {"INT-030", "INT-031"} <= set(slices["codex-host-foundation"]["requirements"])
 
     checked = subprocess.run(
         [sys.executable, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
@@ -186,6 +189,8 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     control_plane = text("docs/specs/codex_control_plane/README.md")
     distribution = text("docs/specs/dotfiles_ai_distribution/features/codex-cli.md")
     operation = text("docs/specs/codex_control_plane/OPERATION.md")
+    normalized_control_plane = " ".join(control_plane.split())
+    normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
     for phrase in (
@@ -198,13 +203,23 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     assert "Build, Discovery, Plan, Review, Explore, and Scout" in control_plane
     for phrase in (
         "64 KiB", "five seconds", "codex-adapter-1", "expire after 24 hours",
-        "sole transient path exception", "root containment",
+        "`transcript_path`", "never opens", "root containment",
+        "`$CODEX_HOME/agents/**/*.toml`", "inline command hooks",
     ):
         assert phrase in control_plane
     assert "all registered managed guests" in distribution
+    assert "agents/**/*.toml" in distribution
+    assert "hooks/*" not in distribution
     assert "representative authenticated Fedora guest" in operation
     assert "existing managed `CODEX_HOME`" in operation
     assert "Do not inspect or delete private storage" in operation
+    assert "discard `transcript_path` without reading it" in operation
+    assert (
+        "adapter never opens, resolves, canonicalizes, checks the existence of, "
+        "logs, exposes, or persists that field"
+    ) in normalized_control_plane
+    assert "transcript content rejects the event" in normalized_operation
+    assert "transcript content, prompt, tool data" in normalized_operation
 
 
 def test_v3_module_registry_is_extensible_and_normalized():

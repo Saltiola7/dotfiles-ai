@@ -36,6 +36,8 @@ ledger is [`MANIFEST.json`](MANIFEST.json).
 | `opencode_inference_cost` | OpenCode-only cost baseline; no premature generalization | OpenCode control plane |
 
 The user approved this complete context map on 2026-08-29.
+The user approved the bounded `transcript_path`, `codex-managed`, projected TOML
+role, and inline-hook corrections on 2026-08-30.
 
 ## Approved Delivery Decisions
 
@@ -43,6 +45,8 @@ The user approved this complete context map on 2026-08-29.
 - Live probes and workers require an existing boundary-local login. They never auto-authenticate, inject a shared API key, or copy authentication between the host and guests.
 - Host foundation manages only the initial native workflow roles Build, Discovery, Plan, Review, Explore, and Scout. It does not mirror every OpenCode agent.
 - Distribution updates all registered managed Fedora guests and automatically provisions future managed guests. Identity correlation uses one representative authenticated Fedora guest per frozen release while every guest must pass install, version, configuration, and isolation checks.
+- Host foundation stages portable source under `~/.config/dotfiles-ai/codex-managed/`, defines projected custom roles as `$CODEX_HOME/agents/**/*.toml`, and configures the five identity hooks as inline command hooks.
+- The sanitizer accepts documented `transcript_path` only as bounded transient hook input and discards it without reading, canonicalizing, logging, exposing, or persisting it.
 
 ## Architecture
 
@@ -87,7 +91,7 @@ guest Codex state, and desktop default state remain separate.
 
 | Slice | Build or probe boundary | Promotion evidence |
 |---|---|---|
-| `codex-host-foundation` | Portable control-plane source, six native roles, bounded hooks, sanitizer, and adapter; no package install, login, or live identity claim | Fake-command/schema tests, shared lifecycle conformance, OpenCode regressions, and reviewed source contract |
+| `codex-host-foundation` | Portable control-plane source, six TOML native roles, inline identity hooks, bounded transient-path sanitizer, and adapter; no package install, login, or live identity claim | Fake-command/schema tests, shared lifecycle conformance, OpenCode regressions, and reviewed source contract |
 | `codex-distribution` | Install exact host/guest release, project digest-owned config, activate wrapper, and persist selector schema; no worker activation | Host and all-guest version/config/state isolation, rollback, and source-identical deployment after host foundation is delivered |
 | `codex-identity-probe` | Discovery-run disposable correlation on macOS and one representative authenticated Fedora guest | Exact or deterministic versioned mapping across hooks, CLI JSONL, app-server thread identity, resume, and fork; ambiguity keeps dependents blocked |
 | `codex-history-parity` | Documented `thread/list` and `thread/read` over initialized app-server stdio; no experimental pagination or private storage | Sanitized conversion into existing review, incident, history, telemetry, and benchmark contracts; unavailable required fields block parity |
@@ -105,6 +109,9 @@ Discovery owns normative contracts, parity disposition, dependencies, and slice
 scope. Build owns only the implementation paths in an approved DBSCTR
 applicability plan and Cycle Record. Late changes to lifecycle semantics, context
 ownership, state isolation, parity meaning, or dependencies reopen readiness.
+This hook correction is a Discovery-owned readiness revalidation persisted by
+the Build primary from the user-approved artifact-ready Discovery handoff; it
+does not change slice scope, dependencies, execution ownership, or parity meaning.
 
 This Initiative creates no PM Kernel tickets. The manifest marks only
 `codex-host-foundation` receipt-ready. Distribution remains captured until host
@@ -135,6 +142,8 @@ Records cannot substitute for a fresh Initiative readiness receipt.
   and app-server interfaces are authoritative.
 - Hooks collect only bounded sanitized identity and event evidence and never
   mutate lifecycle state.
+- Hook `transcript_path` is a documented transient transport field, not evidence;
+  the sanitizer bounds and discards it without accessing the referenced file.
 - No MCP, plugin package, SDK-bundled second runtime, Rust rewrite, or private
   Codex fork is introduced without a separately approved proven need.
 - No performance claim or language rewrite is accepted without representative
@@ -150,3 +159,7 @@ Implementation must revalidate the release tag, asset, and digest before use.
 The identity probe must compare hook `session_id`, app-server `thread.id`, and
 `thread.sessionId` on macOS and Fedora before exact attach, recovery, or history
 correlation becomes ready.
+Official `0.151.0` source confirms recursive `agents/**/*.toml` role discovery,
+inline command hooks, and the common hook `transcript_path` field. These are
+source contracts only; installed-runtime behavior remains unverified until the
+distribution and identity-probe slices.
