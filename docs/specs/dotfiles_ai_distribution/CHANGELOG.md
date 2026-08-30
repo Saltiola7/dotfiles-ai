@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - OpenCode 1.18.25 VM Parity
+
+- Updated the checksum-pinned Linux arm64 OpenCode runtime from 1.18.23 to
+  1.18.25 and routed every managed R&D worker launch and resume through the
+  dedicated `build-rnd` primary.
+- `sandbox-vm update-all` updated both configured workspaces. Host, `personal`,
+  and `mgm` report exact 1.18.25 parity; the targeted scheduler and runtime files
+  were deployed, and all 147 affected tests pass.
+
 ## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
 
 - Added managed global Git excludes for `.dbsctr/`, legacy plan JSON,
