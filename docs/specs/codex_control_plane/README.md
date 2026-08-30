@@ -137,7 +137,7 @@ changes lifecycle state, and returns a bounded result.
 ```mermaid
 flowchart LR
     accTitle: Codex identity and evidence trust flow
-    accDescr: Host, guest, and desktop Codex state remain separate. Allowed opaque identity and bounded event classes pass through a sanitizer into private lifecycle evidence. Prompts, transcripts, tool arguments, tool output, credentials, URLs, account identity, and absolute paths are rejected.
+    accDescr: Host, guest, and desktop Codex state remain separate. Allowed opaque identity and bounded event classes pass through a sanitizer into private lifecycle evidence. Transient cwd is reduced to a workspace enum and transcript_path is discarded unread. Prompts, transcripts, tool arguments, tool output, credentials, URLs, account identity, and every other path are rejected.
     H[Host CODEX_HOME] --> S[Codex sanitizer]
     V[Guest CODEX_HOME] --> S
     P[Desktop default state] -. never read .-> S
@@ -149,8 +149,10 @@ flowchart LR
 **Text Equivalent:** Host and guest Codex homes are independent sources. Desktop
 state is never read. The sanitizer permits only opaque identities, bounded event
 and workspace enums, model ID, and timestamp into private DBSCTR evidence.
-Credentials, prompts, transcripts, tool inputs and outputs, URLs, account
-identity, and all filesystem paths are rejected.
+Transient `cwd` is reduced to a workspace enum and `transcript_path` is bounded
+then discarded without reading it. Credentials, prompts, transcripts, tool
+inputs and outputs, URLs, account identity, and every other filesystem path are
+rejected.
 
 ```mermaid
 stateDiagram-v2
@@ -218,11 +220,15 @@ terminal without implementation.
 ### Hooks and evidence
 
 - Given a configured hook runs, when the adapter receives its payload, then it
-  accepts only event enum, opaque session and turn IDs, model ID, timestamp, and
+  emits only event enum, opaque session and turn IDs, model ID, timestamp, and
   workspace enum `primary_worktree`, `cycle_worktree`, or `unknown`.
+- Given the documented payload contains `transcript_path`, when the adapter
+  validates the hook, then it bounds and discards that field without opening,
+  canonicalizing, logging, exposing, or persisting it.
 - Given a hook contains prompt, transcript, tool input or output, environment,
   URL, credential, account identity, or any filesystem path except documented
-  transient `cwd`, then the adapter rejects the event without persistence.
+  transient `cwd` and `transcript_path`, then the adapter rejects the event
+  without persistence.
 - Given a hook fails, when lifecycle work continues, then no Cycle Record or gate
   changes because a hook never owns lifecycle state.
 
@@ -262,6 +268,14 @@ This slice adds fake-command and schema tests but does not install Codex, projec
 files into `CODEX_HOME`, authenticate, claim native identity, or deploy a running
 adapter. `codex-distribution` owns those actions after this slice is delivered.
 
+Portable source is staged under
+`~/.config/dotfiles-ai/codex-managed/` as `config.toml`, `AGENTS.md`, and six
+`agents/*.toml` files. Distribution later projects those files into the managed
+CLI home, where Codex `0.151.0` discovers custom roles recursively as
+`$CODEX_HOME/agents/**/*.toml`. The staged `config.toml` uses inline command hooks
+that invoke `codex-control-plane hook EVENT`; no machine path, provider, model,
+credential, or private runtime state is embedded in source.
+
 #### Native role policy
 
 | Role | Mutation boundary | Network boundary | Purpose |
@@ -282,7 +296,9 @@ account identity, or machine paths.
 The first slice configures identity-only `SessionStart`, `SessionEnd`,
 `SubagentStart`, `SubagentStop`, and `Stop` hooks. Tool, permission, prompt,
 compaction, and notification hooks remain unconfigured until a later slice has a
-specific parity need. The adapter converts version-probed documented payloads to:
+specific parity need. These are inline command hooks in managed `config.toml`,
+not a second hook-discovery or lifecycle mechanism. The adapter converts
+version-probed documented payloads to:
 
 ```json
 {
@@ -298,22 +314,28 @@ specific parity need. The adapter converts version-probed documented payloads to
 `event`, `session_id`, `workspace`, and adapter-owned `observed_at` are required.
 Optional `turn_id` and `model_id` are present only when the installed documented
 payload supplies them. Opaque IDs and model IDs are ASCII presentation IDs of at
-most 128 bytes. Workspace is `primary_worktree`, `cycle_worktree`, or `unknown`;
-documented raw `cwd` is the sole transient path exception. It must be an absolute
+most 128 bytes. Workspace is `primary_worktree`, `cycle_worktree`, or `unknown`.
+
+Documented raw `cwd` is a transient classification input. It must be an absolute
 UTF-8 path of at most 4096 bytes with no NUL or control characters, resolve to an
 existing directory, and canonicalize successfully. The adapter compares that
 canonical path against canonical Git worktree roots using root containment,
 classifies a unique primary or active cycle worktree, otherwise emits `unknown`,
-and discards raw and canonical paths before output, storage, or logging. Any
-other path-bearing field rejects the event.
+and discards raw and canonical paths before output, storage, or logging.
+
+Documented raw `transcript_path` is a separate transient transport field. It must
+be a UTF-8 string of at most 4096 bytes with no NUL or control characters. The
+adapter never opens, resolves, canonicalizes, checks the existence of, logs,
+exposes, or persists that field; it discards the value immediately after bounded
+schema validation. Any other path-bearing field rejects the event.
 
 Hook stdin is at most 64 KiB, the normalized record at most 8 KiB, bounded reasons
 at most 256 ASCII bytes, and hook processing at most five seconds. Version/help
 probes allow at most 1 MiB and 30 seconds; app-server handshake and each method
 allow at most 1 MiB and ten seconds. Unknown required fields, duplicate JSON keys,
 invalid UTF-8, non-ASCII identity, overflow, timeout, or content-bearing prompt,
-transcript, tool argument/output, environment, URL, credential, or account fields
-produce no identity record.
+transcript content, tool argument/output, environment, URL, credential, or
+account fields produce no identity record.
 
 `codex-control-plane` returns `0` only for a validated command result, `1` for a
 validation, capability, runtime, or transport failure, and `2` for CLI usage.
@@ -395,6 +417,8 @@ final parity for a requested outcome without a separately approved scope change.
   inside the current boundary; the control plane never performs login.
 - Cwd and worktree data is reduced to validated repository-relative identity
   before persistence or model exposure.
+- The documented hook `transcript_path` key is bounded and discarded; the
+  adapter never accesses the referenced transcript or retains its path.
 - Hook records are owner-only, bounded, retained under private state, and never
   contain content fields.
 - App-server compatibility is version-probed and unknown required fields fail
@@ -414,6 +438,8 @@ Facts:
   revalidate its tag, asset, digest, hook shape, and app-server methods.
 - Official hook documentation does not guarantee whether hook `session_id`
   equals app-server `thread.id` or root `thread.sessionId`.
+- Official `0.151.0` source includes `transcript_path` in common hook payloads,
+  recursive `agents/**/*.toml` role discovery, and inline command hooks.
 - The official Python SDK source at the target tag pins an older CLI runtime, so
   it is not the baseline adapter.
 

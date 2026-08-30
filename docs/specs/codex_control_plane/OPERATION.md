@@ -15,7 +15,7 @@
 ```mermaid
 sequenceDiagram
     accTitle: Codex session identity probe
-    accDescr: A disposable controlled session emits a sanitized hook session identifier. The adapter queries the installed app-server for thread and root-session identifiers, then resumes and forks the thread. Only equality, mapping, availability, and digests are retained; transcript content is discarded.
+    accDescr: A disposable controlled session emits a sanitized hook session identifier. The adapter bounds and discards transcript_path without reading it and rejects transcript content, then queries the installed app-server for thread and root-session identifiers, resumes, and forks the thread. Only equality, mapping, availability, and digests are retained.
     participant O as Operator
     participant C as Codex CLI
     participant H as Sanitized hook
@@ -33,11 +33,23 @@ sequenceDiagram
 
 **Text Equivalent:** The operator starts one disposable session containing a
 non-secret correlation nonce. A sanitized hook passes only opaque session and
-turn identities to the adapter. The adapter initializes a version-bound
-app-server stdio connection without experimental capability and uses documented
-methods to list and read the candidate thread, then resumes and forks it. The retained
+turn identities to the adapter. The adapter bounds and discards
+`transcript_path` without reading it, initializes a version-bound app-server
+stdio connection without experimental capability, and uses documented methods
+to list and read the candidate thread, then resumes and forks it. The retained
 result records only exact equality, a deterministic mapping, ambiguity, or
-unavailability plus source digests. Transcript content is discarded.
+unavailability plus source digests. `transcript_path` is discarded unread;
+transcript content rejects the event and never enters retained evidence.
+
+## Hook Privacy
+
+Codex `0.151.0` supplies `transcript_path` as a common hook transport field. The
+sanitizer accepts it only as a bounded UTF-8 string, then must discard
+`transcript_path` without reading it. It never opens, resolves, canonicalizes,
+checks, logs, exposes, or persists the value. Raw `cwd` is handled separately and
+may be canonicalized only to derive the bounded workspace enum. Any other
+path-bearing field, transcript content, prompt, tool data, environment, URL,
+credential, or account field rejects the identity event.
 
 ## Identity Probe
 
@@ -56,7 +68,8 @@ Run after the same frozen Codex release is installed on macOS and Fedora:
    worktree.
 5. Retain hook event enum, opaque `session_id`, turn ID, model ID, workspace enum
    `primary_worktree`, `cycle_worktree`, or `unknown`, timestamp, release, and
-   adapter revision only. Retain no filesystem path.
+   adapter revision only. Bound and discard `transcript_path` without reading it;
+   retain no filesystem path.
 6. Complete documented `initialize` and `initialized` messages over app-server
    stdio without `experimentalApi`, then probe `thread/list` and `thread/read`.
 7. Resume and fork the exact candidate through documented target methods; treat

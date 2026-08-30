@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-30 - Align Codex Managed Source Projection
+
+- Aligned the captured distribution contract with the approved host-foundation
+  source: project recursive `agents/**/*.toml` roles and carry the five identity
+  hooks inline in `config.toml` rather than projecting a separate hook tree.
+- No package, configuration, guest, runtime, authentication, or deployment state
+  changed; `codex-distribution` remains captured behind host foundation.
+
 ## 2026-08-30 - Refined Codex Distribution Readiness
 
 - Fixed distribution as the second of two sequential pull requests, responsible

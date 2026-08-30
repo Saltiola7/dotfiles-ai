@@ -1,5 +1,26 @@
 # Codex Control Plane Changelog
 
+## 2026-08-30 - Hook Contract Correction
+
+- Reopened and revalidated host-foundation readiness against official Codex
+  `0.151.0` source after discovering that every common hook payload carries
+  `transcript_path`.
+- Recorded this as Discovery-owned revalidation persisted by the Build primary
+  from the approved artifact-ready handoff, without changing slice ownership or
+  dependencies.
+- Accepted that field only as bounded transient input and required immediate
+  discard without file access, canonicalization, logging, exposure, or
+  persistence; every other unapproved path and all transcript content still fail
+  closed.
+- Fixed the source contract to stage under `codex-managed`, project custom roles
+  as `$CODEX_HOME/agents/**/*.toml`, and use inline command hooks. Distribution,
+  authentication, runtime probes, and deployment remain outside this cycle.
+- Required evidence is Initiative validation, affected lifecycle/distribution
+  tests, Python compilation, Git whitespace, official-source verification, and
+  independent elevated-risk review. Gate Exceptions: none proposed. Release,
+  Deploy, and Operate are not applicable. Intended Final Push: feature branch and
+  draft pull request into protected `main`.
+
 ## 2026-08-30 - Host Foundation Readiness
 
 - Promoted only `codex-host-foundation` to receipt-ready after fixing the

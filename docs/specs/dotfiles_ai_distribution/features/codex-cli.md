@@ -69,10 +69,14 @@ projects only:
 ```text
 config.toml
 AGENTS.md
-agents/*.toml
-hooks/*
+agents/**/*.toml
 .dotfiles-ai-managed.json
 ```
+
+`config.toml` carries the five inline identity command hooks; distribution does
+not project a separate hook tree. Recursive agent paths preserve the portable
+source hierarchy and remain subject to the same normalized-path, collision, and
+digest ownership checks as top-level managed files.
 
 The ownership manifest records schema version and SHA-256 for each managed file.
 An existing target is replaceable only when its digest matches the manifest.
