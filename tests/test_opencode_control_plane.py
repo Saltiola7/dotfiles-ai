@@ -631,7 +631,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'sourceState?: {' in runtime
     assert 'argv.push("--excluded-session-id", excludedSessionID)' in runtime
     assert 'argv.push("--excluded-message-id", excludedMessageID)' in runtime
-    assert '["sandbox-vm", "instance", report.target]' in runtime
+    assert '["sandbox-vm", "instance", target]' in runtime
+    assert 'instance !== expectedInstance' in runtime
+    assert tools.count("validateVmHandoffRequest(args, context.sessionID, context.worktree)") == 2
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
     assert '"herdr", "agent", "start", "dbsctr-handoff"' in runtime
@@ -1897,7 +1899,8 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     limactl.chmod(0o755)
     dbsctrctl = bin_dir / "dbsctrctl"
     dbsctrctl.write_text(
-        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\nprintf "%s\\n" "$WORKER_JSON"\n'
+        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\n'
+        'if [ -e "$WORKER_JSON_FILE" ]; then cat "$WORKER_JSON_FILE"; else printf "%s\\n" "$WORKER_JSON"; fi\n'
     )
     dbsctrctl.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
@@ -1929,7 +1932,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     assert json.loads(result.stdout)["session_id"] == "session-vm"
     assert json.loads(result.stdout)["target"] == "workspace1"
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
-    assert json.loads(asks.read_text())["patterns"] == ["workspace1"]
+    assert json.loads(asks.read_text())["patterns"] == ["workspace1:workspace1-sandbox"]
     assert "<parity>\n<workspace1>" in sandbox_calls.read_text()
     log = calls.read_text()
     assert "<herdr>" in log
@@ -2005,6 +2008,39 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
         text=True, capture_output=True,
     )
     assert stale_runtime.returncode != 0
+    assert not calls.exists()
+
+    sandbox_calls.unlink()
+    blocked_worker = {"workers": [{**worker["workers"][0], "state": "blocked"}]}
+    worker_json_file = tmp_path / "worker.json"
+    authority_changed_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async()=>{{await Bun.write(process.env.WORKER_JSON_FILE,{json.dumps(json.dumps(blocked_worker))});}}}};
+await vm_handoff.execute({json.dumps(payload)},context);'''
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; esac\n'
+    )
+    authority_changed = subprocess.run(
+        ["bun", "-e", authority_changed_script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(worker_json_file)}, text=True, capture_output=True,
+    )
+    assert authority_changed.returncode != 0
+    assert "not Discovery-ready" in authority_changed.stderr
+    assert not calls.exists()
+    assert "<parity>" not in sandbox_calls.read_text()
+
+    instance_seen = tmp_path / "instance-seen"
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) if [ -e "$INSTANCE_SEEN" ]; then '
+        'printf "workspace2-sandbox\\n"; else : > "$INSTANCE_SEEN"; printf "workspace1-sandbox\\n"; fi;; esac\n'
+    )
+    remapped = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**handoff_env, "INSTANCE_SEEN": str(instance_seen)}, text=True, capture_output=True,
+    )
+    assert remapped.returncode != 0
+    assert "instance changed after approval" in remapped.stderr
     assert not calls.exists()
 
 
