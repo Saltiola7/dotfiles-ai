@@ -1,5 +1,11 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Initiative Launch Authority Alignment
+
+- Aligned digest-bound Initiative launch with its coordinator-plus-primary-Build
+  contract while keeping Plan and every subagent denied, and prohibited denied
+  launcher probes or VM-handoff substitution.
+
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens

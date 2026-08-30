@@ -5,7 +5,7 @@ model: openai/gpt-5.6-sol-fast
 variant: medium
 permission:
   dbsctr_vm_handoff: deny
-  dbsctr_initiative_launch: deny
+  dbsctr_initiative_launch: ask
   dbsctr_begin: allow
   dbsctr_attach: allow
   dbsctr_reconcile: allow

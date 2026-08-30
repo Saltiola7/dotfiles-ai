@@ -182,6 +182,10 @@ flowchart TD
     B --> S[Shared DBSCTR, Discovery, and QA skills]
     G --> S
     C --> S
+    D -->|Approved Initiative launch| T
+    B -->|Approved Initiative launch| T
+    G -->|Approved Initiative launch| T
+    C -->|Approved Initiative launch| T
     U -->|Confirm fork-defined incident| INC[Incident skill]
     INC -->|Bounded credential-redacted evidence| T
     S --> T[Typed local adapters]
@@ -201,8 +205,10 @@ the external boundary under prompt and standing policy rather than OpenCode comm
 matching. `build-gpt` routes read-only Explore to Luna, Scout and
 Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
-lifecycle skills and typed local adapters. Validated local effects may reach the
-worktree or private local state; external or destructive effects remain
+lifecycle skills and typed local adapters. The Discovery Coordinator and primary
+Build agents may request an approved Initiative launch; Plan and all subagents
+must hand it off. Validated local effects may reach the worktree or private local
+state; external or destructive effects remain
 permission-gated for Build and confirmation-gated by policy for unrestricted
 Discovery Bash. An operator-confirmed Incident fork may send only bounded,
 credential-redacted Incident Evidence through typed adapters to the active model
@@ -662,6 +668,16 @@ destructive operations, external writes, deployment, DVC push, and non-DBSCTR
 Git push retain their existing permission boundaries. Optional Herdr launch
 remains explicit through `launch=true` and never becomes lifecycle authority.
 
+### Initiative slice launch
+
+Given an Initiative slice has a fresh readiness receipt and exact approval, when
+the Discovery Coordinator or a native or provider-affine primary Build agent
+invokes `dbsctr_initiative_launch`, then OpenCode asks for the digest-bound launch
+and the adapter retains its repository, plan-digest, ownership, and mutation
+checks. Plan and all subagents deny the launcher. They return a handoff instead of
+probing a denied tool or substituting `dbsctr_vm_handoff`, which remains a distinct
+sanitized VM implementation workflow.
+
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
 when configured, the exact centralized state root. Provider-specific Build
@@ -922,6 +938,11 @@ and starts a named OpenCode agent in its root pane. The adapter capability-probe
 OpenCode `--fork`; supported parents fork into the target worktree, while older
 clients start fresh. Both paths receive the same content-free receipt prompt.
 Herdr identities remain private advisory correlation only.
+
+The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
+agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
+an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
+a fallback or alias.
 
 ## Validation Strategy
 
