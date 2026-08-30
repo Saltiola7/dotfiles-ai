@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "codex-cli-integration",
+  "title": "Managed Codex CLI and DBSCTR parity",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Manage Codex CLI and OpenCode as supported peer runtimes from dotfiles-ai.","disposition":"ready","artifacts":["docs/initiatives/codex-cli-integration/README.md","docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-002","kind":"non-goal","text":"Do not manage or redirect the separately managed Codex desktop application.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-003","kind":"requirement","text":"Support Codex on the macOS host, Fedora Lima guests, Herdr, Hermes, and autonomous DBSCTR workers.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"]},
+    {"id":"INT-004","kind":"decision","text":"Keep OpenCode installed and supported; parity readiness does not retire either runtime or change interactive invocation.","disposition":"ready","artifacts":["docs/initiatives/codex-cli-integration/README.md"]},
+    {"id":"INT-005","kind":"decision","text":"Persist only automation runtime selection through rnd.runtime and an optional workspace override; default to OpenCode and never fall back silently.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"]},
+    {"id":"INT-006","kind":"requirement","text":"Give Codex CLI a dedicated CODEX_HOME derived from the optional centralized state root with a local fallback.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/dotfiles_ai_distribution/features/codex-cli.md"]},
+    {"id":"INT-007","kind":"constraint","text":"Keep host, guest, and desktop credentials, sessions, logs, and private state isolated and out of Git.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/shell_auth_startup/codex-cli.md"]},
+    {"id":"INT-008","kind":"decision","text":"Use the official macOS Homebrew cask and a pinned checksum-verified Fedora aarch64 musl release.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"]},
+    {"id":"INT-009","kind":"requirement","text":"Require outcome parity for every requested configuration, lifecycle, tooling, history, worker, recovery, and federation capability.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-010","kind":"decision","text":"Prefer native Codex instructions, skills, agents, sandbox, approvals, hooks, CLI JSONL, and supported thread APIs over rebuilt behavior.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-011","kind":"decision","text":"Retain one DBSCTR V3 lifecycle and add conforming harness adapters rather than a Codex-specific lifecycle version.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md"]},
+    {"id":"INT-012","kind":"decision","text":"Propose Cycle Record schema 5 for future generic harness identity while preserving schema 3 and 4 reads without implicit migration.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md"]},
+    {"id":"INT-013","kind":"decision","text":"Use a short-lived Python Codex adapter over the installed CLI, sanitized hooks, stable app-server stdio, and dbsctrctl.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-014","kind":"constraint","text":"Do not read undocumented Codex SQLite or JSONL storage or infer missing runtime identity.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md"]},
+    {"id":"INT-015","kind":"requirement","text":"Integrate Discovery, QA, PM, writing, DKS, Graphify, incidents, review, history, telemetry, benchmarks, recovery, and federation where their outcomes apply.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-016","kind":"decision","text":"Project only digest-owned managed configuration atomically into CODEX_HOME and refuse unmanaged collisions or implicit state migration.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"]},
+    {"id":"INT-017","kind":"requirement","text":"Gate identity-dependent implementation on a macOS and Fedora hook-to-thread correlation probe.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/OPERATION.md"]},
+    {"id":"INT-018","kind":"constraint","text":"Use hooks only for bounded sanitized identity, policy, and evidence; hooks never write lifecycle state.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-019","kind":"non-goal","text":"Do not add MCP, plugin packaging, an SDK-bundled second runtime, a Rust rewrite, or a private Codex fork without separately approved evidence.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md"]},
+    {"id":"INT-020","kind":"risk","text":"Codex release, hook, and app-server identity contracts may drift and must be capability-probed before deployment or parity claims.","disposition":"ready","artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/codex_control_plane/OPERATION.md"]},
+    {"id":"INT-021","kind":"decision","text":"Use the user-approved lifecycle, Codex control-plane, distribution, shell-auth, and consulted-context map.","disposition":"ready","artifacts":["docs/initiatives/codex-cli-integration/README.md"]},
+    {"id":"INT-022","kind":"constraint","text":"Require cross-runtime conformance, OpenCode regression evidence, and representative benchmarks before performance-driven architecture changes.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md"]}
+  ],
+  "contexts": [
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"codex_control_plane","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":["dbsctr_v3_lifecycle"]},
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["codex_control_plane"]},
+    {"id":"shell_auth_startup","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["codex_control_plane","dotfiles_ai_distribution"]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["dbsctr_v3_lifecycle"]},
+    {"id":"dbsctr_knowledge_store","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":[]},
+    {"id":"pm_kernel","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["dbsctr_v3_lifecycle"]},
+    {"id":"writing_skills","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":[]},
+    {"id":"opencode_inference_cost","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["opencode_control_plane"]}
+  ],
+  "slices": [
+    {"id":"multi-harness-lifecycle","context":"dbsctr_v3_lifecycle","state":"captured","requirements":["INT-011","INT-012","INT-014","INT-022"],"depends_on":[],"artifacts":["docs/specs/dbsctr_v3_lifecycle/features/harness-adapters.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"tickets":[],"release_group":"contract-foundation","execution_owner":"build"},
+    {"id":"codex-host-foundation","context":"codex_control_plane","state":"captured","requirements":["INT-001","INT-002","INT-006","INT-009","INT-010","INT-013","INT-014","INT-015","INT-018","INT-019","INT-020"],"depends_on":["multi-harness-lifecycle"],"artifacts":["docs/specs/codex_control_plane/README.md","docs/specs/codex_control_plane/PROFILE.md","docs/specs/codex_control_plane/OPERATION.md"],"tickets":[],"release_group":"installable-peer","execution_owner":"build"},
+    {"id":"codex-distribution","context":"dotfiles_ai_distribution","state":"captured","requirements":["INT-003","INT-005","INT-006","INT-007","INT-008","INT-016"],"depends_on":["codex-host-foundation"],"artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md"],"tickets":[],"release_group":"installable-peer","execution_owner":"build"},
+    {"id":"codex-identity-probe","context":"codex_control_plane","state":"blocked","requirements":["INT-017","INT-020"],"depends_on":["codex-distribution"],"artifacts":["docs/specs/codex_control_plane/OPERATION.md"],"tickets":[],"release_group":"native-lifecycle","execution_owner":"discovery"},
+    {"id":"codex-history-parity","context":"codex_control_plane","state":"captured","requirements":["INT-009","INT-013","INT-014","INT-015","INT-018"],"depends_on":["codex-identity-probe"],"artifacts":["docs/specs/codex_control_plane/README.md"],"tickets":[],"release_group":"history-federation","execution_owner":"build"},
+    {"id":"codex-worker-routing","context":"dotfiles_ai_distribution","state":"captured","requirements":["INT-003","INT-004","INT-005","INT-007"],"depends_on":["codex-distribution","codex-identity-probe"],"artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"],"tickets":[],"release_group":"native-lifecycle","execution_owner":"build"},
+    {"id":"codex-state-recovery","context":"shell_auth_startup","state":"captured","requirements":["INT-003","INT-006","INT-007","INT-014","INT-017","INT-020"],"depends_on":["codex-worker-routing","codex-identity-probe"],"artifacts":["docs/specs/shell_auth_startup/codex-cli.md","docs/specs/shell_auth_startup/PROFILE.md"],"tickets":[],"release_group":"native-lifecycle","execution_owner":"build"},
+    {"id":"codex-federation-parity","context":"dotfiles_ai_distribution","state":"captured","requirements":["INT-003","INT-007","INT-009","INT-015"],"depends_on":["codex-history-parity","codex-worker-routing"],"artifacts":["docs/specs/dotfiles_ai_distribution/features/codex-cli.md"],"tickets":[],"release_group":"history-federation","execution_owner":"build"},
+    {"id":"codex-parity-readiness","context":"codex_control_plane","state":"blocked","requirements":["INT-001","INT-003","INT-004","INT-009","INT-010","INT-015","INT-017","INT-020","INT-022"],"depends_on":["codex-state-recovery","codex-federation-parity"],"artifacts":["docs/specs/codex_control_plane/README.md","docs/initiatives/codex-cli-integration/README.md"],"tickets":[],"release_group":"parity-readiness","execution_owner":"discovery"}
+  ],
+  "release_groups": [
+    {"id":"contract-foundation","members":["multi-harness-lifecycle"],"state":"planning"},
+    {"id":"installable-peer","members":["codex-host-foundation","codex-distribution"],"state":"planning"},
+    {"id":"native-lifecycle","members":["codex-identity-probe","codex-worker-routing","codex-state-recovery"],"state":"blocked"},
+    {"id":"history-federation","members":["codex-history-parity","codex-federation-parity"],"state":"planning"},
+    {"id":"parity-readiness","members":["codex-parity-readiness"],"state":"blocked"}
+  ]
+}

@@ -6,16 +6,17 @@
 
 ## Overview
 
-DBSCTR V3 is an OpenCode-first, language-neutral software-engineering lifecycle.
+DBSCTR V3 is a language-neutral software-engineering lifecycle with one shared
+kernel and conforming runtime harness adapters.
 It retains Domain, Behavior, Spec, Contract, Test-driven implementation, and
 Refactor as its development kernel, then carries evidence through review,
 release, deployment, operations, maintenance, and retirement when those gates
 apply.
 
 The public OpenCode entry points are `/discovery`, `/dbsctr`, and `/qa`.
-OpenCode is the first harness because its skills, commands, todos, agents,
-permissions, and Plan/Build separation should shape the workflow directly.
-Future harnesses may implement adapters to the same artifacts and contracts.
+OpenCode is the delivered first harness. Codex CLI is the first planned peer and
+must implement [`features/harness-adapters.md`](features/harness-adapters.md)
+before claiming lifecycle parity. Harnesses use the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
 
 ## Problem
@@ -32,6 +33,8 @@ or exposed through public commands after V3 is available.
 ## Goals
 
 - Make V3 the default lifecycle behind unversioned OpenCode skills and commands.
+- Preserve one unversioned lifecycle across conforming OpenCode and Codex
+  harnesses.
 - Keep the core language-neutral and load language, framework, domain, and risk
   modules only when applicable.
 - Add first-class Python and Security modules.
@@ -50,8 +53,7 @@ or exposed through public commands after V3 is available.
 ## Non-Goals
 
 - Do not build an OpenCode plugin or independent workflow engine.
-- Do not optimize prompts for hypothetical alternative harnesses at the expense
-  of OpenCode integration.
+- Do not weaken OpenCode integration or lifecycle semantics for another harness.
 - Do not prescribe one language, framework, CI provider, package manager,
   deployment platform, or observability backend.
 - Do not require release, deployment, or operational gates when the Engineering
@@ -64,7 +66,7 @@ or exposed through public commands after V3 is available.
 
 `dbsctr_v3_lifecycle` owns lifecycle discovery, development phases, gate
 applicability, evidence continuity, module selection, QA capability coverage,
-OpenCode integration, and V1/V2 migration.
+harness-adapter conformance, and V1/V2 migration.
 
 Adjacent contexts:
 
@@ -95,6 +97,9 @@ Adjacent contexts:
 | Delivery Intent | Local change, merge, release, or deployment. |
 | Accepted Risk | A failed or unavailable requirement accepted with rationale, owner, and expiry. |
 | OpenCode Adapter | Skills, commands, todos, agents, and permissions implementing the lifecycle in OpenCode. |
+| Harness | Runtime that hosts DBSCTR interactions and supplies native identity, approval, history, health, and execution evidence. |
+| Harness Adapter | Thin runtime translation into DBSCTR contracts without another lifecycle state machine. |
+| Capability Availability | Explicit `available`, `unavailable`, `partial`, or `not_requested` status for one adapter capability. |
 | V2 Archive | Source-only historical V2 skills that are excluded from deployment. |
 | Gate Commit | Atomic commit containing one coherent gate increment; tiny adjacent gates may combine. |
 | Protected Base Branch | Configured integration branch, default `main`, that cycle automation never updates directly. |

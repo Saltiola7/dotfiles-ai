@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - Captured Multi-Harness Contract
+
+- Captured one shared lifecycle with explicit OpenCode and Codex harness adapter
+  ownership, compatibility, availability, evidence, and conformance semantics.
+- Kept Method Revision `3.28` and record schema 4 authoritative. Schema 5 is only
+  proposed until a separate implementation cycle passes compatibility gates.
+- Initiative validation, 57 focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
 ## 2026-08-29 - Phase Span Lock Timeout
 
 - Made malformed Phase Span markers fail before private-lock acquisition and

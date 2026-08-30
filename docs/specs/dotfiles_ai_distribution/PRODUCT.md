@@ -3,7 +3,7 @@
 ## Users And Outcomes
 
 Developers should be able to install one public configuration repository and
-receive a working DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration
+receive a working DBSCTR, OpenCode, Codex CLI, Herdr, and opt-in Hermes R&D orchestration
 environment without adopting the maintainer's personal paths, account
 identifiers, or secrets.
 
@@ -18,39 +18,42 @@ target files.
 2. On macOS, the source installs OpenCode from its official Homebrew formula;
    OpenCode then loads the managed control plane and DBSCTR tools from complete,
    rendered configuration.
-3. Herdr runs on macOS with optional 1Password integration; absence of
+3. On macOS, the source also installs Codex from its official Homebrew cask;
+   Codex loads independent managed configuration and the same shared skills while
+   desktop state remains untouched.
+4. Herdr runs on macOS with optional 1Password integration; absence of
    1Password never blocks Herdr or shell startup.
-4. An existing user verifies parity, transfers ownership, and can roll back
+5. An existing user verifies parity, transfers ownership, and can roll back
    without deleting live configuration.
-5. A developer opts into Hermes orchestration and receives continuous independent
+6. A developer opts into Hermes orchestration and receives continuous independent
    full-history lenses, including one dedicated review-session governance lens.
-6. Evidence-ready noncritical workers may reach draft pull requests unattended;
+7. Evidence-ready noncritical workers may reach draft pull requests unattended;
    the operator uses Herdr for critical or uncertain sessions and manually reviews
    every resulting pull request.
-7. An opted-in operator receives bounded CLI/JSON evidence about merged
+8. An opted-in operator receives bounded CLI/JSON evidence about merged
    improvement effects while private runtime state conservatively adjusts worker
    cadence without changing source configuration or granting workers delivery
    authority.
-8. An operator enters a client-specific Fedora VM, reattaches to persistent VM
+9. An operator enters a client-specific Fedora VM, reattaches to persistent VM
    Herdr panes, and runs auto-approved OpenCode against only declared host paths.
-9. Host R&D reviews sanitized evidence from all host and VM histories and hands
+10. Host R&D reviews sanitized evidence from all host and VM histories and hands
    ready implementation to a visible configured-workspace Build session without
    moving databases or credentials across trust boundaries.
-10. An opted-in developer reaches each managed VM from authorized tailnet hosts
+11. An opted-in developer reaches each managed VM from authorized tailnet hosts
     with native Herdr remote attach while public configuration remains free of
     peer identity, policy, and enrollment secrets.
-11. A developer or teammate keeps coherent automatic Gate Commits on an isolated
+12. A developer or teammate keeps coherent automatic Gate Commits on an isolated
     feature branch and submits a draft pull request into the configured `main`
     branch; automation never commits or pushes cycle work directly to `main`.
-12. P0/P1 claims enter autonomous Discovery when every material question is
+13. P0/P1 claims enter autonomous Discovery when every material question is
     resolved and produce only an isolated implementation draft for review; P2/P3
     wait for promotion, and uncertain claims wait for the operator.
-13. An operator combines completed feature branches on an ephemeral batch branch,
+14. An operator combines completed feature branches on an ephemeral batch branch,
     reviews the exact merge commits, and explicitly publishes the batch for normal
     pull-request review without granting Hermes authority over `main`.
-14. An operator can inspect bounded local Herdr pane history for the prior 30 days
+15. An operator can inspect bounded local Herdr pane history for the prior 30 days
     without publishing terminal content or weakening filesystem ownership checks.
-15. An operator may select one personal Fedora workspace to remain available for
+16. An operator may select one personal Fedora workspace to remain available for
     rootless services while client-specific containers stay inside their client
     workspaces; project files never need to enter the service container.
 
@@ -66,27 +69,28 @@ target files.
 | Dependency/deployment | not_applicable: deployment topology is canonical in the context README | - | Context README Visual Evidence | Distribution owner |
 | Quantitative | not_applicable: success is verified by invariants and runtime checks, not a comparative dataset | - | Success Evidence | Product owner |
 
-V3.35 corrects the orchestration name without changing a product journey or trust
-boundary. The existing journey view and Text Equivalent remain current.
-
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai product journey boundaries
-    accDescr: A developer configures portable public defaults with private local values, opts into isolated automation, reviews uncertain decisions and every draft pull request, while evidence-ready P0 and P1 work may proceed to an isolated implementation draft and secrets remain local.
+    accDescr: A developer configures portable public defaults with private local values, applies independent OpenCode and Codex CLI runtimes, keeps Codex desktop state separate, opts into isolated automation, and reviews uncertain decisions and every draft pull request while secrets remain local.
     P[Public repository] -->|Add private local values| C[Machine-local configuration]
     C -->|Preview and apply| W[Managed host and workspaces]
+    W -->|Explicit invocation| O[OpenCode]
+    W -->|Managed wrapper| X[Codex CLI dedicated home]
+    D[Codex desktop default state] -. separate and unmanaged .-> X
     W -->|Optional opt-in| A[Isolated automation profiles]
     W -->|Optional personal service role| S[Rootless personal services]
     A -->|Ready P0 or P1 work| I[Isolated implementation cycle]
     A -->|Uncertain work| U[Operator approval]
     U -->|Explicit proceed| I
     I -->|Draft pull request| R[Human review and merge]
-    C -.->|Never publish| X[Secrets and machine identity]
+    C -.->|Never publish| N[Secrets and machine identity]
 ```
 
 **Text Equivalent:** Public defaults become usable only after private local
 values are supplied. Applying them creates managed host and workspace
-environments; automation remains optional and isolated. Evidence-ready
+environments with explicitly invoked OpenCode and a managed Codex CLI wrapper;
+Codex desktop state remains separate. Automation remains optional and isolated. Evidence-ready
 P0/P1 Discovery may proceed automatically when evidence resolves every material
 question, while uncertain work waits for the operator. Delivery ends at a draft pull request for human
 review. One personal workspace may separately host rootless services without
@@ -109,8 +113,8 @@ approval outcome changes.
 - The writable source path is machine-local and never a public default or
   general navigation allowlist.
 - Hermes owns scheduling, Kanban, and delegation; Herdr owns optional terminal
-  presentation; OpenCode owns implementation; the DBSCTR ledger owns lifecycle
-  coordination and approval state.
+  presentation; explicitly selected OpenCode or Codex owns implementation; the
+  DBSCTR ledger owns lifecycle coordination and approval state.
 - Each lens has independent monthly-to-immediate cadence and one active review
   attempt; repeated systemic failures halt dispatch and require manual reset.
 - Private session, project, and repository provenance never appears in public
@@ -120,6 +124,8 @@ approval outcome changes.
 
 - Isolated rendering passes with and without optional 1Password values.
 - OpenCode resolves the expected agents, commands, skills, and DBSCTR tools.
+- Codex resolves the dedicated CLI home, managed wrapper, shared skills, and
+  captured adapter contracts without changing desktop state.
 - Herdr configuration and LaunchAgent plists parse and run without embedded
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after

@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - Captured Codex CLI Distribution Contract
+
+- Captured peer-runtime installation, a PATH-preferred `CODEX_HOME` wrapper,
+  digest-owned configuration projection, macOS/Fedora package boundaries,
+  explicit automation selection, and rollback without changing live systems.
+- Kept desktop, host, and guest state and authentication separate and made the
+  proposed release, asset, and checksum subject to fresh implementation proof.
+- Initiative validation, 57 focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
 ## 2026-08-29 - DAI-035 R&D Launch Health
 
 - Corrected the delivered launch-health ticket from the duplicate `DAI-032`
