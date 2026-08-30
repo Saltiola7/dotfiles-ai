@@ -1092,6 +1092,39 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
     ]
 
 
+def test_phase_span_adapter_rejects_invalid_input_and_times_out(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "phase-span.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        '#!/bin/sh\nprintf "called\\n" >> "$PHASE_SPAN_LOG"\n'
+        '[ "$PHASE_SPAN_MODE" = "sleep" ] && exec sleep 5\nprintf "{}\\n"\n'
+    )
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PHASE_SPAN_LOG": str(log)}
+    invalid = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"invalid",event:"start",phase:"domain",operation:"read"},process.cwd(),50);'],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+    assert invalid.returncode != 0
+    assert "phase span start requires phase, operation, and attribution only" in invalid.stderr
+    assert not log.exists()
+
+    timed_out = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"slow",event:"start",phase:"domain",operation:"read",'
+         'attribution:"explicit"},process.cwd(),50);'],
+        cwd=ROOT, env={**env, "PHASE_SPAN_MODE": "sleep"}, text=True, capture_output=True,
+    )
+    assert timed_out.returncode != 0
+    assert "command timed out" in timed_out.stderr
+
+
 def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1291,7 +1324,7 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1706,7 +1739,7 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1734,13 +1767,16 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         "coordinator_repository": "Saltiola7/dotfiles-ai",
         "context": "ctx", "repository": "Saltiola7/dotfiles-ai",
         "requirements": ["INT-001"], "depends_on": [], "artifacts": ["docs/spec.md"],
-        "tickets": ["cycle-a"], "release_group": "rg",
+        "release_group": "rg", "execution_owner": "build",
     }
     bound = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
-        f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        'if [ "$1" = initiative-cycle-check ]; then '
+        'if [ "$OCCUPIED" = 1 ]; then printf "Initiative cycle ID is already occupied\\n" >&2; exit 1; '
+        'else printf \'{"available":true}\\n\'; fi; '
+        f'elif [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
@@ -1752,6 +1788,10 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
+    (bin_dir / "git").write_text(
+        '#!/bin/sh\nif [ "$1 $2 $3 $4" = "ls-remote --symref origin HEAD" ]; then '
+        'printf "ref: refs/heads/main\\tHEAD\\n"; else exec /usr/bin/git "$@"; fi\n'
+    )
     for executable in bin_dir.iterdir():
         executable.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
@@ -1776,10 +1816,12 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "initiative_id": "test", "slice_id": "slice-a", "manifest_digest": digest,
         "manifest_blob": blob, "manifest_commit": commit,
         "coordinator_repository": "Saltiola7/dotfiles-ai",
-        "repository": "Saltiola7/dotfiles-ai", "target_repository": "Saltiola7/dotfiles-ai",
+        "repository": "Saltiola7/dotfiles-ai", "execution_owner": "build",
+        "target_repository": "Saltiola7/dotfiles-ai",
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "base_branch": "main",
         "github_account": None, "github_repository": None,
     }
     assert calls.read_text().splitlines()[0:6] == [
@@ -1792,6 +1834,17 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert "<--session>\n<parent-session>\n<--fork>" in log
     assert f'"manifest_digest":"{digest}"' in log
     assert "<--prompt>" in log
+
+    approval.unlink()
+    occupied = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "OCCUPIED": "1"},
+        text=True, capture_output=True,
+    )
+    assert occupied.returncode != 0 and "already occupied" in occupied.stderr
+    assert not approval.exists()
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
