@@ -1,8 +1,8 @@
 # Codex Control Plane
 
-**Status:** Contract captured; implementation and capability probes not started
+**Status:** Host foundation ready; implementation and capability probes not started
 **Created:** 2026-08-29
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 ## Engineering Profile And Overrides
 
@@ -39,6 +39,7 @@ authority.
 - Reuse the existing user skill directory and shared DBSCTR, Discovery, QA, PM,
   writing, DKS, and Graphify contracts.
 - Use supported Codex interfaces and explicit capability availability.
+- Manage the minimal native workflow roles Build, Discovery, Plan, Review, Explore, and Scout without mirroring every OpenCode agent.
 - Preserve exact runtime, session, worker, evidence, approval, and recovery
   identity where Codex can prove it.
 - Make full parity an evidence-backed outcome decision rather than an
@@ -192,6 +193,9 @@ terminal without implementation.
   selects OpenCode.
 - Given a selected runtime is unavailable, when launch or resume runs, then it
   fails without falling back to the other runtime.
+- Given a live probe or worker has no existing login in its host or guest boundary,
+  when Codex is requested, then it fails closed without auto-authentication, shared
+  API-key injection, or authentication copying.
 
 ### Dedicated CLI state
 
@@ -217,8 +221,8 @@ terminal without implementation.
   accepts only event enum, opaque session and turn IDs, model ID, timestamp, and
   workspace enum `primary_worktree`, `cycle_worktree`, or `unknown`.
 - Given a hook contains prompt, transcript, tool input or output, environment,
-  URL, credential, account identity, or filesystem path data, then the adapter
-  rejects those fields.
+  URL, credential, account identity, or any filesystem path except documented
+  transient `cwd`, then the adapter rejects the event without persistence.
 - Given a hook fails, when lifecycle work continues, then no Cycle Record or gate
   changes because a hook never owns lifecycle state.
 
@@ -242,6 +246,81 @@ terminal without implementation.
   private schema, when parity is assessed, then parity fails.
 
 ## Interfaces
+
+### Host foundation slice
+
+`codex-host-foundation` is the first of two sequential pull requests. It owns the
+portable managed source for global `AGENTS.md`, Codex configuration, six custom
+agent definitions, bounded hooks, the sanitizer, and the short-lived Python
+adapter. Build, Discovery, Plan, Review, Explore, and Scout are the complete
+initial custom-agent set. Model and provider selection remain inherited runtime
+configuration rather than duplicated per agent. Plan, Review, Explore, and Scout
+are read-only roles; Build and Discovery receive write capability only from an
+explicit launch sandbox and approval policy.
+
+This slice adds fake-command and schema tests but does not install Codex, project
+files into `CODEX_HOME`, authenticate, claim native identity, or deploy a running
+adapter. `codex-distribution` owns those actions after this slice is delivered.
+
+#### Native role policy
+
+| Role | Mutation boundary | Network boundary | Purpose |
+|---|---|---|---|
+| Build | `workspace-write` only when explicitly launched; cannot relax parent sandbox | Inherited, off unless launch authorizes it | Implement approved owned paths |
+| Discovery | `workspace-write` only for approved normative artifacts | Inherited, off unless bounded research is authorized | Refine contracts and readiness |
+| Plan | `read-only` | Off | Produce implementation handoff |
+| Review | `read-only` | Off | Find correctness and safety gaps |
+| Explore | `read-only` | Off | Inspect local source |
+| Scout | `read-only` | Explicitly authorized public research only | Research public external contracts without private repository content |
+
+Every custom agent inherits the selected model and provider. No child may relax
+its parent's sandbox or approval mode, and no role configuration embeds secrets,
+account identity, or machine paths.
+
+#### Initial hook and adapter contract
+
+The first slice configures identity-only `SessionStart`, `SessionEnd`,
+`SubagentStart`, `SubagentStop`, and `Stop` hooks. Tool, permission, prompt,
+compaction, and notification hooks remain unconfigured until a later slice has a
+specific parity need. The adapter converts version-probed documented payloads to:
+
+```json
+{
+  "schema_version": 1,
+  "adapter_revision": "codex-adapter-1",
+  "event": "SessionStart",
+  "session_id": "opaque-id",
+  "workspace": "primary_worktree",
+  "observed_at": "2026-08-30T00:00:00Z"
+}
+```
+
+`event`, `session_id`, `workspace`, and adapter-owned `observed_at` are required.
+Optional `turn_id` and `model_id` are present only when the installed documented
+payload supplies them. Opaque IDs and model IDs are ASCII presentation IDs of at
+most 128 bytes. Workspace is `primary_worktree`, `cycle_worktree`, or `unknown`;
+documented raw `cwd` is the sole transient path exception. It must be an absolute
+UTF-8 path of at most 4096 bytes with no NUL or control characters, resolve to an
+existing directory, and canonicalize successfully. The adapter compares that
+canonical path against canonical Git worktree roots using root containment,
+classifies a unique primary or active cycle worktree, otherwise emits `unknown`,
+and discards raw and canonical paths before output, storage, or logging. Any
+other path-bearing field rejects the event.
+
+Hook stdin is at most 64 KiB, the normalized record at most 8 KiB, bounded reasons
+at most 256 ASCII bytes, and hook processing at most five seconds. Version/help
+probes allow at most 1 MiB and 30 seconds; app-server handshake and each method
+allow at most 1 MiB and ten seconds. Unknown required fields, duplicate JSON keys,
+invalid UTF-8, non-ASCII identity, overflow, timeout, or content-bearing prompt,
+transcript, tool argument/output, environment, URL, credential, or account fields
+produce no identity record.
+
+`codex-control-plane` returns `0` only for a validated command result, `1` for a
+validation, capability, runtime, or transport failure, and `2` for CLI usage.
+Identity hook wrappers never mutate lifecycle state or write stdout; after a
+bounded private success or failure record they return `0` to avoid making an
+observability hook an execution authority. Owner-only hook records retain only
+the normalized envelope or a bounded failure enum and expire after 24 hours.
 
 The planned executable is `codex-control-plane`, implemented in Python without a
 daemon or private database:
@@ -312,6 +391,8 @@ final parity for a requested outcome without a separately approved scope change.
 - Host and each guest authenticate separately.
 - Codex release and adapter revisions are exact non-secret evidence.
 - Runtime identity comes only from supported structured interfaces.
+- Live probes and workers require `codex login status` to prove an existing login
+  inside the current boundary; the control plane never performs login.
 - Cwd and worktree data is reduced to validated repository-relative identity
   before persistence or model exposure.
 - Hook records are owner-only, bounded, retained under private state, and never

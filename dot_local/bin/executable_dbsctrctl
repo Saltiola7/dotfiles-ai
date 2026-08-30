@@ -3042,7 +3042,7 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
     except (OSError, ValueError, json.JSONDecodeError):
         fail(f"Initiative cycle record is invalid: {cycle_id}")
     if (not isinstance(record, dict) or not required_record.issubset(record)
-            or record.get("cycle_id") != cycle_id or record.get("schema_version") != 4
+            or record.get("cycle_id") != cycle_id or record.get("schema_version") not in (4, 5)
             or record.get("context") != receipt["context"]
             or any(not isinstance(record.get(field), dict) for field in (
                 "applicability_plan", "delivery", "engineering_profile", "evidence", "gates",

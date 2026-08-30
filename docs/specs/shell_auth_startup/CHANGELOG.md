@@ -1,5 +1,14 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-30 - Refined Codex Recovery Preconditions
+
+- Required exact-session recovery to use an existing login in the current host
+  or guest boundary and prohibited automatic login, shared API-key injection, or
+  auth copying.
+- Kept recovery dependency-blocked on distribution, identity correlation, and
+  worker routing. No shell, signed host, external-volume state, or runtime was
+  changed in Discovery.
+
 ## 2026-08-29 - Captured Codex State And Recovery Contract
 
 - Extended the signed-host and external-volume contract to future Codex CLI

@@ -2,7 +2,7 @@
 
 **Status:** Contract captured; implementation and capability probes not started
 **Created:** 2026-08-29
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 ## Overview
 
@@ -171,6 +171,8 @@ strings, credentials, absolute state-root paths, or private session content.
 
 - Existing shell startup remains nonblocking and never auto-authenticates Codex.
 - Host and guests sign in separately; auth files are never forwarded or copied.
+- Recovery requires an existing login in the current boundary and never
+  auto-authenticates or injects a shared API key.
 - The signed Herdr host remains the macOS external-volume responsibility owner.
 - `CODEX_HOME` is scoped to managed CLI processes, not the desktop application.
 - Existing external-volume health records retain no session ID, prompt, response,

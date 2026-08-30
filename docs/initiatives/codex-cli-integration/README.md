@@ -37,6 +37,13 @@ ledger is [`MANIFEST.json`](MANIFEST.json).
 
 The user approved this complete context map on 2026-08-29.
 
+## Approved Delivery Decisions
+
+- Deliver `codex-host-foundation` and `codex-distribution` as two sequential pull requests. The first establishes the tested control-plane source contract without installing Codex; the second installs, projects, and deploys it.
+- Live probes and workers require an existing boundary-local login. They never auto-authenticate, inject a shared API key, or copy authentication between the host and guests.
+- Host foundation manages only the initial native workflow roles Build, Discovery, Plan, Review, Explore, and Scout. It does not mirror every OpenCode agent.
+- Distribution updates all registered managed Fedora guests and automatically provisions future managed guests. Identity correlation uses one representative authenticated Fedora guest per frozen release while every guest must pass install, version, configuration, and isolation checks.
+
 ## Architecture
 
 ```mermaid
@@ -67,7 +74,7 @@ guest Codex state, and desktop default state remain separate.
 | Slice | Execution owner | Outcome | Depends on |
 |---|---|---|---|
 | `multi-harness-lifecycle` | `build` | Proposed schema-5 generic harness identity and conformance while schemas 3/4 remain readable | None |
-| `codex-host-foundation` | `build` | Managed host Codex config, native skills, sandbox, and bounded CLI adapter | `multi-harness-lifecycle` |
+| `codex-host-foundation` | `build` | Managed Codex source config, six native workflow roles, sanitizer, capability probe, and bounded CLI adapter | `multi-harness-lifecycle` |
 | `codex-distribution` | `build` | Homebrew host install, pinned Fedora install, atomic config projection, and runtime selection | `codex-host-foundation` |
 | `codex-identity-probe` | `discovery` | Cross-platform decision for hook session identity versus app-server thread identity | `codex-distribution` |
 | `codex-history-parity` | `build` | Supported thread history, incidents, review, telemetry, and benchmarks | `codex-identity-probe` |
@@ -76,22 +83,41 @@ guest Codex state, and desktop default state remain separate.
 | `codex-federation-parity` | `build` | Bounded host/guest history federation and handoff | `codex-history-parity`, `codex-worker-routing` |
 | `codex-parity-readiness` | `discovery` | Outcome-parity assessment with no unexplained unavailable capability | All preceding slices |
 
+## Dependency-Gated Slice Contracts
+
+| Slice | Build or probe boundary | Promotion evidence |
+|---|---|---|
+| `codex-host-foundation` | Portable control-plane source, six native roles, bounded hooks, sanitizer, and adapter; no package install, login, or live identity claim | Fake-command/schema tests, shared lifecycle conformance, OpenCode regressions, and reviewed source contract |
+| `codex-distribution` | Install exact host/guest release, project digest-owned config, activate wrapper, and persist selector schema; no worker activation | Host and all-guest version/config/state isolation, rollback, and source-identical deployment after host foundation is delivered |
+| `codex-identity-probe` | Discovery-run disposable correlation on macOS and one representative authenticated Fedora guest | Exact or deterministic versioned mapping across hooks, CLI JSONL, app-server thread identity, resume, and fork; ambiguity keeps dependents blocked |
+| `codex-history-parity` | Documented `thread/list` and `thread/read` over initialized app-server stdio; no experimental pagination or private storage | Sanitized conversion into existing review, incident, history, telemetry, and benchmark contracts; unavailable required fields block parity |
+| `codex-worker-routing` | Resolve workspace override, then `rnd.runtime`, then OpenCode default across native, Hermes, Herdr, and autonomous workers | Exact runtime, release, adapter revision, and session identity where available; passing Herdr launch-health baseline; mismatch, absence, duplication, or failure never falls back |
+| `codex-state-recovery` | Extend existing exact-volume preflight and content-free snapshot to supported Codex resume | Healthy/degraded/recovered probes, exact returned identity, process preservation, rollback, and no substitute session |
+| `codex-federation-parity` | Existing bounded federated-capture schemas transport sanitized Codex source pages and handoff identity | Immutable host/guest capture, deterministic ordering, continuation invalidation, privacy rejection, and no credential or content transfer |
+| `codex-parity-readiness` | Discovery reconciles the complete capability matrix and OpenCode coexistence baseline | Every requested capability must have passing evidence or a separately approved scope change; unexplained unavailable results fail readiness |
+
+Only the first dependency-satisfied slice is receipt-ready. Delivering a
+predecessor does not automatically promote its successor: Discovery revalidates
+the committed artifacts, manifest digest, runtime evidence, and ownership before
+changing the successor to `ready`.
+
 Discovery owns normative contracts, parity disposition, dependencies, and slice
 scope. Build owns only the implementation paths in an approved DBSCTR
 applicability plan and Cycle Record. Late changes to lifecycle semantics, context
 ownership, state isolation, parity meaning, or dependencies reopen readiness.
 
-This Initiative creates no PM Kernel tickets. The ticket-optional manifest marks
-only `multi-harness-lifecycle` receipt-ready. No other Initiative Build launch is
-authorized. Applicability plans and Cycle Records cannot substitute for an
-Initiative readiness receipt.
+This Initiative creates no PM Kernel tickets. The manifest marks only
+`codex-host-foundation` receipt-ready. Distribution remains captured until host
+foundation is delivered; identity, worker, history, recovery, federation, and
+final parity slices remain dependency-blocked. Applicability plans and Cycle
+Records cannot substitute for a fresh Initiative readiness receipt.
 
 ## Release Groups
 
 | Group | Members | Exit condition |
 |---|---|---|
 | `contract-foundation` | `multi-harness-lifecycle` | Generic lifecycle adapter contract is delivered without OpenCode regression |
-| `installable-peer` | `codex-host-foundation`, `codex-distribution` | Host and guest Codex runtimes are installed, isolated, and explicitly selectable |
+| `installable-peer` | `codex-host-foundation`, `codex-distribution` | Two sequential pull requests deliver tested control-plane source, then install isolated and explicitly selectable host/guest runtimes |
 | `native-lifecycle` | `codex-identity-probe`, `codex-worker-routing`, `codex-state-recovery` | Exact identity, worker routing, and recovery pass on both platforms |
 | `history-federation` | `codex-history-parity`, `codex-federation-parity` | Bounded review, incident, telemetry, and federation outcomes pass |
 | `parity-readiness` | `codex-parity-readiness` | Every requested capability has an evidence-backed passing disposition |

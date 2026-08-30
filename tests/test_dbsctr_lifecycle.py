@@ -1,4 +1,7 @@
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -138,6 +141,70 @@ def test_current_distribution_profile_names_hermes_orchestration():
     spec = text("docs/specs/dotfiles_ai_distribution/README.md")
     assert "opt-in Hermes R&D orchestration" in spec
     assert "opt-in native R&D scheduling" not in spec
+
+
+def test_codex_next_slices_are_dependency_ordered_and_host_ready():
+    manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
+    contexts = {item["id"]: item for item in manifest["contexts"]}
+    slices = {item["id"]: item for item in manifest["slices"]}
+    statements = {item["id"]: item for item in manifest["statements"]}
+
+    assert contexts["codex_control_plane"]["status"] == "ready"
+    assert slices["codex-host-foundation"]["state"] == "ready"
+    assert slices["codex-distribution"]["state"] == "captured"
+    assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
+    assert slices["codex-identity-probe"]["state"] == "blocked"
+    assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
+    assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert {
+        name: (slices[name]["state"], slices[name]["depends_on"])
+        for name in (
+            "codex-history-parity", "codex-worker-routing", "codex-state-recovery",
+            "codex-federation-parity", "codex-parity-readiness",
+        )
+    } == {
+        "codex-history-parity": ("captured", ["codex-identity-probe"]),
+        "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
+        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
+        "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
+        "codex-parity-readiness": ("blocked", ["codex-state-recovery", "codex-federation-parity"]),
+    }
+    assert statements["INT-026"]["disposition"] == "ready"
+    assert statements["INT-027"]["disposition"] == "ready"
+    assert statements["INT-028"]["disposition"] == "ready"
+    assert statements["INT-029"]["disposition"] == "ready"
+
+    checked = subprocess.run(
+        [sys.executable, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
+         "initiative-check", "--manifest",
+         str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
+        cwd=ROOT, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-host-foundation"]
+
+    initiative = text("docs/initiatives/codex-cli-integration/README.md")
+    control_plane = text("docs/specs/codex_control_plane/README.md")
+    distribution = text("docs/specs/dotfiles_ai_distribution/features/codex-cli.md")
+    operation = text("docs/specs/codex_control_plane/OPERATION.md")
+    for phrase in ("two sequential pull requests", "existing boundary-local login"):
+        assert phrase in initiative
+    for phrase in (
+        "Documented `thread/list` and `thread/read`",
+        "Exact runtime, release, adapter revision, and session identity",
+        "Existing bounded federated-capture schemas",
+        "Every requested capability must have passing evidence",
+    ):
+        assert phrase in initiative
+    assert "Build, Discovery, Plan, Review, Explore, and Scout" in control_plane
+    for phrase in (
+        "64 KiB", "five seconds", "codex-adapter-1", "expire after 24 hours",
+        "sole transient path exception", "root containment",
+    ):
+        assert phrase in control_plane
+    assert "all registered managed guests" in distribution
+    assert "representative authenticated Fedora guest" in operation
+    assert "existing managed `CODEX_HOME`" in operation
+    assert "Do not inspect or delete private storage" in operation
 
 
 def test_v3_module_registry_is_extensible_and_normalized():
