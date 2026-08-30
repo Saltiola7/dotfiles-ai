@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeCycleCheck, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -512,8 +512,84 @@ export const improvement_update = tool({
   },
 })
 
+type InitiativeLaunchArgs = {
+  manifestPath: string
+  sliceId: string
+  proceed: true
+  cycleId: string
+  context: string
+  risk: "routine" | "elevated" | "critical"
+  deliveryIntent: "local" | "merge" | "release" | "deploy" | "draft_pr"
+  planPath: string
+  githubAccount?: string
+  githubRepository?: string
+  targetRepository?: string
+}
+
+type InitiativeToolContext = {
+  worktree: string
+  directory: string
+  sessionID: string
+  messageID: string
+  ask: (request: { permission: string; patterns: string[]; always: string[] }) => Promise<unknown>
+}
+
+async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext) {
+  const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+  if (receipt.context !== args.context)
+    throw new Error("Initiative receipt context does not match the requested DBSCTR context")
+  const target = args.targetRepository ?? context.worktree
+  const targetRepository = await gitRepositorySlug(target)
+  if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())
+    throw new Error("Initiative context home does not match the target repository")
+  const baseBranch = await gitDefaultBranch(target)
+  await initiativeCycleCheck(args.cycleId, receipt, target)
+  const planDigest = await fileDigest(args.planPath, target)
+  const approval = JSON.stringify({
+    initiative_id: receipt.initiative_id,
+    slice_id: receipt.slice_id,
+    manifest_digest: receipt.manifest_digest,
+    manifest_blob: receipt.manifest_blob,
+    manifest_commit: receipt.manifest_commit,
+    coordinator_repository: receipt.coordinator_repository,
+    repository: receipt.repository,
+    execution_owner: receipt.execution_owner,
+    target_repository: targetRepository,
+    cycle_id: args.cycleId,
+    context: args.context,
+    risk: args.risk,
+    delivery_intent: args.deliveryIntent,
+    plan_path: args.planPath,
+    plan_digest: planDigest,
+    base_branch: baseBranch,
+    github_account: args.githubAccount ?? null,
+    github_repository: args.githubRepository ?? null,
+  })
+  await context.ask({
+    permission: "dbsctr_initiative_launch",
+    patterns: [approval],
+    always: [],
+  })
+  const current = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+  if (JSON.stringify(current) !== JSON.stringify(receipt))
+    throw new Error("Initiative readiness changed after approval; request approval for the new digest")
+  if ((await gitRepositorySlug(target)).toLowerCase() !== targetRepository.toLowerCase())
+    throw new Error("Initiative target repository changed after approval")
+  await initiativeCycleCheck(args.cycleId, receipt, target)
+  if (await fileDigest(args.planPath, target) !== planDigest)
+    throw new Error("DBSCTR applicability plan changed after approval")
+  if (await gitDefaultBranch(target) !== baseBranch)
+    throw new Error("Initiative target default branch changed after approval")
+  return JSON.stringify(await beginCycle({ ...args, baseBranch }, target, true, process.env, {
+    sessionID: context.sessionID,
+    messageID: context.messageID,
+    directory: context.directory,
+    worktree: context.worktree,
+  }, receipt, context.worktree, { planDigest, targetRepository }))
+}
+
 export const begin = tool({
-  description: "Create an isolated DBSCTR branch/worktree and optionally launch OpenCode there through Herdr. Protected-base merge delivery becomes draft_pr; githubRepository is derived from origin.",
+  description: "Create an isolated DBSCTR branch/worktree, or launch an exactly approved Initiative slice when initiative is provided. Protected-base merge delivery becomes draft_pr; githubRepository is derived from origin.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
@@ -524,8 +600,16 @@ export const begin = tool({
     githubRepository: tool.schema.string().optional(),
     baseBranch: tool.schema.string().optional(),
     launch: tool.schema.boolean().optional().default(false),
+    initiative: tool.schema.object({
+      manifestPath: tool.schema.string(),
+      sliceId: tool.schema.string(),
+      proceed: tool.schema.literal(true),
+      targetRepository: tool.schema.string().optional(),
+    }).optional(),
   },
   async execute(args, context) {
+    if (args.initiative !== undefined)
+      return await launchInitiative({ ...args, ...args.initiative }, context)
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
       sessionID: context.sessionID,
       messageID: context.messageID,
@@ -551,56 +635,7 @@ export const initiative_launch = tool({
     targetRepository: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
-    if (receipt.context !== args.context)
-      throw new Error("Initiative receipt context does not match the requested DBSCTR context")
-    const target = args.targetRepository ?? context.worktree
-    const targetRepository = await gitRepositorySlug(target)
-    if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())
-      throw new Error("Initiative context home does not match the target repository")
-    const baseBranch = await gitDefaultBranch(target)
-    const planDigest = await fileDigest(args.planPath, target)
-    const approval = JSON.stringify({
-      initiative_id: receipt.initiative_id,
-      slice_id: receipt.slice_id,
-      manifest_digest: receipt.manifest_digest,
-      manifest_blob: receipt.manifest_blob,
-      manifest_commit: receipt.manifest_commit,
-      coordinator_repository: receipt.coordinator_repository,
-      repository: receipt.repository,
-      execution_owner: receipt.execution_owner,
-      target_repository: targetRepository,
-      cycle_id: args.cycleId,
-      context: args.context,
-      risk: args.risk,
-      delivery_intent: args.deliveryIntent,
-      plan_path: args.planPath,
-      plan_digest: planDigest,
-      base_branch: baseBranch,
-      github_account: args.githubAccount ?? null,
-      github_repository: args.githubRepository ?? null,
-    })
-    await context.ask({
-      permission: "dbsctr_initiative_launch",
-      patterns: [approval],
-      always: [],
-    })
-    const current = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
-    if (JSON.stringify(current) !== JSON.stringify(receipt))
-      throw new Error("Initiative readiness changed after approval; request approval for the new digest")
-    if ((await gitRepositorySlug(target)).toLowerCase() !== targetRepository.toLowerCase())
-      throw new Error("Initiative target repository changed after approval")
-    if (await fileDigest(args.planPath, target) !== planDigest)
-      throw new Error("DBSCTR applicability plan changed after approval")
-    if (await gitDefaultBranch(target) !== baseBranch)
-      throw new Error("Initiative target default branch changed after approval")
-    const result = await beginCycle({ ...args, baseBranch }, target, true, process.env, {
-      sessionID: context.sessionID,
-      messageID: context.messageID,
-      directory: context.directory,
-      worktree: context.worktree,
-    }, receipt, context.worktree, { planDigest, targetRepository })
-    return JSON.stringify(result)
+    return await launchInitiative(args, context)
   },
 })
 
