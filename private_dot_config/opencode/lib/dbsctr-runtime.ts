@@ -384,7 +384,7 @@ export async function validateExecutionDag(nodes: {
 
 export async function recordExecutionBenchmark(fixture: {
   id: string; commit: string; path: string; blob: string
-}, cwd = process.cwd()) {
+}, expectedInstance: string, cwd = process.cwd()) {
   return await run([
     "dbsctrctl", "execution-benchmark",
     "--fixture-id", fixture.id, "--fixture-commit", fixture.commit,
@@ -1644,6 +1644,16 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
       || !(value.release_group === null || typeof value.release_group === "string"))
     throw new Error("dbsctrctl returned an invalid Initiative readiness receipt")
   return { ...value, manifest_path: manifestPath }
+}
+
+export async function initiativeCycleCheck(cycleID: string, receipt: Record<string, unknown>, cwd = process.cwd()) {
+  const value = JSON.parse(await run([
+    "dbsctrctl", "initiative-cycle-check", "--cycle-id", cycleID,
+    "--receipt-json", JSON.stringify(receipt),
+  ], cwd))
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).join("\0") !== "available" || value.available !== true)
+    throw new Error("dbsctrctl returned an invalid Initiative cycle availability result")
 }
 
 async function boundedReconciliationWorktree(cwd: string, worktree?: string,

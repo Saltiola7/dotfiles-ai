@@ -20,12 +20,15 @@ may run concurrently only with disjoint ownership and satisfied dependencies.
 Discovery and DBSCTR never create or read PM Kernel tickets. Require exact user
 approval for the current digest-bound slice before invoking
 `dbsctr_initiative_launch`; late material intent reopens affected readiness.
-Discovery coordinators and primary Build agents may invoke that typed launcher;
-Plan and subagents remain denied. The launcher preserves the same exact approval
-and identity checks regardless of the calling primary.
+Discovery coordinators and primary Build agents may invoke that typed launcher.
+When the host registry omits only that export, a primary Build may use the
+explicit Initiative mode of typed `dbsctr_begin`; it executes the same receipt,
+exact approval, repository, plan-digest, ownership, and mutation checks. Ordinary
+begin is never a substitute. Plan and subagents remain denied.
 Plan must never probe or substitute a denied launcher.
 `dbsctr_vm_handoff` is not an Initiative launcher; unavailable launch authority
-requires a handoff to an authorized primary.
+requires a handoff to an authorized primary Build, which may use the validated
+Initiative mode above.
 Only `build-rnd` may invoke `dbsctr_vm_handoff`, and only as
 `/dbsctr-improve`'s final approved step after persisted Discovery authorization
 and scope. Ordinary Build and every other agent deny it. Never probe it or use

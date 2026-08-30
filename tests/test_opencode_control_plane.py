@@ -1797,6 +1797,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
         f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
@@ -1855,6 +1856,26 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert "<--session>\n<parent-session>\n<--fork>" in log
     assert f'"manifest_digest":"{digest}"' in log
     assert "<--prompt>" in log
+
+    calls.write_text("")
+    herdr_calls.write_text("")
+    begin_script = script.replace(
+        "import { initiative_launch }", "import { begin }"
+    ).replace(
+        "initiative_launch.execute({",
+        "begin.execute({initiative:{manifestPath:\"docs/initiatives/test/MANIFEST.json\",sliceId:\"slice-a\",proceed:true},",
+    ).replace(
+        'manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,', ""
+    )
+    fallback = subprocess.run(
+        ["bun", "-e", begin_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(fallback.stdout)["initiative"]["manifest_digest"] == digest
+    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_launch"
+    assert "<initiative-receipt>" in calls.read_text()
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
