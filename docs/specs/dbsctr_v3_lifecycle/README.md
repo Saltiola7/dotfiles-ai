@@ -1089,7 +1089,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.28`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.29`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -2597,9 +2597,9 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.28` remain compatible with schema-version `3`;
-new records use schema version `4` and the helper's single
-`CURRENT_METHOD_REVISION = "3.28"` constant.
+Method Revisions through `3.28` retain their recorded schema-3 or schema-4
+semantics. Method Revision `3.29` creates schema-version `5` records and the
+helper uses one `CURRENT_METHOD_REVISION = "3.29"` constant.
 
 Schema version `4` removes persisted machine paths from new portable records.
 DBSCTR-created worktrees store a traversal-safe path relative to
@@ -2611,6 +2611,13 @@ primary worktree. State roots resolve in order from explicit command input,
 `DBSCTR_STATE_ROOT` or `DBSCTR_WORKTREE_ROOT`, `DOTFILES_AI_STATE_ROOT`, XDG state,
 then native home-directory defaults. OpenCode data follows `XDG_DATA_HOME`.
 Traversal, registry escape, and identity drift fail closed.
+
+Schema version `5` adds `runtime.adapters` with strict harness, revision,
+availability, opaque identity, and portable-locator validation. New records begin
+with an empty adapter map. OpenCode attachment dual-writes an exact generic
+adapter and the legacy `runtime.opencode` compatibility branch. Schemas 3 and 4
+remain readable and `cycle-portabilize` remains schema 3 to schema 4 only. Native
+Codex identity remains outside this lifecycle slice.
 
 Schemas `1` through `3` remain readable without implicit rewriting.
 `cycle-portabilize --cycle-id ID` converts only a named active schema-3 cycle
