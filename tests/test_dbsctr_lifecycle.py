@@ -143,15 +143,16 @@ def test_current_distribution_profile_names_hermes_orchestration():
     assert "opt-in native R&D scheduling" not in spec
 
 
-def test_codex_next_slices_are_dependency_ordered_and_host_ready():
+def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
     manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
     contexts = {item["id"]: item for item in manifest["contexts"]}
     slices = {item["id"]: item for item in manifest["slices"]}
     statements = {item["id"]: item for item in manifest["statements"]}
 
     assert contexts["codex_control_plane"]["status"] == "ready"
-    assert slices["codex-host-foundation"]["state"] == "ready"
-    assert slices["codex-distribution"]["state"] == "captured"
+    assert slices["codex-host-foundation"]["state"] == "delivered"
+    assert slices["codex-distribution"]["state"] == "ready"
+    assert slices["codex-distribution"]["execution_owner"] == "build"
     assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
     assert slices["codex-identity-probe"]["state"] == "blocked"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
@@ -176,6 +177,7 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     assert statements["INT-030"]["disposition"] == "ready"
     assert statements["INT-031"]["disposition"] == "ready"
     assert {"INT-030", "INT-031"} <= set(slices["codex-host-foundation"]["requirements"])
+    assert all("tickets" not in item for item in manifest["slices"])
 
     checked = subprocess.run(
         [sys.executable, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
@@ -183,16 +185,19 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-host-foundation"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-distribution"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
     distribution = text("docs/specs/dotfiles_ai_distribution/features/codex-cli.md")
     operation = text("docs/specs/codex_control_plane/OPERATION.md")
+    normalized_initiative = " ".join(initiative.split())
     normalized_control_plane = " ".join(control_plane.split())
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
+    assert "`codex-distribution` receipt-ready" in normalized_initiative
+    assert "**Status:** Distribution receipt ready; implementation and deployment not started" in distribution
     for phrase in (
         "Documented `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",

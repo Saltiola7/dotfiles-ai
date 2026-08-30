@@ -109,15 +109,15 @@ Discovery owns normative contracts, parity disposition, dependencies, and slice
 scope. Build owns only the implementation paths in an approved DBSCTR
 applicability plan and Cycle Record. Late changes to lifecycle semantics, context
 ownership, state isolation, parity meaning, or dependencies reopen readiness.
-This hook correction is a Discovery-owned readiness revalidation persisted by
-the Build primary from the user-approved artifact-ready Discovery handoff; it
-does not change slice scope, dependencies, execution ownership, or parity meaning.
+The completed host-foundation hook correction was a Discovery-owned readiness
+revalidation persisted by the Build primary; it did not change slice scope,
+dependencies, execution ownership, or parity meaning.
 
-This Initiative creates no PM Kernel tickets. The manifest marks only
-`codex-host-foundation` receipt-ready. Distribution remains captured until host
-foundation is delivered; identity, worker, history, recovery, federation, and
-final parity slices remain dependency-blocked. Applicability plans and Cycle
-Records cannot substitute for a fresh Initiative readiness receipt.
+This Initiative creates no PM Kernel tickets. The manifest records the merged
+`codex-host-foundation` as delivered and marks only `codex-distribution`
+receipt-ready. Identity, worker, history, recovery, federation, and final parity
+slices remain dependency-blocked. Applicability plans and Cycle Records cannot
+substitute for a fresh Initiative readiness receipt.
 
 ## Release Groups
 
