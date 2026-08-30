@@ -1,0 +1,133 @@
+# Initiative Launch Atomicity
+
+## Outcome
+
+An approved Initiative slice can launch from a coordinator checkout into a
+separate context-home repository without absolute manifest paths, truncated
+terminal input, false launch success, or abandoned shell tabs.
+
+## Domain
+
+- The **Initiative source** is the Git checkout containing the coordinator-owned
+  repository-relative manifest.
+- The **target repository** is the context home where DBSCTR creates or resumes
+  the implementation cycle.
+- A **launcher-owned tab** is a Herdr tab created for one launch attempt and not
+  yet proven to contain the requested OpenCode agent.
+- A **pending launch** has a confirmed OpenCode agent that is not yet ready to
+  accept or complete the bounded cycle instruction.
+
+The OpenCode control plane owns source and target validation plus Herdr launch
+orchestration. The Initiative manifest and DBSCTR Cycle Record remain lifecycle
+authority. Herdr identities and terminal state remain advisory.
+
+## Behavior
+
+### Resolve the coordinator checkout
+
+- Given the manifest is in a checkout other than the invoking OpenCode session,
+  when a coordinator or primary Build launches a ready slice, then it supplies
+  the Initiative source separately from the repository-relative manifest path.
+- The adapter validates the source GitHub origin against the receipt's
+  coordinator repository before approval and revalidates the receipt from the
+  same source after approval.
+- Absolute manifest paths remain invalid. Omitting the source retains the
+  invoking worktree as the source for same-checkout launches.
+
+### Launch without terminal-size coupling
+
+- Given a readiness receipt contains enough artifacts to exceed Herdr's terminal
+  input boundary, when the adapter launches Build, then the shell command contains
+  no receipt JSON or initial prompt.
+- After Herdr confirms the OpenCode agent, the adapter submits one bounded,
+  content-free cycle instruction through `herdr agent prompt`.
+- The child reads the receipt already bound to the Cycle Record and revalidates
+  Git readiness before implementation.
+
+### Roll back incomplete launch attempts
+
+- Given `herdr agent start` fails before an OpenCode agent exists, when the
+  adapter handles the failure, then it closes only the tab created for that
+  attempt and reports launch failure.
+- Given a fork attempt is unsupported, when the adapter falls back to a fresh
+  session, then it closes the failed fork tab before creating the replacement.
+- Given Herdr confirms an OpenCode agent but startup or prompt submission is
+  blocked, when the adapter returns, then it retains that real session and reports
+  `launch_pending` with its advisory identity.
+- Malformed or identity-mismatched Herdr success output never becomes
+  `launched`.
+
+## Interface And Contract
+
+`dbsctr_initiative_launch` and Initiative mode on `dbsctr_begin` accept optional
+`initiativeSourceRepository`. It must be a readable Git checkout whose GitHub
+origin matches the fresh receipt's `coordinator_repository`. `manifestPath`
+remains `docs/initiatives/<slug>/MANIFEST.json` and is resolved in that checkout.
+
+Approval remains bound to manifest digest, blob, commit, coordinator repository,
+context-home repository, plan digest, base branch, cycle identity, risk, and
+delivery intent. The machine-local source path is not durable authority or part
+of shared evidence. Receipt, source origin, target origin, plan, and default
+branch are revalidated after approval.
+
+The shell launch contains only the target worktree, optional parent-session fork
+arguments, and the Build agent selection. A successful return requires valid
+Herdr JSON naming the expected pane. The subsequent agent prompt contains only
+the cycle identity and instructions to read authoritative local state; it never
+contains receipt arrays or manifest contents.
+
+Failure cleanup is limited to the launcher-owned tab. Cleanup failure remains a
+launch failure and is reported rather than hidden. Once an OpenCode agent is
+confirmed, the adapter does not destroy it automatically.
+
+## Validation
+
+- Focused Bun-backed adapter tests cover separate source and target checkouts,
+  source-origin mismatch, approval revalidation, and both launcher entry points.
+- Herdr fixtures prove receipt JSON is absent from terminal launch input, a
+  bounded agent prompt follows confirmed startup, malformed success fails closed,
+  failed attempts close their tabs, fork fallback closes its first tab, and only
+  confirmed agents can remain pending.
+- Managed deployment must be source-identical, and a fresh OpenCode process must
+  load the expanded tool schema before a live isolated launch smoke.
+
+## Visual Evidence
+
+| Concern | Classification | Review question | Evidence |
+|---|---|---|---|
+| Boundary | required: sequence | Which checkout validates the manifest and which repository owns implementation? | Initiative launch sequence below |
+| Interaction | required: sequence | When can a tab be retained or rolled back? | Initiative launch sequence below |
+| State | not_applicable: the behavior scenarios fully enumerate created, pending, launched, and failed outcomes | Could an omitted legal state change implementation? | Behavior scenarios |
+| Data/trust | not_applicable: receipt content stays in existing local typed-tool and Cycle Record boundaries | Does this change data classification or retention? | Interface contract |
+| Schema | not_applicable: one optional tool argument does not create persistent schema | Is a persistent entity changed? | Tool interface |
+| Dependency/deployment | not_applicable: existing OpenCode, Herdr, Chezmoi, and DBSCTR topology is unchanged | Is deployment ordering non-obvious? | Validation section |
+| Quantitative | not_applicable: no decision depends on comparative measurements | Is measured comparison required? | - |
+
+```mermaid
+sequenceDiagram
+    accTitle: Atomic cross-checkout Initiative launch
+    accDescr: The launcher validates a repository-relative manifest in the coordinator checkout, binds it to a cycle in the target repository, starts OpenCode with a short shell command, and either prompts the confirmed agent or closes an unowned failed tab.
+    participant S as Initiative source
+    participant L as OpenCode launcher
+    participant T as Target repository
+    participant H as Herdr
+    participant B as Build agent
+    L->>S: Validate relative manifest and fresh receipt
+    L->>T: Bind approved receipt and create or resume cycle
+    L->>H: Create launcher-owned tab
+    L->>H: Start OpenCode with short arguments
+    alt OpenCode agent confirmed
+        H-->>L: Expected agent and pane
+        L->>B: Prompt with bounded cycle instruction
+        B->>T: Read Cycle Record and revalidate Git readiness
+    else No agent exists
+        H-->>L: Startup failure
+        L->>H: Close launcher-owned tab
+    end
+```
+
+**Text Equivalent:** The launcher reads the repository-relative manifest from
+the explicitly selected coordinator checkout and binds the approved receipt to a
+cycle in the context-home repository. It creates a Herdr tab, starts OpenCode
+without receipt content in the shell command, and prompts only a confirmed Build
+agent. If no agent exists after startup failure, it closes the tab it created.

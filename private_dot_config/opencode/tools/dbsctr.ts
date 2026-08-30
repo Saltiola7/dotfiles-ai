@@ -523,6 +523,7 @@ type InitiativeLaunchArgs = {
   planPath: string
   githubAccount?: string
   githubRepository?: string
+  initiativeSourceRepository?: string
   targetRepository?: string
 }
 
@@ -535,9 +536,13 @@ type InitiativeToolContext = {
 }
 
 async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext) {
-  const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+  const source = args.initiativeSourceRepository ?? context.worktree
+  const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, source)
   if (receipt.context !== args.context)
     throw new Error("Initiative receipt context does not match the requested DBSCTR context")
+  const sourceRepository = await gitRepositorySlug(source)
+  if (sourceRepository.toLowerCase() !== receipt.coordinator_repository.toLowerCase())
+    throw new Error("Initiative source does not match the coordinator repository")
   const target = args.targetRepository ?? context.worktree
   const targetRepository = await gitRepositorySlug(target)
   if (targetRepository.toLowerCase() !== receipt.repository.toLowerCase())
@@ -570,9 +575,11 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     patterns: [approval],
     always: [],
   })
-  const current = await initiativeReceipt(args.manifestPath, args.sliceId, context.worktree)
+  const current = await initiativeReceipt(args.manifestPath, args.sliceId, source)
   if (JSON.stringify(current) !== JSON.stringify(receipt))
     throw new Error("Initiative readiness changed after approval; request approval for the new digest")
+  if ((await gitRepositorySlug(source)).toLowerCase() !== sourceRepository.toLowerCase())
+    throw new Error("Initiative source repository changed after approval")
   if ((await gitRepositorySlug(target)).toLowerCase() !== targetRepository.toLowerCase())
     throw new Error("Initiative target repository changed after approval")
   await initiativeCycleCheck(args.cycleId, receipt, target)
@@ -585,7 +592,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     messageID: context.messageID,
     directory: context.directory,
     worktree: context.worktree,
-  }, receipt, context.worktree, { planDigest, targetRepository }))
+  }, receipt, source, { planDigest, targetRepository }))
 }
 
 export const begin = tool({
@@ -604,6 +611,7 @@ export const begin = tool({
       manifestPath: tool.schema.string(),
       sliceId: tool.schema.string(),
       proceed: tool.schema.literal(true),
+      initiativeSourceRepository: tool.schema.string().optional(),
       targetRepository: tool.schema.string().optional(),
     }).optional(),
   },
@@ -632,6 +640,7 @@ export const initiative_launch = tool({
     planPath: tool.schema.string(),
     githubAccount: tool.schema.string().optional(),
     githubRepository: tool.schema.string().optional(),
+    initiativeSourceRepository: tool.schema.string().optional(),
     targetRepository: tool.schema.string().optional(),
   },
   async execute(args, context) {
