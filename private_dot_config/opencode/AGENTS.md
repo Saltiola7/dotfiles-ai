@@ -23,6 +23,9 @@ approval for the current digest-bound slice before invoking
 Discovery coordinators and primary Build agents may invoke that typed launcher;
 Plan and subagents remain denied. The launcher preserves the same exact approval
 and identity checks regardless of the calling primary.
+Plan must never probe or substitute a denied launcher.
+`dbsctr_vm_handoff` is not an Initiative launcher; unavailable launch authority
+requires a handoff to an authorized primary.
 Each slice declares `execution_owner` as `discovery` or `build`; only Build-owned
 slices may issue launch receipts. Discovery owns normative contracts, acceptance
 criteria, dependencies, and slice scope. A Build finding that can materially

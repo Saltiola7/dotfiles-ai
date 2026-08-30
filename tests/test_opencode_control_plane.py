@@ -403,7 +403,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
-        "dbsctr_initiative_launch": "deny",
+        "dbsctr_initiative_launch": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -527,6 +527,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_improvement_claim"] == "deny"
     assert config["permission"]["dbsctr_improvement_update"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
+    assert config["agent"]["plan"]["permission"]["dbsctr_initiative_launch"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_phase_span"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_reconcile"] == "deny"
@@ -652,12 +653,16 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
     assert config["permission"]["dbsctr_initiative_launch"] == "ask"
+    launch_primaries = {"discovery-coordinator.md", "build-gpt.md", "build-claude.md"}
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
-        if agent.name == "discovery-coordinator.md":
+        if agent.name in launch_primaries:
             assert "dbsctr_initiative_launch: ask" in agent.read_text()
         else:
             assert "dbsctr_initiative_launch: deny" in agent.read_text()
+    routing = (OC / "AGENTS.md").read_text()
+    assert "never probe or substitute a denied launcher" in routing
+    assert "`dbsctr_vm_handoff` is not an Initiative launcher" in routing
     ignored = (ROOT / ".chezmoiignore").read_text()
     assert ".config/opencode/plugins/*" in ignored
     assert "!.config/opencode/plugins/initiative-context.ts" in ignored

@@ -1,5 +1,18 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Initiative Launch Authority Alignment
+
+- Aligned digest-bound Initiative launch with its coordinator-plus-primary-Build
+  contract while keeping Plan and every subagent denied, and prohibited denied
+  launcher probes or VM-handoff substitution.
+- The focused regression failed against the prior Build denies. All 45 control-plane
+  tests and Git whitespace validation pass. A targeted managed apply is source-identical;
+  fresh OpenCode 1.18.25 resolution confirms Plan denies the launcher while native
+  Build, `build-gpt`, `build-claude`, and Discovery Coordinator expose it under
+  `ask`. Existing processes require restart. Implementation Gate Commit: `cc16835`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-08-29 - Corrected Sol Context Metadata
 
 - Corrected managed base and Fast GPT-5.6 Sol limits to 1,050,000 context,
@@ -13,7 +26,6 @@
   the corrected limits. Source Gate Commit: `2444897`. Gate Exceptions: none.
   Intended Final Push: feature branch and draft pull request into protected
   `main`.
-
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens
