@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, vmHandoff, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -306,9 +306,9 @@ export const lens_summary = tool({
 })
 
 export const vm_handoff = tool({
-  description: "Launch one explicitly approved sanitized implementation handoff in the configured Build workspace.",
+  description: "Only use as /dbsctr-improve's final approved step: launch its ledger-bound sanitized implementation handoff in the configured Build workspace. Never probe this tool.",
   args: {
-    workerId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+    workerId: tool.schema.string().regex(/^dbsctr-[0-9a-f]{8}$/),
     proceed: tool.schema.literal(true),
     risk: tool.schema.enum(["routine", "elevated", "critical"]),
     summary: tool.schema.string().min(1).max(512),
@@ -317,6 +317,7 @@ export const vm_handoff = tool({
     validation: tool.schema.array(tool.schema.string().min(1).max(512)).min(1).max(50),
   },
   async execute(args, context) {
+    await validateVmHandoffRequest(args, context.sessionID, context.worktree)
     const target = await vmHandoffTarget(context.worktree)
     await context.ask({ permission: "dbsctr_vm_handoff", patterns: [target], always: [] })
     return await vmHandoff({

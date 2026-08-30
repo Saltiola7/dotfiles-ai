@@ -187,6 +187,8 @@ def capture_descriptor() -> dict:
 
 def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     helper = load_helper()
+    assert helper.OPENCODE_VERSION == "1.18.25"
+    assert helper.OPENCODE_SHA256 == "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5"
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
     rendered = helper.render_workspace(config(tmp_path), config(tmp_path)["workspaces"][0], template)
     assert "template:_images/fedora-44" in template
