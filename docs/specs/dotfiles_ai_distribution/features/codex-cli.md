@@ -1,6 +1,6 @@
 # Managed Codex CLI Distribution
 
-**Status:** Contract ready; host-foundation dependency not delivered
+**Status:** Distribution receipt ready; implementation and deployment not started
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -265,7 +265,7 @@ cross-runtime activation.
 | Gate | Applicability | Result | Authority | Owner |
 |---|---|---|---|---|
 | Domain | required | pending | Configuration, ownership, and boundary language | Primary |
-| Behavior | required | pending | Install, projection, selector, worker, rollback scenarios | Primary |
+| Behavior | required | pending | Install, projection, selector persistence, isolation, and rollback scenarios | Primary |
 | Spec | required | pending | This feature specification | Primary |
 | Contract | required | pending | TOML, digest, checksum, and isolation tests | Primary |
 | Test-driven implementation | required | pending | Distribution and Lima tests | Primary |
@@ -273,7 +273,7 @@ cross-runtime activation.
 | Review/Integrate | required | pending | Affected QA and independent review | Primary |
 | Release | not_applicable: source pins an upstream artifact but publishes none | not_run | Engineering Profile | Primary |
 | Deploy | required | pending | Host and guest managed apply | Primary |
-| Operate | required | pending | Version, selector, worker, and recovery smokes | Primary |
+| Operate | required | pending | Version, wrapper, selector, projection, and isolation smokes | Primary |
 | Maintain/Retire | required | pending | Upgrade, rollback, and retained-state evidence | Primary |
 
 ## Validation
@@ -285,4 +285,6 @@ git diff --check
 
 Hosted CI uses fake package and runtime commands and never authenticates Codex,
 changes desktop state, starts real services, or requires Lima. Real package,
-guest, auth, worker, and recovery proof remains a controlled deployment gate.
+guest, projection, and isolation proof remains a controlled deployment gate.
+Authenticated identity, worker, and recovery proof belongs to the dependent
+slices and is not a distribution gate.
