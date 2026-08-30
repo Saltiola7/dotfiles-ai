@@ -1,0 +1,376 @@
+# Codex Control Plane
+
+**Status:** Contract captured; implementation and capability probes not started
+**Created:** 2026-08-29
+**Last updated:** 2026-08-29
+
+## Engineering Profile And Overrides
+
+The stable profile is [`PROFILE.md`](PROFILE.md).
+
+| Field | Current Initiative override |
+|---|---|
+| Risk | Elevated: adds an authenticated agent runtime, private session integration, worker execution, and external-volume state |
+| Delivery | Staged feature branches and draft pull requests; managed host/guest deployment only after affected gates pass |
+| Scope | Host and Fedora guest CLI, native configuration, shared DBSCTR adapter, history, workers, recovery, and parity evidence |
+| Non-goals | Desktop management, OpenCode retirement, MCP, plugin packaging, private storage parsing, SDK-bundled runtime, Rust rewrite, or Codex fork |
+
+## Overview
+
+The Codex control plane owns managed Codex CLI behavior while OpenCode remains a
+supported peer. It uses Codex-native instructions, skills, agents, sandbox,
+approvals, hooks, CLI JSONL, and supported app-server thread methods. One
+short-lived Python adapter translates those surfaces into the shared DBSCTR V3
+contracts without creating another lifecycle state machine.
+
+## Problem
+
+The repository currently manages OpenCode deeply but does not install or
+configure Codex CLI. Codex state defaults overlap the separately managed desktop
+application, and OpenCode-specific session, permission, history, worker, and
+recovery adapters cannot be assumed to work for Codex. The control plane must add
+equivalent outcomes without copying client internals or weakening lifecycle
+authority.
+
+## Goals
+
+- Manage Codex CLI on the macOS host and Fedora 44 Lima guests.
+- Keep OpenCode installed, supported, and unchanged during coexistence.
+- Reuse the existing user skill directory and shared DBSCTR, Discovery, QA, PM,
+  writing, DKS, and Graphify contracts.
+- Use supported Codex interfaces and explicit capability availability.
+- Preserve exact runtime, session, worker, evidence, approval, and recovery
+  identity where Codex can prove it.
+- Make full parity an evidence-backed outcome decision rather than an
+  implementation-detail comparison.
+
+## Non-goals
+
+- Managing or redirecting the Codex desktop application.
+- Retiring OpenCode or choosing one interactive default.
+- Creating a Codex-specific DBSCTR version or state machine.
+- Reading undocumented Codex SQLite or rollout JSONL storage.
+- Adding an MCP server, plugin package, or custom slash-command framework.
+- Adding the official Python or TypeScript SDK when installed CLI and stable
+  app-server stdio provide the required interface.
+- Rewriting the existing Python helper in Rust or maintaining a Codex fork.
+- Claiming performance improvement without representative benchmarks.
+
+## Bounded Context
+
+`codex_control_plane` owns Codex CLI configuration semantics, global
+instructions, native agents, sandbox and approvals, narrow hooks, capability
+probes, supported session adapters, and Codex-specific parity evidence.
+
+Adjacent contexts own:
+
+| Context | Authority |
+|---|---|
+| `dbsctr_v3_lifecycle` | Lifecycle phases, gates, Cycle Records, evidence, approval semantics, federation, and conformance |
+| `dotfiles_ai_distribution` | Package installation, rendered targets, dynamic config projection, host/guest deployment, and worker launch transport |
+| `shell_auth_startup` | External-volume health, signed Herdr responsibility, shell credentials, and process-preserving recovery |
+| `opencode_control_plane` | Existing OpenCode runtime and adapter behavior |
+| `pm_kernel` and `writing_skills` | Ticket and writing workflows |
+| `dbsctr_knowledge_store` | DKS retrieval and Graphify evidence |
+
+## Visual Evidence
+
+| Concern | Decision | Review question | Canonical source | Owner/change trigger |
+|---|---|---|---|---|
+| Boundary | `required: peer-runtime flowchart` | Which runtime owns native behavior and which contracts remain shared? | Architecture | Control-plane owner; runtime or ownership change |
+| Interaction | `required: adapter sequence` | How do Codex events reach DBSCTR without becoming lifecycle authority? | Adapter behavior | Control-plane owner; adapter surface change |
+| State | `required: capability transition table` | When may a capability be called parity-ready? | Parity contract | Control-plane owner; disposition change |
+| Data/trust | `required: identity and evidence flowchart` | Which private data may cross into shared evidence? | Trust contracts | Control-plane owner; source or output change |
+| Schema | `not_applicable`: Codex private schemas are explicitly non-contractual | What private Codex shape is supported? | Non-goals and contracts | A private schema is proposed |
+| Dependency/deployment | `required: host/guest deployment flowchart` | Which runtime, home, and adapter run in each boundary? | Distribution feature spec | Distribution owner; topology change |
+| Quantitative | `not_applicable`: no measured performance decision exists | Does timing justify another language or service? | Performance contract | A benchmarked decision exists |
+
+```mermaid
+flowchart LR
+    accTitle: Codex peer control plane
+    accDescr: An explicit caller selects Codex or OpenCode. Codex loads native instructions, skills, agents, sandbox, and approvals. Bounded hooks, CLI JSONL, and version-probed documented app-server methods enter a short-lived Python adapter, which invokes the shared DBSCTR lifecycle. OpenCode retains its existing adapter. Neither runtime owns lifecycle state.
+    U[User, Herdr, or Hermes] -->|explicit Codex selection| C[Codex CLI]
+    U -->|explicit OpenCode selection| O[OpenCode]
+    C --> N[Native instructions, skills, agents, sandbox]
+    C --> E[Hooks, CLI JSONL, app-server stdio]
+    E --> A[Codex control-plane adapter]
+    A --> D[DBSCTR V3]
+    O --> T[OpenCode typed adapter]
+    T --> D
+    D --> G[Cycle Records, evidence, and Git delivery]
+```
+
+**Text Equivalent:** User and worker paths explicitly choose Codex or OpenCode.
+Codex loads its native control surfaces. Only bounded hook, CLI JSONL, and
+version-probed documented app-server data enter the short-lived Codex adapter. The adapter and OpenCode's
+existing typed adapter both invoke one DBSCTR V3 lifecycle. Cycle Records,
+evidence, and Git delivery remain DBSCTR authority.
+
+```mermaid
+sequenceDiagram
+    accTitle: Codex adapter interaction
+    accDescr: A caller selects Codex and launches the managed wrapper. Codex emits structured CLI output or a sanitized hook. The short-lived adapter validates the payload and invokes dbsctrctl. For history operations only, it probes documented app-server stdio methods. DBSCTR alone mutates lifecycle state.
+    participant U as Caller
+    participant C as Managed Codex CLI
+    participant A as Codex adapter
+    participant S as App-server stdio
+    participant D as dbsctrctl
+    U->>C: Start explicit runtime operation
+    C-->>A: CLI JSONL or sanitized hook
+    A->>A: Validate schema and availability
+    opt History capability was probed available
+        A->>S: Documented thread operation
+        S-->>A: Version-bound structured result
+    end
+    A->>D: Validated lifecycle operation
+    D-->>A: Authoritative lifecycle result
+    A-->>U: Bounded structured outcome
+```
+
+**Text Equivalent:** A caller explicitly launches managed Codex. CLI JSONL or a
+sanitized hook enters the short-lived adapter, which validates schema and
+availability. History operations use documented app-server stdio only after a
+successful capability probe. The adapter invokes `dbsctrctl`, which alone
+changes lifecycle state, and returns a bounded result.
+
+```mermaid
+flowchart LR
+    accTitle: Codex identity and evidence trust flow
+    accDescr: Host, guest, and desktop Codex state remain separate. Allowed opaque identity and bounded event classes pass through a sanitizer into private lifecycle evidence. Prompts, transcripts, tool arguments, tool output, credentials, URLs, account identity, and absolute paths are rejected.
+    H[Host CODEX_HOME] --> S[Codex sanitizer]
+    V[Guest CODEX_HOME] --> S
+    P[Desktop default state] -. never read .-> S
+    S -->|allowlisted IDs, enums, model, timestamp| E[Private DBSCTR evidence]
+    H -. credentials and content excluded .-> X[Rejected data]
+    V -. credentials and content excluded .-> X
+```
+
+**Text Equivalent:** Host and guest Codex homes are independent sources. Desktop
+state is never read. The sanitizer permits only opaque identities, bounded event
+and workspace enums, model ID, and timestamp into private DBSCTR evidence.
+Credentials, prompts, transcripts, tool inputs and outputs, URLs, account
+identity, and all filesystem paths are rejected.
+
+```mermaid
+stateDiagram-v2
+    accTitle: Codex capability parity states
+    accDescr: A requested capability begins captured. A successful version-bound probe makes it available; a native, reused, or adapted implementation with passing evidence makes it parity-ready. Missing, ambiguous, private-schema-dependent, or failed evidence blocks parity. An approved not-applicable outcome is terminal without implementation.
+    [*] --> Captured
+    Captured --> Available: version-bound probe passes
+    Captured --> Blocked: missing, ambiguous, or private-only
+    Available --> ParityReady: implementation evidence passes
+    Available --> Blocked: implementation or evidence fails
+    Captured --> NotApplicable: approved rationale
+    Blocked --> Available: corrected probe passes
+```
+
+**Text Equivalent:** Every requested capability starts captured. A
+version-bound successful probe makes it available. Passing native, reused, or
+adapted evidence makes it parity-ready. Missing, ambiguous, private-only, or
+failed evidence blocks parity. An explicitly approved not-applicable outcome is
+terminal without implementation.
+
+## Ubiquitous Language
+
+| Term | Definition |
+|---|---|
+| Peer Runtime | Codex or OpenCode selected explicitly without retiring the other runtime. |
+| Native Surface | An officially supported Codex instruction, CLI, hook, agent, sandbox, approval, or app-server interface. |
+| Codex Adapter | Short-lived Python process that validates Codex data and invokes shared lifecycle commands. |
+| Runtime Identity | Exact harness, version, session, turn, provider, model, and agent facts where authoritative. |
+| Capability Availability | `available`, `unavailable`, `partial`, or `not_requested`, with a bounded reason. |
+| Outcome Parity | Equivalent behavior and safety achieved natively, by reuse, or through a thin adapter. |
+| Identity Probe | Controlled comparison of hook and app-server identifiers on both supported platforms. |
+
+## Behavior
+
+### Runtime coexistence
+
+- Given both runtimes are installed, when a user starts one explicitly, then it
+  receives only its own configuration and state.
+- Given automation has no runtime override, when it resolves the runtime, then it
+  selects OpenCode.
+- Given a selected runtime is unavailable, when launch or resume runs, then it
+  fails without falling back to the other runtime.
+
+### Dedicated CLI state
+
+- Given the centralized state root is configured, when Codex CLI starts, then
+  `CODEX_HOME` is `<root>/codex`.
+- Given the root is empty, when Codex CLI starts, then `CODEX_HOME` is
+  `~/.local/state/dotfiles-ai/codex`.
+- Given desktop Codex exists, when managed CLI configuration applies, then
+  `~/.codex` remains untouched.
+
+### Native-first behavior
+
+- Given Codex natively provides a requested outcome, when parity is assessed,
+  then the native surface is used and no duplicate implementation is added.
+- Given installed CLI commands and hooks satisfy an adapter need, when the
+  adapter runs, then no SDK-bundled second Codex runtime is installed.
+- Given only private storage exposes a field, when the field is requested, then
+  it is unavailable rather than parsed or inferred.
+
+### Hooks and evidence
+
+- Given a configured hook runs, when the adapter receives its payload, then it
+  accepts only event enum, opaque session and turn IDs, model ID, timestamp, and
+  workspace enum `primary_worktree`, `cycle_worktree`, or `unknown`.
+- Given a hook contains prompt, transcript, tool input or output, environment,
+  URL, credential, account identity, or filesystem path data, then the adapter
+  rejects those fields.
+- Given a hook fails, when lifecycle work continues, then no Cycle Record or gate
+  changes because a hook never owns lifecycle state.
+
+### Session correlation and recovery
+
+- Given the identity probe proves one exact hook-to-thread mapping on macOS and
+  Fedora, when attach or resume runs, then the versioned mapping may supply
+  authoritative runtime identity.
+- Given the mapping is missing or conflicting, when attach, history, or recovery
+  requires exact identity, then the operation is unavailable or ambiguous and
+  fails closed.
+- Given an exact supported thread can resume, when recovery runs, then it resumes
+  only that thread and verifies returned identity; it never creates a substitute.
+
+### Outcome parity
+
+- Given a requested capability is native, reused, adapted, or explicitly not
+  applicable with an approved rationale, when all required evidence passes, then
+  the capability passes parity.
+- Given a requested outcome is missing, unexplained, inferred, or dependent on a
+  private schema, when parity is assessed, then parity fails.
+
+## Interfaces
+
+The planned executable is `codex-control-plane`, implemented in Python without a
+daemon or private database:
+
+```text
+codex-control-plane probe
+codex-control-plane hook EVENT
+codex-control-plane session list|read|resume|fork
+codex-control-plane dbsctr OPERATION
+```
+
+The first adapter stage proposes installed `codex --version`,
+`codex exec --json`, and documented command hooks. The second stage proposes the
+installed `codex app-server` over stdio and the documented target methods
+`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. These interfaces
+remain unavailable until the frozen-version host and Fedora probes pass.
+Experimental item/turn pagination and WebSocket transport are excluded.
+Every stdio connection completes documented `initialize` and `initialized`
+handshake messages without opting into `experimentalApi` before a thread method.
+
+The adapter executes argument vectors without shell interpolation, bounds time
+and output, rejects malformed or unknown required fields, and emits only
+schema-validated JSON. `dbsctrctl` remains the sole lifecycle writer.
+
+## Evidence Sources
+
+The captured interface and release hypotheses derive from official public
+sources retrieved during Discovery on 2026-08-29:
+
+- Codex release `rust-v0.151.0`:
+  <https://github.com/openai/codex/releases/tag/rust-v0.151.0>
+- Codex configuration reference:
+  <https://developers.openai.com/codex/config-reference/>
+- Codex app-server reference:
+  <https://developers.openai.com/codex/app-server/>
+- Codex hooks reference:
+  <https://developers.openai.com/codex/hooks/>
+- Codex repository and protocol source:
+  <https://github.com/openai/codex>
+
+These citations justify a bounded implementation target, not runtime evidence.
+The installed host and Fedora release must revalidate command, hook, protocol,
+asset, and digest claims before activation.
+
+## Parity Contract
+
+| Capability | Initial disposition | Required evidence |
+|---|---|---|
+| Global and project instructions | Native | Loaded-source probe and precedence test |
+| Skills | Native/reuse | Existing `~/.agents/skills` discovery and invocation |
+| Agents, models, sandbox, approvals | Native | Rendered config, negative policy tests, runtime smoke |
+| DBSCTR kernel, gates, worktrees, delivery | Reuse | Shared conformance fixtures |
+| Discovery, QA, PM, writing, DKS, Graphify | Reuse/adapter | Workflow-specific smoke and trust-boundary tests |
+| Runtime identity and attach | Adapter | Cross-platform identity probe and mismatch rejection |
+| Incidents, review, history, telemetry, benchmarks | Adapter | Supported thread/event evidence and bounded schemas |
+| Herdr, Hermes, autonomous workers | Adapter | Exact runtime/session binding and no-fallback tests |
+| Federation and recovery | Adapter | Immutable capture, isolation, exact resume, and rollback evidence |
+| OpenCode typed tools and 1Password MCP | Not applicable | OpenCode remains authoritative; no copied Codex mechanism |
+
+An `unavailable` disposition is valid during staged delivery but does not pass
+final parity for a requested outcome without a separately approved scope change.
+
+## Contracts
+
+- OpenCode remains installed and its existing tests remain regression authority.
+- `CODEX_HOME` is explicit and wrapper-scoped; it is not exported to the desktop
+  application or broad GUI session.
+- Host and each guest authenticate separately.
+- Codex release and adapter revisions are exact non-secret evidence.
+- Runtime identity comes only from supported structured interfaces.
+- Cwd and worktree data is reduced to validated repository-relative identity
+  before persistence or model exposure.
+- Hook records are owner-only, bounded, retained under private state, and never
+  contain content fields.
+- App-server compatibility is version-probed and unknown required fields fail
+  closed.
+- Provider, model, agent, session relation, and capability availability are
+  explicit; no timestamp, path, pane, or configuration guess supplies identity.
+- No runtime failure changes provider family or peer runtime automatically.
+- Performance and implementation-language changes require representative
+  benchmark evidence.
+
+## Risks And Assumptions
+
+Facts:
+
+- Codex CLI was not on the host `PATH` during Discovery.
+- The proposed frozen baseline is public release `0.151.0`; implementation must
+  revalidate its tag, asset, digest, hook shape, and app-server methods.
+- Official hook documentation does not guarantee whether hook `session_id`
+  equals app-server `thread.id` or root `thread.sessionId`.
+- The official Python SDK source at the target tag pins an older CLI runtime, so
+  it is not the baseline adapter.
+
+Risks:
+
+- Codex hook and app-server contracts may drift across releases.
+- Homebrew may advance before the pinned guest binary, blocking version parity.
+- Supported thread reads may not expose every OpenCode-derived history outcome.
+- Native provider routing may not enforce every OpenCode child-agent restriction.
+- External-volume denial may block new CLI work while existing processes remain
+  alive and require explicit retry.
+
+## Gate Ledger
+
+| Gate | Applicability | Result | Authority | Owner |
+|---|---|---|---|---|
+| Domain | required | pending | This specification | Primary |
+| Behavior | required | pending | Scenario and adapter tests | Primary |
+| Spec | required | pending | This README and `OPERATION.md` | Primary |
+| Contract | required | pending | Schema and conformance tests | Primary |
+| Test-driven implementation | required | pending | Focused Python and render tests | Primary |
+| Refactor | required | pending | Diff and duplication review | Primary |
+| Review/Integrate | required | pending | Affected QA and independent review | Primary |
+| Release | not_applicable: no separately published artifact | not_run | Engineering Profile | Primary |
+| Deploy | required for managed host/guest slices | pending | Apply and runtime smoke | Primary |
+| Operate | required | pending | Identity, worker, history, and recovery probes | Primary |
+| Maintain/Retire | required | pending | Upgrade, rollback, coexistence, and removal evidence | Primary |
+
+## Validation
+
+```bash
+python3 dot_local/bin/executable_dbsctrctl initiative-check --manifest docs/initiatives/codex-cli-integration/MANIFEST.json --json
+uv run --group test pytest tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py -q
+python3 -m py_compile dot_local/bin/executable_dbsctrctl
+git diff --check
+```
+
+Implementation adds focused `tests/test_codex_control_plane.py` coverage before
+the first source change. Live validation additionally requires exact host and guest version, state
+isolation, hook correlation, version-probed documented app-server methods, worker launch/resume,
+federation, and process-preserving recovery evidence.

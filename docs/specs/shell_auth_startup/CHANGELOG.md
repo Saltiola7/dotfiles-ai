@@ -1,5 +1,17 @@
 # Shell Auth Startup Changelog
 
+## 2026-08-29 - Captured Codex State And Recovery Contract
+
+- Extended the signed-host and external-volume contract to future Codex CLI
+  preflight, circuit breaking, content-free snapshots, and exact supported-thread
+  recovery while preserving existing processes and OpenCode behavior.
+- Kept implementation and live capability proof blocked on Codex installation,
+  identity correlation, and a separate approved Build readiness mechanism.
+- Initiative validation, 57 focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
 ## 2026-08-28 - AUTH-016 Probe-Only Local Deployment
 
 - Provisioned one machine-local signing identity whose trust is limited to Code
