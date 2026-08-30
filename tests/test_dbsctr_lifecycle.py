@@ -230,7 +230,9 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
         assert term in spec
         assert term in dbsctr
     assert "Git common directory" in dbsctr
-    assert "README" in dbsctr and "canonical tickets" in dbsctr and "CHANGELOG" in dbsctr
+    assert "Every cycle reviews README and CHANGELOG" in dbsctr
+    assert "ticket" not in dbsctr.lower()
+    assert "never creates, reads, updates, or requires PM Kernel tickets" in discovery
     assert "no unresolved question can materially change" in discovery
     assert "95%" not in discovery
     assert "structured" in qa.lower() and "Gate Result" in qa
@@ -238,11 +240,9 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
 
 def test_v31_templates_match_artifact_and_gate_contracts():
     spec_template = text("docs/specs/_template_spec.md")
-    ticket_template = text("docs/tickets/_template.md")
     changelog_template = text("docs/specs/_template_changelog.md")
     assert "Applicability | Result" in spec_template
     assert "Artifact Review" in spec_template
-    assert "parallel_safe" in ticket_template
     assert "Gate commits" in changelog_template
 
 
@@ -289,6 +289,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
+    assert ".dbsctr/plans/" in discovery and ".dbsctr/plans/" in dbsctr
     assert "schema_version" in helper and "raise-risk" in helper
     for milestone in ("V3.2", "V3.3", "V3.4", "V3.5", "V3.6"):
         assert milestone in roadmap

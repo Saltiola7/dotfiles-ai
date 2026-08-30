@@ -1,5 +1,10 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-29 - Exclude PM Reporting Files
+
+- Restricted default and profiled Git ingestion to lifecycle specifications and
+  rejected both legacy and current PM ticket roots.
+
 ## 2026-08-25 - DKS-007 Recovery
 
 - Accepted upstream PR #50's canonical DKS-005 state correction after affected

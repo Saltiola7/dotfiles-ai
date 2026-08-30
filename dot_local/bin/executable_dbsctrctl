@@ -95,8 +95,8 @@ def fail(message):
     raise RuntimeError(message)
 
 
-def git(root, *args, check=True):
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True)
+def git(root, *args, check=True, env=None):
+    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, env=env)
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
@@ -2557,19 +2557,80 @@ def initiative_repository(value, label):
         fail(f"{label} must be a canonical owner/repository identity")
 
 
-def git_repository_slug(root):
-    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+def github_repository_from_url(url, error):
     scp = re.fullmatch(r"(?:git@)?github\.com:([^/\s]+/[^/\s]+?)(?:\.git)?", url, re.IGNORECASE)
     if scp:
         return scp.group(1)
-    parsed = urlsplit(url)
-    if (parsed.scheme not in {"https", "ssh", "git"} or parsed.hostname != "github.com"
-            or parsed.query or parsed.fragment):
-        fail("Initiative repository must have a GitHub origin")
+    try:
+        parsed = urlsplit(url)
+        valid_user = parsed.username is None or parsed.scheme == "ssh" and parsed.username == "git"
+        valid = (parsed.scheme in {"https", "ssh", "git"} and parsed.hostname == "github.com"
+                 and valid_user and parsed.password is None and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        fail(error)
     match = re.fullmatch(r"/([^/\s]+/[^/\s]+?)(?:\.git)?/?", parsed.path)
     if not match:
-        fail("Initiative repository must have a GitHub origin")
+        fail(error)
     return match.group(1)
+
+
+def git_repository_slug(root):
+    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+    return github_repository_from_url(url, "Initiative repository must have a GitHub origin")
+
+
+def github_remote_url(root, remote, repository):
+    for push in (False, True):
+        args = ("remote", "get-url", "--push", remote) if push else ("remote", "get-url", remote)
+        url = git(root, *args, check=False).stdout.strip()
+        if not url or github_repository_from_url(
+                url, "draft_pr delivery requires GitHub fetch and push remotes"
+        ).lower() != repository.lower():
+            fail("draft_pr remote must match configured GitHub repository: " + repository)
+    return f"https://github.com/{repository}.git"
+
+
+def require_canonical_github_url(root, url, env):
+    effective = git(root, "ls-remote", "--get-url", url, env=env).stdout.strip()
+    if effective != url:
+        fail("Git URL rewriting is not allowed for draft_pr delivery")
+
+
+def fetch_github_branch(root, remote, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "fetch", url,
+        f"+refs/heads/{remote_branch}:refs/remotes/{remote}/{remote_branch}", env=env)
+
+
+def github_remote_head(root, url, remote_ref, env):
+    require_canonical_github_url(root, url, env)
+    return git(root, "ls-remote", "--heads", url, remote_ref, env=env).stdout.split()
+
+
+def push_github_branch(root, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "push", url, f"HEAD:{remote_branch}", env=env)
+
+
+def normalize_begin_delivery(root, args, delivery_branch):
+    if args.delivery_intent == "merge" and delivery_branch == args.base_branch:
+        args.delivery_intent = "draft_pr"
+    elif args.delivery_intent != "draft_pr" and delivery_branch == args.base_branch:
+        fail("direct delivery to the protected base branch requires draft_pr")
+    if args.delivery_intent != "draft_pr":
+        return
+    account = getattr(args, "github_account", None)
+    if not account or not OPAQUE_ID.fullmatch(account):
+        fail("draft_pr delivery requires a valid GitHub account")
+    repository = git_repository_slug(root)
+    supplied = getattr(args, "github_repository", None)
+    if supplied:
+        expected = repository if "/" in supplied else repository.rsplit("/", 1)[1]
+        if supplied.lower() != expected.lower():
+            fail("GitHub repository must match configured GitHub repository: " + repository)
+    args.github_repository = repository
 
 
 def initiative_acyclic(dependencies, label):
@@ -2660,10 +2721,12 @@ def read_initiative_manifest(source):
     initiative_acyclic(context_dependencies, "context")
 
     slice_fields = {"id", "context", "state", "requirements", "depends_on", "artifacts",
-                    "tickets", "release_group"}
+                    "release_group"}
     slices = {}
     for item in value["slices"]:
-        initiative_fields(item, slice_fields, "slice")
+        optional = {field for field in ("tickets", "execution_owner")
+                    if isinstance(item, dict) and field in item}
+        initiative_fields(item, slice_fields | optional, "slice")
         identifier = item["id"]
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
             fail("slice ID is invalid")
@@ -2674,12 +2737,10 @@ def read_initiative_manifest(source):
         for field in ("requirements", "depends_on"):
             initiative_strings(item[field], f"{field} for {identifier}")
         initiative_paths(item["artifacts"], f"artifacts for {identifier}")
-        initiative_strings(item["tickets"], f"tickets for {identifier}")
-        if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*", ticket)
-               for ticket in item["tickets"]):
-            fail(f"tickets for {identifier} must contain canonical ticket IDs")
         if not isinstance(item["release_group"], str) or not item["release_group"]:
             fail(f"release_group is invalid: {identifier}")
+        if item.get("execution_owner", "build") not in {"build", "discovery"}:
+            fail(f"execution_owner is invalid: {identifier}")
         if item["state"] not in {"captured", "discovering", "ready", "building", "delivered",
                                     "blocked", "deferred", "rejected"}:
             fail(f"slice state is invalid: {identifier}")
@@ -2690,7 +2751,7 @@ def read_initiative_manifest(source):
             if contexts[item["context"]]["status"] not in {
                     "approved", "discovering", "ready", "building", "delivered"}:
                 fail(f"ready slice {identifier} context is not promotable: {item['context']}")
-            for field in ("requirements", "artifacts", "tickets"):
+            for field in ("requirements", "artifacts"):
                 if not item[field]:
                     fail(f"ready slice {identifier} requires {field}")
             blocked = [requirement for requirement in item["requirements"]
@@ -2759,7 +2820,11 @@ def read_initiative_manifest(source):
         if unresolved or nonterminal:
             fail("Initiative cannot complete with open or blocked material or nonterminal slices")
 
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    identity_value = {**value, "slices": [
+        {key: field for key, field in item.items() if key != "tickets"}
+        for item in value["slices"]
+    ]}
+    canonical = json.dumps(identity_value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return value, statements, contexts, slices, slice_release_groups, hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -2791,6 +2856,8 @@ def initiative_receipt(source, slice_id, root=None):
         fail(f"unknown Initiative slice: {slice_id}")
     if item["state"] != "ready":
         fail(f"Initiative slice is not ready: {slice_id}")
+    if item.get("execution_owner", "build") != "build":
+        fail(f"Initiative slice is owned by Discovery and cannot issue a Build receipt: {slice_id}")
     identity = {}
     artifacts = sorted(set(item["artifacts"]).union(
         *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
@@ -2814,14 +2881,6 @@ def initiative_receipt(source, slice_id, root=None):
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
-        for ticket in item["tickets"]:
-            matches = sorted(root.glob(f"docs/tickets/context=*/{ticket}-*.md"))
-            if len(matches) != 1:
-                fail(f"Initiative ticket must resolve to one canonical ticket: {ticket}")
-            ticket_path = matches[0].relative_to(root).as_posix()
-            if (git(root, "status", "--porcelain=v1", "--", ticket_path).stdout.strip()
-                    or git(root, "cat-file", "-e", f"HEAD:{ticket_path}", check=False).returncode):
-                fail(f"Initiative ticket must be committed and clean before receipt: {ticket}")
     return {
         "schema_version": 1,
         "initiative_id": value["id"],
@@ -2833,8 +2892,8 @@ def initiative_receipt(source, slice_id, root=None):
         "requirements": item["requirements"],
         "depends_on": item["depends_on"],
         "artifacts": artifacts,
-        "tickets": item["tickets"],
         "release_group": release_groups.get(slice_id),
+        "execution_owner": "build",
         **identity,
     }
 
@@ -3057,7 +3116,7 @@ def completion_artifact_check(record):
 
 
 def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True):
+                portable=True, git_env=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -3092,11 +3151,21 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             fail("draft_pr delivery requires a feature branch distinct from its base")
         if not delivery_remote:
             fail("draft_pr delivery requires a configured remote")
-        git(root, "fetch", delivery_remote, protected_base_branch)
+        if git_env is None:
+            delivery_url = delivery_remote
+            git(root, "fetch", delivery_remote, protected_base_branch)
+        else:
+            delivery_url = github_remote_url(root, delivery_remote, repository)
+            fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
-        published_head = git(
-            root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
-        ).stdout.split()
+        if git_env is None:
+            published_head = git(
+                root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
+            ).stdout.split()
+        else:
+            published_head = github_remote_head(
+                root, delivery_url, f"refs/heads/{current_branch}", git_env
+            )
         if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
             fail("pre-cycle commits are not published on the feature branch")
         delivery = {
@@ -3104,8 +3173,11 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
             **({"published_feature_head": published_head[0]} if published_head else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
-            "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
-                                        remote_branch=current_branch),
+            "lock_id": delivery_lock_id(
+                (remote_destination(root, current_upstream).get("push_url")
+                 if git_env is None else delivery_url),
+                remote_branch=current_branch,
+            ),
         }
     else:
         if delivery_branch == protected_base_branch:
@@ -3255,21 +3327,73 @@ def command_begin(args):
     if initiative is not None:
         if initiative["context"] != args.context:
             fail("Initiative receipt context does not match the cycle context")
-        if args.cycle_id not in initiative["tickets"]:
-            fail("Initiative receipt does not name the cycle ticket")
+    if args.resume_existing and initiative is None:
+        fail("resume-existing is limited to approved Initiative begin")
+    plan = read_plan(args.plan, args.expected_plan_digest)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
+    normalize_begin_delivery(source, args, remote_branch)
+    if args.delivery_intent == "draft_pr":
+        remote_url = github_remote_url(source, remote, args.github_repository)
+        delivery_env = github_environment(args.github_account)
+    else:
+        remote_url, delivery_env = remote, None
     source_record = {"path": str(source.resolve()), "branch": branch(source), "upstream": upstream(source),
-                     "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
-                     "remote": remote_destination(source, upstream(source))}
-    git(source, "fetch", remote, remote_branch)
+                      "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
+                      "remote": remote_destination(source, upstream(source))}
+    if args.delivery_intent == "draft_pr":
+        fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
+    else:
+        git(source, "fetch", remote, remote_branch)
     if ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
     if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
-        fail(f"cycle branch already exists: {branch_name}")
+        if not args.resume_existing:
+            fail(f"cycle branch already exists: {branch_name}")
+        record_path = cycle_dir(source) / "cycles" / f"{args.cycle_id}.json"
+        if not record_path.is_file():
+            fail("existing Initiative cycle record is missing")
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        worktree = record_worktree(source, record)
+        _, active_record = load(worktree)
+        require_active(active_record)
+        profile_path, profile_blob, gates, graphify = validate_plan(
+            worktree, args.context, args.delivery_intent, plan)
+        expected_plan = {"profile": profile_path, "gates": {
+            name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
+            for name, gate in gates.items()
+        }, **({"graphify": graphify} if graphify else {})}
+        protected_base = record.get("delivery", {}).get(
+            "base_branch" if args.delivery_intent == "draft_pr" else "protected_base_branch")
+        expected_github = ({"host": "github.com", "account": args.github_account,
+                            "repository": args.github_repository}
+                           if args.delivery_intent == "draft_pr" else None)
+        if (active_record != record or record.get("cycle_id") != args.cycle_id
+                or record.get("context") != args.context or record.get("risk") != args.risk
+                or record.get("delivery_intent") != args.delivery_intent
+                or record.get("initiative") != initiative
+                or record.get("git", {}).get("upstream") != target
+                or record.get("worktree", {}).get("created_by_dbsctr") is not True
+                or record.get("worktree", {}).get("branch") != branch_name
+                or not record_worktree_matches(source, record, worktree)
+                or branch(worktree) != branch_name or protected_base != args.base_branch
+                or (expected_github is not None
+                    and record.get("delivery", {}).get("github") != expected_github)
+                or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
+                or record.get("applicability_plan") != expected_plan):
+            fail("existing Initiative cycle does not match the approved launch")
+        opencode = record.get("runtime", {}).get("opencode", {})
+        print(json.dumps({
+            "cycle_id": record["cycle_id"], "branch": branch_name,
+            "worktree": str(worktree), "upstream": target,
+            "open": ["opencode", str(worktree)], "initiative": initiative,
+            "resumed": True,
+            "runtime_attached": bool(opencode.get("session_ids")),
+        }, sort_keys=True))
+        return
     repo_id = hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
     registry = worktree_registry_root()
     parent = Path(args.worktree_root).expanduser() if args.worktree_root else registry / repo_id
@@ -3277,7 +3401,6 @@ def command_begin(args):
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
     parent.mkdir(parents=True, exist_ok=True)
-    plan = read_plan(args.plan, args.expected_plan_digest)
     git(source, "worktree", "add", "-b", branch_name, str(worktree), target)
     worktree = worktree.resolve()
     try:
@@ -3303,7 +3426,7 @@ def command_begin(args):
         locator = relative_locator(worktree, registry, "dbsctr_worktrees")
         portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                             worktree_locator=locator, portable=portable)
+                             worktree_locator=locator, portable=portable, git_env=delivery_env)
         if initiative is not None:
             record["initiative"] = initiative
         if record["schema_version"] == 4:
@@ -3982,26 +4105,17 @@ def command_audit(args):
         ):
             contexts.setdefault(parts[2], set()).add(parts[3])
     expected = {"README.md", "CHANGELOG.md"}
-    ticket_counts = {}
-    for name in files:
-        parts = PurePosixPath(name).parts
-        if len(parts) == 4 and parts[:2] == ("docs", "tickets") and parts[2].startswith("context=") and name.endswith(".md"):
-            ticket_counts[parts[2].removeprefix("context=")] = ticket_counts.get(parts[2].removeprefix("context="), 0) + 1
     findings = []
     inventory = []
     for context in sorted(contexts):
         present = contexts[context]
         missing = sorted(expected - present)
-        inventory.append({"context": context, "present": sorted(present), "missing": missing,
-                          "tickets": ticket_counts.get(context, 0)})
+        inventory.append({"context": context, "present": sorted(present), "missing": missing})
         for artifact in missing:
             findings.append({
                 "code": "missing_lifecycle_artifact", "severity": "medium", "context": context,
                 "path": f"docs/specs/{context}/{artifact}",
             })
-        if ticket_counts.get(context, 0) == 0:
-            findings.append({"code": "missing_context_ticket", "severity": "medium", "context": context,
-                             "path": f"docs/tickets/context={context}"})
     graph_path = "graphify-out/GRAPH_REPORT.md"
     receipt_path = "graphify-out/graph.receipt.json"
     graph = {"present": graph_path in files, "built_from": None, "stale": None,
@@ -7766,6 +7880,15 @@ def command_phase_span(args):
     record_path, record = load(root_dir())
     require_active(record)
     cycle_id = record["cycle_id"]
+    if args.event == "start":
+        if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
+            fail("phase span start requires phase, operation, and attribution only")
+        dependencies = sorted(set(args.dependency or []))
+        ownership = sorted(set(phase_path(item) for item in (args.path or [])))
+    else:
+        if args.result is None or any(value is not None for value in (
+                args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
+            fail("phase span finish requires only span ID and result")
     root = review_root(args.state_root)
     if not OPAQUE_ID.fullmatch(args.span_id):
         fail("invalid phase span ID")
@@ -7778,10 +7901,6 @@ def command_phase_span(args):
         try:
             connection.execute("BEGIN IMMEDIATE")
             if args.event == "start":
-                if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
-                    fail("phase span start requires phase, operation, and attribution only")
-                dependencies = sorted(set(args.dependency or []))
-                ownership = sorted(set(phase_path(item) for item in (args.path or [])))
                 row = (cycle_id, args.span_id, args.parent_span_id, args.phase, args.operation,
                        args.attribution, ledger_payload(dependencies), ledger_payload(ownership),
                        timestamp, None, None)
@@ -7814,9 +7933,6 @@ def command_phase_span(args):
                     if any(existing[name] != expected[name] for name in comparable):
                         fail("phase span ID conflicts with existing marker")
             else:
-                if args.result is None or any(value is not None for value in (
-                        args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
-                    fail("phase span finish requires only span ID and result")
                 row = connection.execute(
                     "SELECT started_at, finished_at, result FROM phase_spans WHERE cycle_id=? AND span_id=?",
                     (cycle_id, args.span_id),
@@ -9818,14 +9934,34 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
 
 
 def github_environment(account):
+    lookup_env = {key: value for key, value in os.environ.items()
+                  if key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
     result = subprocess.run(
         ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
-        text=True, capture_output=True,
+        text=True, capture_output=True, env=lookup_env,
     )
     token = result.stdout.strip()
     if result.returncode or not token:
         fail(result.stderr.strip() or f"GitHub account is not authenticated: {account}")
-    return {**os.environ, "GH_TOKEN": token}
+    env = {**os.environ, "GH_TOKEN": token, "GIT_TERMINAL_PROMPT": "0",
+           "GCM_INTERACTIVE": "Never"}
+    for key in tuple(env):
+        if (key in {"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CURL_VERBOSE"}
+                or re.fullmatch(r"GIT_CONFIG_(?:KEY|VALUE)_\d+", key)
+                or key.startswith("GIT_TRACE")):
+            del env[key]
+    env.update({
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": (
+            "!f() { printf '%s\\n' username=x-access-token \"password=$GH_TOKEN\"; }; f"
+        ),
+        "GIT_CONFIG_KEY_2": "http.extraHeader",
+        "GIT_CONFIG_VALUE_2": "",
+    })
+    return env
 
 
 def github_json(root, env, *args):
@@ -9838,10 +9974,10 @@ def github_json(root, env, *args):
         fail("GitHub CLI returned invalid JSON")
 
 
-def deliver_draft_pr(root, record):
+def deliver_draft_pr(root, record, env=None):
     delivery = record["delivery"]
     github = delivery["github"]
-    env = github_environment(github["account"])
+    env = env or github_environment(github["account"])
     fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
     owner = github["repository"].partition("/")[0]
     head = f"{owner}:{delivery['branch']}"
@@ -10405,6 +10541,8 @@ def finish_push(root, path, record):
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
     delivery = record.get("delivery", {})
+    delivery_env = (github_environment(delivery["github"]["account"])
+                    if record["delivery_intent"] == "draft_pr" else None)
     if (baseline["pre_cycle_ahead_commits"] and not (
             record["delivery_intent"] == "draft_pr"
             and delivery.get("published_feature_head") == baseline["head"])):
@@ -10423,7 +10561,12 @@ def finish_push(root, path, record):
                    if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
-    git(root, "fetch", remote, base_branch)
+    if record["delivery_intent"] == "draft_pr":
+        remote_url = github_remote_url(root, remote, delivery["github"]["repository"])
+        fetch_github_branch(root, remote, remote_url, base_branch, delivery_env)
+    else:
+        remote_url = remote
+        git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
     target_ref = (f"refs/remotes/{remote}/{base_branch}"
                   if record["delivery_intent"] == "draft_pr" else current_upstream)
@@ -10493,15 +10636,20 @@ def finish_push(root, path, record):
         save(path, record)
         if record["delivery_intent"] == "draft_pr":
             remote_ref = f"refs/heads/{remote_branch}"
-            existing = git(root, "ls-remote", "--heads", remote, remote_ref).stdout.split()
+            existing = github_remote_head(root, remote_url, remote_ref, delivery_env)
             if existing and git(root, "merge-base", "--is-ancestor", existing[0], "HEAD", check=False).returncode:
                 fail("feature branch changed remotely; normal push would not be safe")
-        git(root, "push", remote, f"HEAD:{remote_branch}")
+        if record["delivery_intent"] == "draft_pr":
+            push_github_branch(root, remote_url, remote_branch, delivery_env)
+        else:
+            git(root, "push", remote_url, f"HEAD:{remote_branch}")
     if record["delivery_intent"] == "draft_pr":
-        remote_head = git(root, "ls-remote", "--heads", remote, f"refs/heads/{remote_branch}").stdout.split()
+        remote_head = github_remote_head(
+            root, remote_url, f"refs/heads/{remote_branch}", delivery_env
+        )
         if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
             fail("push did not synchronize feature branch")
-        record["delivery"]["pull_request"] = deliver_draft_pr(root, record)
+        record["delivery"]["pull_request"] = deliver_draft_pr(root, record, delivery_env)
         link_improvement_pull_request(record, record["delivery"]["pull_request"], root, target_head)
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
@@ -11126,6 +11274,7 @@ def parser():
     begin.add_argument("--initiative-source")
     begin.add_argument("--expected-plan-digest")
     begin.add_argument("--expected-repository")
+    begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")
     portabilize.add_argument("--cycle-id", required=True)
@@ -11508,7 +11657,7 @@ def parser():
     evidence = commands.add_parser("record-evidence")
     evidence.add_argument("gate", choices=GATES)
     evidence.add_argument("--authority", required=True)
-    evidence.add_argument("--timeout", type=int, default=120, choices=range(1, 601))
+    evidence.add_argument("--timeout", type=int, default=600, choices=range(1, 601))
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)

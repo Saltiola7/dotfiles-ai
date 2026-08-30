@@ -1,5 +1,12 @@
 # PM Kernel Changelog
 
+## 2026-08-29 - Explicit Local Reporting Workflow
+
+- Moved directly invoked PM files to `data/backlog/tickets/` and replaced Git
+  blob authority with local SHA-256 revision and tree identities.
+- Kept Jira preview confirmation and unknown-outcome safeguards; PM performs no
+  automatic Git or DVC mutation.
+
 ## 2026-08-28 - Initiative Ticket Handoff
 
 - Required specification-ready Initiative slices before stable PM ticket

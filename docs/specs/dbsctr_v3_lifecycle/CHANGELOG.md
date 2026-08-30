@@ -14,6 +14,43 @@
   autonomous p50 1,175,094 ms, and calendar p50 2,691,968 ms. Gate Exceptions:
   none. Gate Commits: `4946d5a`, `84fdd25`. Intended Final Push: feature branch
   and draft pull request into protected `main`.
+## 2026-08-29 - Phase Span Lock Timeout
+
+- Made malformed Phase Span markers fail before private-lock acquisition and
+  bounded typed marker execution to 30 seconds with process-group cleanup and an
+  explicit timeout error, preventing silent indefinite waits behind concurrent
+  private-ledger readers.
+- Affected QA passed 249 tests with one expected skip, Python compilation, and
+  Git whitespace validation. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+## 2026-08-29 - V3.41 Deterministic Draft Delivery
+
+- Normalized protected-base `merge` begins to `draft_pr`, derived canonical
+  repository identity from GitHub remotes, and rejected account, repository,
+  credential-bearing URL, or URL-rewrite mismatches before isolated worktree
+  creation.
+- Bound draft begin and Final Push Git/CLI operations to the recorded GitHub
+  account through canonical HTTPS and command-scoped credentials while preserving
+  low-level `start`, global account state, and V3.42 default-branch authority.
+- Affected QA passed 249 tests with one expected skip; advanced-target union QA
+  passed 412 tests with one expected skip. Python compilation, Bun bundling, Git
+  whitespace, source-identical Chezmoi rendering, and independent security review
+  passed. Gate Exceptions: none. Gate Commit: `9e48d87`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
+## 2026-08-29 - V3.40-T1 Evidence Timeout Budget
+
+- Raised the default evidence authority timeout from two to ten minutes while
+  retaining explicit shorter budgets and the existing ten-minute hard limit.
+- The controller contract passed 174 tests with one expected skip in 5:49;
+  focused timeout and process-group termination regressions also passed.
+
+## 2026-08-29 - V3.40 Ticket-Blind Lifecycle Authority
+
+- Removed PM tickets from Discovery, DBSCTR, Initiative readiness and receipts,
+  fixed-commit audits, DKS, and autonomous R&D.
+- Kept historical manifest `tickets` arrays readable but ignored, and moved
+  checkout-local applicability plans under Git-ignored `.dbsctr/plans/`.
 
 ## 2026-08-29 - V3.39 Operational Incident Capture
 

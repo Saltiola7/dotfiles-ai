@@ -63,6 +63,7 @@ REQUIRED = {
 ACTIVE_COLUMNS = ("id", "title", "priority", "status", "depends_on", "owns", "reads",
                   "parallel_safe", "reason", "effort", "validation")
 COMPLETED_COLUMNS = ("id", "outcome", "completed", "commit")
+TICKET_ROOT = Path("data/backlog/tickets")
 
 
 def fail(message):
@@ -122,7 +123,7 @@ def frontmatter(text):
 
 
 def ticket_paths(root):
-    tickets = root / "docs/tickets"
+    tickets = root / TICKET_ROOT
     if not tickets.exists():
         return []
     if tickets.is_symlink():
@@ -327,7 +328,7 @@ def render_ticket(context, section, line, values, source, source_commit, source_
                   "## Evidence", "", "```json", json.dumps(values, sort_keys=True, ensure_ascii=True), "```", "",
                   "## Risks", "", "Legacy values are preserved without inferred semantics.", "", "## Review", "",
                   "Migrated deterministically; further refinement remains explicit.", ""])
-    relative = f"docs/tickets/context={context}/{item_id}-{slug}.md"
+    relative = f"{TICKET_ROOT.as_posix()}/context={context}/{item_id}-{slug}.md"
     return relative, "\n".join(lines)
 
 
@@ -371,9 +372,10 @@ def ticket_tree_digest(tickets):
         return digest.hexdigest()
     for path in sorted(tickets.rglob("*")):
         if path.is_file() and not path.is_symlink():
-            digest.update(path.relative_to(tickets).as_posix().encode())
-            digest.update(b"\0")
-            digest.update(path.read_bytes())
+            relative = path.relative_to(tickets).as_posix().encode()
+            digest.update(len(relative).to_bytes(8, "big"))
+            digest.update(relative)
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
 
 
@@ -385,11 +387,12 @@ def apply_migration_locked(root, outputs):
             conflicts.append(output["path"])
     if conflicts:
         fail(f"migration destination conflict: {conflicts[0]}")
-    tickets = root / "docs/tickets"
+    tickets = root / TICKET_ROOT
     starting_digest = ticket_tree_digest(tickets)
-    staging = root / ".pmctl-tickets-staging"
-    backup = root / ".pmctl-tickets-backup"
-    marker = root / ".pmctl-ticket-migration"
+    state = root / "data/backlog/.pmctl"
+    staging = state / "tickets-staging"
+    backup = state / "tickets-backup"
+    marker = state / "ticket-migration"
     if marker.exists():
         if backup.exists() and not tickets.exists():
             os.replace(backup, tickets)
@@ -398,7 +401,7 @@ def apply_migration_locked(root, outputs):
     if staging.exists() or backup.exists():
         fail("stale migration staging requires operator review")
     staging_root = staging / "root"
-    staged_tickets = staging_root / "docs/tickets"
+    staged_tickets = staging_root / TICKET_ROOT
     if tickets.exists():
         shutil.copytree(tickets, staged_tickets)
     else:
@@ -567,33 +570,30 @@ def git_output(root, *arguments):
 
 def project_tickets(args):
     root = args.root.resolve()
-    if git_output(root, "status", "--porcelain", "--", "docs/tickets"):
-        fail("ticket projection requires a clean committed ticket tree")
     records, findings = inventory(root)
     if findings:
-        fail("canonical ticket validation failed")
-    commit = git_output(root, "rev-parse", "HEAD")
+        fail("ticket validation failed")
+    tickets = root / TICKET_ROOT
+    source_identity = ticket_tree_digest(tickets)
     statements = ["BEGIN;"]
     identities = []
     for record in records:
-        blob = git_output(root, "rev-parse", f"HEAD:{record['path']}")
-        if git_output(root, "hash-object", record["path"]) != blob:
-            fail("ticket content does not match its committed blob")
-        identities.append((record["path"], blob))
+        digest = hashlib.sha256((root / record["path"]).read_bytes()).hexdigest()
+        identities.append((record["path"], digest))
         payload = json.dumps({key: value for key, value in record.items() if key != "path"},
                              sort_keys=True, separators=(",", ":"))
         statements.append(
             "INSERT INTO context.tickets (id,context,title,state,priority,points,source_commit,source_blob,payload) VALUES "
             f"({sql_literal(record['id'])},{sql_literal(record['context'])},{sql_literal(record['title'])},"
             f"{sql_literal(record['state'])},{sql_literal(record['priority'])},"
-            f"{'NULL' if record['points'] is None else record['points']},{sql_literal(commit)},{sql_literal(blob)},"
+            f"{'NULL' if record['points'] is None else record['points']},{sql_literal(source_identity)},{sql_literal(digest)},"
             f"{sql_literal(payload)}::jsonb) ON CONFLICT (id) DO UPDATE SET context=EXCLUDED.context,title=EXCLUDED.title,"
             "state=EXCLUDED.state,priority=EXCLUDED.priority,points=EXCLUDED.points,source_commit=EXCLUDED.source_commit,"
             "source_blob=EXCLUDED.source_blob,payload=EXCLUDED.payload,projected_at=now();"
         )
         statements.append(
             "INSERT INTO context.ticket_revisions (ticket_id,source_commit,source_blob,payload) VALUES "
-            f"({sql_literal(record['id'])},{sql_literal(commit)},{sql_literal(blob)},{sql_literal(payload)}::jsonb) "
+            f"({sql_literal(record['id'])},{sql_literal(source_identity)},{sql_literal(digest)},{sql_literal(payload)}::jsonb) "
             "ON CONFLICT DO NOTHING;"
         )
         statements.append(f"DELETE FROM context.ticket_relations WHERE source_id={sql_literal(record['id'])};")
@@ -613,17 +613,19 @@ def project_tickets(args):
                       else "DELETE FROM context.tickets;")
     statements.append(
         "INSERT INTO context.projection_checkpoints (projection,source_identity,item_count) VALUES "
-        f"('tickets',{sql_literal(commit)},{len(records)}) ON CONFLICT (projection) DO UPDATE SET "
+        f"('tickets',{sql_literal(source_identity)},{len(records)}) ON CONFLICT (projection) DO UPDATE SET "
         "source_identity=EXCLUDED.source_identity,item_count=EXCLUDED.item_count,projected_at=now();"
     )
     statements.append("COMMIT;")
-    if any(git_output(root, "hash-object", path) != blob for path, blob in identities):
+    if (ticket_tree_digest(tickets) != source_identity
+            or any(hashlib.sha256((root / path).read_bytes()).hexdigest() != digest
+                   for path, digest in identities)):
         fail("ticket tree changed during projection")
     completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"], input="\n".join(statements) + "\n",
                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     if completed.returncode:
         fail("PostgreSQL ticket projection failed")
-    return {"schema_version": 1, "commit": commit, "projected": len(records)}
+    return {"schema_version": 1, "source_identity": source_identity, "projected": len(records)}
 
 
 def sql_literal(value):
@@ -657,15 +659,22 @@ def jira_preview(root, manifest_path):
         fail("Jira manifest is invalid")
     identities = set()
     for member in value["source_tickets"]:
-        if (not isinstance(member, dict) or set(member) != {"id", "path", "commit", "blob"}
-                or not str(member["path"]).startswith("docs/tickets/context=") or member["id"] in identities):
+        if (not isinstance(member, dict) or set(member) != {"id", "path", "sha256"}
+                or not str(member["path"]).startswith(TICKET_ROOT.as_posix() + "/context=")
+                or member["id"] in identities):
             fail("Jira source ticket identity is invalid")
         identities.add(member["id"])
-        actual = git_output(root, "rev-parse", f"{member['commit']}:{member['path']}")
-        if actual != member["blob"]:
+        path = root / member["path"]
+        try:
+            if (path.is_symlink() or not path.is_file()
+                    or not path.resolve().is_relative_to((root / TICKET_ROOT).resolve())):
+                fail("Jira source ticket identity is invalid")
+            raw = path.read_bytes()
+        except OSError:
+            fail("Jira source ticket identity is invalid")
+        if hashlib.sha256(raw).hexdigest() != member["sha256"]:
             fail("Jira source ticket revision changed")
-        committed = git_output(root, "show", f"{member['commit']}:{member['path']}")
-        parsed, _body = frontmatter(committed)
+        parsed, _body = frontmatter(raw.decode("utf-8"))
         if parsed.get("id") != member["id"]:
             fail("Jira source ticket identity is invalid")
         if parsed.get("state") not in {"ready", "committed", "in_progress", "review", "done"}:
@@ -932,7 +941,7 @@ def jira_project_receipt(args, manifest, digest):
     for member in manifest["source_tickets"]:
         statements.append(
             "INSERT INTO context.jira_publication_members (publication_id,ticket_id,source_blob) VALUES "
-            f"({sql_literal(manifest['publication_id'])},{sql_literal(member['id'])},{sql_literal(member['blob'])});"
+            f"({sql_literal(manifest['publication_id'])},{sql_literal(member['id'])},{sql_literal(member['sha256'])});"
         )
     statements.append("COMMIT;")
     completed = subprocess.run([args.psql, "-X", "-v", "ON_ERROR_STOP=1"],

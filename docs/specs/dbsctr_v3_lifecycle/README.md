@@ -1,6 +1,6 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.40 source-local cycle performance implemented
+**Status:** V3.40 ticket-blind lifecycle in progress; source-local cycle performance implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
@@ -17,6 +17,19 @@ OpenCode is the first harness because its skills, commands, todos, agents,
 permissions, and Plan/Build separation should shape the workflow directly.
 Future harnesses may implement adapters to the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
+
+### V3.40 Authority Boundary
+
+Discovery and DBSCTR use specifications, Initiative manifests when applicable,
+private Cycle Records, configured validation, and changelogs. They never create,
+read, update, validate, or require PM Kernel tickets. PM Kernel is a separate
+reporting workflow activated only by direct `pmctl`, `/pm-kernel`, or
+`/jira-ticket` invocation; its files cannot affect lifecycle readiness, gates,
+receipts, audits, DKS, or autonomous R&D.
+
+Applicability plans are checkout-local inputs under Git-ignored
+`.dbsctr/plans/`. Managed cycle state remains under the Git common directory at
+`.git/dbsctr/` so worktrees share one safe lifecycle registry.
 
 ## Problem
 
@@ -103,7 +116,7 @@ Adjacent contexts:
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
 | Worktree Identity | Stable hash of repository history identity and branch, used to isolate a cycle's active pointer without encoding a machine path. |
 | Delivery Target Lock | Nonblocking local lock serializing readiness checks and delivery to one upstream target. |
-| Artifact Review | A recorded decision that README, affected canonical tickets, and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key. |
+| Artifact Review | A recorded decision that README and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key without reading a backlog or ticket file. |
 | Gate Applicability | Whether a gate is `required` or `not_applicable`, with rationale. |
 | Gate Result | `pending`, `passed`, `failed`, `unavailable`, or `not_run`; separate from applicability. |
 | Gate Exception | A user-approved `deferred` or `accepted_risk` disposition with owner and review condition. |
@@ -433,10 +446,11 @@ ledger.
 - Then it stores that operational state beneath `.git/dbsctr/`
 - And durable specifications contain only stable context and completed evidence
 
-**Scenario: Review every lifecycle artifact without meaningless edits**
+**Scenario: Review lifecycle authority without PM duplication**
 - Given a Lifecycle Cycle is active
 - When its Artifact Review runs
-- Then README, affected canonical tickets, and CHANGELOG are each marked reviewed
+- Then README and CHANGELOG are each marked reviewed
+- And the private Cycle Record retains live execution state without a PM copy
 - And README changes only when durable domain, behavior, interface, contract,
   profile, or validation truth changed
 
@@ -1010,8 +1024,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 - Explicit phase spans and execution DAGs are diagnostic optimization tools, not
   mandatory evidence for ordinary cycles. Existing helper safety contracts remain
   authoritative when either tool is used.
-- README, affected canonical tickets, and CHANGELOG remain universally reviewed; they change only
-  when durable truth, executable work, or completed evidence changes.
+- README and CHANGELOG remain universally reviewed; they change only when durable
+  truth or completed evidence changes.
 
 ### Decisions And Risks
 
@@ -1291,8 +1305,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   feature branch, creates a draft pull request, verifies draft state, and records
   its number and URL. It never updates the base branch or source checkout.
 - GitHub authentication is selected by configured non-secret account through a
-  project-owned wrapper. Tokens remain in the credential store and are never
-  accepted as helper arguments or persisted evidence.
+  project-owned wrapper. Tokens are resolved just in time into a process-local
+  environment and are never accepted as helper arguments or persisted evidence.
 - Human merge or close is an observed terminal outcome, not an authority granted
   to DBSCTR. Pull-request comments and revisions are outside the first slice.
 
@@ -1323,6 +1337,28 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   current evidence must descend from that merge; stale evidence blocks delivery.
   The verified reconciliation merge is the only non-Gate Commit admitted between
   the cycle baseline and Final Push.
+
+### V3.41 Deterministic Draft Delivery Contract
+
+- `begin` normalizes `merge` to `draft_pr` only when the configured delivery
+  branch is the declared Protected Base Branch. Other non-PR intents still fail
+  before fetch or worktree creation; low-level `start` remains explicit.
+- Draft begin derives the canonical `owner/repository` identity from the GitHub
+  `origin`. Omitted or matching bare repository input is canonicalized; a
+  mismatched full or bare identity fails before remote access.
+- The configured upstream fetch and push URLs must identify that same repository
+  and must not contain credentials. Authenticated network operations use its
+  canonical GitHub HTTPS URL, so SSH agents and ambient credential helpers cannot
+  select another account. URL rewriting fails closed; command-scoped credential
+  and empty extra-header settings override ambient authentication configuration.
+- Draft begin validates the explicit non-secret GitHub account before creating a
+  worktree. It never infers an account from the active GitHub CLI identity.
+- Draft begin and Final Push resolve that recorded account into a process-local
+  credential environment for Git fetch, remote inspection, feature-branch push,
+  and GitHub pull-request operations. They do not change the globally active
+  account or persist, print, or place the token in an argument.
+- Existing Cycle Records and low-level draft starts retain their recorded account
+  and repository semantics without migration.
 
 ### V3.20-V3.22 Analytics Program Overrides
 
@@ -1842,6 +1878,11 @@ historical table row and fixed-commit identity.
 - Explicit lifecycle markers produce Phase Spans with opaque identity, parent and dependency identity,
   phase or operation class, start/end timing, wait/active duration when available,
   result, attribution status, and repository-relative ownership paths.
+- Phase Span start and finish shapes are validated before private-lock acquisition.
+  Malformed markers fail without waiting for unrelated readers or mutating private
+  state. The typed adapter bounds valid helper execution to 30 seconds, terminates
+  the helper process group on timeout, and reports `command timed out` rather than
+  waiting indefinitely behind private-ledger contention.
 - OpenCode exposes no supported universal tool/subagent timing callback in the
   configured runtime. Unsupported automatic observations remain unavailable;
   message persistence times never substitute for operation boundaries.
@@ -2052,9 +2093,10 @@ exception. Tightened applicability or profile truth can reopen a passed gate.
 ```mermaid
 sequenceDiagram
     accTitle: Protected Final Push with target reconciliation
-    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, then pushes only the feature branch and creates a draft pull request.
+    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, resolves the recorded GitHub account, then pushes only the feature branch and creates a draft pull request.
     participant P as Primary
     participant D as DBSCTR helper
+    participant C as Credential store
     participant T as Protected target
     participant G as GitHub
     P->>D: Preview target reconciliation
@@ -2069,15 +2111,19 @@ sequenceDiagram
     end
     P->>D: Request Final Push
     D->>D: Revalidate lineage, evidence, branch, and clean state
-    D->>G: Push feature branch and create draft PR
+    D->>C: Resolve recorded GitHub account
+    C-->>D: Return process-local token
+    D->>G: Fetch, push feature branch, and create draft PR
 ```
 
 **Text Equivalent:** The primary previews the protected target before delivery.
 If it advanced, DBSCTR prepares only a no-commit merge; the primary resolves
 explicit conflicts, reruns validation over both change sets, and records the
 merge through Review/Integrate. Final Push revalidates lineage, evidence, branch,
-and cleanliness, then pushes only the feature branch and creates a draft pull
-request. If the target is already integrated, reconciliation makes no change.
+and cleanliness, resolves the account recorded by the cycle without changing the
+active global account, then uses that process-local credential to fetch, push
+only the feature branch, and create a draft pull request. If the target is already
+integrated, reconciliation makes no change.
 
 ## Visual Evidence
 
@@ -2086,7 +2132,7 @@ request. If the target is already integrated, reconciliation makes no change.
 | Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
 | Interaction | required: incident-capture, protected-delivery, and graph-promotion sequences | How do operational evidence, fixes, and one canonical graph reach protected delivery? | Incident, Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; incident, gate, graph, or delivery ordering changes |
 | State | required: gate and Incident state diagrams | Which gate and Incident transitions are legal? | Gate Ledger and Incident contracts | Lifecycle owner; gate or Incident transition changes |
-| Data/trust | required: context flowchart, incident sequence, and Text Equivalents | Which state is public, source-local private, or external? | Incident, Artifact Lifecycle, and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
+| Data/trust | required: context flowchart, incident and protected-delivery sequences, and Text Equivalents | Which state or credential is public, source-local private, or external? | Incident, Artifact Lifecycle, Evidence, and Final Push contracts | Lifecycle owner; persistence or trust boundary changes |
 | Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
 | Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
 | Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
@@ -2342,10 +2388,10 @@ tool and provider examples and load only when useful.
 
 - Every cycle has one BACKLOG item before implementation and updates its state as
   work progresses.
-- README, affected canonical tickets, and CHANGELOG each receive an Artifact Review before completion.
+- README and CHANGELOG each receive an Artifact Review before completion.
 - Cycle Record schema compatibility retains the internal `BACKLOG` artifact-review
-  key until an explicit state migration; it records the ticket review and does not
-  make a deleted table authoritative.
+  key until an explicit state migration; it is a no-file compatibility slot and
+  does not authorize reading PM tickets or a deleted backlog table.
 - Applicable Product Intent is reviewed when affected; it is not a fourth
   universal lifecycle artifact and does not alter the helper's fixed reviews.
 - README changes only when durable truth changes; a no-change review is valid.
@@ -2614,6 +2660,10 @@ the active worktree; they do not implement lifecycle transitions independently.
 `dbsctr_begin` returns the authoritative handoff and, when explicitly enabled in
 a Herdr pane, asks Herdr to start OpenCode in the new cycle worktree. Cycle
 creation remains successful and visible when optional Herdr launch fails.
+Its description directs protected-base merge delivery to `draft_pr`; ordinary
+typed begin preserves an optional explicit base while Initiative launch binds the
+target repository's default branch. The helper remains authoritative for intent
+normalization and canonical repository derivation.
 
 Herdr is an execution/visibility plane only. It never approves gates, interprets
 agent status as evidence, commits, pushes, or removes worktrees. Chezmoi manages
@@ -2676,7 +2726,7 @@ Method Revision `3.8` adds
 `dbsctrctl record-evidence GATE --authority NAME [--path FILE ...] -- PROGRAM ...`.
 The command asks before nested authority execution. It executes an
 argument vector without a shell, closes stdin, inherits but never serializes the
-process environment, applies a 120-second default/600-second hard timeout and 1
+process environment, applies a 600-second default/hard timeout and 1
 MiB raw-output cap, and terminates the whole process group on timeout or overflow.
 
 ### V3.8 Evidence Envelope Contract

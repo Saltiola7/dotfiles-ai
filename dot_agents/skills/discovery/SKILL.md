@@ -35,7 +35,7 @@ rejected.
 
 Use `dbsctrctl initiative-check --manifest PATH --json` after every material
 manifest change. A slice is ready only when it has stable requirements,
-dependencies, artifacts, and at least one canonical ticket. Immediately before
+dependencies, and artifacts. Immediately before
 promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
 A changed manifest digest invalidates earlier readiness. Require exact user approval
 for that digest-bound slice and launch only through
@@ -81,8 +81,9 @@ For the current cycle, record only overrides:
 Before Build starts a new DBSCTR V3 cycle, produce an artifact-ready applicability
 plan naming the committed Engineering Profile and every gate. Kernel gates and
 Review/Integrate are required; each `not_applicable` completion gate has a reason
-tied to the Engineering Profile. Build persists this JSON outside the repository
-and passes it to `dbsctrctl start --plan PATH`; Discovery does not parse Markdown
+tied to the Engineering Profile. Build persists this JSON under the checkout's
+Git-ignored `.dbsctr/plans/` directory and passes it to
+`dbsctrctl start --plan PATH`; Discovery does not parse Markdown
 at runtime or fabricate a profile identity.
 
 Risk guidance:
@@ -116,7 +117,7 @@ validation; delivery intent; and parallel ownership.
 
 ## Artifacts
 
-Every cycle reviews README, affected canonical tickets, and CHANGELOG. `README.md` contains stable
+Every cycle reviews README and CHANGELOG. `README.md` contains stable
 bounded-context truth and changes only when durable domain, behavior, interface,
 contract, profile, or validation truth changes. It contains:
 
@@ -153,13 +154,9 @@ separate Gate Applicability (`required` or reasoned `not_applicable`), Gate
 Result, and optional user-approved Gate Exception (`deferred` or
 `accepted_risk` with rationale, owner, and expiry/review condition).
 
-Create a canonical ticket only after its delivery-slice specification is ready.
-Each executable or completed work item has one canonical ticket under
-`docs/tickets/context=<bounded_context>/<id>-<frozen-slug>.md`. YAML frontmatter
-follows the PM Kernel schema; the Markdown body retains outcome, context, scope,
-acceptance, evidence, risks, and review. Ownership and dependencies prevent
-concurrent collisions. Completed work remains independently readable with date
-and commit evidence instead of moving into a table.
+Discovery never creates, reads, updates, or requires PM Kernel tickets. A direct
+operator invocation of `pmctl`, `/pm-kernel`, or `/jira-ticket` is a separate
+reporting workflow and cannot become lifecycle authority.
 
 `CHANGELOG.md` records one compact entry per completed cycle with outcome,
 evidence, Gate Exceptions, commits, deployment, and intended Final Push target.

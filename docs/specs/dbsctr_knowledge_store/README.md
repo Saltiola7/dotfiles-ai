@@ -36,7 +36,7 @@ last_updated: 2026-08-25
 |---|---|
 | Risk | `elevated`: migrates the shared per-client PostgreSQL image, provisions a credential, and projects private local knowledge |
 | Delivery intent | Deploy the first exact-commit hybrid projection locally, then deliver a draft pull request |
-| Scope | dotfiles-ai `docs/specs` and `docs/tickets`; PostgreSQL FTS, pgvector exact search, deterministic SQL/PGQ graph, fixed RRF, and `dksctl` JSON CLI |
+| Scope | dotfiles-ai `docs/specs`; PostgreSQL FTS, pgvector exact search, deterministic SQL/PGQ graph, fixed RRF, and `dksctl` JSON CLI |
 | Isolation | One client VM and knowledge database per trust domain; mandatory project scope within each database |
 | Non-goals | OpenCode SQLite, other repositories, automatic sync, ANN indexes, MRL truncation, inferred graph edges, reranking, or canonical database writes |
 
@@ -305,16 +305,16 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 
 ### Benchmark preparation
 
-**Scenario: Generate silver questions before candidate execution**
+**Scenario: Reject the legacy ticket-cited silver suite**
 
-- Given frozen commit `45096bb03891e9771a891d53f92b23863ae08a3e` and no candidate execution
-- When hosted AI generates the DKS-005 silver suite
-- Then it creates 20 source-cited questions for each of `code_architecture`, `specs_contracts`, `operations_recovery`, `tickets_history`, and `configuration_tooling`
-- And hosted input contains only committed Git from that revision, never private authority, transcripts, credentials, uncommitted files, projection bodies, or candidate results
+- Given frozen DKS-005 evidence includes the historical `tickets_history` stratum
+- When the suite is validated against the current ticket-blind source profile
+- Then its PM citations are rejected before candidate execution
+- And the immutable suite remains historical evidence rather than current input
 
 **Scenario: Freeze explicit silver provenance**
 
-- Given generation completed before candidate execution
+- Given a current-profile generation completed before candidate execution
 - When the committed suite is validated
 - Then it rejects wrong counts, duplicate or blank questions, unresolved source citations, source drift, missing exact generator/reviewer identities, and any evidence class other than `silver`
 - And two independent hosted reviews attest question/citation alignment without seeing candidate results
@@ -494,9 +494,11 @@ remote URL plus Git object format `sha1`. Sync accepts only a 40-lowercase-hex
 commit that passes `git cat-file -e SHA^{commit}`; tags, trees, abbreviated IDs,
 SHA-256 repositories, symlinks, submodules, and non-blob tree modes are rejected.
 It enumerates bytewise path order with
-`git ls-tree -rz --full-tree SHA -- docs/specs docs/tickets`, accepts only modes
+`git ls-tree -rz --full-tree SHA -- docs/specs`, accepts only modes
 `100644` and `100755`, and then accepts a path exactly when it ends in `.md`,
-starts with `docs/specs/` or `docs/tickets/`, and has no `_archive` path component.
+starts with `docs/specs/` and has no `_archive` path component. DKS rejects
+`docs/tickets/` and `data/backlog/tickets/` even when a custom source profile
+names them.
 No configurable glob semantics exist in DKS-002. It verifies each object ID and
 strictly decodes UTF-8 without a BOM. Worktree files are never opened.
 
@@ -925,9 +927,9 @@ before storage; identity comparison is separate from floating-point tolerance.
   approval artifacts cannot change the corpus they attest.
 - A quality candidate is ineligible if any query loses exact-citation correctness,
   any matrix cell or required depth is absent, or telemetry is not machine-captured.
-- Canonical tickets under `docs/tickets/context=<context>/` are work authority;
+- Specifications under `docs/specs/<context>/` are durable context authority;
   per-context `docs/specs/<context>/BACKLOG.md` files are retired and must not be
-  recreated. PostgreSQL PM views project tickets automatically.
+  recreated. Separate PM projections are never ingested by DKS.
 - PostgreSQL 19 SQL/PGQ is required, not inferred: migration creates one property
   graph over project-scoped node/edge relations, and capability validation runs
   the exact `CREATE PROPERTY GRAPH` plus `GRAPH_TABLE` one-hop query used by

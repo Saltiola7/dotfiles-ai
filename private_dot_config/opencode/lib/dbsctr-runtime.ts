@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
-  core_revision: "3.29",
+  core_revision: "3.31",
   overlays: { build: "neutral-2026-07-26", "build-gpt": "openai-2026-07-26", "build-claude": "anthropic-2026-07-26" },
 }
 
@@ -178,6 +178,14 @@ export async function gitRepositorySlug(cwd: string) {
   return match[1]
 }
 
+export async function gitDefaultBranch(cwd: string) {
+  const output = await run(["git", "ls-remote", "--symref", "origin", "HEAD"], cwd)
+  const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)
+  if (match === null) throw new Error("target repository origin has no default branch")
+  await run(["git", "check-ref-format", "--branch", match[1]], cwd)
+  return match[1]
+}
+
 export async function fileDigest(path: string, cwd = process.cwd()) {
   return createHash("sha256").update(await readFile(resolve(cwd, path))).digest("hex")
 }
@@ -344,7 +352,14 @@ export async function phaseSpan(args: {
   ownershipPaths?: string[]
   attribution?: "explicit" | "adapter" | "unavailable"
   result?: "passed" | "failed" | "blocked" | "abandoned" | "unavailable"
-}, cwd = process.cwd()) {
+}, cwd = process.cwd(), timeoutMs = 30_000) {
+  if (args.event === "start" && (args.phase === undefined || args.operation === undefined
+      || args.attribution === undefined || args.result !== undefined))
+    throw new Error("phase span start requires phase, operation, and attribution only")
+  if (args.event === "finish" && (args.result === undefined || args.parentSpanID !== undefined
+      || args.phase !== undefined || args.operation !== undefined || args.attribution !== undefined
+      || (args.dependencies?.length ?? 0) > 0 || (args.ownershipPaths?.length ?? 0) > 0))
+    throw new Error("phase span finish requires only span ID and result")
   const argv = ["dbsctrctl", "phase-span", "--span-id", args.spanID, "--event", args.event]
   const values: [string, string | undefined][] = [
     ["parent-span-id", args.parentSpanID], ["phase", args.phase], ["operation", args.operation],
@@ -353,7 +368,7 @@ export async function phaseSpan(args: {
   for (const [name, value] of values) if (value !== undefined) argv.push(`--${name}`, value)
   for (const dependency of args.dependencies ?? []) argv.push("--dependency", dependency)
   for (const path of args.ownershipPaths ?? []) argv.push("--path", path)
-  return await run(argv, cwd)
+  return await runBounded(argv, cwd, timeoutMs)
 }
 
 export async function validateExecutionDag(nodes: {
@@ -1378,6 +1393,7 @@ export async function beginCycle(args: {
   planPath: string
   githubAccount?: string
   githubRepository?: string
+  baseBranch?: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
   messageID: string
@@ -1397,8 +1413,8 @@ export async function beginCycle(args: {
   requirements: string[]
   depends_on: string[]
   artifacts: string[]
-  tickets: string[]
   release_group: string | null
+  execution_owner: "build"
 }, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string }) {
   if (initiative !== undefined && approved === undefined)
     throw new Error("Initiative launch requires approved plan and repository identities")
@@ -1406,7 +1422,7 @@ export async function beginCycle(args: {
     "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
   ], directory))
   const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
-  const runtimeArgv = runtime && sameRepository ? [
+  const runtimeArgv = runtime && sameRepository && initiative === undefined ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1422,11 +1438,13 @@ export async function beginCycle(args: {
     "--plan", args.planPath,
     ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
     ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
+    ...(args.baseBranch === undefined ? [] : ["--base-branch", args.baseBranch]),
     ...(initiative === undefined ? [] : [
       "--initiative-manifest", initiative.manifest_path, "--initiative-slice", initiative.slice_id,
       "--initiative-digest", initiative.manifest_digest,
       "--expected-plan-digest", approved!.planDigest,
       "--expected-repository", approved!.targetRepository,
+      "--resume-existing",
       ...(sameRepository ? [] : ["--initiative-source", initiativeSourceCwd]),
     ]),
     ...runtimeArgv,
@@ -1442,6 +1460,8 @@ export async function beginCycle(args: {
     if (canonical(current) !== canonical(initiative))
       throw new Error("Initiative readiness changed while the cycle was created; Build was not launched")
   }
+  if (handoff.resumed === true && handoff.runtime_attached === true)
+    return { ...handoff, herdr: "already_attached" }
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
   try {
     const createTab = async () => JSON.parse(await run([
@@ -1455,9 +1475,10 @@ export async function beginCycle(args: {
     if (typeof paneID !== "string") throw new Error("Herdr tab creation returned no root pane")
     const prompt = initiative === undefined ? [] : [
       "--prompt",
-      `Start only the approved DBSCTR slice. Re-read its Git artifacts, revalidate the manifest digest before acting, and attach this runtime to the cycle. Readiness receipt: ${JSON.stringify(initiative)}`,
+      `Start only the approved DBSCTR slice. Re-read its Git artifacts and revalidate the manifest digest before acting. If a material readiness gap exists, stop without editing normative contracts or slice scope and report readiness_reopened to Discovery. Otherwise attach this runtime and implement; update only completion evidence after implementation. Readiness receipt: ${JSON.stringify(initiative)}`,
     ]
-    const fresh = [handoff.worktree, ...prompt]
+    const buildAgent = initiative === undefined ? [] : ["--agent", "build"]
+    const fresh = [handoff.worktree, ...buildAgent, ...prompt]
     let opencode = fresh
     let forked = false
     if (runtime !== undefined) {
@@ -1465,7 +1486,7 @@ export async function beginCycle(args: {
       try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
       if (supportsFork) {
         forked = true
-        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...prompt]
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent, ...prompt]
       }
     }
     const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
@@ -1476,17 +1497,32 @@ export async function beginCycle(args: {
     ], cwd)
     let started: string
     let sessionMode = forked ? "fork" : "fresh"
+    const pending = (name: string) => ({
+      ...handoff,
+      ...(initiative === undefined ? {} : { initiative }),
+      herdr: "launch_pending",
+      herdr_session_mode: sessionMode,
+      herdr_agent_name: name,
+      herdr_pane_id: paneID,
+      ...((tab?.result?.tab?.tab_id) === undefined ? {} : { herdr_tab_id: tab.result.tab.tab_id }),
+    })
     try {
       started = await start(agentName, paneID, opencode)
     } catch (error) {
       const failure = String(error)
+      if (/agent_not_ready/i.test(failure)) return pending(agentName)
       if (!forked || !/(?:--fork|\bfork(?:ing)?\b|(?:invalid|unknown|not.?found|expired).{0,32}\bsession\b|\bsession\b.{0,32}(?:invalid|unknown|not.?found|expired))/i.test(failure)) throw error
       tab = await createTab()
       paneID = tab?.result?.root_pane?.pane_id
       if (typeof paneID !== "string") throw new Error("Herdr fallback tab creation returned no root pane")
-      started = await start(`${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`,
-        paneID, fresh)
+      const fallbackName = `${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`
       sessionMode = "fresh_fallback"
+      try {
+        started = await start(fallbackName, paneID, fresh)
+      } catch (fallbackError) {
+        if (/agent_not_ready/i.test(String(fallbackError))) return pending(fallbackName)
+        throw fallbackError
+      }
     }
     try {
       const value = JSON.parse(started)
@@ -1522,7 +1558,7 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
   ], cwd))
   const keys = ["schema_version", "initiative_id", "slice_id", "manifest_digest", "manifest_blob",
     "manifest_commit", "coordinator_repository", "context", "repository",
-    "requirements", "depends_on", "artifacts", "tickets", "release_group"]
+    "requirements", "depends_on", "artifacts", "release_group", "execution_owner"]
   const strings = (name: string) => Array.isArray(value[name])
     && value[name].every((item: unknown) => typeof item === "string")
   if (value === null || typeof value !== "object" || Array.isArray(value)
@@ -1535,7 +1571,8 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
       || typeof value.context !== "string"
       || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value.repository)
       || !strings("requirements") || !strings("depends_on")
-      || !strings("artifacts") || !strings("tickets")
+      || !strings("artifacts")
+      || value.execution_owner !== "build"
       || !(value.release_group === null || typeof value.release_group === "string"))
     throw new Error("dbsctrctl returned an invalid Initiative readiness receipt")
   return { ...value, manifest_path: manifestPath }
