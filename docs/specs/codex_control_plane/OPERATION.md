@@ -43,20 +43,33 @@ unavailability plus source digests. Transcript content is discarded.
 
 Run after the same frozen Codex release is installed on macOS and Fedora:
 
-1. Create an isolated temporary `CODEX_HOME` and bounded hook sink.
-2. Start one disposable session with a non-secret correlation nonce.
-3. Retain hook event enum, opaque `session_id`, turn ID, model ID, workspace enum
+1. Verify an existing boundary-local login in the managed `CODEX_HOME` on the
+   macOS host and one
+   representative authenticated Fedora guest. Never auto-authenticate, inject a
+   shared API key, or copy auth files. Missing login blocks the probe.
+2. Verify every registered managed Fedora guest has the frozen executable,
+   managed configuration, guest-local `CODEX_HOME`, and isolated auth boundary.
+3. Create an isolated temporary worktree and bounded hook sink while keeping the
+   boundary's existing managed `CODEX_HOME`. The probe never redirects, copies,
+   mounts, or reads authentication state.
+4. Start one disposable session with a non-secret correlation nonce in that
+   worktree.
+5. Retain hook event enum, opaque `session_id`, turn ID, model ID, workspace enum
    `primary_worktree`, `cycle_worktree`, or `unknown`, timestamp, release, and
    adapter revision only. Retain no filesystem path.
-4. Complete documented `initialize` and `initialized` messages over app-server
+6. Complete documented `initialize` and `initialized` messages over app-server
    stdio without `experimentalApi`, then probe `thread/list` and `thread/read`.
-5. Resume and fork the exact candidate through documented target methods; treat
+7. Resume and fork the exact candidate through documented target methods; treat
    them as unavailable unless the frozen-version probe accepts them.
-6. Compare hook `session_id`, `thread.id`, `thread.sessionId`, resumed identity,
+8. Compare hook `session_id`, `thread.id`, `thread.sessionId`, resumed identity,
    fork identity, and parent/root relation.
-7. Repeat on the Fedora guest.
-8. Delete disposable transcripts and retain only the bounded result matrix and
-   digests.
+9. Retain any Codex-created transcript only in runtime-private state under that
+   boundary's normal retention policy. Do not inspect or delete private storage;
+   retain only the bounded result matrix and digests as probe evidence.
+
+The source-controlled result records the frozen release, adapter revision,
+platform classes, exact/mapped/ambiguous/unavailable disposition, and evidence
+digests only. Opaque runtime IDs and private event records remain outside Git.
 
 Result values are:
 

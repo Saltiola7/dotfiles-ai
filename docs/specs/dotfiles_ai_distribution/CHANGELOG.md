@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-30 - Refined Codex Distribution Readiness
+
+- Fixed distribution as the second of two sequential pull requests, responsible
+  for exact host/guest installation, projection, wrapper activation, selector
+  schema, all registered guest updates, and automatic future guest provisioning.
+- Required existing guest-local login for authenticated probes and workers while
+  prohibiting automatic login, shared API-key injection, and auth copying.
+- The slice remains captured until `codex-host-foundation` is delivered. No
+  package, guest, configuration, or runtime was changed in Discovery.
+
 ## 2026-08-29 - OpenCode 1.18.25 VM Parity
 
 - Updated the checksum-pinned Linux arm64 OpenCode runtime from 1.18.23 to

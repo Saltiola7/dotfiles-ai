@@ -1,8 +1,8 @@
 # Managed Codex CLI Distribution
 
-**Status:** Contract captured; implementation not started
+**Status:** Contract ready; host-foundation dependency not delivered
 **Created:** 2026-08-29
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 ## Overview
 
@@ -196,6 +196,12 @@ vector.
 
 ## Installation
 
+Distribution is the second of two sequential pull requests. It starts only after
+the host-foundation receipt is delivered and then owns package installation,
+projection, wrapper activation, and managed guest rollout. Runtime-selector
+schema and resolution are delivered here; Herdr, Hermes, and autonomous-worker
+launch integration remains in `codex-worker-routing` after the identity probe.
+
 ### macOS
 
 - Install the official `codex` Homebrew cask idempotently beside the existing
@@ -214,6 +220,11 @@ vector.
 - Stage under a guest-local temporary directory and atomically install the
   executable while retaining the prior executable until verification passes.
 - Render a guest-local `CODEX_HOME`; never mount host Codex state or auth.
+- Update all registered managed guests through the existing bounded update flow,
+  preserving each guest's prior running state, and provision future managed
+  guests automatically.
+- Require each guest to authenticate locally before authenticated probes or
+  workers; installation never logs in, injects a shared API key, or copies auth.
 
 ## Runtime Selection And Workers
 
