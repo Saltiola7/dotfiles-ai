@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-30 - Cycle-Speed Contract Reconciliation
+
+- Reconciled the delivered performance-audit workflow, specified deterministic
+  audit evidence and ranking, and captured a separate non-blocking audit-v2 slice.
+- Defined page-first aggregate History telemetry and bounded Incident summaries
+  with immutable continuation, explicit availability, privacy, and overflow truth.
+- Initiative validation, affected tests, protected delivery, and Gate Commit are
+  recorded by the completing cycle. Release, Deploy, and Operate are not
+  applicable to this authority-only reconciliation. Gate Exceptions: none.
+
 ## 2026-08-30 - Multi-Harness Cycle Records
 
 - Made Method Revision `3.29` create schema-5 records with empty pre-attach

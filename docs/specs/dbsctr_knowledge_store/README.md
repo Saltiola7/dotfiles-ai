@@ -294,6 +294,8 @@ Events include `SourceSnapshotted`, `RecordProjected`, `ContentDeduplicated`,
 - Then it reads the prior active projection under shared activation protection
 - And replacement preparation does not hold an exclusive query barrier
 - And activation restores baseline ranking atomically if the replacement invalidates quality policy
+- And exhausted activation or repair contention exits `75` with empty stdout and
+  stderr exactly `projection_busy\n` within one two-second total deadline
 
 **Scenario: Diagnose freshness without exposing content**
 
@@ -1035,8 +1037,11 @@ OpenCode restart.
   fields as inert data, denies private result bodies to hosted providers, and has
   no mutation or transcript path.
 - Prove replacement preparation permits prior-active retrieval, activation and
-  policy invalidation are atomic, and exhausted contention returns sanitized typed
-  unavailability without citations.
+  policy invalidation are atomic, and exhausted contention exits `75` with empty
+  stdout and exact `projection_busy\n` stderr without citations.
+- Prove existing activation-lock identities remain rolling-compatible, long
+  replacement preparation uses separate writer identities, partial acquisition
+  closes its session, and one policy repair shares the two-second total deadline.
 - Prove the offline benchmark runner executes all four cells and three depths,
   rejects circular lineage and any per-query citation regression, and leaves the
   active ranking policy unchanged.

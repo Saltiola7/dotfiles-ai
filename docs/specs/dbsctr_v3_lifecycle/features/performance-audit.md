@@ -35,6 +35,8 @@ operations, review, and maintenance. It never implements its findings.
 - And reports autonomous and calendar values separately
 - And carries coverage, unavailable samples, gate failures, reopenings, and
   remediation rounds beside every speed conclusion
+- And records the fixed Git commit, Method Revision, sanitized filters, source
+  availability, cohort composition, attribution quality, and coverage
 
 ### Use private session evidence safely
 
@@ -45,6 +47,7 @@ operations, review, and maintenance. It never implements its findings.
 - And performs aggregate reduction locally
 - And never sends candidate bodies, identifiers, paths, or private provenance to
   Scout, Explore, or another hosted agent
+- And keeps private snapshot identities local rather than placing them in reports
 
 ### Fail over without retry bloat
 
@@ -66,6 +69,8 @@ operations, review, and maintenance. It never implements its findings.
   authoritative public documentation
 - And uses no more than three independent concurrent subagents
 - And checks for `graphify-out/graph.json` before loading Graphify
+- And verifies any hosted claim that an artifact is absent with primary
+  `dbsctr_inspect object` or `tree` evidence
 - But it does not invoke a reviewer for generic verification
 
 ### Catalogue every surface
@@ -94,7 +99,9 @@ operations, review, and maintenance. It never implements its findings.
 1. Resolve the fixed Git commit and read the `dbsctr-cycle-speed` Initiative.
 2. Request runtime health and `cycle-performance` for all and target contexts.
 3. Request Incident Scan alone, never beside an optional failure-prone call.
-4. Request bounded sanitized review history; retain snapshot and continuations.
+4. Request bounded sanitized review history with a default page of 25; retain
+   snapshot and continuations. Prefer aggregate and Incident summary modes when
+   their dependent slices are available.
 5. Request structured telemetry once. On timeout, use the successful history page
    and record telemetry unavailable.
 6. Query DKS once. On contention or timeout, fall back immediately to fixed-commit
@@ -102,8 +109,8 @@ operations, review, and maintenance. It never implements its findings.
 7. Check for an existing Graphify graph before loading or querying Graphify.
 8. Launch independent Explore and Scout lanes only for unresolved local or external
    facts. Never provide private telemetry to them.
-9. Reduce counts, mean/p50/p90, coverage, errors, tokens, tools, delegation, and
-   quality outcomes locally.
+9. Reduce counts, integer-floor mean, nearest-rank p50/p90, coverage, errors,
+   tokens, tools, delegation, and quality outcomes locally.
 10. Map all lifecycle surfaces and perform RCA on reproduced failures.
 11. Rank the portfolio and define benchmark thresholds and quality guardrails.
 12. Return the report without completing review pages or mutating lifecycle state.
@@ -118,11 +125,16 @@ Every report contains these sections in order:
 4. Reproduced failure RCA
 5. Complete optimization-surface map
 6. Ranked opportunity portfolio
-7. Model, reviewer, and subagent recommendations
+7. Model, reviewer, Scout, Explore, and orchestration recommendations
 8. Quality guardrails and rejected shortcuts
 9. Delivery slices with ownership, dependencies, validation, and success thresholds
 
 Priority uses impact, observed frequency, confidence, effort, and quality risk.
+Within one priority, findings sort by reproduced frequency, confidence, lower
+quality risk, then lower effort. Percentiles use sorted zero-based index
+`ceil(p * n) - 1`, clamped to the available bounds. Mean uses integer floor.
+Singleton samples may be descriptive, but comparative activation requires at
+least five comparable complete members.
 The report must not collapse unavailable into zero or causal language into
 correlation. Cost remains unavailable when provider billing evidence is absent or
 non-authoritative.
@@ -206,6 +218,22 @@ flowchart LR
 **Text Equivalent:** Private stores feed local reducers and the primary only.
 Scout reads public documentation, Explore reads fixed-commit code, and neither
 receives private data. The final output is a sanitized ranked report.
+
+## Gate Ledger - Performance Audit V2
+
+| Gate | Applicability | Result | Authority |
+|---|---|---|---|
+| Domain | required | pending | Lifecycle README and Initiative manifest |
+| Behavior | required | pending | Evidence, fallback, reduction, and report scenarios |
+| Spec | required | pending | Golden Path, report, privacy, and visual contracts |
+| Contract | required | pending | Lifecycle and control-plane ownership validation |
+| Test-driven implementation | required | pending | Skill contract and synthetic provider evaluation |
+| Refactor | required | pending | Prompt duplication and fallback review |
+| Review/Integrate | required | pending | Diff, privacy, downstreams, and affected QA |
+| Release | not applicable: no versioned artifact is published | not_run | Engineering Profile |
+| Deploy | required | pending | Managed skill identity and fresh-session load |
+| Operate | required | pending | One report-only audit smoke with explicit availability |
+| Maintain/Retire | required | pending | Compatibility and skill replacement ownership |
 
 ## Validation
 

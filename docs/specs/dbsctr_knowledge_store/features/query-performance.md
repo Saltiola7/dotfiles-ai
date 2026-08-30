@@ -24,6 +24,11 @@ fallback exploration.
   repair path.
 - Activation contention uses bounded retry and returns a sanitized explicit
   availability class when exhausted.
+- Existing project, code, and authority advisory-lock identities remain the
+  activation barriers so old and new processes fail safely during deployment.
+- Separate writer-only lock identities serialize long replacement preparation.
+- Lock acquisition and one optional policy repair share one 2,000-millisecond
+  monotonic deadline.
 - Partial lock acquisition is released deterministically and lock-stage duration
   is observable without exposing PostgreSQL identity.
 - Query fallback never bypasses policy validation, source authority, privacy
@@ -49,17 +54,46 @@ fallback exploration.
 
 - Given activation or repair cannot acquire every required barrier within its bound
 - When retry is exhausted
-- Then retrieval reports typed retryable unavailability without citations
+- Then `dksctl query` exits `75`, writes no stdout, and writes exactly
+  `projection_busy\n` to stderr
 - And no source, database session, process, path, or raw error identity is exposed
+
+**Scenario: Repair one invalid active policy**
+
+- Given a query holds every shared activation barrier and finds invalid active quality-policy identity
+- When the same two-second deadline still permits repair
+- Then it releases the shared barriers before acquiring the complete exclusive set
+- And restores `dks-rrf-v1` atomically before retrying the query once
+- But exhaustion returns `projection_busy` without citations or a second repair
+
+## CLI Availability Contract
+
+Successful query output remains the existing backward-compatible citation JSON.
+Exhausted activation or repair contention has one machine interface:
+
+| Field | Value |
+|---|---|
+| Process status | `75` |
+| Stdout | empty |
+| Stderr bytes | `projection_busy\n` |
+| Citations | absent |
+| Retryability | temporary; interpreted by the downstream OpenCode owner |
+
+DKS does not return the model-visible availability envelope. Any other invalid,
+malformed, unsafe, or non-operational outcome remains fail-closed under its
+existing error contract.
 
 ## Lock Contract
 
-Writer locks serialize replacement work for project, code, and authority channels.
-Activation barriers protect only query-visible transitions. Every query holds
-shared activation barriers in canonical project, code, authority order for one
-repeatable-read transaction. Activation and policy repair use the same order
-exclusively. A failed partial acquisition closes its database session and releases
-every acquired lock before retry or return.
+Writer-only locks serialize replacement work for project, code, and authority
+channels. Existing project, code, and authority lock identities remain activation
+barriers and protect only query-visible transitions. Every query holds shared
+activation barriers in canonical project, code, authority order through policy
+verification and one repeatable-read transaction. Activation and policy repair
+use the same order exclusively. A failed partial acquisition closes its database
+session and releases every acquired lock before bounded backoff, retry, or return.
+All acquisition attempts and the one permitted repair consume the same monotonic
+2,000-millisecond budget.
 
 ## Visual Evidence
 
@@ -97,12 +131,48 @@ for the final transition, restores baseline ranking in that transaction if the
 new identity invalidates quality policy, activates the replacement atomically,
 and releases the barriers.
 
+```mermaid
+stateDiagram-v2
+    accTitle: DKS query-visible policy states
+    accDescr: Queries serve a valid active projection under shared barriers. Invalid policy enters one bounded exclusive repair that restores baseline ranking before a single query retry. Exhausted contention returns temporary unavailability without citations.
+    [*] --> ActiveValid
+    ActiveValid --> Querying: shared barriers acquired
+    Querying --> ActiveValid: query commits
+    ActiveValid --> PolicyInvalid: identity validation fails
+    PolicyInvalid --> Repairing: exclusive barriers acquired
+    Repairing --> BaselineValid: restore dks-rrf-v1
+    BaselineValid --> Querying: retry once
+    ActiveValid --> TemporarilyUnavailable: contention deadline exhausted
+    PolicyInvalid --> TemporarilyUnavailable: repair deadline exhausted
+```
+
+**Text Equivalent:** A query may read only a policy-valid active projection.
+Invalid policy receives one bounded exclusive repair that restores baseline
+ranking before one retry. Failure to acquire the complete lock set within two
+seconds exits temporarily unavailable without citations.
+
 ## Measurement
 
 Measure cold and warm p50/p95, contention failures, retry count, fallback count,
 policy-repair count, and citation-quality equivalence. The first target is warm
 p95 below 10 seconds with zero opaque lock failures and unchanged exact citation
 regressions.
+
+## Gate Ledger
+
+| Gate | Applicability | Result | Authority |
+|---|---|---|---|
+| Domain | required | pending | DKS README and Initiative manifest |
+| Behavior | required | pending | Contention, repair, activation, and compatibility scenarios |
+| Spec | required | pending | CLI availability, lock, visual, and measurement contracts |
+| Contract | required | pending | DKS and OpenCode boundary validation |
+| Test-driven implementation | required | pending | Focused fake-clock, lock-session, CLI, and citation fixtures |
+| Refactor | required | pending | Shared lock helpers and stale-path review |
+| Review/Integrate | required | pending | Diff, downstream contract, affected QA, and protected integration |
+| Release | not applicable: no versioned artifact is published | not_run | Engineering Profile |
+| Deploy | required | pending | Managed helper identity and local apply evidence |
+| Operate | required | pending | Live reconcile/query contention smoke and rollback evidence |
+| Maintain/Retire | required | pending | Compatibility, rollback, and lock-identity ownership |
 
 ## Non-Goals
 
