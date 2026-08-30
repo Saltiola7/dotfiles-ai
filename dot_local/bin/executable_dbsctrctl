@@ -54,7 +54,9 @@ TELEMETRY_SCHEMA = 2
 HARNESS_ACTIVATION_SCHEMA = 1
 PROVIDER_EVALUATION_SCHEMA = 1
 PHASES = GATES[:6] + ("operation",)
-PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa")
+PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa",
+                    "operator_wait", "external_wait")
+EXCLUDED_PHASE_OPERATIONS = ("operator_wait", "external_wait")
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 BENCHMARK_METRICS = {
     "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
@@ -1508,6 +1510,103 @@ def load_phase_report(root, cycle_id):
         if connection.execute("SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is None:
             return unavailable_phase_report(cycle_id)
         return phase_report(phase_rows(connection, cycle_id), cycle_id)
+
+
+def interval_union_ms(intervals):
+    total, end = 0, None
+    for started, finished in sorted(intervals):
+        if end is None or started > end:
+            total += finished - started
+            end = finished
+        elif finished > end:
+            total += finished - end
+            end = finished
+    return total
+
+
+def autonomous_runtime(rows):
+    if not rows:
+        return "unavailable", None
+    if any(item["finished_at"] is None or item["attribution"] == "unavailable"
+           or item["result"] == "unavailable" for item in rows):
+        return "partial", None
+    active = [(item["started_at"], item["finished_at"]) for item in rows
+              if item["operation"] not in EXCLUDED_PHASE_OPERATIONS]
+    pauses = [(item["started_at"], item["finished_at"]) for item in rows
+              if item["operation"] in EXCLUDED_PHASE_OPERATIONS]
+    if not active or any(max(a_start, p_start) < min(a_end, p_end)
+                         for a_start, a_end in active for p_start, p_end in pauses):
+        return "partial", None
+    return "complete", interval_union_ms(active)
+
+
+def cycle_performance_stats(values):
+    if not values:
+        return {"mean": "unavailable", "p50": "unavailable", "p90": "unavailable"}
+    return {"mean": sum(values) // len(values), "p50": nearest_rank(values, .5),
+            "p90": nearest_rank(values, .9)}
+
+
+def completed_cycle_records(repository):
+    records = []
+    directory = cycle_dir(repository) / "cycles"
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else ():
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+        except (OSError, json.JSONDecodeError) as error:
+            fail(f"cannot read Cycle Record: {error}")
+        cycle_id = record.get("cycle_id") if isinstance(record, dict) else None
+        if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id) or cycle_id != path.stem:
+            fail("Cycle Record contains an invalid cycle ID")
+        if record.get("state") == "completed":
+            records.append(record)
+    return records
+
+
+def cycle_performance(records, spans, filters):
+    selected = []
+    quality = {"gate_failures": 0, "gate_reopenings": 0, "remediation_rounds": 0}
+    metric_names = {"gate_failures": "gate_failure_count",
+                    "gate_reopenings": "gate_reopen_count",
+                    "remediation_rounds": "remediation_round_count"}
+    for record in records:
+        values = {
+            "context": record.get("context", "unavailable"),
+            "risk": record.get("risk", "unavailable"),
+            "delivery_intent": record.get("delivery_intent", "unavailable"),
+            "method_revision": record.get("method_revision", "unavailable"),
+        }
+        if any(values[name] != value for name, value in filters.items()):
+            continue
+        counters = record.get("metrics", {})
+        cycle_metrics = {output: counters.get(stored, 0) for output, stored in metric_names.items()}
+        if any(type(value) is not int or value < 0 for value in cycle_metrics.values()):
+            fail("Cycle Record contains invalid metrics")
+        for name, value in cycle_metrics.items():
+            quality[name] += value
+        selected.append(record)
+
+    counts = {"completed": len(selected), "complete": 0, "partial": 0, "unavailable": 0}
+    autonomous, calendar = [], []
+    for record in selected:
+        status, elapsed = autonomous_runtime(spans.get(record["cycle_id"], []))
+        counts[status] += 1
+        if elapsed is not None:
+            autonomous.append(elapsed)
+        try:
+            started = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+            finished = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+            if finished >= started:
+                calendar.append(int((finished - started).total_seconds() * 1000))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            pass
+    return {
+        "schema_version": 1, "filters": filters, "counts": counts,
+        "coverage_basis_points": counts["complete"] * 10000 // counts["completed"]
+        if counts["completed"] else 0,
+        "autonomous_runtime_ms": cycle_performance_stats(autonomous),
+        "calendar_elapsed_ms": cycle_performance_stats(calendar), "quality": quality,
+    }
 
 
 def prune_phase_spans(root, connection=None):
@@ -7743,6 +7842,30 @@ def command_phase_report(args):
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
 
 
+def command_cycle_performance(args):
+    filters = {name: value for name, value in (
+        ("context", args.context), ("risk", args.risk),
+        ("delivery_intent", args.delivery_intent), ("method_revision", args.method_revision),
+    ) if value is not None}
+    if args.context is not None and not OPAQUE_ID.fullmatch(args.context):
+        fail("invalid context")
+    if args.method_revision is not None and not OPAQUE_ID.fullmatch(args.method_revision):
+        fail("invalid method revision")
+    records = completed_cycle_records(root_dir())
+    root = review_root(args.state_root)
+    spans = {}
+    require_review_lock_safe(root)
+    if ledger_exists(root):
+        with existing_review_lock(root):
+            with ledger_connection(root) as connection:
+                if connection.execute(
+                        "SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is not None:
+                    for record in records:
+                        spans[record["cycle_id"]] = phase_rows(connection, record["cycle_id"])
+    print(json.dumps(cycle_performance(records, spans, filters),
+                     sort_keys=True, separators=(",", ":")))
+
+
 def execution_dag(value, requested_mode, risk, activated=False):
     if (not isinstance(value, dict) or set(value) != {"nodes", "completed"}
             or not isinstance(value["nodes"], list) or not isinstance(value["completed"], list)
@@ -11022,6 +11145,14 @@ def parser():
     phase_report = commands.add_parser("phase-report")
     phase_report.add_argument("--state-root")
     phase_report.set_defaults(func=command_phase_report)
+    performance = commands.add_parser("cycle-performance")
+    performance.add_argument("--state-root")
+    performance.add_argument("--context")
+    performance.add_argument("--risk", choices=("routine", "elevated", "critical"))
+    performance.add_argument("--delivery-intent", choices=DELIVERY_INTENTS)
+    performance.add_argument("--method-revision")
+    performance.add_argument("--json", action="store_true")
+    performance.set_defaults(func=command_cycle_performance)
     execution_dag_parser = commands.add_parser("execution-dag")
     execution_dag_parser.add_argument("--state-root")
     execution_dag_parser.add_argument("--mode", required=True, choices=("serial", "benchmark", "concurrent"))
