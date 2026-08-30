@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -321,6 +321,8 @@ export const vm_handoff = tool({
     const target = await vmHandoffTarget(context.worktree)
     const instance = await vmHandoffInstance(target, context.worktree)
     await context.ask({ permission: "dbsctr_vm_handoff", patterns: [`${target}:${instance}`], always: [] })
+    await validateVmHandoffRequest(args, context.sessionID, context.worktree)
+    await verifyVmHandoffParity(target, instance, context.worktree)
     await validateVmHandoffRequest(args, context.sessionID, context.worktree)
     return await vmHandoff({
       schema_version: 1, worker_id: args.workerId, proceed: true, target,

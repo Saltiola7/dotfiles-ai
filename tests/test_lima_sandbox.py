@@ -389,7 +389,8 @@ def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path)
         raise AssertionError(argv)
 
     assert helper.verify_opencode_parity(values, workspace, execute) == {
-        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION}
+        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION,
+        "instance": workspace["instance"]}
     assert not running
     guest = "1.18.21"
     with pytest.raises(RuntimeError, match="workspace1 OpenCode version mismatch"):

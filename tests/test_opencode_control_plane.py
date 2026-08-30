@@ -632,8 +632,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'argv.push("--excluded-session-id", excludedSessionID)' in runtime
     assert 'argv.push("--excluded-message-id", excludedMessageID)' in runtime
     assert '["sandbox-vm", "instance", target]' in runtime
-    assert 'instance !== expectedInstance' in runtime
-    assert tools.count("validateVmHandoffRequest(args, context.sessionID, context.worktree)") == 2
+    assert '["sandbox-vm", "parity", target, "--instance", instance]' in runtime
+    assert tools.count("validateVmHandoffRequest(args, context.sessionID, context.worktree)") == 3
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
     assert '"herdr", "agent", "start", "dbsctr-handoff"' in runtime
@@ -1886,7 +1886,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     opencode_vm = bin_dir / "sandbox-vm"
     opencode_vm.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in build-workspace) printf "workspace1\\n";; '
-        'instance) printf "workspace1-sandbox\\n";; esac\n'
+        'instance) printf "workspace1-sandbox\\n";; parity) printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace1-sandbox"}\\n\';; esac\n'
     )
     limactl = bin_dir / "limactl"
     limactl.write_text(
@@ -2029,15 +2029,30 @@ await vm_handoff.execute({json.dumps(payload)},context);'''
     assert not calls.exists()
     assert "<parity>" not in sandbox_calls.read_text()
 
-    instance_seen = tmp_path / "instance-seen"
+    parity_worker_file = tmp_path / "parity-worker.json"
     opencode_vm.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
-        'build-workspace) printf "workspace1\\n";; instance) if [ -e "$INSTANCE_SEEN" ]; then '
-        'printf "workspace2-sandbox\\n"; else : > "$INSTANCE_SEEN"; printf "workspace1-sandbox\\n"; fi;; esac\n'
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf "%s\\n" "$BLOCKED_WORKER_JSON" > "$WORKER_JSON_FILE"; '
+        'printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace1-sandbox"}\\n\';; esac\n'
+    )
+    authority_changed_during_parity = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(parity_worker_file),
+             "BLOCKED_WORKER_JSON": json.dumps(blocked_worker)}, text=True, capture_output=True,
+    )
+    assert authority_changed_during_parity.returncode != 0
+    assert "not Discovery-ready" in authority_changed_during_parity.stderr
+    assert not calls.exists()
+
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace2-sandbox"}\\n\';; esac\n'
     )
     remapped = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**handoff_env, "INSTANCE_SEEN": str(instance_seen)}, text=True, capture_output=True,
+        env=handoff_env, text=True, capture_output=True,
     )
     assert remapped.returncode != 0
     assert "instance changed after approval" in remapped.stderr

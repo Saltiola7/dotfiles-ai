@@ -1039,9 +1039,8 @@ export async function vmHandoff(report: {
   const serialized = JSON.stringify(report)
   validateVmHandoffContent(report, report.paths)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(report.target)) throw new Error("invalid handoff workspace")
-  await runBounded(["sandbox-vm", "parity", report.target], cwd, 120_000, 1024)
-  const instance = await vmHandoffInstance(report.target, cwd)
-  if (instance !== expectedInstance) throw new Error("handoff VM instance changed after approval")
+  const instance = expectedInstance
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
   const source = `${home}/.local/share/chezmoi-dotfiles-ai`
@@ -1141,6 +1140,17 @@ export async function vmHandoffInstance(target: string, cwd = process.cwd()) {
   const instance = await runBounded(["sandbox-vm", "instance", target], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   return instance
+}
+
+export async function verifyVmHandoffParity(target: string, instance: string, cwd = process.cwd()) {
+  let value: any
+  try {
+    value = JSON.parse(await runBounded(
+      ["sandbox-vm", "parity", target, "--instance", instance], cwd, 120_000, 1024))
+  } catch {
+    throw new Error("handoff runtime parity failed")
+  }
+  if (value?.instance !== instance) throw new Error("handoff VM instance changed after approval")
 }
 
 function reviewHistoryArgv(args: {
