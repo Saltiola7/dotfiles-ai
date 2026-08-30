@@ -38,10 +38,12 @@ manifest change. A slice is ready only when it has stable requirements,
 dependencies, and artifacts. Immediately before
 promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
 A changed manifest digest invalidates earlier readiness. Require exact user approval
-for that digest-bound slice and launch only through
-`dbsctr_initiative_launch`; compressed prose and Herdr state are never readiness
-authority. Discovery continues for unfinished slices while approved,
-ownership-disjoint slices build.
+for that digest-bound slice and launch through `dbsctr_initiative_launch`. When
+the host registry omits only that export, hand off to a primary Build, which may
+use typed `dbsctr_begin` only with its explicit Initiative mode; that path performs
+the same receipt and exact approval checks. Compressed prose and Herdr state are
+never readiness authority. Discovery continues for unfinished slices while
+approved, ownership-disjoint slices build.
 
 ## Retrieve
 

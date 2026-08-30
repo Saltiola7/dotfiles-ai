@@ -346,6 +346,7 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
     assert "standing authorization for validated Build-primary" in dbsctr
+    assert "explicit Initiative mode" in text("private_dot_config/opencode/AGENTS.md")
 
 
 def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():

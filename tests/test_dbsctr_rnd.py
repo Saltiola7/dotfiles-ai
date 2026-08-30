@@ -298,6 +298,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
         "  'tab close') printf '%s\\n' '{\"result\":{}}';;\n"
         "esac\n"
     )
+    herdr.write_text(herdr.read_text().replace('"--agent","build"', '"--agent","build-rnd"'))
     dbsctrctl.write_text(
         "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; "
@@ -322,7 +323,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     worker_id = json.loads(completed.stdout)["worker_id"]
     assert worker_id.startswith("dbsctr-")
     commands = log.read_text()
-    assert "opencode run --agent build --command dbsctr-improve --interactive" in commands
+    assert "opencode run --agent build-rnd --command dbsctr-improve --interactive" in commands
     assert "--env DBSCTR_RND_WORKER_ID=dbsctr-" in commands
     assert "pane move w7:p9 --new-tab" in commands
     assert "tab close w7:t0" in commands
@@ -442,7 +443,7 @@ def test_watchdog_recovers_only_missing_exact_session(tmp_path):
     completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
     assert json.loads(completed.stdout)["events"][0]["status"] == "recovered"
     commands = log.read_text()
-    assert f"opencode --mini {workdir} -s ses_1 --agent build --no-replay" in commands
+    assert f"opencode --mini {workdir} -s ses_1 --agent build-rnd --no-replay" in commands
     assert "improvement-update --worker-id worker-1 --state reviewing --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
     assert "improvement-recover --worker-id worker-1 --action success" in commands
 
@@ -497,7 +498,7 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
         "  'pane list') printf '%s\\n' '{\"result\":{\"panes\":[{\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}]}}';;\n"
         "  'pane process-info') printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"--mini\",\"__WORKDIR__\",\"-s\",\"ses_1\",\"--agent\",\"build\",\"--no-replay\"]}]}}}';;\n"
         "esac\n"
-    ).replace("__WORKDIR__", str(workdir)))
+    ).replace("__WORKDIR__", str(workdir)).replace('"--agent","build"', '"--agent","build-rnd"'))
     herdr.chmod(0o755)
     dbsctrctl.chmod(0o755)
     runner = tmp_path / "dbsctr-rnd"
@@ -509,15 +510,15 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
     assert "improvement-recover" not in log.read_text()
     exact = herdr.read_text()
     variants = (
-        exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
+        exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
         exact.replace(str(workdir), "/tmp/unmanaged"),
         exact.replace(
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"}]',
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"},{"tab_id":"w7:t9","pane_id":"w7:p10"}]',
         ),
         exact.replace(
-            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
-            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]},{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]},{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]}]',
         ),
     )
     for index, variant in enumerate(variants):
@@ -1309,7 +1310,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     runner["launch_action"](reservation, "worker-1", "repo-1")
     output = json.loads(capsys.readouterr().out)
     assert output == {"session_id": "ses_exact", "status": "started", "worker_id": "worker-1"}
-    assert calls == [["opencode", "run", "--agent", "build", "--command", "dbsctr-improve",
+    assert calls == [["opencode", "run", "--agent", "build-rnd", "--command", "dbsctr-improve",
                       "--format", "json"]]
 
 

@@ -280,6 +280,58 @@ class DbsctrctlTest(unittest.TestCase):
                      "--json", ok=False)
         self.assertIn("unknown material statement", result.stderr)
 
+    def test_initiative_cycle_check_rejects_occupied_identity(self):
+        manifest = self.write_initiative()
+        subprocess.run(["git", "add", str(manifest.relative_to(self.repo))], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/test.git"],
+                       cwd=self.repo, check=True)
+        command = ("initiative-receipt", "--manifest", str(manifest),
+                   "--slice", "slice-a", "--json")
+        receipt = json.loads(run(self.repo, *command).stdout)
+        expected = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
+        check = ("initiative-cycle-check", "--cycle-id", "V3.38-1",
+                 "--receipt-json", json.dumps(expected))
+        run(self.repo, "start", "--cycle-id", "V3.38-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()))
+        record = self.repo / ".git/dbsctr/cycles/V3.38-1.json"
+        cycle = json.loads(record.read_text())
+        cycle["source"] = {}
+        record.write_text(json.dumps(cycle))
+
+        occupied = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by an unbound cycle", occupied.stderr)
+
+        cycle["initiative"] = expected
+        record.write_text(json.dumps(cycle))
+        self.assertEqual(json.loads(run(self.repo, *command).stdout), receipt)
+        self.assertTrue(json.loads(run(self.repo, *check).stdout)["available"])
+
+        bound = json.loads(record.read_text())
+        bound["initiative"]["manifest_digest"] = "0" * 64
+        record.write_text(json.dumps(bound))
+        mismatch = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by a different Initiative receipt", mismatch.stderr)
+
+        cycle["state"] = "private-secret"
+        record.write_text(json.dumps(cycle))
+        terminal = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by a non-active cycle", terminal.stderr)
+        self.assertNotIn("private-secret", terminal.stderr)
+
+        malformed = dict(cycle)
+        malformed["gates"] = []
+        malformed["state"] = "active"
+        record.write_text(json.dumps(malformed))
+        invalid = run(self.repo, *check, ok=False)
+        self.assertIn("record identity mismatch", invalid.stderr)
+
+        record.unlink()
+        record.symlink_to(record.with_name("missing.json"))
+        unsafe = run(self.repo, *check, ok=False)
+        self.assertIn("cycle record is unsafe", unsafe.stderr)
+
     def test_initiative_check_rejects_cycles_uncovered_intent_and_blocked_completion(self):
         value = initiative_manifest()
         value["contexts"].append({
