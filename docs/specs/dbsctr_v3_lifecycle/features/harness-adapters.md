@@ -1,6 +1,6 @@
 # DBSCTR Harness Adapters
 
-**Status:** Implemented; managed deployment and operation pending
+**Status:** Delivered
 **Created:** 2026-08-29
 **Last updated:** 2026-08-29
 
@@ -337,17 +337,17 @@ owning control-plane context; lifecycle fixtures own shared outcomes.
 
 | Gate | Applicability | Result | Authority | Owner |
 |---|---|---|---|---|
-| Domain | required | pending | Harness vocabulary and ownership | Primary |
-| Behavior | required | pending | Shared, identity, compatibility, and availability scenarios | Primary |
-| Spec | required | pending | This feature specification | Primary |
-| Contract | required | pending | Schema-5 and adapter fixtures | Primary |
-| Test-driven implementation | required | pending | `tests/test_dbsctrctl.py` and lifecycle tests | Primary |
-| Refactor | required | pending | Generic readers without duplicated state machines | Primary |
-| Review/Integrate | required | pending | Affected QA and independent review | Primary |
+| Domain | required | passed | Harness vocabulary and ownership | Primary |
+| Behavior | required | passed | Shared, identity, compatibility, and availability scenarios | Primary |
+| Spec | required | passed | This feature specification | Primary |
+| Contract | required | passed | Schema-5 and adapter fixtures | Primary |
+| Test-driven implementation | required | passed | `tests/test_dbsctrctl.py` and lifecycle tests | Primary |
+| Refactor | required | passed | Generic readers without duplicated state machines | Primary |
+| Review/Integrate | required | passed | Affected QA and independent review | Primary |
 | Release | not_applicable: no separately published artifact | not_run | Engineering Profile | Primary |
-| Deploy | required | pending | Managed helper and adapter deployment | Primary |
-| Operate | required | pending | Legacy/current cycle and runtime smokes | Primary |
-| Maintain/Retire | required | pending | Mixed-version rejection and rollback evidence | Primary |
+| Deploy | required | passed | Managed helper and skill source identity | Primary |
+| Operate | required | passed | Deployed schema-5 and legacy runtime smokes | Primary |
+| Maintain/Retire | required | passed | Mixed-version rejection and rollback evidence | Primary |
 
 ## Validation
 

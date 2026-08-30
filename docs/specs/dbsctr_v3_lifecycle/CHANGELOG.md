@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-30 - Multi-Harness Cycle Records
+
+- Made Method Revision `3.29` create schema-5 records with empty pre-attach
+  adapter maps, strict status-object availability, bounded opaque identity,
+  portable locators, and centralized duplicate-safe validation across every
+  Cycle Record consumer.
+- Added exact OpenCode generic/legacy dual-write while preserving schema-3/4
+  reads and reversible schema-3 to schema-4 portabilization. Synthetic Codex
+  fixtures validate the generic contract; production records reject Codex until
+  native integration is delivered by later slices.
+- Affected QA passed 180 helper tests with one expected skip and 21 subtests, plus
+  152 lifecycle, OpenCode, PM, and Lima tests. Python compilation, Git whitespace,
+  independent review, source-identical helper/skill deployment, active schema-4
+  parsing, and deployed schema-5/legacy smokes passed. Gate Exceptions: none.
+  Release: not applicable. Implementation Gate Commit: `d3bdd5e`. Intended Final
+  Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-29 - Resolved Schema-5 Readiness
 
 - Resolved all-new-cycle schema-5 creation, empty pre-attach adapter maps,
