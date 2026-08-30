@@ -330,7 +330,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review", "incident"):
+    for name in ("dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
     exact = {
