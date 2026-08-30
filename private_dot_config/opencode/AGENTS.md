@@ -26,6 +26,10 @@ and identity checks regardless of the calling primary.
 Plan must never probe or substitute a denied launcher.
 `dbsctr_vm_handoff` is not an Initiative launcher; unavailable launch authority
 requires a handoff to an authorized primary.
+Only `build-rnd` may invoke `dbsctr_vm_handoff`, and only as
+`/dbsctr-improve`'s final approved step after persisted Discovery authorization
+and scope. Ordinary Build and every other agent deny it. Never probe it or use
+placeholder values.
 Each slice declares `execution_owner` as `discovery` or `build`; only Build-owned
 slices may issue launch receipts. Discovery owns normative contracts, acceptance
 criteria, dependencies, and slice scope. A Build finding that can materially

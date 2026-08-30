@@ -1,5 +1,29 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Purposeful VM Handoff Authority
+
+- Restricted VM handoff to the dedicated `build-rnd` primary and made the adapter
+  validate the invoking worker environment, session, Discovery state and report,
+  exact owned paths, authorization, and autonomous risk before permission or VM
+  access. Ordinary Build and every other agent deny the tool.
+- The managed config, scheduler routing, and guarded adapter were deployed. The
+  adapter deployment preserved unrelated Initiative checks already active on the
+  host rather than applying their source-side removal; fresh OpenCode processes
+  are required to load the new agent and tool bundle. All 147 affected tests,
+  rendered JSON, permission assertions, and Git whitespace validation pass.
+- Rollback reapplies the prior managed adapter and config together; keeping the
+  handoff denied is the safe intermediate state if those targets cannot move
+  atomically.
+- Independent review found approval-window worker and instance races. The adapter
+  now binds approval and parity to the resolved instance, rereads worker authority
+  after approval and parity, and rejects remapping before VM access.
+- The remediated live adapter preserves the host's existing Initiative checks;
+  fresh Bun imports, the deny/deny/ask permission matrix, scheduler health, and
+  explicit instance-bound parity for both managed workspaces pass.
+- Maintenance keeps launch backoff intact after failures and requires an explicit
+  operator reset; rollback denies the handoff before replacing the adapter or
+  agent configuration. No handoff contract is retired by this change.
+
 ## 2026-08-29 - DKS Query Recovery Discovery
 
 - Defined available and unavailable DKS tool envelopes, retained the 35-second
