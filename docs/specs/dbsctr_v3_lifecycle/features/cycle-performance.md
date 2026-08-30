@@ -204,17 +204,17 @@ the report.
 
 | Gate | Capability | Applicability | Result | Authority/evidence | Exception | Owner |
 |---|---|---|---|---|---|---|
-| Domain | Measurement language and ownership | required | pending | This specification | - | Primary |
-| Behavior | Complete, partial, empty, filtered, and privacy scenarios | required | pending | Focused tests | - | Primary |
-| Spec | CLI and schema contract | required | pending | This specification | - | Primary |
-| Contract | Timing, percentile, compatibility, and privacy invariants | required | pending | Focused tests | - | Primary |
-| Test-driven implementation | Source-local report | required | pending | `tests/test_dbsctrctl.py` | - | Primary |
-| Refactor | Minimal helper integration | required | pending | Diff review | - | Primary |
-| Review/Integrate | Traceability and downstream validation | required | pending | Affected QA | - | Primary |
+| Domain | Measurement language and ownership | required | passed | This specification | - | Primary |
+| Behavior | Complete, partial, empty, filtered, and privacy scenarios | required | passed | Focused tests | - | Primary |
+| Spec | CLI and schema contract | required | passed | This specification | - | Primary |
+| Contract | Timing, percentile, compatibility, and privacy invariants | required | passed | Focused tests | - | Primary |
+| Test-driven implementation | Source-local report | required | passed | `tests/test_dbsctrctl.py` | - | Primary |
+| Refactor | Minimal helper integration | required | passed | Independent diff review | - | Primary |
+| Review/Integrate | Traceability and downstream validation | required | passed | 249 affected tests; one expected skip | - | Primary |
 | Release | No versioned artifact publication | not_applicable | not_run | Engineering Profile | - | Primary |
-| Deploy | Managed helper changes | required | pending | Chezmoi apply and live smoke | - | Primary |
-| Operate | Live command availability and truthful empty/current result | required | pending | Runtime smoke | - | Primary |
-| Maintain/Retire | Retention and backward-readable evidence | required | pending | Compatibility tests | - | Primary |
+| Deploy | Managed helper changes | required | passed | Source-identical idempotent Chezmoi apply | - | Primary |
+| Operate | Live command availability and truthful empty/current result | required | passed | Live source-local report | - | Primary |
+| Maintain/Retire | Retention and backward-readable evidence | required | passed | Canonical, legacy, linked-worktree, and duplicate tests | - | Primary |
 
 ## Validation
 
