@@ -12,6 +12,8 @@
   reservations, and launch backoff. Schema 3 health now reports no halt, no active
   attempt, and no launch backoff. Existing managed rollback restores each guest's
   prior runtime if a future ordered update fails.
+- The deployed parity helper now accepts and returns the approved VM instance;
+  `personal` and `mgm` both pass that instance-bound 1.18.25 parity check.
 
 ## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
 

@@ -17,6 +17,9 @@
 - Independent review found approval-window worker and instance races. The adapter
   now binds approval and parity to the resolved instance, rereads worker authority
   after approval and parity, and rejects remapping before VM access.
+- The remediated live adapter preserves the host's existing Initiative checks;
+  fresh Bun imports, the deny/deny/ask permission matrix, scheduler health, and
+  explicit instance-bound parity for both managed workspaces pass.
 
 ## 2026-08-29 - DKS Query Recovery Discovery
 
