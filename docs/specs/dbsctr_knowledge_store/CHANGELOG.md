@@ -1,5 +1,16 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-08-30 - DKS Fast-Fallback Readiness
+
+- Preserved existing activation-lock identities for rolling compatibility,
+  separated long writer serialization, and bound query acquisition plus one
+  optional policy repair to a two-second total deadline.
+- Defined exhausted contention as exit `75`, empty stdout, and exact
+  `projection_busy` stderr without citations; successful query JSON remains
+  compatible and OpenCode retains model-visible availability ownership.
+- This reconciliation changes durable authority only. DKS implementation,
+  deployment, live contention evidence, and completion remain separately gated.
+
 ## 2026-08-29 - Query Recovery Discovery
 
 - Separated long replacement preparation from short query-visible activation,

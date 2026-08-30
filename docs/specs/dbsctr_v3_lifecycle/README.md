@@ -1800,6 +1800,20 @@ historical table row and fixed-commit identity.
 - Authoritative cost is retained only as reportable telemetry. Missing or high
   cost does not halt workers or change cadence under this program.
 
+### History And Incident Query Performance Contract
+
+- Aggregate History selects and binds one immutable page before expensive metric
+  or family reduction, bulk-reduces only that page, and returns no candidate,
+  message, part, Signal, or cycle identifiers.
+- Every metric carries available and unavailable denominators, integer-floor
+  mean, and nearest-rank p50/p90. Singleton output is descriptive; comparative
+  activation requires at least five complete comparable members.
+- Incident summary mode returns only counts by allowlisted tool, sanitized failure
+  class, and recovered state. It preserves `signal_overflow` and never estimates
+  hidden frequency.
+- Existing detailed modes, snapshots, filters, cursors, continuations, review
+  state, Incident state, and privacy dispositions remain compatible.
+
 ### V3.39 Incident Contract
 
 - Incident Signals are a separate read-only projection over persisted OpenCode
@@ -3256,6 +3270,7 @@ privacy sequence/digest.
 | Five-cycle evaluation | Immutable cohort replay under a versioned rubric | Tokens, cost, elapsed time, gates, remediation, delegation, and confounders | Required after five comparable cycles | Report-only; no automatic harness mutation or causal claim |
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
+| History/Incident aggregate performance | Page-first aggregate and summary fixtures plus bounded live smoke | Snapshot stability, bulk reduction, formulas, overflow, privacy, and detailed-mode compatibility | Required when query core changes | No per-candidate queries, private identities, false empty data, or inferred hidden frequency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
 | Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |

@@ -23,6 +23,13 @@ turn finalization and rendering of system messages.
 - Then the tool settles within 35 seconds with `availability=unavailable`
 - And it returns a sanitized reason class and retryability without citations
 
+**Scenario: Map the DKS contention class**
+
+- Given `dksctl query` exits `75` with empty stdout and stderr exactly `projection_busy\n`
+- When OpenCode classifies the bounded process result
+- Then it returns retryable `projection_busy` unavailability without citations
+- And no other stderr text is interpreted as that class
+
 **Scenario: Reject malformed success**
 
 - Given DKS exits successfully with malformed, oversized, cross-project, or
@@ -49,6 +56,9 @@ Operational failures return no citation member:
 Raw stderr, command output, paths, lock identities, process identities, and source
 content never enter the envelope. Validation failures remain thrown errors because
 they indicate a broken trust-boundary contract rather than ordinary availability.
+Exit `75` is recognized as `projection_busy` only when stdout is empty and stderr
+is exactly `projection_busy\n`; mismatched output fails closed rather than being
+silently reclassified.
 
 ## Compatibility
 
@@ -60,6 +70,8 @@ No automatic cross-project or filesystem search follows typed unavailability.
 
 - A fake successful DKS process proves the available envelope and citation schema.
 - Fake busy and unavailable exits prove sanitized typed envelopes.
+- A fake exit-75 process proves exact `projection_busy` classification and rejects
+  extra stderr, stdout, or citations.
 - A fake process exceeding a short harness deadline proves process-group cleanup
   and typed timeout without waiting 35 seconds in the test suite.
 - Malformed, oversized, adversarial, and cross-project successes remain rejected.
@@ -94,6 +106,22 @@ output cap. Valid project-scoped citation metadata is validated and returned as
 available untrusted data. Recognized operational failure or timeout becomes a
 sanitized unavailable envelope with no citations. A malformed successful response
 fails closed without exposing its payload.
+
+## Gate Ledger
+
+| Gate | Applicability | Result | Authority |
+|---|---|---|---|
+| Domain | required | pending | Control-plane README and Initiative manifest |
+| Behavior | required | pending | Available, busy, timeout, invalid, and compatibility scenarios |
+| Spec | required | pending | Envelope, exit classification, trust, and visual contracts |
+| Contract | required | pending | DKS CLI and model boundary validation |
+| Test-driven implementation | required | pending | Bun-backed bounded-process fixtures |
+| Refactor | required | pending | Shared subprocess and validator review |
+| Review/Integrate | required | pending | Diff, privacy, downstreams, and affected QA |
+| Release | not applicable: no versioned artifact is published | not_run | Engineering Profile |
+| Deploy | required | pending | Managed adapter identity and fresh-process load |
+| Operate | required | pending | Live scheduled-reconcile query smoke |
+| Maintain/Retire | required | pending | Existing citation compatibility and rollback |
 
 ## Non-Goals
 
