@@ -14,6 +14,9 @@
 - Rollback reapplies the prior managed adapter and config together; keeping the
   handoff denied is the safe intermediate state if those targets cannot move
   atomically.
+- Independent review found approval-window worker and instance races. The adapter
+  now binds approval and parity to the resolved instance, rereads worker authority
+  after approval and parity, and rejects remapping before VM access.
 
 ## 2026-08-29 - DKS Query Recovery Discovery
 
