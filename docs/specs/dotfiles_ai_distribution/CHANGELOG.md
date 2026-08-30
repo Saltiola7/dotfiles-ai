@@ -1,10 +1,35 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - OpenCode 1.18.25 VM Parity
+
+- Updated the checksum-pinned Linux arm64 OpenCode runtime from 1.18.23 to
+  1.18.25 and routed every managed R&D worker launch and resume through the
+  dedicated `build-rnd` primary.
+- `sandbox-vm update-all` updated both configured workspaces. Host, `personal`,
+  and `mgm` report exact 1.18.25 parity; the targeted scheduler and runtime files
+  were deployed, and all 147 affected tests pass.
+- An operator-approved schedule reset cleared the retained `malformed_state`,
+  reservations, and launch backoff. Schema 3 health now reports no halt, no active
+  attempt, and no launch backoff. Existing managed rollback restores each guest's
+  prior runtime if a future ordered update fails.
+
 ## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
 
 - Added managed global Git excludes for `.dbsctr/`, legacy plan JSON,
   `data/backlog/`, and `docs/tickets/`.
 - Retired autonomous PM ticket discovery; PM now runs only by direct invocation.
+
+## 2026-08-29 - Captured Codex CLI Distribution Contract
+
+- Captured peer-runtime installation, a PATH-preferred `CODEX_HOME` wrapper,
+  digest-owned configuration projection, macOS/Fedora package boundaries,
+  explicit automation selection, and rollback without changing live systems.
+- Kept desktop, host, and guest state and authentication separate and made the
+  proposed release, asset, and checksum subject to fresh implementation proof.
+- Initiative validation, 57 focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
 
 ## 2026-08-29 - DAI-035 R&D Launch Health
 

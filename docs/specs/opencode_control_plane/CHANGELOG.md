@@ -1,5 +1,35 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-29 - Initiative Launch Registry Fallback
+
+- Added explicit Initiative mode to the always-present `dbsctr_begin` adapter so
+  primary Build can launch a ready slice when the host omits only the standalone
+  launcher export. Both entry points share the same receipt, exact approval,
+  cycle-occupancy, repository, plan-digest, ownership, mutation, and fork checks;
+  ordinary begin remains prompt-free and Plan/subagents remain denied.
+- The regression failed when `dbsctr_begin` ignored Initiative input. After
+  implementation and reconciliation with the deployed cycle-occupancy and VM
+  handoff safeguards, 178 union tests and six focused helper tests passed, with
+  Bun bundling and Git whitespace validation. Targeted deployment is
+  source-identical and idempotent; fresh OpenCode processes are required to load
+  the expanded tool schema. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft pull request into the recorded protected branch.
+
+## 2026-08-29 - Purposeful VM Handoff Authority
+
+- Restricted VM handoff to the dedicated `build-rnd` primary and made the adapter
+  validate the invoking worker environment, session, Discovery state and report,
+  exact owned paths, authorization, and autonomous risk before permission or VM
+  access. Ordinary Build and every other agent deny the tool.
+- The managed config, scheduler routing, and guarded adapter were deployed. The
+  adapter deployment preserved unrelated Initiative checks already active on the
+  host rather than applying their source-side removal; fresh OpenCode processes
+  are required to load the new agent and tool bundle. All 147 affected tests,
+  rendered JSON, permission assertions, and Git whitespace validation pass.
+- Rollback reapplies the prior managed adapter and config together; keeping the
+  handoff denied is the safe intermediate state if those targets cannot move
+  atomically.
+
 ## 2026-08-29 - DKS Query Recovery Discovery
 
 - Defined available and unavailable DKS tool envelopes, retained the 35-second
@@ -34,6 +64,16 @@
   the corrected limits. Source Gate Commit: `2444897`. Gate Exceptions: none.
   Intended Final Push: feature branch and draft pull request into protected
   `main`.
+
+## 2026-08-29 - Initiative Cycle Occupancy Guard
+
+- Reject Initiative receipts before approval when a named cycle is already
+  unbound, differently bound, or terminal; preserve exact active-cycle retries.
+- Six focused Initiative helper tests and 75 lifecycle/control-plane tests pass,
+  with Python compilation and Git whitespace validation. The complete helper
+  test file exceeded five minutes and remains unavailable. No managed config was
+  applied. Gate Exceptions: none. Intended Final Push: feature branch and draft
+  pull request into the recorded protected branch.
 ## 2026-08-29 - Managed Compaction Retention
 
 - Configured managed OpenCode sessions to preserve 65,536 recent tokens

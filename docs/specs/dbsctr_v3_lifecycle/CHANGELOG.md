@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-29 - Ticket-Free Multi-Harness Readiness
+
+- Promoted only the ticket-free `multi-harness-lifecycle` slice after the
+  ticket-blind Initiative schema, complete contracts, execution ownership, and
+  dependency closure validated; every later Codex slice remains captured or
+  blocked.
+- Manifest validation, focused Initiative and lifecycle tests, Python
+  compilation, Git whitespace, and independent review passed. Gate Exceptions:
+  none. Release, Deploy, and Operate: not applicable. Gate Commit: the commit
+  containing this entry.
+
+## 2026-08-29 - Captured Multi-Harness Contract
+
+- Captured one shared lifecycle with explicit OpenCode and Codex harness adapter
+  ownership, compatibility, availability, evidence, and conformance semantics.
+- Kept Method Revision `3.28` and record schema 4 authoritative. Schema 5 is only
+  proposed until a separate implementation cycle passes compatibility gates.
+- Initiative validation, focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
 ## 2026-08-29 - V3.40 Source-Local Cycle Performance
 
 - Added read-only source-local autonomous and calendar runtime mean, nearest-rank
