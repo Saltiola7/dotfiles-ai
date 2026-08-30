@@ -1489,8 +1489,10 @@ export async function beginCycle(args: {
   const commonDirectory = async (directory: string) => realpath(await run([
     "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
   ], directory))
-  const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
-  const runtimeArgv = runtime && sameRepository && initiative === undefined ? [
+  const sameRuntimeRepository = runtime === undefined
+    || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
+  const sameInitiativeCheckout = await realpath(initiativeSourceCwd) === await realpath(cwd)
+  const runtimeArgv = runtime && sameRuntimeRepository && initiative === undefined ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1513,7 +1515,7 @@ export async function beginCycle(args: {
       "--expected-plan-digest", approved!.planDigest,
       "--expected-repository", approved!.targetRepository,
       "--resume-existing",
-      ...(sameRepository ? [] : ["--initiative-source", initiativeSourceCwd]),
+      ...(sameInitiativeCheckout ? [] : ["--initiative-source", initiativeSourceCwd]),
     ]),
     ...runtimeArgv,
   ], cwd)
@@ -1531,22 +1533,42 @@ export async function beginCycle(args: {
   if (handoff.resumed === true && handoff.runtime_attached === true)
     return { ...handoff, herdr: "already_attached" }
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
+  let ownedTabID: string | undefined
+  let agentConfirmed = false
   try {
-    const createTab = async () => JSON.parse(await run([
-      "herdr", "tab", "create",
-      "--cwd", handoff.worktree,
-      "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
-      "--no-focus",
-    ], cwd))
+    const createTab = async () => {
+      const value = JSON.parse(await run([
+        "herdr", "tab", "create",
+        "--cwd", handoff.worktree,
+        "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
+        "--no-focus",
+      ], cwd))
+      const tabID = value?.result?.tab?.tab_id
+      const paneID = value?.result?.root_pane?.pane_id
+      if (typeof tabID !== "string" || typeof paneID !== "string")
+        throw new Error("Herdr tab creation returned no root pane")
+      ownedTabID = tabID
+      return value
+    }
+    const closeOwnedTab = async () => {
+      if (ownedTabID === undefined || agentConfirmed) return
+      const tabID = ownedTabID
+      await run(["herdr", "tab", "close", tabID], cwd)
+      ownedTabID = undefined
+    }
+    const parseAgent = (output: string, pane: string) => {
+      const value = JSON.parse(output)
+      const agent = value?.result?.agent ?? value?.agent
+      if (agent === null || typeof agent !== "object" || agent.pane_id !== pane)
+        throw new Error("Herdr returned no matching OpenCode agent")
+      return agent
+    }
+    const getAgent = async (name: string, pane: string) =>
+      parseAgent(await run(["herdr", "agent", "get", name], cwd), pane)
     let tab = await createTab()
     let paneID = tab?.result?.root_pane?.pane_id
-    if (typeof paneID !== "string") throw new Error("Herdr tab creation returned no root pane")
-    const prompt = initiative === undefined ? [] : [
-      "--prompt",
-      `Start only the approved DBSCTR slice. Re-read its Git artifacts and revalidate the manifest digest before acting. If a material readiness gap exists, stop without editing normative contracts or slice scope and report readiness_reopened to Discovery. Otherwise attach this runtime and implement; update only completion evidence after implementation. Readiness receipt: ${JSON.stringify(initiative)}`,
-    ]
     const buildAgent = initiative === undefined ? [] : ["--agent", "build"]
-    const fresh = [handoff.worktree, ...buildAgent, ...prompt]
+    const fresh = [handoff.worktree, ...buildAgent]
     let opencode = fresh
     let forked = false
     if (runtime !== undefined) {
@@ -1554,7 +1576,7 @@ export async function beginCycle(args: {
       try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
       if (supportsFork) {
         forked = true
-        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent, ...prompt]
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent]
       }
     }
     const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
@@ -1564,56 +1586,84 @@ export async function beginCycle(args: {
       "herdr", "agent", "start", name, "--kind", "opencode", "--pane", pane, "--", ...argv,
     ], cwd)
     let started: string
+    let activeName = agentName
     let sessionMode = forked ? "fork" : "fresh"
-    const pending = (name: string) => ({
+    const result = (status: "launched" | "launch_pending", name: string, agent: any) => ({
       ...handoff,
       ...(initiative === undefined ? {} : { initiative }),
-      herdr: "launch_pending",
+      herdr: status,
       herdr_session_mode: sessionMode,
       herdr_agent_name: name,
-      herdr_pane_id: paneID,
-      ...((tab?.result?.tab?.tab_id) === undefined ? {} : { herdr_tab_id: tab.result.tab.tab_id }),
+      herdr_pane_id: agent.pane_id,
+      ...((agent.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
+        : { herdr_tab_id: agent.tab_id ?? tab.result.tab.tab_id }),
+      ...(agent.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
+      ...(typeof agent?.agent_session?.value === "string"
+        ? { herdr_opencode_session_id: agent.agent_session.value } : {}),
     })
+    let agent: any
     try {
       started = await start(agentName, paneID, opencode)
+      agent = parseAgent(started, paneID)
+      agentConfirmed = true
     } catch (error) {
       const failure = String(error)
-      if (/agent_not_ready/i.test(failure)) return pending(agentName)
+      if (/agent_not_ready/i.test(failure)) {
+        try {
+          agent = await getAgent(agentName, paneID)
+          agentConfirmed = true
+          return result("launch_pending", agentName, agent)
+        } catch {
+          throw error
+        }
+      }
       if (!forked || !/(?:--fork|\bfork(?:ing)?\b|(?:invalid|unknown|not.?found|expired).{0,32}\bsession\b|\bsession\b.{0,32}(?:invalid|unknown|not.?found|expired))/i.test(failure)) throw error
+      await closeOwnedTab()
       tab = await createTab()
       paneID = tab?.result?.root_pane?.pane_id
-      if (typeof paneID !== "string") throw new Error("Herdr fallback tab creation returned no root pane")
       const fallbackName = `${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`
+      activeName = fallbackName
       sessionMode = "fresh_fallback"
       try {
         started = await start(fallbackName, paneID, fresh)
+        agent = parseAgent(started, paneID)
+        agentConfirmed = true
       } catch (fallbackError) {
-        if (/agent_not_ready/i.test(String(fallbackError))) return pending(fallbackName)
+        if (/agent_not_ready/i.test(String(fallbackError))) {
+          try {
+            agent = await getAgent(fallbackName, paneID)
+            agentConfirmed = true
+            return result("launch_pending", fallbackName, agent)
+          } catch {
+            throw fallbackError
+          }
+        }
         throw fallbackError
       }
     }
-    try {
-      const value = JSON.parse(started)
-      const agent = value?.result?.agent ?? value?.agent ?? value
-      const sessionID = agent?.agent_session?.value
-      const launchedPaneID = agent?.pane_id ?? paneID
-      if (typeof launchedPaneID === "string") return {
-        ...handoff,
-        ...(initiative === undefined ? {} : { initiative }),
-        herdr: "launched",
-        herdr_session_mode: sessionMode,
-        herdr_pane_id: launchedPaneID,
-        ...((agent?.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
-          : { herdr_tab_id: agent?.tab_id ?? tab.result.tab.tab_id }),
-        ...(agent?.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
-        ...(typeof sessionID === "string" ? { herdr_opencode_session_id: sessionID } : {}),
+    if (initiative !== undefined) {
+      const instruction = `Start approved DBSCTR cycle ${args.cycleId}. Read its bound Initiative receipt and Git artifacts from this worktree, revalidate readiness, then attach and implement. If readiness materially changed, do not edit normative scope; report readiness_reopened.`
+      try {
+        agent = parseAgent(await run(["herdr", "agent", "prompt", activeName, instruction], cwd), paneID)
+      } catch (promptError) {
+        try {
+          agent = await getAgent(activeName, paneID)
+          return result("launch_pending", activeName, agent)
+        } catch {
+          agentConfirmed = false
+          throw promptError
+        }
       }
-    } catch {
-      // Herdr launch is useful even when this version emits no structured metadata.
     }
-    return { ...handoff, ...(initiative === undefined ? {} : { initiative }), herdr: "launched",
-      herdr_session_mode: sessionMode }
+    return result("launched", activeName, agent)
   } catch (error) {
+    if (ownedTabID !== undefined && !agentConfirmed) {
+      try {
+        await run(["herdr", "tab", "close", ownedTabID], cwd)
+      } catch (cleanupError) {
+        return { ...handoff, herdr: `launch_failed: ${error}; cleanup_failed: ${cleanupError}` }
+      }
+    }
     return { ...handoff, herdr: `launch_failed: ${error}` }
   }
 }

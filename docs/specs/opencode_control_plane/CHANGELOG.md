@@ -1,5 +1,16 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
+
+- Kept Initiative manifests repository-relative while adding an explicitly
+  validated coordinator checkout for cross-worktree launch.
+- Replaced receipt-bearing shell launch input with confirmed-agent prompting,
+  required strict Herdr launch identity, and made failed pre-agent tab creation
+  transactional.
+- Added regressions for source/target separation, terminal-input bounds, malformed
+  launch output, pending-agent proof, cleanup, and fork fallback. Managed adapter
+  activation and fresh-process smoke evidence are required before completion.
+
 ## 2026-08-30 - Query-Recovery Contract Reconciliation
 
 - Bound DKS contention classification to exit `75`, empty stdout, and exact

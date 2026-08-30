@@ -701,10 +701,15 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     herdr.write_text(
         "#!/bin/sh\nprintf 'CALL\\nCWD:%s\\n' \"$(pwd)\" >> \"$HERDR_LOG\"\n"
         "printf '<%s>\\n' \"$@\" >> \"$HERDR_LOG\"\n"
-        "[ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }\n"
         "case \"$1 $2\" in\n"
         "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'agent start') [ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }; "
+        "[ \"$HERDR_NOT_READY\" = 1 ] && { printf 'agent_not_ready\\n' >&2; exit 1; }; "
+        "[ \"$HERDR_MALFORMED\" = 1 ] && { printf '{}\\n'; exit 0; }; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_EXISTS\" = 1 ] || exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab close') : ;;\n"
         "esac\n"
     )
     dbsctr.chmod(0o755)
@@ -762,10 +767,38 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     malformed = subprocess.run(["bun", "-e", script], cwd=ROOT,
                                env={**env, "DBSCTR_MODE": "malformed"}, text=True, capture_output=True)
     assert malformed.returncode != 0
+    herdr_log.write_text("")
     herdr_failed = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT,
                                   env={**env, "HERDR_FAIL": "1"}, text=True,
                                   capture_output=True, check=True)
     assert json.loads(herdr_failed.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    false_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(false_pending.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<get>" in herdr_log.read_text()
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    real_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1", "HERDR_AGENT_EXISTS": "1"},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(real_pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_log.read_text()
 
 
 def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_path):
@@ -813,7 +846,8 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(fallback.stdout)["herdr_session_mode"] == "fresh_fallback"
-    assert log.read_text().count("<tab>") == 2
+    assert log.read_text().count("<tab>\n<create>") == 2
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
     assert f"<-->\n<{cycle}>" in log.read_text()
     log.write_text("")
     unrelated = subprocess.run(
@@ -822,7 +856,8 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(unrelated.stdout)["herdr"].startswith("launch_failed:")
-    assert log.read_text().count("<tab>") == 1
+    assert log.read_text().count("<tab>\n<create>") == 1
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
 
 
 def test_initiative_context_plugin_revalidates_normal_and_compaction_context(tmp_path):
@@ -1771,6 +1806,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     bin_dir.mkdir()
     calls = tmp_path / "helper.calls"
     herdr_calls = tmp_path / "herdr.calls"
+    herdr_start_bytes = tmp_path / "herdr.start-bytes"
     approval = tmp_path / "approval.json"
     plan = tmp_path / "plan.json"
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
@@ -1779,6 +1815,12 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     subprocess.run(["git", "init"], cwd=target, check=True, capture_output=True)
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
                    cwd=target, check=True)
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
+                   cwd=source, check=True)
+    receipt_cwds = tmp_path / "receipt.cwds"
     cycle = tmp_path / "cycle"
     cycle.mkdir()
     digest = "a" * 64
@@ -1796,16 +1838,21 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
-        f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_CALLS"\n'
+        'if [ "$1 $2" = "agent start" ] && [ -n "$HERDR_START_BYTES" ]; then printf "%s" "$*" | wc -c > "$HERDR_START_BYTES"; fi\n'
         'case "$1 $2" in\n'
         "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
         "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'agent prompt') [ \"$HERDR_PROMPT_FAIL\" = 1 ] && { printf 'agent_blocked\\n' >&2; exit 1; }; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_GONE\" = 1 ] && exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
@@ -1818,16 +1865,19 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ initiative_launch }} from {json.dumps(str(tools))};
 const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"parent-session",messageID:"message",
-ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;}}}};
+ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;if(process.env.MUTATE_SOURCE==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.SOURCE}}).exited;}}}};
 console.log(await initiative_launch.execute({{
 manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,
 cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},
+...(process.env.SOURCE ? {{initiativeSourceRepository:process.env.SOURCE}} : {{}}),
 ...(process.env.TARGET ? {{targetRepository:process.env.TARGET}} : {{}})
 }},context));'''
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
-             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds),
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["initiative"]["manifest_digest"] == digest
@@ -1851,11 +1901,39 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert f"<--initiative-source>\n<{source}>" in calls.read_text()
     assert "<--base-branch>\n<main>" in calls.read_text()
+    assert set(receipt_cwds.read_text().splitlines()) == {str(source)}
     log = herdr_calls.read_text()
     assert "<--session>\n<parent-session>\n<--fork>" in log
-    assert f'"manifest_digest":"{digest}"' in log
-    assert "<--prompt>" in log
+    assert digest not in log
+    assert "<agent>\n<start>" in log and "<agent>\n<prompt>" in log
+    assert "<--prompt>" not in log
+    assert int(herdr_start_bytes.read_text()) < 1024
+
+    herdr_calls.write_text("")
+    pending = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds), "HERDR_PROMPT_FAIL": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
+
+    herdr_calls.write_text("")
+    lost_agent = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "HERDR_PROMPT_FAIL": "1", "HERDR_AGENT_GONE": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(lost_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_calls.read_text()
 
     calls.write_text("")
     herdr_calls.write_text("")
@@ -1896,6 +1974,15 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         text=True, capture_output=True,
     )
     assert target_changed.returncode != 0 and "target repository changed" in target_changed.stderr
+
+    source_changed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "SOURCE": str(source), "MUTATE_SOURCE": "1"},
+        text=True, capture_output=True,
+    )
+    assert source_changed.returncode != 0 and "source repository changed" in source_changed.stderr
 
 
 def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
