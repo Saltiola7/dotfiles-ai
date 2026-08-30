@@ -41,3 +41,33 @@ route change. Missing provider cost is unavailable, never authoritative zero.
   evidence.
 - A/B activation requires no regression in gate failures, remediation, CI,
   escaped defects, or required-evidence availability.
+
+## Visual Evidence
+
+| Concern | Decision | Reason |
+|---|---|---|
+| Boundary | `not_applicable` | Existing lifecycle and control-plane ownership is explicit in prose. |
+| Interaction | `required: flowchart` | Conditional local, Scout, and Explore routing affects privacy and latency. |
+| State | `not_applicable` | The report-only audit adds no runtime state machine. |
+| Data/trust | `required: flowchart` | Private telemetry must remain outside hosted subagent prompts. |
+| Schema | `not_applicable` | Existing typed-tool schemas remain authoritative. |
+| Dependency/deployment | `not_applicable` | Existing managed OpenCode deployment is reused. |
+| Quantitative | `not_applicable` | Model associations require cohorts rather than a static chart. |
+
+```mermaid
+flowchart LR
+  accTitle: Private-safe audit orchestration
+  accDescr: Private evidence stays with the primary while public and fixed-commit research uses separate agents.
+  P[Private typed evidence] --> A[Audit primary]
+  G[Fixed Git commit] --> E[Explore]
+  D[Public documentation] --> S[Scout]
+  E --> A
+  S --> A
+  A --> R[Sanitized report]
+  P -. never .-> E
+  P -. never .-> S
+```
+
+**Text Equivalent:** Private typed evidence reaches only the audit primary.
+Explore receives fixed-commit local scope, Scout receives public questions, and
+their findings return to the primary for a sanitized report.

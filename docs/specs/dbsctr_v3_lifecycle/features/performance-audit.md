@@ -164,6 +164,8 @@ improvement claim/update, lifecycle mutation, delivery, or optimization activati
 
 ```mermaid
 sequenceDiagram
+  accTitle: Performance audit evidence routing
+  accDescr: Private evidence stays local while public and fixed-commit research returns to the primary.
   participant A as Audit primary
   participant L as Local typed evidence
   participant F as Fixed Git source
@@ -187,6 +189,8 @@ scope, never private evidence. The primary alone reconciles and ranks findings.
 
 ```mermaid
 flowchart LR
+  accTitle: Performance audit trust flow
+  accDescr: Private stores feed local reducers while Scout and Explore receive only public or fixed-commit scope.
   P[Private cycle and session stores] --> R[Local bounded reducers]
   R --> A[Audit primary]
   G[Fixed Git source] --> A

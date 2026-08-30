@@ -990,6 +990,16 @@ agents ask for Initiative launch. Plan and every subagent deny it. Tool absence 
 an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
 a fallback or alias.
 
+### DKS query availability
+
+`dks_context` settles within its existing 35-second subprocess deadline. Valid
+project-scoped citation metadata is returned as explicitly untrusted
+`availability=available` data. Recognized operational failure and timeout return
+sanitized typed unavailability without citations, raw output, paths, process or
+lock identities, or source content. Malformed successful output remains a
+fail-closed contract error. Typed unavailability never authorizes automatic
+cross-project or filesystem search.
+
 ## Validation Strategy
 
 | Authority | Scope | Command | Availability |
@@ -1008,6 +1018,7 @@ a fallback or alias.
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 | Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
+| DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 
