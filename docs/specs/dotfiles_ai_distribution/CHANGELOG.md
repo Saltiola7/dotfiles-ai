@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-31 - CentOS Remote Workspace Discovery
+
+- Added the target contract for generic CentOS Stream 10 x86_64 user-local
+  distribution, immutable-revision apply, sanitized bootstrap state,
+  idempotency, and rollback.
+- Kept macOS and Fedora aarch64 behavior unchanged and prohibited user, employer,
+  client, project, machine, tailnet, endpoint, and credential identity in public
+  source or rendered defaults.
+- No package, target, service, user home, credential, or runtime changed.
+  RWUE-001 remains digest- and approval-gated.
+
 ## 2026-08-29 - DAI-034 Portable Remote Workspace Client
 
 - Added an opt-in machine-local remote-workspace profile, private environment

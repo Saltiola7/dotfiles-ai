@@ -9,11 +9,56 @@
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; chezmoi; OpenCode; Herdr; launchd; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
 | Operational owner | Project maintainers own releases, compatibility, and migration guidance |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
+
+### RWUE-001 Initiative Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds a standalone Linux platform, executable installers, first-login user services, update, and rollback |
+| Delivery intent | Feature branch and draft pull request; disposable CentOS proof before any separately approved live deployment |
+| Scope | Generic CentOS Stream 10 x86_64 role, user-local chezmoi and tools, rootless Podman helpers, immutable-revision apply, idempotency, and rollback |
+| Overrides | Preserve macOS and Fedora aarch64 behavior; public source contains no user, employer, client, project, machine, tailnet, endpoint, or credential identity |
+
+#### Remote Workspace Domain And Contract
+
+- `RemoteUserEnvironment`: standalone CentOS Stream 10 x86_64 user environment
+  that is not a Lima guest and receives no host-path or macOS assumptions. Its
+  platform/role discriminator is distinct from DAI-034's `remote_workspace`
+  local client connection profile.
+- `FoundationRevision`: immutable commit resolved from reviewed `main` once per
+  rollout and reused by every attempt in that rollout.
+- `ManagedTargetManifest`: exact user-owned target set used for idempotency and
+  rollback without deleting unrelated files.
+- `BootstrapState`: sanitized `absent`, `foundation_pending`,
+  `foundation_ready`, `auth_pending`, `ready`, or `failed_retryable` value.
+
+The role installs OpenCode, Codex CLI, Herdr configuration, gcloud, 1Password
+CLI, Atuin, Starship, Yazi, and rootless Podman helpers with reviewed x86_64
+assets and checksums. It enables only the rootless Podman user socket. Atuin
+server, PostgreSQL, knowledge services, R&D schedulers, and privileged container
+daemons remain disabled.
+
+User-local TOML may hold identifiers, paths, accounts, projects, endpoints, and
+feature flags. Tokens, private keys, provider sessions, Atuin encryption keys,
+tailnet enrollment, and client identity remain in external runtime-local stores.
+Rendering, install, update, status, and rollback never require live credentials.
+
+**Behavior:** Given a mounted user home and a resolved `FoundationRevision`, when
+the role applies on CentOS x86_64, then all portable tools and configuration are
+user-owned, a second apply is empty, and existing macOS/Fedora renders are
+unchanged. Given a failed install or apply, retry uses the same revision and
+rollback restores the prior revision and managed-target manifest without
+deleting auth, sessions, history, or unrelated files.
+
+**Validation:** Run full pytest, render every supported platform, parse generated
+shell/TOML/JSON, verify x86_64 release digests, scan public output for private
+identity, compare cross-source target ownership, and prove install, idempotency,
+update, failure, and rollback in a disposable CentOS x86_64 environment.
 
 ### DAI-005 Cycle Overrides
 

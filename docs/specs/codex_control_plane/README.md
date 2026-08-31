@@ -15,6 +15,21 @@ The stable profile is [`PROFILE.md`](PROFILE.md).
 | Scope | Host and Fedora guest CLI, native configuration, shared DBSCTR adapter, history, workers, recovery, and parity evidence |
 | Non-goals | Desktop management, OpenCode retirement, MCP, plugin packaging, private storage parsing, SDK-bundled runtime, Rust rewrite, or Codex fork |
 
+### RWUE-002 Remote Workspace Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: installs authenticated Codex CLI state for separate users on one shared remote host |
+| Delivery | Draft pull request; disposable CentOS proof followed by separately approved two-user deployment |
+| Scope | Checksum-pinned x86_64 CLI, dedicated user-local `CODEX_HOME`, managed configuration, independent login, and content-free readiness probe |
+| Non-goals | Desktop state, shared API keys, copied host login, peer state access, automatic login, or private storage inspection |
+
+Each remote user authenticates Codex independently after distribution succeeds.
+Rendering, install, update, rollback, and shell startup require no Codex
+credential. Readiness proves exact version, isolated home, managed configuration,
+and authenticated command availability without retaining account, token, thread,
+prompt, response, path, or runtime identity.
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a

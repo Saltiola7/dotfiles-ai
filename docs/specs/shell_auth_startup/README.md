@@ -20,6 +20,22 @@ have not been performed.
 | Release/deployment | No public release; managed configuration builds and signs a local app bundle, registers its agent explicitly, and deploys through reviewed chezmoi apply |
 | Maintenance/retirement | Rotate or revoke credentials externally; document signing-certificate provisioning and rotation; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
 
+### RWUE-002 Remote Workspace Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes SSH shell startup and interactive authentication behavior on a shared remote host |
+| Delivery intent | Draft pull request; disposable CentOS proof before separately approved two-user deployment |
+| Scope | Nonblocking remote shell, interactive per-user 1Password login, runtime-local provider stores, and credential-free render/startup |
+| Overrides | Linux remote sessions never use macOS Keychain or copied service tokens; missing authentication reports `auth_pending` and preserves the shell |
+
+On CentOS remote workspaces, shell startup never invokes `op`, OpenAI, Vertex,
+Codex, Atuin, or network authentication. A user explicitly starts each login in
+their own interactive session. Missing, expired, or failed authentication is
+bounded and retryable, never copied from macOS or another user, and never blocks
+SSH or creates a shared token cache. Machine-local TOML contains identifiers and
+endpoints only.
+
 ### AUTH-011 Delivered Overrides
 
 | Field | Value |
