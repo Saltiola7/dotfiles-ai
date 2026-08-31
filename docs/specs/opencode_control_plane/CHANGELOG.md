@@ -11,6 +11,41 @@
 - This change establishes durable authority only; implementation, benchmark,
   deployment, and activation remain separately gated.
 
+## 2026-08-30 - Cross-Checkout Initiative Source Repair
+
+- Restored explicit Initiative-source launch by resolving the selected checkout
+  to its Git root and rejecting missing or non-repository sources without path
+  disclosure.
+- Scrubbed inherited Git repository and configuration overrides from local
+  repository validation so source identity cannot be redirected by process state.
+- All 229 affected tests, one expected skip, 21 subtests, Python compilation,
+  and independent security review pass. Gate Commit: `48a604a`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-30 - Coordinator Workspace Affinity
+
+- Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's
+  live workspace instead of UI focus, including fresh fallback, and failed closed
+  before retaining malformed or mismatched caller, tab, pane, or agent identity.
+- Preserved previously confirmed agents when a later prompt re-probe fails and
+  retained the existing rule that no pre-existing session is moved or closed.
+- All 47 affected control-plane tests and Bun bundling pass, and independent
+  review found no remaining issue. Deployment applied only the launcher delta on
+  top of a concurrent managed query-summary runtime and preserved that unrelated
+  work. A live cross-focus smoke created the disposable tab in the coordinator
+  workspace while another workspace remained focused, then closed it. Gate
+  Commit: `b623430`. Gate Exceptions: none. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
+
+## 2026-08-30 - History Aggregate Read-Side Cache Contract
+
+- Clarified that bounded aggregate telemetry may create an owner-private,
+  atomic, 24-hour transient capture without gaining permission to mutate review,
+  Incident, cycle, gate, claim, or canonical source state.
+- Implementation and typed availability remain owned by their dependent Build
+  slices; this Discovery update changes normative authority only.
+
 ## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
 
 - Kept Initiative manifests repository-relative while adding an explicitly

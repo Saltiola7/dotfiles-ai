@@ -1,5 +1,28 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-30 - Managed Codex Distribution
+
+- Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host
+  and the checksum-pinned aarch64 musl release in both registered Fedora guests.
+- Added a dedicated CLI `CODEX_HOME`, PATH wrapper, digest-owned journaled
+  projection, versioned runtime-selector schema, exact temporary-source guest
+  deployment, package rollback, and reverse-order all-guest rollback without
+  reading or changing authentication, sessions, logs, desktop state, or worker
+  routing.
+- A host target-mode preflight and the first broad guest apply failed closed;
+  package and guest rollback completed before owner-approved directory hardening
+  and Codex-only deployment remediation. Both guests retained their prior running
+  state and clean canonical source checkout.
+- Two hundred eight affected tests, Python compilation, rendered Bash/Chezmoi,
+  Initiative validation, Git whitespace, official release metadata, controlled
+  host/two-guest deployment, runtime smokes, and independent elevated-risk review
+  passed. Gate Exceptions: none. Release is not applicable. Gate Commits:
+  `38bd08eda526400884de3338f80c3757ebcbc85e`,
+  `3d25ec089280bfcc8336a7ea23988964acd357a4`,
+  `da8f306b1041dddd679a8da71b1ff4638f62996e`, and
+  `4b131de9e2a6a48cf2574bbab1e9166d6c5db490`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
 ## 2026-08-30 - Promoted Codex Distribution Readiness
 
 - Recorded merged host-foundation delivery and promoted only

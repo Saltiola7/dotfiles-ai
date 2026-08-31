@@ -1536,18 +1536,29 @@ export async function beginCycle(args: {
   let ownedTabID: string | undefined
   let agentConfirmed = false
   try {
+    const herdrID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+    const current = JSON.parse(await run(["herdr", "pane", "current", "--current"], cwd))
+    const callerPaneID = current?.result?.pane?.pane_id
+    const workspaceID = current?.result?.pane?.workspace_id
+    if (typeof callerPaneID !== "string" || !herdrID.test(callerPaneID)
+        || typeof workspaceID !== "string" || !herdrID.test(workspaceID))
+      throw new Error("Herdr returned no coordinator workspace")
     const createTab = async () => {
       const value = JSON.parse(await run([
         "herdr", "tab", "create",
         "--cwd", handoff.worktree,
+        "--workspace", workspaceID,
         "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
         "--no-focus",
       ], cwd))
       const tabID = value?.result?.tab?.tab_id
       const paneID = value?.result?.root_pane?.pane_id
-      if (typeof tabID !== "string" || typeof paneID !== "string")
-        throw new Error("Herdr tab creation returned no root pane")
-      ownedTabID = tabID
+      if (typeof tabID === "string" && herdrID.test(tabID)) ownedTabID = tabID
+      if (typeof tabID !== "string" || !herdrID.test(tabID)
+          || typeof paneID !== "string" || !herdrID.test(paneID)
+          || value?.result?.tab?.workspace_id !== workspaceID
+          || value?.result?.root_pane?.workspace_id !== workspaceID)
+        throw new Error("Herdr tab creation returned no matching workspace pane")
       return value
     }
     const closeOwnedTab = async () => {
@@ -1559,7 +1570,8 @@ export async function beginCycle(args: {
     const parseAgent = (output: string, pane: string) => {
       const value = JSON.parse(output)
       const agent = value?.result?.agent ?? value?.agent
-      if (agent === null || typeof agent !== "object" || agent.pane_id !== pane)
+      if (agent === null || typeof agent !== "object" || agent.pane_id !== pane
+          || agent.tab_id !== ownedTabID || agent.workspace_id !== workspaceID)
         throw new Error("Herdr returned no matching OpenCode agent")
       return agent
     }
@@ -1650,8 +1662,7 @@ export async function beginCycle(args: {
           agent = await getAgent(activeName, paneID)
           return result("launch_pending", activeName, agent)
         } catch {
-          agentConfirmed = false
-          throw promptError
+          return result("launch_pending", activeName, agent)
         }
       }
     }
