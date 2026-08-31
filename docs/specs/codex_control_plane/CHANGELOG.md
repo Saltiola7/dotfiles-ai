@@ -1,5 +1,23 @@
 # Codex Control Plane Changelog
 
+## 2026-08-31 - History Parity Readiness Correction
+
+- Reopened the empty history Build cycle before source changes because the ready
+  artifacts did not define how Codex pages enter shared lifecycle consumers or
+  whether private text may cross that boundary.
+- Approved bounded sanitized user/assistant text in private local pages and one
+  generic stateless `dbsctrctl` source-page validator. Credentials, reasoning, raw
+  tool data, URLs, paths, duplicate native storage, and public result bodies stay
+  excluded.
+- Split lifecycle-owned page validation into the new
+  `generic-history-source-pages` predecessor with closed request, continuation,
+  page, privacy, digest, bounds, failure, and no-mutation contracts. Codex history
+  returns to captured until that predecessor is delivered.
+- Initiative validation, 248 affected tests, one expected skip, 21 subtests, JSON
+  parsing, Git whitespace, and independent elevated-risk review passed. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-08-30 - Exact Cross-Platform Identity
 
 - Reconciled merged distribution PR `#104` and recorded the host and all managed

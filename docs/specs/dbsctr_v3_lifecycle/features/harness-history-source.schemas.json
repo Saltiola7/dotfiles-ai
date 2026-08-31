@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dotfiles-ai.local/schemas/harness-history-source-1.json",
+  "title": "DBSCTR Generic Harness History Source Page",
+  "$ref": "#/$defs/envelope",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "identity": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness_id", "adapter_revision", "release"],
+      "properties": {
+        "harness_id": {"$ref": "#/$defs/identity"},
+        "adapter_revision": {"$ref": "#/$defs/identity"},
+        "release": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x20-\\x7e]+$"}
+      }
+    },
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["available", "unavailable", "partial", "not_requested"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[\\x20-\\x7e]+$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["unavailable", "partial"]}}},
+          "then": {"required": ["reason"]}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["available", "not_requested"]}}},
+          "then": {"not": {"required": ["reason"]}}
+        }
+      ]
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "updated_at"],
+      "properties": {
+        "session_id": {"$ref": "#/$defs/identity"},
+        "updated_at": {"type": "integer", "minimum": 0}
+      }
+    },
+    "continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "snapshot_digest", "overflow", "members", "offset", "previous_page_digest"],
+      "properties": {
+        "source": {"$ref": "#/$defs/source"},
+        "snapshot_digest": {"$ref": "#/$defs/digest"},
+        "overflow": {"type": "boolean"},
+        "members": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/member"}},
+        "offset": {"type": "integer", "minimum": 1, "maximum": 100},
+        "previous_page_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "limit", "continuation"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+        "continuation": {"anyOf": [{"$ref": "#/$defs/continuation"}, {"type": "null"}]}
+      }
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "text"],
+      "properties": {
+        "role": {"enum": ["user", "assistant"]},
+        "text": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"}
+      }
+    },
+    "tool_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_id", "tool", "status", "failure_class", "recovered", "timestamp"],
+      "properties": {
+        "signal_id": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+        "tool": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+        "status": {"enum": ["error", "failed", "completed", "success"]},
+        "failure_class": {"enum": ["command", "permission", "timeout", "network", "validation", "unknown", "none"]},
+        "recovered": {"type": "boolean"},
+        "timestamp": {"type": "integer", "minimum": 0}
+      }
+    },
+    "aggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_count", "user_message_count", "assistant_message_count", "tool_call_count", "tool_error_count"],
+      "properties": {
+        "turn_count": {"type": "integer", "minimum": 0},
+        "user_message_count": {"type": "integer", "minimum": 0},
+        "assistant_message_count": {"type": "integer", "minimum": 0},
+        "tool_call_count": {"type": "integer", "minimum": 0},
+        "tool_error_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token_total", "cost_total"],
+      "properties": {
+        "token_total": {"type": ["integer", "null"], "minimum": 0},
+        "cost_total": {
+          "anyOf": [
+            {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "family_id", "parent_id", "created_at", "updated_at", "workspace", "project_digest", "source_kind", "provider_id", "content", "tool_signals", "aggregates", "metrics", "availability"],
+      "properties": {
+        "session_id": {"$ref": "#/$defs/identity"},
+        "family_id": {"$ref": "#/$defs/identity"},
+        "parent_id": {"anyOf": [{"$ref": "#/$defs/identity"}, {"type": "null"}]},
+        "created_at": {"type": "integer", "minimum": 0},
+        "updated_at": {"type": "integer", "minimum": 0},
+        "workspace": {"enum": ["primary_worktree", "cycle_worktree", "unknown"]},
+        "project_digest": {"$ref": "#/$defs/digest"},
+        "source_kind": {"enum": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]},
+        "provider_id": {"$ref": "#/$defs/identity"},
+        "content": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/text"}},
+        "tool_signals": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/tool_signal"}},
+        "aggregates": {"$ref": "#/$defs/aggregates"},
+        "metrics": {"$ref": "#/$defs/metrics"},
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["content", "tokens", "cost"],
+          "properties": {
+            "content": {"$ref": "#/$defs/availability"},
+            "tokens": {"$ref": "#/$defs/availability"},
+            "cost": {"$ref": "#/$defs/availability"}
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "source", "snapshot_digest", "overflow", "members", "entries", "continuation", "page_digest"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "source": {"$ref": "#/$defs/source"},
+        "snapshot_digest": {"$ref": "#/$defs/digest"},
+        "overflow": {"type": "boolean"},
+        "members": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/member"}},
+        "entries": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/entry"}},
+        "continuation": {"anyOf": [{"$ref": "#/$defs/continuation"}, {"type": "null"}]},
+        "page_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "page"],
+      "properties": {
+        "request": {"$ref": "#/$defs/request"},
+        "page": {"$ref": "#/$defs/page"}
+      }
+    }
+  }
+}

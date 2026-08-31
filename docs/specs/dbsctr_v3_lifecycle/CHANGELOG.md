@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - Generic History Source Readiness
+
+- Reopened the empty Codex history cycle before implementation because no
+  lifecycle-owned source-page or private-text contract connected native history
+  to shared consumers.
+- Added a separate generic predecessor with closed stdin request-and-page
+  envelopes, full snapshot membership, non-circular canonical digests, bounded
+  redacted text, tool signals, metrics and availability, stale handling, lexical
+  privacy, and stateless no-mutation validation.
+- Kept native parsing and review, incident, telemetry, benchmark, and federation
+  mappings in later owning slices. Initiative validation, 248 affected tests, one
+  expected skip, 21 subtests, JSON parsing, Git whitespace, and independent
+  elevated-risk review passed. Gate Exceptions: none. Release, Deploy, Operate,
+  and Maintain/Retire are not applicable to this Discovery-only correction.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-31 - History Boundary Index Readiness
 
 - Reopened History/Incident core readiness after exact time-ordered population

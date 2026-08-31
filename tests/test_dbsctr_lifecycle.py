@@ -143,7 +143,7 @@ def test_current_distribution_profile_names_hermes_orchestration():
     assert "opt-in native R&D scheduling" not in spec
 
 
-def test_codex_next_slices_are_dependency_ordered_and_history_ready():
+def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
     contexts = {item["id"]: item for item in manifest["contexts"]}
     slices = {item["id"]: item for item in manifest["slices"]}
@@ -157,6 +157,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
     assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert slices["generic-history-source-pages"]["state"] == "ready"
+    assert slices["generic-history-source-pages"]["execution_owner"] == "build"
+    assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
     assert {
         name: (slices[name]["state"], slices[name]["depends_on"])
         for name in (
@@ -164,7 +167,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
             "codex-federation-parity", "codex-parity-readiness",
         )
     } == {
-        "codex-history-parity": ("ready", ["codex-identity-probe"]),
+        "codex-history-parity": (
+            "captured", ["codex-identity-probe", "generic-history-source-pages"]
+        ),
         "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
         "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
         "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
@@ -176,6 +181,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
     assert statements["INT-029"]["disposition"] == "ready"
     assert statements["INT-030"]["disposition"] == "ready"
     assert statements["INT-031"]["disposition"] == "ready"
+    assert statements["INT-032"]["disposition"] == "ready"
     assert {"INT-030", "INT-031"} <= set(slices["codex-host-foundation"]["requirements"])
     assert all("tickets" not in item for item in manifest["slices"])
 
@@ -185,7 +191,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-parity"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["generic-history-source-pages"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -196,7 +202,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`codex-history-parity` ready" in normalized_initiative
+    assert "`generic-history-source-pages` ready" in normalized_initiative
     assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
         "Documented `thread/list` and `thread/read`",
@@ -225,6 +231,27 @@ def test_codex_next_slices_are_dependency_ordered_and_history_ready():
     ) in normalized_control_plane
     assert "transcript content rejects the event" in normalized_operation
     assert "transcript content, prompt, tool data" in normalized_operation
+
+    history_schema = json.loads(text(
+        "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
+    ))
+    assert history_schema["$ref"] == "#/$defs/envelope"
+    assert history_schema["$defs"]["envelope"]["additionalProperties"] is False
+    page = history_schema["$defs"]["page"]
+    assert page["additionalProperties"] is False
+    assert page["properties"]["entries"]["maxItems"] == 20
+    assert page["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["request"]["properties"]["limit"]["maximum"] == 20
+    assert history_schema["$defs"]["continuation"]["properties"]["members"]["maxItems"] == 100
+    entry = history_schema["$defs"]["entry"]
+    assert entry["additionalProperties"] is False
+    assert entry["properties"]["content"]["maxItems"] == 100
+    assert "metrics" in entry["required"]
+    assert history_schema["$defs"]["text"]["properties"]["role"]["enum"] == [
+        "user", "assistant",
+    ]
+    assert "generic-history-source-pages" in control_plane
+    assert "never enter a page" in control_plane
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 
