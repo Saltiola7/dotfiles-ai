@@ -41,7 +41,7 @@
       "required": ["session_id", "updated_at"],
       "properties": {
         "session_id": {"$ref": "#/$defs/identity"},
-        "updated_at": {"type": "integer", "minimum": 0}
+        "updated_at": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
       }
     },
     "continuation": {
@@ -86,7 +86,7 @@
         "status": {"enum": ["error", "failed", "completed", "success"]},
         "failure_class": {"enum": ["command", "permission", "timeout", "network", "validation", "unknown", "none"]},
         "recovered": {"type": "boolean"},
-        "timestamp": {"type": "integer", "minimum": 0}
+        "timestamp": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
       }
     },
     "aggregates": {
@@ -94,11 +94,11 @@
       "additionalProperties": false,
       "required": ["turn_count", "user_message_count", "assistant_message_count", "tool_call_count", "tool_error_count"],
       "properties": {
-        "turn_count": {"type": "integer", "minimum": 0},
-        "user_message_count": {"type": "integer", "minimum": 0},
-        "assistant_message_count": {"type": "integer", "minimum": 0},
-        "tool_call_count": {"type": "integer", "minimum": 0},
-        "tool_error_count": {"type": "integer", "minimum": 0}
+        "turn_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "user_message_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "assistant_message_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "tool_call_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "tool_error_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
       }
     },
     "metrics": {
@@ -106,7 +106,7 @@
       "additionalProperties": false,
       "required": ["token_total", "cost_total"],
       "properties": {
-        "token_total": {"type": ["integer", "null"], "minimum": 0},
+        "token_total": {"type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991},
         "cost_total": {
           "anyOf": [
             {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$"},
@@ -123,8 +123,8 @@
         "session_id": {"$ref": "#/$defs/identity"},
         "family_id": {"$ref": "#/$defs/identity"},
         "parent_id": {"anyOf": [{"$ref": "#/$defs/identity"}, {"type": "null"}]},
-        "created_at": {"type": "integer", "minimum": 0},
-        "updated_at": {"type": "integer", "minimum": 0},
+        "created_at": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "updated_at": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
         "workspace": {"enum": ["primary_worktree", "cycle_worktree", "unknown"]},
         "project_digest": {"$ref": "#/$defs/digest"},
         "source_kind": {"enum": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]},
