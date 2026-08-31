@@ -1,5 +1,17 @@
 # Codex Control Plane Changelog
 
+## 2026-08-30 - Identity Probe Readiness
+
+- Reconciled merged distribution PR `#104` and recorded the host and all managed
+  Fedora guests on the frozen Codex `0.151.0` release with isolated configuration,
+  state, and separately verified boundary-local login prerequisites.
+- Marked distribution delivered and promoted only the Discovery-owned identity
+  probe. History, worker routing, recovery, federation, and final parity remain
+  dependency-gated until the bounded hook-to-thread probe passes.
+- No account identity, credential, runtime identifier, guest name, path, prompt,
+  transcript, or private state is retained in Git. Release and Deploy are not
+  applicable; Operate is the bounded host and representative-Fedora probe.
+
 ## 2026-08-30 - Host Foundation
 
 - Added portable managed Codex configuration, global instructions, six native

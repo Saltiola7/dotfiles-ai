@@ -143,7 +143,7 @@ def test_current_distribution_profile_names_hermes_orchestration():
     assert "opt-in native R&D scheduling" not in spec
 
 
-def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
+def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
     manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
     contexts = {item["id"]: item for item in manifest["contexts"]}
     slices = {item["id"]: item for item in manifest["slices"]}
@@ -151,10 +151,10 @@ def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
 
     assert contexts["codex_control_plane"]["status"] == "ready"
     assert slices["codex-host-foundation"]["state"] == "delivered"
-    assert slices["codex-distribution"]["state"] == "ready"
+    assert slices["codex-distribution"]["state"] == "delivered"
     assert slices["codex-distribution"]["execution_owner"] == "build"
     assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
-    assert slices["codex-identity-probe"]["state"] == "blocked"
+    assert slices["codex-identity-probe"]["state"] == "ready"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
     assert {
@@ -185,7 +185,7 @@ def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-distribution"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-identity-probe"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -196,7 +196,7 @@ def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`codex-distribution` receipt-ready" in normalized_initiative
+    assert "`codex-identity-probe` ready" in normalized_initiative
     assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
         "Documented `thread/list` and `thread/read`",
