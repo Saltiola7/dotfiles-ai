@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || {
+    echo "remote user environment requires Linux x86_64" >&2
+    exit 1
+}
+
+version={{ .dotfiles_ai.opencode.version | quote }}
+url={{ .dotfiles_ai.opencode.linux_amd64_asset_url | quote }}
+sha256={{ .dotfiles_ai.opencode.linux_amd64_asset_sha256 | quote }}
+directory="$HOME/.local/libexec/dotfiles-ai"
+target="$directory/opencode"
+if [[ -x $target && ! -L $target && $($target --version 2>/dev/null) == "$version" ]]; then
+    exit 0
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp" "$target.new"' EXIT
+curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 180 "$url" -o "$tmp/opencode.tar.gz"
+printf '%s  %s\n' "$sha256" "$tmp/opencode.tar.gz" | sha256sum -c -
+tar -xzf "$tmp/opencode.tar.gz" -C "$tmp" opencode
+[[ -f $tmp/opencode && -x $tmp/opencode && ! -L $tmp/opencode ]] || {
+    echo "OpenCode release archive is invalid" >&2
+    exit 1
+}
+install -d -m 0700 "$directory"
+install -m 0755 "$tmp/opencode" "$target.new"
+[[ $($target.new --version) == "$version" ]] || { echo "managed OpenCode version mismatch" >&2; exit 1; }
+mv -f "$target.new" "$target"
