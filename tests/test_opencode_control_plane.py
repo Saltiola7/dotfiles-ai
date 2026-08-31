@@ -116,6 +116,10 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
             "external_directory": {"/local": "allow"},
             "bash": {"machine-local *": "allow"},
         },
+        "command": {
+            "discovery-coordinator": {"template": "stale"},
+            "machine-local": {"template": "keep"},
+        },
     }))
     target.chmod(0o644)
     command = [
@@ -128,6 +132,8 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     merged = json.loads(target.read_text())
     assert merged["provider"]["machine-local"]["options"]["endpoint"] == "local"
     assert merged["references"]["machine-local"]["path"] == "/local"
+    assert merged["command"]["machine-local"]["template"] == "keep"
+    assert "discovery-coordinator" not in merged["command"]
     assert merged["permission"]["external_directory"]["/local"] == "allow"
     assert merged["permission"]["bash"]["machine-local *"] == "allow"
     assert merged["permission"]["bash"]["pmctl jira publish*"] == "ask"
@@ -2411,6 +2417,7 @@ def test_removed_managed_integrations_are_absent():
         ".config/opencode/agents/scout-bedrock.md",
         ".config/opencode/agents/builder-bedrock.md",
         ".config/opencode/agents/discovery-coordinator.md",
+        ".config/opencode/commands/discovery-coordinator.md",
     }
 def test_dks_context_is_bounded_metadata_only(tmp_path: Path) -> None:
     runtime = OC / "lib/dbsctr-runtime.ts"
