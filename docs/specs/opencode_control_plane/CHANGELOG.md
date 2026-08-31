@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - History Projection Availability Readiness
+
+- Bound ready aggregate History and Incident summary subprocesses to the
+  lifecycle-owned body-free schema-version-2 projection after ordering-only live
+  operations exceeded 180 seconds on the representative source.
+- Kept projection build, extension, verification, compaction, and source payload
+  access outside model-visible requests. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
 ## 2026-08-31 - Remote User Authentication Discovery
 
 - Defined isolated CentOS x86_64 OpenCode configuration and independent per-user

@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - History Materialized Projection Readiness
+
+- Reopened History/Incident core after the ordering-only boundary index activated
+  successfully on a representative 72 GiB source but aggregate and Incident
+  summary operations still exceeded 180 seconds.
+- Replaced schema version 1 readiness with a body-free schema-version-2
+  materialized projection for immutable full/delta generations, session
+  eligibility, source-heavy metrics, safe categories, and failure/recovery
+  classification. Ready paths prohibit source payload scans and preserve exact
+  output, privacy, continuation, invalidation, rollback, and detailed modes.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-31 - Generic History Source Readiness
 
 - Reopened the empty Codex history cycle before implementation because no
