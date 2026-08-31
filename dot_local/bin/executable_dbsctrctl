@@ -60,6 +60,7 @@ PHASES = GATES[:6] + ("operation",)
 PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa",
                     "operator_wait", "external_wait")
 EXCLUDED_PHASE_OPERATIONS = ("operator_wait", "external_wait")
+LEDGER_INTEGRITY_RECEIPTS = {}
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 BENCHMARK_METRICS = {
     "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
@@ -614,6 +615,9 @@ def ledger_connection(root, write=False, path=None):
     path = path or ledger_path(root)
     private_path(path.parent, stat.S_IFDIR, 0o700, "ledger directory")
     private_path(path, stat.S_IFREG, 0o600, "review ledger")
+    details = path.stat()
+    identity = (details.st_dev, details.st_ino, details.st_size, details.st_mtime_ns)
+    receipt_key = str(path.resolve())
     try:
         connection = sqlite3.connect(str(path) if write else f"file:{path}?mode=ro", uri=not write)
         connection.execute("PRAGMA foreign_keys=ON")
@@ -634,7 +638,12 @@ def ledger_connection(root, write=False, path=None):
             ensure_improvement_schema(connection)
         if write:
             ensure_capture_schema(connection)
-        ledger_integrity(connection)
+        if write or LEDGER_INTEGRITY_RECEIPTS.get(receipt_key) != identity:
+            ledger_integrity(connection)
+            if write:
+                LEDGER_INTEGRITY_RECEIPTS.pop(receipt_key, None)
+            else:
+                LEDGER_INTEGRITY_RECEIPTS[receipt_key] = identity
         if write:
             ensure_knowledge_privacy_schema(connection)
             ensure_incident_schema(connection)
