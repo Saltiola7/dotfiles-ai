@@ -53,6 +53,15 @@ def data(
             },
             "atuin": {"sync_address": "https://atuin.example.com", "server_enabled": False},
             "tailscale": {"enabled": False, "ssh": False},
+            "remote_workspace": {
+                "enabled": True,
+                "repository": str(ROOT),
+                "project": "example-project",
+                "zone": "example-zone-a",
+                "instance": "example-workspace",
+                "account": "user@example.com",
+                "tailscale_host": "example-workspace.example.ts.net",
+            },
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -144,10 +153,94 @@ def test_macos_installs_official_opencode_tap() -> None:
 
     assert 'tap "anomalyco/tap"' in brewfile
     assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert 'brew "mise"' in brewfile
+    assert 'cask "google-cloud-sdk"' in brewfile
     assert '{{ include "Brewfile" | sha256sum }}' in installer
     assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
     assert "Homebrew is required to install managed agent packages" in installer
     assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+
+
+def test_remote_workspace_config_stays_machine_local() -> None:
+    profile = chezmoi(
+        "execute-template", template=(ROOT / "dot_common_profile.tmpl").read_text()
+    ).stdout
+    env = chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/remote-workspace.env")
+    ).stdout
+    managed = set(chezmoi("managed").stdout.splitlines())
+
+    assert "remote-workspace.env" not in profile
+    assert f'REMOTE_DEV_REPOSITORY="{ROOT}"' in env
+    assert 'REMOTE_DEV_PROJECT="example-project"' in env
+    assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
+    assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
+    assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
+    assert 'REMOTE_DEV_TAILSCALE_HOST="example-workspace.example.ts.net"' in env
+    assert ".local/bin/remote-workspace" in managed
+    assert ".local/bin/remote-workspace-doctor" in managed
+
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    assert "[dotfiles_ai.remote_workspace]" in defaults
+    assert "[data.dotfiles_ai.remote_workspace]" in example
+
+
+def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> None:
+    for command in ("mise", "herdr", "tailscale"):
+        path = tmp_path / command
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text("#!/bin/sh\necho user@example.com\n")
+    gcloud.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh", str(ROOT / "dot_local/bin/executable_remote-workspace-doctor")],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "REMOTE_DEV_PROJECT": "example-project",
+            "REMOTE_DEV_ZONE": "example-zone-a",
+            "REMOTE_DEV_INSTANCE": "example-workspace",
+            "REMOTE_DEV_REPOSITORY": str(ROOT),
+            "REMOTE_DEV_TAILSCALE_HOST": "example-workspace.example.ts.net",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(tmp_path / "missing.env"),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "remote workspace prerequisites ready"
+
+
+def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    env_file = tmp_path / "remote-workspace.env"
+    env_file.write_text(f'export REMOTE_DEV_REPOSITORY="{repository}"\n')
+    mise = tmp_path / "mise"
+    mise.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PWD" "$*"\n')
+    mise.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            str(ROOT / "dot_local/bin/executable_remote-workspace"),
+            "remote-status",
+            "--verbose",
+        ],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(env_file),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == [
+        str(repository),
+        "run remote-status --verbose",
+    ]
 
 
 def test_codex_distribution_sources_are_pinned_and_inert() -> None:

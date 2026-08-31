@@ -9,7 +9,19 @@
   client, project, machine, tailnet, endpoint, and credential identity in public
   source or rendered defaults.
 - No package, target, service, user home, credential, or runtime changed.
-  RWUE-001 remains blocked on source governance and digest-bound approval.
+  RWUE-001 remains digest- and approval-gated.
+
+## 2026-08-29 - DAI-034 Portable Remote Workspace Client
+
+- Added an opt-in machine-local remote-workspace profile, private environment
+  rendering, and prerequisite doctor without embedding endpoint identity or
+  credentials in public source.
+- Added mise and Google Cloud CLI to the managed macOS packages while preserving
+  repository-owned lifecycle tasks as the sole remote-operation interface.
+- Full validation passed with `559 passed, 1 skipped`, plus Ruff, shell syntax,
+  rendering checks, and Git diff hygiene. Gate Commit: `73f8ff1`; no live
+  installation or network enrollment occurred. Intended delivery is the feature
+  branch and draft pull request into protected `main`.
 
 ## 2026-08-30 - Managed Codex Distribution
 

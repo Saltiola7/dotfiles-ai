@@ -79,6 +79,17 @@ server_enabled = false # generated true only inside the selected server workspac
 enabled = false
 ssh = false
 
+[data.dotfiles_ai.remote_workspace]
+# Optional client configuration. Values remain in this machine-local file and
+# render only into the local environment target.
+enabled = false
+repository = "/path/to/workspace-repository"
+project = "example-project"
+zone = "example-region-a"
+instance = "example-workspace"
+account = "user@example.com" # blank uses the selected gcloud account
+tailscale_host = "" # optional FQDN for the alternate SSH path
+
 [data.dotfiles_ai.rnd]
 # Keep false on machines that should not schedule autonomous review workers.
 enabled = false
