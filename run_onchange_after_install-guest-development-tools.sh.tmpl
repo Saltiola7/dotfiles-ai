@@ -2,32 +2,56 @@
 # compose: 2.40.3; op: 2.39.0; gcloud: 580.0.0
 set -eu
 
-systemctl --user enable --now podman.socket
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+test "$(uname -s)" = Linux
+test "$(uname -m)" = x86_64
+compose_url=https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-x86_64
+compose_sha256=dba9d98e1ba5bfe11d88c99b9bd32fc4a0624a30fafe68eea34d61a3e42fd372
+op_url=https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_amd64_v2.39.0.zip
+op_sha256=6fba7f376b6c6dec49f41b06408930a43ad064cce103c6a2ce5b3d0413a86434
+gcloud_url=https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-x86_64.tar.gz
+gcloud_sha256=e580c04b45dfa2e537b8dc0cf7c828e46a65bc77ef61de69161e1f3a124d7480
+{{ else -}}
+test "$(uname -s)" = Linux
+test "$(uname -m)" = aarch64
+compose_url=https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-aarch64
+compose_sha256=d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137
+op_url=https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_arm64_v2.39.0.zip
+op_sha256=829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0
+gcloud_url=https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-arm.tar.gz
+gcloud_sha256=a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71
+{{ end -}}
+
+if test -n "${DOTFILES_AI_SYSTEMCTL:-}"; then
+  "$DOTFILES_AI_SYSTEMCTL" --user enable --now podman.socket
+else
+  systemctl --user enable --now podman.socket
+fi
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
 curl -fsSL --retry 3 --retry-all-errors \
-  https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-aarch64 \
+  "$compose_url" \
   -o "$tmpdir/docker-compose"
-printf '%s  %s\n' d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137 "$tmpdir/docker-compose" | sha256sum -c -
+printf '%s  %s\n' "$compose_sha256" "$tmpdir/docker-compose" | sha256sum -c -
 install -d -m 0755 "$HOME/.docker/cli-plugins"
 install -m 0755 "$tmpdir/docker-compose" "$HOME/.docker/cli-plugins/.docker-compose.new"
 mv -f "$HOME/.docker/cli-plugins/.docker-compose.new" "$HOME/.docker/cli-plugins/docker-compose"
 
 curl -fsSL --retry 3 --retry-all-errors \
-  https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_arm64_v2.39.0.zip \
+  "$op_url" \
   -o "$tmpdir/op.zip"
-printf '%s  %s\n' 829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0 "$tmpdir/op.zip" | sha256sum -c -
+printf '%s  %s\n' "$op_sha256" "$tmpdir/op.zip" | sha256sum -c -
 python3 -m zipfile -e "$tmpdir/op.zip" "$tmpdir/op"
 install -d -m 0755 "$HOME/.local/bin"
 install -m 0755 "$tmpdir/op/op" "$HOME/.local/bin/.op.new"
 mv -f "$HOME/.local/bin/.op.new" "$HOME/.local/bin/op"
 
 curl -fsSL --retry 3 --retry-all-errors \
-  https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-arm.tar.gz \
+  "$gcloud_url" \
   -o "$tmpdir/gcloud.tgz"
-printf '%s  %s\n' a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71 "$tmpdir/gcloud.tgz" | sha256sum -c -
+printf '%s  %s\n' "$gcloud_sha256" "$tmpdir/gcloud.tgz" | sha256sum -c -
 tar -xzf "$tmpdir/gcloud.tgz" -C "$tmpdir"
 install -d -m 0755 "$HOME/.local/share"
 destination="$HOME/.local/share/google-cloud-sdk-580.0.0"

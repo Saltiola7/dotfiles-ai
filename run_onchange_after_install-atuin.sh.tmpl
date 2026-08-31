@@ -2,12 +2,23 @@
 set -eu
 
 version=18.17.1
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+test "$(uname -m)" = x86_64
+asset=atuin-x86_64-unknown-linux-musl.tar.gz
+directory=atuin-x86_64-unknown-linux-musl
+sha256=5772df4121174a9f0b71c17260727794fde22a71b5a3ee5ac07b227eebcbfa9a
+{{ else -}}
+test "$(uname -m)" = aarch64
+asset=atuin-aarch64-unknown-linux-musl.tar.gz
+directory=atuin-aarch64-unknown-linux-musl
+sha256=13fc31e9f40fcc97b28c626adf4015eed080b5d8d8df31bb23e8ddf504d19d59
+{{ end -}}
 archive="$(mktemp)"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$archive" "$tmpdir"' EXIT
-curl -fsSL "https://github.com/atuinsh/atuin/releases/download/v${version}/atuin-aarch64-unknown-linux-musl.tar.gz" -o "$archive"
-printf '%s  %s\n' 13fc31e9f40fcc97b28c626adf4015eed080b5d8d8df31bb23e8ddf504d19d59 "$archive" | sha256sum -c -
+curl -fsSL "https://github.com/atuinsh/atuin/releases/download/v${version}/${asset}" -o "$archive"
+printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c -
 tar -xzf "$archive" -C "$tmpdir"
 install -d -m 0755 "$HOME/.local/bin"
-install -m 0755 "$tmpdir/atuin-aarch64-unknown-linux-musl/atuin" "$HOME/.local/bin/.atuin.new"
+install -m 0755 "$tmpdir/$directory/atuin" "$HOME/.local/bin/.atuin.new"
 mv -f "$HOME/.local/bin/.atuin.new" "$HOME/.local/bin/atuin"

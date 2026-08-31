@@ -6,8 +6,17 @@ exit 0
 {{ end -}}
 
 version={{ .dotfiles_ai.codex.version | quote }}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+[[ $(uname -m) == x86_64 ]] || { echo "remote user environment requires x86_64" >&2; exit 1; }
+url={{ .dotfiles_ai.codex.linux_amd64_asset_url | quote }}
+sha256={{ .dotfiles_ai.codex.linux_amd64_asset_sha256 | quote }}
+archive_binary=codex-x86_64-unknown-linux-musl
+{{ else -}}
+[[ $(uname -m) == aarch64 ]] || { echo "managed Fedora guest requires aarch64" >&2; exit 1; }
 url={{ .dotfiles_ai.codex.linux_asset_url | quote }}
 sha256={{ .dotfiles_ai.codex.linux_asset_sha256 | quote }}
+archive_binary=codex-aarch64-unknown-linux-musl
+{{ end -}}
 directory="$HOME/.local/libexec/dotfiles-ai"
 target="$directory/codex"
 [[ ! -e $directory || ( -d $directory && ! -L $directory ) ]] || {
@@ -28,7 +37,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp" "$target.new"' EXIT
 curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 180 "$url" -o "$tmp/codex.tar.gz"
 printf '%s  %s\n' "$sha256" "$tmp/codex.tar.gz" | sha256sum -c -
-binary="$tmp/codex-aarch64-unknown-linux-musl"
+binary="$tmp/$archive_binary"
 "$HOME/.local/bin/codex-archive" "$tmp/codex.tar.gz" "$binary"
 [[ -f $binary && -x $binary && ! -L $binary ]] || { echo "Codex release archive is invalid" >&2; exit 1; }
 install -d -m 0700 "$directory"
