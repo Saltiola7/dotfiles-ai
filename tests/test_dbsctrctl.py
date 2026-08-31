@@ -310,6 +310,24 @@ class DbsctrctlTest(unittest.TestCase):
                         "--slice", "slice-a", "--json", ok=False)
         self.assertIn("must have a GitHub origin", deceptive.stderr)
 
+    def test_initiative_source_resolves_git_root(self):
+        nested = self.repo / "nested/source"
+        nested.mkdir(parents=True)
+        override = Path(self.temp.name) / "override"
+        override.mkdir()
+        subprocess.run(["git", "init"], cwd=override, check=True, capture_output=True)
+        with mock.patch.dict(os.environ, {
+            "GIT_DIR": str(override / ".git"), "GIT_WORK_TREE": str(override),
+        }):
+            loader = importlib.machinery.SourceFileLoader("dbsctrctl_repo_root_module", str(SCRIPT))
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+
+            self.assertEqual(module.repo_root(nested), self.repo.resolve())
+        with self.assertRaisesRegex(RuntimeError, "Initiative source must be a Git repository"):
+            module.repo_root(Path(self.temp.name) / "not-a-repository")
+
     def test_initiative_check_rejects_duplicate_ids_and_unknown_requirements(self):
         value = initiative_manifest()
         value["contexts"].append(dict(value["contexts"][0]))
