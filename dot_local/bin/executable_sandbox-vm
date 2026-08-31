@@ -708,6 +708,7 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
   "$HOME/.local/bin/codex" \
   "$HOME/.local/bin/codex-archive" \
   "$HOME/.local/bin/codex-control-plane" \
+  "$HOME/.local/bin/dbsctrctl" \
   "$HOME/.local/bin/codex-install" \
   "$HOME/.local/bin/codex-project" \
   "$HOME/.local/bin/codex-rollback" \
