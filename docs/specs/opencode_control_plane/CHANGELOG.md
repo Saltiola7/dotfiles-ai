@@ -1,5 +1,16 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - Optional DKS Routing Discovery
+
+- Replaced mandatory DKS-first routing with one optional project- and revision-
+  compatible attempt under a shared five-second deadline and immediate typed
+  fallback to authoritative source inspection.
+- Required a paired value gate covering correctness, errors, p95, median completion
+  time, tool calls, and token cost; failed or stale evidence disables automatic
+  routing without retiring the projection or manual CLI.
+- This change establishes durable authority only; implementation, benchmark,
+  deployment, and activation remain separately gated.
+
 ## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
 
 - Kept Initiative manifests repository-relative while adding an explicitly

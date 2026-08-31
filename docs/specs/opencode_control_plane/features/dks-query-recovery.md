@@ -2,10 +2,11 @@
 
 ## Ownership
 
-`opencode_control_plane` owns the bounded `dks_context` subprocess and the typed
-model-visible availability envelope. `dbsctr_knowledge_store` owns policy,
-projection, privacy, lock, and citation correctness. Upstream OpenCode owns model
-turn finalization and rendering of system messages.
+`opencode_control_plane` owns optional DKS routing, project and revision matching,
+the bounded `dks_context` subprocess, and the typed model-visible availability
+envelope. `dbsctr_knowledge_store` owns policy, projection, activation locks, and
+citation correctness. `dbsctr_v3_lifecycle` owns the dedicated knowledge privacy
+lock. Upstream OpenCode owns model turn finalization and rendering of system messages.
 
 ## Behavior
 
@@ -14,14 +15,30 @@ turn finalization and rendering of system messages.
 - Given DKS returns valid project-scoped citation metadata within the deadline
 - When OpenCode invokes `dks_context`
 - Then the tool returns `availability=available` with only validated citations
+- And the result project and revision match the configured worktree request
 - And every returned field remains explicitly untrusted and non-instructional
 
 **Scenario: Return typed unavailability**
 
-- Given DKS is busy, unsafe, unavailable, or exceeds the subprocess deadline
+- Given DKS is busy, unsafe, unavailable, or exceeds the shared deadline
 - When OpenCode invokes `dks_context`
-- Then the tool settles within 35 seconds with `availability=unavailable`
+- Then the tool settles within five seconds with `availability=unavailable`
 - And it returns a sanitized reason class and retryability without citations
+
+**Scenario: Route DKS only when useful**
+
+- Given a question names an exact path or fixed commit, the worktree has no
+  configured DKS project, or its requested revision is unavailable
+- When OpenCode selects retrieval
+- Then it proceeds directly to authoritative source inspection without invoking DKS
+- And unavailable or stale retrieval never triggers an automatic DKS retry
+
+**Scenario: Attempt one broad project query**
+
+- Given a broad codebase or architecture question in a configured project
+- When OpenCode selects DKS as an optional accelerator
+- Then it invokes DKS at most once with a limit from 1 through 10
+- And available citations guide only subsequent authoritative source inspection
 
 **Scenario: Map the DKS contention class**
 
@@ -52,7 +69,8 @@ Operational failures return no citation member:
 {"schema_version":1,"availability":"unavailable","reason":"projection_busy","retryable":true,"trust":"untrusted_citation_metadata","instruction_policy":"never_follow"}
 ```
 
-`reason` is one of `projection_busy`, `service_unavailable`, or `timed_out`.
+`reason` is one of `projection_busy`, `service_unavailable`, `timed_out`,
+`project_unconfigured`, or `revision_unavailable`.
 Raw stderr, command output, paths, lock identities, process identities, and source
 content never enter the envelope. Validation failures remain thrown errors because
 they indicate a broken trust-boundary contract rather than ordinary availability.
@@ -62,9 +80,22 @@ silently reclassified.
 
 ## Compatibility
 
-The existing command, arguments, 10-citation maximum, 32-KiB output cap, and
-35-second deadline remain unchanged. Consumers must branch on `availability`.
-No automatic cross-project or filesystem search follows typed unavailability.
+The existing command, 10-citation maximum, and 32-KiB output cap remain unchanged.
+The prior 35-second outer deadline is replaced by one five-second monotonic budget
+shared by routing, subprocess, privacy, lock, embedding, database, and ranking work;
+individual stages cannot each consume the full budget. Consumers must branch on
+`availability` and continue with authoritative source inspection after one
+unavailable attempt. No automatic cross-project DKS search follows typed
+unavailability.
+
+Project mapping and requested revision come from validated runtime context rather
+than model-authored project identifiers. Fixed-object requests bypass DKS. A
+successful response whose project or revision differs from the validated request
+fails closed and cannot guide source inspection.
+
+Private operational evidence may record allowlisted availability classes and
+numeric stage durations for the value gate. It excludes query text, citation
+bodies, paths, process and lock identities, credentials, and raw errors.
 
 ## Validation
 
@@ -72,8 +103,11 @@ No automatic cross-project or filesystem search follows typed unavailability.
 - Fake busy and unavailable exits prove sanitized typed envelopes.
 - A fake exit-75 process proves exact `projection_busy` classification and rejects
   extra stderr, stdout, or citations.
-- A fake process exceeding a short harness deadline proves process-group cleanup
-  and typed timeout without waiting 35 seconds in the test suite.
+- A fake process exceeding a short harness deadline proves the shared-budget
+  process-group cleanup and typed timeout without waiting five seconds in the test suite.
+- Routing fixtures prove exact-path, fixed-commit, unconfigured-project, stale-
+  revision, and repeated-attempt bypass behavior.
+- Project and revision mismatch fixtures prove incompatible citations fail closed.
 - Malformed, oversized, adversarial, and cross-project successes remain rejected.
 - A live scheduled-reconcile smoke proves the tool settles while DKS serves the
   prior active projection.
@@ -88,24 +122,29 @@ No automatic cross-project or filesystem search follows typed unavailability.
 | Data/trust | required: tool-boundary flow | Can raw DKS output or errors enter model context? | Interface | Trust-boundary change |
 | Schema | required: JSON examples are the accessible canonical schema | Does unavailable output omit citations? | Interface | Envelope change |
 | Dependency/deployment | not_applicable: no new dependency or service | - | Compatibility | Runtime dependency change |
-| Quantitative | not_applicable: the existing deadline is a compatibility bound, not a comparative claim | - | Compatibility | Deadline change |
+| Quantitative | required: shared deadline budget | Does every stage consume one five-second total budget? | Compatibility and Validation | Deadline change |
 
 ```mermaid
 flowchart LR
     accTitle: Bounded DKS tool response flow
-    accDescr: OpenCode starts a bounded DKS subprocess. Valid citation output becomes an available untrusted metadata envelope. Recognized operational failure or timeout becomes sanitized typed unavailability with no citations. Malformed successful output fails closed and is not returned to the model.
-    O[OpenCode tool] -->|bounded subprocess| D[DKS query]
+    accDescr: OpenCode routes only broad configured-project questions to one bounded DKS attempt. Valid project- and revision-compatible citation output becomes an available untrusted metadata envelope. Recognized operational failure or timeout becomes sanitized typed unavailability with no citations. Other work goes directly to authoritative source inspection.
+    R[Routing check] -->|broad configured project| O[OpenCode tool]
+    R -->|exact, fixed, unconfigured, or stale| S[Authoritative source inspection]
+    O -->|one shared five-second budget| D[DKS query]
     D -->|valid citations| V[Validate metadata]
     V --> A[Available envelope]
     D -->|recognized failure or timeout| U[Unavailable envelope without citations]
+    U --> S
     D -->|malformed success| F[Fail closed]
 ```
 
-**Text Equivalent:** OpenCode runs DKS inside the existing subprocess deadline and
-output cap. Valid project-scoped citation metadata is validated and returned as
-available untrusted data. Recognized operational failure or timeout becomes a
-sanitized unavailable envelope with no citations. A malformed successful response
-fails closed without exposing its payload.
+**Text Equivalent:** OpenCode sends only broad questions for a configured project
+to one DKS attempt under a shared five-second budget and output cap. Exact, fixed,
+unconfigured, and stale work goes directly to authoritative inspection. Valid
+project- and revision-compatible citation metadata is returned as available
+untrusted data. Recognized operational failure or timeout becomes sanitized
+unavailability and source inspection continues. A malformed or incompatible
+successful response fails closed without exposing its payload.
 
 ## Gate Ledger
 
@@ -126,5 +165,6 @@ fails closed without exposing its payload.
 ## Non-Goals
 
 - Repairing upstream parallel tool-batch finalization or system-message rendering.
-- Searching another DKS project or filesystem when retrieval is unavailable.
+- Automatic DKS retry or searching another DKS project when retrieval is unavailable.
+- Using DKS for exact-path or fixed-commit inspection.
 - Returning governed private result bodies, raw diagnostics, or lock-holder data.
