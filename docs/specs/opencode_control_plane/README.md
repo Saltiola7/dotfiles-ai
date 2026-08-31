@@ -144,6 +144,15 @@
 | Scope | Correct base and Fast GPT-5.6 Sol metadata to the provider's 1,050,000 context, 922,000 input, and 128,000 output limits |
 | Overrides | Preserve the 65,536-token recent tail and inherit OpenCode's automatic trigger, 20,000-token safety reserve, pruning, and turn defaults |
 
+### OCP-49 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: nondeterministic Herdr focus can place an implementation session in an unrelated project workspace |
+| Delivery intent | Deploy the corrected managed launcher, verify cross-focus workspace affinity, and deliver a draft pull request |
+| Scope | Shared ordinary and Initiative DBSCTR launch placement, fork fallback, fail-closed caller identity, focused regressions, and isolated live smoke |
+| Overrides | Create a new tab in the live coordinator workspace; never use UI focus as fallback; do not move or close existing misplaced sessions |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -716,6 +725,13 @@ Plan continues to deny `dbsctr_begin` and returns a Build Handoff. Direct
 destructive operations, external writes, deployment, DVC push, and non-DBSCTR
 Git push retain their existing permission boundaries. Optional Herdr launch
 remains explicit through `launch=true` and never becomes lifecycle authority.
+
+Given any ordinary or Initiative DBSCTR launch is invoked from a Herdr-managed
+OpenCode pane, when the shared launcher creates its Build tab, then it resolves
+the live caller pane and creates one new tab explicitly in that pane's workspace.
+Herdr UI focus never selects the destination. Missing or mismatched caller
+workspace identity fails before a tab can be retained; existing sessions are not
+moved or closed automatically.
 
 ### Initiative slice launch
 

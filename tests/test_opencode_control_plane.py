@@ -702,11 +702,12 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
         "#!/bin/sh\nprintf 'CALL\\nCWD:%s\\n' \"$(pwd)\" >> \"$HERDR_LOG\"\n"
         "printf '<%s>\\n' \"$@\" >> \"$HERDR_LOG\"\n"
         "case \"$1 $2\" in\n"
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') [ \"$HERDR_CURRENT_MISSING\" = 1 ] && printf '{}\\n' || printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') [ \"$HERDR_MALFORMED_TAB\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"bad id\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"bad pane\",\"workspace_id\":\"w1\"}}}\\n' || { [ \"$HERDR_WORKSPACE_MISMATCH\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"},\"root_pane\":{\"pane_id\":\"w2:p1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n'; } ;;\n"
         "  'agent start') [ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }; "
         "[ \"$HERDR_NOT_READY\" = 1 ] && { printf 'agent_not_ready\\n' >&2; exit 1; }; "
         "[ \"$HERDR_MALFORMED\" = 1 ] && { printf '{}\\n'; exit 0; }; "
-        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "[ \"$HERDR_AGENT_MISMATCH\" = 1 ] && printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
         "  'agent get') [ \"$HERDR_AGENT_EXISTS\" = 1 ] || exit 1; "
         "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         "  'tab close') : ;;\n"
@@ -745,8 +746,9 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
                               capture_output=True, check=True)
     assert json.loads(launched.stdout)["herdr"] == "launched"
     assert herdr_log.read_text().splitlines() == [
+        "CALL", f"CWD:{ROOT}", "<pane>", "<current>", "<--current>",
         "CALL", f"CWD:{ROOT}", "<tab>", "<create>", "<--cwd>", f"<{cycle}>",
-        "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
+        "<--workspace>", "<w1>", "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
         "CALL", f"CWD:{ROOT}", "<agent>", "<start>",
         f"<dbsctr-x-touch-nope-{hashlib.sha256(str(cycle).encode()).hexdigest()[:8]}>",
         "<--kind>", "<opencode>", "<--pane>", "<w1:p1>", "<-->", f"<{cycle}>",
@@ -800,6 +802,38 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     assert json.loads(real_pending.stdout)["herdr"] == "launch_pending"
     assert "<tab>\n<close>" not in herdr_log.read_text()
 
+    herdr_log.write_text("")
+    missing_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_CURRENT_MISSING": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(missing_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<create>" not in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_WORKSPACE_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w2:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_AGENT_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_tab = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED_TAB": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_tab.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<start>" not in herdr_log.read_text()
+
 
 def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_path):
     bin_dir = tmp_path / "bin"
@@ -813,8 +847,9 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
     (bin_dir / "herdr").write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_LOG"\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text(
@@ -847,6 +882,7 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
     )
     assert json.loads(fallback.stdout)["herdr_session_mode"] == "fresh_fallback"
     assert log.read_text().count("<tab>\n<create>") == 2
+    assert log.read_text().count("<--workspace>\n<w1>") == 2
     assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
     assert f"<-->\n<{cycle}>" in log.read_text()
     log.write_text("")
@@ -1847,12 +1883,13 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_CALLS"\n'
         'if [ "$1 $2" = "agent start" ] && [ -n "$HERDR_START_BYTES" ]; then printf "%s" "$*" | wc -c > "$HERDR_START_BYTES"; fi\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         "  'agent prompt') [ \"$HERDR_PROMPT_FAIL\" = 1 ] && { printf 'agent_blocked\\n' >&2; exit 1; }; "
-        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         "  'agent get') [ \"$HERDR_AGENT_GONE\" = 1 ] && exit 1; "
-        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
@@ -1908,6 +1945,8 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert "<--session>\n<parent-session>\n<--fork>" in log
     assert digest not in log
     assert "<agent>\n<start>" in log and "<agent>\n<prompt>" in log
+    assert "<pane>\n<current>\n<--current>" in log
+    assert "<tab>\n<create>\n<--cwd>\n<" + str(cycle) + ">\n<--workspace>\n<w1>" in log
     assert "<--prompt>" not in log
     assert int(herdr_start_bytes.read_text()) < 1024
 
@@ -1932,8 +1971,8 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
              "HERDR_START_BYTES": str(herdr_start_bytes)},
         text=True, capture_output=True, check=True,
     )
-    assert json.loads(lost_agent.stdout)["herdr"].startswith("launch_failed:")
-    assert "<tab>\n<close>\n<w1:t1>" in herdr_calls.read_text()
+    assert json.loads(lost_agent.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
 
     calls.write_text("")
     herdr_calls.write_text("")
