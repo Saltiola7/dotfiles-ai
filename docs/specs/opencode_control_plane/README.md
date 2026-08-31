@@ -1031,13 +1031,24 @@ a fallback or alias.
 
 ### DKS query availability
 
-`dks_context` settles within its existing 35-second subprocess deadline. Valid
-project-scoped citation metadata is returned as explicitly untrusted
-`availability=available` data. Recognized operational failure and timeout return
-sanitized typed unavailability without citations, raw output, paths, process or
-lock identities, or source content. Malformed successful output remains a
-fail-closed contract error. Typed unavailability never authorizes automatic
-cross-project or filesystem search.
+`dks_context` is one optional accelerator for broad questions in a configured
+project. Exact-path, fixed-commit, unconfigured-project, and stale-revision work
+proceeds directly to authoritative source inspection. One attempt shares one
+five-second monotonic deadline across routing, subprocess, privacy, lock,
+embedding, database, and ranking work. Valid project- and revision-compatible
+citation metadata is returned as explicitly untrusted `availability=available`
+data. Recognized operational failure and timeout return sanitized typed
+unavailability without citations, raw output, paths, process or lock identities,
+or source content, then source inspection continues without automatic DKS retry.
+Malformed or incompatible successful output remains a fail-closed contract error.
+
+Automatic DKS routing remains enabled only while current paired fixed-source
+evidence shows no correctness regression or added tool errors, p95 below five
+seconds, and at least ten percent lower median completion time than direct source
+inspection. Failure disables automatic routing without retiring the projection or
+manual CLI. The complete contracts are in
+[`features/dks-query-recovery.md`](features/dks-query-recovery.md) and
+[`features/dks-routing-value-gate.md`](features/dks-routing-value-gate.md).
 
 ### History and Incident query availability
 
@@ -1066,6 +1077,7 @@ hosted subagent prompts. Invalid successful or cross-mode output fails closed.
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 | Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
 | DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
+| DKS routing value | Paired fixed-source DKS-assisted versus direct inspection, exact identity, sanitized metrics, thresholds, and fail-closed disablement | Deterministic harness fixtures plus at least five real post-warmup pairs | Required before automatic DKS routing activation |
 | History/Incident query availability | Mode-specific aggregate, summary, and detailed validation; timeout cleanup; unavailable-without-result; hosted privacy | Focused Bun-backed process fixtures plus fresh local smoke | Required when History/Incident adapters change |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |

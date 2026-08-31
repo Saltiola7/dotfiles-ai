@@ -20,8 +20,8 @@ ledger is [`MANIFEST.json`](MANIFEST.json).
 
 | Context | Responsibility | Dependency |
 |---|---|---|
-| `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, History/Incident query reduction, quality-equivalence policy, and safe concurrency | None |
-| `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, and bounded DKS, History, and Incident availability | Lifecycle timing contract |
+| `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, History/Incident query reduction, dedicated knowledge privacy isolation, quality-equivalence policy, and safe concurrency | None |
+| `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, optional DKS routing and value activation, and bounded DKS, History, and Incident availability | Lifecycle timing contract |
 | `dotfiles_ai_distribution` | Immutable host/VM capture, aggregation, retention, and trend operation | OpenCode adapter |
 | `dbsctr_knowledge_store` | DKS query lock contention and bounded fast fallback | None |
 
@@ -37,9 +37,11 @@ The user approved this complete context map on 2026-08-29.
 | `dks-fast-fallback` | `build` | DKS contention avoids repeated blocking failure | None |
 | `safe-cycle-concurrency` | `build` | Proven-independent real-cycle work overlaps after benchmark qualification | `federated-cycle-trends` |
 | `performance-audit-workflow` | `build` | Reproducible report-only audit and ranked optimization portfolio | `lifecycle-runtime-summary` |
-| `runtime-query-recovery` | `build` | OpenCode returns typed DKS availability within its existing deadline | `dks-fast-fallback` |
+| `runtime-query-recovery` | `build` | OpenCode attempts project- and revision-compatible DKS once within five seconds, then returns typed availability and continues | None |
 | `history-incident-query-core` | `build` | Page-first aggregate History and bounded Incident summaries | None |
 | `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `runtime-query-recovery` |
+| `knowledge-privacy-lock-isolation` | `build` | DKS privacy guarding no longer contends with unrelated review-ledger work | None |
+| `dks-routing-value-gate` | `build` | Automatic DKS routing remains enabled only when paired evidence beats direct source inspection | `runtime-query-recovery`, `dks-fast-fallback`, `knowledge-privacy-lock-isolation` |
 | `performance-audit-v2` | `build` | Deterministic audit reduction, aggregate evidence, and verified source-absence handling | `performance-audit-workflow`, `history-incident-runtime-recovery` |
 | `validation-evidence-reuse` | `build` | Exact unchanged validation is reused across applicable gates | `performance-audit-workflow` |
 | `agent-context-budget` | `build` | Conditional subagents, reviewer enforcement, and bounded context growth | `performance-audit-workflow` |
@@ -144,13 +146,25 @@ remain local.
 DKS replacement builds retain separate writer serialization while query-visible
 activation locks remain short. Queries continue against the prior policy-valid
 active projection until replacement activation, and an activation that invalidates
-quality policy restores baseline ranking atomically. OpenCode maps exhausted or
-unsafe retrieval to bounded typed unavailability within the existing 35-second
-deadline; it never turns unavailable retrieval into citations or exposes raw
-database, process, path, or error details.
+quality policy restores baseline ranking atomically. OpenCode uses DKS only as an
+optional accelerator for broad questions in a configured project. Exact-path,
+fixed-commit, unconfigured-project, unavailable, or stale-revision work proceeds
+directly to authoritative source inspection. One attempt shares one five-second
+monotonic deadline across every internal stage; OpenCode maps exhausted or unsafe
+retrieval to bounded typed unavailability and never retries automatically, turns
+unavailable retrieval into citations, or exposes raw database, process, path, or
+error details.
 
 The DKS CLI preserves successful query JSON. Exhausted activation contention has
 one machine boundary: exit `75`, empty stdout, and stderr exactly
 `projection_busy`. Lock acquisition and one optional policy repair share a
 two-second deadline. OpenCode, not DKS, owns the later model-visible availability
 envelope.
+
+DKS privacy guarding uses a dedicated lifecycle privacy lock. Unrelated review,
+History, Incident, and capture work cannot block a query, while forget and expiry
+mutations still cannot race cited result completion. Automatic routing remains
+active only after a paired fixed-source benchmark shows no correctness regression
+or added tool errors, p95 below five seconds, and at least ten percent lower median
+completion time than direct authoritative inspection. A failed value gate disables
+automatic routing without retiring the projection or manual CLI.

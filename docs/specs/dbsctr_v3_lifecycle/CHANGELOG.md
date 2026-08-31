@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - Knowledge Privacy Lock Isolation Discovery
+
+- Separated DKS privacy guarding from unrelated review-ledger integrity work while
+  preserving exclusive forget and expiry serialization through cited result
+  completion.
+- Required one canonical dual-lock order, bounded shared acquisition, sanitized
+  timing evidence, and unchanged tombstone, rollback, and non-resurrection rules.
+- This change establishes durable authority only; implementation, deployment, and
+  live contention evidence remain separately gated.
+
 ## 2026-08-30 - History/Incident Core Readiness Repair
 
 - Bound aggregate History and Incident summary modes to exact version-1 JSON
