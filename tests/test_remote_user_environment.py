@@ -41,6 +41,7 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "asset=atuin-x86_64-unknown-linux-musl.tar.gz" in atuin
     assert "5772df4121174a9f0b71c17260727794fde22a71b5a3ee5ac07b227eebcbfa9a" in atuin
     assert "codex-x86_64-unknown-linux-musl" in codex
+    assert '"$archive_binary"' in codex
     assert "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6" in defaults
     assert "opencode-linux-x64.tar.gz" in defaults
     assert "linux_amd64_asset_url" in opencode

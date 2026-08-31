@@ -337,6 +337,22 @@ def test_archive_extracts_only_the_exact_regular_executable(tmp_path: Path) -> N
     assert destination.read_bytes() == b"codex\n"
 
 
+def test_archive_accepts_an_explicit_x86_64_executable(tmp_path: Path) -> None:
+    helper = load_archive()
+    expected = "codex-x86_64-unknown-linux-musl"
+    archive = tmp_path / "codex.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        member = tarfile.TarInfo(expected)
+        member.mode = 0o755
+        member.size = 6
+        bundle.addfile(member, io.BytesIO(b"codex\n"))
+
+    destination = tmp_path / "codex"
+    helper.extract(archive, destination, expected)
+
+    assert destination.read_bytes() == b"codex\n"
+
+
 @pytest.mark.parametrize("name,kind", [
     ("../escape", tarfile.REGTYPE),
     ("/absolute", tarfile.REGTYPE),
