@@ -424,6 +424,8 @@ def test_dks003_source_profile_is_default_deny_and_byte_exact() -> None:
     assert dks.accepted_source_path("run_onchange_after_example.sh.tmpl", profile)
     assert not dks.accepted_source_path("private_dot_config/app/.env", profile)
     assert not dks.accepted_source_path("docs/_archive/old.md", profile)
+    assert not dks.accepted_source_path("docs/tickets/context=test/T-1.md", profile)
+    assert not dks.accepted_source_path("data/backlog/tickets/context=test/T-1.md", profile)
     assert not dks.accepted_source_path("unknown/new.py", profile)
     assert not dks.accepted_source_path("dot_local/bin/unlisted", profile)
     deployed = json.loads((ROOT / "dot_local/share/dbsctr-knowledge/source-profile.json").read_text())
@@ -915,22 +917,15 @@ def test_silver_suite_is_frozen_grounded_and_not_human_evidence(tmp_path: Path, 
         dks.load_silver_suite(path, {"repository": str(tmp_path), "remote": "origin"})
 
 
-def test_committed_silver_suite_is_grounded_at_the_frozen_revision() -> None:
+def test_committed_silver_suite_with_legacy_ticket_citations_is_rejected() -> None:
     dks = load_dksctl()
     profile = ROOT / "dot_local/share/dbsctr-knowledge/source-profile.json"
     project = {"repository": str(ROOT), "remote": "https://github.com/Saltiola7/dotfiles-ai",
                "source_profile_file": str(profile),
                "source_profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest()}
     suite = ROOT / "docs/specs/dbsctr_knowledge_store/benchmarks/DKS-005.silver.json"
-    loaded, digest = dks.load_silver_suite(suite, project)
-    assert loaded["evidence_class"] == "silver" and len(loaded["questions"]) == 100
-    prompt_root = ROOT / "docs/specs/dbsctr_knowledge_store/benchmarks"
-    assert loaded["generator"]["prompt_sha256"] == hashlib.sha256(
-        (prompt_root / "DKS-005.generator-prompt.txt").read_bytes()).hexdigest()
-    assert all(item["prompt_sha256"] == hashlib.sha256(
-        (prompt_root / "DKS-005.review-prompt.txt").read_bytes()).hexdigest()
-               for item in loaded["reviewers"])
-    assert digest == "65fa72267e73df5fd18e63c9a484313208cbf8a6576eab06726d52a9219acb42"
+    with pytest.raises(ValueError, match="silver suite citation is invalid"):
+        dks.load_silver_suite(suite, project)
 
 
 def test_invalid_silver_trial_atomically_restores_baseline(monkeypatch) -> None:
@@ -1455,9 +1450,11 @@ def test_dksctl_reads_exact_git_blobs_not_dirty_worktree(tmp_path: Path) -> None
     git(tmp_path, "remote", "add", "origin", "git@github.com:Saltiola7/dotfiles-ai.git")
     (tmp_path / "docs/specs/example").mkdir(parents=True)
     (tmp_path / "docs/tickets/context=example").mkdir(parents=True)
+    (tmp_path / "data/backlog/tickets/context=example").mkdir(parents=True)
     (tmp_path / "docs/specs/_archive").mkdir(parents=True)
     (tmp_path / "docs/specs/example/README.md").write_bytes(b"# Spec\n\nBody\n")
     (tmp_path / "docs/tickets/context=example/EX-1.md").write_bytes(b"# Ticket\r\n\r\nWork\r\n")
+    (tmp_path / "data/backlog/tickets/context=example/EX-2.md").write_bytes(b"# PM\n\nIgnored\n")
     (tmp_path / "docs/specs/_archive/old.md").write_text("old\n")
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-m", "fixture")
@@ -1468,10 +1465,7 @@ def test_dksctl_reads_exact_git_blobs_not_dirty_worktree(tmp_path: Path) -> None
     dirty = dks.git_documents(tmp_path, commit, "https://github.com/Saltiola7/dotfiles-ai")
 
     assert clean == dirty
-    assert [item["path"] for item in clean] == [
-        "docs/specs/example/README.md",
-        "docs/tickets/context=example/EX-1.md",
-    ]
+    assert [item["path"] for item in clean] == ["docs/specs/example/README.md"]
     assert clean[0]["data"] == b"# Spec\n\nBody\n"
     source = DKSCTL.read_text()
     assert '"GIT_NO_REPLACE_OBJECTS": "1"' in source
@@ -1575,8 +1569,8 @@ def test_dks_graph_identity_link_resolution_and_rrf_are_stable() -> None:
     assert [item["id"] for item in ranked] == ["a", "c", "b"]
     assert ranked[0]["ranks"] == {"lexical": 2, "vector": 1}
 
-    data = b"---\nid: EX-1\ndepends_on:\n  - EX-0\nowns:\n  - docs/specs/a.md\n---\n# Outcome\n\n[Spec](../../specs/a.md)\n"
-    documents = [{"path": "docs/tickets/context=example/EX-1.md", "blob_id": "a" * 40, "data": data},
+    data = b"# Delivery\n\n[Spec](a.md)\n"
+    documents = [{"path": "docs/specs/delivery.md", "blob_id": "a" * 40, "data": data},
                  {"path": "docs/specs/a.md", "blob_id": "b" * 40, "data": b"# Spec\n\nBody\n"}]
     chunks = []
     for document in documents:
@@ -1584,10 +1578,9 @@ def test_dks_graph_identity_link_resolution_and_rrf_are_stable() -> None:
             chunk.update(path=document["path"], blob_id=document["blob_id"])
             chunks.append(chunk)
     nodes, edges = dks.build_graph("dotfiles-ai", "c" * 40, documents, chunks)
-    assert {edge["edge_type"] for edge in edges} >= {"contains", "depends_on", "owns", "links_to"}
-    assert {node["kind"] for node in nodes} >= {"chunk", "heading", "path", "ticket"}
-    assert all(edge["end_byte"] > edge["start_byte"] for edge in edges
-               if edge["edge_type"] in {"depends_on", "owns"})
+    assert {edge["edge_type"] for edge in edges} >= {"contains", "links_to"}
+    assert {node["kind"] for node in nodes} >= {"chunk", "heading", "path"}
+    assert "ticket" not in {node["kind"] for node in nodes}
 
 
 def test_dks_heading_identity_is_per_occurrence_not_per_chunk() -> None:
@@ -2005,10 +1998,9 @@ def test_git_and_graph_freshness_bind_complete_identities(tmp_path: Path) -> Non
                                   {"graphify_producer": str(producer)}, "dotfiles-ai", project, commit)
 
 
-def test_canonical_tickets_replace_context_backlogs_in_deployed_skills() -> None:
+def test_lifecycle_skills_do_not_consume_pm_tickets() -> None:
     discovery = (ROOT / "dot_agents/skills/discovery/SKILL.md").read_text()
     dbsctr = (ROOT / "dot_agents/skills/dbsctr/SKILL.md").read_text()
-    assert "Every cycle reviews README, BACKLOG, and CHANGELOG" not in discovery
-    assert "Every cycle reviews README, affected canonical tickets, and CHANGELOG" in discovery
-    assert "update docs/backlog/changelog" not in dbsctr
-    assert not list((ROOT / "docs/specs").glob("*/BACKLOG.md"))
+    assert "Every cycle reviews README and CHANGELOG" in discovery
+    assert "ticket" not in dbsctr.lower()
+    assert "never creates, reads, updates, or requires PM Kernel tickets" in discovery

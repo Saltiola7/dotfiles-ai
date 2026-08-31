@@ -39,6 +39,7 @@ not source text, vectors, prompts, or credentials.
 | Failure | Action |
 |---|---|
 | `busy` | Let the active run finish; the next interval retries. Investigate only if the lock remains after its owning process exits. |
+| `projection_busy` | Retry the read later. Query activation and one optional policy repair share a two-second deadline; this temporary result contains no citations. Do not bypass policy locks or search another project. |
 | `source_ref_unavailable` | Verify repository, fixed HTTPS remote, configured full remote ref, and network access. Never substitute a worktree revision. |
 | `git_stale`, `code_stale`, `graph_stale`, `authority_stale` | Run one manual reconcile. A failed channel retains prior rows but incompatible code/graph rows stay out of current default retrieval. |
 | `authority_unavailable` | Repair the typed DBSCTR export/privacy boundary. Unavailable-family snapshots are retained but not active. |

@@ -13,26 +13,32 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
 
 ## Scan
 
-1. Call `dbsctr_review` for the first page and retain its `snapshot`, session
+1. Call `dbsctr_incident_scan` with global scope. Present its sections in this
+   exact order: Registered Incidents, Incident Signals, then Review Candidates.
+   Keep recovered Signals below unrecovered Signals. Do not promote, dismiss,
+   update, resolve, or forget Incident state during ordinary review.
+2. Call `dbsctr_review` for the first Review Candidates page and retain its `snapshot`, session
    ceiling, part ceiling, database digest, and exclusion digest. Pass that same snapshot and both row ceilings,
    plus both digests, with
    every continuation until it is empty. Continue when a page
    has no candidates but still has a continuation. Start from V3.3
    isolated-worktree adoption and include DBSCTR, Discovery, QA, parent, child,
    fork, reviewer, and builder sessions selected by the helper.
-2. The helper orders each page by blocked, abandoned, seven-day dormant
+3. The helper orders each page by blocked, abandoned, seven-day dormant
    attention, completed, active, and unknown urgency. Report every returned
    cycle state independently; never collapse multiple cycles into one state or
    treat dormant attention as lifecycle authority. Candidates without a matched
    Cycle Record are unknown. Never infer state from session prose. Treat
    cross-cycle cost attribution as a caveat.
-3. Use only returned sanitized metadata. Do not quote, copy, or persist a raw
+4. Use only returned sanitized metadata. Incident Evidence is the sole exception:
+   use only the bounded credential-redacted evidence returned by the typed
+   Incident scan. Do not quote, copy, or persist a raw
    transcript or raw transcript excerpt, tool payload, machine path, email
    address, credential, or URL.
-4. Rank findings by correctness and safety, then latency and cost, then
+5. Rank findings by correctness and safety, then latency and cost, then
    completion reliability. Include cycle scorecards, trend comparisons,
    uncertainty, and bounded improvement proposals.
-5. Optional user notes may inform a finding but are not persisted verbatim.
+6. Optional user notes may inform a finding but are not persisted verbatim.
 
 ## Complete
 

@@ -10,10 +10,10 @@ have not been performed.
 
 | Field | Value |
 |---|---|
-| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, durable Herdr host identity, external-volume health handling, native Herdr installation, and status-bar polling contracts |
+| Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, durable Herdr host identity, external-volume health handling, native Herdr installation, exact OpenCode/Codex recovery, and status-bar polling contracts |
 | Languages/frameworks | Bash, Zsh, C, Swift, ServiceManagement, Go templates, app bundles, launchd plists, and Markdown |
 | Applicable modules | Security |
-| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, SMAppService, Full Disk Access, chezmoi, 1Password CLI, and Keychain |
+| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, SMAppService, Full Disk Access, OpenCode, Codex CLI, managed Fedora Lima guests, chezmoi, 1Password CLI, and Keychain |
 | Public compatibility | Shell startup remains non-blocking; optional authentication does not become a startup dependency |
 | Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs. Authoritative OpenCode state remains on the configured external volume; internal health metadata contains no prompt or session content. |
 | Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
@@ -49,7 +49,9 @@ have not been performed.
 
 ## Domain
 
-Bounded context: shell authentication startup for interactive panes, agents, and status-bar plugins.
+Bounded context: shell authentication startup for interactive panes, agents, and
+status-bar plugins. Managed Codex state and recovery behavior is specified in
+[`codex-cli.md`](codex-cli.md).
 
 Entities:
 - `LoginShell`: shell started by terminal, Herdr pane, or SSH.
@@ -64,6 +66,8 @@ Entities:
 - `ExternalVolumeHealthController`: host component that validates the expected volume, detects access degradation, blocks unsafe new work, and confirms recovery without restarting active processes.
 - `NativeHerdrRelease`: reviewed macOS Herdr version, protocol, asset URL, and SHA-256 pin installed under `~/.local/bin`.
 - `OpenCodeSession`: persisted OpenCode identity resumed in its recorded `HerdrPane`.
+- `CodexSession`: supported Codex thread identity resumed in its recorded `HerdrPane` without reading private storage.
+- `CodexHome`: managed CLI state root distinct from desktop `~/.codex` and every guest runtime.
 - `ClockifyPoller`: SketchyBar plugin that checks current Clockify timer.
 
 Value objects:
@@ -86,6 +90,8 @@ Events:
 - `OnePasswordCommandTimedOut`
 - `HerdrPaneRestored`
 - `OpenCodeSessionResumed`
+- `CodexSessionCaptured`
+- `CodexSessionResumed`
 - `NativeHerdrReleaseApplied`
 - `HerdrLiveHandoffCompleted`
 - `HerdrResponsibilityChanged`

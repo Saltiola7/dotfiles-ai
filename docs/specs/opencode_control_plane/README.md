@@ -117,6 +117,42 @@
 | Scope | Remove generic XDG paths from the Herdr LaunchAgent while preserving explicit state roots and OpenCode wrapper routing |
 | Overrides | Existing panes remain active; the managed plist takes effect at the next natural server start; no data moves or permissions change |
 
+### OCP-40 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: unrestricted coordinator Bash can mutate local or external systems and bypass the structured `docs/**` edit boundary |
+| Delivery intent | Deploy the managed Discovery coordinator permission and deliver a draft pull request |
+| Scope | Interactive local CLI, API, notebook-kernel, and private-system investigation during single-context and Initiative Discovery |
+| Overrides | Native CLI/API access is preferred over browser automation; source edits remain out of role, and external, destructive, costly, or irreversible actions still require explicit user confirmation |
+
+### OCP-43 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Routine: changes only reversible managed compaction retention |
+| Delivery intent | Merge source through a pull request without applying managed configuration |
+| Scope | Preserve 65,536 recent tokens verbatim after automatic compaction |
+| Overrides | Optimize the global budget for the normal Sol route; keep OpenCode trigger, pruning, and turn defaults |
+
+### OCP-45 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: longer active Sol context can materially increase latency and token cost |
+| Delivery intent | Deliver a draft pull request, merge after explicit approval, then apply and verify the managed OpenCode target |
+| Scope | Correct base and Fast GPT-5.6 Sol metadata to the provider's 1,050,000 context, 922,000 input, and 128,000 output limits |
+| Overrides | Preserve the 65,536-token recent tail and inherit OpenCode's automatic trigger, 20,000-token safety reserve, pruning, and turn defaults |
+
+### OCP-49 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: nondeterministic Herdr focus can place an implementation session in an unrelated project workspace |
+| Delivery intent | Deploy the corrected managed launcher, verify cross-focus workspace affinity, and deliver a draft pull request |
+| Scope | Shared ordinary and Initiative DBSCTR launch placement, fork fallback, fail-closed caller identity, focused regressions, and isolated live smoke |
+| Overrides | Create a new tab in the live coordinator workspace; never use UI focus as fallback; do not move or close existing misplaced sessions |
+
 ## Overview
 
 The OpenCode control plane owns global providers, agents, commands, permissions,
@@ -134,8 +170,8 @@ weekly scheduling, private report persistence, and operational deployment.
 |---|---|---|---|---|
 | Boundary | required: provider-affine control flowchart | Which surfaces own routing, permissions, lifecycle, and provider selection? | Overview and Contracts | Control-plane owner; ownership or permission changes |
 | Interaction | required: provider-affine control flowchart | How do Plan, Build, and bounded subagents hand work off? | Plan and Build behavior | Control-plane owner; handoff or delegation changes |
-| State | required: optional centralized-state flowchart | Which durable paths move when a state root is configured, and what remains native by default? | OCP-32 behavior and contracts | Control-plane owner; state-root or persistence changes |
-| Data/trust | required: provider-affine control flowchart | Where are local, external, and provider boundaries enforced? | Permission and provider-affinity contracts | Control-plane owner; trust boundary changes |
+| State | required: optional centralized-state flowchart and lifecycle Incident state diagram | Which durable paths and private Incident states change, and what remains native by default? | OCP-32 behavior and V3.39 lifecycle contracts | Control-plane owner; state-root or Incident persistence changes |
+| Data/trust | required: provider-affine control flowchart and lifecycle Incident sequence | Where are local, redacted model-visible, external, and provider boundaries enforced? | Permission, provider-affinity, and V3.39 Incident contracts | Control-plane owner; trust boundary changes |
 | Schema | not_applicable: JSON configuration and typed adapter schemas remain authoritative | - | Managed configuration and tests | Control-plane owner |
 | Dependency/deployment | required: provider-affine control flowchart | Which managed surfaces are loaded into OpenCode? | Engineering Profile and File contracts | Control-plane owner; loaded surface changes |
 | Quantitative | not_applicable: evaluation metrics are persisted evidence, but this specification makes no comparative decision from a current dataset | - | Evaluation contracts | Control-plane owner |
@@ -147,32 +183,58 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Thin commands select native, dedicated R&D, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Only the dedicated build-rnd primary may request a ledger-validated VM implementation handoff; ordinary Build and every other agent deny it. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
+    P -->|Scheduled R&D only| BR[build-rnd primary]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
+    P -->|Discovery command or tab| D[Discovery Coordinator]
+    D -->|Interactive investigation| LCLI[Local CLI, APIs, and notebook kernels]
+    D -->|Policy-gated, locally filtered queries| E
+    D -->|Structured edits| Q[Durable docs artifacts]
+    D -->|Privacy-safe public facts| R[Scout]
     B -->|Generic bounded work| X[Inheriting subagents]
     G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
     C -->|Bedrock only| A[Bedrock subagents]
     B --> S[Shared DBSCTR, Discovery, and QA skills]
+    BR -->|Ledger-validated VM handoff only| T
     G --> S
     C --> S
+    D -->|Approved Initiative launch| T
+    B -->|Approved Initiative launch| T
+    G -->|Approved Initiative launch| T
+    C -->|Approved Initiative launch| T
+    U -->|Confirm fork-defined incident| INC[Incident skill]
+    INC -->|Bounded credential-redacted evidence| T
     S --> T[Typed local adapters]
     T -->|Local validated effects| W[Worktree and private local state]
     T -->|Permission required| E[External or destructive boundary]
     B -->|Desktop approval required| M[Official 1Password Environment MCP]
 ```
 
-**Text Equivalent:** Thin commands select a native or provider-affine primary.
+**Text Equivalent:** Thin commands select a native, Discovery, or provider-affine primary.
 Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents. `build-gpt` routes read-only Explore to Luna, Scout and
+inheriting subagents. A separate `build-rnd` primary runs only managed
+`/dbsctr-improve` sessions and alone may request the ledger-validated VM handoff;
+ordinary Build and every other agent deny that launcher. The Discovery Coordinator may investigate through unrestricted
+local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
+through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy-safe
+public facts. Governed private result bodies remain local; only locally filtered,
+privacy-safe metadata enters model context. Unrestricted Discovery Bash can reach
+the external boundary under prompt and standing policy rather than OpenCode command
+matching. `build-gpt` routes read-only Explore to Luna, Scout and
 Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
-lifecycle skills and typed local adapters. Validated local effects may reach the
-worktree or private local state; external or destructive effects remain
-permission-gated. Host Build may request official 1Password Environment
+lifecycle skills and typed local adapters. The Discovery Coordinator and primary
+Build agents may request an approved Initiative launch; Plan and all subagents
+must hand it off. Validated local effects may reach the worktree or private local
+state; external or destructive effects remain
+permission-gated for Build and confirmation-gated by policy for unrestricted
+Discovery Bash. An operator-confirmed Incident fork may send only bounded,
+credential-redacted Incident Evidence through typed adapters to the active model
+and private local state. Host Build may request official 1Password Environment
 operations, but the desktop app retains approval and the MCP never returns secret
 values or manages Password Manager vaults. The control-plane owner updates this view when routing,
 delegation, loaded skills, adapters, permissions, or provider boundaries change.
@@ -260,6 +322,7 @@ database. Any failed guest smoke check restores that backup.
 | Integration Evidence | Tests, contracts, diff coherence, and downstream checks; not a generic request for the model to review itself again. |
 | Evaluation Cohort | Five comparable completed cycles evaluated under one versioned rubric without automatic remediation authority. |
 | Scoped Runtime Environment | Component-specific state variables exported only to the runtime that owns their paths, rather than inherited by every child process. |
+| Discovery Coordinator | User-facing primary that investigates and coordinates Discovery, persists durable `docs/**` artifacts, and requests exact approval before launching a ready slice. |
 
 ## Behavior
 
@@ -273,6 +336,18 @@ the command uses that primary and does not force OpenAI.
 Given a Plan primary, edits are denied and Bash requires approval. Given a Build
 primary, local commands run by default while known external, destructive,
 deployment, publishing, and Git-write commands require approval.
+
+### Interactive Discovery permissions
+
+Given the Discovery Coordinator needs live local or private-system evidence, when
+it investigates a bounded question, then unrestricted Bash is available for the
+native CLI, API, or notebook-kernel path. It does not use browser automation as a
+shell proxy when a direct interface exists. Its structured edit permission remains
+limited to `docs/**`, but Bash is not a filesystem or side-effect sandbox; external,
+destructive, costly, irreversible, and material scope-expansion actions retain the
+user-confirmation boundary. Governed private result bodies remain local and only
+locally filtered, privacy-safe metadata or bounded typed-adapter output may enter
+hosted-model context.
 
 ### Scoped centralized state
 
@@ -404,6 +479,29 @@ Given managed defaults are rendered, `small_model` resolves to GPT-5.6 Luna for
 automatic title generation. This setting does not claim to route compaction,
 summary generation, implementation, or review through Luna.
 
+### Managed compaction retention
+
+Given managed defaults are rendered, automatic compaction preserves up to
+65,536 tokens from the most recent turns verbatim. OpenCode continues to own the
+automatic trigger, safety reserve, pruning, and turn-count defaults. Older
+conversation content remains summary-backed, so durable specifications and cycle
+evidence remain authoritative for requirements and raw evidence outside the
+recent tail.
+
+Given either `openai/gpt-5.6-sol` or `openai/gpt-5.6-sol-fast` is resolved, its
+managed provider metadata reports a 1,050,000-token context window partitioned
+into at most 922,000 input tokens and 128,000 output tokens. With OpenCode
+1.18.25's inherited 20,000-token reserve, automatic compaction begins at roughly
+902,000 input tokens instead of the stale roughly 252,000-token threshold. The
+Fast identity continues to select priority processing; model routing and
+reasoning effort do not change.
+
+Given provider metadata later becomes authoritative at or above these limits,
+the managed override may be retired after rendered and resolved configuration
+prove that removing it preserves the same limits. If the provider lowers a
+limit, managed metadata must be corrected before use rather than allowing
+requests beyond the supported boundary.
+
 Given `build-gpt` delegates bounded source discovery, `explore-openai` uses
 GPT-5.6 Luna with low reasoning effort and remains read-only. Scout and Builder
 continue to use GPT-5.6 Terra with medium effort, and Reviewer continues to use
@@ -448,9 +546,20 @@ them while compact private reviewed-ID tombstones preserve review progress.
 Candidates expose independent Cycle Record states and page-local urgency without
 inventing an aggregate state.
 
+Given `/incident` runs in an OpenCode fork, it loads the unversioned Incident
+skill and uses a read-only typed scan before asking separately to register or
+update private Incident state. Registration requires the invoking child session,
+bounded credential-redacted evidence, and operator-confirmed classification.
+The typed write grants no repository mutation or automatic remediation.
+
+Given `/dbsctr-review` scans the operational inbox, it presents registered
+Incidents and unclaimed automatic Signals before ordinary Review Candidates.
+Incident lifecycle writes remain separate from ordinary review completion and
+remain denied to Plan and subagents.
+
 ### Autonomous R&D worker
 
-Given a fresh scheduled native-Build session, when its managed worker command
+Given a fresh scheduled `build-rnd` primary session, when its managed worker command
 runs, then it applies exactly one assigned lens to all eligible global sanitized
 review evidence, compares it with the
 private improvement ledger, this repository's specs/source/tests and GitHub
@@ -467,6 +576,11 @@ then it edits only the helper-owned isolated worktree for this source and may us
 the typed claim and draft-PR delivery interfaces. Builder and read-only subagents
 remain denied those writes.
 
+Given any agent other than `build-rnd`, when it considers a VM implementation
+handoff, then `dbsctr_vm_handoff` is denied rather than probed. The tool is only
+the final approved step of `/dbsctr-improve`; it is not a dry run, capability
+probe, Initiative launcher, or ordinary host Build operation.
+
 Given no distinct finding under the assigned lens, then the worker records
 no-yield and its exact telemetry. Typed federation removes review-worker session
 families before returning ordinary-lens pages; only `review_session_governance`
@@ -482,6 +596,16 @@ uses the lowercase Herdr agent identity `dbsctr-handoff` and the managed
 OpenCode `run --agent build --interactive` contract. The Build authority remains
 hard-coded rather than caller-controlled, and handoff requires the distribution
 context's exact host/guest OpenCode version parity.
+
+Given `build-rnd` requests that handoff, before permission or VM access the
+adapter requires `DBSCTR_RND_WORKER_ID` to equal the requested worker, reads one
+authoritative worker from the ledger, and requires the invoking session,
+Discovery state, operator or autonomous authorization, Discovery report, exact
+declared paths, and autonomous readiness risk to match. Missing, placeholder,
+stale, or mismatched evidence fails without running parity or Herdr. Approval is
+bound to the resolved workspace and VM instance; after approval the adapter
+rereads the worker ledger, runs parity in one process bound to that approved
+instance, and rereads the ledger again immediately before any `limactl` call.
 
 Given a Build session remains rooted in the source checkout, typed reconciliation
 may name an isolated linked worktree. The adapter canonicalizes both paths and
@@ -545,6 +669,13 @@ and validate the returned contract before exposure. Legacy history without a
 telemetry envelope is normalized only to explicit `unavailable` fields; adapters
 never infer a value or classification.
 
+Read-only classification permits the lifecycle helper to create an owner-private
+transient aggregate capture as a derived cache. The helper owns its lock, atomic
+publication, exact source/query binding, 24-hour retention, privacy invalidation,
+and expired unreferenced cleanup. A failed create leaves no capture. This cache
+cannot change review markers, Incidents, cycles, gates, claims, or canonical
+source state and therefore does not grant a private-state mutation permission.
+
 Plan, Reviewer, Explore, Scout, and Builder agents cannot attach runtimes or
 write analytics state. Read-only analytics access and permissioned private-state
 writes remain separate tools. OpenCode adapters never duplicate helper lifecycle,
@@ -594,6 +725,30 @@ Plan continues to deny `dbsctr_begin` and returns a Build Handoff. Direct
 destructive operations, external writes, deployment, DVC push, and non-DBSCTR
 Git push retain their existing permission boundaries. Optional Herdr launch
 remains explicit through `launch=true` and never becomes lifecycle authority.
+
+Given any ordinary or Initiative DBSCTR launch is invoked from a Herdr-managed
+OpenCode pane, when the shared launcher creates its Build tab, then it resolves
+the live caller pane and creates one new tab explicitly in that pane's workspace.
+Herdr UI focus never selects the destination. Missing or mismatched caller
+workspace identity fails before a tab can be retained; existing sessions are not
+moved or closed automatically.
+
+### Initiative slice launch
+
+Given an Initiative slice has a fresh readiness receipt and exact approval, when
+the Discovery Coordinator or a native or provider-affine primary Build agent
+invokes `dbsctr_initiative_launch`, then OpenCode asks for the digest-bound launch
+and the adapter retains its repository, plan-digest, ownership, and mutation
+checks. Plan and all subagents deny the launcher. They return a handoff instead of
+probing a denied tool or substituting `dbsctr_vm_handoff`, which remains a distinct
+sanitized VM implementation workflow.
+
+Given the host registry omits the standalone Initiative launcher export, when a
+primary Build invokes the always-present `dbsctr_begin` with an explicit
+Initiative manifest, slice, and `proceed=true`, then the adapter executes the same
+fresh receipt, exact approval, repository, plan-digest, ownership, mutation, and
+launch checks. Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents
+continue to deny it.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
@@ -676,7 +831,7 @@ The typed adapter independently reads the managed sandbox configuration and
 rejects changed source membership or order. Federated reads explicitly create
 private transient captures; unreferenced captures expire after 24 hours.
 
-Given an approved host handoff, the configured Build workspace OpenCode receives only the sanitized
+Given an approved and ledger-validated host handoff, the configured Build workspace OpenCode receives only the sanitized
 context and approval identity plus instructions to start a distinct VM-owned
 DBSCTR draft-PR cycle. The typed call returns only bounded Herdr launch
 acceptance and presentation identity; cycle and draft-PR progress remain
@@ -704,10 +859,10 @@ review-session scope. It returns complete fixed distributions and at most 20
 deterministic evidence projections per source, recomputes the terminal manifest
 and telemetry, and writes a private lens receipt only for all-source success.
 The existing provider-affine control flow remains current because this adds a
-validated local adapter without changing routing or trust ownership. The typed write interface is `dbsctr_vm_handoff`; it accepts one
+validated local adapter without changing provider routing. The typed write interface is `dbsctr_vm_handoff`; it accepts one
 schema-versioned sanitized approved report and asks before launching the VM
-session. Plan, read-only agents, and Builder subagents deny handoff. Native Build
-and provider-affine Build primaries may invoke it only after explicit proceed.
+session. Only the dedicated `build-rnd` primary exposes it under `ask`; ordinary
+Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
 
 ## Contracts
 
@@ -718,6 +873,10 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 - Recovery accepts only canonical Herdr pane and OpenCode session identifiers,
   shell-quotes the validated wrapper argv, bounds Herdr API calls, and replaces
   captures atomically.
+- VM handoff authorization is fail-closed before permission and VM access: the
+  environment worker, request worker, ledger worker/session/state/authorization,
+  persisted Discovery report, exact scope paths, and autonomous readiness risk
+  must agree. Shape-valid placeholders carry no authority.
 - The Herdr LaunchAgent must not export `XDG_DATA_HOME` or `XDG_STATE_HOME`.
   It retains `DOTFILES_AI_STATE_ROOT`, explicit DBSCTR paths, and `HERMES_HOME`;
   the OpenCode wrapper and scoped lifecycle LaunchAgents remain the owners of
@@ -728,6 +887,11 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 - `$schema` remains `https://opencode.ai/config.json` and rendered config passes
   the current schema/runtime parser.
+- `compaction.preserve_recent_tokens` is `65536`; `auto`, `prune`, `tail_turns`,
+  and `reserved` remain omitted so OpenCode defaults govern them.
+- Base and Fast GPT-5.6 Sol resolve to context `1050000`, input `922000`, and
+  output `128000`; current inherited reserve behavior yields an approximately
+  `902000`-token automatic compaction threshold.
 - Direct provider `anthropic` is denied; `amazon-bedrock` is not.
 - Raw `lmstudio` remains configured; `headroom` and `headroom-lmstudio` do not.
 - Native Plan remains the startup default and native Build stays enabled as the
@@ -754,8 +918,12 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
   `agent: build-claude` and
   `model: amazon-bedrock/global.anthropic.claude-opus-5`.
 - `/dbsctr-review` contains no fixed agent field and loads its exact skill.
+- `/incident` contains no fixed agent field and loads `dbsctr-incident`.
 - `dbsctr_review` is read-only and allowed; `dbsctr_review_complete` asks before
   writing private operational state and remains denied to Builder subagents.
+- `dbsctr_incident_scan` is read-only and allowed. `dbsctr_incident_register`,
+  `dbsctr_incident_update`, and `dbsctr_incident_forget` ask before changing the
+  private ledger and remain denied to Plan and subagents.
 - `dbsctr_review_history` is read-only and allowed. `dbsctr_review_history_save`
   is allowed only for validated private history reports and remains denied to
   Builder subagents.
@@ -832,18 +1000,67 @@ and provider-affine Build primaries may invoke it only after explicit proceed.
 
 ### Initiative Discovery Orchestration
 
-`/discovery` routes to a docs-only coordinator. A global OpenCode plugin reads
+`/discovery` routes to an interactive coordinator with unrestricted Bash and a
+`docs/**`-scoped structured edit tool. The coordinator prefers native CLI, API,
+and notebook-kernel interfaces over browser automation, while user confirmation
+remains required for external, destructive, costly, irreversible, or materially
+expanded effects. It keeps governed private result bodies local and admits only
+locally filtered, privacy-safe evidence to model context. A global OpenCode plugin reads
 repository-relative Initiative manifests, invokes deterministic validation, and
 injects only the durable path, digest, state, and ready-slice IDs into normal and
 pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
-`dbsctr_initiative_launch` validates a fresh readiness receipt before requesting
-approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+`dbsctr_initiative_launch`, or explicit Initiative mode on `dbsctr_begin` when
+that standalone export is omitted, validates a fresh readiness receipt before
+requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
 and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
-clients start fresh. Both paths receive the same content-free receipt prompt.
-Herdr identities remain private advisory correlation only.
+clients start fresh. Both paths start with bounded receipt-free shell arguments,
+then submit the same content-free cycle instruction through the confirmed agent.
+An optional validated Initiative source checkout resolves cross-worktree relative
+manifests. Failed attempts without an agent close only their launcher-owned tab;
+only a confirmed agent may remain pending. Herdr identities remain private
+advisory correlation only. The complete behavior and failure contract is in
+[`features/initiative-launch-atomicity.md`](features/initiative-launch-atomicity.md).
+
+The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
+agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
+an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
+a fallback or alias.
+
+### DKS query availability
+
+`dks_context` is one optional accelerator for broad questions in a configured
+project. Exact-path, fixed-commit, unconfigured-project, and stale-revision work
+proceeds directly to authoritative source inspection. One attempt shares one
+five-second monotonic deadline across routing, subprocess, privacy, lock,
+embedding, database, and ranking work. Valid project- and revision-compatible
+citation metadata is returned as explicitly untrusted `availability=available`
+data. Recognized operational failure and timeout return sanitized typed
+unavailability without citations, raw output, paths, process or lock identities,
+or source content, then source inspection continues without automatic DKS retry.
+Malformed or incompatible successful output remains a fail-closed contract error.
+
+Automatic DKS routing remains enabled only while current paired fixed-source
+evidence shows no correctness regression or added tool errors, p95 below five
+seconds, and at least ten percent lower median completion time than direct source
+inspection. Failure disables automatic routing without retiring the projection or
+manual CLI. The complete contracts are in
+[`features/dks-query-recovery.md`](features/dks-query-recovery.md) and
+[`features/dks-routing-value-gate.md`](features/dks-routing-value-gate.md).
+
+### History and Incident query availability
+
+OpenCode validates aggregate, summary, and detailed lifecycle responses as
+separate schemas. Bounded subprocess timeout becomes typed unavailability after
+process-group cleanup, never an empty cohort or zero count. Aggregate and summary
+results exclude private candidate, Signal, cycle, and snapshot identity from
+hosted subagent prompts. Invalid successful or cross-mode output fails closed.
+Lifecycle status `75` with empty stdout and stderr exactly
+`source_index_unavailable\n` is a retryable local source-unavailable condition;
+no other output receives that classification. Index generation, coverage, source,
+privacy, path, and row identities never enter the model-visible envelope.
 
 ## Validation Strategy
 
@@ -862,13 +1079,20 @@ Herdr identities remain private advisory correlation only.
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
-| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch | Plugin, helper, fork/fallback, and typed-approval fixtures | Required when Initiative orchestration changes |
+| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
+| DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
+| DKS routing value | Paired fixed-source DKS-assisted versus direct inspection, exact identity, sanitized metrics, thresholds, and fail-closed disablement | Deterministic harness fixtures plus at least five real post-warmup pairs | Required before automatic DKS routing activation |
+| History/Incident query availability | Mode-specific aggregate, summary, and detailed validation; timeout cleanup; unavailable-without-result; hosted privacy | Focused Bun-backed process fixtures plus fresh local smoke | Required when History/Incident adapters change |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |
 
 ## Risks
 
 - Bash patterns are guardrails, not an OS sandbox.
+- Discovery Coordinator Bash is unrestricted and can bypass its structured
+  `docs/**` edit boundary. Its role prompt and the standing confirmation policy,
+  not OpenCode command matching, guard source, external, destructive, costly, and
+  irreversible effects.
 - A same-user host agent may request 1Password Environment mutations. The desktop
   app's explicit approval and lock state remain the authorization boundary; review
   prompts before approving writes and disable the MCP integration to revoke access.

@@ -6,6 +6,11 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 # [data.dotfiles_ai.state]
 # root = "/Volumes/your-drive/state"
 
+[data.dotfiles_ai.codex]
+version = "0.151.0"
+linux_asset_url = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
+linux_asset_sha256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
+
 [data.dotfiles_ai.opencode]
 # Vertex Claude stays off until vertex_project is set. Authenticate each
 # environment separately with an isolated ADC file; never commit these values.
@@ -89,6 +94,7 @@ tailscale_host = "" # optional FQDN for the alternate SSH path
 # Keep false on machines that should not schedule autonomous review workers.
 enabled = false
 backend = "native" # switch to "hermes" only after the controlled cutover smoke
+runtime = "opencode" # opencode | codex; executable failure never falls back
 review_workdir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 review_hour = 9
 review_minute = 0
@@ -169,6 +175,7 @@ name = "workspace1"
 instance = "workspace1-sandbox"
 shell_alias = "workspace1sh"
 federate = true
+runtime = "codex" # empty inherits data.dotfiles_ai.rnd.runtime
 
 [[data.dotfiles_ai.sandbox.workspaces.mounts]]
 host = "/Users/you/projects"
@@ -184,6 +191,7 @@ name = "workspace2"
 instance = "workspace2-sandbox"
 shell_alias = "workspace2sh"
 federate = true
+runtime = ""
 
 [[data.dotfiles_ai.sandbox.workspaces.mounts]]
 host = "/Users/you/reference"

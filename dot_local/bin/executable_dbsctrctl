@@ -36,7 +36,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.28"
+CURRENT_METHOD_REVISION = "3.29"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -44,6 +44,7 @@ REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
+INCIDENT_SCHEMA = 1
 IMPROVEMENT_SCHEMA = 5
 CAPTURE_SCHEMA = 1
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
@@ -53,7 +54,9 @@ TELEMETRY_SCHEMA = 2
 HARNESS_ACTIVATION_SCHEMA = 1
 PROVIDER_EVALUATION_SCHEMA = 1
 PHASES = GATES[:6] + ("operation",)
-PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa")
+PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa",
+                    "operator_wait", "external_wait")
+EXCLUDED_PHASE_OPERATIONS = ("operator_wait", "external_wait")
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 BENCHMARK_METRICS = {
     "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
@@ -68,13 +71,28 @@ RND_LENSES = (
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+RUNTIME_ADAPTER_REVISIONS = {
+    "opencode": "opencode-adapter-1",
+    "codex": "codex-adapter-1",
+}
+RUNTIME_CAPABILITIES = {"session", "turn", "family", "activation", "history"}
 PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+INCIDENT_KINDS = ("defect", "friction", "behavior_gap", "capability_idea")
+INCIDENT_STATES = ("open", "investigating", "fixing", "resolved", "dismissed")
 INSPECT_RESPONSE_HARD = 128 * 1024
-INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+GIT_REPOSITORY_ENV = {
+    key: value for key, value in os.environ.items()
+    if key not in {
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+        "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    } and not key.startswith("GIT_CONFIG_")
+}
+INSPECT_ENV = {**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
 EVIDENCE_SIDECAR_CAP = 256 * 1024
 SECRET_OPTION = re.compile(r"(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie)", re.I)
-SECRET_VALUE = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+|\w+://[^\s/@:]+:[^\s/@]+@)", re.I)
+SECRET_VALUE = re.compile(r"(?:op://\S+|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key)\s*[:=]\s*\S+|\w+://[^\s/@:]+:[^\s/@]+@)", re.I)
 HIGH_ENTROPY = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 SAFE_EVIDENCE_LINE = re.compile(r"(?:ok|pass(?:ed)?|success|succeeded|\d+ (?:passed|failed)(?:, \d+ skipped)?)", re.I)
 BACKLOG_COLUMNS = {
@@ -90,8 +108,11 @@ def fail(message):
     raise RuntimeError(message)
 
 
-def git(root, *args, check=True):
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True)
+def git(root, *args, check=True, env=None):
+    result = subprocess.run(
+        ["git", *args], cwd=root, text=True, capture_output=True,
+        env=GIT_REPOSITORY_ENV if env is None else env,
+    )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
@@ -100,7 +121,7 @@ def git(root, *args, check=True):
 def git_read(root, *args, check=True):
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
-        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -130,6 +151,20 @@ def root_dir():
     if result.returncode:
         fail("not inside a Git repository")
     return Path(result.stdout.strip())
+
+
+def repo_root(value):
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=Path(value).expanduser(),
+            text=True, capture_output=True,
+            env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except OSError:
+        fail("Initiative source must be a Git repository")
+    if result.returncode:
+        fail("Initiative source must be a Git repository")
+    return Path(result.stdout.strip()).resolve()
 
 
 def git_dir(root):
@@ -593,6 +628,7 @@ def ledger_connection(root, write=False, path=None):
         ledger_integrity(connection)
         if write:
             ensure_knowledge_privacy_schema(connection)
+            ensure_incident_schema(connection)
         return connection
     except (sqlite3.Error, RuntimeError):
         if "connection" in locals():
@@ -663,8 +699,30 @@ def ledger_schema(connection):
             timestamp INTEGER NOT NULL,
             PRIMARY KEY (family, item_id)
         ) WITHOUT ROWID;
+        CREATE TABLE incidents (
+            incident_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL UNIQUE,
+            parent_session_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('defect','friction','behavior_gap','capability_idea')),
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('open','investigating','fixing','resolved','dismissed')),
+            cycle_id TEXT,
+            diagnostics TEXT NOT NULL,
+            evidence TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE incident_signal_dispositions (
+            signal_id TEXT PRIMARY KEY,
+            incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN ('promoted','forgotten')),
+            timestamp INTEGER NOT NULL
+        ) WITHOUT ROWID;
     """)
     connection.execute("INSERT INTO ledger_meta VALUES ('schema_version', ?)", (str(REVIEW_LEDGER_SCHEMA),))
+    connection.execute("INSERT INTO ledger_meta VALUES ('incident_schema', ?)", (str(INCIDENT_SCHEMA),))
     empty = hashlib.sha256(ledger_payload(
         {"schema_version": 1, "tombstones": []}).encode()).hexdigest()
     connection.execute("INSERT INTO ledger_meta VALUES ('knowledge_privacy_sequence', '0')")
@@ -681,7 +739,7 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "incident_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
@@ -692,6 +750,7 @@ def ledger_semantic_integrity(connection):
             or "phase_schema" in meta and meta["phase_schema"] != str(PHASE_SCHEMA)
             or "provider_evaluation_schema" in meta
             and meta["provider_evaluation_schema"] != str(PROVIDER_EVALUATION_SCHEMA)
+            or "incident_schema" in meta and meta["incident_schema"] != str(INCIDENT_SCHEMA)
             or "knowledge_privacy_sequence" in meta
             and (not meta["knowledge_privacy_sequence"].isdigit()
                  or not 0 <= int(meta["knowledge_privacy_sequence"]) < 2**64)
@@ -712,6 +771,24 @@ def ledger_semantic_integrity(connection):
                 fail("private review ledger contains an invalid privacy tombstone")
         if meta["knowledge_privacy_digest"] != knowledge_privacy_digest(connection):
             fail("private review ledger privacy digest mismatch")
+    incident_tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('incidents','incident_signal_dispositions')")}
+    if (incident_tables not in (set(), {"incidents", "incident_signal_dispositions"})
+            or bool(incident_tables) != (meta.get("incident_schema") == str(INCIDENT_SCHEMA))):
+        fail("private review ledger incident schema is incomplete")
+    if incident_tables:
+        for row in connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents"):
+            incident_record(row)
+        for signal_id, incident_id, disposition, timestamp in connection.execute(
+                "SELECT signal_id,incident_id,disposition,timestamp FROM incident_signal_dispositions"):
+            if (not re.fullmatch(r"[0-9a-f]{24}", signal_id)
+                    or incident_id is not None and not re.fullmatch(r"[0-9a-f]{24}", incident_id)
+                    or disposition not in ("promoted", "forgotten")
+                    or type(timestamp) is not int or timestamp < REVIEW_START_MS):
+                fail("private review ledger incident signal is invalid")
     names = {"session": "sessions", "cycle": "cycles", "forgotten_session": "forgotten_sessions"}
     tombstones = {"schema_version": 1, "sessions": {}, "cycles": {}, "forgotten_sessions": {}}
     for kind, item_id, timestamp in connection.execute(
@@ -1465,6 +1542,111 @@ def load_phase_report(root, cycle_id):
         return phase_report(phase_rows(connection, cycle_id), cycle_id)
 
 
+def interval_union_ms(intervals):
+    total, end = 0, None
+    for started, finished in sorted(intervals):
+        if end is None or started > end:
+            total += finished - started
+            end = finished
+        elif finished > end:
+            total += finished - end
+            end = finished
+    return total
+
+
+def autonomous_runtime(rows):
+    if not rows:
+        return "unavailable", None
+    if any(item["finished_at"] is None or item["attribution"] == "unavailable"
+           or item["result"] == "unavailable" for item in rows):
+        return "partial", None
+    active = [(item["started_at"], item["finished_at"]) for item in rows
+              if item["operation"] not in EXCLUDED_PHASE_OPERATIONS]
+    pauses = [(item["started_at"], item["finished_at"]) for item in rows
+              if item["operation"] in EXCLUDED_PHASE_OPERATIONS]
+    if not active or any(max(a_start, p_start) < min(a_end, p_end)
+                         for a_start, a_end in active for p_start, p_end in pauses):
+        return "partial", None
+    return "complete", interval_union_ms(active)
+
+
+def cycle_performance_stats(values):
+    if not values:
+        return {"mean": "unavailable", "p50": "unavailable", "p90": "unavailable"}
+    return {"mean": sum(values) // len(values), "p50": nearest_rank(values, .5),
+            "p90": nearest_rank(values, .9)}
+
+
+def completed_cycle_records(repository):
+    records = {}
+    directories = {cycle_dir(repository), cycle_dir(repository) / "cycles",
+                   legacy_cycle_dir(repository)}
+    for line in git(repository, "worktree", "list", "--porcelain").stdout.splitlines():
+        if line.startswith("worktree "):
+            with contextlib.suppress(RuntimeError):
+                directories.add(legacy_cycle_dir(Path(line.removeprefix("worktree "))))
+    paths = sorted({path for directory in directories if directory.is_dir()
+                    for path in directory.glob("*.json")})
+    for path in paths:
+        record = read_cycle_record(repository, path)
+        cycle_id = record.get("cycle_id") if isinstance(record, dict) else None
+        if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id) or cycle_id != path.stem:
+            fail("Cycle Record contains an invalid cycle ID")
+        if record.get("state") == "completed":
+            if cycle_id in records and records[cycle_id] != record:
+                fail("Cycle Record identity is ambiguous")
+            records[cycle_id] = record
+    return [records[cycle_id] for cycle_id in sorted(records)]
+
+
+def cycle_performance(records, spans, filters):
+    selected = []
+    quality = {"gate_failures": 0, "gate_reopenings": 0, "remediation_rounds": 0}
+    metric_names = {"gate_failures": "gate_failure_count",
+                    "gate_reopenings": "gate_reopen_count",
+                    "remediation_rounds": "remediation_round_count"}
+    for record in records:
+        values = {
+            "context": record.get("context", "unavailable"),
+            "risk": record.get("risk", "unavailable"),
+            "delivery_intent": record.get("delivery_intent", "unavailable"),
+            "method_revision": record.get("method_revision", "unavailable"),
+        }
+        if any(values[name] != value for name, value in filters.items()):
+            continue
+        counters = record.get("metrics", {})
+        if not isinstance(counters, dict):
+            fail("Cycle Record contains invalid metrics")
+        cycle_metrics = {output: counters.get(stored, 0) for output, stored in metric_names.items()}
+        if any(type(value) is not int or value < 0 for value in cycle_metrics.values()):
+            fail("Cycle Record contains invalid metrics")
+        for name, value in cycle_metrics.items():
+            quality[name] += value
+        selected.append(record)
+
+    counts = {"completed": len(selected), "complete": 0, "partial": 0, "unavailable": 0}
+    autonomous, calendar = [], []
+    for record in selected:
+        status, elapsed = autonomous_runtime(spans.get(record["cycle_id"], []))
+        counts[status] += 1
+        if elapsed is not None:
+            autonomous.append(elapsed)
+        try:
+            started = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+            finished = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+            if finished >= started:
+                calendar.append(int((finished - started).total_seconds() * 1000))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            pass
+    return {
+        "schema_version": 1, "filters": filters, "counts": counts,
+        "coverage_basis_points": counts["complete"] * 10000 // counts["completed"]
+        if counts["completed"] else 0,
+        "autonomous_runtime_ms": cycle_performance_stats(autonomous),
+        "calendar_elapsed_ms": cycle_performance_stats(calendar), "quality": quality,
+    }
+
+
 def prune_phase_spans(root, connection=None):
     if connection is None and not ledger_exists(root):
         return 0
@@ -1686,6 +1868,83 @@ def ensure_knowledge_privacy_schema(connection):
         raise
 
 
+def ensure_incident_schema(connection):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone()
+    tables = {item[0] for item in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('incidents','incident_signal_dispositions')")}
+    if row == (str(INCIDENT_SCHEMA),) and tables == {"incidents", "incident_signal_dispositions"}:
+        return
+    if row is not None or tables:
+        fail("incident schema is incomplete")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.executescript("""
+            CREATE TABLE incidents (
+                incident_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                parent_session_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('defect','friction','behavior_gap','capability_idea')),
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('open','investigating','fixing','resolved','dismissed')),
+                cycle_id TEXT,
+                diagnostics TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE TABLE incident_signal_dispositions (
+                signal_id TEXT PRIMARY KEY,
+                incident_id TEXT REFERENCES incidents(incident_id) ON DELETE SET NULL,
+                disposition TEXT NOT NULL CHECK (disposition IN ('promoted','forgotten')),
+                timestamp INTEGER NOT NULL
+            ) WITHOUT ROWID;
+        """)
+        connection.execute("INSERT INTO ledger_meta VALUES ('incident_schema', ?)",
+                           (str(INCIDENT_SCHEMA),))
+        connection.commit()
+        ledger_integrity(connection)
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def incident_record(row):
+    (incident_id, session_id, parent_id, message_id, kind, title, summary, state,
+     cycle_id, diagnostics_raw, evidence_raw, created_at, updated_at) = row
+    try:
+        diagnostics = json.loads(diagnostics_raw, object_pairs_hook=no_duplicate_keys)
+        evidence = json.loads(evidence_raw, object_pairs_hook=no_duplicate_keys)
+    except (TypeError, json.JSONDecodeError):
+        fail("private review ledger incident payload is invalid")
+    if (not re.fullmatch(r"[0-9a-f]{24}", incident_id)
+            or not all(isinstance(value, str) and OPAQUE_ID.fullmatch(value)
+                       for value in (session_id, parent_id, message_id))
+            or kind not in INCIDENT_KINDS or state not in INCIDENT_STATES
+            or not isinstance(title, str) or not title.startswith("INCIDENT: ") or len(title) > 128
+            or not isinstance(summary, str) or not 1 <= len(summary) <= 1024
+            or cycle_id is not None and (not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id))
+            or not isinstance(diagnostics, list) or len(diagnostics) > 20
+            or not isinstance(evidence, list) or len(evidence) > 20
+            or not all(isinstance(value, str) and 1 <= len(value) <= 2048
+                       for value in diagnostics + evidence)
+            or type(created_at) is not int or type(updated_at) is not int
+            or created_at < REVIEW_START_MS or updated_at < created_at):
+        fail("private review ledger incident payload is invalid")
+    return {
+        "incident_id": incident_id, "session_id": session_id,
+        "parent_session_id": parent_id, "message_id": message_id,
+        "kind": kind, "title": incident_redact(title, 128),
+        "summary": incident_redact(summary, 1024), "state": state,
+        "cycle_id": cycle_id,
+        "diagnostics": [incident_redact(value) for value in diagnostics],
+        "evidence": [incident_redact(value) for value in evidence],
+        "created_at": created_at, "updated_at": updated_at,
+    }
+
+
 def record_knowledge_privacy_tombstone(connection, family, item_id, reason, timestamp):
     if (not OPAQUE_ID.fullmatch(family) or not OPAQUE_ID.fullmatch(item_id)
             or not OPAQUE_ID.fullmatch(reason) or not isinstance(timestamp, int)
@@ -1783,6 +2042,16 @@ def ledger_content(connection):
                 "ownership_paths, started_at, finished_at, result FROM phase_spans ORDER BY cycle_id, span_id")]
         result["execution_activations"] = payloads(
             "SELECT method_revision, payload FROM execution_activation ORDER BY method_revision")
+    if connection.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone() is not None:
+        incidents = [incident_record(row) for row in connection.execute(
+            "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+            "diagnostics,evidence,created_at,updated_at FROM incidents ORDER BY incident_id")]
+        dispositions = [list(row) for row in connection.execute(
+            "SELECT signal_id,incident_id,disposition,timestamp FROM incident_signal_dispositions "
+            "ORDER BY signal_id")]
+        if incidents or dispositions:
+            result["incidents"] = incidents
+            result["incident_signal_dispositions"] = dispositions
     return result
 
 
@@ -2141,6 +2410,159 @@ def locator_path(locator, roots, name):
     return candidate
 
 
+def schema5_fail(reason):
+    fail(f"invalid schema 5 runtime: {reason}")
+
+
+def validate_schema5_availability(value):
+    if not isinstance(value, dict) or set(value) != RUNTIME_CAPABILITIES:
+        schema5_fail("availability fields")
+    statuses = {"available", "unavailable", "partial", "not_requested"}
+    for capability, item in value.items():
+        if not isinstance(item, dict) or item.get("status") not in statuses:
+            schema5_fail(f"{capability} availability")
+        status = item["status"]
+        expected = {"status", "reason"} if status in {"unavailable", "partial"} else {"status"}
+        if set(item) != expected:
+            schema5_fail(f"{capability} availability")
+        if "reason" in item:
+            reason = item["reason"]
+            if (not isinstance(reason, str) or not reason.isascii()
+                    or not 1 <= len(reason.encode()) <= 256
+                    or any(ord(character) < 32 for character in reason)):
+                schema5_fail(f"{capability} reason")
+    return value
+
+
+def validate_schema5_ids(value, name, required):
+    if (not isinstance(value, list) or required and not value or len(value) > REVIEW_MAX_LIMIT
+            or not all(isinstance(item, str) and OPAQUE_ID.fullmatch(item) for item in value)):
+        schema5_fail(name)
+    if value != sorted(set(value)):
+        schema5_fail(name)
+    return value
+
+
+def validate_schema5_adapter(root, harness_id, adapter):
+    required = {"schema_version", "harness_id", "adapter_revision", "session_ids",
+                "worktree", "availability"}
+    optional = {"turn_ids", "family_id", "activation"}
+    if (not isinstance(adapter, dict) or not required.issubset(adapter)
+            or not set(adapter).issubset(required | optional)
+            or type(adapter.get("schema_version")) is not int or adapter["schema_version"] != 1
+            or adapter.get("harness_id") != harness_id
+            or adapter.get("adapter_revision") != RUNTIME_ADAPTER_REVISIONS.get(harness_id)):
+        schema5_fail(f"{harness_id} adapter fields")
+    validate_schema5_ids(adapter["session_ids"], f"{harness_id} session IDs", True)
+    if "turn_ids" in adapter:
+        validate_schema5_ids(adapter["turn_ids"], f"{harness_id} turn IDs", False)
+    if "family_id" in adapter and (not isinstance(adapter["family_id"], str)
+                                    or not OPAQUE_ID.fullmatch(adapter["family_id"])):
+        schema5_fail(f"{harness_id} family ID")
+    try:
+        locator_path(adapter["worktree"], {
+            "cycle_worktree": root,
+            "primary_worktree": primary_worktree(root),
+        }, "schema 5 adapter worktree")
+    except RuntimeError:
+        schema5_fail(f"{harness_id} worktree")
+    availability = validate_schema5_availability(adapter["availability"])
+    if availability["session"]["status"] != "available":
+        schema5_fail(f"{harness_id} session availability")
+    for field, capability in (("turn_ids", "turn"), ("family_id", "family"),
+                              ("activation", "activation")):
+        if (field in adapter) != (availability[capability]["status"] == "available"):
+            schema5_fail(f"{harness_id} {capability} availability")
+    if "activation" in adapter:
+        validate_stored_harness_activation(adapter["activation"])
+    return adapter
+
+
+def validate_schema5_runtime(root, record, allow_synthetic_codex=False):
+    runtime = record.get("runtime")
+    if not isinstance(runtime, dict) or not set(runtime).issubset({"adapters", "opencode"}):
+        schema5_fail("runtime fields")
+    adapters = runtime.get("adapters")
+    if (not isinstance(adapters, dict) or len(adapters) > len(RUNTIME_ADAPTER_REVISIONS)
+            or any(name not in RUNTIME_ADAPTER_REVISIONS for name in adapters)):
+        schema5_fail("adapter map")
+    if "codex" in adapters and not allow_synthetic_codex:
+        schema5_fail("Codex adapter is unavailable")
+    for harness_id, adapter in adapters.items():
+        validate_schema5_adapter(root, harness_id, adapter)
+    legacy = runtime.get("opencode")
+    generic = adapters.get("opencode")
+    if (legacy is None) != (generic is None):
+        schema5_fail("OpenCode compatibility branch")
+    if legacy is not None:
+        required_legacy = {"session_ids", "path_root", "worktree", "directory"}
+        optional_legacy = {"harness_activation"}
+        if (not isinstance(legacy, dict) or not required_legacy.issubset(legacy)
+                or not set(legacy).issubset(required_legacy | optional_legacy)):
+            schema5_fail("legacy OpenCode branch")
+        validate_schema5_ids(legacy["session_ids"], "legacy OpenCode session IDs", True)
+        expected_worktree = {"root": legacy.get("path_root"), "path": legacy.get("worktree")}
+        if (generic["session_ids"] != legacy.get("session_ids")
+                or generic["worktree"] != expected_worktree
+                or generic.get("activation") != legacy.get("harness_activation")):
+            schema5_fail("OpenCode compatibility disagreement")
+        directory = legacy.get("directory")
+        relative = PurePosixPath(directory) if isinstance(directory, str) else None
+        if (relative is None or relative.is_absolute() or directory == "" or ".." in relative.parts
+                or legacy.get("path_root") not in {"cycle_worktree", "primary_worktree"}
+                or legacy.get("worktree") != "."):
+            schema5_fail("legacy OpenCode locator")
+    return runtime
+
+
+def read_cycle_record(root, path, label="Cycle Record"):
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail(f"cannot read {label}: {error}")
+    if not isinstance(record, dict):
+        fail(f"{label} must be an object")
+    if "schema_version" in record:
+        schema_version = record["schema_version"]
+        if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5):
+            fail(f"unsupported Cycle Record schema: {schema_version}")
+        if schema_version == 5:
+            validate_schema5_runtime(root, record)
+    return record
+
+
+def schema5_opencode_adapter(opencode):
+    activation = opencode.get("harness_activation")
+    return {
+        "schema_version": 1,
+        "harness_id": "opencode",
+        "adapter_revision": RUNTIME_ADAPTER_REVISIONS["opencode"],
+        "session_ids": sorted(opencode["session_ids"]),
+        "worktree": {"root": opencode["path_root"], "path": opencode["worktree"]},
+        **({"activation": activation} if activation is not None else {}),
+        "availability": {
+            "session": {"status": "available"},
+            "turn": {"status": "not_requested"},
+            "family": {"status": "not_requested"},
+            "activation": {"status": "available" if activation is not None else "not_requested"},
+            "history": {"status": "unavailable", "reason": "not_collected"},
+        },
+    }
+
+
+def sync_schema5_opencode(record):
+    if record.get("schema_version") != 5:
+        return
+    runtime = record.setdefault("runtime", {"adapters": {}})
+    adapters = runtime.setdefault("adapters", {})
+    opencode = runtime.get("opencode")
+    if opencode is None:
+        adapters.pop("opencode", None)
+    else:
+        opencode["session_ids"] = sorted(opencode["session_ids"])
+        adapters["opencode"] = schema5_opencode_adapter(opencode)
+
+
 def record_worktree(root, record):
     details = record.get("worktree", {})
     if "locator" not in details:
@@ -2148,6 +2570,30 @@ def record_worktree(root, record):
         if not isinstance(value, str) or not value:
             fail("Cycle Record contains an invalid worktree path")
         return Path(value).expanduser().resolve()
+    locator = details.get("locator")
+    if (isinstance(locator, dict) and locator.get("root") == "cycle_worktree"
+            and branch(root) != details.get("branch")):
+        current = None
+        candidates = []
+        for line in git(root, "worktree", "list", "--porcelain").stdout.splitlines() + [""]:
+            if line.startswith("worktree "):
+                current = {"path": line.removeprefix("worktree ")}
+            elif current is not None and line.startswith("branch "):
+                current["branch"] = line.removeprefix("branch refs/heads/")
+            elif not line and current is not None:
+                if current.get("branch") == details.get("branch"):
+                    candidates.append(Path(current["path"]).resolve())
+                current = None
+        if len(candidates) == 1:
+            return candidates[0]
+        if (record.get("state") in {"completed", "retired"}
+                or record.get("cleanup", {}).get("state") in {
+                    "removing_worktree", "worktree_removed", "evidence_parked"}
+                or record.get("retirement", {}).get("state") in {"removing_worktree", "retired"}
+                or record.get("worktree_retirement", {}).get("state") in {
+                    "removing_worktree", "retired"}):
+            return cycle_dir(root) / "removed-worktrees" / str(details.get("id", "unknown"))
+        fail("cycle worktree is missing")
     return locator_path(details.get("locator"), {
         "cycle_worktree": root,
         "dbsctr_worktrees": worktree_registry_root(),
@@ -2198,9 +2644,7 @@ def load(root):
     path = records / f"{cycle_id}.json"
     if not cycle_id or not path.is_file():
         fail("active DBSCTR record is missing")
-    record = json.loads(path.read_text(encoding="utf-8"))
-    if "schema_version" in record and record["schema_version"] not in (1, 2, 3, 4):
-        fail(f"unsupported Cycle Record schema: {record['schema_version']}")
+    record = read_cycle_record(root, path)
     record_worktree(root, record)
     return path, record
 
@@ -2220,7 +2664,7 @@ def require_pushable(record):
 
 
 def is_v32(record):
-    return record.get("schema_version") in (1, 2, 3, 4)
+    return record.get("schema_version") in (1, 2, 3, 4, 5)
 
 
 @contextlib.contextmanager
@@ -2315,19 +2759,80 @@ def initiative_repository(value, label):
         fail(f"{label} must be a canonical owner/repository identity")
 
 
-def git_repository_slug(root):
-    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+def github_repository_from_url(url, error):
     scp = re.fullmatch(r"(?:git@)?github\.com:([^/\s]+/[^/\s]+?)(?:\.git)?", url, re.IGNORECASE)
     if scp:
         return scp.group(1)
-    parsed = urlsplit(url)
-    if (parsed.scheme not in {"https", "ssh", "git"} or parsed.hostname != "github.com"
-            or parsed.query or parsed.fragment):
-        fail("Initiative repository must have a GitHub origin")
+    try:
+        parsed = urlsplit(url)
+        valid_user = parsed.username is None or parsed.scheme == "ssh" and parsed.username == "git"
+        valid = (parsed.scheme in {"https", "ssh", "git"} and parsed.hostname == "github.com"
+                 and valid_user and parsed.password is None and not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        fail(error)
     match = re.fullmatch(r"/([^/\s]+/[^/\s]+?)(?:\.git)?/?", parsed.path)
     if not match:
-        fail("Initiative repository must have a GitHub origin")
+        fail(error)
     return match.group(1)
+
+
+def git_repository_slug(root):
+    url = git(root, "remote", "get-url", "origin", check=False).stdout.strip()
+    return github_repository_from_url(url, "Initiative repository must have a GitHub origin")
+
+
+def github_remote_url(root, remote, repository):
+    for push in (False, True):
+        args = ("remote", "get-url", "--push", remote) if push else ("remote", "get-url", remote)
+        url = git(root, *args, check=False).stdout.strip()
+        if not url or github_repository_from_url(
+                url, "draft_pr delivery requires GitHub fetch and push remotes"
+        ).lower() != repository.lower():
+            fail("draft_pr remote must match configured GitHub repository: " + repository)
+    return f"https://github.com/{repository}.git"
+
+
+def require_canonical_github_url(root, url, env):
+    effective = git(root, "ls-remote", "--get-url", url, env=env).stdout.strip()
+    if effective != url:
+        fail("Git URL rewriting is not allowed for draft_pr delivery")
+
+
+def fetch_github_branch(root, remote, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "fetch", url,
+        f"+refs/heads/{remote_branch}:refs/remotes/{remote}/{remote_branch}", env=env)
+
+
+def github_remote_head(root, url, remote_ref, env):
+    require_canonical_github_url(root, url, env)
+    return git(root, "ls-remote", "--heads", url, remote_ref, env=env).stdout.split()
+
+
+def push_github_branch(root, url, remote_branch, env):
+    require_canonical_github_url(root, url, env)
+    git(root, "push", url, f"HEAD:{remote_branch}", env=env)
+
+
+def normalize_begin_delivery(root, args, delivery_branch):
+    if args.delivery_intent == "merge" and delivery_branch == args.base_branch:
+        args.delivery_intent = "draft_pr"
+    elif args.delivery_intent != "draft_pr" and delivery_branch == args.base_branch:
+        fail("direct delivery to the protected base branch requires draft_pr")
+    if args.delivery_intent != "draft_pr":
+        return
+    account = getattr(args, "github_account", None)
+    if not account or not OPAQUE_ID.fullmatch(account):
+        fail("draft_pr delivery requires a valid GitHub account")
+    repository = git_repository_slug(root)
+    supplied = getattr(args, "github_repository", None)
+    if supplied:
+        expected = repository if "/" in supplied else repository.rsplit("/", 1)[1]
+        if supplied.lower() != expected.lower():
+            fail("GitHub repository must match configured GitHub repository: " + repository)
+    args.github_repository = repository
 
 
 def initiative_acyclic(dependencies, label):
@@ -2418,10 +2923,12 @@ def read_initiative_manifest(source):
     initiative_acyclic(context_dependencies, "context")
 
     slice_fields = {"id", "context", "state", "requirements", "depends_on", "artifacts",
-                    "tickets", "release_group"}
+                    "release_group"}
     slices = {}
     for item in value["slices"]:
-        initiative_fields(item, slice_fields, "slice")
+        optional = {field for field in ("tickets", "execution_owner")
+                    if isinstance(item, dict) and field in item}
+        initiative_fields(item, slice_fields | optional, "slice")
         identifier = item["id"]
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier):
             fail("slice ID is invalid")
@@ -2432,12 +2939,10 @@ def read_initiative_manifest(source):
         for field in ("requirements", "depends_on"):
             initiative_strings(item[field], f"{field} for {identifier}")
         initiative_paths(item["artifacts"], f"artifacts for {identifier}")
-        initiative_strings(item["tickets"], f"tickets for {identifier}")
-        if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*", ticket)
-               for ticket in item["tickets"]):
-            fail(f"tickets for {identifier} must contain canonical ticket IDs")
         if not isinstance(item["release_group"], str) or not item["release_group"]:
             fail(f"release_group is invalid: {identifier}")
+        if item.get("execution_owner", "build") not in {"build", "discovery"}:
+            fail(f"execution_owner is invalid: {identifier}")
         if item["state"] not in {"captured", "discovering", "ready", "building", "delivered",
                                     "blocked", "deferred", "rejected"}:
             fail(f"slice state is invalid: {identifier}")
@@ -2448,7 +2953,7 @@ def read_initiative_manifest(source):
             if contexts[item["context"]]["status"] not in {
                     "approved", "discovering", "ready", "building", "delivered"}:
                 fail(f"ready slice {identifier} context is not promotable: {item['context']}")
-            for field in ("requirements", "artifacts", "tickets"):
+            for field in ("requirements", "artifacts"):
                 if not item[field]:
                     fail(f"ready slice {identifier} requires {field}")
             blocked = [requirement for requirement in item["requirements"]
@@ -2517,7 +3022,11 @@ def read_initiative_manifest(source):
         if unresolved or nonterminal:
             fail("Initiative cannot complete with open or blocked material or nonterminal slices")
 
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    identity_value = {**value, "slices": [
+        {key: field for key, field in item.items() if key != "tickets"}
+        for item in value["slices"]
+    ]}
+    canonical = json.dumps(identity_value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return value, statements, contexts, slices, slice_release_groups, hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -2542,6 +3051,64 @@ def command_initiative_check(args):
     print(json.dumps(initiative_summary(args.manifest), sort_keys=True, separators=(",", ":")))
 
 
+def check_initiative_cycle_occupancy(root, cycle_id, receipt):
+    required_record = {"schema_version", "cycle_id", "context", "state", "delivery",
+                       "delivery_intent", "risk", "worktree", "applicability_plan",
+                       "engineering_profile", "git", "source", "created_at", "gates",
+                       "commits", "evidence", "metrics", "method_revision"}
+    record_path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    if not record_path.exists() and not record_path.is_symlink():
+        return
+    if record_path.is_symlink() or not record_path.is_file():
+        fail(f"Initiative cycle record is unsafe: {cycle_id}")
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"),
+                            object_pairs_hook=no_duplicate_keys)
+    except (OSError, ValueError, json.JSONDecodeError):
+        fail(f"Initiative cycle record is invalid: {cycle_id}")
+    if (not isinstance(record, dict) or not required_record.issubset(record)
+            or record.get("cycle_id") != cycle_id or record.get("schema_version") not in (4, 5)
+            or record.get("context") != receipt["context"]
+            or any(not isinstance(record.get(field), dict) for field in (
+                "applicability_plan", "delivery", "engineering_profile", "evidence", "gates",
+                "git", "metrics", "source", "worktree"))
+            or not isinstance(record.get("commits"), list)
+            or any(not isinstance(record.get(field), str) for field in (
+                "context", "created_at", "delivery_intent", "method_revision", "risk", "state"))
+            or "locator" not in record["worktree"] or "path" in record["worktree"]
+            or not isinstance(record["worktree"].get("branch"), str)):
+        fail(f"Initiative cycle record identity mismatch: {cycle_id}")
+    worktree = record_worktree(root, record)
+    if (not worktree.is_dir() or not record_worktree_matches(root, record, worktree)
+            or branch(worktree) != record["worktree"].get("branch")):
+        fail(f"Initiative cycle worktree identity mismatch: {cycle_id}")
+    if record.get("initiative") is None:
+        fail(f"Initiative cycle ID is already occupied by an unbound cycle: {cycle_id}")
+    if record["initiative"] != receipt:
+        fail(f"Initiative cycle ID is already occupied by a different Initiative receipt: {cycle_id}")
+    if record.get("state") != "active":
+        fail(f"Initiative cycle ID is already occupied by a non-active cycle: {cycle_id}")
+
+
+def command_initiative_cycle_check(args):
+    try:
+        receipt = json.loads(args.receipt_json, object_pairs_hook=no_duplicate_keys)
+    except (ValueError, json.JSONDecodeError):
+        fail("Initiative cycle receipt is invalid")
+    required = {"schema_version", "initiative_id", "slice_id", "manifest_digest",
+                "manifest_blob", "manifest_commit", "manifest_path", "coordinator_repository",
+                "context", "repository", "requirements", "depends_on", "artifacts",
+                "release_group", "execution_owner"}
+    if (not isinstance(receipt, dict) or not required.issubset(receipt)
+            or receipt.get("schema_version") != 1
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id)
+            or not isinstance(receipt.get("context"), str)
+            or git_repository_slug(root_dir()).lower() != str(receipt.get("repository", "")).lower()):
+        fail("Initiative cycle receipt is invalid")
+    check_initiative_cycle_occupancy(root_dir(), args.cycle_id, receipt)
+    print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
+
+
 def initiative_receipt(source, slice_id, root=None):
     value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source)
     item = slices.get(slice_id)
@@ -2549,6 +3116,8 @@ def initiative_receipt(source, slice_id, root=None):
         fail(f"unknown Initiative slice: {slice_id}")
     if item["state"] != "ready":
         fail(f"Initiative slice is not ready: {slice_id}")
+    if item.get("execution_owner", "build") != "build":
+        fail(f"Initiative slice is owned by Discovery and cannot issue a Build receipt: {slice_id}")
     identity = {}
     artifacts = sorted(set(item["artifacts"]).union(
         *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
@@ -2572,15 +3141,7 @@ def initiative_receipt(source, slice_id, root=None):
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
-        for ticket in item["tickets"]:
-            matches = sorted(root.glob(f"docs/tickets/context=*/{ticket}-*.md"))
-            if len(matches) != 1:
-                fail(f"Initiative ticket must resolve to one canonical ticket: {ticket}")
-            ticket_path = matches[0].relative_to(root).as_posix()
-            if (git(root, "status", "--porcelain=v1", "--", ticket_path).stdout.strip()
-                    or git(root, "cat-file", "-e", f"HEAD:{ticket_path}", check=False).returncode):
-                fail(f"Initiative ticket must be committed and clean before receipt: {ticket}")
-    return {
+    receipt = {
         "schema_version": 1,
         "initiative_id": value["id"],
         "slice_id": slice_id,
@@ -2591,10 +3152,11 @@ def initiative_receipt(source, slice_id, root=None):
         "requirements": item["requirements"],
         "depends_on": item["depends_on"],
         "artifacts": artifacts,
-        "tickets": item["tickets"],
         "release_group": release_groups.get(slice_id),
+        "execution_owner": "build",
         **identity,
     }
+    return receipt
 
 
 def command_initiative_receipt(args):
@@ -2815,7 +3377,7 @@ def completion_artifact_check(record):
 
 
 def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True):
+                portable=True, git_env=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -2850,11 +3412,21 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             fail("draft_pr delivery requires a feature branch distinct from its base")
         if not delivery_remote:
             fail("draft_pr delivery requires a configured remote")
-        git(root, "fetch", delivery_remote, protected_base_branch)
+        if git_env is None:
+            delivery_url = delivery_remote
+            git(root, "fetch", delivery_remote, protected_base_branch)
+        else:
+            delivery_url = github_remote_url(root, delivery_remote, repository)
+            fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
-        published_head = git(
-            root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
-        ).stdout.split()
+        if git_env is None:
+            published_head = git(
+                root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
+            ).stdout.split()
+        else:
+            published_head = github_remote_head(
+                root, delivery_url, f"refs/heads/{current_branch}", git_env
+            )
         if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
             fail("pre-cycle commits are not published on the feature branch")
         delivery = {
@@ -2862,8 +3434,11 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
             **({"published_feature_head": published_head[0]} if published_head else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
-            "lock_id": delivery_lock_id(remote_destination(root, current_upstream).get("push_url"),
-                                        remote_branch=current_branch),
+            "lock_id": delivery_lock_id(
+                (remote_destination(root, current_upstream).get("push_url")
+                 if git_env is None else delivery_url),
+                remote_branch=current_branch,
+            ),
         }
     else:
         if delivery_branch == protected_base_branch:
@@ -2873,8 +3448,8 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
                     "lock_id": delivery_lock_id(
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
-    schema_version = 4 if portable else 3
-    if schema_version == 4:
+    schema_version = 5
+    if schema_version in (4, 5):
         worktree_locator = worktree_locator or {"root": "cycle_worktree", "path": "."}
         worktree_details = {"id": worktree_id(root), "locator": worktree_locator,
                             "branch": current_branch,
@@ -2903,7 +3478,8 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         "state": "active", "commits": [], "gates": gates, "evidence": {"version": 1, "items": {}},
         "metrics": {"gate_failure_count": 0, "gate_reopen_count": 0, "remediation_round_count": 0},
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
-                             for name in ARTIFACTS},
+                              for name in ARTIFACTS},
+        "runtime": {"adapters": {}},
     }
     message_id = getattr(args, "opencode_message_id", None)
     session_id = (session_for_message(None, message_id) if message_id is not None
@@ -2919,7 +3495,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         activation_raw = getattr(args, "harness_activation_json", None)
         activation = (harness_activation_for_message(None, message_id, activation_raw)
                       if message_id is not None and activation_raw is not None else None)
-        if schema_version == 4:
+        if schema_version in (4, 5):
             runtime_root = root.resolve()
             root_name = "cycle_worktree"
             if runtime_worktree != runtime_root:
@@ -2935,8 +3511,10 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
                        "directory": runtime_directory_relative.as_posix() or "."}
         else:
             runtime = {"worktree": str(runtime_worktree), "directory": str(runtime_directory)}
-        record["runtime"] = {"opencode": {"session_ids": [session_id], **runtime,
-                                               **({"harness_activation": activation} if activation else {})}}
+        record["runtime"]["opencode"] = {"session_ids": [session_id], **runtime,
+                                            **({"harness_activation": activation} if activation else {})}
+        sync_schema5_opencode(record)
+        validate_schema5_runtime(root, record)
     elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
         fail("OpenCode runtime paths require a session ID")
     improvement_worker_id = os.environ.get("DBSCTR_IMPROVEMENT_WORKER_ID")
@@ -3013,21 +3591,74 @@ def command_begin(args):
     if initiative is not None:
         if initiative["context"] != args.context:
             fail("Initiative receipt context does not match the cycle context")
-        if args.cycle_id not in initiative["tickets"]:
-            fail("Initiative receipt does not name the cycle ticket")
+        check_initiative_cycle_occupancy(source, args.cycle_id, initiative)
+    if args.resume_existing and initiative is None:
+        fail("resume-existing is limited to approved Initiative begin")
+    plan = read_plan(args.plan, args.expected_plan_digest)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
+    normalize_begin_delivery(source, args, remote_branch)
+    if args.delivery_intent == "draft_pr":
+        remote_url = github_remote_url(source, remote, args.github_repository)
+        delivery_env = github_environment(args.github_account)
+    else:
+        remote_url, delivery_env = remote, None
     source_record = {"path": str(source.resolve()), "branch": branch(source), "upstream": upstream(source),
-                     "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
-                     "remote": remote_destination(source, upstream(source))}
-    git(source, "fetch", remote, remote_branch)
+                      "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
+                      "remote": remote_destination(source, upstream(source))}
+    if args.delivery_intent == "draft_pr":
+        fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
+    else:
+        git(source, "fetch", remote, remote_branch)
     if ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
     if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
-        fail(f"cycle branch already exists: {branch_name}")
+        if not args.resume_existing:
+            fail(f"cycle branch already exists: {branch_name}")
+        record_path = cycle_dir(source) / "cycles" / f"{args.cycle_id}.json"
+        if not record_path.is_file():
+            fail("existing Initiative cycle record is missing")
+        record = read_cycle_record(source, record_path)
+        worktree = record_worktree(source, record)
+        _, active_record = load(worktree)
+        require_active(active_record)
+        profile_path, profile_blob, gates, graphify = validate_plan(
+            worktree, args.context, args.delivery_intent, plan)
+        expected_plan = {"profile": profile_path, "gates": {
+            name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
+            for name, gate in gates.items()
+        }, **({"graphify": graphify} if graphify else {})}
+        protected_base = record.get("delivery", {}).get(
+            "base_branch" if args.delivery_intent == "draft_pr" else "protected_base_branch")
+        expected_github = ({"host": "github.com", "account": args.github_account,
+                            "repository": args.github_repository}
+                           if args.delivery_intent == "draft_pr" else None)
+        if (active_record != record or record.get("cycle_id") != args.cycle_id
+                or record.get("context") != args.context or record.get("risk") != args.risk
+                or record.get("delivery_intent") != args.delivery_intent
+                or record.get("initiative") != initiative
+                or record.get("git", {}).get("upstream") != target
+                or record.get("worktree", {}).get("created_by_dbsctr") is not True
+                or record.get("worktree", {}).get("branch") != branch_name
+                or not record_worktree_matches(source, record, worktree)
+                or branch(worktree) != branch_name or protected_base != args.base_branch
+                or (expected_github is not None
+                    and record.get("delivery", {}).get("github") != expected_github)
+                or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
+                or record.get("applicability_plan") != expected_plan):
+            fail("existing Initiative cycle does not match the approved launch")
+        opencode = record.get("runtime", {}).get("opencode", {})
+        print(json.dumps({
+            "cycle_id": record["cycle_id"], "branch": branch_name,
+            "worktree": str(worktree), "upstream": target,
+            "open": ["opencode", str(worktree)], "initiative": initiative,
+            "resumed": True,
+            "runtime_attached": bool(opencode.get("session_ids")),
+        }, sort_keys=True))
+        return
     repo_id = hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
     registry = worktree_registry_root()
     parent = Path(args.worktree_root).expanduser() if args.worktree_root else registry / repo_id
@@ -3035,7 +3666,6 @@ def command_begin(args):
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
     parent.mkdir(parents=True, exist_ok=True)
-    plan = read_plan(args.plan, args.expected_plan_digest)
     git(source, "worktree", "add", "-b", branch_name, str(worktree), target)
     worktree = worktree.resolve()
     try:
@@ -3061,10 +3691,10 @@ def command_begin(args):
         locator = relative_locator(worktree, registry, "dbsctr_worktrees")
         portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                             worktree_locator=locator, portable=portable)
+                             worktree_locator=locator, portable=portable, git_env=delivery_env)
         if initiative is not None:
             record["initiative"] = initiative
-        if record["schema_version"] == 4:
+        if record["schema_version"] in (4, 5):
             source_record.pop("path")
             source_record["locator"] = {"root": "primary_worktree", "path": "."}
         record["source"] = source_record
@@ -3166,14 +3796,13 @@ def command_cycle_portabilize(args):
     if not path.is_file() or path.is_symlink():
         fail("cycle record is missing")
     with evidence_lock(root, cycle_id):
-        record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+        record = read_cycle_record(root, path)
         if record.get("cycle_id") != cycle_id or record.get("state") != "active":
             fail("only the named active cycle can be made portable")
         managed_directory(root, backup.parent)
         if backup.exists() and (backup.is_symlink() or not backup.is_file()):
             fail("schema 3 rollback is invalid")
-        legacy = (json.loads(backup.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
-                  if backup.is_file() else None)
+        legacy = read_cycle_record(root, backup, "schema 3 rollback") if backup.is_file() else None
         if legacy is not None and (legacy.get("schema_version") != 3
                                    or legacy.get("cycle_id") != cycle_id
                                    or legacy.get("state") != "active"):
@@ -3234,13 +3863,13 @@ def cleanup_cycle(root, cycle_id, immediate):
     path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
     if not path.is_file():
         fail(f"cycle record is missing: {cycle_id}")
-    record = json.loads(path.read_text(encoding="utf-8"))
+    record = read_cycle_record(root, path)
     if record.get("state") != "completed":
         fail("only a completed cycle can be cleaned up")
     if record.get("worktree", {}).get("created_by_dbsctr") is not True:
         fail("cleanup only removes DBSCTR-created worktrees")
     worktree = record_worktree(root, record)
-    durable_cleanup = record.get("schema_version") in (3, 4)
+    durable_cleanup = record.get("schema_version") in (3, 4, 5)
     if not worktree.is_dir() and not durable_cleanup:
         return "already removed " + str(worktree)
     cleanup = record.get("cleanup")
@@ -3359,7 +3988,7 @@ def command_cycle_retire(args):
         fail("cycle record is missing")
 
     with evidence_lock(root, cycle_id):
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = read_cycle_record(root, path)
         retirement = record.get("retirement")
         retrying = (record.get("state") == "active" and isinstance(retirement, dict)
                     and retirement.get("state") == "removing_worktree")
@@ -3441,7 +4070,7 @@ def command_cycle_retire_worktree(args):
         fail("cycle record is missing")
 
     with evidence_lock(root, cycle_id):
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = read_cycle_record(root, path)
         retirement = record.get("worktree_retirement")
         retrying = (record.get("state") == "completed" and isinstance(retirement, dict)
                     and retirement.get("state") == "removing_worktree")
@@ -3474,10 +4103,10 @@ def command_cycle_retire_worktree(args):
                 fail("completed cycle worktree identity changed")
             related = []
             for candidate in (cycle_dir(root) / "cycles").glob("*.json"):
-                value = json.loads(candidate.read_text(encoding="utf-8"))
+                value = read_cycle_record(root, candidate)
                 other = value.get("worktree", {})
                 if (other.get("id") == details["id"]
-                        or record.get("schema_version") != 4 and other.get("path") == details.get("path")):
+                        or record.get("schema_version") not in (4, 5) and other.get("path") == details.get("path")):
                     related.append(value)
             if not related or any(value.get("state") != "completed" for value in related):
                 fail("shared worktree has a non-completed cycle")
@@ -3600,7 +4229,7 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
     records = cycle_dir(root) / "cycles"
     result = []
     for path in sorted(records.glob("*.json")):
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = read_cycle_record(root, path)
         if record.get("worktree", {}).get("created_by_dbsctr") is not True:
             continue
         worktree = record_worktree(root, record)
@@ -3676,7 +4305,7 @@ def command_cleanup(args):
         for repository_id, root, allowed_root in repositories:
             for path in sorted((cycle_dir(root) / "cycles").glob("*.json")):
                 try:
-                    record = json.loads(path.read_text(encoding="utf-8"))
+                    record = read_cycle_record(root, path)
                     if (record.get("state") != "completed"
                             or record.get("worktree", {}).get("created_by_dbsctr") is not True):
                         continue
@@ -3708,13 +4337,13 @@ def command_cleanup(args):
     cycle_ids, failed = [], []
     for path in sorted(records.glob("*.json")):
         try:
-            record = json.loads(path.read_text(encoding="utf-8"))
+            record = read_cycle_record(root, path)
             if record.get("state") == "completed" and record.get("worktree", {}).get("created_by_dbsctr") is True:
                 if record.get("cycle_id") != path.stem or not re.fullmatch(
                         r"[A-Za-z0-9][A-Za-z0-9._-]*", record.get("cycle_id", "")):
                     raise ValueError("cycle record identity mismatch")
                 cycle_ids.append(record["cycle_id"])
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        except (RuntimeError, OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             failed.append({"cycle_id": path.stem, "error": str(error)})
     removed = []
     for cycle_id in cycle_ids:
@@ -3740,26 +4369,17 @@ def command_audit(args):
         ):
             contexts.setdefault(parts[2], set()).add(parts[3])
     expected = {"README.md", "CHANGELOG.md"}
-    ticket_counts = {}
-    for name in files:
-        parts = PurePosixPath(name).parts
-        if len(parts) == 4 and parts[:2] == ("docs", "tickets") and parts[2].startswith("context=") and name.endswith(".md"):
-            ticket_counts[parts[2].removeprefix("context=")] = ticket_counts.get(parts[2].removeprefix("context="), 0) + 1
     findings = []
     inventory = []
     for context in sorted(contexts):
         present = contexts[context]
         missing = sorted(expected - present)
-        inventory.append({"context": context, "present": sorted(present), "missing": missing,
-                          "tickets": ticket_counts.get(context, 0)})
+        inventory.append({"context": context, "present": sorted(present), "missing": missing})
         for artifact in missing:
             findings.append({
                 "code": "missing_lifecycle_artifact", "severity": "medium", "context": context,
                 "path": f"docs/specs/{context}/{artifact}",
             })
-        if ticket_counts.get(context, 0) == 0:
-            findings.append({"code": "missing_context_ticket", "severity": "medium", "context": context,
-                             "path": f"docs/tickets/context={context}"})
     graph_path = "graphify-out/GRAPH_REPORT.md"
     receipt_path = "graphify-out/graph.receipt.json"
     graph = {"present": graph_path in files, "built_from": None, "stale": None,
@@ -4324,12 +4944,19 @@ def command_attach_runtime(args):
             fail("attached root sessions disagree on harness activation")
         if existing_activation is None and activation is not None:
             opencode["harness_activation"] = activation
-        if record.get("schema_version") == 4 and runtime_worktree == root:
+        if record.get("schema_version") in (4, 5) and runtime_worktree == root:
             opencode.update({"path_root": "cycle_worktree", "worktree": "."})
-        elif record.get("schema_version") == 4 and runtime_worktree == source_worktree:
+            if record.get("schema_version") == 5:
+                opencode["directory"] = runtime_directory.relative_to(root).as_posix() or "."
+        elif record.get("schema_version") in (4, 5) and runtime_worktree == source_worktree:
             opencode.update({"path_root": "primary_worktree", "worktree": "."})
-        elif record.get("schema_version") != 4 and runtime_worktree in {root, source_worktree}:
+            if record.get("schema_version") == 5:
+                opencode["directory"] = runtime_directory.relative_to(source_worktree).as_posix() or "."
+        elif record.get("schema_version") not in (4, 5) and runtime_worktree in {root, source_worktree}:
             opencode["worktree"] = str(runtime_worktree)
+        sync_schema5_opencode(record)
+        if record.get("schema_version") == 5:
+            validate_schema5_runtime(root, record)
         save(path, record)
     print(json.dumps({"cycle_id": record["cycle_id"], "attached": attached}, sort_keys=True,
                      separators=(",", ":")))
@@ -4613,9 +5240,10 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
         records = []
         paths = sorted({path for directory_path in record_dirs if directory_path.is_dir()
                         for path in directory_path.glob("*.json")})
+        record_root = resolved or root_dir()
         for path in paths:
             try:
-                record = json.loads(path.read_text(encoding="utf-8"))
+                record = read_cycle_record(record_root, path)
                 cycle_id = record.get("cycle_id")
                 if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
                     fail("Cycle Record contains an invalid cycle ID")
@@ -5176,6 +5804,522 @@ def command_review_scan(args):
     scan.pop("_excluded_session_ids", None)
     scan.pop("_source_identities", None)
     print(json.dumps(scan, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def incident_redact(value, limit=2048):
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[^\x09\x0a\x20-\x7e]", " ", text)
+    text = re.sub(r"(?i)\b(?:proxy-)?authorization\s*[:=]\s*[^\n]+",
+                  "authorization=[REDACTED]", text)
+    secret = r"(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie|api[_-]?key)"
+    quoted = r'''(?:"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\S+)'''
+    field = rf'''(?:"{secret}"|'{secret}'|\b{secret}\b)'''
+    text = re.sub(rf"(--?{secret}(?:=|\s+)){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
+    text = re.sub(rf"({field}\s*[:=]\s*){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
+    text = re.sub(rf"(\bBearer\s+){quoted}",
+                  lambda match: match.group(1) + "[REDACTED]", text, flags=re.I)
+    text = SECRET_VALUE.sub("[REDACTED]", text)
+    text = HIGH_ENTROPY.sub("[REDACTED]", text)
+    return text.strip()[:limit]
+
+
+def incident_scope(candidates, session_id):
+    by_id = {item["session_id"]: item for item in candidates}
+    if session_id not in by_id:
+        fail("incident session is outside the DBSCTR review family")
+    adjacency = {item_id: set() for item_id in by_id}
+    for item_id, item in by_id.items():
+        related = [item.get("parent_session_id"), *item.get("child_session_ids", [])]
+        for value in related:
+            if value in adjacency:
+                adjacency[item_id].add(value)
+                adjacency[value].add(item_id)
+    family, pending = {session_id}, [session_id]
+    while pending:
+        current = pending.pop()
+        new = adjacency[current] - family
+        family.update(new)
+        pending.extend(new)
+    return family
+
+
+def incident_signal_id(session_id, message_id, part_id, tool):
+    return hashlib.sha256(f"{session_id}\0{message_id}\0{part_id}\0{tool}".encode()).hexdigest()[:24]
+
+
+def incident_scan_data(args):
+    session_id = getattr(args, "session_id", None)
+    if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
+        fail("invalid incident session ID")
+    scan = review_scan(argparse.Namespace(
+        database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT, cursor=0,
+        snapshot=None, session_ceiling=None, part_ceiling=None, database_digest=None,
+        excluded_session_id=None, excluded_message_id=None, exclusion_digest=None,
+        history_metrics=True, history_all=True, include_reviewed=True, bind_history=False,
+        lock_held=False,
+    ))
+    candidate_ids = {item["session_id"] for item in scan["candidates"]}
+    scope = incident_scope(scan["candidates"], session_id) if session_id else candidate_ids
+    root = review_root(args.state_root)
+    dispositions = set()
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
+                dispositions = {row[0] for row in ledger.execute(
+                    "SELECT signal_id FROM incident_signal_dispositions")}
+    database = opencode_database(args.database)
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection.create_function("incident_signal_id", 4, incident_signal_id, deterministic=True)
+        connection.execute("CREATE TEMP TABLE incident_dispositions(signal_id TEXT PRIMARY KEY)")
+        connection.executemany("INSERT INTO incident_dispositions VALUES (?)",
+                               ((signal_id,) for signal_id in dispositions))
+        tables = {row[0].lower(): row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        message, part = tables["message"], tables["part"]
+        mid = sqlite_name(connection, message, ("id",))
+        msession = sqlite_name(connection, message, ("sessionid",))
+        pid = sqlite_name(connection, part, ("id",))
+        pmessage = sqlite_name(connection, part, ("messageid",))
+        ptime = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        pbody = sqlite_name(connection, part, ("data", "text", "content"))
+        rows = []
+        if scope:
+            placeholders = ",".join("?" for _ in scope)
+            body = f'''CASE WHEN json_valid(p."{pbody}") THEN p."{pbody}" ELSE '{{}}' END'''
+            success_body = f'''CASE WHEN json_valid(sp."{pbody}") THEN sp."{pbody}" ELSE '{{}}' END'''
+            tool = f'''coalesce(json_extract({body},'$.tool'),json_extract({body},'$.name'),
+                                json_extract({body},'$.state.tool'),'unknown')'''
+            success_tool = f'''coalesce(json_extract({success_body},'$.tool'),
+                    json_extract({success_body},'$.name'),json_extract({success_body},'$.state.tool'),'unknown')'''
+            rows = connection.execute(
+                f'''SELECT m."{msession}",m."{mid}",p."{pid}",p."{ptime}",p."{pbody}",
+                    EXISTS (SELECT 1 FROM "{message}" sm JOIN "{part}" sp
+                            ON sp."{pmessage}"=sm."{mid}"
+                            WHERE sm."{msession}"=m."{msession}" AND sp.rowid <= ?
+                              AND sp."{ptime}" <= ? AND sp."{ptime}" > p."{ptime}"
+                              AND json_extract({success_body},'$.type')='tool'
+                              AND lower(json_extract({success_body},'$.state.status')) IN ('completed','success')
+                              AND {success_tool}={tool}) AS recovered
+                    FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}"
+                    WHERE m."{msession}" IN ({placeholders}) AND p.rowid <= ? AND p."{ptime}" <= ?
+                      AND json_extract({body},'$.type')='tool'
+                      AND lower(json_extract({body},'$.state.status')) IN ('error','failed')
+                      AND incident_signal_id(m."{msession}",m."{mid}",p."{pid}",{tool})
+                          NOT IN (SELECT signal_id FROM incident_dispositions)
+                    ORDER BY recovered,p."{ptime}" DESC,p."{pid}" LIMIT 101''',
+                (scan["part_ceiling"], scan["snapshot"], *sorted(scope),
+                 scan["part_ceiling"], scan["snapshot"]),
+            ).fetchall()
+    except (KeyError, sqlite3.Error) as error:
+        fail(f"cannot read OpenCode incidents: {error}")
+    finally:
+        if "connection" in locals():
+            connection.close()
+    calls = []
+    for source_session, message_id, part_id, timestamp, raw, recovered in rows:
+        try:
+            payload = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        except (TypeError, json.JSONDecodeError, RuntimeError):
+            continue
+        state = payload.get("state") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) or payload.get("type") != "tool" or not isinstance(state, dict):
+            continue
+        tool_name = payload.get("tool") or payload.get("name") or state.get("tool") or "unknown"
+        if not isinstance(tool_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", tool_name):
+            tool_name = "unknown"
+        status = state.get("status")
+        if not isinstance(status, str):
+            continue
+        calls.append({"session_id": str(source_session), "message_id": str(message_id),
+                      "part_id": str(part_id), "timestamp": int(timestamp),
+                      "tool": tool_name, "status": status.lower(), "state": state,
+                      "recovered": bool(recovered)})
+    incidents = []
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
+                incident_sql = (
+                    "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                    "diagnostics,evidence,created_at,updated_at FROM incidents")
+                incident_args = ()
+                if session_id is not None:
+                    placeholders = ",".join("?" for _ in scope)
+                    incident_sql += f" WHERE session_id IN ({placeholders})"
+                    incident_args = tuple(sorted(scope))
+                incident_sql += " ORDER BY updated_at DESC,incident_id LIMIT 101"
+                for row in ledger.execute(incident_sql, incident_args):
+                    item = incident_record(row)
+                    item["signal_ids"] = [value[0] for value in ledger.execute(
+                        "SELECT signal_id FROM incident_signal_dispositions "
+                        "WHERE incident_id=? AND disposition='promoted' ORDER BY signal_id",
+                        (item["incident_id"],))]
+                    incidents.append(item)
+    signals = []
+    for item in calls:
+        signal_id = incident_signal_id(item["session_id"], item["message_id"], item["part_id"], item["tool"])
+        detail = item["state"].get("error", item["status"])
+        if not isinstance(detail, str):
+            detail = json.dumps(detail, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        signals.append({
+            "signal_id": signal_id, "session_id": item["session_id"],
+            "message_id": item["message_id"], "part_id": item["part_id"],
+            "timestamp": item["timestamp"], "tool": item["tool"], "status": item["status"],
+            "recovered": item["recovered"],
+            "evidence": incident_redact(detail, 1024),
+        })
+    signals.sort(key=lambda item: (item["recovered"], -item["timestamp"], item["signal_id"]))
+    result = {"schema_version": 1, "incidents": incidents[:100], "signals": signals[:100],
+              "incident_overflow": len(incidents) > 100, "signal_overflow": len(rows) > 100,
+              "snapshot": scan["snapshot"], "session_ceiling": scan["session_ceiling"],
+              "part_ceiling": scan["part_ceiling"], "database_digest": scan["database_digest"]}
+    if len(json.dumps(result, ensure_ascii=True).encode()) > REVIEW_SCAN_HARD:
+        fail("incident scan response exceeds bound")
+    return result
+
+
+def command_incident_scan(args):
+    print(json.dumps(incident_scan_data(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def incident_session_parent(database, session_id, message_id):
+    if session_for_message(database, message_id) != session_id:
+        fail("incident message belongs to another session")
+    path = opencode_database(database)
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        table = next(row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'") if row[0].lower() == "session")
+        sid = sqlite_name(connection, table, ("id",))
+        parent = sqlite_name(connection, table, ("parentid", "parent"))
+        row = connection.execute(f'SELECT "{parent}" FROM "{table}" WHERE "{sid}"=?',
+                                 (session_id,)).fetchone()
+    except (StopIteration, sqlite3.Error) as error:
+        fail(f"cannot validate incident session: {error}")
+    finally:
+        if "connection" in locals():
+            connection.close()
+    if row is None or row[0] is None or not OPAQUE_ID.fullmatch(str(row[0])):
+        fail("incident registration requires a child session")
+    return str(row[0])
+
+
+def command_incident_register(args):
+    if (not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)
+            or args.kind not in INCIDENT_KINDS or not args.title.startswith("INCIDENT: ")
+            or not 11 <= len(args.title) <= 128 or not 1 <= len(args.summary) <= 1024
+            or len(args.signal_id) > 20 or len(args.diagnostic) > 20 or len(args.evidence) > 20
+            or len(args.signal_id) + len(args.evidence) > 20
+            or not all(re.fullmatch(r"[0-9a-f]{24}", value) for value in args.signal_id)):
+        fail("invalid incident registration")
+    parent_id = incident_session_parent(args.database, args.session_id, args.message_id)
+    scan = incident_scan_data(argparse.Namespace(
+        database=args.database, state_root=args.state_root, session_id=args.session_id))
+    available = {item["signal_id"]: item for item in scan["signals"]}
+    missing = set(args.signal_id) - set(available)
+    if missing:
+        fail("incident signal is outside the incident family or already disposed")
+    diagnostics = [incident_redact(value) for value in args.diagnostic]
+    evidence = [incident_redact(value) for value in args.evidence]
+    evidence.extend(incident_redact(f'{available[value]["tool"]}: {available[value]["evidence"]}')
+                    for value in args.signal_id)
+    if any(not value for value in diagnostics + evidence):
+        fail("invalid incident evidence")
+    title, summary = incident_redact(args.title, 128), incident_redact(args.summary, 1024)
+    if not title.startswith("INCIDENT: ") or not summary:
+        fail("invalid incident registration")
+    incident_id = hashlib.sha256(f"incident\0{args.session_id}".encode()).hexdigest()[:24]
+    timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM incidents WHERE session_id=?", (args.session_id,)).fetchone():
+                fail("incident fork is already registered")
+            connection.execute(
+                "INSERT INTO incidents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (incident_id, args.session_id, parent_id, args.message_id, args.kind, title, summary,
+                 "open", None, ledger_payload(diagnostics), ledger_payload(evidence), timestamp, timestamp),
+            )
+            connection.executemany(
+                "INSERT INTO incident_signal_dispositions VALUES (?,?,'promoted',?)",
+                ((value, incident_id, timestamp) for value in args.signal_id),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    item = {"incident_id": incident_id, "session_id": args.session_id,
+            "parent_session_id": parent_id, "message_id": args.message_id, "kind": args.kind,
+            "title": title, "summary": summary, "state": "open", "cycle_id": None,
+            "diagnostics": diagnostics, "evidence": evidence, "created_at": timestamp,
+            "updated_at": timestamp, "signal_ids": args.signal_id}
+    print(json.dumps({"incident": item}, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def validate_incident_cycle_record(repository, record, cycle_id):
+    required = {
+        "schema_version", "method_revision", "cycle_id", "context", "risk", "delivery_intent",
+        "created_at", "state", "worktree", "source", "git", "delivery", "engineering_profile",
+        "applicability_plan", "gates", "evidence", "artifact_reviews", "commits", "metrics", "runtime",
+    }
+    if (not isinstance(record, dict) or not required.issubset(record)
+            or record.get("schema_version") not in (4, 5)
+            or record.get("cycle_id") != cycle_id
+            or not OPAQUE_ID.fullmatch(str(record.get("method_revision", "")))
+            or not OPAQUE_ID.fullmatch(str(record.get("context", "")))
+            or record.get("risk") not in ("routine", "elevated", "critical")
+            or record.get("delivery_intent") not in DELIVERY_INTENTS
+            or record.get("state") not in ("active", "blocked", "abandoned", "completed")
+            or not all(isinstance(record.get(name), dict) for name in (
+                "worktree", "source", "git", "delivery", "engineering_profile", "applicability_plan",
+                "evidence", "artifact_reviews", "metrics", "runtime"))
+            or not isinstance(record.get("commits"), list)):
+        fail("incident fix Cycle Record is invalid")
+    try:
+        created = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        fail("incident fix Cycle Record is invalid")
+    if created.utcoffset() != timedelta(0):
+        fail("incident fix Cycle Record is invalid")
+    worktree = record["worktree"]
+    source = record["source"]
+    git_record = record["git"]
+    profile = record["engineering_profile"]
+    metrics = record["metrics"]
+    if (not re.fullmatch(r"[0-9a-f]{16}", str(worktree.get("id", "")))
+            or not re.fullmatch(r"[0-9a-f]{40}", str(worktree.get("base_commit", "")))
+            or not isinstance(worktree.get("branch"), str)
+            or type(worktree.get("created_by_dbsctr")) is not bool
+            or not isinstance(worktree.get("locator"), dict)
+            or set(worktree["locator"]) != {"root", "path"}
+            or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("head", "")))
+            or not isinstance(source.get("locator"), dict)
+            or not isinstance(source.get("dirty_paths"), list)
+            or not re.fullmatch(r"[0-9a-f]{40}", str(git_record.get("head", "")))
+            or not isinstance(git_record.get("dirty_paths"), list)
+            or not isinstance(git_record.get("pre_cycle_ahead_commits"), list)
+            or not isinstance(git_record.get("remote"), dict)
+            or not isinstance(profile.get("path"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", str(profile.get("blob", "")))
+            or set(metrics) != {"gate_failure_count", "gate_reopen_count", "remediation_round_count"}
+            or any(type(value) is not int or value < 0 for value in metrics.values())
+            or record["evidence"].get("version") != 1
+            or any(not isinstance(commit, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(commit.get("id", "")))
+                   or not isinstance(commit.get("gates"), list) or not set(commit["gates"]).issubset(GATES)
+                   for commit in record["commits"])):
+        fail("incident fix Cycle Record is invalid")
+    gates = record.get("gates")
+    items = record.get("evidence", {}).get("items")
+    plan_gates = record["applicability_plan"].get("gates")
+    if (not isinstance(gates, dict) or set(gates) != set(GATES) or not isinstance(items, dict)
+            or not isinstance(plan_gates, dict) or set(plan_gates) != set(GATES)
+            or record["applicability_plan"].get("profile") != profile["path"]):
+        fail("incident fix Cycle Record is invalid")
+    for name in GATES:
+        gate = gates[name]
+        plan_gate = plan_gates[name]
+        if (not isinstance(gate, dict) or gate.get("applicability") not in ("required", "not_applicable")
+                or not isinstance(plan_gate, dict) or plan_gate.get("applicability") != gate["applicability"]
+                or gate.get("result") not in ("pending", "passed", "failed", "unavailable", "not_run")
+                or gate["applicability"] == "not_applicable" and gate["result"] != "not_run"
+                or gate["applicability"] == "required" and gate["result"] == "not_run"):
+            fail("incident fix Cycle Record is invalid")
+        if gate["result"] in ("passed", "failed", "unavailable"):
+            evidence_id = gate.get("evidence")
+            evidence = items.get(evidence_id) if isinstance(evidence_id, str) else None
+            if (not isinstance(evidence, dict) or evidence.get("id") != evidence_id
+                    or evidence.get("gate") != name or evidence.get("result") != gate["result"]
+                    or not isinstance(evidence.get("authority"), str) or not evidence["authority"].strip()
+                    or not isinstance(evidence.get("argv"), list)
+                    or not all(isinstance(value, str) for value in evidence["argv"])
+                    or not isinstance(evidence.get("paths"), dict)
+                    or any(not isinstance(path, str) or not path or PurePosixPath(path).is_absolute()
+                           or ".." in PurePosixPath(path).parts
+                           or not re.fullmatch(r"[0-9a-f]{40}", str(digest))
+                           for path, digest in evidence["paths"].items())
+                    or evidence.get("head") != record["git"]["head"]
+                    or not isinstance(evidence.get("summary"), str)
+                    or not isinstance(evidence.get("urls"), list)
+                    or not all(isinstance(value, str) for value in evidence["urls"])
+                    or not isinstance(evidence.get("raw"), dict)
+                    or set(evidence["raw"]) != {"byte_count", "lower_bound", "truncated"}
+                    or type(evidence["raw"]["byte_count"]) is not int or evidence["raw"]["byte_count"] < 0
+                    or type(evidence["raw"]["lower_bound"]) is not bool
+                    or type(evidence["raw"]["truncated"]) is not bool):
+                fail("incident fix Cycle Record evidence is invalid")
+            try:
+                started = datetime.fromisoformat(evidence["started_at"].replace("Z", "+00:00"))
+                finished = datetime.fromisoformat(evidence["finished_at"].replace("Z", "+00:00"))
+            except (AttributeError, KeyError, ValueError):
+                fail("incident fix Cycle Record evidence is invalid")
+            if started.utcoffset() != timedelta(0) or finished.utcoffset() != timedelta(0) or finished < started:
+                fail("incident fix Cycle Record evidence is invalid")
+            verify_envelope(repository, record, name, require_head=False)
+        if (record["state"] == "completed" and gate["applicability"] == "required"
+                and gate["result"] != "passed"
+                and not (gate["result"] in ("failed", "unavailable") and valid_gate_exception(gate))):
+            fail("incident completed Cycle Record has an incomplete gate")
+    if record["state"] == "completed":
+        try:
+            completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+        except (AttributeError, KeyError, ValueError):
+            fail("incident completed Cycle Record is invalid")
+        if completed.utcoffset() != timedelta(0) or completed < created:
+            fail("incident completed Cycle Record is invalid")
+        if (set(record["artifact_reviews"]) != {"README", "BACKLOG", "CHANGELOG"}
+                or any(review.get("result") not in ("changed", "unchanged")
+                       for review in record["artifact_reviews"].values())):
+            fail("incident completed Cycle Record artifact reviews are invalid")
+    return record
+
+
+def global_cycle_record(cycle_id):
+    if not OPAQUE_ID.fullmatch(cycle_id):
+        fail("invalid incident cycle ID")
+    roots = [root_dir()]
+    repositories, failures = global_worktree_roots()
+    if failures:
+        fail("incident fix cycle registry is incomplete")
+    roots.extend(item[1] for item in repositories)
+    found, seen = [], set()
+    for repository in roots:
+        try:
+            common = common_git_dir(repository).resolve()
+        except RuntimeError:
+            continue
+        if common in seen:
+            continue
+        seen.add(common)
+        path = common / "dbsctr/cycles" / f"{cycle_id}.json"
+        if path.is_file() and not path.is_symlink():
+            try:
+                record = read_cycle_record(repository, path, "incident Cycle Record")
+            except (OSError, json.JSONDecodeError) as error:
+                fail(f"cannot read incident Cycle Record: {error}")
+            found.append(validate_incident_cycle_record(repository, record, cycle_id))
+    if len(found) != 1:
+        fail("incident fix cycle is missing or ambiguous")
+    return found[0]
+
+
+def command_incident_update(args):
+    if (not re.fullmatch(r"[0-9a-f]{24}", args.incident_id)
+            or not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)):
+        fail("invalid incident ID")
+    incident_session_parent(args.database, args.session_id, args.message_id)
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        try:
+            row = connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents WHERE incident_id=?",
+                (args.incident_id,)).fetchone()
+            if row is None:
+                fail("incident is missing")
+            item = incident_record(row)
+            if item["session_id"] != args.session_id:
+                fail("incident lifecycle write belongs to another fork")
+            transitions = {"open": {"investigating", "dismissed"},
+                           "investigating": {"open", "fixing", "dismissed"},
+                           "fixing": {"resolved"}, "resolved": set(), "dismissed": set()}
+            if args.state != item["state"] and args.state not in transitions[item["state"]]:
+                fail("invalid incident state transition")
+            cycle_id = item["cycle_id"]
+            if args.state == "fixing":
+                requested = args.cycle_id or cycle_id
+                if requested is None:
+                    fail("fixing incident requires one cycle ID")
+                if cycle_id is not None and requested != cycle_id:
+                    fail("incident fix cycle is immutable")
+                global_cycle_record(requested)
+                cycle_id = requested
+            elif args.cycle_id is not None and args.cycle_id != cycle_id:
+                fail("incident fix cycle is immutable")
+            if args.state == "resolved":
+                if cycle_id is None:
+                    fail("incident resolution requires verified activation")
+                cycle = global_cycle_record(cycle_id)
+                gates = cycle.get("gates", {})
+                activation = [gates.get(name) for name in ("deploy", "operate")]
+                if (cycle.get("state") != "completed" or any(
+                        not isinstance(gate, dict)
+                        or gate.get("applicability") not in ("required", "not_applicable")
+                        or gate.get("applicability") == "required" and gate.get("result") != "passed"
+                        for gate in activation)):
+                    fail("incident resolution requires verified activation")
+            timestamp = max(int(datetime.now(timezone.utc).timestamp() * 1000), item["updated_at"] + 1)
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("UPDATE incidents SET state=?,cycle_id=?,updated_at=? WHERE incident_id=?",
+                               (args.state, cycle_id, timestamp, args.incident_id))
+            connection.commit()
+            updated = connection.execute(
+                "SELECT incident_id,session_id,parent_session_id,message_id,kind,title,summary,state,cycle_id,"
+                "diagnostics,evidence,created_at,updated_at FROM incidents WHERE incident_id=?",
+                (args.incident_id,)).fetchone()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+    print(json.dumps({"incident": incident_record(updated)}, sort_keys=True,
+                     separators=(",", ":"), ensure_ascii=True))
+
+
+def command_incident_forget(args):
+    if (not re.fullmatch(r"[0-9a-f]{24}", args.incident_id)
+            or not OPAQUE_ID.fullmatch(args.session_id) or not OPAQUE_ID.fullmatch(args.message_id)):
+        fail("invalid incident ID")
+    incident_session_parent(args.database, args.session_id, args.message_id)
+    root = review_root(args.state_root)
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        connection = ensure_ledger_for_write(root)
+        row = connection.execute("SELECT session_id FROM incidents WHERE incident_id=?",
+                                 (args.incident_id,)).fetchone()
+        if row is None:
+            fail("incident is missing")
+        if row[0] != args.session_id:
+            fail("incident lifecycle write belongs to another fork")
+        signal_ids = [item[0] for item in connection.execute(
+            "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id=?", (args.incident_id,))]
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        staged = None
+        quarantine_name = f".forget-{uuid.uuid4().hex}"
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE incident_signal_dispositions SET incident_id=NULL,disposition='forgotten',timestamp=? "
+                "WHERE incident_id=?", (timestamp, args.incident_id))
+            connection.execute("DELETE FROM incidents WHERE incident_id=?", (args.incident_id,))
+            record_knowledge_privacy_tombstone(connection, "incident", args.incident_id, "forgotten", timestamp)
+            for signal_id in signal_ids:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident_signal", signal_id, "forgotten", timestamp)
+            connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
+                               (quarantine_name,))
+            staged = stage_pre_forget_state(root, quarantine_name)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            if staged is not None:
+                restore_staged_forget(*staged)
+            connection.close()
+            raise
+        recover_forget_state(root, connection)
+        connection.close()
+    print(json.dumps({"forgotten": True}, sort_keys=True, separators=(",", ":")))
 
 
 def history_telemetry(candidate, metrics):
@@ -6338,7 +7482,7 @@ def knowledge_cycle_records(repository):
     directory = cycle_dir(repository) / "cycles"
     for path in sorted(directory.glob("*.json")) if directory.is_dir() else ():
         try:
-            cycle = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+            cycle = read_cycle_record(repository, path, "export Cycle Record")
         except (OSError, json.JSONDecodeError) as error:
             fail(f"cannot export Cycle Record: {error}")
         cycle_id = cycle.get("cycle_id")
@@ -7008,6 +8152,15 @@ def command_phase_span(args):
     record_path, record = load(root_dir())
     require_active(record)
     cycle_id = record["cycle_id"]
+    if args.event == "start":
+        if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
+            fail("phase span start requires phase, operation, and attribution only")
+        dependencies = sorted(set(args.dependency or []))
+        ownership = sorted(set(phase_path(item) for item in (args.path or [])))
+    else:
+        if args.result is None or any(value is not None for value in (
+                args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
+            fail("phase span finish requires only span ID and result")
     root = review_root(args.state_root)
     if not OPAQUE_ID.fullmatch(args.span_id):
         fail("invalid phase span ID")
@@ -7020,10 +8173,6 @@ def command_phase_span(args):
         try:
             connection.execute("BEGIN IMMEDIATE")
             if args.event == "start":
-                if args.phase is None or args.operation is None or args.attribution is None or args.result is not None:
-                    fail("phase span start requires phase, operation, and attribution only")
-                dependencies = sorted(set(args.dependency or []))
-                ownership = sorted(set(phase_path(item) for item in (args.path or [])))
                 row = (cycle_id, args.span_id, args.parent_span_id, args.phase, args.operation,
                        args.attribution, ledger_payload(dependencies), ledger_payload(ownership),
                        timestamp, None, None)
@@ -7056,9 +8205,6 @@ def command_phase_span(args):
                     if any(existing[name] != expected[name] for name in comparable):
                         fail("phase span ID conflicts with existing marker")
             else:
-                if args.result is None or any(value is not None for value in (
-                        args.parent_span_id, args.phase, args.operation, args.attribution)) or args.dependency or args.path:
-                    fail("phase span finish requires only span ID and result")
                 row = connection.execute(
                     "SELECT started_at, finished_at, result FROM phase_spans WHERE cycle_id=? AND span_id=?",
                     (cycle_id, args.span_id),
@@ -7093,6 +8239,30 @@ def command_phase_report(args):
     with existing_review_lock(root):
         report = load_phase_report(root, record["cycle_id"])
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+
+
+def command_cycle_performance(args):
+    filters = {name: value for name, value in (
+        ("context", args.context), ("risk", args.risk),
+        ("delivery_intent", args.delivery_intent), ("method_revision", args.method_revision),
+    ) if value is not None}
+    if args.context is not None and not OPAQUE_ID.fullmatch(args.context):
+        fail("invalid context")
+    if args.method_revision is not None and not OPAQUE_ID.fullmatch(args.method_revision):
+        fail("invalid method revision")
+    records = completed_cycle_records(root_dir())
+    root = review_root(args.state_root)
+    spans = {}
+    require_review_lock_safe(root)
+    if ledger_exists(root):
+        with existing_review_lock(root):
+            with ledger_connection(root) as connection:
+                if connection.execute(
+                        "SELECT value FROM ledger_meta WHERE key='phase_schema'").fetchone() is not None:
+                    for record in records:
+                        spans[record["cycle_id"]] = phase_rows(connection, record["cycle_id"])
+    print(json.dumps(cycle_performance(records, spans, filters),
+                     sort_keys=True, separators=(",", ":")))
 
 
 def execution_dag(value, requested_mode, risk, activated=False):
@@ -7443,7 +8613,7 @@ def command_review_restore(args):
                 tombstones = knowledge_privacy_rows(restored)
                 unknown = {row[0] for row in tombstones} - {
                     "telemetry", "review", "history_report", "history_capture", "benchmark",
-                    "provider_evaluation"}
+                    "provider_evaluation", "incident", "incident_signal"}
                 if unknown:
                     fail("private review restore contains unsupported privacy tombstones")
                 for family, session_id, _, timestamp in tombstones:
@@ -7499,6 +8669,15 @@ def command_review_restore(args):
                     restored.execute("DELETE FROM provider_evaluation_reports WHERE report_id IN "
                                      "(SELECT item_id FROM knowledge_privacy_tombstones "
                                      "WHERE family='provider_evaluation')")
+                restored.execute("DELETE FROM incidents WHERE incident_id IN "
+                                 "(SELECT item_id FROM knowledge_privacy_tombstones "
+                                 "WHERE family='incident')")
+                restored.execute(
+                    "INSERT INTO incident_signal_dispositions(signal_id,incident_id,disposition,timestamp) "
+                    "SELECT item_id,NULL,'forgotten',timestamp FROM knowledge_privacy_tombstones "
+                    "WHERE family='incident_signal' "
+                    "ON CONFLICT(signal_id) DO UPDATE SET incident_id=NULL,disposition='forgotten',"
+                    "timestamp=max(timestamp,excluded.timestamp)")
                 merged_rows = knowledge_privacy_rows(restored)
                 added = len({tuple(row) for row in merged_rows} - {tuple(row) for row in privacy_rows})
                 sequence = max(privacy_sequence, restored_sequence) + added
@@ -8260,7 +9439,12 @@ def command_review_forget(args):
         session_times = [timestamp for _, report, timestamp in review_reports(root)
                          if args.session_id in report["session_ids"]]
         session_times.append(value["sessions"].get(args.session_id, 0))
-        removed = args.session_id in reviewed_ids_unlocked(root)[0]
+        incident_ids = [row[0] for row in connection.execute(
+            "SELECT incident_id FROM incidents WHERE session_id=?", (args.session_id,))]
+        incident_signals = [row[0] for row in connection.execute(
+            "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id IN "
+            "(SELECT incident_id FROM incidents WHERE session_id=?)", (args.session_id,))]
+        removed = args.session_id in reviewed_ids_unlocked(root)[0] or bool(incident_ids)
         forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
         staged = None
         quarantine_name = f".forget-{uuid.uuid4().hex}"
@@ -8275,6 +9459,12 @@ def command_review_forget(args):
                 delete_capture_benchmarks(connection, capture_dependent, forgotten_at)
                 connection.executemany("DELETE FROM history_captures WHERE capture_id=?",
                                        ((capture_id,) for capture_id in capture_dependent))
+            if incident_ids:
+                connection.execute(
+                    "UPDATE incident_signal_dispositions SET incident_id=NULL,disposition='forgotten',timestamp=? "
+                    "WHERE incident_id IN (SELECT incident_id FROM incidents WHERE session_id=?)",
+                    (forgotten_at, args.session_id))
+                connection.execute("DELETE FROM incidents WHERE session_id=?", (args.session_id,))
             connection.execute(
                 "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
@@ -8288,6 +9478,12 @@ def command_review_forget(args):
             for capture_id in capture_dependent:
                 record_knowledge_privacy_tombstone(
                     connection, "history_capture", capture_id, "forgotten", forgotten_at)
+            for incident_id in incident_ids:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident", incident_id, "forgotten", forgotten_at)
+            for signal_id in incident_signals:
+                record_knowledge_privacy_tombstone(
+                    connection, "incident_signal", signal_id, "forgotten", forgotten_at)
             connection.execute("INSERT INTO ledger_meta VALUES ('pending_forget_cleanup', ?)",
                                (quarantine_name,))
             staged = stage_pre_forget_state(root, quarantine_name)
@@ -8463,7 +9659,7 @@ def command_record_evidence(args):
     with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()):
         path, record = load(root)
         require_active(record)
-        if record.get("schema_version") not in (3, 4):
+        if record.get("schema_version") not in (3, 4, 5):
             fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
         if gate["applicability"] != "required":
@@ -8552,7 +9748,7 @@ def command_set_gate(args):
     path, record = load(root)
     require_active(record)
     gate = record["gates"][args.gate]
-    if record.get("schema_version") in (3, 4) and args.evidence is not None:
+    if record.get("schema_version") in (3, 4, 5) and args.evidence is not None:
         item = record["evidence"]["items"].get(args.evidence)
         if not item or item["gate"] != args.gate or item["result"] != args.result:
             fail("schema 3 evidence must be a matching stored evidence ID")
@@ -8906,7 +10102,7 @@ def command_gate_commit(args):
         complete = gate["applicability"] == "not_applicable" or gate["result"] == "passed" or "exception" in gate
         if not complete:
             fail(f"gate is not complete: {name}")
-        if record.get("schema_version") in (3, 4) and gate["result"] in ("passed", "failed", "unavailable"):
+        if record.get("schema_version") in (3, 4, 5) and gate["result"] in ("passed", "failed", "unavailable"):
             item = verify_envelope(root, record, name)
             if set(item.get("paths", {})) != set(args.paths):
                 fail(f"evidence paths differ from commit paths: {name}")
@@ -8932,7 +10128,7 @@ def command_gate_commit(args):
         fail("staged diff is empty")
     git(root, "commit", "-m", args.message)
     commit = git(root, "rev-parse", "HEAD").stdout.strip()
-    if record.get("schema_version") in (3, 4):
+    if record.get("schema_version") in (3, 4, 5):
         for name, item in schema3_items:
             if evidence_path_blobs(root, args.paths, commit=commit) != item["paths"]:
                 fail(f"committed paths differ from evidence: {name}")
@@ -9010,14 +10206,34 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
 
 
 def github_environment(account):
+    lookup_env = {key: value for key, value in os.environ.items()
+                  if key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
     result = subprocess.run(
         ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
-        text=True, capture_output=True,
+        text=True, capture_output=True, env=lookup_env,
     )
     token = result.stdout.strip()
     if result.returncode or not token:
         fail(result.stderr.strip() or f"GitHub account is not authenticated: {account}")
-    return {**os.environ, "GH_TOKEN": token}
+    env = {**os.environ, "GH_TOKEN": token, "GIT_TERMINAL_PROMPT": "0",
+           "GCM_INTERACTIVE": "Never"}
+    for key in tuple(env):
+        if (key in {"GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CURL_VERBOSE"}
+                or re.fullmatch(r"GIT_CONFIG_(?:KEY|VALUE)_\d+", key)
+                or key.startswith("GIT_TRACE")):
+            del env[key]
+    env.update({
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": (
+            "!f() { printf '%s\\n' username=x-access-token \"password=$GH_TOKEN\"; }; f"
+        ),
+        "GIT_CONFIG_KEY_2": "http.extraHeader",
+        "GIT_CONFIG_VALUE_2": "",
+    })
+    return env
 
 
 def github_json(root, env, *args):
@@ -9030,10 +10246,10 @@ def github_json(root, env, *args):
         fail("GitHub CLI returned invalid JSON")
 
 
-def deliver_draft_pr(root, record):
+def deliver_draft_pr(root, record, env=None):
     delivery = record["delivery"]
     github = delivery["github"]
-    env = github_environment(github["account"])
+    env = env or github_environment(github["account"])
     fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
     owner = github["repository"].partition("/")[0]
     head = f"{owner}:{delivery['branch']}"
@@ -9262,7 +10478,7 @@ def completed_source(root, source, sha):
     matches = []
     for path in (cycle_dir(root) / "cycles").glob("*.json"):
         try:
-            record = json.loads(path.read_text())
+            record = read_cycle_record(root, path)
         except (OSError, json.JSONDecodeError):
             continue
         delivery = record.get("delivery", {})
@@ -9574,7 +10790,7 @@ def finish_push(root, path, record):
     require_pushable(record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
-    if record.get("schema_version") in (3, 4):
+    if record.get("schema_version") in (3, 4, 5):
         final_head = git(root, "rev-parse", "HEAD").stdout.strip()
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required" and gate["result"] in ("passed", "failed", "unavailable"):
@@ -9597,6 +10813,8 @@ def finish_push(root, path, record):
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
     delivery = record.get("delivery", {})
+    delivery_env = (github_environment(delivery["github"]["account"])
+                    if record["delivery_intent"] == "draft_pr" else None)
     if (baseline["pre_cycle_ahead_commits"] and not (
             record["delivery_intent"] == "draft_pr"
             and delivery.get("published_feature_head") == baseline["head"])):
@@ -9615,7 +10833,12 @@ def finish_push(root, path, record):
                    if record["delivery_intent"] == "draft_pr" else remote_branch)
     if baseline.get("remote") != remote_destination(root, current_upstream):
         fail("remote push destination changed")
-    git(root, "fetch", remote, base_branch)
+    if record["delivery_intent"] == "draft_pr":
+        remote_url = github_remote_url(root, remote, delivery["github"]["repository"])
+        fetch_github_branch(root, remote, remote_url, base_branch, delivery_env)
+    else:
+        remote_url = remote
+        git(root, "fetch", remote, base_branch)
     cycle_base = baseline["head"]
     target_ref = (f"refs/remotes/{remote}/{base_branch}"
                   if record["delivery_intent"] == "draft_pr" else current_upstream)
@@ -9685,15 +10908,20 @@ def finish_push(root, path, record):
         save(path, record)
         if record["delivery_intent"] == "draft_pr":
             remote_ref = f"refs/heads/{remote_branch}"
-            existing = git(root, "ls-remote", "--heads", remote, remote_ref).stdout.split()
+            existing = github_remote_head(root, remote_url, remote_ref, delivery_env)
             if existing and git(root, "merge-base", "--is-ancestor", existing[0], "HEAD", check=False).returncode:
                 fail("feature branch changed remotely; normal push would not be safe")
-        git(root, "push", remote, f"HEAD:{remote_branch}")
+        if record["delivery_intent"] == "draft_pr":
+            push_github_branch(root, remote_url, remote_branch, delivery_env)
+        else:
+            git(root, "push", remote_url, f"HEAD:{remote_branch}")
     if record["delivery_intent"] == "draft_pr":
-        remote_head = git(root, "ls-remote", "--heads", remote, f"refs/heads/{remote_branch}").stdout.split()
+        remote_head = github_remote_head(
+            root, remote_url, f"refs/heads/{remote_branch}", delivery_env
+        )
         if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
             fail("push did not synchronize feature branch")
-        record["delivery"]["pull_request"] = deliver_draft_pr(root, record)
+        record["delivery"]["pull_request"] = deliver_draft_pr(root, record, delivery_env)
         link_improvement_pull_request(record, record["delivery"]["pull_request"], root, target_head)
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
@@ -10318,6 +11546,7 @@ def parser():
     begin.add_argument("--initiative-source")
     begin.add_argument("--expected-plan-digest")
     begin.add_argument("--expected-repository")
+    begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")
     portabilize.add_argument("--cycle-id", required=True)
@@ -10348,6 +11577,14 @@ def parser():
     phase_report = commands.add_parser("phase-report")
     phase_report.add_argument("--state-root")
     phase_report.set_defaults(func=command_phase_report)
+    performance = commands.add_parser("cycle-performance")
+    performance.add_argument("--state-root")
+    performance.add_argument("--context")
+    performance.add_argument("--risk", choices=("routine", "elevated", "critical"))
+    performance.add_argument("--delivery-intent", choices=DELIVERY_INTENTS)
+    performance.add_argument("--method-revision")
+    performance.add_argument("--json", action="store_true")
+    performance.set_defaults(func=command_cycle_performance)
     execution_dag_parser = commands.add_parser("execution-dag")
     execution_dag_parser.add_argument("--state-root")
     execution_dag_parser.add_argument("--mode", required=True, choices=("serial", "benchmark", "concurrent"))
@@ -10384,6 +11621,39 @@ def parser():
     review_scan.add_argument("--excluded-message-id")
     review_scan.add_argument("--exclusion-digest")
     review_scan.set_defaults(func=command_review_scan)
+    incident_scan = commands.add_parser("incident-scan")
+    incident_scan.add_argument("--database")
+    incident_scan.add_argument("--state-root")
+    incident_scan.add_argument("--session-id")
+    incident_scan.set_defaults(func=command_incident_scan)
+    incident_register = commands.add_parser("incident-register")
+    incident_register.add_argument("--database")
+    incident_register.add_argument("--state-root")
+    incident_register.add_argument("--session-id", required=True)
+    incident_register.add_argument("--message-id", required=True)
+    incident_register.add_argument("--kind", required=True, choices=INCIDENT_KINDS)
+    incident_register.add_argument("--title", required=True)
+    incident_register.add_argument("--summary", required=True)
+    incident_register.add_argument("--signal-id", action="append", default=[])
+    incident_register.add_argument("--diagnostic", action="append", default=[])
+    incident_register.add_argument("--evidence", action="append", default=[])
+    incident_register.set_defaults(func=command_incident_register)
+    incident_update = commands.add_parser("incident-update")
+    incident_update.add_argument("--database")
+    incident_update.add_argument("--state-root")
+    incident_update.add_argument("--session-id", required=True)
+    incident_update.add_argument("--message-id", required=True)
+    incident_update.add_argument("--incident-id", required=True)
+    incident_update.add_argument("--state", required=True, choices=INCIDENT_STATES)
+    incident_update.add_argument("--cycle-id")
+    incident_update.set_defaults(func=command_incident_update)
+    incident_forget = commands.add_parser("incident-forget")
+    incident_forget.add_argument("--database")
+    incident_forget.add_argument("--state-root")
+    incident_forget.add_argument("--session-id", required=True)
+    incident_forget.add_argument("--message-id", required=True)
+    incident_forget.add_argument("--incident-id", required=True)
+    incident_forget.set_defaults(func=command_incident_forget)
     review_history = commands.add_parser("review-history")
     review_history.add_argument("--database")
     review_history.add_argument("--archive-only", action="store_true")
@@ -10618,6 +11888,10 @@ def parser():
     initiative_receipt.add_argument("--slice", required=True)
     initiative_receipt.add_argument("--json", action="store_true", required=True)
     initiative_receipt.set_defaults(func=command_initiative_receipt)
+    initiative_cycle_check = commands.add_parser("initiative-cycle-check")
+    initiative_cycle_check.add_argument("--cycle-id", required=True)
+    initiative_cycle_check.add_argument("--receipt-json", required=True)
+    initiative_cycle_check.set_defaults(func=command_initiative_cycle_check)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))
@@ -10659,7 +11933,7 @@ def parser():
     evidence = commands.add_parser("record-evidence")
     evidence.add_argument("gate", choices=GATES)
     evidence.add_argument("--authority", required=True)
-    evidence.add_argument("--timeout", type=int, default=120, choices=range(1, 601))
+    evidence.add_argument("--timeout", type=int, default=600, choices=range(1, 601))
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)

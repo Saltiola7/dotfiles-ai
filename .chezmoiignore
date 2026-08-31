@@ -35,6 +35,9 @@ install-bash-preexec.sh
 enable-atuin-server.sh
 install-guest-development-tools.sh
 .local/bin/docker
+.local/bin/codex-install
+.local/bin/codex-archive
+install-codex.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.atuin.server_enabled }}
@@ -145,7 +148,9 @@ load-dbsctr-reranker.sh
 .local/bin/pm-psql
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
-.config/dotfiles-ai/
+.config/dotfiles-ai/*
+!.config/dotfiles-ai/codex-managed
+!.config/dotfiles-ai/codex-managed/**
 {{ end }}
 
 {{ if eq .chezmoi.os "darwin" }}

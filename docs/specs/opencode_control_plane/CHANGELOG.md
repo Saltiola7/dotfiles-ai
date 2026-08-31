@@ -1,5 +1,194 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - History Source-Index Availability Contract
+
+- Reserved exact `source_index_unavailable` lifecycle classification for missing,
+  preparing, stale, incompatible, corrupt, or insufficiently covered private
+  History boundary-index generations.
+- Kept generation, source, privacy, path, and row identities outside the later
+  model-visible availability envelope. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
+## 2026-08-31 - Optional DKS Routing Discovery
+
+- Replaced mandatory DKS-first routing with one optional project- and revision-
+  compatible attempt under a shared five-second deadline and immediate typed
+  fallback to authoritative source inspection.
+- Required a paired value gate covering correctness, errors, p95, median completion
+  time, tool calls, and token cost; failed or stale evidence disables automatic
+  routing without retiring the projection or manual CLI.
+- This change establishes durable authority only; implementation, benchmark,
+  deployment, and activation remain separately gated.
+
+## 2026-08-30 - Cross-Checkout Initiative Source Repair
+
+- Restored explicit Initiative-source launch by resolving the selected checkout
+  to its Git root and rejecting missing or non-repository sources without path
+  disclosure.
+- Scrubbed inherited Git repository and configuration overrides from local
+  repository validation so source identity cannot be redirected by process state.
+- All 229 affected tests, one expected skip, 21 subtests, Python compilation,
+  and independent security review pass. Gate Commit: `48a604a`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-30 - Coordinator Workspace Affinity
+
+- Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's
+  live workspace instead of UI focus, including fresh fallback, and failed closed
+  before retaining malformed or mismatched caller, tab, pane, or agent identity.
+- Preserved previously confirmed agents when a later prompt re-probe fails and
+  retained the existing rule that no pre-existing session is moved or closed.
+- All 47 affected control-plane tests and Bun bundling pass, and independent
+  review found no remaining issue. Deployment applied only the launcher delta on
+  top of a concurrent managed query-summary runtime and preserved that unrelated
+  work. A live cross-focus smoke created the disposable tab in the coordinator
+  workspace while another workspace remained focused, then closed it. Gate
+  Commit: `b623430`. Gate Exceptions: none. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
+
+## 2026-08-30 - History Aggregate Read-Side Cache Contract
+
+- Clarified that bounded aggregate telemetry may create an owner-private,
+  atomic, 24-hour transient capture without gaining permission to mutate review,
+  Incident, cycle, gate, claim, or canonical source state.
+- Implementation and typed availability remain owned by their dependent Build
+  slices; this Discovery update changes normative authority only.
+
+## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
+
+- Kept Initiative manifests repository-relative while adding an explicitly
+  validated coordinator checkout for cross-worktree launch.
+- Replaced receipt-bearing shell launch input with confirmed-agent prompting,
+  required strict Herdr launch identity, and made failed pre-agent tab creation
+  transactional.
+- Added regressions for source/target separation, terminal-input bounds, malformed
+  launch output, pending-agent proof, cleanup, and fork fallback. All 47 focused
+  control-plane tests and Bun bundling pass. The two-file managed apply is
+  source-identical; fresh Bun schema loading exposes both source arguments, and a
+  disposable Herdr 0.8.2 session detected the bounded Build command before being
+  stopped and deleted. Gate Commit: `ee7f8ae`. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Query-Recovery Contract Reconciliation
+
+- Bound DKS contention classification to exit `75`, empty stdout, and exact
+  `projection_busy` stderr while retaining OpenCode ownership of typed model
+  availability.
+- Captured mode-specific History/Incident subprocess cleanup, schema validation,
+  typed unavailability, and hosted-private evidence prohibitions.
+- This reconciliation changes durable authority only; implementation and managed
+  deployment remain in separately approved dependent slices.
+
+## 2026-08-29 - Initiative Launch Registry Fallback
+
+- Added explicit Initiative mode to the always-present `dbsctr_begin` adapter so
+  primary Build can launch a ready slice when the host omits only the standalone
+  launcher export. Both entry points share receipt, exact approval,
+  cycle-occupancy, repository, plan-digest, ownership, mutation, and fork checks;
+  ordinary begin remains prompt-free and Plan/subagents remain denied.
+- The regression failed when `dbsctr_begin` ignored Initiative input. The final
+  union preserves protected-main performance-audit, cycle-occupancy, and VM
+  handoff safeguards; affected tests, Bun bundling, Git whitespace, targeted
+  deployment identity, and fresh schema loading pass. Fresh OpenCode processes
+  are required to load the expanded tool schema. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
+## 2026-08-29 - Purposeful VM Handoff Authority
+
+- Restricted VM handoff to the dedicated `build-rnd` primary and made the adapter
+  validate the invoking worker environment, session, Discovery state and report,
+  exact owned paths, authorization, and autonomous risk before permission or VM
+  access. Ordinary Build and every other agent deny the tool.
+- The managed config, scheduler routing, and guarded adapter were deployed. The
+  adapter deployment preserved unrelated Initiative checks already active on the
+  host rather than applying their source-side removal; fresh OpenCode processes
+  are required to load the new agent and tool bundle. All 147 affected tests,
+  rendered JSON, permission assertions, and Git whitespace validation pass.
+- Rollback reapplies the prior managed adapter and config together; keeping the
+  handoff denied is the safe intermediate state if those targets cannot move
+  atomically.
+- Independent review found approval-window worker and instance races. The adapter
+  now binds approval and parity to the resolved instance, rereads worker authority
+  after approval and parity, and rejects remapping before VM access.
+- The remediated live adapter preserves the host's existing Initiative checks;
+  fresh Bun imports, the deny/deny/ask permission matrix, scheduler health, and
+  explicit instance-bound parity for both managed workspaces pass.
+- Maintenance keeps launch backoff intact after failures and requires an explicit
+  operator reset; rollback denies the handoff before replacing the adapter or
+  agent configuration. No handoff contract is retired by this change.
+
+## 2026-08-29 - DKS Query Recovery Discovery
+
+- Defined available and unavailable DKS tool envelopes, retained the 35-second
+  deadline and citation validation, and prohibited raw-error disclosure or
+  unavailable-to-citation conversion.
+- Kept upstream parallel-batch finalization and system-message rendering outside
+  the repository-owned recovery contract.
+
+## 2026-08-29 - Initiative Launch Authority Alignment
+
+- Aligned digest-bound Initiative launch with its coordinator-plus-primary-Build
+  contract while keeping Plan and every subagent denied, and prohibited denied
+  launcher probes or VM-handoff substitution.
+- The focused regression failed against the prior Build denies. All 45 control-plane
+  tests and Git whitespace validation pass. A targeted managed apply is source-identical;
+  fresh OpenCode 1.18.25 resolution confirms Plan denies the launcher while native
+  Build, `build-gpt`, `build-claude`, and Discovery Coordinator expose it under
+  `ask`. Existing processes require restart. Implementation Gate Commit: `cc16835`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
+## 2026-08-29 - Corrected Sol Context Metadata
+
+- Corrected managed base and Fast GPT-5.6 Sol limits to 1,050,000 context,
+  922,000 input, and 128,000 output tokens while preserving the exact
+  65,536-token recent compaction tail and inherited trigger defaults.
+- The focused regression first failed with missing managed `limit` metadata.
+  All 46 control-plane tests, rendered JSON, isolated and live OpenCode 1.18.25
+  parsing, both resolved model records, canonical tickets, and Git whitespace
+  validation pass. The target-only deploy preview contained only the two limit
+  objects; apply succeeded with mode `0600`, and fresh OpenCode processes resolve
+  the corrected limits. Source Gate Commit: `2444897`. Gate Exceptions: none.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+## 2026-08-29 - Managed Compaction Retention
+
+- Configured managed OpenCode sessions to preserve 65,536 recent tokens
+  verbatim after automatic compaction while inheriting OpenCode's trigger,
+  pruning, turn-count, and safety-reserve defaults.
+- The focused regression failed with missing `compaction` before implementation.
+  All 44 control-plane tests, rendered JSON, OpenCode 1.18.25 resolution, 178
+  canonical tickets, and Git whitespace validation pass. No managed config was
+  applied; a future apply requires an OpenCode restart. Gate Commit: `4bb382b`.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft pull
+  request into protected `main`.
+
+## 2026-08-29 - Fork-Defined Operational Incidents
+
+- Added `/incident` and provider-neutral typed scan, register, update, and forget
+  adapters while denying mutation tools and direct command forms to Plan and
+  subagents.
+- Targeted deployment is source-identical and idempotent. The live config parses,
+  the incident helper command is available, and the deployed TypeScript tool
+  bundle passes. Same-user unrestricted shell remains a documented trust boundary,
+  not OS privilege separation.
+
+## 2026-08-28 - Interactive Discovery Shell
+
+- Granted only Discovery Coordinator unrestricted Bash for native CLI, API,
+  notebook-kernel, and private-system investigation while retaining docs-scoped
+  structured edits, shell-denied Explore/Scout, and ask-gated Initiative launch.
+- Added native-interface preference, no browser-as-shell-proxy behavior, local
+  governed-result filtering, and explicit confirmation boundaries for consequential
+  effects. Focused lifecycle/control-plane validation passed 72 tests; independent
+  elevated-risk review found no remaining issue.
+- Targeted deployment changed only the coordinator and is source-identical and
+  idempotent. A fresh OpenCode process resolved `bash: allow` and passed a shell
+  smoke; existing processes require restart. Gate Commit: `71ae564`. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
 ## 2026-08-28 - Initiative Discovery Orchestration
 
 - Added a docs-only Discovery coordinator, normal/compaction durable context,

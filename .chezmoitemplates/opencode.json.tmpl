@@ -11,6 +11,9 @@
 {{- end -}}
 {
   "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "preserve_recent_tokens": 65536
+  },
   "provider": {
     "openai": {
       "options": {
@@ -20,9 +23,13 @@
       },
       "models": {
         "gpt-5.6-sol": {
+          "limit": { "context": 1050000, "input": 922000, "output": 128000 },
           "variants": {
             "medium": { "reasoningEffort": "medium" }
           }
+        },
+        "gpt-5.6-sol-fast": {
+          "limit": { "context": 1050000, "input": 922000, "output": 128000 }
         },
         "gpt-5.6-terra": {
           "variants": {
@@ -106,6 +113,32 @@
   "agent": {
     "build": {
       "permission": {
+        "dbsctr_initiative_launch": "ask",
+        "dbsctr_begin": "allow",
+        "dbsctr_attach": "allow",
+        "dbsctr_reconcile": "allow",
+        "dbsctr_phase_span": "allow",
+        "dbsctr_execution_benchmark": "allow",
+        "dbsctr_execution_dag": "allow",
+        "dbsctr_improvement_claim": "allow",
+        "dbsctr_improvement_update": "allow",
+        "dbsctr_provider_evaluation_save": "allow",
+        "dbsctr_vm_handoff": "deny",
+        "1password_*": "ask",
+        "external_directory": {
+          "~/.local/state/dbsctr/worktrees/**": "allow",
+{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
+          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
+{{ end }}          "~/.config/dotfiles-ai/**": "allow",
+          "~/.local/share/chezmoi": "allow",
+          "~/.local/share/chezmoi/**": "allow"
+        }
+      }
+    },
+    "build-rnd": {
+      "description": "Runs managed /dbsctr-improve workers and their final ledger-validated VM handoff.",
+      "mode": "primary",
+      "permission": {
         "dbsctr_initiative_launch": "deny",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
@@ -116,7 +149,7 @@
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
-        "1password_*": "ask",
+        "dbsctr_vm_handoff": "ask",
         "external_directory": {
           "~/.local/state/dbsctr/worktrees/**": "allow",
 {{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
@@ -183,6 +216,9 @@
         "dbsctr_phase_span": "deny",
         "dbsctr_execution_benchmark": "deny",
         "dbsctr_execution_dag": "deny",
+        "dbsctr_incident_register": "deny",
+        "dbsctr_incident_update": "deny",
+        "dbsctr_incident_forget": "deny",
         "dbsctr_vm_handoff": "deny",
         "task": {
           "*": "deny",
@@ -213,8 +249,12 @@
     "dbsctr_review_history": "allow",
     "dbsctr_review_history_save": "allow",
     "dbsctr_review_federated": "allow",
+    "dbsctr_incident_scan": "allow",
+    "dbsctr_incident_register": "ask",
+    "dbsctr_incident_update": "ask",
+    "dbsctr_incident_forget": "ask",
     "dbsctr_lens_summary": "allow",
-    "dbsctr_vm_handoff": "ask",
+    "dbsctr_vm_handoff": "deny",
     "dbsctr_history_capture": "allow",
     "dbsctr_history_telemetry": "allow",
     "dbsctr_benchmark": "allow",
@@ -289,6 +329,22 @@
       "*/dbsctrctl review-complete*": "ask",
       "env *dbsctrctl review-complete*": "ask",
       "command *dbsctrctl review-complete*": "ask",
+      "dbsctrctl incident-scan*": "allow",
+      "*/dbsctrctl incident-scan*": "allow",
+      "env *dbsctrctl incident-scan*": "allow",
+      "command *dbsctrctl incident-scan*": "allow",
+      "dbsctrctl incident-register*": "ask",
+      "*/dbsctrctl incident-register*": "ask",
+      "env *dbsctrctl incident-register*": "ask",
+      "command *dbsctrctl incident-register*": "ask",
+      "dbsctrctl incident-update*": "ask",
+      "*/dbsctrctl incident-update*": "ask",
+      "env *dbsctrctl incident-update*": "ask",
+      "command *dbsctrctl incident-update*": "ask",
+      "dbsctrctl incident-forget*": "ask",
+      "*/dbsctrctl incident-forget*": "ask",
+      "env *dbsctrctl incident-forget*": "ask",
+      "command *dbsctrctl incident-forget*": "ask",
       "dbsctrctl review-history*": "allow",
       "*/dbsctrctl review-history*": "allow",
       "env *dbsctrctl review-history*": "allow",

@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "No versioned artifact is published."},
+    "deploy": {"applicability": "not_applicable", "reason": "Managed helper and OpenCode configuration are not applied in this cycle."},
+    "operate": {"applicability": "not_applicable", "reason": "No running service or agent is changed."},
+    "maintain_retire": {"applicability": "not_applicable", "reason": "No support or retirement policy changes."}
+  }
+}

@@ -88,8 +88,12 @@ def ledger_text(state):
     try:
         values = []
         for table, column in (("review_reports", "payload"), ("history_evidence", "payload"),
-                              ("history_reports", "payload"), ("ledger_entries", "text")):
+                               ("history_reports", "payload"), ("ledger_entries", "text")):
             values.extend(row[0] for row in connection.execute(f"SELECT {column} FROM {table}"))
+        if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='incidents'").fetchone():
+            values.extend("".join(str(value or "") for value in row) for row in connection.execute(
+                "SELECT title,summary,diagnostics,evidence FROM incidents"))
         return "".join(values)
     finally:
         connection.close()
@@ -136,17 +140,59 @@ class DbsctrctlTest(unittest.TestCase):
         return plan
 
     def start(self, intent="local", base_branch="main", account="example-user",
-              repository="example-user/dotfiles-ai"):
+              repository="example-user/dotfiles-ai", env=None):
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
                    "--risk", "routine", "--delivery-intent", intent, "--plan", str(plan),
                    "--base-branch", base_branch]
         if intent == "draft_pr":
             command += ["--github-account", account, "--github-repository", repository]
-        return run(self.repo, *command)
+        return run(self.repo, *command, env=env)
 
     def record_path(self, repo=None):
         return (repo or self.repo) / ".git/dbsctr/cycles/cycle-1.json"
+
+    def make_schema3_fixture(self, cycle_id, worktree):
+        path = self.repo / f".git/dbsctr/cycles/{cycle_id}.json"
+        record = json.loads(path.read_text())
+        current_pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        current_pointer.unlink()
+        worktree = Path(worktree).resolve()
+        git_directory = Path(subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-dir"], cwd=worktree,
+            check=True, text=True, capture_output=True,
+        ).stdout.strip())
+        record["schema_version"] = 3
+        record["method_revision"] = "3.28"
+        record["worktree"] = {
+            **{key: value for key, value in record["worktree"].items()
+               if key not in {"id", "locator", "path", "git_dir"}},
+            "id": hashlib.sha256(str(worktree).encode()).hexdigest()[:16],
+            "path": str(worktree),
+            "git_dir": str(git_directory),
+        }
+        if "source" in record:
+            record["source"] = {
+                **{key: value for key, value in record["source"].items()
+                   if key not in {"locator", "path"}},
+                "path": str(self.repo.resolve()),
+            }
+        opencode = record.get("runtime", {}).get("opencode")
+        if opencode is None:
+            record.pop("runtime", None)
+        else:
+            base = worktree if opencode["path_root"] == "cycle_worktree" else self.repo.resolve()
+            record["runtime"] = {"opencode": {
+                **{key: value for key, value in opencode.items()
+                   if key not in {"path_root", "worktree", "directory"}},
+                "worktree": str(base),
+                "directory": str((Path(base) / opencode["directory"]).resolve()),
+            }}
+        path.write_text(json.dumps(record))
+        pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        pointer.parent.mkdir(parents=True)
+        pointer.write_text(cycle_id + "\n")
+        return record
 
     def review_artifacts(self):
         for name, result, reason in (
@@ -193,8 +239,9 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.28")
-        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["method_revision"], "3.29")
+        self.assertEqual(record["schema_version"], 5)
+        self.assertEqual(record["runtime"], {"adapters": {}})
         self.assertEqual(record["worktree"]["locator"], {
             "root": "cycle_worktree", "path": ".",
         })
@@ -211,10 +258,21 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(checked["manifest_digest"], r"^[0-9a-f]{64}$")
         self.assertNotIn("path", json.dumps(checked))
 
-        ticket = self.repo / "docs/tickets/context=test/V3.38-1-test.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("ticket\n")
-        subprocess.run(["git", "add", str(path.relative_to(self.repo)), str(ticket.relative_to(self.repo))],
+        value = initiative_manifest()
+        value["slices"][0]["tickets"] = ["IGNORED-1"]
+        path.write_text(json.dumps(value))
+        ignored = json.loads(run(
+            self.repo, "initiative-check", "--manifest", str(path), "--json",
+        ).stdout)
+        self.assertEqual(ignored["manifest_digest"], checked["manifest_digest"])
+        value["slices"][0].pop("tickets")
+        path.write_text(json.dumps(value))
+        omitted = json.loads(run(
+            self.repo, "initiative-check", "--manifest", str(path), "--json",
+        ).stdout)
+        self.assertEqual(omitted["manifest_digest"], checked["manifest_digest"])
+
+        subprocess.run(["git", "add", str(path.relative_to(self.repo))],
                        cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
                        capture_output=True)
@@ -228,6 +286,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertRegex(receipt["manifest_blob"], r"^[0-9a-f]{40,64}$")
         self.assertRegex(receipt["manifest_commit"], r"^[0-9a-f]{40,64}$")
         self.assertEqual(receipt["release_group"], "release-a")
+        self.assertNotIn("tickets", receipt)
+        self.assertEqual(receipt["execution_owner"], "build")
         self.assertEqual(receipt["requirements"], ["INT-001"])
         self.assertEqual(receipt["artifacts"], [
             "docs/specs/test/CHANGELOG.md", "docs/specs/test/README.md",
@@ -250,6 +310,24 @@ class DbsctrctlTest(unittest.TestCase):
                         "--slice", "slice-a", "--json", ok=False)
         self.assertIn("must have a GitHub origin", deceptive.stderr)
 
+    def test_initiative_source_resolves_git_root(self):
+        nested = self.repo / "nested/source"
+        nested.mkdir(parents=True)
+        override = Path(self.temp.name) / "override"
+        override.mkdir()
+        subprocess.run(["git", "init"], cwd=override, check=True, capture_output=True)
+        with mock.patch.dict(os.environ, {
+            "GIT_DIR": str(override / ".git"), "GIT_WORK_TREE": str(override),
+        }):
+            loader = importlib.machinery.SourceFileLoader("dbsctrctl_repo_root_module", str(SCRIPT))
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+
+            self.assertEqual(module.repo_root(nested), self.repo.resolve())
+        with self.assertRaisesRegex(RuntimeError, "Initiative source must be a Git repository"):
+            module.repo_root(Path(self.temp.name) / "not-a-repository")
+
     def test_initiative_check_rejects_duplicate_ids_and_unknown_requirements(self):
         value = initiative_manifest()
         value["contexts"].append(dict(value["contexts"][0]))
@@ -262,6 +340,58 @@ class DbsctrctlTest(unittest.TestCase):
         result = run(self.repo, "initiative-check", "--manifest", str(self.write_initiative(value)),
                      "--json", ok=False)
         self.assertIn("unknown material statement", result.stderr)
+
+    def test_initiative_cycle_check_rejects_occupied_identity(self):
+        manifest = self.write_initiative()
+        subprocess.run(["git", "add", str(manifest.relative_to(self.repo))], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/test.git"],
+                       cwd=self.repo, check=True)
+        command = ("initiative-receipt", "--manifest", str(manifest),
+                   "--slice", "slice-a", "--json")
+        receipt = json.loads(run(self.repo, *command).stdout)
+        expected = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
+        check = ("initiative-cycle-check", "--cycle-id", "V3.38-1",
+                 "--receipt-json", json.dumps(expected))
+        run(self.repo, "start", "--cycle-id", "V3.38-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()))
+        record = self.repo / ".git/dbsctr/cycles/V3.38-1.json"
+        cycle = json.loads(record.read_text())
+        cycle["source"] = {}
+        record.write_text(json.dumps(cycle))
+
+        occupied = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by an unbound cycle", occupied.stderr)
+
+        cycle["initiative"] = expected
+        record.write_text(json.dumps(cycle))
+        self.assertEqual(json.loads(run(self.repo, *command).stdout), receipt)
+        self.assertTrue(json.loads(run(self.repo, *check).stdout)["available"])
+
+        bound = json.loads(record.read_text())
+        bound["initiative"]["manifest_digest"] = "0" * 64
+        record.write_text(json.dumps(bound))
+        mismatch = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by a different Initiative receipt", mismatch.stderr)
+
+        cycle["state"] = "private-secret"
+        record.write_text(json.dumps(cycle))
+        terminal = run(self.repo, *check, ok=False)
+        self.assertIn("occupied by a non-active cycle", terminal.stderr)
+        self.assertNotIn("private-secret", terminal.stderr)
+
+        malformed = dict(cycle)
+        malformed["gates"] = []
+        malformed["state"] = "active"
+        record.write_text(json.dumps(malformed))
+        invalid = run(self.repo, *check, ok=False)
+        self.assertIn("record identity mismatch", invalid.stderr)
+
+        record.unlink()
+        record.symlink_to(record.with_name("missing.json"))
+        unsafe = run(self.repo, *check, ok=False)
+        self.assertIn("cycle record is unsafe", unsafe.stderr)
 
     def test_initiative_check_rejects_cycles_uncovered_intent_and_blocked_completion(self):
         value = initiative_manifest()
@@ -818,6 +948,17 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(envelope["content"], {"status": "withheld", "reason": "timeout"})
         self.assertNotIn(script, json.dumps(envelope))
 
+    def test_record_evidence_defaults_to_ten_minutes(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_evidence_timeout", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = module.parser().parse_args([
+            "record-evidence", "domain", "--authority", "unit", "--",
+            sys.executable, "-c", "pass",
+        ])
+        self.assertEqual(args.timeout, 600)
+
     def test_risk_and_applicability_only_tighten(self):
         self.start()
         record_path = self.record_path()
@@ -859,10 +1000,145 @@ class DbsctrctlTest(unittest.TestCase):
         self.start()
         record_path = self.record_path()
         record = json.loads(record_path.read_text())
-        record["schema_version"] = 99
-        record_path.write_text(json.dumps(record))
-        result = run(self.repo, "status", ok=False)
-        self.assertIn("unsupported Cycle Record schema", result.stderr)
+        for schema in (99, True, 5.0):
+            with self.subTest(schema=schema):
+                record["schema_version"] = schema
+                record_path.write_text(json.dumps(record))
+                result = run(self.repo, "status", ok=False)
+                self.assertIn("unsupported Cycle Record schema", result.stderr)
+
+    def test_schema5_validates_synthetic_adapters_and_opencode_agreement(self):
+        self.start()
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_schema5", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        availability = {
+            "session": {"status": "available"},
+            "turn": {"status": "not_requested"},
+            "family": {"status": "not_requested"},
+            "activation": {"status": "not_requested"},
+            "history": {"status": "unavailable", "reason": "synthetic_fixture"},
+        }
+        codex = {
+            "schema_version": 1,
+            "harness_id": "codex",
+            "adapter_revision": "codex-adapter-1",
+            "session_ids": ["codex-session"],
+            "worktree": {"root": "cycle_worktree", "path": "."},
+            "availability": availability,
+        }
+        record["runtime"] = {"adapters": {"codex": codex}}
+        path.write_text(json.dumps(record))
+        self.assertEqual(module.validate_schema5_runtime(
+            self.repo, record, allow_synthetic_codex=True)["adapters"]["codex"], codex)
+        production = run(self.repo, "status", "--json", ok=False)
+        self.assertIn("Codex adapter is unavailable", production.stderr)
+
+        invalid = {}
+        invalid["unknown adapter"] = {"adapters": {"other": {**codex, "harness_id": "other"}}}
+        invalid["wrong revision"] = {"adapters": {"codex": {
+            **codex, "adapter_revision": "codex-adapter-2",
+        }}}
+        invalid["boolean adapter schema"] = {"adapters": {"codex": {
+            **codex, "schema_version": True,
+        }}}
+        invalid["float adapter schema"] = {"adapters": {"codex": {
+            **codex, "schema_version": 1.0,
+        }}}
+        invalid["empty sessions"] = {"adapters": {"codex": {**codex, "session_ids": []}}}
+        invalid["unsorted sessions"] = {"adapters": {"codex": {
+            **codex, "session_ids": ["session-b", "session-a"],
+        }}}
+        invalid["too many sessions"] = {"adapters": {"codex": {
+            **codex, "session_ids": [f"session-{index:03d}" for index in range(101)],
+        }}}
+        invalid["invalid session"] = {"adapters": {"codex": {
+            **codex, "session_ids": ["invalid/session"],
+        }}}
+        invalid["unknown field"] = {"adapters": {"codex": {
+            **codex, "native_session": "unproven",
+        }}}
+        invalid["unsafe worktree"] = {"adapters": {"codex": {
+            **codex, "worktree": {"root": "cycle_worktree", "path": "../escape"},
+        }}}
+        invalid["missing reason"] = {"adapters": {"codex": {
+            **codex, "availability": {**availability, "history": {"status": "unavailable"}},
+        }}}
+        invalid["false activation"] = {"adapters": {"codex": {
+            **codex, "availability": {**availability, "activation": {"status": "available"}},
+        }}}
+        opencode = {
+            **codex,
+            "harness_id": "opencode",
+            "adapter_revision": "opencode-adapter-1",
+        }
+        invalid["missing legacy opencode"] = {"adapters": {"opencode": opencode}}
+        invalid["OpenCode disagreement"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["different-session"], "path_root": "cycle_worktree",
+                "worktree": ".", "directory": ".",
+            },
+        }
+        invalid["legacy OpenCode extra field"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["codex-session"], "path_root": "cycle_worktree",
+                "worktree": ".", "directory": ".", "extra": True,
+            },
+        }
+        invalid["legacy OpenCode missing directory"] = {
+            "adapters": {"opencode": opencode},
+            "opencode": {
+                "session_ids": ["codex-session"], "path_root": "cycle_worktree",
+                "worktree": ".",
+            },
+        }
+        for name, runtime in invalid.items():
+            with self.subTest(name=name):
+                record["runtime"] = runtime
+                with self.assertRaisesRegex(RuntimeError, "invalid schema 5 runtime"):
+                    module.validate_schema5_runtime(
+                        self.repo, record, allow_synthetic_codex=True)
+
+    def test_cycle_portabilize_does_not_upgrade_schema5(self):
+        self.start()
+        result = run(self.repo, "cycle-portabilize", "--cycle-id", "cycle-1", ok=False)
+        self.assertIn("cycle is not an unmigrated schema 3 record", result.stderr)
+
+    def test_cycle_portabilize_rejects_noninteger_rollback_schema(self):
+        self.start()
+        legacy = self.make_schema3_fixture("cycle-1", self.repo)
+        backup = self.repo / ".git/dbsctr/migrations/cycle-1.schema3.json"
+        backup.parent.mkdir(parents=True)
+        for schema in (True, 3.0):
+            with self.subTest(schema=schema):
+                backup.write_text(json.dumps({**legacy, "schema_version": schema}))
+                result = run(
+                    self.repo, "cycle-portabilize", "--cycle-id", "cycle-1", ok=False)
+                self.assertIn("unsupported Cycle Record schema", result.stderr)
+
+    def test_schema5_validation_applies_outside_active_load(self):
+        self.start()
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        record["runtime"] = {"opencode": {
+            "session_ids": ["legacy-only"], "path_root": "cycle_worktree",
+            "worktree": ".", "directory": ".",
+        }}
+        path.write_text(json.dumps(record))
+
+        inventory = run(self.repo, "worktree-list", "--json", ok=False)
+        self.assertIn("invalid schema 5 runtime", inventory.stderr)
+        performance = run(self.repo, "cycle-performance", "--json", ok=False)
+        self.assertIn("invalid schema 5 runtime", performance.stderr)
+
+        path.write_text('{"schema_version":5,"schema_version":5}')
+        duplicate = run(self.repo, "worktree-list", "--json", ok=False)
+        self.assertIn("duplicate JSON key", duplicate.stderr)
 
     def test_linked_worktrees_have_isolated_active_cycles_and_global_ids(self):
         second = Path(self.temp.name) / "second"
@@ -972,24 +1248,69 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual((self.repo / "tracked.txt").read_text(), "unrelated dirty work\n")
         record = json.loads((self.repo / ".git/dbsctr/cycles/isolated-1.json").read_text())
         self.assertTrue(record["worktree"]["created_by_dbsctr"])
-        self.assertEqual(record["worktree"]["path"], str(isolated))
-        self.assertEqual(record["source"]["path"], str(self.repo.resolve()))
+        self.assertEqual(record["worktree"]["locator"], {
+            "root": "cycle_worktree", "path": ".",
+        })
+        self.assertEqual(record["source"]["locator"], {
+            "root": "primary_worktree", "path": ".",
+        })
         self.assertEqual(record["source"]["dirty_paths"], ["tracked.txt"])
         self.assertEqual(record["runtime"]["opencode"]["session_ids"], ["session-structured"])
+        adapter = record["runtime"]["adapters"]["opencode"]
+        self.assertEqual(adapter["session_ids"], ["session-structured"])
+        self.assertEqual(adapter["worktree"], {
+            "root": record["runtime"]["opencode"]["path_root"],
+            "path": record["runtime"]["opencode"]["worktree"],
+        })
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
+
+    def test_begin_normalizes_protected_merge_and_repository_identity(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_begin_delivery", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = SimpleNamespace(
+            delivery_intent="merge", base_branch="develop", github_account="Saltiola7",
+            github_repository=None,
+        )
+        with mock.patch.object(module, "git_repository_slug",
+                               return_value="Saltiola7/dotfiles-ai"):
+            module.normalize_begin_delivery(self.repo, args, "develop")
+        self.assertEqual(args.delivery_intent, "draft_pr")
+        self.assertEqual(args.github_repository, "Saltiola7/dotfiles-ai")
+
+        args.github_repository = "other/dotfiles-ai"
+        with mock.patch.object(module, "git_repository_slug",
+                               return_value="Saltiola7/dotfiles-ai"), \
+                self.assertRaisesRegex(RuntimeError, "must match configured GitHub repository"):
+            module.normalize_begin_delivery(self.repo, args, "develop")
+
+        with self.assertRaisesRegex(RuntimeError, "invalid remote"):
+            module.github_repository_from_url(
+                "https://token@github.com/Saltiola7/dotfiles-ai.git", "invalid remote"
+            )
+        destinations = [
+            SimpleNamespace(stdout="https://github.com/Saltiola7/dotfiles-ai.git\n"),
+            SimpleNamespace(stdout="git@github.com:other/dotfiles-ai.git\n"),
+        ]
+        with mock.patch.object(module, "git", side_effect=destinations), \
+                self.assertRaisesRegex(RuntimeError, "remote must match"):
+            module.github_remote_url(self.repo, "origin", "Saltiola7/dotfiles-ai")
+        local = SimpleNamespace(
+            delivery_intent="local", base_branch="develop", github_account=None,
+            github_repository=None,
+        )
+        with self.assertRaisesRegex(RuntimeError, "protected base branch"):
+            module.normalize_begin_delivery(self.repo, local, "develop")
 
     def test_begin_binds_fresh_initiative_receipt_to_cycle_record(self):
         remote = Path(self.temp.name) / "initiative-remote.git"
         worktrees = Path(self.temp.name) / "initiative-worktrees"
         value = initiative_manifest()
-        value["slices"][0]["tickets"] = ["initiative-1"]
+        value["slices"][0].pop("tickets")
         manifest = self.write_initiative(value)
-        ticket = self.repo / "docs/tickets/context=test/initiative-1-test.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("ticket\n")
-        subprocess.run(["git", "add", str(manifest.relative_to(self.repo)),
-                        str(ticket.relative_to(self.repo))], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", str(manifest.relative_to(self.repo))], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "initiative"], cwd=self.repo, check=True,
                        capture_output=True)
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -1027,7 +1348,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["initiative"]["manifest_path"],
                          "docs/initiatives/test/MANIFEST.json")
 
-    def test_schema4_managed_worktree_rebinds_to_configured_registry(self):
+    def test_schema5_managed_worktree_rebinds_to_configured_registry(self):
         remote = Path(self.temp.name) / "remote.git"
         registry = Path(self.temp.name) / "registry"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -1042,7 +1363,7 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout)
         record_path = self.repo / ".git/dbsctr/cycles/portable-1.json"
         record = json.loads(record_path.read_text())
-        self.assertEqual(record["schema_version"], 4)
+        self.assertEqual(record["schema_version"], 5)
         self.assertEqual(record["worktree"]["locator"]["root"], "dbsctr_worktrees")
         self.assertFalse(Path(record["worktree"]["locator"]["path"]).is_absolute())
         self.assertNotIn(str(registry), json.dumps(record))
@@ -1183,7 +1504,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--opencode-worktree", str(self.repo), "--opencode-directory", str(self.repo / "docs"),
         ).stdout)
         record_path = self.repo / ".git/dbsctr/cycles/legacy-1.json"
-        original = json.loads(record_path.read_text())
+        original = self.make_schema3_fixture("legacy-1", handoff["worktree"])
         self.assertEqual(original["schema_version"], 3)
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
 
@@ -1210,9 +1531,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(Path(self.temp.name) / "outside"))
+            "--worktree-root", str(Path(self.temp.name) / "outside")).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(Path(self.temp.name) / "registry")}
         result = run(self.repo, "cycle-portabilize", "--cycle-id", "legacy-1", env=env, ok=False)
         self.assertIn("outside configured registry", result.stderr)
@@ -1224,10 +1546,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(registry))
-        record = json.loads((self.repo / ".git/dbsctr/cycles/legacy-1.json").read_text())
+            "--worktree-root", str(registry)).stdout)
+        record = self.make_schema3_fixture("legacy-1", handoff["worktree"])
         pointer = self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         pointer.unlink()
@@ -1257,9 +1579,10 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
                        capture_output=True)
-        run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
+        handoff = json.loads(run(self.repo, "begin", "--cycle-id", "legacy-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            "--worktree-root", str(registry))
+            "--worktree-root", str(registry)).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_portable_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
@@ -1303,6 +1626,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
             "--worktree-root", str(registry),
         ).stdout)
+        self.make_schema3_fixture("legacy-1", handoff["worktree"])
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_retry_module", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
@@ -1355,6 +1679,13 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(record["runtime"]["opencode"]["harness_activation"], {
             "schema_version": 1, "provider_id": "openai", "model_id": "gpt-5.6-sol",
             "agent_id": "build-gpt", "core_revision": "3.29", "overlay_revision": "openai-2026-07-26",
+        })
+        adapter = record["runtime"]["adapters"]["opencode"]
+        self.assertEqual(adapter["session_ids"], ["session-resumed"])
+        self.assertEqual(adapter["activation"], record["runtime"]["opencode"]["harness_activation"])
+        self.assertEqual(adapter["worktree"], {
+            "root": record["runtime"]["opencode"]["path_root"],
+            "path": record["runtime"]["opencode"]["worktree"],
         })
         child = run(self.repo, "attach-runtime", "--opencode-session-id", "session-child",
                     "--opencode-message-id", "message-child",
@@ -1792,7 +2123,7 @@ class DbsctrctlTest(unittest.TestCase):
             record.update({"state": "completed", "completed_at": "2026-01-01T00:00:00Z"})
             (self.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
             if cycle_id == "changed-identity":
-                record["worktree"]["git_dir"] = str(Path(self.temp.name) / "foreign-git-dir")
+                record["worktree"]["id"] = "0" * 16
                 record_path.write_text(json.dumps(record))
                 result = run(self.repo, "cleanup", "--cycle-id", cycle_id, "--now", ok=False)
                 self.assertIn("identity changed", result.stderr)
@@ -1873,7 +2204,7 @@ class DbsctrctlTest(unittest.TestCase):
         subprocess.run(["git", "switch", "-c", "drift"], cwd=self.repo, check=True,
                        capture_output=True)
         result = run(other, "cleanup", "--cycle-id", "cycle-1", "--now", ok=False)
-        self.assertIn("worktree branch", result.stderr)
+        self.assertIn("worktree is missing", result.stderr)
 
     def test_audit_reads_fixed_commit_and_excludes_dirty_overlay(self):
         built_from = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
@@ -1902,7 +2233,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertIn("new name.txt", result["dirty_overlay_excluded"])
         self.assertEqual((self.repo / ".git/index").stat().st_mtime_ns, index_mtime)
         findings = {(item["code"], item["path"]) for item in result["findings"]}
-        self.assertIn(("missing_context_ticket", "docs/tickets/context=incomplete"), findings)
+        self.assertFalse(any(code == "missing_context_ticket" for code, _path in findings))
         self.assertIn(("missing_lifecycle_artifact", "docs/specs/incomplete/CHANGELOG.md"), findings)
         self.assertIn(("stale_graph", "graphify-out/GRAPH_REPORT.md"), findings)
         self.assertIn(("missing_graph_receipt", "graphify-out/graph.receipt.json"), findings)
@@ -1921,12 +2252,9 @@ class DbsctrctlTest(unittest.TestCase):
             "## Completed\n\n| id | outcome | completed | commit |\n|---|---|---|---|\n"
             f"| CAN-1 | Shipped | 2026-01-01 | `{base[:7]}` |\n"
         )
-        ticket = self.repo / "docs/tickets/context=canonical/CAN-1-shipped.md"
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text("---\nid: CAN-1\n---\n")
         replacement_path = self.repo / "replacement-backlog.md"
         replacement_path.write_text("# Replaced\n")
-        subprocess.run(["git", "add", "docs/specs/canonical", "docs/tickets", "replacement-backlog.md"],
+        subprocess.run(["git", "add", "docs/specs/canonical", "replacement-backlog.md"],
                        cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-m", "canonical backlog"], cwd=self.repo, check=True,
                        capture_output=True)
@@ -1966,7 +2294,7 @@ class DbsctrctlTest(unittest.TestCase):
 
         result = json.loads(run(self.repo, "audit", "--commit", audited, "--json").stdout)
         findings = [item for item in result["findings"] if item.get("context") == "broken"]
-        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
+        self.assertEqual([], findings)
 
     def test_audit_assigns_missing_sections_to_document_line_one(self):
         context = self.repo / "docs/specs/missing_sections"
@@ -1981,7 +2309,7 @@ class DbsctrctlTest(unittest.TestCase):
         result = json.loads(run(self.repo, "audit", "--json").stdout)
         findings = [item for item in result["findings"]
                     if item.get("context") == "missing_sections"]
-        self.assertEqual(["missing_context_ticket"], [item["code"] for item in findings])
+        self.assertEqual([], findings)
 
     def test_audit_flags_unverifiable_graph_metadata(self):
         graph = self.repo / "graphify-out"
@@ -2848,6 +3176,7 @@ class DbsctrctlTest(unittest.TestCase):
 
     def test_draft_pr_pushes_only_feature_branch_and_verifies_draft(self):
         remote = Path(self.temp.name) / "remote.git"
+        github_url = "https://github.com/example-org/dotfiles-ai.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
         subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=self.repo, check=True,
@@ -2864,12 +3193,41 @@ class DbsctrctlTest(unittest.TestCase):
                        capture_output=True)
         subprocess.run(["git", "branch", "--set-upstream-to", "origin/main"], cwd=self.repo, check=True,
                        capture_output=True)
+        subprocess.run(["git", "remote", "set-url", "origin", github_url], cwd=self.repo, check=True)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True,
                               capture_output=True).stdout.strip()
-        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai")
+        fake_bin = Path(self.temp.name) / "bin"
+        fake_bin.mkdir()
+        git_wrapper = fake_bin / "git"
+        git_wrapper.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "values = sys.argv[1:]\n"
+            "with open(os.environ['GIT_WRAPPER_LOG'], 'a') as log: log.write(repr(values) + '\\n')\n"
+            "rewrite = not (values[:2] == ['ls-remote', '--get-url'])\n"
+            "network = values and values[0] in {'fetch', 'ls-remote', 'push'}\n"
+            "args = [os.environ['REAL_GIT'], *[os.environ['LOCAL_GIT_REMOTE'] if rewrite and "
+            "(value == os.environ['GITHUB_GIT_URL'] or network and value == 'origin') else value "
+            "for value in values]]\n"
+            "os.execv(args[0], args)\n"
+        )
+        git_wrapper.chmod(0o755)
+        git_env = {
+            **isolated_env(), "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "REAL_GIT": shutil.which("git"), "LOCAL_GIT_REMOTE": str(remote),
+            "GITHUB_GIT_URL": github_url,
+            "GIT_WRAPPER_LOG": str(Path(self.temp.name) / "git-wrapper.log"),
+        }
+        self.start("draft_pr", account="example-user", repository="example-org/dotfiles-ai",
+                   env=git_env)
+        git_log_path = Path(git_env["GIT_WRAPPER_LOG"])
+        start_git_log = git_log_path.read_text()
+        self.assertIn("'origin'", start_git_log)
+        self.assertNotIn(github_url, start_git_log)
+        git_log_path.write_text("")
         home = Path(self.temp.name) / "home"
         home.mkdir()
-        worker_env = {**isolated_env(), "HOME": str(home)}
+        worker_env = {**git_env, "HOME": str(home)}
         run(self.repo, "improvement-register", "--worker-id", "worker-1", "--session-id", "session-1",
             env=worker_env)
         claim = json.loads(run(self.repo, "improvement-claim", "--session-id", "session-1",
@@ -2879,8 +3237,26 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "improvement-update", "--session-id", "session-1", "--state", "implementing",
             "--cycle-id", "cycle-1", "--path", "tracked.txt", env=worker_env)
         record = json.loads(self.record_path().read_text())
-        record["runtime"] = {"opencode": {"session_ids": ["session-1"],
-                                              "worktree": str(self.repo), "directory": str(self.repo)}}
+        legacy_runtime = {
+            "session_ids": ["session-1"], "path_root": "cycle_worktree",
+            "worktree": ".", "directory": ".",
+        }
+        record["runtime"] = {
+            "adapters": {"opencode": {
+                "schema_version": 1, "harness_id": "opencode",
+                "adapter_revision": "opencode-adapter-1",
+                "session_ids": ["session-1"],
+                "worktree": {"root": "cycle_worktree", "path": "."},
+                "availability": {
+                    "session": {"status": "available"},
+                    "turn": {"status": "not_requested"},
+                    "family": {"status": "not_requested"},
+                    "activation": {"status": "not_requested"},
+                    "history": {"status": "unavailable", "reason": "not_collected"},
+                },
+            }},
+            "opencode": legacy_runtime,
+        }
         record["improvement"] = {"worker_id": "worker-1", "session_id": "session-1",
                                  "opportunity_id": claim["opportunity_id"]}
         self.record_path().write_text(json.dumps(record))
@@ -2894,8 +3270,6 @@ class DbsctrctlTest(unittest.TestCase):
         run(self.repo, "review-artifact", "CHANGELOG", "--result", "changed", "--reason", "recorded",
             "--path", "docs/specs/test/CHANGELOG.md")
         self.pass_gates()
-        fake_bin = Path(self.temp.name) / "bin"
-        fake_bin.mkdir()
         gh_log = Path(self.temp.name) / "gh.log"
         gh = fake_bin / "gh"
         gh.write_text(
@@ -2911,8 +3285,41 @@ class DbsctrctlTest(unittest.TestCase):
         )
         gh.chmod(0o755)
         env = {**worker_env, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GH_LOG": str(gh_log)}
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_github_env", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        with mock.patch.dict(os.environ, {
+            **env, "GH_TOKEN": "ambient-wrong",
+            "GIT_CONFIG_PARAMETERS": "'http.extraHeader=Authorization: wrong'",
+            "GIT_TRACE": "1",
+        }, clear=True):
+            credential_env = module.github_environment("example-user")
+        self.assertNotIn("GIT_CONFIG_PARAMETERS", credential_env)
+        self.assertNotIn("GIT_TRACE", credential_env)
+        self.assertEqual(credential_env["GIT_CONFIG_KEY_2"], "http.extraHeader")
+        self.assertEqual(credential_env["GIT_CONFIG_VALUE_2"], "")
+        credentials = subprocess.run(
+            [shutil.which("git"), "credential", "fill"], text=True, capture_output=True,
+            input="protocol=https\nhost=github.com\n\n", env=credential_env, check=True,
+        ).stdout
+        self.assertIn("username=x-access-token", credentials)
+        self.assertIn("password=test-token", credentials)
+        self.assertNotIn("test-token", credential_env["GIT_CONFIG_VALUE_1"])
+        rewrite_key = f"url.{remote}.insteadOf"
+        subprocess.run([git_env["REAL_GIT"], "config", rewrite_key, github_url], cwd=self.repo,
+                       check=True)
+        with self.assertRaisesRegex(RuntimeError, "URL rewriting"):
+            module.require_canonical_github_url(self.repo, github_url, credential_env)
+        subprocess.run([git_env["REAL_GIT"], "config", "--unset-all", rewrite_key], cwd=self.repo,
+                       check=True)
         result = run(self.repo, "final-push", env=env)
         self.assertIn("draft_pr", result.stdout)
+        self.assertNotIn("test-token", result.stdout + result.stderr + self.record_path().read_text())
+        git_log = git_log_path.read_text()
+        self.assertIn(github_url, git_log)
+        self.assertIn("'fetch'", git_log)
+        self.assertIn("'push'", git_log)
         feature = subprocess.run(["git", "rev-parse", "refs/heads/dbsctr/test/cycle-1"], cwd=remote,
                                  check=True, text=True, capture_output=True).stdout.strip()
         main = subprocess.run(["git", "rev-parse", "refs/heads/main"], cwd=remote, check=True,
@@ -3166,6 +3573,279 @@ class DbsctrctlTest(unittest.TestCase):
                                   "--part-ceiling", str(page_one["part_ceiling"]),
                                   "--database-digest", page_one["database_digest"]).stdout)
         self.assertEqual(page_two["cycle_ids"], [])
+
+    def test_incident_workflow_preserves_redacted_fork_evidence_and_verified_fix(self):
+        database = Path(self.temp.name) / "incidents.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('root-1', null, 'DBSCTR cycle', 1784073600000);
+            insert into session values ('fork-1', 'root-1', 'Incident fork', 1784073601000);
+            insert into session values ('foreign-1', null, 'QA cycle', 1784073602000);
+            insert into session values ('foreign-child', 'foreign-1', 'Other fork', 1784073603000);
+            insert into message values ('message-root', 'root-1', 1784073600000, '{}');
+            insert into message values ('message-fork', 'fork-1', 1784073601000, '{}');
+            insert into message values ('message-foreign', 'foreign-1', 1784073602000, '{}');
+            insert into message values ('message-other', 'foreign-child', 1784073603000, '{}');
+            insert into part values ('part-root', 'message-root', 'root-1', 1784073600000,
+                                     '{"type":"text","text":"DBSCTR cycle"}');
+        """)
+        parts = [
+            ("part-bash-error", "message-fork", "fork-1", 1784073601001,
+             {"type": "tool", "tool": "bash", "state": {"status": "error", "error": "password=hunter2 /tmp/build"}}),
+            ("part-bash-ok", "message-fork", "fork-1", 1784073601002,
+             {"type": "tool", "tool": "bash", "state": {"status": "completed", "output": "ok"}}),
+            ("part-read-error", "message-fork", "fork-1", 1784073601003,
+             {"type": "tool", "tool": "read", "state": {"status": "failed", "error": "api_key=abcdefghijklmnop /tmp/input"}}),
+            ("part-foreign-seed", "message-foreign", "foreign-1", 1784073602000,
+             {"type": "text", "text": "/qa cycle"}),
+            ("part-foreign", "message-foreign", "foreign-1", 1784073602001,
+             {"type": "tool", "tool": "read", "state": {"status": "error", "error": "foreign"}}),
+        ]
+        connection.executemany("insert into part values (?, ?, ?, ?, ?)",
+                               [(*row[:4], json.dumps(row[4])) for row in parts])
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "incident-state"
+
+        scan = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                              "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertFalse((state / "reviews/ledger.sqlite3").exists())
+        self.assertEqual(scan["schema_version"], 1)
+        self.assertEqual([(item["tool"], item["recovered"]) for item in scan["signals"]],
+                         [("read", False), ("bash", True)])
+        self.assertNotIn("hunter2", json.dumps(scan))
+        self.assertNotIn("abcdefghijklmnop", json.dumps(scan))
+        self.assertIn("/tmp/input", json.dumps(scan))
+
+        root_registration = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "root-1", "--message-id", "message-root", "--kind", "defect",
+            "--title", "INCIDENT: root", "--summary", "not a fork", ok=False,
+        )
+        self.assertIn("child session", root_registration.stderr)
+        foreign = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                 "--state-root", str(state), "--session-id", "foreign-1").stdout)
+        invalid_signal = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: failed read", "--summary", "Preserve the failed read.",
+            "--signal-id", foreign["signals"][0]["signal_id"], ok=False,
+        )
+        self.assertIn("outside the incident family", invalid_signal.stderr)
+
+        selected = scan["signals"][0]["signal_id"]
+        registered = json.loads(run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: failed read", "--summary", "Preserve token=secret-value and diagnose.",
+            "--signal-id", selected, "--diagnostic", "Expected readable input.",
+            "--evidence", 'Bearer "private phrase" --password "secret phrase" '
+                          "op://vault/item/field\nAuthorization: Basic dXNlcjpwYXNz\n"
+                          'Proxy-Authorization: Digest username="admin", response="abc123"\n'
+                          '{"Authorization":"Basic c3RydWN0dXJlZA==","password":"abc\\\"remaining-secret"}'
+                          "\n/tmp/input",
+        ).stdout)
+        incident_id = registered["incident"]["incident_id"]
+        self.assertEqual(registered["incident"]["state"], "open")
+        self.assertNotIn("secret-value", ledger_text(state))
+        self.assertNotIn("private phrase", ledger_text(state))
+        self.assertNotIn("secret phrase", ledger_text(state))
+        self.assertNotIn("vault/item/field", ledger_text(state))
+        self.assertNotIn("dXNlcjpwYXNz", ledger_text(state))
+        self.assertNotIn("admin", ledger_text(state))
+        self.assertNotIn("c3RydWN0dXJlZA==", ledger_text(state))
+        self.assertNotIn("remaining-secret", ledger_text(state))
+        self.assertEqual((state / "reviews/ledger.sqlite3").stat().st_mode & 0o777, 0o600)
+        duplicate = run(
+            self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-fork", "--kind", "defect",
+            "--title", "INCIDENT: duplicate", "--summary", "duplicate", ok=False,
+        )
+        self.assertIn("already registered", duplicate.stderr)
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        ledger.execute("update incidents set summary='token=restored-secret' where incident_id=?", (incident_id,))
+        ledger.commit()
+        ledger.close()
+        inbox = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                               "--state-root", str(state)).stdout)
+        self.assertEqual([item["incident_id"] for item in inbox["incidents"]], [incident_id])
+        self.assertNotIn("restored-secret", json.dumps(inbox))
+        self.assertNotIn(selected, [item["signal_id"] for item in inbox["signals"]])
+        backup = json.loads(run(self.repo, "review-backup", "--state-root", str(state)).stdout)
+        backup_path = state / "reviews/backups" / backup["backup"]
+        self.assertTrue(backup_path.is_file())
+        external_backup = Path(self.temp.name) / "pre-forget.sqlite3"
+        shutil.copyfile(backup_path, external_backup)
+
+        actor = ("--database", str(database), "--session-id", "fork-1", "--message-id", "message-fork")
+        cross_fork = run(self.repo, "incident-update", "--state-root", str(state),
+                         "--database", str(database), "--session-id", "foreign-child",
+                         "--message-id", "message-other", "--incident-id", incident_id,
+                         "--state", "investigating", ok=False)
+        self.assertIn("another fork", cross_fork.stderr)
+        run(self.repo, "incident-update", "--state-root", str(state), *actor, "--incident-id", incident_id,
+            "--state", "investigating")
+        self.start()
+        cycle = json.loads(self.record_path().read_text())
+        cycle.update({"source": {
+            "head": cycle["git"]["head"], "branch": cycle["git"]["branch"],
+            "upstream": cycle["git"]["upstream"], "dirty_paths": [],
+            "remote": cycle["git"]["remote"], "locator": {"root": "primary_worktree", "path": "."},
+        }, "runtime": {"adapters": {}}})
+        self.record_path().write_text(json.dumps(cycle))
+        active_cycle = json.loads(json.dumps(cycle))
+        run(self.repo, "incident-update", "--state-root", str(state), *actor, "--incident-id", incident_id,
+            "--state", "fixing", "--cycle-id", "cycle-1")
+        unresolved = run(self.repo, "incident-update", "--state-root", str(state), *actor,
+                         "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("verified activation", unresolved.stderr)
+        cycle.update({"state": "completed", "gates": {}})
+        self.record_path().write_text(json.dumps(cycle))
+        missing_gates = run(self.repo, "incident-update", "--state-root", str(state), *actor,
+                            "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("Cycle Record", missing_gates.stderr)
+        cycle = active_cycle
+        evidence = {}
+        completed_gates = {}
+        for gate in GATES:
+            if gate == "release":
+                completed_gates[gate] = {"applicability": "not_applicable", "result": "not_run"}
+                continue
+            evidence_id = f"ev-{gate}"
+            completed_gates[gate] = {"applicability": "required", "result": "passed",
+                                     "evidence": evidence_id}
+            evidence[evidence_id] = {"id": evidence_id, "gate": gate, "result": "passed",
+                                     "authority": "test", "paths": {}, "head": cycle["git"]["head"],
+                                     "argv": [], "summary": "passed", "urls": [],
+                                     "started_at": cycle["created_at"], "finished_at": cycle["created_at"],
+                                     "raw": {"byte_count": 0, "lower_bound": False, "truncated": False},
+                                     "content": {"status": "no_content"}}
+        for review in cycle["artifact_reviews"].values():
+            review.update({"result": "unchanged", "reason": "verified", "reviewed_at": cycle["created_at"]})
+        cycle.update({"state": "completed", "completed_at": cycle["created_at"],
+                      "gates": completed_gates, "evidence": {"version": 1, "items": evidence}})
+        invalid_exception = json.loads(json.dumps(cycle))
+        invalid_exception["gates"]["domain"] = {
+            "applicability": "required", "result": "pending", "exception": {
+                "kind": "accepted_risk", "rationale": "invalid pending disposition", "owner": "test",
+                "review_condition": "never", "approved_at": cycle["created_at"],
+            },
+        }
+        self.record_path().write_text(json.dumps(invalid_exception))
+        pending_exception = run(self.repo, "incident-update", "--state-root", str(state), *actor,
+                                "--incident-id", incident_id, "--state", "resolved", ok=False)
+        self.assertIn("incomplete gate", pending_exception.stderr)
+        self.record_path().write_text(json.dumps(cycle))
+        resolved = json.loads(run(self.repo, "incident-update", "--state-root", str(state), *actor,
+                                  "--incident-id", incident_id, "--state", "resolved").stdout)
+        self.assertEqual(resolved["incident"]["state"], "resolved")
+
+        run(self.repo, "incident-forget", "--state-root", str(state), *actor, "--incident-id", incident_id)
+        forgotten = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                   "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(forgotten["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in forgotten["signals"]])
+        self.assertFalse((state / "reviews/backups").exists())
+        restored_backups = state / "reviews/backups"
+        restored_backups.mkdir(mode=0o700)
+        restored_backup = restored_backups / backup["backup"]
+        shutil.copyfile(external_backup, restored_backup)
+        os.chmod(restored_backup, 0o600)
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", backup["backup"])
+        after_restore = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                       "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(after_restore["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in after_restore["signals"]])
+        legacy_backup = restored_backups / "legacy.sqlite3"
+        shutil.copyfile(external_backup, legacy_backup)
+        legacy = sqlite3.connect(legacy_backup)
+        legacy.executescript("""
+            drop table incident_signal_dispositions;
+            drop table incidents;
+            delete from ledger_meta where key='incident_schema';
+        """)
+        legacy.commit()
+        legacy.close()
+        os.chmod(legacy_backup, 0o600)
+        run(self.repo, "review-restore", "--state-root", str(state), "--backup", "legacy.sqlite3")
+        legacy_restored = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                         "--state-root", str(state), "--session-id", "fork-1").stdout)
+        self.assertEqual(legacy_restored["incidents"], [])
+        self.assertNotIn(selected, [item["signal_id"] for item in legacy_restored["signals"]])
+
+    def test_incident_scan_bounds_registered_inbox(self):
+        database = Path(self.temp.name) / "incident-cap.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer, data text);
+            insert into session values ('root-1', null, 'DBSCTR cycle', 1784073600000);
+            insert into session values ('fork-1', 'root-1', 'Incident fork', 1784073601000);
+            insert into message values ('message-root', 'root-1', 1784073600000, '{}');
+            insert into message values ('message-1', 'fork-1', 1784073601000, '{}');
+            insert into part values ('part-1', 'message-root', 'root-1', 1784073600000,
+                                     '{"type":"text","text":"DBSCTR cycle"}');
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "incident-cap-state"
+        run(self.repo, "incident-register", "--database", str(database), "--state-root", str(state),
+            "--session-id", "fork-1", "--message-id", "message-1", "--kind", "defect",
+            "--title", "INCIDENT: first", "--summary", "first")
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        seed = ledger.execute("select * from incidents").fetchone()
+        base_timestamp = seed[-1]
+        ledger.executemany(
+            "insert into incidents values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(f"{index:024x}", f"fork-{index}", seed[2], seed[3], *seed[4:-2],
+              base_timestamp + index, base_timestamp + index)
+             for index in range(2, 102)],
+        )
+        ledger.commit()
+        ledger.close()
+        source = sqlite3.connect(database)
+        source.executemany(
+            "insert into part values (?,?,?,?,?)",
+            [(f"failed-{index:03}", "message-1", "fork-1", 1784073602000 + index,
+              json.dumps({"type": "tool", "tool": "read",
+                          "state": {"status": "failed", "error": f"failure {index}"}}))
+             for index in range(101)],
+        )
+        source.commit()
+        source.close()
+
+        inbox = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                               "--state-root", str(state)).stdout)
+        self.assertEqual(len(inbox["incidents"]), 100)
+        self.assertTrue(inbox["incident_overflow"])
+        self.assertEqual(inbox["incidents"][0]["incident_id"], f"{101:024x}")
+        self.assertEqual(len(inbox["signals"]), 100)
+        self.assertTrue(inbox["signal_overflow"])
+        self.assertEqual(inbox["signals"][0]["part_id"], "failed-100")
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        ledger.executemany(
+            "insert into incident_signal_dispositions values (?,null,'forgotten',1784073603000)",
+            [(hashlib.sha256(f"fork-1\0message-1\0failed-{index:03}\0read".encode()).hexdigest()[:24],)
+             for index in range(101)],
+        )
+        ledger.commit()
+        ledger.close()
+        source = sqlite3.connect(database)
+        source.execute("insert into part values (?,?,?,?,?)", (
+            "older-unclaimed", "message-1", "fork-1", 1784073601500,
+            json.dumps({"type": "tool", "tool": "read",
+                        "state": {"status": "failed", "error": "older unclaimed"}}),
+        ))
+        source.commit()
+        source.close()
+        undisposed = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                    "--state-root", str(state)).stdout)
+        self.assertEqual([item["part_id"] for item in undisposed["signals"]], ["older-unclaimed"])
+        self.assertFalse(undisposed["signal_overflow"])
 
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"
@@ -3648,6 +4328,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlates_structured_session_without_path_match(self):
         self.start()
         record = json.loads(self.record_path().read_text())
+        record["schema_version"] = 4
         record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "other"}
         record["source"] = {"path": str(Path(self.temp.name) / "source")}
         record["runtime"] = {"opencode": {"session_ids": ["session-linked"]}}
@@ -3669,6 +4350,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlation_uses_tiered_unambiguous_identity(self):
         self.start()
         first = json.loads(self.record_path().read_text())
+        first["schema_version"] = 4
         first["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
         first["source"] = {"path": str(self.repo)}
         self.record_path().write_text(json.dumps(first))
@@ -3734,6 +4416,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_review_correlates_recursive_family_and_reports_quality(self):
         self.start()
         record = json.loads(self.record_path().read_text())
+        record["schema_version"] = 4
         record["runtime"] = {"opencode": {"session_ids": ["runtime-root"]}}
         record["worktree"]["locator"] = {"root": "dbsctr_worktrees", "path": "missing"}
         self.record_path().write_text(json.dumps(record))
@@ -4343,6 +5026,19 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(unavailable["status"], "unavailable")
         self.assertFalse(state.exists())
 
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True)
+        with (reviews / ".lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            invalid = subprocess.run(
+                [sys.executable, str(SCRIPT), "phase-span", "--state-root", str(state),
+                 "--span-id", "invalid", "--event", "start", "--phase", "domain",
+                 "--operation", "read"],
+                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=1,
+            )
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("phase span start requires phase, operation, and attribution only", invalid.stderr)
+
         common = (
             "--state-root", str(state), "--span-id", "read-a",
             "--phase", "domain", "--operation", "read",
@@ -4424,6 +5120,113 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(json.loads(run(
             self.repo, "phase-report", "--state-root", str(state),
         ).stdout)["status"], "unavailable")
+
+    def test_cycle_performance_separates_autonomous_calendar_and_incomplete_timing(self):
+        self.start()
+        state = Path(self.temp.name) / "performance-state"
+        run(self.repo, "phase-span", "--state-root", str(state), "--span-id", "seed",
+            "--phase", "domain", "--operation", "operator_wait", "--attribution", "explicit",
+            "--event", "start")
+        run(self.repo, "phase-span", "--state-root", str(state), "--span-id", "seed",
+            "--event", "finish", "--result", "passed")
+
+        records = self.record_path().parent
+        template = json.loads(self.record_path().read_text())
+        linked = Path(self.temp.name) / "linked"
+        subprocess.run(["git", "worktree", "add", "-b", "linked", str(linked)], cwd=self.repo,
+                       check=True, capture_output=True)
+        linked_git = Path(subprocess.run(
+            ["git", "rev-parse", "--git-dir"], cwd=linked, check=True, text=True,
+            capture_output=True,
+        ).stdout.strip())
+        for index in range(1, 7):
+            record = {**template, "cycle_id": f"cycle-{index}", "state": "completed",
+                      "created_at": "2026-08-29T00:00:00Z",
+                      "completed_at": f"2026-08-29T00:{index // 6:02d}:{index * 10 % 60:02d}Z",
+                      "context": "test" if index < 4 else "other" if index == 4 else "legacy",
+                      "method_revision": "3.28", "metrics": {
+                          "gate_failure_count": index,
+                          "gate_reopen_count": index + 1,
+                          "remediation_round_count": index + 2,
+                      }}
+            directory = records if index < 5 else records.parent if index == 5 else linked_git / "dbsctr"
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"cycle-{index}.json").write_text(json.dumps(record))
+        duplicate = records.parent / "cycle-1.json"
+        duplicate.write_bytes((records / "cycle-1.json").read_bytes())
+
+        ledger = state / "reviews/ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        connection.execute("delete from phase_spans")
+        base = int(time.time() * 1000) - 10000
+        rows = (
+            ("cycle-1", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, base + 1000, "passed"),
+            ("cycle-1", "nested", "active", "behavior", "read", "explicit", "[]", "[]",
+             base + 200, base + 800, "passed"),
+            ("cycle-1", "pause", None, "contract", "operator_wait", "explicit", "[]", "[]",
+             base + 1200, base + 1400, "passed"),
+            ("cycle-2", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, base + 2000, "passed"),
+            ("cycle-2", "pause", None, "contract", "external_wait", "explicit", "[]", "[]",
+             base + 1500, base + 1600, "passed"),
+            ("cycle-3", "active", None, "domain", "task", "explicit", "[]", "[]",
+             base, None, None),
+        )
+        connection.executemany("insert into phase_spans values (?,?,?,?,?,?,?,?,?,?,?)", rows)
+        connection.commit()
+        connection.close()
+        before_ledger = ledger.read_bytes()
+        record_paths = list(records.parent.glob("**/*.json")) + list((linked_git / "dbsctr").glob("*.json"))
+        before_records = {path: path.read_bytes() for path in record_paths}
+
+        report = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--json",
+        ).stdout)
+        self.assertEqual(report, {
+            "schema_version": 1, "filters": {},
+            "counts": {"completed": 6, "complete": 1, "partial": 2, "unavailable": 3},
+            "coverage_basis_points": 1666,
+            "autonomous_runtime_ms": {"mean": 1000, "p50": 1000, "p90": 1000},
+            "calendar_elapsed_ms": {"mean": 35000, "p50": 30000, "p90": 60000},
+            "quality": {"gate_failures": 21, "gate_reopenings": 27,
+                        "remediation_rounds": 33},
+        })
+        self.assertNotRegex(json.dumps(report), r"(?:cycle-[1-6]|/Users|span|ownership)")
+        self.assertEqual(ledger.read_bytes(), before_ledger)
+        self.assertEqual({path: path.read_bytes() for path in record_paths}, before_records)
+
+        filtered = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--method-revision", "3.28",
+            "--json",
+        ).stdout)
+        self.assertEqual(filtered["filters"], {
+            "context": "test", "risk": "routine", "delivery_intent": "local",
+            "method_revision": "3.28",
+        })
+        self.assertEqual(filtered["counts"]["completed"], 3)
+        self.assertEqual(filtered["calendar_elapsed_ms"], {
+            "mean": 20000, "p50": 20000, "p90": 30000,
+        })
+
+        empty = Path(self.temp.name) / "no-performance-state"
+        unavailable = json.loads(run(
+            self.repo, "cycle-performance", "--state-root", str(empty), "--context", "missing",
+            "--json",
+        ).stdout)
+        self.assertEqual(unavailable["counts"]["completed"], 0)
+        self.assertEqual(unavailable["autonomous_runtime_ms"]["mean"], "unavailable")
+        self.assertFalse(empty.exists())
+        self.assertIn("invalid context", run(
+            self.repo, "cycle-performance", "--context", "../private", "--json", ok=False,
+        ).stderr)
+        conflicting = json.loads(duplicate.read_text())
+        conflicting["risk"] = "elevated"
+        duplicate.write_text(json.dumps(conflicting))
+        self.assertIn("identity is ambiguous", run(
+            self.repo, "cycle-performance", "--state-root", str(state), "--json", ok=False,
+        ).stderr)
 
     def test_execution_dag_authorizes_only_proven_independent_work(self):
         safe = {"nodes": [
@@ -5063,7 +5866,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.28")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.29")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))

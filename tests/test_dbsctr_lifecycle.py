@@ -1,4 +1,7 @@
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -12,7 +15,9 @@ def text(path: Path | str) -> str:
 
 
 def test_public_lifecycle_commands_are_unversioned_and_thin():
-    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa", "dbsctr-review": "dbsctr-review"}
+    expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa",
+                "dbsctr-review": "dbsctr-review", "incident": "dbsctr-incident",
+                "dbsctr-performance-audit": "dbsctr-performance-audit"}
     for command, skill in expected.items():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
@@ -44,9 +49,15 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "mode: primary" in coordinator
     assert '"docs/**": allow' in coordinator
     assert '"*": deny' in coordinator
+    assert "bash: allow" in coordinator
+    assert "native CLI, API, or notebook kernel" in coordinator
+    assert "shell proxy when a direct interface exists" in coordinator
+    assert "keep governed private result bodies local" in coordinator
     assert "dbsctr_initiative_launch: ask" in coordinator
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
+    for agent in ("explore-openai", "scout-openai"):
+        assert "bash: deny" in text(f"private_dot_config/opencode/agents/{agent}.md")
 
     assert "name: dbsctr" in dbsctr
     assert "trigger: /dbsctr" in dbsctr
@@ -74,10 +85,42 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
     assert "without a matched" in review.lower() and "record are unknown" in review.lower()
     assert "never perform automatic remediation" in review.lower()
 
+
+def test_v343_performance_audit_is_reproducible_private_and_report_only():
+    audit = text(SKILLS / "dbsctr-performance-audit/SKILL.md")
+    for term in (
+        "dbsctr_runtime_health", "cycle-performance", "dbsctr_incident_scan",
+        "dbsctr_review_history", "dbsctr_history_telemetry", "dks_context",
+        "graphify-out/graph.json", "Scout", "Explore", "three independent",
+        "measured", "source_backed_unmeasured", "quality guardrails",
+        "delivery slices", "raw session", "one attempt",
+    ):
+        assert term.lower() in audit.lower()
+    for prohibited in (
+        "dbsctr_review_complete", "dbsctr_review_history_save",
+        "dbsctr_incident_register", "dbsctr_improvement_claim", "dbsctr_begin",
+    ):
+        assert prohibited in audit
+        assert re.search(rf"(?:never|do not)[^\n]*`?{prohibited}`?", audit, re.IGNORECASE)
+    assert "reviewer-openai" in audit and "explicit or critical" in audit
+    assert audit.lower().index("executive findings") < audit.lower().index("delivery slices")
+
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     assert "DVC-relevant" in dbsctr
     assert "original checkout" in dbsctr
     assert "explicit project policy" in dbsctr.lower()
+
+
+def test_v339_incident_skill_is_fork_bounded_and_separately_remediated():
+    incident = text(SKILLS / "dbsctr-incident/SKILL.md")
+    review = text(SKILLS / "dbsctr-review/SKILL.md")
+    for term in ("dbsctr_incident_scan", "dbsctr_incident_register", "INCIDENT:",
+                 "defect", "friction", "behavior_gap", "capability_idea",
+                 "root-cause", "separate DBSCTR cycle", "verified activation"):
+        assert term.lower() in incident.lower()
+    assert review.lower().index("registered incidents") < review.lower().index("incident signals")
+    assert review.lower().index("incident signals") < review.lower().index("review candidates")
+    assert "never perform automatic remediation" in review.lower()
 
 
 def test_v2_is_archived_and_not_deployable():
@@ -98,6 +141,172 @@ def test_current_distribution_profile_names_hermes_orchestration():
     spec = text("docs/specs/dotfiles_ai_distribution/README.md")
     assert "opt-in Hermes R&D orchestration" in spec
     assert "opt-in native R&D scheduling" not in spec
+
+
+def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
+    manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
+    contexts = {item["id"]: item for item in manifest["contexts"]}
+    slices = {item["id"]: item for item in manifest["slices"]}
+    statements = {item["id"]: item for item in manifest["statements"]}
+
+    assert contexts["codex_control_plane"]["status"] == "ready"
+    assert slices["codex-host-foundation"]["state"] == "delivered"
+    assert slices["codex-distribution"]["state"] == "delivered"
+    assert slices["codex-distribution"]["execution_owner"] == "build"
+    assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
+    assert slices["codex-identity-probe"]["state"] == "delivered"
+    assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
+    assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert slices["generic-history-source-pages"]["state"] == "ready"
+    assert slices["generic-history-source-pages"]["execution_owner"] == "build"
+    assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
+    assert {
+        name: (slices[name]["state"], slices[name]["depends_on"])
+        for name in (
+            "codex-history-parity", "codex-worker-routing", "codex-state-recovery",
+            "codex-federation-parity", "codex-parity-readiness",
+        )
+    } == {
+        "codex-history-parity": (
+            "captured", ["codex-identity-probe", "generic-history-source-pages"]
+        ),
+        "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
+        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
+        "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
+        "codex-parity-readiness": ("blocked", ["codex-state-recovery", "codex-federation-parity"]),
+    }
+    assert statements["INT-026"]["disposition"] == "ready"
+    assert statements["INT-027"]["disposition"] == "ready"
+    assert statements["INT-028"]["disposition"] == "ready"
+    assert statements["INT-029"]["disposition"] == "ready"
+    assert statements["INT-030"]["disposition"] == "ready"
+    assert statements["INT-031"]["disposition"] == "ready"
+    assert statements["INT-032"]["disposition"] == "ready"
+    assert {"INT-030", "INT-031"} <= set(slices["codex-host-foundation"]["requirements"])
+    assert all("tickets" not in item for item in manifest["slices"])
+
+    checked = subprocess.run(
+        [sys.executable, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
+         "initiative-check", "--manifest",
+         str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
+        cwd=ROOT, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(checked.stdout)["ready_slices"] == ["generic-history-source-pages"]
+
+    initiative = text("docs/initiatives/codex-cli-integration/README.md")
+    control_plane = text("docs/specs/codex_control_plane/README.md")
+    distribution = text("docs/specs/dotfiles_ai_distribution/features/codex-cli.md")
+    operation = text("docs/specs/codex_control_plane/OPERATION.md")
+    normalized_initiative = " ".join(initiative.split())
+    normalized_control_plane = " ".join(control_plane.split())
+    normalized_operation = " ".join(operation.split())
+    for phrase in ("two sequential pull requests", "existing boundary-local login"):
+        assert phrase in initiative
+    assert "`generic-history-source-pages` ready" in normalized_initiative
+    assert "**Status:** Distribution deployed; identity probe pending" in distribution
+    for phrase in (
+        "Documented `thread/list` and `thread/read`",
+        "Exact runtime, release, adapter revision, and session identity",
+        "Existing bounded federated-capture schemas",
+        "Every requested capability must have passing evidence",
+    ):
+        assert phrase in initiative
+    assert "Build, Discovery, Plan, Review, Explore, and Scout" in control_plane
+    for phrase in (
+        "64 KiB", "five seconds", "codex-adapter-1", "expire after 24 hours",
+        "`transcript_path`", "never opens", "root containment",
+        "`$CODEX_HOME/agents/**/*.toml`", "inline command hooks",
+    ):
+        assert phrase in control_plane
+    assert "all registered managed guests" in distribution
+    assert "agents/**/*.toml" in distribution
+    assert "hooks/*" not in distribution
+    assert "representative authenticated Fedora guest" in operation
+    assert "existing managed `CODEX_HOME`" in operation
+    assert "Do not inspect or delete private storage" in operation
+    assert "discard `transcript_path` without reading it" in operation
+    assert (
+        "adapter never opens, resolves, canonicalizes, checks the existence of, "
+        "logs, exposes, or persists that field"
+    ) in normalized_control_plane
+    assert "transcript content rejects the event" in normalized_operation
+    assert "transcript content, prompt, tool data" in normalized_operation
+
+    history_schema = json.loads(text(
+        "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
+    ))
+    assert history_schema["$ref"] == "#/$defs/envelope"
+    assert history_schema["$defs"]["envelope"]["additionalProperties"] is False
+    page = history_schema["$defs"]["page"]
+    assert page["additionalProperties"] is False
+    assert page["properties"]["entries"]["maxItems"] == 20
+    assert page["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["request"]["properties"]["limit"]["maximum"] == 20
+    assert history_schema["$defs"]["continuation"]["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["member"]["properties"]["updated_at"]["maximum"] == 9007199254740991
+    entry = history_schema["$defs"]["entry"]
+    assert entry["additionalProperties"] is False
+    assert entry["properties"]["content"]["maxItems"] == 100
+    assert "metrics" in entry["required"]
+    assert entry["properties"]["created_at"]["maximum"] == 9007199254740991
+    assert history_schema["$defs"]["text"]["properties"]["role"]["enum"] == [
+        "user", "assistant",
+    ]
+    assert "generic-history-source-pages" in control_plane
+    assert "never enter a page" in control_plane
+
+    probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
+
+    def validate_probe(value):
+        assert set(value) == {
+            "schema_version", "release", "adapter_revision", "disposition", "mapping",
+            "protocol_schema_sha256", "platforms",
+        }
+        assert value["schema_version"] == 1
+        assert value["release"] == "0.151.0"
+        assert value["adapter_revision"] == "codex-adapter-1"
+        assert value["disposition"] in {"exact", "mapped"}
+        assert value["mapping"] in {
+            "hook_session_id_equals_thread_id",
+            "hook_session_id_equals_thread_session_id",
+        }
+        assert set(value["platforms"]) == {"host_macos", "fedora_lima_guest"}
+        for result in value["platforms"].values():
+            assert set(result) == {
+                "cli_thread_relation", "thread_session_relation", "resume_identity",
+                "fork_parent_relation", "fork_session_relation", "content_rejection",
+                "cli_jsonl_sha256", "hook_evidence_sha256",
+                "app_server_evidence_sha256",
+            }
+            assert result["cli_thread_relation"] == "exact"
+            assert result["thread_session_relation"] in {"thread", "distinct"}
+            assert result["resume_identity"] == "exact"
+            assert result["fork_parent_relation"] == "exact"
+            assert result["fork_session_relation"] in {
+                "parent_session", "fork_thread", "distinct",
+            }
+            assert result["content_rejection"] in {"passed", "not_observed"}
+        digests = [value["protocol_schema_sha256"]] + [
+            digest
+            for result in value["platforms"].values()
+            for key, digest in result.items()
+            if key.endswith("_sha256")
+        ]
+        assert all(
+            len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+            for digest in digests
+        )
+
+    validate_probe(probe)
+    assert probe["disposition"] == "exact"
+    assert probe["mapping"] == "hook_session_id_equals_thread_id"
+    invalid_probe = dict(probe, unexpected_private_field="rejected")
+    try:
+        validate_probe(invalid_probe)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("identity probe schema accepted an unknown field")
 
 
 def test_v3_module_registry_is_extensible_and_normalized():
@@ -211,7 +420,9 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
         assert term in spec
         assert term in dbsctr
     assert "Git common directory" in dbsctr
-    assert "README" in dbsctr and "canonical tickets" in dbsctr and "CHANGELOG" in dbsctr
+    assert "Every cycle reviews README and CHANGELOG" in dbsctr
+    assert "ticket" not in dbsctr.lower()
+    assert "never creates, reads, updates, or requires PM Kernel tickets" in discovery
     assert "no unresolved question can materially change" in discovery
     assert "95%" not in discovery
     assert "structured" in qa.lower() and "Gate Result" in qa
@@ -219,11 +430,9 @@ def test_v31_separates_gate_dimensions_and_scales_artifacts():
 
 def test_v31_templates_match_artifact_and_gate_contracts():
     spec_template = text("docs/specs/_template_spec.md")
-    ticket_template = text("docs/tickets/_template.md")
     changelog_template = text("docs/specs/_template_changelog.md")
     assert "Applicability | Result" in spec_template
     assert "Artifact Review" in spec_template
-    assert "parallel_safe" in ticket_template
     assert "Gate commits" in changelog_template
 
 
@@ -266,10 +475,11 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.28`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.29`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
+    assert ".dbsctr/plans/" in discovery and ".dbsctr/plans/" in dbsctr
     assert "schema_version" in helper and "raise-risk" in helper
     for milestone in ("V3.2", "V3.3", "V3.4", "V3.5", "V3.6"):
         assert milestone in roadmap
@@ -319,13 +529,14 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
     tools = text("private_dot_config/opencode/tools/dbsctr.ts")
-    assert "CURRENT_METHOD_REVISION = \"3.28\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.29\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     begin = tools.partition("export const begin = tool({")[2].partition("export const initiative_launch = tool({")[0]
     assert "context.ask" not in begin
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
     assert "standing authorization for validated Build-primary" in dbsctr
+    assert "explicit Initiative mode" in text("private_dot_config/opencode/AGENTS.md")
 
 
 def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():

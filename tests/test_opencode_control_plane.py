@@ -244,6 +244,18 @@ def test_provider_and_primary_contracts():
     )
 
 
+def test_managed_compaction_preserves_recent_context():
+    assert rendered_config()["compaction"] == {"preserve_recent_tokens": 65536}
+
+
+def test_managed_sol_routes_use_current_provider_limits():
+    models = rendered_config()["provider"]["openai"]["models"]
+    limits = {"context": 1050000, "input": 922000, "output": 128000}
+
+    assert models["gpt-5.6-sol"]["limit"] == limits
+    assert models["gpt-5.6-sol-fast"]["limit"] == limits
+
+
 def test_context7_is_remote_optional_key_and_scout_only():
     anonymous = rendered_config({"CONTEXT7_API_KEY": ""})
     context7 = anonymous["mcp"]["context7"]
@@ -318,7 +330,7 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review"):
+    for name in ("dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
         assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
     assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
     exact = {
@@ -359,6 +371,9 @@ def test_builder_boundaries():
             "git *", "gh *", "chezmoi apply*", "dvc push*", "npm publish*",
             "dbsctrctl review-complete*", "*/dbsctrctl review-complete*",
             "env *dbsctrctl review-complete*", "command *dbsctrctl review-complete*",
+            *(form.format(command) for command in ("incident-register", "incident-update", "incident-forget")
+              for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
+            "*incident-register*", "*incident-update*", "*incident-forget*",
             *(form.format(command) for command in
               ("review-migrate", "review-backup", "review-restore", "review-prune", "review-forget")
               for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*")),
@@ -388,7 +403,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
-        "dbsctr_initiative_launch": "deny",
+        "dbsctr_initiative_launch": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -398,6 +413,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
+        "dbsctr_vm_handoff": "deny",
         "1password_*": "ask",
         "external_directory": {
             worktrees: "allow", local_config: "allow",
@@ -459,6 +475,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert bash["*/dbsctrctl review-complete*"] == "ask"
     assert bash["env *dbsctrctl review-complete*"] == "ask"
     assert bash["command *dbsctrctl review-complete*"] == "ask"
+    for command, permission in (("incident-scan", "allow"), ("incident-register", "ask"),
+                                ("incident-update", "ask"), ("incident-forget", "ask")):
+        for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
+            assert bash[form.format(command)] == permission
     for command in ("dbsctrctl review-history*", "*/dbsctrctl review-history*",
                     "env *dbsctrctl review-history*", "command *dbsctrctl review-history*"):
         assert bash[command] == "allow"
@@ -496,14 +516,22 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     assert config["permission"]["dbsctr_review_history"] == "allow"
     assert config["permission"]["dbsctr_review_history_save"] == "allow"
     assert config["permission"]["dbsctr_review_federated"] == "allow"
+    assert config["permission"]["dbsctr_incident_scan"] == "allow"
+    for permission in ("dbsctr_incident_register", "dbsctr_incident_update", "dbsctr_incident_forget"):
+        assert config["permission"][permission] == "ask"
+        assert config["agent"]["plan"]["permission"][permission] == "deny"
     assert bash["gh *"] == "ask"
     assert bash["gh issue list *"] == "allow"
     assert bash["gh pr list *"] == "allow"
-    assert config["permission"]["dbsctr_vm_handoff"] == "ask"
+    assert config["permission"]["dbsctr_vm_handoff"] == "deny"
+    assert config["agent"]["build"]["permission"]["dbsctr_vm_handoff"] == "deny"
+    assert config["agent"]["build-rnd"]["mode"] == "primary"
+    assert config["agent"]["build-rnd"]["permission"]["dbsctr_vm_handoff"] == "ask"
     assert config["permission"]["dbsctr_improvement_status"] == "allow"
     assert config["permission"]["dbsctr_improvement_claim"] == "deny"
     assert config["permission"]["dbsctr_improvement_update"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_begin"] == "deny"
+    assert config["agent"]["plan"]["permission"]["dbsctr_initiative_launch"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_attach"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_phase_span"] == "deny"
     assert config["agent"]["plan"]["permission"]["dbsctr_reconcile"] == "deny"
@@ -539,8 +567,10 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
         assert "dbsctr_improvement_claim: deny" in (OC / "agents" / name).read_text()
         assert "dbsctr_improvement_update: deny" in (OC / "agents" / name).read_text()
     for name in ("reviewer-openai.md", "explore-openai.md", "explore-vertex.md",
-                 "scout-openai.md", "scout-vertex.md", "scout.md"):
+                  "scout-openai.md", "scout-vertex.md", "scout.md"):
         assert "dbsctr_review_history_save: deny" in (OC / "agents" / name).read_text()
+        for permission in ("dbsctr_incident_register", "dbsctr_incident_update", "dbsctr_incident_forget"):
+            assert f"{permission}: deny" in (OC / "agents" / name).read_text()
 
 
 def test_dbsctr_tools_and_herdr_config_are_managed():
@@ -562,7 +592,10 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const review_history = tool({' in tools
     assert 'export const review_history_save = tool({' in tools
     assert 'export const review_federated = tool({' in tools
+    for name in ("incident_scan", "incident_register", "incident_update", "incident_forget"):
+        assert f'export const {name} = tool({{' in tools
     assert 'export const vm_handoff = tool({' in tools
+    assert "Only use as /dbsctr-improve's final approved step" in tools
     assert 'export const history_capture = tool({' in tools
     assert 'export const history_telemetry = tool({' in tools
     assert 'export const benchmark = tool({' in tools
@@ -598,7 +631,9 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'sourceState?: {' in runtime
     assert 'argv.push("--excluded-session-id", excludedSessionID)' in runtime
     assert 'argv.push("--excluded-message-id", excludedMessageID)' in runtime
-    assert '["sandbox-vm", "instance", report.target]' in runtime
+    assert '["sandbox-vm", "instance", target]' in runtime
+    assert '["sandbox-vm", "parity", target, "--instance", instance]' in runtime
+    assert tools.count("validateVmHandoffRequest(args, context.sessionID, context.worktree)") == 3
     assert '["sandbox-vm", "build-workspace"]' in runtime
     assert '"herdr", "workspace", "create"' in runtime
     assert '"herdr", "agent", "start", "dbsctr-handoff"' in runtime
@@ -625,12 +660,17 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
     assert config["permission"]["dbsctr_initiative_launch"] == "ask"
+    launch_primaries = {"discovery-coordinator.md", "build-gpt.md", "build-claude.md"}
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
-        if agent.name == "discovery-coordinator.md":
+        if agent.name in launch_primaries:
             assert "dbsctr_initiative_launch: ask" in agent.read_text()
         else:
             assert "dbsctr_initiative_launch: deny" in agent.read_text()
+    routing = (OC / "AGENTS.md").read_text()
+    assert "never probe or substitute a denied launcher" in routing
+    assert "`dbsctr_vm_handoff` is not an Initiative launcher" in routing
+    assert "Only `build-rnd` may invoke `dbsctr_vm_handoff`" in routing
     ignored = (ROOT / ".chezmoiignore").read_text()
     assert ".config/opencode/plugins/*" in ignored
     assert "!.config/opencode/plugins/initiative-context.ts" in ignored
@@ -641,6 +681,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
 
 
 def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
+    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
+    assert tools.count("baseBranch: tool.schema.string().optional()") == 1
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     dbsctr_log = tmp_path / "dbsctr.log"
@@ -659,10 +701,16 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     herdr.write_text(
         "#!/bin/sh\nprintf 'CALL\\nCWD:%s\\n' \"$(pwd)\" >> \"$HERDR_LOG\"\n"
         "printf '<%s>\\n' \"$@\" >> \"$HERDR_LOG\"\n"
-        "[ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }\n"
         "case \"$1 $2\" in\n"
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'pane current') [ \"$HERDR_CURRENT_MISSING\" = 1 ] && printf '{}\\n' || printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') [ \"$HERDR_MALFORMED_TAB\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"bad id\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"bad pane\",\"workspace_id\":\"w1\"}}}\\n' || { [ \"$HERDR_WORKSPACE_MISMATCH\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"},\"root_pane\":{\"pane_id\":\"w2:p1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n'; } ;;\n"
+        "  'agent start') [ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }; "
+        "[ \"$HERDR_NOT_READY\" = 1 ] && { printf 'agent_not_ready\\n' >&2; exit 1; }; "
+        "[ \"$HERDR_MALFORMED\" = 1 ] && { printf '{}\\n'; exit 0; }; "
+        "[ \"$HERDR_AGENT_MISMATCH\" = 1 ] && printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_EXISTS\" = 1 ] || exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab close') : ;;\n"
         "esac\n"
     )
     dbsctr.chmod(0o755)
@@ -671,7 +719,7 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     script = (
         f'import {{ beginCycle }} from {json.dumps(str(runtime))};'
         'console.log(JSON.stringify(await beginCycle({cycleId:"x;touch nope",context:"ctx",risk:"routine",'
-        'deliveryIntent:"local",planPath:"/tmp/plan with spaces"},process.cwd(),'
+        'deliveryIntent:"local",planPath:"/tmp/plan with spaces",baseBranch:"develop"},process.cwd(),'
         'process.argv[1] === "launch",process.env)));'
     )
     env = {
@@ -692,14 +740,15 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     assert dbsctr_log.read_text().splitlines() == [
         "<begin>", "<--cycle-id>", "<x;touch nope>", "<--context>", "<ctx>",
         "<--risk>", "<routine>", "<--delivery-intent>", "<local>",
-        "<--plan>", "</tmp/plan with spaces>",
+        "<--plan>", "</tmp/plan with spaces>", "<--base-branch>", "<develop>",
     ]
     launched = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT, env=env, text=True,
                               capture_output=True, check=True)
     assert json.loads(launched.stdout)["herdr"] == "launched"
     assert herdr_log.read_text().splitlines() == [
+        "CALL", f"CWD:{ROOT}", "<pane>", "<current>", "<--current>",
         "CALL", f"CWD:{ROOT}", "<tab>", "<create>", "<--cwd>", f"<{cycle}>",
-        "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
+        "<--workspace>", "<w1>", "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
         "CALL", f"CWD:{ROOT}", "<agent>", "<start>",
         f"<dbsctr-x-touch-nope-{hashlib.sha256(str(cycle).encode()).hexdigest()[:8]}>",
         "<--kind>", "<opencode>", "<--pane>", "<w1:p1>", "<-->", f"<{cycle}>",
@@ -720,10 +769,70 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     malformed = subprocess.run(["bun", "-e", script], cwd=ROOT,
                                env={**env, "DBSCTR_MODE": "malformed"}, text=True, capture_output=True)
     assert malformed.returncode != 0
+    herdr_log.write_text("")
     herdr_failed = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT,
                                   env={**env, "HERDR_FAIL": "1"}, text=True,
                                   capture_output=True, check=True)
     assert json.loads(herdr_failed.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    false_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(false_pending.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<get>" in herdr_log.read_text()
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    real_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1", "HERDR_AGENT_EXISTS": "1"},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(real_pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    missing_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_CURRENT_MISSING": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(missing_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<create>" not in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_WORKSPACE_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w2:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_AGENT_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_tab = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED_TAB": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_tab.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<start>" not in herdr_log.read_text()
 
 
 def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_path):
@@ -738,8 +847,9 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
     (bin_dir / "herdr").write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_LOG"\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text(
@@ -771,7 +881,9 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(fallback.stdout)["herdr_session_mode"] == "fresh_fallback"
-    assert log.read_text().count("<tab>") == 2
+    assert log.read_text().count("<tab>\n<create>") == 2
+    assert log.read_text().count("<--workspace>\n<w1>") == 2
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
     assert f"<-->\n<{cycle}>" in log.read_text()
     log.write_text("")
     unrelated = subprocess.run(
@@ -780,7 +892,8 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(unrelated.stdout)["herdr"].startswith("launch_failed:")
-    assert log.read_text().count("<tab>") == 1
+    assert log.read_text().count("<tab>\n<create>") == 1
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
 
 
 def test_initiative_context_plugin_revalidates_normal_and_compaction_context(tmp_path):
@@ -1073,6 +1186,39 @@ def test_profiler_adapters_preserve_structured_argv(tmp_path):
     ]
 
 
+def test_phase_span_adapter_rejects_invalid_input_and_times_out(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "phase-span.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text(
+        '#!/bin/sh\nprintf "called\\n" >> "$PHASE_SPAN_LOG"\n'
+        '[ "$PHASE_SPAN_MODE" = "sleep" ] && exec sleep 5\nprintf "{}\\n"\n'
+    )
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PHASE_SPAN_LOG": str(log)}
+    invalid = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"invalid",event:"start",phase:"domain",operation:"read"},process.cwd(),50);'],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+    assert invalid.returncode != 0
+    assert "phase span start requires phase, operation, and attribution only" in invalid.stderr
+    assert not log.exists()
+
+    timed_out = subprocess.run(
+        ["bun", "-e",
+         f'import {{ phaseSpan }} from {json.dumps(str(runtime))};'
+         'await phaseSpan({spanID:"slow",event:"start",phase:"domain",operation:"read",'
+         'attribution:"explicit"},process.cwd(),50);'],
+        cwd=ROOT, env={**env, "PHASE_SPAN_MODE": "sleep"}, text=True, capture_output=True,
+    )
+    assert timed_out.returncode != 0
+    assert "command timed out" in timed_out.stderr
+
+
 def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1101,6 +1247,41 @@ def test_dbsctr_review_runtime_preserves_optional_snapshot_argv(tmp_path):
     assert log.read_text().splitlines() == [
         "<review-scan>", "<--limit>", "<7>", "<--cursor>", "<2>",
         "<--excluded-session-id>", "<active-tool>",
+    ]
+
+
+def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "incident.log"
+    helper = bin_dir / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\nprintf "{}\\n"\n')
+    helper.chmod(0o755)
+    runtime = OC / "lib/dbsctr-runtime.ts"
+    script = (
+        f'import {{ incidentScan, incidentRegister, incidentUpdate, incidentForget }} from {json.dumps(str(runtime))};'
+        'await incidentScan(process.cwd(),"fork-1");'
+        'await incidentRegister({sessionID:"fork-1",messageID:"message-1",kind:"defect",'
+        'title:"INCIDENT: failed read",summary:"literal; no shell",signalIDs:["a".repeat(24)],'
+        'diagnostics:["expected input"],evidence:["/tmp/input"]},process.cwd());'
+        'await incidentUpdate("fork-1","message-1","b".repeat(24),"fixing",process.cwd(),"cycle-1");'
+        'await incidentForget("fork-1","message-1","b".repeat(24),process.cwd());'
+    )
+    subprocess.run(["bun", "-e", script], cwd=ROOT,
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log)},
+                   text=True, capture_output=True, check=True)
+    assert log.read_text().splitlines() == [
+        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>",
+        "CALL", "<incident-register>", "<--session-id>", "<fork-1>",
+        "<--message-id>", "<message-1>", "<--kind>", "<defect>",
+        "<--title>", "<INCIDENT: failed read>", "<--summary>", "<literal; no shell>",
+        "<--signal-id>", f'<{"a" * 24}>', "<--diagnostic>", "<expected input>",
+        "<--evidence>", "</tmp/input>",
+        "CALL", "<incident-update>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
+        "<--incident-id>", f'<{"b" * 24}>',
+        "<--state>", "<fixing>", "<--cycle-id>", "<cycle-1>",
+        "CALL", "<incident-forget>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
+        "<--incident-id>", f'<{"b" * 24}>',
     ]
 
 
@@ -1237,7 +1418,7 @@ def test_dbsctr_attach_runtime_preserves_structured_context(tmp_path):
         "<--opencode-message-id>", "<message-resumed>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1652,7 +1833,7 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--opencode-message-id>", "<message-tool>",
         "<--opencode-directory>", f"<{ROOT}>", "<--opencode-worktree>", f"<{ROOT}>",
         "<--harness-activation-json>",
-        '<{"schema_version":1,"core_revision":"3.29","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
+        '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
 
 
@@ -1661,6 +1842,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     bin_dir.mkdir()
     calls = tmp_path / "helper.calls"
     herdr_calls = tmp_path / "herdr.calls"
+    herdr_start_bytes = tmp_path / "herdr.start-bytes"
     approval = tmp_path / "approval.json"
     plan = tmp_path / "plan.json"
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
@@ -1669,6 +1851,12 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     subprocess.run(["git", "init"], cwd=target, check=True, capture_output=True)
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
                    cwd=target, check=True)
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
+                   cwd=source, check=True)
+    receipt_cwds = tmp_path / "receipt.cwds"
     cycle = tmp_path / "cycle"
     cycle.mkdir()
     digest = "a" * 64
@@ -1680,39 +1868,53 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         "coordinator_repository": "Saltiola7/dotfiles-ai",
         "context": "ctx", "repository": "Saltiola7/dotfiles-ai",
         "requirements": ["INT-001"], "depends_on": [], "artifacts": ["docs/spec.md"],
-        "tickets": ["cycle-a"], "release_group": "rg",
+        "release_group": "rg", "execution_owner": "build",
     }
     bound = {**receipt, "manifest_path": "docs/initiatives/test/MANIFEST.json"}
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
-        f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_CALLS"\n'
+        'if [ "$1 $2" = "agent start" ] && [ -n "$HERDR_START_BYTES" ]; then printf "%s" "$*" | wc -c > "$HERDR_START_BYTES"; fi\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent prompt') [ \"$HERDR_PROMPT_FAIL\" = 1 ] && { printf 'agent_blocked\\n' >&2; exit 1; }; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_GONE\" = 1 ] && exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
+    (bin_dir / "git").write_text(
+        '#!/bin/sh\nif [ "$1 $2 $3 $4" = "ls-remote --symref origin HEAD" ]; then '
+        'printf "ref: refs/heads/main\\tHEAD\\n"; else exec /usr/bin/git "$@"; fi\n'
+    )
     for executable in bin_dir.iterdir():
         executable.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ initiative_launch }} from {json.dumps(str(tools))};
 const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"parent-session",messageID:"message",
-ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;}}}};
+ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;if(process.env.MUTATE_SOURCE==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.SOURCE}}).exited;}}}};
 console.log(await initiative_launch.execute({{
 manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,
 cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},
+...(process.env.SOURCE ? {{initiativeSourceRepository:process.env.SOURCE}} : {{}}),
 ...(process.env.TARGET ? {{targetRepository:process.env.TARGET}} : {{}})
 }},context));'''
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
-             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds),
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["initiative"]["manifest_digest"] == digest
@@ -1722,10 +1924,12 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "initiative_id": "test", "slice_id": "slice-a", "manifest_digest": digest,
         "manifest_blob": blob, "manifest_commit": commit,
         "coordinator_repository": "Saltiola7/dotfiles-ai",
-        "repository": "Saltiola7/dotfiles-ai", "target_repository": "Saltiola7/dotfiles-ai",
+        "repository": "Saltiola7/dotfiles-ai", "execution_owner": "build",
+        "target_repository": "Saltiola7/dotfiles-ai",
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "base_branch": "main",
         "github_account": None, "github_repository": None,
     }
     assert calls.read_text().splitlines()[0:6] == [
@@ -1734,10 +1938,61 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert f"<--initiative-source>\n<{source}>" in calls.read_text()
+    assert "<--base-branch>\n<main>" in calls.read_text()
+    assert set(receipt_cwds.read_text().splitlines()) == {str(source)}
     log = herdr_calls.read_text()
     assert "<--session>\n<parent-session>\n<--fork>" in log
-    assert f'"manifest_digest":"{digest}"' in log
-    assert "<--prompt>" in log
+    assert digest not in log
+    assert "<agent>\n<start>" in log and "<agent>\n<prompt>" in log
+    assert "<pane>\n<current>\n<--current>" in log
+    assert "<tab>\n<create>\n<--cwd>\n<" + str(cycle) + ">\n<--workspace>\n<w1>" in log
+    assert "<--prompt>" not in log
+    assert int(herdr_start_bytes.read_text()) < 1024
+
+    herdr_calls.write_text("")
+    pending = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds), "HERDR_PROMPT_FAIL": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
+
+    herdr_calls.write_text("")
+    lost_agent = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "HERDR_PROMPT_FAIL": "1", "HERDR_AGENT_GONE": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(lost_agent.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
+
+    calls.write_text("")
+    herdr_calls.write_text("")
+    begin_script = script.replace(
+        "import { initiative_launch }", "import { begin }"
+    ).replace(
+        "initiative_launch.execute({",
+        "begin.execute({initiative:{manifestPath:\"docs/initiatives/test/MANIFEST.json\",sliceId:\"slice-a\",proceed:true},",
+    ).replace(
+        'manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,', ""
+    )
+    fallback = subprocess.run(
+        ["bun", "-e", begin_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(fallback.stdout)["initiative"]["manifest_digest"] == digest
+    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_launch"
+    assert "<initiative-receipt>" in calls.read_text()
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
@@ -1759,6 +2014,15 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     )
     assert target_changed.returncode != 0 and "target repository changed" in target_changed.stderr
 
+    source_changed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "SOURCE": str(source), "MUTATE_SOURCE": "1"},
+        text=True, capture_output=True,
+    )
+    assert source_changed.returncode != 0 and "source repository changed" in source_changed.stderr
+
 
 def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     bin_dir = tmp_path / "bin"
@@ -1769,7 +2033,7 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     opencode_vm = bin_dir / "sandbox-vm"
     opencode_vm.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in build-workspace) printf "workspace1\\n";; '
-        'instance) printf "workspace1-sandbox\\n";; esac\n'
+        'instance) printf "workspace1-sandbox\\n";; parity) printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace1-sandbox"}\\n\';; esac\n'
     )
     limactl = bin_dir / "limactl"
     limactl.write_text(
@@ -1780,6 +2044,12 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
     )
     opencode_vm.chmod(0o755)
     limactl.chmod(0o755)
+    dbsctrctl = bin_dir / "dbsctrctl"
+    dbsctrctl.write_text(
+        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\n'
+        'if [ -e "$WORKER_JSON_FILE" ]; then cat "$WORKER_JSON_FILE"; else printf "%s\\n" "$WORKER_JSON"; fi\n'
+    )
+    dbsctrctl.chmod(0o755)
     tools = OC / "tools/dbsctr.ts"
     payload = {
         "workerId": "dbsctr-12345678",
@@ -1790,18 +2060,26 @@ def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):
         "validation": ["pytest tests/test_lima_sandbox.py"],
     }
     script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
-const context={{worktree:process.cwd(),ask:async (value)=>{{await Bun.write(process.env.ASKS,JSON.stringify(value));}}}};
-console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
+    const context={{worktree:process.cwd(),sessionID:"session-host",ask:async (value)=>{{await Bun.write(process.env.ASKS,JSON.stringify(value));}}}};
+    console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
+    worker = {"workers": [{
+        "worker_id": "dbsctr-12345678", "session_id": "session-host", "state": "discovery",
+        "authorization": "autonomous", "discovery_report": "{}",
+        "paths": ["dot_local/bin/executable_sandbox-vm"],
+        "readiness": json.dumps({"risk": "elevated"}),
+    }]}
+    handoff_env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                   "DBSCTR_RND_WORKER_ID": "dbsctr-12345678", "WORKER_JSON": json.dumps(worker),
+                   "VM_CALLS": str(calls), "ASKS": str(asks), "SANDBOX_CALLS": str(sandbox_calls)}
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
-             "SANDBOX_CALLS": str(sandbox_calls)},
+        env=handoff_env,
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["session_id"] == "session-vm"
     assert json.loads(result.stdout)["target"] == "workspace1"
     assert json.loads(asks.read_text())["permission"] == "dbsctr_vm_handoff"
-    assert json.loads(asks.read_text())["patterns"] == ["workspace1"]
+    assert json.loads(asks.read_text())["patterns"] == ["workspace1:workspace1-sandbox"]
     assert "<parity>\n<workspace1>" in sandbox_calls.read_text()
     log = calls.read_text()
     assert "<herdr>" in log
@@ -1820,8 +2098,7 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     )
     missing_identity = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
-             "SANDBOX_CALLS": str(sandbox_calls)},
+        env=handoff_env,
         text=True, capture_output=True,
     )
     assert missing_identity.returncode != 0
@@ -1834,8 +2111,7 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     )
     mismatched_identity = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
-             "SANDBOX_CALLS": str(sandbox_calls)},
+        env=handoff_env,
         text=True, capture_output=True,
     )
     assert mismatched_identity.returncode != 0
@@ -1844,11 +2120,11 @@ console.log(await vm_handoff.execute({json.dumps(payload)},context));'''
     for path in ("/etc/passwd", "a//b", "a/", "a\\b", "a\nb"):
         unsafe = {**payload, "paths": [path]}
         unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
-const context={{worktree:process.cwd(),ask:async ()=>{{}}}};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async ()=>{{}}}};
 await vm_handoff.execute({json.dumps(unsafe)},context);'''
         rejected = subprocess.run(
             ["bun", "-e", unsafe_script], cwd=ROOT,
-            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
+            env=handoff_env,
             text=True, capture_output=True,
         )
         assert rejected.returncode != 0
@@ -1859,11 +2135,11 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
         {**payload, "summary": "ghp_" + "a" * 36},
     ):
         unsafe_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
-const context={{worktree:process.cwd(),ask:async ()=>{{}}}};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async ()=>{{}}}};
 await vm_handoff.execute({json.dumps(unsafe)},context);'''
         rejected = subprocess.run(
             ["bun", "-e", unsafe_script], cwd=ROOT,
-            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls)},
+            env=handoff_env,
             text=True, capture_output=True,
         )
         assert rejected.returncode != 0
@@ -1875,12 +2151,124 @@ await vm_handoff.execute({json.dumps(unsafe)},context);'''
     )
     stale_runtime = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "VM_CALLS": str(calls), "ASKS": str(asks),
-             "SANDBOX_CALLS": str(sandbox_calls)},
+        env=handoff_env,
         text=True, capture_output=True,
     )
     assert stale_runtime.returncode != 0
     assert not calls.exists()
+
+    sandbox_calls.unlink()
+    blocked_worker = {"workers": [{**worker["workers"][0], "state": "blocked"}]}
+    worker_json_file = tmp_path / "worker.json"
+    authority_changed_script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async()=>{{await Bun.write(process.env.WORKER_JSON_FILE,{json.dumps(json.dumps(blocked_worker))});}}}};
+await vm_handoff.execute({json.dumps(payload)},context);'''
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; esac\n'
+    )
+    authority_changed = subprocess.run(
+        ["bun", "-e", authority_changed_script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(worker_json_file)}, text=True, capture_output=True,
+    )
+    assert authority_changed.returncode != 0
+    assert "not Discovery-ready" in authority_changed.stderr
+    assert not calls.exists()
+    assert "<parity>" not in sandbox_calls.read_text()
+
+    parity_worker_file = tmp_path / "parity-worker.json"
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf "%s\\n" "$BLOCKED_WORKER_JSON" > "$WORKER_JSON_FILE"; '
+        'printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace1-sandbox"}\\n\';; esac\n'
+    )
+    authority_changed_during_parity = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**handoff_env, "WORKER_JSON_FILE": str(parity_worker_file),
+             "BLOCKED_WORKER_JSON": json.dumps(blocked_worker)}, text=True, capture_output=True,
+    )
+    assert authority_changed_during_parity.returncode != 0
+    assert "not Discovery-ready" in authority_changed_during_parity.stderr
+    assert not calls.exists()
+
+    opencode_vm.write_text(
+        '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$SANDBOX_CALLS"\ncase "$1" in '
+        'build-workspace) printf "workspace1\\n";; instance) printf "workspace1-sandbox\\n";; '
+        'parity) printf \'{"host":"1.18.25","guest":"1.18.25","instance":"workspace2-sandbox"}\\n\';; esac\n'
+    )
+    remapped = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env=handoff_env, text=True, capture_output=True,
+    )
+    assert remapped.returncode != 0
+    assert "instance changed after approval" in remapped.stderr
+    assert not calls.exists()
+
+
+def test_vm_handoff_rejects_unbound_workers_before_vm_access(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    access = tmp_path / "vm-access"
+    asked = tmp_path / "asked"
+    dbsctrctl = bin_dir / "dbsctrctl"
+    dbsctrctl.write_text(
+        '#!/bin/sh\n[ "$1" = improvement-status ] || exit 1\nprintf "%s\\n" "$WORKER_JSON"\n'
+    )
+    sandbox_vm = bin_dir / "sandbox-vm"
+    sandbox_vm.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$VM_ACCESS"\n'
+        '[ "$1" = build-workspace ] && printf "workspace1\\n"\n'
+    )
+    limactl = bin_dir / "limactl"
+    limactl.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$VM_ACCESS"\nexit 1\n')
+    for executable in (dbsctrctl, sandbox_vm, limactl):
+        executable.chmod(0o755)
+    tools = OC / "tools/dbsctr.ts"
+    payload = {
+        "workerId": "dbsctr-12345678", "proceed": True, "risk": "elevated",
+        "summary": "Implement approved work", "paths": ["safe/path"],
+        "validation": ["pytest tests/test_safe.py"],
+    }
+    base_worker = {
+        "worker_id": "dbsctr-12345678", "session_id": "session-host", "state": "discovery",
+        "authorization": "autonomous", "discovery_report": "{}", "paths": ["safe/path"],
+        "readiness": json.dumps({"risk": "elevated"}),
+    }
+    script = f'''import {{ vm_handoff }} from {json.dumps(str(tools))};
+const context={{worktree:process.cwd(),sessionID:"session-host",ask:async()=>{{await Bun.write(process.env.ASKED,"yes");}}}};
+await vm_handoff.execute(JSON.parse(process.env.HANDOFF_PAYLOAD),context);'''
+    cases = [
+        ({**payload, "workerId": "noop"}, [], "noop", "invalid improvement worker ID"),
+        (payload, [], "dbsctr-12345678", "improvement worker is missing"),
+        (payload, [{**base_worker, "session_id": "other-session"}], "dbsctr-12345678", "session does not match"),
+        (payload, [{**base_worker, "state": "claimed"}], "dbsctr-12345678", "not Discovery-ready"),
+        (payload, [{**base_worker, "discovery_report": None}], "dbsctr-12345678", "Discovery report is missing"),
+        (payload, [{**base_worker, "paths": ["other/path"]}], "dbsctr-12345678", "paths do not match"),
+        (payload, [{**base_worker, "readiness": json.dumps({"risk": "routine"})}], "dbsctr-12345678", "risk does not match"),
+        (payload, [base_worker], None, "environment worker is missing"),
+        (payload, [base_worker], "dbsctr-87654321", "environment worker does not match"),
+    ]
+    for request, workers, environment_worker, expected in cases:
+        access.unlink(missing_ok=True)
+        asked.unlink(missing_ok=True)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+               "HANDOFF_PAYLOAD": json.dumps(request),
+               "WORKER_JSON": json.dumps({"workers": workers}),
+               "VM_ACCESS": str(access), "ASKED": str(asked)}
+        if environment_worker is not None:
+            env["DBSCTR_RND_WORKER_ID"] = environment_worker
+        else:
+            env.pop("DBSCTR_RND_WORKER_ID", None)
+        result = subprocess.run(
+            ["bun", "-e", script], cwd=ROOT,
+            env=env,
+            text=True, capture_output=True,
+        )
+        assert result.returncode != 0
+        assert expected in result.stderr
+        assert not access.exists()
+        assert not asked.exists()
 
 
 def test_federated_runtime_rejects_duplicate_sources(tmp_path):

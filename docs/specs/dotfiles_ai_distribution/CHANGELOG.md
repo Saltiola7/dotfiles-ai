@@ -12,8 +12,107 @@
   installation or network enrollment occurred. Intended delivery is the feature
   branch and draft pull request into protected `main`.
 
-## 2026-08-29 - DAI-032 R&D Launch Health
+## 2026-08-30 - Managed Codex Distribution
 
+- Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host
+  and the checksum-pinned aarch64 musl release in both registered Fedora guests.
+- Added a dedicated CLI `CODEX_HOME`, PATH wrapper, digest-owned journaled
+  projection, versioned runtime-selector schema, exact temporary-source guest
+  deployment, package rollback, and reverse-order all-guest rollback without
+  reading or changing authentication, sessions, logs, desktop state, or worker
+  routing.
+- A host target-mode preflight and the first broad guest apply failed closed;
+  package and guest rollback completed before owner-approved directory hardening
+  and Codex-only deployment remediation. Both guests retained their prior running
+  state and clean canonical source checkout.
+- Two hundred eight affected tests, Python compilation, rendered Bash/Chezmoi,
+  Initiative validation, Git whitespace, official release metadata, controlled
+  host/two-guest deployment, runtime smokes, and independent elevated-risk review
+  passed. Gate Exceptions: none. Release is not applicable. Gate Commits:
+  `38bd08eda526400884de3338f80c3757ebcbc85e`,
+  `3d25ec089280bfcc8336a7ea23988964acd357a4`,
+  `da8f306b1041dddd679a8da71b1ff4638f62996e`, and
+  `4b131de9e2a6a48cf2574bbab1e9166d6c5db490`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Promoted Codex Distribution Readiness
+
+- Recorded merged host-foundation delivery and promoted only
+  `codex-distribution` to receipt-ready without changing package, configuration,
+  guest, runtime, authentication, or deployment state.
+- Retained Codex `0.151.0`, the Fedora aarch64 musl asset, and its digest as
+  proposed implementation inputs subject to fresh Build verification. Exact
+  version output remains a bounded deployment probe because upstream does not
+  document its stdout shape.
+- Identity, worker, history, recovery, federation, and final parity slices remain
+  dependency-blocked pending fresh evidence from their predecessors.
+- Initiative validation, 54 affected lifecycle and distribution tests, Python
+  compilation, Git whitespace, official-source verification, and independent
+  elevated-risk review passed. Gate Exceptions: none. Release, Deploy, and
+  Operate are not applicable. Development Gate Commit:
+  `d35d3ca7f966af70c908f2f49e33e605cd82d600`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Align Codex Managed Source Projection
+
+- Aligned the captured distribution contract with the approved host-foundation
+  source: project recursive `agents/**/*.toml` roles and carry the five identity
+  hooks inline in `config.toml` rather than projecting a separate hook tree.
+- No package, configuration, guest, runtime, authentication, or deployment state
+  changed; `codex-distribution` remains captured behind host foundation.
+
+## 2026-08-30 - Refined Codex Distribution Readiness
+
+- Fixed distribution as the second of two sequential pull requests, responsible
+  for exact host/guest installation, projection, wrapper activation, selector
+  schema, all registered guest updates, and automatic future guest provisioning.
+- Required existing guest-local login for authenticated probes and workers while
+  prohibiting automatic login, shared API-key injection, and auth copying.
+- The slice remains captured until `codex-host-foundation` is delivered. No
+  package, guest, configuration, or runtime was changed in Discovery.
+
+## 2026-08-29 - OpenCode 1.18.25 VM Parity
+
+- Updated the checksum-pinned Linux arm64 OpenCode runtime from 1.18.23 to
+  1.18.25 and routed every managed R&D worker launch and resume through the
+  dedicated `build-rnd` primary.
+- `sandbox-vm update-all` updated both configured workspaces. The host and both
+  guests report exact 1.18.25 parity; the targeted scheduler and runtime files
+  were deployed, and all 147 affected tests pass.
+- An operator-approved schedule reset cleared the retained `malformed_state`,
+  reservations, and launch backoff. Schema 3 health now reports no halt, no active
+  attempt, and no launch backoff. Existing managed rollback restores each guest's
+  prior runtime if a future ordered update fails.
+- The deployed parity helper now accepts and returns the approved VM instance;
+  both configured workspaces pass that instance-bound 1.18.25 parity check.
+- Two pre-final-deployment launches could not resolve `build-rnd` and entered the
+  bounded retry backoff. Current schema 3 health has no halt or active attempt,
+  and a fresh OpenCode 1.18.25 process resolves `build-rnd` as a primary; the
+  backoff remains intact rather than forcing another autonomous provider call.
+
+## 2026-08-29 - Isolate Local Lifecycle And PM Artifacts
+
+- Added managed global Git excludes for `.dbsctr/`, legacy plan JSON,
+  `data/backlog/`, and `docs/tickets/`.
+- Retired autonomous PM ticket discovery; PM now runs only by direct invocation.
+
+## 2026-08-29 - Captured Codex CLI Distribution Contract
+
+- Captured peer-runtime installation, a PATH-preferred `CODEX_HOME` wrapper,
+  digest-owned configuration projection, macOS/Fedora package boundaries,
+  explicit automation selection, and rollback without changing live systems.
+- Kept desktop, host, and guest state and authentication separate and made the
+  proposed release, asset, and checksum subject to fresh implementation proof.
+- Initiative validation, 57 focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
+## 2026-08-29 - DAI-035 R&D Launch Health
+
+- Corrected the delivered launch-health ticket from the duplicate `DAI-032`
+  identity to canonical `DAI-035`; historical branches, pull requests, and Gate
+  Commit identities remain unchanged. Corrective Gate Commit: `d599d9e`.
 - Cut machine-local review and backlog authority over to the moved public
   source, migrated retained scheduler state to schema 8, and added path-free
   health schema 3 with bounded 5-minute through 6-hour launch backoff.

@@ -202,6 +202,15 @@ The completed DAI-016-F1 applicability plan is retained at
 | Scope | Official Homebrew formula, hash-triggered installer, migration guidance, regression coverage, and live macOS verification |
 | Overrides | Homebrew remains a documented macOS prerequisite; Herdr and unrelated developer tools remain externally installed; Linux guests keep their existing OpenCode provisioner |
 
+### DAI-035 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: changes the private state authority used by live autonomous dispatch |
+| Delivery intent | Repair and deploy host Hermes scheduling, verify eligible lens exhaustion, then publish a draft pull request |
+| Scope | R&D launch retry state, readiness compatibility, guarded Hermes health, moved-source cutover, focused tests, deployment, and operation proof |
+| Overrides | Preserve scheduler schema 8, retained cadence, outcome history, and external-state validation; historical delivery artifacts retain their original DAI-032 names |
+
 ### DAI-023 Cycle Overrides
 
 | Field | Value |
@@ -269,33 +278,40 @@ The completed DAI-016-F1 applicability plan is retained at
 
 `dotfiles_ai_distribution` owns portable defaults, local configuration shape,
 rendered targets, installation, migration, rollback, and maintenance for the
-DBSCTR/OpenCode/Herdr workbench. Adjacent contexts own lifecycle semantics,
-OpenCode control-plane behavior, and shell authentication.
+DBSCTR/OpenCode/Codex/Herdr workbench. Adjacent contexts own lifecycle semantics,
+runtime control-plane behavior, and shell authentication. Managed Codex behavior
+is specified in [`features/codex-cli.md`](features/codex-cli.md).
 
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
-| Boundary | required: host/workspace trust flowchart | Which runtime owns orchestration, implementation, presentation, lifecycle, and credentials? | Bounded Context and Constraints in PRODUCT.md | Distribution owner; runtime or trust boundary changes |
+| Boundary | required: host/workspace trust flowchart plus Codex feature topology | Which runtime owns orchestration, implementation, presentation, lifecycle, and credentials? | Bounded Context, Constraints in PRODUCT.md, and `features/codex-cli.md` | Distribution owner; runtime or trust boundary changes |
 | Interaction | required: approval-handoff sequence | Where must automation stop for human authority? | Autonomous R&D Worker and Collaborative Git Delivery | Distribution owner; approval or delivery flow changes |
 | State | not_applicable: claim and cycle states are authoritative in the lifecycle specification | - | `dbsctr_v3_lifecycle` | Lifecycle owner |
-| Data/trust | required: host/workspace trust flowchart | What may cross VM and host boundaries? | Federated Host R&D contracts | Distribution owner; federation changes |
+| Data/trust | required: host/workspace trust flowchart plus Codex feature topology | What may cross VM and host boundaries? | Federated Host R&D contracts and `features/codex-cli.md` | Distribution owner; federation changes |
 | Schema | not_applicable: TOML and generated schema contracts remain authoritative text and tests | - | Interfaces And Contracts | Distribution owner |
-| Dependency/deployment | required: host/workspace trust flowchart | Which managed components run on host and guests? | Engineering Profile and workspace contracts | Distribution owner; topology changes |
+| Dependency/deployment | required: delivered host/workspace flowchart plus deployed Codex feature flowchart | Which managed components run on host and guests? | Engineering Profile, workspace contracts, and `features/codex-cli.md` | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
 
 DAI-024 adds the optional personal Atuin service and host loopback ingress shown
 below. It does not change approval or delivery handoff, so the existing sequence
 and its Text Equivalent remain current.
 
-DAI-032 changes host package ownership, launch recovery, and machine-local source
-selection without changing topology, approval, or trust boundaries; the same
-visuals remain current.
+DAI-032 changes host package ownership, while DAI-035 changes launch recovery and
+machine-local source selection. Neither changes topology, approval, or trust
+boundaries; the same visuals remain current.
+
+The flowchart below remains canonical for the delivered OpenCode/Hermes/Herdr
+topology. The deployed Codex host/guest homes, managed
+launchers, desktop separation, install flow, and target transitions are
+canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
+required until Codex deployment updates this delivered topology.
 
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai host and workspace trust boundaries
-    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, private state, and local history. The host may forward its Keychain-backed 1Password service token into a workspace shell only in memory. Every workspace runs rootless Podman with a Docker Compose compatibility provider, and one selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and approved implementation handoffs may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
+    accDescr: The host and each Fedora workspace keep separate Hermes, OpenCode, Herdr, private state, and local history. The host may forward its Keychain-backed 1Password service token into a workspace shell only in memory. Every workspace runs rootless Podman with a Docker Compose compatibility provider, and one selected personal workspace may host rootless Atuin behind host loopback. Sanitized review evidence and worker-ledger-validated implementation handoffs from the dedicated build-rnd primary may cross boundaries, while DBSCTR and Git retain lifecycle and integration authority.
     subgraph H[macOS host trust boundary]
         HH[Host Hermes]
         HO[Host OpenCode]
@@ -321,7 +337,7 @@ flowchart LR
     KC -->|Selected environment variable, memory only| VC
     VC -->|Explicit project variables only| PD
     TS -->|Host loopback only| AS
-    HO -->|Explicit approved handoff| VO
+    HO -->|build-rnd ledger-validated approved handoff| VO
     HO -->|Gate evidence and feature commits| G[DBSCTR and Git authority]
     VO -->|Gate evidence and feature commits| G
 ```
@@ -330,8 +346,9 @@ flowchart LR
 OpenCode, Herdr, history, and private state. Herdr presents sessions
 but does not own lifecycle state. Only full-member digests, complete sanitized
 distributions, and bounded evidence projections cross from a workspace to host
-review; only an explicitly approved implementation handoff
-crosses from host to workspace. Both OpenCode runtimes produce feature-branch
+review; only an explicitly approved implementation handoff whose worker,
+session, Discovery authorization, scope, and risk match the host ledger crosses
+from host to workspace. Both OpenCode runtimes produce feature-branch
 evidence governed by DBSCTR and Git. The host may forward its Keychain-backed
 1Password service token to a workspace shell as one environment value without
 writing it to guest storage. Every workspace runs rootless Podman with a pinned
@@ -347,6 +364,8 @@ sequenceDiagram
     accDescr: Hermes continuously fills eligible lens slots, OpenCode may autonomously implement evidence-ready P0 and P1 work in isolation, uncertain work waits for the operator, and DBSCTR can publish only a feature branch and draft pull request.
     participant H as Hermes
     participant O as OpenCode
+    participant L as Worker ledger
+    participant V as Build workspace
     participant U as Operator
     participant D as DBSCTR
     participant G as GitHub
@@ -358,7 +377,10 @@ sequenceDiagram
         O-->>U: Wait for answers and explicit proceed
         U->>O: Answer and approve implementation
     end
-    O->>D: Begin isolated lifecycle cycle
+    O->>L: Validate worker, session, authorization, scope, and risk
+    L-->>O: Exact authorized handoff
+    O->>V: Launch approved VM Build session
+    V->>D: Begin isolated lifecycle cycle
     D->>D: Require gates and Gate Commits
     D->>G: Push feature branch and create draft PR
     G-->>U: Human review and merge authority
@@ -367,13 +389,16 @@ sequenceDiagram
 **Text Equivalent:** Hermes continuously fills eligible lens slots. OpenCode
 reviews all eligible federated history and may complete P0/P1 Discovery without a
 prompt only when evidence resolves every material question. Materially uncertain work waits for explicit operator
-approval. DBSCTR still requires an isolated gated cycle and can publish only a
+approval. Before a VM Build session starts, the host ledger must match the
+worker, OpenCode session, authorization, scope, and risk. DBSCTR still requires an isolated gated cycle and can publish only a
 feature branch with a draft pull request; the operator retains merge authority.
 
 ## Goals
 
 - Reproduce the maintainer's working AI development configuration without
   committing machine-local identifiers or secrets.
+- Install and configure OpenCode and Codex as independently selectable peer
+  runtimes on the host and managed Fedora guests.
 - Keep optional 1Password integration fail-open for Herdr startup.
 - Provide machine-local opt-in Hermes scheduling, context-isolated backlog
   refinement, and resumable OpenCode R&D workers.
@@ -384,9 +409,9 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Non-goals
 
-- Installing Herdr, provider credentials, or unrelated developer tools; OpenCode
-  is the only required host package installed by this source, and DAI-016 installs
-  Hermes only when orchestration is explicitly enabled.
+- Installing provider credentials or unrelated developer tools; OpenCode and
+  Codex are the managed host agent packages, while DAI-016 installs Hermes only
+  when orchestration is explicitly enabled.
 - Treating launchd, Herdr, or OpenCode status as DBSCTR lifecycle authority.
 - Modifying repositories observed in global OpenCode history.
 - Guessing unresolved Discovery answers or autonomously merging critical fixes.
@@ -483,26 +508,14 @@ feature branch with a draft pull request; the operator retains merge authority.
   and removes the owned Quadlet definitions, unloads and removes the owned
   LaunchAgent, removes only the exact Atuin forward, and retains the named volume.
 
-### Canonical Backlog Refinement
+### Explicit PM Isolation
 
-- Given a configured discovery root, when reconciliation runs, then it considers
-  only canonical Git paths `REPOSITORY/docs/tickets/context=CONTEXT/*.md` whose real
-  paths stay beneath that root; symlink escapes, malformed tickets, and bounded-scan
-  overflow fail closed.
-- The host system profile reads only its configured managed dotfiles repositories.
-  A client profile scans repositories directly beneath its configured client root;
-  the personal catalog scans its configured personal root and creates one
-  project-local profile and Kanban board only for canonical Active work.
-- Given a valid nonterminal ticket, then repository identity, context, and ticket ID
-  derive one idempotent Kanban identity. Git backlog fields remain authoritative;
-  Hermes enrichment remains task metadata and never edits the source file.
-- Given OpenCode changes a ticket, then the next bounded reconciliation updates
-  or completes its mirrored task. Missing or incompatible active work blocks for
-  review rather than disappearing. A temporarily malformed file preserves the
-  last valid mirror.
-- Personal refinement runs one project at a time. Raw backlog content, memory,
-  generated skills, findings, and task details never cross host, client, or personal
-  profile boundaries.
+- Autonomous R&D and Hermes catalog reconciliation return no PM backlog entries
+  and never invoke `pmctl`.
+- Direct `pmctl`, `/pm-kernel`, or `/jira-ticket` invocation is the only PM entry
+  boundary.
+- The managed global Git excludes file ignores `.dbsctr/`, legacy root plan JSON,
+  `data/backlog/`, and `docs/tickets/` without changing repository-local policy.
 
 ### Optional Workspace Tailnet Access
 
@@ -676,6 +689,16 @@ feature branch with a draft pull request; the operator retains merge authority.
   fails unless its session is a Discovery-ready projection, records the exact
   opportunity, and Final Push fails unless that full binding receives the report. Host and guest
   ledgers never share mutable state.
+- Given a host handoff request, then only the dedicated `build-rnd` primary may
+  ask for it, and only as `/dbsctr-improve`'s final approved step. Before any
+  permission request, parity probe, VM start, or Herdr command, the adapter
+  requires the environment and request worker IDs to match and requires one host
+  ledger worker whose session is the caller, state is `discovery`, authorization
+  is `operator` or `autonomous`, Discovery report exists, declared paths exactly
+  match, and autonomous readiness risk equals the request. Every mismatch fails
+  closed; ordinary Build and all other agents deny the tool. Approval binds the
+  configured workspace and instance, the parity process verifies that same
+  instance, and worker authority is checked again after parity before VM access.
 - Given a candidate signal may benefit from related source evidence, then the
   worker may query `dks_context` for bounded untrusted citation metadata, verifies
   useful citations against source, and continues from authoritative DBSCTR evidence
@@ -1088,8 +1111,11 @@ feature branch with a draft pull request; the operator retains merge authority.
   complete-history phase, and explicitly abandon, forget, and close its test tab.
 - Typed `dbsctr_vm_handoff` accepts schema version `1`, host claim identity,
   approved context, risk, affected repository-relative paths, validation, and
-  explicit `proceed=true`. It asks before directly invoking fixed Lima and Herdr
-  argument vectors; the general `sandbox-vm` CLI exposes no handoff command.
+  explicit `proceed=true`. Before asking, resolving a workspace, or invoking
+  Lima or Herdr, it requires the dedicated R&D environment identity and the
+  authoritative ledger's worker, session, Discovery authorization/report,
+  paths, and autonomous risk to match exactly. It then asks before directly
+  invoking fixed Lima and Herdr argument vectors; the general `sandbox-vm` CLI exposes no handoff command.
   Text fields use fixed size and unsafe-content bounds. It returns only the target
   source, Herdr presentation IDs, OpenCode session ID when available, and launch
   status.

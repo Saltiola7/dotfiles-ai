@@ -1,22 +1,36 @@
 # DBSCTR V3 Lifecycle
 
-**Status:** V3.37 Graphify orchestration implemented
+**Status:** V3.40 ticket-blind lifecycle in progress; source-local cycle performance implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
 
 ## Overview
 
-DBSCTR V3 is an OpenCode-first, language-neutral software-engineering lifecycle.
+DBSCTR V3 is a language-neutral software-engineering lifecycle with one shared
+kernel and conforming runtime harness adapters.
 It retains Domain, Behavior, Spec, Contract, Test-driven implementation, and
 Refactor as its development kernel, then carries evidence through review,
 release, deployment, operations, maintenance, and retirement when those gates
 apply.
 
 The public OpenCode entry points are `/discovery`, `/dbsctr`, and `/qa`.
-OpenCode is the first harness because its skills, commands, todos, agents,
-permissions, and Plan/Build separation should shape the workflow directly.
-Future harnesses may implement adapters to the same artifacts and contracts.
+OpenCode is the delivered first harness. Codex CLI is the first planned peer and
+must implement [`features/harness-adapters.md`](features/harness-adapters.md)
+before claiming lifecycle parity. Harnesses use the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
+
+### V3.40 Authority Boundary
+
+Discovery and DBSCTR use specifications, Initiative manifests when applicable,
+private Cycle Records, configured validation, and changelogs. They never create,
+read, update, validate, or require PM Kernel tickets. PM Kernel is a separate
+reporting workflow activated only by direct `pmctl`, `/pm-kernel`, or
+`/jira-ticket` invocation; its files cannot affect lifecycle readiness, gates,
+receipts, audits, DKS, or autonomous R&D.
+
+Applicability plans are checkout-local inputs under Git-ignored
+`.dbsctr/plans/`. Managed cycle state remains under the Git common directory at
+`.git/dbsctr/` so worktrees share one safe lifecycle registry.
 
 ## Problem
 
@@ -32,6 +46,8 @@ or exposed through public commands after V3 is available.
 ## Goals
 
 - Make V3 the default lifecycle behind unversioned OpenCode skills and commands.
+- Preserve one unversioned lifecycle across conforming OpenCode and Codex
+  harnesses.
 - Keep the core language-neutral and load language, framework, domain, and risk
   modules only when applicable.
 - Add first-class Python and Security modules.
@@ -50,8 +66,7 @@ or exposed through public commands after V3 is available.
 ## Non-Goals
 
 - Do not build an OpenCode plugin or independent workflow engine.
-- Do not optimize prompts for hypothetical alternative harnesses at the expense
-  of OpenCode integration.
+- Do not weaken OpenCode integration or lifecycle semantics for another harness.
 - Do not prescribe one language, framework, CI provider, package manager,
   deployment platform, or observability backend.
 - Do not require release, deployment, or operational gates when the Engineering
@@ -64,7 +79,7 @@ or exposed through public commands after V3 is available.
 
 `dbsctr_v3_lifecycle` owns lifecycle discovery, development phases, gate
 applicability, evidence continuity, module selection, QA capability coverage,
-OpenCode integration, and V1/V2 migration.
+harness-adapter conformance, and V1/V2 migration.
 
 Adjacent contexts:
 
@@ -95,6 +110,9 @@ Adjacent contexts:
 | Delivery Intent | Local change, merge, release, or deployment. |
 | Accepted Risk | A failed or unavailable requirement accepted with rationale, owner, and expiry. |
 | OpenCode Adapter | Skills, commands, todos, agents, and permissions implementing the lifecycle in OpenCode. |
+| Harness | Runtime that hosts DBSCTR interactions and supplies native identity, approval, history, health, and execution evidence. |
+| Harness Adapter | Thin runtime translation into DBSCTR contracts without another lifecycle state machine. |
+| Capability Availability | Explicit `available`, `unavailable`, `partial`, or `not_requested` status for one adapter capability. |
 | V2 Archive | Source-only historical V2 skills that are excluded from deployment. |
 | Gate Commit | Atomic commit containing one coherent gate increment; tiny adjacent gates may combine. |
 | Protected Base Branch | Configured integration branch, default `main`, that cycle automation never updates directly. |
@@ -103,7 +121,7 @@ Adjacent contexts:
 | Cycle Record | Local operational state for one cycle, retained in the Git common directory and not treated as durable repository evidence. |
 | Worktree Identity | Stable hash of repository history identity and branch, used to isolate a cycle's active pointer without encoding a machine path. |
 | Delivery Target Lock | Nonblocking local lock serializing readiness checks and delivery to one upstream target. |
-| Artifact Review | A recorded decision that README, affected canonical tickets, and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key. |
+| Artifact Review | A recorded decision that README and CHANGELOG are accurate, including an explicit no-change reason where applicable. Legacy Cycle Records retain the serialized `BACKLOG` review key without reading a backlog or ticket file. |
 | Gate Applicability | Whether a gate is `required` or `not_applicable`, with rationale. |
 | Gate Result | `pending`, `passed`, `failed`, `unavailable`, or `not_run`; separate from applicability. |
 | Gate Exception | A user-approved `deferred` or `accepted_risk` disposition with owner and review condition. |
@@ -115,11 +133,17 @@ Adjacent contexts:
 | Product Intent | Conditional product-facing context held in `PRODUCT.md` and referenced by an Engineering Profile. |
 | Review Run | One bounded analysis of unreviewed DBSCTR and adjacent OpenCode sessions. |
 | Review Candidate | A session or correlated cycle eligible for a Review Run. |
+| Incident Signal | One persisted failed OpenCode tool call in the DBSCTR review family that has not been promoted or dismissed. |
+| Incident | One operator-defined operational case whose OpenCode fork preserves the investigation boundary. |
+| Incident Evidence | Source-local bounded text and diagnostics retained only after deterministic credential redaction. |
+| Incident Fork | A child OpenCode session registered as exactly one Incident and conventionally titled `INCIDENT: <summary>`. |
 | Sanitized Review Report | Private structured findings that exclude raw transcripts, secrets, unsafe URLs, and machine paths. |
 | Review Marker | Atomic local evidence that a Sanitized Review Report was persisted successfully. |
 | Original Checkout Sync | Best-effort post-push synchronization result for the checkout that began an isolated cycle. |
 | DVC-Relevant Change | A cycle commit changing DVC metadata or output identity. |
 | Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
+| Autonomous Interval | Complete helper-timestamped work or internal-wait time included in autonomous runtime. |
+| Excluded Pause | Complete helper-timestamped `operator_wait` or `external_wait` time excluded from autonomous runtime. |
 | Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
 | Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
@@ -427,10 +451,11 @@ ledger.
 - Then it stores that operational state beneath `.git/dbsctr/`
 - And durable specifications contain only stable context and completed evidence
 
-**Scenario: Review every lifecycle artifact without meaningless edits**
+**Scenario: Review lifecycle authority without PM duplication**
 - Given a Lifecycle Cycle is active
 - When its Artifact Review runs
-- Then README, affected canonical tickets, and CHANGELOG are each marked reviewed
+- Then README and CHANGELOG are each marked reviewed
+- And the private Cycle Record retains live execution state without a PM copy
 - And README changes only when durable domain, behavior, interface, contract,
   profile, or validation truth changed
 
@@ -550,6 +575,38 @@ ledger.
 - Given Graphify is a routing hint
 - When a lifecycle cycle changes source or artifacts
 - Then Graphify is updated only when explicit Project Policy requires it
+
+### Feature: V3.39 Fork-Defined Incident Capture
+
+**Scenario: Gather failed calls without interrupting development**
+- Given a persisted OpenCode tool part in the DBSCTR, Discovery, or QA session family has status `error` or `failed`
+- When the private Incident inbox scans that family
+- Then it returns one bounded redacted Incident Signal without writing review state
+- And a later successful call to the same tool lowers that signal's priority without erasing it
+
+**Scenario: Register one fork as one incident**
+- Given the operator forks a DBSCTR-family session and invokes `/incident`
+- When the operator confirms a kind, `INCIDENT:` title, summary, selected signals, and category diagnostics
+- Then one private Incident is created for that fork and selected signals are promoted atomically
+- But a root session, foreign message, duplicate fork, unsafe evidence, or malformed signal fails without a write
+
+**Scenario: Route investigation without hijacking feature work**
+- Given a registered Incident is open
+- When the operator resumes its fork
+- Then defects route to root-cause analysis, behavior gaps compare actual and desired behavior, and capability ideas route to Discovery
+- And implementation begins only in one separately linked DBSCTR fix cycle
+
+**Scenario: Resolve only verified activated fixes**
+- Given an Incident links exactly one fix cycle
+- When resolution is requested
+- Then the helper requires one unambiguous completed Cycle Record whose required Deploy and Operate gates passed
+- And explicit forget removes Incident Evidence while leaving the OpenCode fork untouched
+
+**Scenario: Keep ordinary review and incident state separate**
+- Given `/dbsctr-review` runs
+- When it reads private observability
+- Then it presents registered Incidents before unclaimed Incident Signals and existing session Review Candidates
+- And completing an ordinary review page never closes, dismisses, or forgets an Incident
 
 ### Feature: V3.37 Graphify Orchestration
 
@@ -700,6 +757,34 @@ ledger.
   without more failed gates or remediation rounds
 - Then qualifying routine and elevated operations may activate concurrent mode
 - Otherwise the profiler ships while real-cycle phase concurrency remains disabled
+
+### Feature: V3.40 Source-Local Cycle Performance
+
+**Scenario: Separate autonomous and calendar time**
+- Given retained completed Cycle Records and complete helper-timestamped Phase Spans
+- When `cycle-performance` reads the source-local records and private phase ledger
+- Then it reports separate integer-millisecond mean, nearest-rank p50, and p90 for
+  autonomous interval unions and valid calendar elapsed intervals
+- And it reports timing coverage plus gate-failure, gate-reopening, and remediation
+  totals for the selected cohort
+
+**Scenario: Exclude only explicit pauses**
+- Given Phase Spans may classify `operator_wait` or `external_wait`
+- When autonomous runtime is reduced
+- Then those explicit pauses are excluded and every other operation remains an
+  Autonomous Interval
+- But unfinished, unavailable, or active-overlapping pause evidence makes the
+  autonomous sample partial rather than guessed
+
+**Scenario: Keep performance summaries private and read-only**
+- Given current or compatible retained Cycle Records and optional private phase data
+- When source-local performance is requested with optional context, risk, delivery,
+  or method filters
+- Then only bounded aggregate values are returned without cycle IDs, paths, detailed
+  spans, captured command arguments beyond explicit report filters, URLs,
+  credentials, or raw evidence
+- And missing private state remains absent while existing records, review markers,
+  cycle state, and optimization activation remain unchanged
 
 ### Feature: V3.25 Backlog Integrity (Historical, Superseded By PM Kernel)
 
@@ -944,8 +1029,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 - Explicit phase spans and execution DAGs are diagnostic optimization tools, not
   mandatory evidence for ordinary cycles. Existing helper safety contracts remain
   authoritative when either tool is used.
-- README, affected canonical tickets, and CHANGELOG remain universally reviewed; they change only
-  when durable truth, executable work, or completed evidence changes.
+- README and CHANGELOG remain universally reviewed; they change only when durable
+  truth or completed evidence changes.
 
 ### Decisions And Risks
 
@@ -1004,7 +1089,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.28`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.29`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -1225,8 +1310,8 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   feature branch, creates a draft pull request, verifies draft state, and records
   its number and URL. It never updates the base branch or source checkout.
 - GitHub authentication is selected by configured non-secret account through a
-  project-owned wrapper. Tokens remain in the credential store and are never
-  accepted as helper arguments or persisted evidence.
+  project-owned wrapper. Tokens are resolved just in time into a process-local
+  environment and are never accepted as helper arguments or persisted evidence.
 - Human merge or close is an observed terminal outcome, not an authority granted
   to DBSCTR. Pull-request comments and revisions are outside the first slice.
 
@@ -1257,6 +1342,28 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   current evidence must descend from that merge; stale evidence blocks delivery.
   The verified reconciliation merge is the only non-Gate Commit admitted between
   the cycle baseline and Final Push.
+
+### V3.41 Deterministic Draft Delivery Contract
+
+- `begin` normalizes `merge` to `draft_pr` only when the configured delivery
+  branch is the declared Protected Base Branch. Other non-PR intents still fail
+  before fetch or worktree creation; low-level `start` remains explicit.
+- Draft begin derives the canonical `owner/repository` identity from the GitHub
+  `origin`. Omitted or matching bare repository input is canonicalized; a
+  mismatched full or bare identity fails before remote access.
+- The configured upstream fetch and push URLs must identify that same repository
+  and must not contain credentials. Authenticated network operations use its
+  canonical GitHub HTTPS URL, so SSH agents and ambient credential helpers cannot
+  select another account. URL rewriting fails closed; command-scoped credential
+  and empty extra-header settings override ambient authentication configuration.
+- Draft begin validates the explicit non-secret GitHub account before creating a
+  worktree. It never infers an account from the active GitHub CLI identity.
+- Draft begin and Final Push resolve that recorded account into a process-local
+  credential environment for Git fetch, remote inspection, feature-branch push,
+  and GitHub pull-request operations. They do not change the globally active
+  account or persist, print, or place the token in an argument.
+- Existing Cycle Records and low-level draft starts retain their recorded account
+  and repository semantics without migration.
 
 ### V3.20-V3.22 Analytics Program Overrides
 
@@ -1693,6 +1800,67 @@ historical table row and fixed-commit identity.
 - Authoritative cost is retained only as reportable telemetry. Missing or high
   cost does not halt workers or change cadence under this program.
 
+### History And Incident Query Performance Contract
+
+- Aggregate History selects and binds one immutable page before expensive metric
+  or family reduction, bulk-reduces only that page, and returns no candidate,
+  message, part, Signal, or cycle identifiers.
+- Every metric carries available and unavailable denominators, integer-floor
+  mean, and nearest-rank p50/p90. Singleton output is descriptive; comparative
+  activation requires at least five complete comparable members.
+- Incident summary mode returns only counts by allowlisted tool, sanitized failure
+  class, and recovered state. It preserves `signal_overflow` and never estimates
+  hidden frequency.
+- Existing detailed modes, snapshots, filters, cursors, continuations, review
+  state, Incident state, and privacy dispositions remain compatible.
+
+### V3.39 Incident Contract
+
+- Incident Signals are a separate read-only projection over persisted OpenCode
+  tool parts in the existing DBSCTR review family. They do not alter V3.21
+  telemetry, ordinary review pagination, reviewed markers, history, or federation.
+- A stable signal identity binds source session, message, part, and tool-call
+  identity. Signals are ordered unrecovered before recovered and then newest
+  first. Promotion and privacy forget are private dispositions; neither mutates
+  the OpenCode database. A scan returns at most 100 registered Incidents and 100
+  Signals with explicit overflow indicators.
+- `dbsctrctl incident-register` requires an existing child session and a message
+  belonging to that session. One session can own exactly one Incident. Kind is
+  `defect`, `friction`, `behavior_gap`, or `capability_idea`; title begins
+  `INCIDENT:`; human fields and arrays are bounded.
+- Incident Evidence is deterministically redacted before persistence and again
+  before output. Known credentials, secret-bearing options, secret references,
+  high-entropy values, and control characters never enter the ledger. Paths and
+  ordinary diagnostic text may remain because the operator explicitly invoked
+  the Incident workflow and approved provider use for this bounded evidence.
+- Incident schema is an additive versioned extension to the existing owner-only
+  SQLite review ledger. Read-only scans create no state. Registration, update,
+  dismissal, and forget serialize under the existing private review lock and
+  preserve ledger integrity on failure. Update and forget require an invoking
+  message in the same child session that owns the Incident.
+- Incident states are `open`, `investigating`, `fixing`, `resolved`, and
+  `dismissed`. A fixing Incident has exactly one immutable cycle ID. Resolution
+  requires one unambiguous canonical global Cycle Record with its complete gate
+  set and matching evidence, in `completed` state, with every required gate
+  disposed and required Deploy and Operate gates passed. Ordinary review
+  completion has no Incident lifecycle authority.
+- Incident forget deletes source-local payload and linked evidence while
+  retaining an opaque suppression disposition so forgotten data is not
+  re-derived or resurrected by backup restore. It does not delete or rewrite the
+  OpenCode session.
+- `/incident` owns operator confirmation, route selection, and category-specific
+  diagnostics. It never implements a fix in the Incident fork. `/dbsctr-review`
+  reports Incidents and Signals as separate leading sections, and any remediation
+  remains one separately authorized DBSCTR cycle.
+- Typed-tool and shell-pattern denials are control-plane policy, not OS privilege
+  separation. Same-user agents with unrestricted shell remain trusted to respect
+  declared ownership; stronger adversarial isolation requires a separate identity
+  or separately held cryptographic authority.
+- First-release non-goals are live event hooks, automatic forks, session-title
+  mutation, cross-workspace raw evidence federation, model scanning of successful
+  turns, and Incident-triggered autonomous remediation. Sanitized outcomes may
+  inform later R&D only through a separately specified projection.
+
 ### V3.22 Longitudinal Effect Contract
 
 - A benchmark binds a versioned metric definition, immutable capture inputs,
@@ -1729,6 +1897,11 @@ historical table row and fixed-commit identity.
 - Explicit lifecycle markers produce Phase Spans with opaque identity, parent and dependency identity,
   phase or operation class, start/end timing, wait/active duration when available,
   result, attribution status, and repository-relative ownership paths.
+- Phase Span start and finish shapes are validated before private-lock acquisition.
+  Malformed markers fail without waiting for unrelated readers or mutating private
+  state. The typed adapter bounds valid helper execution to 30 seconds, terminates
+  the helper process group on timeout, and reports `command timed out` rather than
+  waiting indefinitely behind private-ledger contention.
 - OpenCode exposes no supported universal tool/subagent timing callback in the
   configured runtime. Unsupported automatic observations remain unavailable;
   message persistence times never substitute for operation boundaries.
@@ -1871,6 +2044,50 @@ feature-branch Gate Commits and a draft pull request; Git remains integration
 authority and automation never writes directly to the protected base branch.
 
 ```mermaid
+sequenceDiagram
+    accTitle: Fork-defined incident capture and repair
+    accDescr: Persisted failed calls are discovered without writes. The operator forks a session, confirms one incident registration, investigates in that fork, and links one separate DBSCTR fix cycle. Resolution requires completed activation gates.
+    participant F as Feature session
+    participant O as Operator
+    participant I as Incident fork
+    participant L as Private ledger
+    participant C as Fix cycle
+    F-->>L: Persisted failed tool part
+    O->>I: Fork session and invoke /incident
+    I->>L: Register redacted evidence and diagnostics
+    I->>I: RCA or behavior discovery
+    I->>C: Link one separate DBSCTR cycle
+    C-->>L: Completed deploy and operate evidence
+    L-->>I: Resolve incident
+```
+
+**Text Equivalent:** OpenCode persistence supplies read-only failed-call signals.
+The operator decides which case matters by forking the session and confirming one
+Incident registration. The Incident fork owns investigation only. One separate
+DBSCTR cycle owns implementation, and the Incident resolves only after its
+completed Cycle Record proves every required Deploy and Operate gate passed.
+
+```mermaid
+stateDiagram-v2
+    accTitle: Incident lifecycle
+    accDescr: A registered incident starts open, may enter investigation and fixing, resolves only through verified cycle evidence, or is dismissed. Forget removes evidence independently of lifecycle state.
+    [*] --> Open: register fork
+    Open --> Investigating: begin RCA or discovery
+    Investigating --> Open: defer
+    Investigating --> Fixing: link fix cycle
+    Open --> Dismissed: non-actionable
+    Investigating --> Dismissed: non-actionable
+    Fixing --> Resolved: verified activation
+    Dismissed --> [*]
+    Resolved --> [*]
+```
+
+**Text Equivalent:** Registration creates an Open Incident. Investigation may be
+deferred back to Open, dismissed as non-actionable, or linked to one fix cycle as
+Fixing. Only verified completed activation moves Fixing to Resolved. Forget is a
+separate privacy action that removes evidence without deleting the OpenCode fork.
+
+```mermaid
 stateDiagram-v2
     accTitle: DBSCTR gate lifecycle
     accDescr: A required gate starts pending, may fail or become unavailable, passes only with evidence, and may reopen when applicability or profile truth tightens. Explicit user exceptions dispose only failed or unavailable evidence.
@@ -1895,9 +2112,10 @@ exception. Tightened applicability or profile truth can reopen a passed gate.
 ```mermaid
 sequenceDiagram
     accTitle: Protected Final Push with target reconciliation
-    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, then pushes only the feature branch and creates a draft pull request.
+    accDescr: DBSCTR compares the feature branch with the protected target, prepares an explicit no-commit merge when the target advanced, requires union validation and a Review/Integrate Gate Commit, resolves the recorded GitHub account, then pushes only the feature branch and creates a draft pull request.
     participant P as Primary
     participant D as DBSCTR helper
+    participant C as Credential store
     participant T as Protected target
     participant G as GitHub
     P->>D: Preview target reconciliation
@@ -1912,24 +2130,28 @@ sequenceDiagram
     end
     P->>D: Request Final Push
     D->>D: Revalidate lineage, evidence, branch, and clean state
-    D->>G: Push feature branch and create draft PR
+    D->>C: Resolve recorded GitHub account
+    C-->>D: Return process-local token
+    D->>G: Fetch, push feature branch, and create draft PR
 ```
 
 **Text Equivalent:** The primary previews the protected target before delivery.
 If it advanced, DBSCTR prepares only a no-commit merge; the primary resolves
 explicit conflicts, reruns validation over both change sets, and records the
 merge through Review/Integrate. Final Push revalidates lineage, evidence, branch,
-and cleanliness, then pushes only the feature branch and creates a draft pull
-request. If the target is already integrated, reconciliation makes no change.
+and cleanliness, resolves the account recorded by the cycle without changing the
+active global account, then uses that process-local credential to fetch, push
+only the feature branch, and create a draft pull request. If the target is already
+integrated, reconciliation makes no change.
 
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: context flowchart | Where do intent, durable truth, evidence, active state, and integration authority live? | Architecture and adapter contracts in this README | Lifecycle owner; authority boundary changes |
-| Interaction | required: protected-delivery and graph-promotion sequences | How do evidence and one canonical graph reach protected delivery? | Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; gate, graph, or delivery ordering changes |
-| State | required: state diagram | Which gate transitions and reopen paths are legal? | Gate Ledger Contract | Lifecycle owner; gate transition changes |
-| Data/trust | required: context flowchart and Text Equivalent | Which state is public, local, or external? | Artifact Lifecycle and Evidence contracts | Lifecycle owner; persistence or trust boundary changes |
+| Interaction | required: incident-capture, protected-delivery, and graph-promotion sequences | How do operational evidence, fixes, and one canonical graph reach protected delivery? | Incident, Development Kernel, Final Push, and Graphify Orchestration contracts | Lifecycle owner; incident, gate, graph, or delivery ordering changes |
+| State | required: gate and Incident state diagrams | Which gate and Incident transitions are legal? | Gate Ledger and Incident contracts | Lifecycle owner; gate or Incident transition changes |
+| Data/trust | required: context flowchart, incident and protected-delivery sequences, and Text Equivalents | Which state or credential is public, source-local private, or external? | Incident, Artifact Lifecycle, Evidence, and Final Push contracts | Lifecycle owner; persistence or trust boundary changes |
 | Schema | required: portable Cycle Record locator flowchart | How do schema-4 records resolve after a configured registry move while older records remain readable? | Cycle Record Interface | Lifecycle owner; locator or compatibility changes |
 | Dependency/deployment | not_applicable: module and deployment dependencies are explicit in the context flowchart and Gate Ledger | - | Module and Completion Gate contracts | Lifecycle owner |
 | Quantitative | not_applicable: no architectural decision in this specification depends on a comparative dataset | - | Engineering Profile and evidence records | Lifecycle owner; add a chart only with decision-grade data |
@@ -2062,6 +2284,8 @@ tool and provider examples and load only when useful.
 | `dot_agents/skills/dbsctr/references/{openai,anthropic}.md` | Conditional current provider guidance | Provider-native execution without core duplication |
 | `dot_agents/skills/dbsctr-review/SKILL.md` | Private lifecycle observability review protocol | V3.11 review scenarios |
 | `private_dot_config/opencode/commands/dbsctr-review.md` | Stable review command surface | V3.11 review scenarios |
+| `dot_agents/skills/dbsctr-incident/SKILL.md` | Fork-defined Incident registration, diagnosis, routing, and closure protocol | V3.39 Incident scenarios |
+| `private_dot_config/opencode/commands/incident.md` | Stable Incident command surface | V3.39 Incident scenarios |
 | `private_dot_config/opencode/tools/dbsctr.ts` | Typed scan and completion adapters | Bounded read and permissioned private-state write |
 | `dbsctr_phase_span` | Record helper-timestamped explicit span boundaries | Private detail plus path-free compact profile |
 | `dbsctr_execution_dag` | Validate read/read-only-QA dependencies, ownership, risk, and activation | Concurrent authorization or deterministic serial fallback; no dispatch |
@@ -2085,8 +2309,12 @@ tool and provider examples and load only when useful.
 - `/qa $ARGUMENTS` loads `qa`; DBSCTR supplies affected scope and required
   capabilities, while an explicit user request may run a full audit.
 - `/dbsctr-review $ARGUMENTS` loads `dbsctr-review`, inventories every unreviewed
-  candidate, reports ranked findings, and marks exact candidates reviewed only
-  after permission-gated sanitized report persistence succeeds.
+  Incident and candidate, reports registered Incidents before unclaimed Signals
+  and ranked findings, and marks exact candidates reviewed only after
+  permission-gated sanitized report persistence succeeds.
+- `/incident $ARGUMENTS` loads `dbsctr-incident`, requires the invoking session to
+  be a fork, confirms bounded registration input, and routes investigation without
+  implementing the fix in that fork.
 - Plan remains read-only and produces a Build Handoff. Build verifies freshness,
   owns integration, and alone invokes safe Gate Commit or Final Push operations.
 
@@ -2179,10 +2407,10 @@ tool and provider examples and load only when useful.
 
 - Every cycle has one BACKLOG item before implementation and updates its state as
   work progresses.
-- README, affected canonical tickets, and CHANGELOG each receive an Artifact Review before completion.
+- README and CHANGELOG each receive an Artifact Review before completion.
 - Cycle Record schema compatibility retains the internal `BACKLOG` artifact-review
-  key until an explicit state migration; it records the ticket review and does not
-  make a deleted table authoritative.
+  key until an explicit state migration; it is a no-file compatibility slot and
+  does not authorize reading PM tickets or a deleted backlog table.
 - Applicable Product Intent is reviewed when affected; it is not a fourth
   universal lifecycle artifact and does not alter the helper's fixed reviews.
 - README changes only when durable truth changes; a no-change review is valid.
@@ -2383,9 +2611,9 @@ directory, branch, base commit, creation authority, upstream, and lock identity.
 schema-less/schema-1/schema-2 records remain readable without implicit rewriting.
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
-Method Revisions `3.9` through `3.28` remain compatible with schema-version `3`;
-new records use schema version `4` and the helper's single
-`CURRENT_METHOD_REVISION = "3.28"` constant.
+Method Revisions through `3.28` retain their recorded schema-3 or schema-4
+semantics. Method Revision `3.29` creates schema-version `5` records and the
+helper uses one `CURRENT_METHOD_REVISION = "3.29"` constant.
 
 Schema version `4` removes persisted machine paths from new portable records.
 DBSCTR-created worktrees store a traversal-safe path relative to
@@ -2397,6 +2625,13 @@ primary worktree. State roots resolve in order from explicit command input,
 `DBSCTR_STATE_ROOT` or `DBSCTR_WORKTREE_ROOT`, `DOTFILES_AI_STATE_ROOT`, XDG state,
 then native home-directory defaults. OpenCode data follows `XDG_DATA_HOME`.
 Traversal, registry escape, and identity drift fail closed.
+
+Schema version `5` adds `runtime.adapters` with strict harness, revision,
+availability, opaque identity, and portable-locator validation. New records begin
+with an empty adapter map. OpenCode attachment dual-writes an exact generic
+adapter and the legacy `runtime.opencode` compatibility branch. Schemas 3 and 4
+remain readable and `cycle-portabilize` remains schema 3 to schema 4 only. Native
+Codex identity remains outside this lifecycle slice.
 
 Schemas `1` through `3` remain readable without implicit rewriting.
 `cycle-portabilize --cycle-id ID` converts only a named active schema-3 cycle
@@ -2451,6 +2686,10 @@ the active worktree; they do not implement lifecycle transitions independently.
 `dbsctr_begin` returns the authoritative handoff and, when explicitly enabled in
 a Herdr pane, asks Herdr to start OpenCode in the new cycle worktree. Cycle
 creation remains successful and visible when optional Herdr launch fails.
+Its description directs protected-base merge delivery to `draft_pr`; ordinary
+typed begin preserves an optional explicit base while Initiative launch binds the
+target repository's default branch. The helper remains authoritative for intent
+normalization and canonical repository derivation.
 
 Herdr is an execution/visibility plane only. It never approves gates, interprets
 agent status as evidence, commits, pushes, or removes worktrees. Chezmoi manages
@@ -2513,7 +2752,7 @@ Method Revision `3.8` adds
 `dbsctrctl record-evidence GATE --authority NAME [--path FILE ...] -- PROGRAM ...`.
 The command asks before nested authority execution. It executes an
 argument vector without a shell, closes stdin, inherits but never serializes the
-process environment, applies a 120-second default/600-second hard timeout and 1
+process environment, applies a 600-second default/hard timeout and 1
 MiB raw-output cap, and terminates the whole process group on timeout or overflow.
 
 ### V3.8 Evidence Envelope Contract
@@ -2988,12 +3227,18 @@ file, and removes any temporary bytes after one successful or failed import.
   tombstone/expiry reason, authority subtype, sequence, and digest.
 - Privacy ordering is `status A -> export A -> status A -> transactional deny
   commit A -> content reconcile -> activation -> status A`; a changed status at
-  either check aborts or invalidates queries until rerun. Every lifecycle privacy
-  writer takes an exclusive private-ledger privacy lock. `dbsctrctl
-  knowledge-privacy-guard -- PROGRAM...` takes its shared counterpart, verifies
+  either check aborts or invalidates queries until rerun. Lifecycle operations
+  that add or remove an exported expiry or tombstone take the dedicated knowledge
+  privacy lock exclusively. `dbsctrctl knowledge-privacy-guard -- PROGRAM...`
+  takes its shared counterpart within the caller's remaining deadline, verifies
   the imported sequence/digest, executes the query argument vector without a
-  shell, and holds the lock through result completion. Thus a tombstone cannot
-  race between status validation and cited text return.
+  shell, and holds the lock through result completion. Unrelated review, History,
+  Incident, and capture operations use only the ledger integrity lock and cannot
+  delay the guard. A command requiring both locks uses one canonical order without
+  upgrade. Thus a tombstone cannot race between status validation and cited text
+  return without coupling retrieval to unrelated ledger work. The complete
+  contract is in
+  [`features/knowledge-query-privacy-isolation.md`](features/knowledge-query-privacy-isolation.md).
 - Explicit forget takes precedence over archived/history membership. The export
   never re-emits forgotten text or a content digest that could verify a low-
   entropy secret.
@@ -3031,6 +3276,7 @@ privacy sequence/digest.
 | Five-cycle evaluation | Immutable cohort replay under a versioned rubric | Tokens, cost, elapsed time, gates, remediation, delegation, and confounders | Required after five comparable cycles | Report-only; no automatic harness mutation or causal claim |
 | Graph routing | Existing graph freshness check when present | Architecture routing | Conditional on explicit Project Policy | No repository graph is present |
 | Historical review performance | Timed read-only `review-history --limit 1` against the live indexed database | Full candidate discovery and bounded output | Available; record session/part counts and elapsed time | No N+1 session/part queries; practical interactive latency |
+| History/Incident aggregate performance | Page-first aggregate and summary fixtures plus bounded live smoke | Snapshot stability, bulk reduction, formulas, overflow, privacy, and detailed-mode compatibility | Required when query core changes | No per-candidate queries, private identities, false empty data, or inferred hidden frequency |
 | Active-review isolation | Typed continuation/save fixture with the invoking tool part updated after page one | Caller exclusion and external-mutation rejection | Available | Self-mutation succeeds; included-candidate mutation fails closed |
 | Critical-path profiler | Deterministic complete, partial, unavailable, retention, privacy, backup, and correlated-review fixtures | Span capture, attribution, reports, and 90-day pruning | Implemented in V3.24 | No payload or absolute-path retention; incomplete evidence stays explicit |
 | Phase concurrency | At least five paired post-warmup serial/concurrent runs of one committed fixture | DAG validation, overlap safety, reconciliation, and activation | Implemented in V3.24; 737 ms serial and 214 ms concurrent medians | 70.96% lower median wall time with equivalent required gates and no additional remediation rounds |

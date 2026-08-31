@@ -29,7 +29,7 @@ def load_helper():
 def config(tmp_path: Path) -> dict:
     (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
@@ -40,6 +40,11 @@ def config(tmp_path: Path) -> dict:
             "postgres_image": "", "knowledge_postgres_enabled": False,
         },
         "state_root": str(tmp_path / "state"),
+        "codex": {
+            "version": "0.151.0",
+            "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
+            "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
+        },
         "lima_home": str(tmp_path / "state/lima"),
         "tailscale": {"enabled": False, "ssh": False},
         "onepassword": {
@@ -52,12 +57,14 @@ def config(tmp_path: Path) -> dict:
             "small_model": "provider/small", "theme": "catppuccin",
             "atuin_sync_address": "https://atuin.example.com", "hermes_enabled": True,
             "rnd_backend": "native",
+            "rnd_runtime": "opencode",
             "vertex_project": "vertex-project", "vertex_location": "global",
             "vertex_account": "developer@example.com",
         },
         "workspaces": [
             {
                 "name": "workspace1", "instance": "workspace1-sandbox", "shell_alias": "workspace1sh", "federate": True,
+                "runtime": "codex",
                 "mounts": [{
                     "host": str(tmp_path / "projects"), "guest": "/workspace/projects", "writable": True,
                     "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
@@ -65,6 +72,7 @@ def config(tmp_path: Path) -> dict:
             },
             {
                 "name": "workspace2", "instance": "workspace2-sandbox", "shell_alias": "workspace2sh", "federate": True,
+                "runtime": "",
                 "mounts": [{
                     "host": str(tmp_path / "reference"), "guest": "/workspace/reference", "writable": True,
                     "protect_git_submodules": True, "reference_name": "project-reference",
@@ -187,6 +195,8 @@ def capture_descriptor() -> dict:
 
 def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     helper = load_helper()
+    assert helper.OPENCODE_VERSION == "1.18.25"
+    assert helper.OPENCODE_SHA256 == "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5"
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
     rendered = helper.render_workspace(config(tmp_path), config(tmp_path)["workspaces"][0], template)
     assert "template:_images/fedora-44" in template
@@ -233,6 +243,9 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
         "project_profiles": True,
     }
     assert parsed["data"]["dotfiles_ai"]["rnd"]["backend"] == "native"
+    assert parsed["data"]["dotfiles_ai"]["rnd"]["runtime"] == "opencode"
+    assert parsed["data"]["dotfiles_ai"]["codex"] == values["codex"]
+    assert parsed["data"]["dotfiles_ai"]["sandbox"]["workspaces"][0]["runtime"] == "codex"
     assert parsed["data"]["dotfiles_ai"]["onepassword"] == {
         "enabled": True, "account": "example", "user_uuid": "USERUUID",
         "keychain_service": "op-service-account-token",
@@ -245,6 +258,33 @@ def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
 
     values["workspaces"][0]["hermes_backlog_roots"] = ["/outside"]
     with pytest.raises(ValueError, match="Hermes backlog roots"):
+        helper.validate_config(values)
+
+
+def test_runtime_selector_migrates_and_resolves_without_worker_activation(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+
+    assert helper.resolve_runtime(values, values["workspaces"][0]) == "codex"
+    assert helper.resolve_runtime(values, values["workspaces"][1]) == "opencode"
+    values["guest"]["rnd_runtime"] = "codex"
+    assert helper.resolve_runtime(values, values["workspaces"][1]) == "codex"
+
+    legacy = config(tmp_path)
+    legacy["schema_version"] = 7
+    legacy.pop("codex")
+    legacy["guest"].pop("rnd_runtime")
+    for workspace in legacy["workspaces"]:
+        workspace.pop("runtime")
+    helper.validate_config(legacy)
+    assert legacy["schema_version"] == 8
+    assert legacy["codex"]["version"] == helper.CODEX_VERSION
+    assert legacy["guest"]["rnd_runtime"] == "opencode"
+    assert all(workspace["runtime"] == "" for workspace in legacy["workspaces"])
+
+    values = config(tmp_path)
+    values["workspaces"][0]["runtime"] = "invalid"
+    with pytest.raises(ValueError, match="workspace runtime"):
         helper.validate_config(values)
 
 
@@ -264,7 +304,7 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert calls[1][0][-4:] == ["podman", "info", "--format", "{{.Host.Security.Rootless}}"]
-    assert [call[0][4] for call in calls[2:]] == ["sh", "git", "chezmoi"]
+    assert [call[0][4] for call in calls[2:]] == ["sh", "git", "chezmoi", "sh", "sh"]
     rendered = tomllib.loads(calls[2][1]["input_data"].decode().replace("__GUEST_HOME__", "/home/agent.guest"))
     assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
@@ -285,6 +325,36 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
         helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert len(calls) == 2
+
+
+def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    archive = tmp_path / "source.tar.gz"
+    archive.write_bytes(b"archive")
+    revision = "a" * 40
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_SOURCE", str(tmp_path / "source"))
+    monkeypatch.setattr(helper, "deployment_archive", lambda _source: (archive, revision))
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "true" if "podman" in argv else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    argv = [call[0] for call in calls]
+    assert ["limactl", "copy", str(archive),
+            f"workspace1-sandbox:/tmp/dotfiles-ai-{revision}.tar.gz"] in argv
+    deployment = next(call for call in argv if "deploy-codex" in call)
+    assert deployment[-2:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision]
+    assert '"$HOME/.local/bin/codex-archive"' in deployment[-4]
+    assert '"$HOME/.config/dotfiles-ai/codex-managed"' in deployment[-4]
+    assert not any("pull" in call for call in argv)
+    assert not archive.exists()
 
 
 def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
@@ -319,7 +389,7 @@ def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Pat
     assert "sudo" not in " ".join(part for call in calls for part in call)
 
 
-def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Path) -> None:
+def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
     values = config(tmp_path)
     states = {"workspace1-sandbox": True, "workspace2-sandbox": False}
@@ -329,12 +399,16 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
     def execute(argv, **kwargs):
         if argv == [helper.HOST_OPENCODE, "--version"]:
             return helper.OPENCODE_VERSION
+        if argv == [helper.HOST_CODEX, "--version"]:
+            return f"codex-cli {helper.CODEX_VERSION}"
         if argv == ["limactl", "list", "--json"]:
             return "\n".join(json.dumps({"name": name, "status": "Running" if running else "Stopped",
                                            "config": {}}) for name, running in states.items())
         if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
             states[argv[2]] = argv[1] == "start"
             return ""
+        if argv[:4] == ["limactl", "shell", argv[2], "--"] and "codex" in argv[-1]:
+            return f"codex-cli {helper.CODEX_VERSION}"
         if argv[:4] == ["limactl", "shell", argv[2], "--"]:
             return helper.OPENCODE_VERSION
         raise AssertionError(argv)
@@ -346,24 +420,96 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
         assert states[workspace["instance"]]
         updated.append(workspace["name"])
 
-    result = helper.update_all_workspaces(values, execute=execute, installer=installer, updater=updater)
+    def snapshotter(workspace, execute):
+        return workspace["name"]
+
+    def restorer(workspace, token, execute):
+        assert token == workspace["name"]
+
+    def discarder(workspace, token, execute):
+        assert token == workspace["name"]
+
+    result = helper.update_all_workspaces(
+        values, execute=execute, installer=installer, updater=updater,
+        snapshotter=snapshotter, restorer=restorer, discarder=discarder)
 
     assert installed == updated == ["workspace1", "workspace2"]
     assert states == {"workspace1-sandbox": True, "workspace2-sandbox": False}
-    assert result == {"host": helper.OPENCODE_VERSION,
-                      "workspaces": {"workspace1": helper.OPENCODE_VERSION,
-                                     "workspace2": helper.OPENCODE_VERSION}}
+    assert result == {
+        "host": helper.OPENCODE_VERSION,
+        "workspaces": {"workspace1": helper.OPENCODE_VERSION,
+                       "workspace2": helper.OPENCODE_VERSION},
+        "codex": {"host": helper.CODEX_VERSION,
+                  "workspaces": {"workspace1": helper.CODEX_VERSION,
+                                 "workspace2": helper.CODEX_VERSION}},
+    }
 
     def stale_host(argv, **kwargs):
         return "1.18.21" if argv == [helper.HOST_OPENCODE, "--version"] else execute(argv, **kwargs)
 
     with pytest.raises(RuntimeError, match="host OpenCode version mismatch"):
-        helper.update_all_workspaces(values, execute=stale_host, installer=installer, updater=updater)
+        helper.update_all_workspaces(
+            values, execute=stale_host, installer=installer, updater=updater,
+            snapshotter=snapshotter, restorer=restorer, discarder=discarder)
 
     installed.clear()
-    helper.update_all_workspaces(values, execute=execute, installer=installer)
+    updated.clear()
+    monkeypatch.setattr(helper, "update_workspace", updater)
+    helper.update_all_workspaces(
+        values, execute=execute, installer=installer, snapshotter=snapshotter,
+        restorer=restorer, discarder=discarder)
     assert installed == ["workspace1", "workspace2"]
     assert updated == ["workspace1", "workspace2"]
+
+
+def test_update_all_rolls_back_prior_guests_when_second_guest_fails(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    states = {"workspace1-sandbox": True, "workspace2-sandbox": False}
+    restored = []
+    discarded = []
+
+    def execute(argv, **kwargs):
+        if argv == [helper.HOST_OPENCODE, "--version"]:
+            return helper.OPENCODE_VERSION
+        if argv == [helper.HOST_CODEX, "--version"]:
+            return f"codex-cli {helper.CODEX_VERSION}"
+        if argv == ["limactl", "list", "--json"]:
+            return "\n".join(json.dumps({"name": name, "status": "Running" if running else "Stopped",
+                                            "config": {}}) for name, running in states.items())
+        if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
+            states[argv[2]] = argv[1] == "start"
+            return ""
+        if argv[:4] == ["limactl", "shell", argv[2], "--"] and "codex" in argv[-1]:
+            return f"codex-cli {helper.CODEX_VERSION}"
+        if argv[:4] == ["limactl", "shell", argv[2], "--"]:
+            return helper.OPENCODE_VERSION
+        raise AssertionError(argv)
+
+    def installer(config, workspace, execute):
+        pass
+
+    def updater(config, workspace, execute):
+        if workspace["name"] == "workspace2":
+            raise RuntimeError("second guest failed")
+
+    def snapshotter(workspace, execute):
+        return workspace["name"]
+
+    def restorer(workspace, token, execute):
+        restored.append((workspace["name"], token))
+
+    def discarder(workspace, token, execute):
+        discarded.append((workspace["name"], token))
+
+    with pytest.raises(RuntimeError, match="second guest failed"):
+        helper.update_all_workspaces(
+            values, execute=execute, installer=installer, updater=updater,
+            snapshotter=snapshotter, restorer=restorer, discarder=discarder)
+
+    assert restored == [("workspace2", "workspace2"), ("workspace1", "workspace1")]
+    assert discarded == []
+    assert states == {"workspace1-sandbox": True, "workspace2-sandbox": False}
 
 
 def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path) -> None:
@@ -387,11 +533,42 @@ def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path)
         raise AssertionError(argv)
 
     assert helper.verify_opencode_parity(values, workspace, execute) == {
-        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION}
+        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION,
+        "instance": workspace["instance"]}
     assert not running
     guest = "1.18.21"
     with pytest.raises(RuntimeError, match="workspace1 OpenCode version mismatch"):
         helper.verify_opencode_parity(values, workspace, execute)
+    assert not running
+
+
+def test_codex_version_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    running = False
+    guest = f"codex-cli {helper.CODEX_VERSION}"
+
+    def execute(argv, **_kwargs):
+        nonlocal running
+        if argv == [helper.HOST_CODEX, "--version"]:
+            return f"codex-cli {helper.CODEX_VERSION}"
+        if argv[:2] == ["limactl", "list"]:
+            return json.dumps({"name": workspace["instance"], "status": "Running" if running else "Stopped"})
+        if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
+            running = argv[1] == "start"
+            return ""
+        if argv[:2] == ["limactl", "shell"]:
+            return guest
+        raise AssertionError(argv)
+
+    assert helper.verify_codex_version_parity(values, workspace, execute) == {
+        "host": helper.CODEX_VERSION, "guest": helper.CODEX_VERSION,
+        "instance": workspace["instance"]}
+    assert not running
+    guest = "codex-cli 0.150.0"
+    with pytest.raises(RuntimeError, match="workspace1 Codex version mismatch"):
+        helper.verify_codex_version_parity(values, workspace, execute)
     assert not running
 
 
@@ -537,7 +714,7 @@ def test_old_schema_is_normalized_for_ordered_host_migration(tmp_path: Path) -> 
 
     helper.validate_config(values)
 
-    assert values["schema_version"] == 7
+    assert values["schema_version"] == 8
     assert values["onepassword"]["enabled"] is False
     assert values["guest"]["vertex_location"] == "global"
     assert values["pm_kernel"]["enabled"] is False

@@ -1,5 +1,208 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - Generic History Source Readiness
+
+- Reopened the empty Codex history cycle before implementation because no
+  lifecycle-owned source-page or private-text contract connected native history
+  to shared consumers.
+- Added a separate generic predecessor with closed stdin request-and-page
+  envelopes, full snapshot membership, non-circular canonical digests, bounded
+  redacted text, tool signals, metrics and availability, stale handling, lexical
+  privacy, and stateless no-mutation validation.
+- Kept native parsing and review, incident, telemetry, benchmark, and federation
+  mappings in later owning slices. Initiative validation, 248 affected tests, one
+  expected skip, 21 subtests, JSON parsing, Git whitespace, and independent
+  elevated-risk review passed. Gate Exceptions: none. Release, Deploy, Operate,
+  and Maintain/Retire are not applicable to this Discovery-only correction.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+- Build review reopened portability before its first Gate Commit. The schema now
+  caps every integer at `2^53 - 1`, uses canonical decimal-string cost, and names
+  POSIX, Windows drive-qualified, and UNC path rejection so Python and JavaScript
+  implementations share digest and privacy semantics.
+
+## 2026-08-31 - History Boundary Index Readiness
+
+- Reopened History/Incident core readiness after exact time-ordered population
+  discovery exceeded the bounded live smoke on a large OpenCode source.
+- Specified an owner-private, payload-free derived boundary index with incremental
+  generations, atomic activation, explicit unavailability, source replacement
+  recovery, privacy invalidation, rollback, and warm-query acceptance evidence.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
+## 2026-08-31 - Knowledge Privacy Lock Isolation Discovery
+
+- Separated DKS privacy guarding from unrelated review-ledger integrity work while
+  preserving exclusive forget and expiry serialization through cited result
+  completion.
+- Required one canonical dual-lock order, bounded shared acquisition, sanitized
+  timing evidence, and unchanged tombstone, rollback, and non-resurrection rules.
+- This change establishes durable authority only; implementation, deployment, and
+  live contention evidence remain separately gated.
+
+## 2026-08-30 - History/Incident Core Readiness Repair
+
+- Bound aggregate History and Incident summary modes to exact version-1 JSON
+  schemas, metric authorities, cohort semantics, deterministic ordering, bounded
+  tool and failure-class allowlists, and truthful 100-row overflow.
+- Required hidden page identity before bulk metric work and bound immutable
+  continuation and optional cache reuse to exact source and method identity.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
+## 2026-08-30 - Cycle-Speed Contract Reconciliation
+
+- Reconciled the delivered performance-audit workflow, specified deterministic
+  audit evidence and ranking, and captured a separate non-blocking audit-v2 slice.
+- Defined page-first aggregate History telemetry and bounded Incident summaries
+  with immutable continuation, explicit availability, privacy, and overflow truth.
+- Reconciled concurrent Initiative occupancy and schema-5 delivery by accepting
+  both supported schema-4 and schema-5 Cycle Records without weakening identity
+  validation.
+- Initiative validation, affected tests, protected delivery, and Gate Commit are
+  recorded by the completing cycle. Release is not applicable; targeted helper
+  deployment and an Initiative occupancy smoke are required. Gate Exceptions:
+  none.
+
+## 2026-08-30 - Multi-Harness Cycle Records
+
+- Made Method Revision `3.29` create schema-5 records with empty pre-attach
+  adapter maps, strict status-object availability, bounded opaque identity,
+  portable locators, and centralized duplicate-safe validation across every
+  Cycle Record consumer.
+- Added exact OpenCode generic/legacy dual-write while preserving schema-3/4
+  reads and reversible schema-3 to schema-4 portabilization. Synthetic Codex
+  fixtures validate the generic contract; production records reject Codex until
+  native integration is delivered by later slices.
+- Affected QA passed 180 helper tests with one expected skip and 21 subtests, plus
+  152 lifecycle, OpenCode, PM, and Lima tests. Python compilation, Git whitespace,
+  independent review, source-identical helper/skill deployment, active schema-4
+  parsing, and deployed schema-5/legacy smokes passed. Gate Exceptions: none.
+  Release: not applicable. Implementation Gate Commit: `d3bdd5e`. Intended Final
+  Push: feature branch and draft pull request into protected `main`.
+
+
+## 2026-08-29 - V3.43 Reproducible Performance Audit
+
+- Added the report-only `dbsctr-performance-audit` skill and thin OpenCode command
+  with ordered cycle/session/incident evidence, one-shot DKS and telemetry fallback,
+  fixed-commit Explore, public Scout, complete surface mapping, RCA, quality
+  guardrails, and delivery-slice output.
+- Focused red/green contracts and 99 affected lifecycle, control-plane, and portable
+  distribution tests passed with Git whitespace validation. No generic independent
+  reviewer was invoked because the elevated slice was neither explicit review nor
+  critical work.
+- Targeted Chezmoi deployment was source-identical and idempotent for the new skill
+  and command. The installed OpenCode `debug skill` command currently renders help
+  rather than a skill inventory, so managed-file identity and loader contracts are
+  the truthful deployment evidence; a literal installed command-to-skill assertion
+  also passed. Gate Exceptions: none. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
+## 2026-08-29 - Resolved Schema-5 Readiness
+
+- Resolved all-new-cycle schema-5 creation, empty pre-attach adapter maps,
+  status-object availability, exact OpenCode dual-write mapping, immutable adapter
+  revisions, Method Revision `3.29`, unchanged legacy portabilization, and
+  synthetic-only Codex conformance scope.
+- Native Codex installation, identity, hooks, app-server, resume, fork, and
+  history remain deferred to their dependent slices.
+- Thirty-one lifecycle tests, manifest validation, Git whitespace, and
+  independent elevated-risk review passed. Gate Exceptions: none. Release,
+  Deploy, and Operate: not applicable. Gate Commit: the commit containing this
+  entry.
+
+## 2026-08-29 - Ticket-Free Multi-Harness Readiness
+
+- Promoted only the ticket-free `multi-harness-lifecycle` slice after the
+  ticket-blind Initiative schema, complete contracts, execution ownership, and
+  dependency closure validated; every later Codex slice remains captured or
+  blocked.
+- Manifest validation, focused Initiative and lifecycle tests, Python
+  compilation, Git whitespace, and independent review passed. Gate Exceptions:
+  none. Release, Deploy, and Operate: not applicable. Gate Commit: the commit
+  containing this entry.
+
+## 2026-08-29 - Captured Multi-Harness Contract
+
+- Captured one shared lifecycle with explicit OpenCode and Codex harness adapter
+  ownership, compatibility, availability, evidence, and conformance semantics.
+- Kept Method Revision `3.28` and record schema 4 authoritative. Schema 5 is only
+  proposed until a separate implementation cycle passes compatibility gates.
+- Initiative validation, focused helper/lifecycle/distribution tests, Python
+  compilation, Git whitespace, and independent elevated-risk review passed.
+  Gate Exceptions: none. Release, Deploy, and Operate: not applicable. Gate
+  Commit: the commit containing this entry.
+
+## 2026-08-29 - V3.40 Source-Local Cycle Performance
+
+- Added read-only source-local autonomous and calendar runtime mean, nearest-rank
+  p50, and p90 with explicit operator/external pauses, coverage, quality counters,
+  validated filters, and fail-closed incomplete timing.
+- Preserved canonical and retained legacy records across linked worktrees without
+  migration or private span disclosure. Affected QA passed 249 tests with one
+  expected skip; the helper-only remediation rerun passed 174 tests with the same
+  expected skip. Python compilation, Git whitespace, and independent review passed.
+- Targeted deployment was source-identical and idempotent. The first live summary
+  reported 11 completed cycles, 3 complete timing samples, 27.27% coverage,
+  autonomous p50 1,175,094 ms, and calendar p50 2,691,968 ms. Gate Exceptions:
+  none. Gate Commits: `4946d5a`, `84fdd25`. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
+## 2026-08-29 - Phase Span Lock Timeout
+
+- Made malformed Phase Span markers fail before private-lock acquisition and
+  bounded typed marker execution to 30 seconds with process-group cleanup and an
+  explicit timeout error, preventing silent indefinite waits behind concurrent
+  private-ledger readers.
+- Affected QA passed 249 tests with one expected skip, Python compilation, and
+  Git whitespace validation. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+## 2026-08-29 - V3.41 Deterministic Draft Delivery
+
+- Normalized protected-base `merge` begins to `draft_pr`, derived canonical
+  repository identity from GitHub remotes, and rejected account, repository,
+  credential-bearing URL, or URL-rewrite mismatches before isolated worktree
+  creation.
+- Bound draft begin and Final Push Git/CLI operations to the recorded GitHub
+  account through canonical HTTPS and command-scoped credentials while preserving
+  low-level `start`, global account state, and V3.42 default-branch authority.
+- Affected QA passed 249 tests with one expected skip; advanced-target union QA
+  passed 412 tests with one expected skip. Python compilation, Bun bundling, Git
+  whitespace, source-identical Chezmoi rendering, and independent security review
+  passed. Gate Exceptions: none. Gate Commit: `9e48d87`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
+## 2026-08-29 - V3.40-T1 Evidence Timeout Budget
+
+- Raised the default evidence authority timeout from two to ten minutes while
+  retaining explicit shorter budgets and the existing ten-minute hard limit.
+- The controller contract passed 174 tests with one expected skip in 5:49;
+  focused timeout and process-group termination regressions also passed.
+
+## 2026-08-29 - V3.40 Ticket-Blind Lifecycle Authority
+
+- Removed PM tickets from Discovery, DBSCTR, Initiative readiness and receipts,
+  fixed-commit audits, DKS, and autonomous R&D.
+- Kept historical manifest `tickets` arrays readable but ignored, and moved
+  checkout-local applicability plans under Git-ignored `.dbsctr/plans/`.
+
+## 2026-08-29 - V3.39 Operational Incident Capture
+
+- Added explicit child-fork Incident registration, bounded persisted failure
+  signals, source-local redacted evidence, typed lifecycle tools, private forget,
+  review-first presentation, and canonical fix-cycle activation proof.
+- Affected QA passed 247 tests with one expected skip; advanced-target union QA
+  passed another 112 tests. Python compilation, Bun bundling, Git whitespace,
+  targeted source-identical Chezmoi deployment, idempotence, live parser/config
+  smokes, and independent remediation review passed. Gate Exceptions: none. Gate
+  Commits: `369eab1`, `4b8a447`, `6b621fb`, `bef4f5f`. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
+
 ## 2026-08-28 - V3.38 Initiative Discovery
 
 - Added validated durable Initiative manifests, dependency-safe readiness,

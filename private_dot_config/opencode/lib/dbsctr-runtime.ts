@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const harnessActivation = {
   schema_version: 1,
-  core_revision: "3.29",
+  core_revision: "3.31",
   overlays: { build: "neutral-2026-07-26", "build-gpt": "openai-2026-07-26", "build-claude": "anthropic-2026-07-26" },
 }
 
@@ -178,6 +178,14 @@ export async function gitRepositorySlug(cwd: string) {
   return match[1]
 }
 
+export async function gitDefaultBranch(cwd: string) {
+  const output = await run(["git", "ls-remote", "--symref", "origin", "HEAD"], cwd)
+  const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)
+  if (match === null) throw new Error("target repository origin has no default branch")
+  await run(["git", "check-ref-format", "--branch", match[1]], cwd)
+  return match[1]
+}
+
 export async function fileDigest(path: string, cwd = process.cwd()) {
   return createHash("sha256").update(await readFile(resolve(cwd, path))).digest("hex")
 }
@@ -344,7 +352,14 @@ export async function phaseSpan(args: {
   ownershipPaths?: string[]
   attribution?: "explicit" | "adapter" | "unavailable"
   result?: "passed" | "failed" | "blocked" | "abandoned" | "unavailable"
-}, cwd = process.cwd()) {
+}, cwd = process.cwd(), timeoutMs = 30_000) {
+  if (args.event === "start" && (args.phase === undefined || args.operation === undefined
+      || args.attribution === undefined || args.result !== undefined))
+    throw new Error("phase span start requires phase, operation, and attribution only")
+  if (args.event === "finish" && (args.result === undefined || args.parentSpanID !== undefined
+      || args.phase !== undefined || args.operation !== undefined || args.attribution !== undefined
+      || (args.dependencies?.length ?? 0) > 0 || (args.ownershipPaths?.length ?? 0) > 0))
+    throw new Error("phase span finish requires only span ID and result")
   const argv = ["dbsctrctl", "phase-span", "--span-id", args.spanID, "--event", args.event]
   const values: [string, string | undefined][] = [
     ["parent-span-id", args.parentSpanID], ["phase", args.phase], ["operation", args.operation],
@@ -353,7 +368,7 @@ export async function phaseSpan(args: {
   for (const [name, value] of values) if (value !== undefined) argv.push(`--${name}`, value)
   for (const dependency of args.dependencies ?? []) argv.push("--dependency", dependency)
   for (const path of args.ownershipPaths ?? []) argv.push("--path", path)
-  return await run(argv, cwd)
+  return await runBounded(argv, cwd, timeoutMs)
 }
 
 export async function validateExecutionDag(nodes: {
@@ -369,7 +384,7 @@ export async function validateExecutionDag(nodes: {
 
 export async function recordExecutionBenchmark(fixture: {
   id: string; commit: string; path: string; blob: string
-}, cwd = process.cwd()) {
+}, expectedInstance: string, cwd = process.cwd()) {
   return await run([
     "dbsctrctl", "execution-benchmark",
     "--fixture-id", fixture.id, "--fixture-commit", fixture.commit,
@@ -456,6 +471,40 @@ export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd 
   if (excludedMessageID !== undefined) argv.push("--excluded-message-id", excludedMessageID)
   if (exclusionDigest !== undefined) argv.push("--exclusion-digest", exclusionDigest)
   return await run(argv, cwd)
+}
+
+export async function incidentScan(cwd = process.cwd(), sessionID?: string) {
+  return await run(["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID])], cwd)
+}
+
+export async function incidentRegister(input: {
+  sessionID: string
+  messageID: string
+  kind: "defect" | "friction" | "behavior_gap" | "capability_idea"
+  title: string
+  summary: string
+  signalIDs: string[]
+  diagnostics: string[]
+  evidence: string[]
+}, cwd = process.cwd()) {
+  const argv = ["dbsctrctl", "incident-register", "--session-id", input.sessionID,
+    "--message-id", input.messageID, "--kind", input.kind, "--title", input.title,
+    "--summary", input.summary]
+  for (const value of input.signalIDs) argv.push("--signal-id", value)
+  for (const value of input.diagnostics) argv.push("--diagnostic", value)
+  for (const value of input.evidence) argv.push("--evidence", value)
+  return await run(argv, cwd)
+}
+
+export async function incidentUpdate(sessionID: string, messageID: string, incidentID: string, state: "open" | "investigating" | "fixing" | "resolved" | "dismissed", cwd = process.cwd(), cycleID?: string) {
+  return await run(["dbsctrctl", "incident-update", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID, "--state", state,
+    ...(cycleID === undefined ? [] : ["--cycle-id", cycleID])], cwd)
+}
+
+export async function incidentForget(sessionID: string, messageID: string, incidentID: string, cwd = process.cwd()) {
+  return await run(["dbsctrctl", "incident-forget", "--session-id", sessionID, "--message-id", messageID,
+    "--incident-id", incidentID], cwd)
 }
 
 export async function reviewComplete(report: {
@@ -970,6 +1019,13 @@ export async function reviewFederatedSummary(lens: "correctness_safety" | "relia
   return rawOutput
 }
 
+function validateVmHandoffContent(value: unknown, paths: string[]) {
+  const serialized = JSON.stringify(value)
+  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
+  const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
+  if (unsafe.test(serialized) || paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
+}
+
 export async function vmHandoff(report: {
   schema_version: 1
   worker_id: string
@@ -979,14 +1035,11 @@ export async function vmHandoff(report: {
   summary: string
   paths: string[]
   validation: string[]
-}, cwd = process.cwd()) {
+}, expectedInstance: string, cwd = process.cwd()) {
   const serialized = JSON.stringify(report)
-  const unsafe = /(?:https?:\/\/|file:\/\/|\/(?:Users|home|root|tmp|private|var\/folders)\/|(?:^|\/)\.\.(?:\/|$)|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:gh[pousr]_|AKIA)[A-Za-z0-9_=-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\b(?:authorization|password|secret|token|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)/i
-  const safePath = /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\/\/)(?!.*[\\\x00-\x1F\x7F])[^/]+(?:\/[^/]+)*$/
-  if (unsafe.test(serialized) || report.paths.some(path => !safePath.test(path))) throw new Error("unsafe VM handoff")
+  validateVmHandoffContent(report, report.paths)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(report.target)) throw new Error("invalid handoff workspace")
-  await runBounded(["sandbox-vm", "parity", report.target], cwd, 120_000, 1024)
-  const instance = await runBounded(["sandbox-vm", "instance", report.target], cwd, 2_000, 1024)
+  const instance = expectedInstance
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
   const home = await runBounded(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], cwd, 120_000, 1024)
   if (!/^\/home\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(home)) throw new Error("invalid guest home")
@@ -1029,11 +1082,75 @@ export async function vmHandoff(report: {
   return JSON.stringify(result)
 }
 
+export async function validateVmHandoffRequest(request: {
+  workerId: string
+  risk: "routine" | "elevated" | "critical"
+  summary: string
+  paths: string[]
+  validation: string[]
+}, sessionID: string | undefined, cwd = process.cwd()) {
+  const workerID = /^dbsctr-[0-9a-f]{8}$/
+  if (!workerID.test(request.workerId)) throw new Error("invalid improvement worker ID")
+  const environmentWorker = process.env.DBSCTR_RND_WORKER_ID
+  if (!environmentWorker) throw new Error("R&D environment worker is missing")
+  if (environmentWorker !== request.workerId) throw new Error("R&D environment worker does not match request")
+  if (!sessionID) throw new Error("VM handoff session is missing")
+
+  validateVmHandoffContent(request, request.paths)
+
+  let status: any
+  try {
+    status = JSON.parse(await improvementStatus(request.workerId, cwd))
+  } catch {
+    throw new Error("improvement worker status is unavailable")
+  }
+  if (!exactKeys(status, ["workers"]) || !Array.isArray(status.workers))
+    throw new Error("invalid improvement worker status")
+  const workers = status.workers.filter((worker: any) => worker?.worker_id === request.workerId)
+  if (workers.length !== 1) throw new Error("improvement worker is missing")
+  const worker = workers[0]
+  if (worker.session_id !== sessionID) throw new Error("improvement worker session does not match")
+  if (worker.state !== "discovery" || !["operator", "autonomous"].includes(worker.authorization))
+    throw new Error("improvement worker is not Discovery-ready")
+  if (typeof worker.discovery_report !== "string" || !worker.discovery_report)
+    throw new Error("improvement worker Discovery report is missing")
+  const paths = [...request.paths].sort()
+  if (!Array.isArray(worker.paths) || new Set(paths).size !== paths.length
+      || canonicalJSON(worker.paths) !== canonicalJSON(paths))
+    throw new Error("improvement worker paths do not match")
+  if (worker.authorization === "autonomous") {
+    let readiness: any
+    try {
+      readiness = JSON.parse(worker.readiness)
+    } catch {
+      throw new Error("improvement worker readiness is invalid")
+    }
+    if (readiness?.risk !== request.risk) throw new Error("improvement worker risk does not match")
+  }
+}
+
 export async function vmHandoffTarget(cwd = process.cwd()) {
   const target = await runBounded(["sandbox-vm", "build-workspace"], cwd, 2_000, 1024)
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(target) || target === "host")
     throw new Error("invalid build workspace")
   return target
+}
+
+export async function vmHandoffInstance(target: string, cwd = process.cwd()) {
+  const instance = await runBounded(["sandbox-vm", "instance", target], cwd, 2_000, 1024)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(instance)) throw new Error("invalid handoff VM instance")
+  return instance
+}
+
+export async function verifyVmHandoffParity(target: string, instance: string, cwd = process.cwd()) {
+  let value: any
+  try {
+    value = JSON.parse(await runBounded(
+      ["sandbox-vm", "parity", target, "--instance", instance], cwd, 120_000, 1024))
+  } catch {
+    throw new Error("handoff runtime parity failed")
+  }
+  if (value?.instance !== instance) throw new Error("handoff VM instance changed after approval")
 }
 
 function reviewHistoryArgv(args: {
@@ -1344,6 +1461,7 @@ export async function beginCycle(args: {
   planPath: string
   githubAccount?: string
   githubRepository?: string
+  baseBranch?: string
 }, cwd: string, launch = false, env = process.env, runtime?: {
   sessionID: string
   messageID: string
@@ -1363,16 +1481,18 @@ export async function beginCycle(args: {
   requirements: string[]
   depends_on: string[]
   artifacts: string[]
-  tickets: string[]
   release_group: string | null
+  execution_owner: "build"
 }, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string }) {
   if (initiative !== undefined && approved === undefined)
     throw new Error("Initiative launch requires approved plan and repository identities")
   const commonDirectory = async (directory: string) => realpath(await run([
     "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
   ], directory))
-  const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
-  const runtimeArgv = runtime && sameRepository ? [
+  const sameRuntimeRepository = runtime === undefined
+    || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
+  const sameInitiativeCheckout = await realpath(initiativeSourceCwd) === await realpath(cwd)
+  const runtimeArgv = runtime && sameRuntimeRepository && initiative === undefined ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1388,12 +1508,14 @@ export async function beginCycle(args: {
     "--plan", args.planPath,
     ...(args.githubAccount === undefined ? [] : ["--github-account", args.githubAccount]),
     ...(args.githubRepository === undefined ? [] : ["--github-repository", args.githubRepository]),
+    ...(args.baseBranch === undefined ? [] : ["--base-branch", args.baseBranch]),
     ...(initiative === undefined ? [] : [
       "--initiative-manifest", initiative.manifest_path, "--initiative-slice", initiative.slice_id,
       "--initiative-digest", initiative.manifest_digest,
       "--expected-plan-digest", approved!.planDigest,
       "--expected-repository", approved!.targetRepository,
-      ...(sameRepository ? [] : ["--initiative-source", initiativeSourceCwd]),
+      "--resume-existing",
+      ...(sameInitiativeCheckout ? [] : ["--initiative-source", initiativeSourceCwd]),
     ]),
     ...runtimeArgv,
   ], cwd)
@@ -1408,22 +1530,57 @@ export async function beginCycle(args: {
     if (canonical(current) !== canonical(initiative))
       throw new Error("Initiative readiness changed while the cycle was created; Build was not launched")
   }
+  if (handoff.resumed === true && handoff.runtime_attached === true)
+    return { ...handoff, herdr: "already_attached" }
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
+  let ownedTabID: string | undefined
+  let agentConfirmed = false
   try {
-    const createTab = async () => JSON.parse(await run([
-      "herdr", "tab", "create",
-      "--cwd", handoff.worktree,
-      "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
-      "--no-focus",
-    ], cwd))
+    const herdrID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+    const current = JSON.parse(await run(["herdr", "pane", "current", "--current"], cwd))
+    const callerPaneID = current?.result?.pane?.pane_id
+    const workspaceID = current?.result?.pane?.workspace_id
+    if (typeof callerPaneID !== "string" || !herdrID.test(callerPaneID)
+        || typeof workspaceID !== "string" || !herdrID.test(workspaceID))
+      throw new Error("Herdr returned no coordinator workspace")
+    const createTab = async () => {
+      const value = JSON.parse(await run([
+        "herdr", "tab", "create",
+        "--cwd", handoff.worktree,
+        "--workspace", workspaceID,
+        "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
+        "--no-focus",
+      ], cwd))
+      const tabID = value?.result?.tab?.tab_id
+      const paneID = value?.result?.root_pane?.pane_id
+      if (typeof tabID === "string" && herdrID.test(tabID)) ownedTabID = tabID
+      if (typeof tabID !== "string" || !herdrID.test(tabID)
+          || typeof paneID !== "string" || !herdrID.test(paneID)
+          || value?.result?.tab?.workspace_id !== workspaceID
+          || value?.result?.root_pane?.workspace_id !== workspaceID)
+        throw new Error("Herdr tab creation returned no matching workspace pane")
+      return value
+    }
+    const closeOwnedTab = async () => {
+      if (ownedTabID === undefined || agentConfirmed) return
+      const tabID = ownedTabID
+      await run(["herdr", "tab", "close", tabID], cwd)
+      ownedTabID = undefined
+    }
+    const parseAgent = (output: string, pane: string) => {
+      const value = JSON.parse(output)
+      const agent = value?.result?.agent ?? value?.agent
+      if (agent === null || typeof agent !== "object" || agent.pane_id !== pane
+          || agent.tab_id !== ownedTabID || agent.workspace_id !== workspaceID)
+        throw new Error("Herdr returned no matching OpenCode agent")
+      return agent
+    }
+    const getAgent = async (name: string, pane: string) =>
+      parseAgent(await run(["herdr", "agent", "get", name], cwd), pane)
     let tab = await createTab()
     let paneID = tab?.result?.root_pane?.pane_id
-    if (typeof paneID !== "string") throw new Error("Herdr tab creation returned no root pane")
-    const prompt = initiative === undefined ? [] : [
-      "--prompt",
-      `Start only the approved DBSCTR slice. Re-read its Git artifacts, revalidate the manifest digest before acting, and attach this runtime to the cycle. Readiness receipt: ${JSON.stringify(initiative)}`,
-    ]
-    const fresh = [handoff.worktree, ...prompt]
+    const buildAgent = initiative === undefined ? [] : ["--agent", "build"]
+    const fresh = [handoff.worktree, ...buildAgent]
     let opencode = fresh
     let forked = false
     if (runtime !== undefined) {
@@ -1431,7 +1588,7 @@ export async function beginCycle(args: {
       try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
       if (supportsFork) {
         forked = true
-        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...prompt]
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent]
       }
     }
     const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
@@ -1441,41 +1598,83 @@ export async function beginCycle(args: {
       "herdr", "agent", "start", name, "--kind", "opencode", "--pane", pane, "--", ...argv,
     ], cwd)
     let started: string
+    let activeName = agentName
     let sessionMode = forked ? "fork" : "fresh"
+    const result = (status: "launched" | "launch_pending", name: string, agent: any) => ({
+      ...handoff,
+      ...(initiative === undefined ? {} : { initiative }),
+      herdr: status,
+      herdr_session_mode: sessionMode,
+      herdr_agent_name: name,
+      herdr_pane_id: agent.pane_id,
+      ...((agent.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
+        : { herdr_tab_id: agent.tab_id ?? tab.result.tab.tab_id }),
+      ...(agent.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
+      ...(typeof agent?.agent_session?.value === "string"
+        ? { herdr_opencode_session_id: agent.agent_session.value } : {}),
+    })
+    let agent: any
     try {
       started = await start(agentName, paneID, opencode)
+      agent = parseAgent(started, paneID)
+      agentConfirmed = true
     } catch (error) {
       const failure = String(error)
+      if (/agent_not_ready/i.test(failure)) {
+        try {
+          agent = await getAgent(agentName, paneID)
+          agentConfirmed = true
+          return result("launch_pending", agentName, agent)
+        } catch {
+          throw error
+        }
+      }
       if (!forked || !/(?:--fork|\bfork(?:ing)?\b|(?:invalid|unknown|not.?found|expired).{0,32}\bsession\b|\bsession\b.{0,32}(?:invalid|unknown|not.?found|expired))/i.test(failure)) throw error
+      await closeOwnedTab()
       tab = await createTab()
       paneID = tab?.result?.root_pane?.pane_id
-      if (typeof paneID !== "string") throw new Error("Herdr fallback tab creation returned no root pane")
-      started = await start(`${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`,
-        paneID, fresh)
+      const fallbackName = `${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`
+      activeName = fallbackName
       sessionMode = "fresh_fallback"
-    }
-    try {
-      const value = JSON.parse(started)
-      const agent = value?.result?.agent ?? value?.agent ?? value
-      const sessionID = agent?.agent_session?.value
-      const launchedPaneID = agent?.pane_id ?? paneID
-      if (typeof launchedPaneID === "string") return {
-        ...handoff,
-        ...(initiative === undefined ? {} : { initiative }),
-        herdr: "launched",
-        herdr_session_mode: sessionMode,
-        herdr_pane_id: launchedPaneID,
-        ...((agent?.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
-          : { herdr_tab_id: agent?.tab_id ?? tab.result.tab.tab_id }),
-        ...(agent?.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
-        ...(typeof sessionID === "string" ? { herdr_opencode_session_id: sessionID } : {}),
+      try {
+        started = await start(fallbackName, paneID, fresh)
+        agent = parseAgent(started, paneID)
+        agentConfirmed = true
+      } catch (fallbackError) {
+        if (/agent_not_ready/i.test(String(fallbackError))) {
+          try {
+            agent = await getAgent(fallbackName, paneID)
+            agentConfirmed = true
+            return result("launch_pending", fallbackName, agent)
+          } catch {
+            throw fallbackError
+          }
+        }
+        throw fallbackError
       }
-    } catch {
-      // Herdr launch is useful even when this version emits no structured metadata.
     }
-    return { ...handoff, ...(initiative === undefined ? {} : { initiative }), herdr: "launched",
-      herdr_session_mode: sessionMode }
+    if (initiative !== undefined) {
+      const instruction = `Start approved DBSCTR cycle ${args.cycleId}. Read its bound Initiative receipt and Git artifacts from this worktree, revalidate readiness, then attach and implement. If readiness materially changed, do not edit normative scope; report readiness_reopened.`
+      try {
+        agent = parseAgent(await run(["herdr", "agent", "prompt", activeName, instruction], cwd), paneID)
+      } catch (promptError) {
+        try {
+          agent = await getAgent(activeName, paneID)
+          return result("launch_pending", activeName, agent)
+        } catch {
+          return result("launch_pending", activeName, agent)
+        }
+      }
+    }
+    return result("launched", activeName, agent)
   } catch (error) {
+    if (ownedTabID !== undefined && !agentConfirmed) {
+      try {
+        await run(["herdr", "tab", "close", ownedTabID], cwd)
+      } catch (cleanupError) {
+        return { ...handoff, herdr: `launch_failed: ${error}; cleanup_failed: ${cleanupError}` }
+      }
+    }
     return { ...handoff, herdr: `launch_failed: ${error}` }
   }
 }
@@ -1488,7 +1687,7 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
   ], cwd))
   const keys = ["schema_version", "initiative_id", "slice_id", "manifest_digest", "manifest_blob",
     "manifest_commit", "coordinator_repository", "context", "repository",
-    "requirements", "depends_on", "artifacts", "tickets", "release_group"]
+    "requirements", "depends_on", "artifacts", "release_group", "execution_owner"]
   const strings = (name: string) => Array.isArray(value[name])
     && value[name].every((item: unknown) => typeof item === "string")
   if (value === null || typeof value !== "object" || Array.isArray(value)
@@ -1501,10 +1700,21 @@ export async function initiativeReceipt(manifestPath: string, sliceID: string, c
       || typeof value.context !== "string"
       || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value.repository)
       || !strings("requirements") || !strings("depends_on")
-      || !strings("artifacts") || !strings("tickets")
+      || !strings("artifacts")
+      || value.execution_owner !== "build"
       || !(value.release_group === null || typeof value.release_group === "string"))
     throw new Error("dbsctrctl returned an invalid Initiative readiness receipt")
   return { ...value, manifest_path: manifestPath }
+}
+
+export async function initiativeCycleCheck(cycleID: string, receipt: Record<string, unknown>, cwd = process.cwd()) {
+  const value = JSON.parse(await run([
+    "dbsctrctl", "initiative-cycle-check", "--cycle-id", cycleID,
+    "--receipt-json", JSON.stringify(receipt),
+  ], cwd))
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).join("\0") !== "available" || value.available !== true)
+    throw new Error("dbsctrctl returned an invalid Initiative cycle availability result")
 }
 
 async function boundedReconciliationWorktree(cwd: string, worktree?: string,

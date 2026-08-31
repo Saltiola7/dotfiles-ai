@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", roots=None):
+def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", roots=None,
+           runtime="opencode"):
     return {
         "dotfiles_ai": {
             "opencode": {
@@ -26,7 +27,8 @@ def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", ro
                        "provider": "openai-codex", "backlog_roots": roots or [],
                        "project_profiles": False},
             "rnd": {
-                "enabled": enabled, "backend": backend, "review_workdir": review_workdir,
+                "enabled": enabled, "backend": backend, "runtime": runtime,
+                "review_workdir": review_workdir,
                 "review_hour": 9, "review_minute": 15, "watchdog_interval_seconds": 300,
                 "workspace_label": "DBSCTR R&D", "github_account": "test-user",
                 "github_repository": "test-user/dotfiles-ai",
@@ -62,6 +64,34 @@ def test_rnd_schedule_is_machine_local_opt_in():
     assert ".local/bin/dbsctr-rnd" in disabled
     assert not (ROOT / "dot_local/bin/executable_hermes-update").exists()
     assert not (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl").exists()
+
+
+def test_runtime_selector_does_not_activate_worker_routing():
+    opencode = values(runtime="opencode")
+    codex = values(runtime="codex")
+    assert render("dot_local/bin/executable_dbsctr-rnd.tmpl", opencode) == render(
+        "dot_local/bin/executable_dbsctr-rnd.tmpl", codex)
+    assert render(
+        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", opencode
+    ) == render(
+        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", codex
+    )
+    for path in (
+        "run_onchange_after_configure-hermes.sh.tmpl",
+        "run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl",
+    ):
+        assert render(path, opencode) == render(path, codex)
+
+    distribution = "\n".join((ROOT / path).read_text() for path in (
+        "dot_local/bin/executable_codex-install.tmpl",
+        "dot_local/bin/executable_codex.tmpl",
+        "dot_local/bin/executable_codex-project",
+        "dot_local/bin/executable_codex-rollback",
+        "run_onchange_before_install-opencode.sh.tmpl",
+        "run_onchange_after_project-codex.sh.tmpl",
+    ))
+    for forbidden in ("codex login", "OPENAI_API_KEY", "auth.json", "thread/resume"):
+        assert forbidden not in distribution
 
 
 def test_rnd_expands_machine_local_herdr_path():
@@ -298,6 +328,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
         "  'tab close') printf '%s\\n' '{\"result\":{}}';;\n"
         "esac\n"
     )
+    herdr.write_text(herdr.read_text().replace('"--agent","build"', '"--agent","build-rnd"'))
     dbsctrctl.write_text(
         "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; "
@@ -322,7 +353,7 @@ def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
     worker_id = json.loads(completed.stdout)["worker_id"]
     assert worker_id.startswith("dbsctr-")
     commands = log.read_text()
-    assert "opencode run --agent build --command dbsctr-improve --interactive" in commands
+    assert "opencode run --agent build-rnd --command dbsctr-improve --interactive" in commands
     assert "--env DBSCTR_RND_WORKER_ID=dbsctr-" in commands
     assert "pane move w7:p9 --new-tab" in commands
     assert "tab close w7:t0" in commands
@@ -442,7 +473,7 @@ def test_watchdog_recovers_only_missing_exact_session(tmp_path):
     completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
     assert json.loads(completed.stdout)["events"][0]["status"] == "recovered"
     commands = log.read_text()
-    assert f"opencode --mini {workdir} -s ses_1 --agent build --no-replay" in commands
+    assert f"opencode --mini {workdir} -s ses_1 --agent build-rnd --no-replay" in commands
     assert "improvement-update --worker-id worker-1 --state reviewing --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
     assert "improvement-recover --worker-id worker-1 --action success" in commands
 
@@ -497,7 +528,7 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
         "  'pane list') printf '%s\\n' '{\"result\":{\"panes\":[{\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}]}}';;\n"
         "  'pane process-info') printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"--mini\",\"__WORKDIR__\",\"-s\",\"ses_1\",\"--agent\",\"build\",\"--no-replay\"]}]}}}';;\n"
         "esac\n"
-    ).replace("__WORKDIR__", str(workdir)))
+    ).replace("__WORKDIR__", str(workdir)).replace('"--agent","build"', '"--agent","build-rnd"'))
     herdr.chmod(0o755)
     dbsctrctl.chmod(0o755)
     runner = tmp_path / "dbsctr-rnd"
@@ -509,15 +540,15 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
     assert "improvement-recover" not in log.read_text()
     exact = herdr.read_text()
     variants = (
-        exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
+        exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
         exact.replace(str(workdir), "/tmp/unmanaged"),
         exact.replace(
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"}]',
             '[{"tab_id":"w7:t9","pane_id":"w7:p9"},{"tab_id":"w7:t9","pane_id":"w7:p10"}]',
         ),
         exact.replace(
-            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
-            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]},{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build","--no-replay"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]}]',
+            '[{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]},{"argv":["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]}]',
         ),
     )
     for index, variant in enumerate(variants):
@@ -1246,7 +1277,7 @@ def test_watchdog_leaves_waiting_priority_claims_queued(tmp_path, monkeypatch, c
             "events": [{"worker_id": "worker-1", "status": "waiting_priority"}]}
 
 
-def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
+def test_autonomous_rnd_does_not_read_pm_tickets(tmp_path, monkeypatch):
     root = tmp_path / "projects"
     repo = root / "project"
     context = repo / "docs/specs/example"
@@ -1267,38 +1298,10 @@ def test_canonical_backlog_discovery_is_root_bounded(tmp_path, monkeypatch):
                     values(review_workdir=str(repo), roots=[str(root)]))
     namespace = {"__name__": "dbsctr_rnd_backlogs"}
     exec(source.split("\nparser = argparse.ArgumentParser()", 1)[0], namespace)
-    namespace["PMCTL"] = str(ROOT / "dot_local/bin/executable_pmctl")
-    subprocess.run(["python3", namespace["PMCTL"], "migrate-backlogs", "--root", str(repo),
-                    "--apply", "--json"], check=True, capture_output=True, text=True)
     discovered = namespace["canonical_backlogs"]()
-    assert len(discovered["backlogs"]) == 1
-    assert discovered["backlogs"][0]["id"] == "X-1"
-    assert discovered["backlogs"][0]["title"] == "Refine | work"
-    assert len(discovered["backlogs"][0]["idempotency_key"]) == 64
-    repository = namespace["backlog_repositories"]()["repositories"][0]
-    assert repository["profile"].startswith("project-")
-    assert len(repository["profile"]) <= 64
-
-    ticket = next((repo / "docs/tickets/context=example").glob("*.md"))
-    valid = ticket.read_text()
-    ticket.write_text(valid.replace("state: \"intake\"", "state: \"unknown\""))
-    try:
-        namespace["canonical_backlogs"]()
-    except RuntimeError as error:
-        assert "failed" in str(error)
-    else:
-        raise AssertionError("malformed ticket was accepted")
-    ticket.write_text(valid)
-
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (repo / "docs/tickets/context=escape").symlink_to(outside, target_is_directory=True)
-    try:
-        namespace["canonical_backlogs"]()
-    except RuntimeError as error:
-        assert "failed" in str(error)
-    else:
-        raise AssertionError("backlog symlink escape was accepted")
+    assert discovered == {"backlogs": [], "schema_version": 1}
+    assert namespace["backlog_repositories"]()["repositories"][0]["repository"] == str(repo)
+    assert "PMCTL" not in namespace
 
 
 def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeypatch, capsys):
@@ -1325,7 +1328,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
         def terminate(self):
             raise AssertionError("registered process was terminated")
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     runner["session_ids"] = lambda _repository: next(sessions)
@@ -1337,7 +1340,7 @@ def test_direct_launch_registers_only_its_exact_native_session(tmp_path, monkeyp
     runner["launch_action"](reservation, "worker-1", "repo-1")
     output = json.loads(capsys.readouterr().out)
     assert output == {"session_id": "ses_exact", "status": "started", "worker_id": "worker-1"}
-    assert calls == [["opencode", "run", "--agent", "build", "--command", "dbsctr-improve",
+    assert calls == [["opencode", "run", "--agent", "build-rnd", "--command", "dbsctr-improve",
                       "--format", "json"]]
 
 
@@ -1347,7 +1350,7 @@ def test_direct_launch_rejects_expired_reservation_before_process_start(tmp_path
     repository.mkdir()
     reservation, reason = runner["reserve_spawn"]([], 100)
     assert reason == "reserved"
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     monkeypatch.setattr(runner["time"], "time", lambda: 100 + runner["RESERVATION_LEASE_SECONDS"] + 1)
@@ -1385,7 +1388,7 @@ def test_direct_launch_reaps_process_when_reservation_cleanup_fails(tmp_path, mo
             events.append(("wait", timeout))
             return 0
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     calls = 0
@@ -1446,7 +1449,7 @@ def test_direct_launch_kills_group_after_leader_exits(tmp_path, monkeypatch):
             assert timeout == 5
             return 0
 
-    runner["canonical_backlogs"] = lambda: {"backlogs": [{
+    runner["backlog_repositories"] = lambda: {"repositories": [{
         "repository_id": "repo-1", "repository": str(repository),
     }]}
     calls = 0
@@ -1497,9 +1500,6 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
     subprocess.run(["git", "add", "docs/specs/example/BACKLOG.md"], cwd=repository, check=True)
     subprocess.run(["git", "commit", "-m", "backlog"], cwd=repository, check=True, capture_output=True)
-    subprocess.run(["python3", str(ROOT / "dot_local/bin/executable_pmctl"),
-                    "migrate-backlogs", "--root", str(repository), "--apply", "--json"],
-                   check=True, capture_output=True, text=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     command_log = tmp_path / "commands.log"
@@ -1549,7 +1549,6 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
         "DBSCTRCTL": str(dbsctrctl),
         "DBSCTR_RND_STATE": str(state),
         "OPENCODE_BIN": str(opencode),
-        "PMCTL": str(ROOT / "dot_local/bin/executable_pmctl"),
         "PID_FILE": str(pid_file),
         "SESSION_MARKER": str(session_marker),
     }

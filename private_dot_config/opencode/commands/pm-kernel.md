@@ -1,5 +1,5 @@
 ---
-description: Refine and review canonical PM Kernel tickets
+description: Refine local PM and Jira reporting
 ---
 
 Use the skill tool to load `pm-kernel`, then execute it against the arguments
