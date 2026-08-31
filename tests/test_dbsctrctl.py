@@ -3928,6 +3928,11 @@ class DbsctrctlTest(unittest.TestCase):
                 "index_sessions_membership", "index_rows_ascending", "index_rows_recovery",
                 "index_rows_incident",
             })
+        index_sql = dict(indexed.execute(
+            "select name,sql from sqlite_master where type='index' and name in "
+            "('index_rows_recovery','index_rows_incident')"))
+        self.assertIn("WHERE tool_key_digest IS NOT NULL", index_sql["index_rows_recovery"])
+        self.assertIn("WHERE tool_state='failed'", index_sql["index_rows_incident"])
         self.assertEqual(indexed.execute("select count(*) from index_rows").fetchone()[0], 39)
         self.assertEqual({row[1] for row in indexed.execute("pragma table_info(index_rows)")},
                          {"generation_id", "part_rowid", "session_id", "part_time", "part_updated",

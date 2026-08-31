@@ -5509,11 +5509,16 @@ def open_history_source_index(root, create=False):
         try:
             version = probe.execute(
                 "SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
+            index_sql = {name: (sql or "") for name, sql in probe.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='index' AND name IN "
+                "('index_rows_recovery','index_rows_incident')")}
         except sqlite3.Error:
-            version = None
+            version, index_sql = None, {}
         finally:
             probe.close()
-        if version == ("1",):
+        predicates_valid = ("WHERE tool_key_digest IS NOT NULL" in index_sql.get("index_rows_recovery", "")
+                            and "WHERE tool_state='failed'" in index_sql.get("index_rows_incident", ""))
+        if version == ("1",) or version == (str(HISTORY_SOURCE_INDEX_SCHEMA),) and not predicates_valid:
             path.unlink()
         elif version != (str(HISTORY_SOURCE_INDEX_SCHEMA),):
             fail("history source index schema is incompatible")
@@ -5607,9 +5612,11 @@ def ensure_history_source_index_schema(connection):
         CREATE INDEX IF NOT EXISTS index_rows_ascending
           ON index_rows(generation_id,session_id,part_time,part_rowid);
         CREATE INDEX IF NOT EXISTS index_rows_recovery
-          ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid);
+          ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid)
+          WHERE tool_key_digest IS NOT NULL;
         CREATE INDEX IF NOT EXISTS index_rows_incident
-          ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC);
+          ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC)
+          WHERE tool_state='failed';
         CREATE TABLE IF NOT EXISTS active_generation (
           singleton INTEGER PRIMARY KEY CHECK (singleton=1),
           generation_id TEXT NOT NULL REFERENCES index_generations(generation_id)
@@ -5651,6 +5658,8 @@ def validate_history_source_index_schema(connection):
         "SELECT name FROM sqlite_master WHERE type='table'")}
     indexes = {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_autoindex_%'")}
+    index_sql = {name: (sql or "") for name, sql in connection.execute(
+        "SELECT name,sql FROM sqlite_master WHERE type='index'")}
     columns = {table: tuple(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))
                for table in expected if table in tables}
     row = (connection.execute("SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
@@ -5658,7 +5667,9 @@ def validate_history_source_index_schema(connection):
     if (tables != set(expected) or indexes != expected_indexes
             or row != (str(HISTORY_SOURCE_INDEX_SCHEMA),)
             or any(columns.get(table) != names for table, names in expected.items())
-            or connection.execute("SELECT count(*) FROM index_meta").fetchone()[0] != 1):
+            or connection.execute("SELECT count(*) FROM index_meta").fetchone()[0] != 1
+            or "WHERE tool_key_digest IS NOT NULL" not in index_sql.get("index_rows_recovery", "")
+            or "WHERE tool_state='failed'" not in index_sql.get("index_rows_incident", "")):
         raise SourceIndexUnavailable("source_index_unavailable")
 
 
