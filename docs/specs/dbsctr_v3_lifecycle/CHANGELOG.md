@@ -16,6 +16,10 @@
   and Maintain/Retire are not applicable to this Discovery-only correction.
   Intended Final Push: feature branch and draft pull request into protected
   `main`.
+- Build review reopened portability before its first Gate Commit. The schema now
+  caps every integer at `2^53 - 1`, uses canonical decimal-string cost, and names
+  POSIX, Windows drive-qualified, and UNC path rejection so Python and JavaScript
+  implementations share digest and privacy semantics.
 
 ## 2026-08-31 - History Boundary Index Readiness
 

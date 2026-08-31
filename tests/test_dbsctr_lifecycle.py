@@ -243,10 +243,12 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert page["properties"]["members"]["maxItems"] == 100
     assert history_schema["$defs"]["request"]["properties"]["limit"]["maximum"] == 20
     assert history_schema["$defs"]["continuation"]["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["member"]["properties"]["updated_at"]["maximum"] == 9007199254740991
     entry = history_schema["$defs"]["entry"]
     assert entry["additionalProperties"] is False
     assert entry["properties"]["content"]["maxItems"] == 100
     assert "metrics" in entry["required"]
+    assert entry["properties"]["created_at"]["maximum"] == 9007199254740991
     assert history_schema["$defs"]["text"]["properties"]["role"]["enum"] == [
         "user", "assistant",
     ]

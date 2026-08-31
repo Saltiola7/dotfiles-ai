@@ -200,7 +200,8 @@ Every page carries that complete ordered membership, including terminal pages.
 Text limits are UTF-8 byte limits, not Unicode code-point limits. Token totals
 are nonnegative integers. Cost totals are `null` or canonical nonnegative USD
 decimal strings with at most six fractional digits; floats and exponents are
-rejected.
+rejected. Every integer is at most `9007199254740991` (`2^53 - 1`) so Python,
+JavaScript, and other ordinary JSON runtimes preserve one canonical value.
 
 Availability contains exactly `status` and, only for `unavailable` or `partial`,
 a bounded ASCII `reason`. Available and not-requested values have no reason.
@@ -217,8 +218,9 @@ end of that slice and is null when the slice reaches membership length.
 - Owning adapters exclude reasoning and forbidden native item types before page
   construction. The generic validator applies the existing `SECRET_VALUE`,
   `HIGH_ENTROPY`, and `review_unsafe` lexical policies to text and rejects any
-  remaining credential, high-entropy value, email, URL, absolute path, or control
-  character. Literal `[REDACTED]` replacements are allowed.
+  remaining credential, high-entropy value, email, URL, POSIX absolute path,
+  Windows drive-qualified path, UNC path, or control character. Literal
+  `[REDACTED]` replacements are allowed.
 - User and assistant text is retained only in bounded page memory and explicit
   downstream private stores; the validator never persists it.
 - Reasoning, images, tool command/arguments/output/environment, account data,
