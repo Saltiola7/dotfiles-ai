@@ -7,7 +7,7 @@ import tarfile
 
 
 EXPECTED = "codex-aarch64-unknown-linux-musl"
-MAX_SIZE = 256 * 1024 * 1024
+MAX_SIZE = 320 * 1024 * 1024
 
 
 def validate_target(target):
@@ -20,14 +20,14 @@ def validate_target(target):
         raise ValueError("managed Codex target has unsafe type")
 
 
-def extract(archive, destination):
+def extract(archive, destination, expected=EXPECTED):
     archive = Path(archive)
     destination = Path(destination)
     if destination.exists() or destination.is_symlink():
         raise ValueError("Codex archive destination already exists")
     with tarfile.open(archive, "r:gz") as bundle:
         members = bundle.getmembers()
-        if (len(members) != 1 or members[0].name != EXPECTED or not members[0].isreg()
+        if (len(members) != 1 or members[0].name != expected or not members[0].isreg()
                 or members[0].size <= 0 or members[0].size > MAX_SIZE):
             raise ValueError("Codex archive has an unsafe member set")
         source = bundle.extractfile(members[0])
@@ -49,9 +49,9 @@ def main(argv=None):
     if argv[:1] == ["--validate-target"] and len(argv) == 2:
         validate_target(argv[1])
         return
-    if len(argv) != 2:
-        raise SystemExit("usage: codex-archive ARCHIVE DESTINATION")
-    extract(argv[0], argv[1])
+    if len(argv) not in {2, 3}:
+        raise SystemExit("usage: codex-archive ARCHIVE DESTINATION [EXPECTED]")
+    extract(argv[0], argv[1], argv[2] if len(argv) == 3 else EXPECTED)
 
 
 if __name__ == "__main__":
