@@ -11,9 +11,8 @@
 - A disposable CentOS Stream 10 x86_64 container passed checksum verification,
   two empty-convergent applies, exact runtime versions, and sanitized status.
   Affected compatibility validation passed 158 tests; the repository-wide run
-  passed 655 tests, one expected skip, and 21 subtests, with the unchanged local
-  sanitized-history availability test remaining unavailable on both base and
-  feature revisions.
+  passed 657 tests, one expected skip, and 21 subtests after removing inherited
+  live DBSCTR state-root variables to match isolated CI execution.
 - Gate Commits: `5732639`, `495ad76`, `305baed`, and `020a8e6`. Gate Exceptions:
   none. No live GCE user home, provider credential, tailnet policy, or service was
   changed. Intended Final Push: feature branch and draft pull request into
