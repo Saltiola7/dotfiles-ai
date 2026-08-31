@@ -1,6 +1,6 @@
 # Managed Codex CLI Distribution
 
-**Status:** Distribution implemented; controlled deployment pending
+**Status:** Distribution deployed; identity probe pending
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -264,17 +264,17 @@ cross-runtime activation.
 
 | Gate | Applicability | Result | Authority | Owner |
 |---|---|---|---|---|
-| Domain | required | pending | Configuration, ownership, and boundary language | Primary |
-| Behavior | required | pending | Install, projection, selector persistence, isolation, and rollback scenarios | Primary |
-| Spec | required | pending | This feature specification | Primary |
-| Contract | required | pending | TOML, digest, checksum, and isolation tests | Primary |
-| Test-driven implementation | required | pending | Distribution and Lima tests | Primary |
-| Refactor | required | pending | Reuse state-root and installer patterns | Primary |
-| Review/Integrate | required | pending | Affected QA and independent review | Primary |
+| Domain | required | passed | Configuration, ownership, and boundary language | Primary |
+| Behavior | required | passed | Install, projection, selector persistence, isolation, and rollback scenarios | Primary |
+| Spec | required | passed | This feature specification | Primary |
+| Contract | required | passed | TOML, digest, checksum, and isolation tests | Primary |
+| Test-driven implementation | required | passed | Distribution and Lima tests | Primary |
+| Refactor | required | passed | Reused state-root, package, and VM-state patterns | Primary |
+| Review/Integrate | required | passed | Affected QA and independent elevated-risk review | Primary |
 | Release | not_applicable: source pins an upstream artifact but publishes none | not_run | Engineering Profile | Primary |
-| Deploy | required | pending | Host and guest managed apply | Primary |
-| Operate | required | pending | Version, wrapper, selector, projection, and isolation smokes | Primary |
-| Maintain/Retire | required | pending | Upgrade, rollback, and retained-state evidence | Primary |
+| Deploy | required | passed | Targeted host apply and exact-archive apply to every registered guest | Primary |
+| Operate | required | passed | Host and guest `0.151.0`, wrapper, projection, cleanup, and VM-state smokes | Primary |
+| Maintain/Retire | required | passed | Upgrade refusal, package/projection rollback, ordered guest rollback, and retained-state tests | Primary |
 
 ## Validation
 
