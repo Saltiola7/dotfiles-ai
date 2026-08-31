@@ -113,11 +113,11 @@ The completed host-foundation hook correction was a Discovery-owned readiness
 revalidation persisted by the Build primary; it did not change slice scope,
 dependencies, execution ownership, or parity meaning.
 
-This Initiative creates no PM Kernel tickets. The manifest records the merged
-`codex-host-foundation` as delivered and marks only `codex-distribution`
-receipt-ready. Identity, worker, history, recovery, federation, and final parity
-slices remain dependency-blocked. Applicability plans and Cycle Records cannot
-substitute for a fresh Initiative readiness receipt.
+This Initiative creates no PM Kernel tickets. The manifest records host
+foundation, distribution, and the exact cross-platform identity probe as
+delivered and marks only `codex-history-parity` ready. Worker routing, recovery,
+federation, and final parity remain dependency-gated. Applicability plans and
+Cycle Records cannot substitute for a fresh Initiative readiness receipt.
 
 ## Release Groups
 
@@ -151,15 +151,17 @@ substitute for a fresh Initiative readiness receipt.
 
 ## Current Evidence Boundary
 
-Codex CLI is not installed on the current host. The proposed frozen baseline is
-Codex `0.151.0`; Fedora would use
-`codex-aarch64-unknown-linux-musl.tar.gz` with SHA-256
+Codex CLI `0.151.0` is deployed on the managed Apple Silicon host and every
+registered Fedora guest. Fedora uses `codex-aarch64-unknown-linux-musl.tar.gz`
+with SHA-256
 `c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6`.
-Implementation must revalidate the release tag, asset, and digest before use.
-The identity probe must compare hook `session_id`, app-server `thread.id`, and
-`thread.sessionId` on macOS and Fedora before exact attach, recovery, or history
-correlation becomes ready.
+Host and guest version, configuration, state isolation, rollback, and separate
+boundary-local authentication prerequisites have passed.
+The frozen-version identity probe proved hook `session_id`, CLI JSONL thread
+identity, app-server `thread.id`, and root `thread.sessionId` are exactly equal on
+macOS and representative Fedora. Resume preserved exact identity; fork returned
+an exact parent relation and a new root equal to the fork thread.
 Official `0.151.0` source confirms recursive `agents/**/*.toml` role discovery,
-inline command hooks, and the common hook `transcript_path` field. These are
-source contracts only; installed-runtime behavior remains unverified until the
-distribution and identity-probe slices.
+inline command hooks, and the common hook `transcript_path` field. Installed
+identity behavior is authoritative only for the frozen release and must be
+reprobed on upgrade.

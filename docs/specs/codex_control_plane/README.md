@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Host foundation implemented; distribution and capability probes not started
+**Status:** Exact identity delivered; history parity ready
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -25,12 +25,11 @@ contracts without creating another lifecycle state machine.
 
 ## Problem
 
-The repository currently manages OpenCode deeply but does not install or
-configure Codex CLI. Codex state defaults overlap the separately managed desktop
-application, and OpenCode-specific session, permission, history, worker, and
-recovery adapters cannot be assumed to work for Codex. The control plane must add
-equivalent outcomes without copying client internals or weakening lifecycle
-authority.
+The repository now installs and configures Codex CLI beside deeply managed
+OpenCode while keeping the separately managed desktop application isolated.
+OpenCode-specific session, permission, history, worker, and recovery adapters
+cannot be assumed to work for Codex. The control plane must prove equivalent
+outcomes without copying client internals or weakening lifecycle authority.
 
 ## Goals
 
@@ -344,7 +343,7 @@ bounded private success or failure record they return `0` to avoid making an
 observability hook an execution authority. Owner-only hook records retain only
 the normalized envelope or a bounded failure enum and expire after 24 hours.
 
-The planned executable is `codex-control-plane`, implemented in Python without a
+The managed executable is `codex-control-plane`, implemented in Python without a
 daemon or private database:
 
 ```text
@@ -354,11 +353,11 @@ codex-control-plane session list|read|resume|fork
 codex-control-plane dbsctr OPERATION
 ```
 
-The first adapter stage proposes installed `codex --version`,
-`codex exec --json`, and documented command hooks. The second stage proposes the
-installed `codex app-server` over stdio and the documented target methods
-`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. These interfaces
-remain unavailable until the frozen-version host and Fedora probes pass.
+The first adapter stage uses installed `codex --version`, `codex exec --json`,
+and documented command hooks. The frozen-version identity probe validated the
+installed `codex app-server` stdio handshake and documented target methods
+`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. The managed
+session commands remain unavailable until the history-parity adapter is built.
 Experimental item/turn pagination and WebSocket transport are excluded.
 Every stdio connection completes documented `initialize` and `initialized`
 handshake messages without opting into `experimentalApi` before a thread method.
@@ -433,11 +432,14 @@ final parity for a requested outcome without a separately approved scope change.
 
 Facts:
 
-- Codex CLI was not on the host `PATH` during Discovery.
-- The proposed frozen baseline is public release `0.151.0`; implementation must
-  revalidate its tag, asset, digest, hook shape, and app-server methods.
-- Official hook documentation does not guarantee whether hook `session_id`
-  equals app-server `thread.id` or root `thread.sessionId`.
+- Codex CLI `0.151.0` is installed through the managed wrapper on the host and
+  every registered Fedora guest with isolated state and authentication.
+- The frozen baseline is public release `0.151.0`; each identity probe must
+  revalidate its runtime, hook shape, and app-server methods.
+- Official hook documentation does not guarantee identity equality across
+  releases; the frozen `0.151.0` host and Fedora probe found hook `session_id`,
+  CLI JSONL thread identity, app-server `thread.id`, and root `thread.sessionId`
+  exactly equal.
 - Official `0.151.0` source includes `transcript_path` in common hook payloads,
   recursive `agents/**/*.toml` role discovery, and inline command hooks.
 - The official Python SDK source at the target tag pins an older CLI runtime, so

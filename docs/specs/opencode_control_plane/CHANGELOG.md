@@ -1,6 +1,6 @@
 # OpenCode Control Plane Changelog
 
-## 2026-08-30 - History Source-Index Availability Contract
+## 2026-08-31 - History Source-Index Availability Contract
 
 - Reserved exact `source_index_unavailable` lifecycle classification for missing,
   preparing, stale, incompatible, corrupt, or insufficiently covered private
@@ -8,6 +8,17 @@
 - Kept generation, source, privacy, path, and row identities outside the later
   model-visible availability envelope. This Discovery-only contract changes no
   deployed adapter. Gate Exceptions: none.
+
+## 2026-08-31 - Optional DKS Routing Discovery
+
+- Replaced mandatory DKS-first routing with one optional project- and revision-
+  compatible attempt under a shared five-second deadline and immediate typed
+  fallback to authoritative source inspection.
+- Required a paired value gate covering correctness, errors, p95, median completion
+  time, tool calls, and token cost; failed or stale evidence disables automatic
+  routing without retiring the projection or manual CLI.
+- This change establishes durable authority only; implementation, benchmark,
+  deployment, and activation remain separately gated.
 
 ## 2026-08-30 - Cross-Checkout Initiative Source Repair
 
