@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-30 - Cross-Checkout Initiative Source Repair
+
+- Restored explicit Initiative-source launch by resolving the selected checkout
+  to its Git root and rejecting missing or non-repository sources without path
+  disclosure.
+- Scrubbed inherited Git repository and configuration overrides from local
+  repository validation so source identity cannot be redirected by process state.
+- All 229 affected tests, one expected skip, 21 subtests, Python compilation,
+  and independent security review pass. Gate Commit: `48a604a`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-30 - Coordinator Workspace Affinity
 
 - Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's
