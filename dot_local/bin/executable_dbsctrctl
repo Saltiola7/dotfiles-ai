@@ -80,7 +80,15 @@ PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 INCIDENT_KINDS = ("defect", "friction", "behavior_gap", "capability_idea")
 INCIDENT_STATES = ("open", "investigating", "fixing", "resolved", "dismissed")
 INSPECT_RESPONSE_HARD = 128 * 1024
-INSPECT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+GIT_REPOSITORY_ENV = {
+    key: value for key, value in os.environ.items()
+    if key not in {
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+        "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    } and not key.startswith("GIT_CONFIG_")
+}
+INSPECT_ENV = {**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
 EVIDENCE_SIDECAR_CAP = 256 * 1024
 SECRET_OPTION = re.compile(r"(?:pass(?:word)?|secret|token|key|credential|auth(?:orization)?|cookie)", re.I)
@@ -101,7 +109,10 @@ def fail(message):
 
 
 def git(root, *args, check=True, env=None):
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, env=env)
+    result = subprocess.run(
+        ["git", *args], cwd=root, text=True, capture_output=True,
+        env=GIT_REPOSITORY_ENV if env is None else env,
+    )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
@@ -110,7 +121,7 @@ def git(root, *args, check=True, env=None):
 def git_read(root, *args, check=True):
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
-        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -140,6 +151,20 @@ def root_dir():
     if result.returncode:
         fail("not inside a Git repository")
     return Path(result.stdout.strip())
+
+
+def repo_root(value):
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=Path(value).expanduser(),
+            text=True, capture_output=True,
+            env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except OSError:
+        fail("Initiative source must be a Git repository")
+    if result.returncode:
+        fail("Initiative source must be a Git repository")
+    return Path(result.stdout.strip()).resolve()
 
 
 def git_dir(root):
