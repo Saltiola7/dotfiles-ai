@@ -161,20 +161,24 @@ one machine boundary: exit `75`, empty stdout, and stderr exactly
 two-second deadline. OpenCode, not DKS, owns the later model-visible availability
 envelope.
 
-## History Boundary Index
+## History Materialized Projection
 
-History and Incident population discovery uses one owner-private derived boundary
-index instead of repeatedly ordering the full OpenCode part table. The lifecycle
-context owns this rebuildable cache. It stores source row identity and ordering
-metadata only, never prompt, response, command, error, or tool payload content.
+History aggregate and Incident summary reads use one owner-private body-free
+materialized projection instead of reconstructing membership and metrics from the
+full OpenCode source. The lifecycle context owns this rebuildable cache. Bounded
+maintenance derives session eligibility, exact ordering, source-heavy counters,
+safe model/tool categories, and failure/recovery classifications while storing no
+prompt, response, command, raw error, credential, or tool payload content.
 
 Only an atomically ready generation may serve aggregate or summary queries. A
 missing, preparing, source-incompatible, privacy-stale, or corrupt generation is
 explicitly unavailable and returns no partial population. Incremental maintenance
-must reach the requested snapshot ceiling before use. Source replacement, rowid
-regression, schema incompatibility, or a privacy tombstone invalidates affected
-state and requires bounded rebuild. Detailed History and Incident modes remain
-independent of this cache.
+builds immutable append-delta generations over one active chain and compacts
+before depth sixteen. Captures bind one generation, so source append never changes
+an existing continuation. Source replacement, rowid regression, schema
+incompatibility, or a privacy tombstone invalidates affected state and requires
+bounded rebuild. Ready queries read no source body columns; detailed History and
+Incident modes remain independent of this projection.
 
 DKS privacy guarding uses a dedicated lifecycle privacy lock. Unrelated review,
 History, Incident, and capture work cannot block a query, while forget and expiry

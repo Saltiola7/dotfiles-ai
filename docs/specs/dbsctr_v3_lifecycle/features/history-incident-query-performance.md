@@ -14,7 +14,7 @@ availability.
 | Reduction | Binds the page, bulk-reduces metrics, and validates summary schemas | Does not recompute lifecycle metrics |
 | Availability | Returns valid local output or fails closed | Bounds the subprocess and maps operational failure to typed availability |
 | Privacy | Omits private identities and raw text from summary modes | Prevents unavailable or rejected output from entering model context |
-| Index state | Owns private preparation, activation, invalidation, and retirement | Receives only sanitized availability |
+| Projection state | Owns private preparation, activation, compaction, invalidation, and retirement | Receives only sanitized availability |
 
 ## Ubiquitous Language
 
@@ -24,8 +24,9 @@ availability.
 | Aggregate Page | Metrics and distributions reduced only for one Immutable Page without candidate bodies or identifiers. |
 | Incident Summary | Bounded counts by allowlisted tool, sanitized failure class, and recovery state without signal identity or evidence. |
 | Availability Denominator | Separate available and unavailable member counts carried beside one metric. |
-| Boundary Index | Owner-private derived ordering metadata used to select exact source boundaries without reading every payload. |
-| Index Generation | One versioned preparing or ready Boundary Index population bound to source, schema, privacy, and row ceilings. |
+| Materialized Projection | Owner-private, body-free derived session, metric, ordering, and Incident classification state used by aggregate and summary reads. |
+| Projection Generation | One immutable full or append-delta projection bound to source, schema, privacy, and row ceilings. |
+| Projection Chain | An active generation and at most 15 immutable ancestors whose newest session rows and append-only part rows resolve one exact snapshot. |
 
 ## Required Behavior
 
@@ -60,16 +61,26 @@ availability.
 - When History or Incident evidence is requested
 - Then the existing candidate and detailed response contracts remain unchanged
 
-**Scenario: Activate one exact boundary generation**
+**Scenario: Activate one exact projection generation**
 
 - Given a source schema with stable `session_id`, `rowid`, and `time_created`
-- When bounded maintenance reaches one captured part ceiling
-- Then it records ordering keys in exact `(session_id, time_created, rowid)` order
+- When bounded maintenance reaches captured session, message, and part ceilings
+- Then it records exact ordering keys and body-free eligibility, metric, and
+  Incident classifications
 - And atomically activates the generation only after source, schema, privacy,
   coverage, uniqueness, and ordering validation pass
 - And stores no source body or model-visible evidence
 
-**Scenario: Refuse an unavailable boundary generation**
+**Scenario: Serve one ready projection without source payload scans**
+
+- Given an active ready Projection Chain covers one snapshot
+- When aggregate History or Incident summary selects evidence
+- Then membership, page metrics, distributions, failure classes, and recovery
+  come from the projection
+- And the ready query reads no source body column
+- And selected aggregate source metadata is validated in one bounded bulk query
+
+**Scenario: Refuse an unavailable projection generation**
 
 - Given the index is missing, preparing, corrupt, privacy-stale, source-incompatible,
   or behind the requested part ceiling
@@ -94,11 +105,12 @@ owner-private transient capture under the existing 24-hour retention policy.
 Provider adapters expose the corresponding `aggregateOnly` and `summaryOnly`
 booleans. Both default to `false`.
 
-`history-source-index-maintain` owns bounded preparation. It reads the configured
+`history-source-index-maintain` owns bounded projection preparation. It reads the configured
 OpenCode source and owner-private lifecycle state, accepts no caller-supplied rows,
 and returns only schema version, generation state, covered row ceiling, indexed
 row count, and continuation-needed boolean. It never returns source IDs or bodies.
-Aggregate and summary reads never synchronously perform an unbounded rebuild.
+Aggregate and summary reads never synchronously build, extend, compact, or verify
+a projection and never scan source payload columns.
 One invocation reads at most 50,000 source rows and consumes at most five seconds
 of monotonic maintenance time, whichever comes first. These bounds are fixed, not
 caller configuration.
@@ -111,6 +123,7 @@ Maintenance output has exactly:
 
 `state` is `preparing` or `ready`; counts are non-negative signed 64-bit integers.
 No generation, source, privacy, path, session, message, or part identity is output.
+The command envelope remains version 1 independently of private sidecar schema 2.
 
 Operational index unavailability has one local machine boundary: process status
 `75`, empty stdout, and stderr exactly `source_index_unavailable\n`. Missing,
@@ -282,37 +295,34 @@ snapshot. Recovery is computed before an output tool name is collapsed to
 - An immutable reduction cache may reuse only exact snapshot, digest, filters,
   cursor, page, and method identity. Changed identity is a cache miss.
 
-The first aggregate request may scan the live population once to validate source
-identity, apply filters, and persist ordered membership in the existing immutable
-capture store. It must not reduce metrics during that scan. Page selection then
-reads capture membership and binds the ordered hidden page IDs before reading
-message/part metric payloads or expanding family telemetry. Continuations require
-the returned capture ID and never read the live population.
-The subsequent metric work uses a fixed number of bulk authority queries whose
-count does not grow with page size. Aggregate digest identity includes mode
+The first aggregate request selects eligible ordered membership from one active
+Projection Chain, applies lifecycle and review filters, and persists membership in
+the existing immutable capture store. It performs no source body read. Page
+selection then reads capture membership and binds ordered hidden page IDs before
+resolving projected metrics and bounded lifecycle telemetry. Continuations require
+the returned capture ID and remain bound to the captured projection generation.
+The subsequent metric work uses projection lookups and a fixed number of bounded
+metadata queries whose count does not grow with page size. Aggregate digest identity includes mode
 `aggregate-v1`, capture ID, snapshot, ceilings, database and exclusion digests,
 canonical filters, limit, cursor, ordered hidden page IDs, and every selected source
 identity. A cache is optional; when absent, these values still define immutable
 continuation and digest validation.
 
-### Boundary Index Contract
+### Materialized Projection Contract
 
-The index is the separate owner-private SQLite sidecar
+The projection is the separate owner-private SQLite sidecar
 `reviews/history-source-index.sqlite3` under lifecycle review state, mode `0600`,
 with symlink and non-owner rejection. It is not part of Git, review
 history, backup or federation payloads, transient capture output, or canonical
-OpenCode state. Schema version 1 contains:
-
-- generation metadata: opaque generation ID, `preparing` or `ready` state,
-  source file identity, source schema identity, privacy epoch digest, captured
-  session and part ceilings, indexed part rowid, indexed row count, and timestamps;
-- ordering rows: private session ID, part rowid, and integer part time only;
-- indexes supporting exact `(session_id, part_time, part_rowid)` ascending and
-  descending boundary reads.
+OpenCode state. Schema version 2 contains immutable full or append-delta
+generations, cumulative session projections, safe categorical values, and
+append-only part projections.
 
 No title, prompt, response, command, URL, credential, environment value, body,
-error, model output, message ID, part ID, cycle ID, or evidence text is stored.
-Raw private session IDs remain owner-local and are never emitted.
+raw error, model output, message ID, part ID, cycle ID, or evidence text is stored.
+Raw private session IDs and parent IDs remain owner-local and are never emitted.
+Unknown tool identity is stored only as one generation-keyed digest. A private
+disposition digest may match existing Incident state but is never emitted.
 
 The exact private schema is:
 
@@ -323,84 +333,191 @@ CREATE TABLE index_meta (
 ) WITHOUT ROWID;
 CREATE TABLE index_generations (
   generation_id TEXT PRIMARY KEY,
+  base_generation_id TEXT REFERENCES index_generations(generation_id),
+  depth INTEGER NOT NULL CHECK (depth BETWEEN 0 AND 15),
   state TEXT NOT NULL CHECK (state IN ('preparing','ready')),
+  phase TEXT NOT NULL CHECK (phase IN ('sessions','messages','parts','finalizing','ready')),
   source_device INTEGER NOT NULL,
   source_inode INTEGER NOT NULL,
   schema_digest TEXT NOT NULL,
   privacy_epoch_digest TEXT NOT NULL,
-  session_ceiling INTEGER NOT NULL,
+  target_session_ceiling INTEGER NOT NULL,
+  target_message_ceiling INTEGER NOT NULL,
   target_part_ceiling INTEGER NOT NULL,
+  indexed_session_rowid INTEGER NOT NULL,
+  indexed_message_rowid INTEGER NOT NULL,
   indexed_part_rowid INTEGER NOT NULL,
+  finalized_session_rowid INTEGER NOT NULL,
+  verified_part_rowid INTEGER NOT NULL,
+  covered_session_ceiling INTEGER NOT NULL,
+  covered_message_ceiling INTEGER NOT NULL,
   covered_part_ceiling INTEGER NOT NULL,
-  indexed_row_count INTEGER NOT NULL,
+  session_row_count INTEGER NOT NULL,
+  message_row_count INTEGER NOT NULL,
+  part_row_count INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE index_sessions (
+  generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  session_rowid INTEGER NOT NULL,
+  parent_session_id TEXT,
+  created_at INTEGER NOT NULL,
+  last_activity INTEGER NOT NULL,
+  eligible INTEGER NOT NULL CHECK (eligible IN (0,1)),
+  review_marker INTEGER NOT NULL CHECK (review_marker IN (0,1)),
+  project_digest TEXT,
+  source_digest TEXT NOT NULL,
+  part_count INTEGER NOT NULL,
+  tool_call_count INTEGER NOT NULL,
+  tool_error_count INTEGER NOT NULL,
+  provider_error_count INTEGER NOT NULL,
+  child_count INTEGER NOT NULL,
+  delegation_count INTEGER NOT NULL,
+  token_total INTEGER,
+  PRIMARY KEY (generation_id,session_id),
+  UNIQUE (generation_id,session_rowid)
+) WITHOUT ROWID;
+CREATE INDEX index_sessions_membership
+  ON index_sessions(generation_id,eligible,last_activity DESC,session_id);
+CREATE TABLE index_session_values (
+  generation_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('agent','model')),
+  value TEXT NOT NULL,
+  PRIMARY KEY (generation_id,session_id,kind,value),
+  FOREIGN KEY (generation_id,session_id)
+    REFERENCES index_sessions(generation_id,session_id) ON DELETE CASCADE
+) WITHOUT ROWID;
 CREATE TABLE index_rows (
   generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
   part_rowid INTEGER NOT NULL,
   session_id TEXT NOT NULL,
   part_time INTEGER NOT NULL,
+  part_updated INTEGER NOT NULL,
+  source_digest TEXT NOT NULL,
+  eligibility_flags INTEGER NOT NULL,
+  tool_name TEXT,
+  tool_key_digest TEXT,
+  tool_state TEXT CHECK (tool_state IN ('success','failed','other')),
+  failure_class TEXT,
+  disposition_digest TEXT,
   PRIMARY KEY (generation_id,part_rowid)
 ) WITHOUT ROWID;
 CREATE INDEX index_rows_ascending
   ON index_rows(generation_id,session_id,part_time,part_rowid);
+CREATE INDEX index_rows_recovery
+  ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid);
+CREATE INDEX index_rows_incident
+  ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC);
 CREATE TABLE active_generation (
   singleton INTEGER PRIMARY KEY CHECK (singleton=1),
   generation_id TEXT NOT NULL REFERENCES index_generations(generation_id)
 );
 ```
 
-`index_meta` contains exactly `schema_version=1`. Digests are lowercase SHA-256;
+`index_meta` contains exactly `schema_version=2`. Digests are lowercase SHA-256;
 generation and session IDs use existing private opaque-ID validation. Every count,
-ceiling, rowid, and timestamp is a non-negative signed 64-bit integer. Descending
-boundary reads use `index_rows_ascending` in reverse order. Readers always add
-`part_rowid <= covered_part_ceiling`, so rows appended beyond visible coverage
-cannot affect an older capture.
+ceiling, rowid, and timestamp is a non-negative signed 64-bit integer. Nullable
+metric authority is unavailable, never zero. `eligibility_flags` records only the
+fixed DBSCTR, Discovery, QA, and review marker classes. `tool_name` is the same
+sanitized allowlisted output class used by Incident summary. `source_digest` binds
+ordered source row identity and a body digest without retaining the body.
+
+Eligibility bits are `1=DBSCTR`, `2=Discovery`, `4=QA`, and `8=review marker`;
+unknown bits are invalid. A session is eligible when its exact first/last-16 flags
+or safe agent value satisfies the existing detailed-mode seed rule. Project,
+source, tool-key, and disposition digests use lowercase SHA-256 except the existing
+24-hex disposition identity. Parent IDs are null or valid private opaque IDs.
+Agent/model values use `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`; failure classes use
+the exact summary allowlist. A non-tool row has null tool fields. A failed tool row
+has tool name, key digest, failure class, and disposition digest; a successful tool
+row has tool name and key digest but no failure or disposition value. Session
+counters are complete cumulative non-negative values at that generation; only
+`project_digest` and `token_total` may be null for unavailable source authority.
+
+A full generation has depth zero and contains every eligible source row through
+its captured ceilings. An append-delta generation references the previously active
+generation, contains only newly read part rows and complete cumulative session
+rows for touched or new sessions, and has depth one greater than its parent. A
+Projection Chain resolves each session from the newest generation that contains
+it and unions append-only part rows across ancestors. At depth 15, maintenance
+builds a new full generation before another extension. Immutable captures bind one
+generation ID, so later activation never changes continuation metrics or membership.
 
 Maintenance holds the existing exclusive review lock and reads at most 50,000
-rows with one ordered source query over `rowid > indexed_part_rowid` through the
-captured target ceiling. It commits each valid chunk atomically. A preparing
-generation is never query-visible. Resumption requires exact source file,
-schema, privacy, generation, and prior row-ceiling identity. `session_id`,
-`rowid`, and `time_created` are immutable ordering authorities; source replacement,
-rowid regression, incompatible schema, invalid timestamp, duplicate ordering
-identity, or detected key mutation discards the preparing generation and requires
-rebuild.
+source rows total and consumes at most five monotonic seconds. Hidden phases read
+session, message, and part rows in rowid order, then finalize touched session
+projections. Maintenance parses source bodies only to derive marker bits, body
+digests, safe model/tool categories, metric counters, failure classes, recovery
+keys, and disposition digests. It commits each valid chunk atomically. A preparing
+generation is never query-visible. Resumption requires exact source file, schema,
+privacy, generation, phase, target, and prior cursor identity. `session_id`, rowid,
+`time_created`, and `time_updated` are source identity authorities. Source
+replacement, rowid regression, incompatible schema, invalid timestamp, duplicate
+identity, or detected mutation discards preparation and requires rebuild.
+`indexed_rows` in the maintenance envelope counts physical source rows committed
+to the current preparation; `covered_part_ceiling` is the active ready ceiling, or
+zero before first activation. Hidden phase and chain identities are never output.
+
+Each row source digest is SHA-256 over the canonical tuple of source kind, rowid,
+private session ID, created/updated times, and SHA-256 body digest. A session source
+digest is SHA-256 over its canonical session identity followed by ordered message
+and part source digests. Eligibility flags inspect the same bounded first-2048 body
+prefix as detailed mode. Session scalar columns supply token/project/model values;
+message rows supply model and provider-error values; part rows supply tool/error
+counters and Incident classification; session parent relationships supply child
+and delegation counts. Rebuild and delta finalization must produce byte-identical
+session projections for the same source snapshot regardless of chunk boundaries.
 
 The private source-file identity is device, inode, and schema digest; mutable size
 and modification time are observations, not replacement identity. The schema
 digest binds table and index definitions plus the selected column names and types.
-An append-only source may extend a ready generation without copying prior rows:
-new rows remain outside its visible covered ceiling while bounded transactions
-append them, and one final transaction advances the ready ceiling. Captures whose
-part ceiling is already covered remain readable during catch-up. New snapshots
-beyond coverage return `source_index_unavailable`.
+An append-only source extends through one immutable delta generation. The active
+generation remains readable while maintenance targets fixed newer ceilings. One
+final transaction marks the delta ready and swaps the active pointer. Captures
+bound to ancestors remain readable during and after catch-up. A request may use
+the latest active covered snapshot while source writes continue; it never demands
+the moving source maximum. Newer source rows appear only after the next activation.
 
-Initial activation and rebuild verify complete coverage through the captured part
-ceiling, exact row count, unique rowids, valid integer timestamps, ordering
-indexes, source identity, and current privacy epoch in one transaction. They then
-swap the active generation pointer atomically. Readers hold the existing shared
-review lock and use only the active ready generation. Aggregate capture identity
-binds the private generation ID without emitting it. Old generations may be
-deleted only after activation and when no transient capture references them.
+Initial activation, extension, and compaction establish complete ordered coverage
+by reaching a short final chunk in every phase. Primary keys, foreign keys, checks,
+row counters, cursors, exact schema, source identity, and privacy identity validate
+inside the activation transaction; no second full source scan is permitted.
+Readers hold the existing shared review lock and use only an active ready chain.
+Aggregate capture identity binds the private generation ID without emitting it.
+An ancestor may be deleted only when it is outside the active chain and no
+transient capture references it.
 
-First and last 16 boundary rows per session are selected from the sidecar in a
-fixed number of bulk queries. Their rowids are then used to read only bounded
-source bodies needed for existing eligibility semantics. Page metrics remain
-separate and page-scoped. The sidecar never becomes metric or source-content
-authority.
+Finalization resolves exact first and last 16 boundary flags per touched session,
+updates eligibility and cumulative counters, and stores complete session rows.
+Ready aggregate membership, distributions, and source-heavy metric counters come
+from the Projection Chain. Selected-page lifecycle correlation remains page-scoped.
+One bounded source metadata query compares selected session counts and maximum
+rowid/update timestamps with projection identity; ready aggregate and summary
+paths never select a source body column. The OpenCode source remains canonical;
+the projection is usable authority only while its generation identity validates.
+
+Incident summary selects at most 101 projected failed rows in detailed sort order,
+excludes private disposition digests, classifies only sanitized tool and failure
+values, and resolves recovery through a later projected success with the same
+private session and tool-key digest. It reads no raw state or error body. Detailed
+Incident mode keeps its existing source path unchanged.
 
 Privacy forgetting deletes dependent captures and invalidates any generation
 containing the forgotten family in the same exclusive-lock operation. A changed
 privacy epoch is always stale. Expired transient captures do not keep a generation
-alive. Source disappearance or replacement leaves the index unavailable; it does
+alive. Source disappearance or replacement leaves the projection unavailable; it does
 not serve stale membership.
 
-Rollback deletes the sidecar. Detailed modes continue unchanged. Aggregate and
-summary modes return `source_index_unavailable` until bounded maintenance activates
-a fresh generation. Retirement removes preparing and ready generations after all
-dependent captures expire or are deleted.
+Schema version 1 is rebuildable cache state, not migrated authority. Upgrade and
+rollback delete the sidecar and rebuild version 2 or version 1 respectively.
+Detailed modes continue unchanged. Aggregate and summary modes return
+`source_index_unavailable` until bounded maintenance activates a fresh compatible
+generation. Retirement removes preparations and unreferenced ancestors after all
+dependent captures expire or are deleted. On the representative source, the
+version-2 sidecar must remain at or below 1 GiB.
 
 The persisted capture is a derived read-side cache, not review, Incident, cycle,
 or gate state. The lifecycle helper owns its owner-private directory, existing
@@ -420,6 +537,14 @@ an allowlist; unknown values aggregate as `unknown` rather than retaining text.
 Invalid snapshots, continuations, filters, or schemas fail closed. Missing source
 authority remains explicit unavailable evidence.
 
+Maintenance may parse private bodies only inside the source-local exclusive-lock
+operation. Persisted body digests are one-way SHA-256 values and are never emitted.
+Stored model and agent values must pass the existing safe identifier syntax;
+stored tool names use the Incident output allowlist, while raw tool correlation
+uses a generation-keyed digest. A schema violation, forbidden column, unsafe file,
+or forbidden cleartext byte makes the projection unavailable rather than partially
+readable.
+
 `history-incident-query-performance.schemas.json` is the normative closed-schema
 authority. Every object rejects unknown properties; integers are non-negative and
 bounded to signed 64-bit range; digests and opaque values match their declared
@@ -436,8 +561,8 @@ valid rows means no overflow; 101 valid rows means count 100 and overflow true.
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: ownership table | Which context owns reduction versus subprocess availability? | Purpose and Interfaces | Ownership change |
-| Interaction | required: sequence diagram | Is the page selected before expensive reduction? | Required Behavior and Reduction Contract | Query-order change |
-| State | required: transient capture and boundary-index lifecycles | Can preparation, activation, invalidation, continuation, expiry, and failed publication be distinguished? | Reduction Contract and state diagrams | Capture or index lifecycle change |
+| Interaction | required: sequence diagram | Does a ready query select and reduce from the projection without source payload scans? | Required Behavior and Reduction Contract | Query-order change |
+| State | required: transient capture and projection-chain lifecycles | Can full build, delta build, activation, compaction, invalidation, continuation, expiry, and failed publication be distinguished? | Reduction Contract and state diagrams | Capture or projection lifecycle change |
 | Data/trust | required: flowchart | Can private candidate or signal identity reach aggregate output? | Privacy And Failure Contract | Privacy-boundary change |
 | Schema | required: field tables are the accessible canonical schema | Which fields are present in summary modes? | Interfaces | Response-shape change |
 | Dependency/deployment | not_applicable: existing helper and typed adapters are extended | - | Purpose | Runtime dependency change |
@@ -446,30 +571,30 @@ valid rows means no overflow; 101 valid rows means count 100 and overflow true.
 ```mermaid
 sequenceDiagram
     accTitle: Page-first History reduction
-    accDescr: A first aggregate read creates or reuses one immutable capture, while continuation reads use that capture without rescanning the live source; both bind a page before bulk reduction.
+    accDescr: A first aggregate read creates membership from one ready private projection and persists an immutable capture. Continuations use that capture and its bound generation. Both bind a page before projected reduction and never scan source payloads.
     participant C as Local caller
     participant H as Lifecycle helper
-    participant S as Private source
+    participant P as Private projection
     participant K as Transient capture cache
     alt first aggregate read
         C->>H: Aggregate request with filters
-        H->>S: Validate source and select membership
+        H->>P: Validate generation and select membership
         H->>K: Atomically publish immutable capture
     else continuation
         C->>H: Aggregate request with capture ID and cursor
         H->>K: Read immutable membership
     end
     H->>K: Select and bind bounded page
-    H->>S: Bulk-reduce selected families
-    S-->>H: Sanitized metrics and distributions
+    H->>P: Resolve projected metrics and distributions
+    P-->>H: Body-free page evidence
     H-->>C: Aggregate page, capture ID, and continuation
 ```
 
-**Text Equivalent:** On a first aggregate read, the lifecycle helper validates the
-live source and atomically persists immutable ordered membership. A continuation
-reads that capture without rescanning the source. Both paths select and bind one
-page before bulk-reducing only its families, then return aggregate metrics,
-capture ID, and continuation without candidate identities.
+**Text Equivalent:** On a first aggregate read, the lifecycle helper validates one
+ready Projection Chain and atomically persists immutable ordered membership. A
+continuation reads that capture and the generation it binds. Both paths select one
+page before resolving body-free projected metrics and bounded lifecycle evidence,
+then return aggregate metrics, capture ID, and continuation without identities.
 
 ```mermaid
 stateDiagram-v2
@@ -492,57 +617,66 @@ removes them.
 
 ```mermaid
 stateDiagram-v2
-    accTitle: Boundary index generation lifecycle
-    accDescr: Bounded maintenance prepares a private generation. Complete validated coverage activates it atomically. Source, schema, privacy, or integrity drift invalidates it; queries use only ready generations.
-    [*] --> Preparing: bounded maintenance starts
-    Preparing --> Preparing: append validated chunk
+    accTitle: Materialized projection chain lifecycle
+    accDescr: Bounded maintenance builds a full or append-delta generation through session, message, part, and finalization phases. Validated coverage activates it atomically. Chains compact before depth sixteen; source, schema, privacy, or integrity drift invalidates them.
+    [*] --> Preparing: start full or delta build
+    Preparing --> Preparing: bounded phase chunk
     Preparing --> Ready: validate and atomically activate
-    Preparing --> Invalid: source or validation mismatch
-    Ready --> Ready: append outside coverage and atomically advance ceiling
+    Preparing --> Invalid: identity or validation mismatch
+    Ready --> Preparing: source append starts delta
+    Ready --> Compacting: chain depth reaches fifteen
+    Compacting --> Ready: activate new full generation
     Ready --> Invalid: source, schema, privacy, or integrity drift
     Invalid --> [*]: delete generation
-    Ready --> [*]: retire after references clear
+    Ready --> [*]: retire unreferenced ancestor
 ```
 
-**Text Equivalent:** Maintenance writes bounded validated chunks to a preparing
-generation. Complete source and privacy coverage activates it atomically. Queries
-use only a ready generation. Source replacement, schema drift, privacy change,
-coverage mismatch, or corruption invalidates the generation. Invalid generations
-are deleted; ready generations retire only after dependent captures clear.
+**Text Equivalent:** Maintenance builds a full or append-delta generation through
+bounded session, message, part, and finalization chunks. Complete source and
+privacy coverage activates it atomically while older capture-bound ancestors stay
+readable. A chain compacts into a full generation before depth sixteen. Source,
+schema, privacy, coverage, or integrity drift invalidates preparation or the chain;
+unreferenced invalid and ancestor generations are removed.
 
 ```mermaid
 flowchart LR
     accTitle: History and Incident summary trust flow
-    accDescr: Private candidates and signals remain in the lifecycle source. Only allowlisted counts, metrics, availability, overflow, and continuation reach local typed consumers.
-    P[Private candidates and signals] --> R[Page-first local reducer]
+    accDescr: Private source bodies are parsed only by bounded maintenance and never stored. A body-free private projection feeds page-first aggregate and Incident summary reducers. Only allowlisted counts, metrics, availability, overflow, and continuation reach local typed consumers.
+    S[Private source bodies] --> M[Bounded maintenance]
+    M --> P[Body-free private projection]
+    P --> R[Page-first local reducer]
     R --> A[Allowlisted aggregate fields]
     A --> T[Local typed consumer]
-    P -. identities and text never .-> T
+    S -. bodies and identities never .-> T
 ```
 
-**Text Equivalent:** Private candidates and Signals enter only the source-local
-page-first reducer. The reducer emits allowlisted metrics, counts, availability,
-overflow, and continuation to local typed consumers. Private identities and text
-never enter aggregate output.
+**Text Equivalent:** Bounded maintenance parses private source bodies locally and
+stores only body-free derived projection rows. Aggregate and Incident reducers read
+that projection and emit allowlisted metrics, counts, availability, overflow, and
+continuation. Source bodies and private identities never enter aggregate output.
 
 ## Validation
 
 - Fixtures prove page selection precedes metric and family reduction.
-- Query-count evidence rejects per-candidate database access.
+- SQL-trace evidence rejects per-candidate access and every ready-path source body read.
 - Snapshot and continuation fixtures reject changed populations.
 - Aggregate fixtures cover empty, singleton, unavailable, mixed, and five-member
   cohorts with exact mean/p50/p90 results.
 - Incident fixtures prove allowlisted grouping, unknown collapse, truthful
   overflow, and absence of forbidden identities.
 - Existing candidate and detailed-mode fixtures remain byte-compatible.
-- Sidecar fixtures prove bounded chunk resume, exact 16-row boundary parity,
-  atomic activation, preparing-state unavailability, source replacement and
-  rowid-regression rebuild, symlink and permission rejection, and payload absence.
+- Sidecar fixtures prove phased bounded resume, exact 16-row boundary parity,
+  full and delta activation, capture-bound ancestor stability, depth-15 compaction,
+  preparing-state unavailability, source replacement and rowid-regression rebuild,
+  symlink and permission rejection, and forbidden-byte absence.
+- Projection fixtures prove membership, metric, model/agent distribution, Incident
+  failure/recovery, disposition, and digest parity with the detailed source path.
 - Privacy fixtures prove forgetting invalidates dependent captures and generations
   before another read.
 - On a representative large source, five post-warmup aggregate and Incident
   summary runs each complete with p95 below 30 seconds, no detailed-result drift,
-  and no source body in the sidecar.
+  no source body in the sidecar, and a sidecar size at or below 1 GiB. Every
+  maintenance invocation remains below five monotonic seconds and 50,000 rows.
 
 ## Gate Ledger
 
