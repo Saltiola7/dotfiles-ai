@@ -8,8 +8,13 @@ root = ""
 version = "0.151.0"
 linux_asset_url = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
 linux_asset_sha256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
+linux_amd64_asset_url = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-x86_64-unknown-linux-musl.tar.gz"
+linux_amd64_asset_sha256 = "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6"
 
 [dotfiles_ai.opencode]
+version = "1.18.25"
+linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
+linux_amd64_asset_sha256 = "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78"
 vertex_project = ""
 vertex_location = "global"
 vertex_credentials = ""
@@ -33,6 +38,8 @@ version = "0.8.2"
 protocol = 20
 asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-macos-aarch64"
 asset_sha256 = "a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574"
+linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64"
+linux_amd64_asset_sha256 = "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4"
 
 [dotfiles_ai.hermes]
 enabled = false
@@ -58,6 +65,9 @@ zone = ""
 instance = ""
 account = ""
 tailscale_host = ""
+
+[dotfiles_ai.remote_user_environment]
+enabled = false
 
 [dotfiles_ai.rnd]
 enabled = false

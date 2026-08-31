@@ -1,0 +1,31 @@
+# Copy to ~/.config/dotfiles-ai/chezmoi.toml and replace /home/you.
+# Credentials, tokens, provider sessions, and encryption keys do not belong here.
+sourceDir = "/home/you/.local/share/chezmoi-dotfiles-ai"
+persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
+
+[data.dotfiles_ai.remote_user_environment]
+enabled = true
+
+[data.dotfiles_ai.herdr]
+launchagent = false
+host_enabled = false
+
+[data.dotfiles_ai.atuin]
+sync_address = "https://api.atuin.sh"
+server_enabled = false
+
+[data.dotfiles_ai.hermes]
+enabled = false
+
+[data.dotfiles_ai.rnd]
+enabled = false
+
+[data.dotfiles_ai.pm_kernel]
+enabled = false
+postgres_enabled = false
+
+[data.dotfiles_ai.knowledge_store]
+enabled = false
+quality_services_enabled = false
+postgres_enabled = false
+reconcile_enabled = false

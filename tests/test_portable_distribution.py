@@ -21,6 +21,7 @@ def data(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
 ) -> dict:
     return {
         "dotfiles_ai": {
@@ -30,8 +31,13 @@ def data(
                 "version": codex_version,
                 "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
                 "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
+                "linux_amd64_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-x86_64-unknown-linux-musl.tar.gz",
+                "linux_amd64_asset_sha256": "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6",
             },
             "opencode": {
+                "version": "1.18.25",
+                "linux_amd64_asset_url": "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz",
+                "linux_amd64_asset_sha256": "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78",
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
                 "vertex_credentials": vertex_credentials,
@@ -45,6 +51,9 @@ def data(
                 "theme": "nord",
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
+                "version": "0.8.2",
+                "linux_amd64_asset_url": "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+                "linux_amd64_asset_sha256": "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4",
             },
             "hermes": {
                 "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
@@ -62,6 +71,7 @@ def data(
                 "account": "user@example.com",
                 "tailscale_host": "example-workspace.example.ts.net",
             },
+            "remote_user_environment": {"enabled": remote_user_environment},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -129,6 +139,7 @@ def chezmoi(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -136,8 +147,9 @@ def chezmoi(
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
             json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
-                            pm_image, pm_backup_dir, state_root, rnd_runtime,
-                            workspace_runtime, codex_version)),
+                             pm_image, pm_backup_dir, state_root, rnd_runtime,
+                             workspace_runtime, codex_version,
+                             remote_user_environment)),
             *args,
         ],
         input=template,
@@ -241,6 +253,29 @@ def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> No
         str(repository),
         "run remote-status --verbose",
     ]
+
+
+def test_remote_user_environment_scripts_render_as_shell() -> None:
+    scripts = [
+        "run_onchange_after_install-guest-development-tools.sh.tmpl",
+        "run_onchange_after_install-starship.sh.tmpl",
+        "run_onchange_after_install-atuin.sh.tmpl",
+        "dot_local/bin/executable_codex-install.tmpl",
+        "dot_local/bin/executable_opencode-install.tmpl",
+        "run_onchange_after_install-01-remote-opencode.sh.tmpl",
+        "run_onchange_after_install-00-remote-herdr.sh.tmpl",
+    ]
+    rendered = []
+    for path in scripts:
+        output = chezmoi(
+            "execute-template",
+            remote_user_environment=True,
+            template=(ROOT / path).read_text(),
+        ).stdout
+        subprocess.run(["bash", "-n"], input=output, text=True, check=True)
+        rendered.append(output)
+    assert all("x86_64" in output for output in rendered[:5] + rendered[6:])
+    assert 'exec "$HOME/.local/bin/opencode-install"' in rendered[5]
 
 
 def test_codex_distribution_sources_are_pinned_and_inert() -> None:

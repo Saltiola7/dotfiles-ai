@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import tempfile
+
+
+SOURCE = Path(os.environ.get(
+    "DOTFILES_AI_SOURCE", "~/.local/share/chezmoi-dotfiles-ai"
+)).expanduser()
+CONFIG = Path(os.environ.get(
+    "DOTFILES_AI_CONFIG", "~/.config/dotfiles-ai/chezmoi.toml"
+)).expanduser()
+STATE = Path(os.environ.get(
+    "DOTFILES_AI_FOUNDATION_STATE",
+    "~/.local/state/dotfiles-ai/remote-user-foundation.json",
+)).expanduser()
+REVISION = re.compile(r"[0-9a-f]{40}")
+STATES = {
+    "absent", "foundation_pending", "foundation_ready", "auth_pending",
+    "ready", "failed_retryable",
+}
+
+
+def initial_state() -> dict:
+    return {
+        "attempt": 0,
+        "desired_revision": None,
+        "managed_targets": [],
+        "previous_managed_targets": [],
+        "previous_revision": None,
+        "revision": None,
+        "schema_version": 1,
+        "state": "absent",
+    }
+
+
+def read_state() -> dict:
+    if not STATE.exists():
+        return initial_state()
+    metadata = STATE.stat()
+    if (STATE.is_symlink() or not STATE.is_file() or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 1_000_000):
+        raise SystemExit("foundation state is unsafe")
+    value = json.loads(STATE.read_text())
+    revisions = (value.get("desired_revision"), value.get("previous_revision"),
+                 value.get("revision")) if isinstance(value, dict) else ()
+    targets = value.get("managed_targets") if isinstance(value, dict) else None
+    previous_targets = value.get("previous_managed_targets") if isinstance(value, dict) else None
+    attempt = value.get("attempt") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or value.get("schema_version") != 1
+            or value.get("state") not in STATES
+            or not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0
+            or any(revision is not None and not REVISION.fullmatch(revision)
+                   for revision in revisions)
+            or not isinstance(targets, list)
+            or not isinstance(previous_targets, list)
+            or any(not isinstance(target, str) or not target or "\n" in target
+                   or len(target) > 4096
+                   for target in targets + previous_targets)):
+        raise SystemExit("foundation state is invalid")
+    return value
+
+
+def write_state(value: dict) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if STATE.parent.is_symlink():
+        raise SystemExit("foundation state directory is unsafe")
+    descriptor, temporary = tempfile.mkstemp(prefix=".remote-user-foundation.", dir=STATE.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, STATE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def command(*arguments: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        arguments, check=True, text=True, capture_output=capture,
+    )
+
+
+def git(*arguments: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    return command("git", "-C", str(SOURCE), *arguments, capture=capture)
+
+
+def lock() -> int:
+    STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = STATE.with_suffix(STATE.suffix + ".lock")
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    metadata = os.fstat(descriptor)
+    if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
+        os.close(descriptor)
+        raise SystemExit("foundation lock is unsafe")
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        raise SystemExit("foundation operation is already running") from None
+    return descriptor
+
+
+def apply(revision: str) -> None:
+    if not REVISION.fullmatch(revision):
+        raise SystemExit("foundation revision must be a full commit identity")
+    current = read_state()
+    if (current["state"] in {"foundation_pending", "failed_retryable"}
+            and current["desired_revision"] != revision):
+        raise SystemExit("retry must use the recorded foundation revision")
+    attempt = int(current.get("attempt", 0)) + 1
+    successful = current.get("revision")
+    write_state({
+        **current,
+        "attempt": attempt,
+        "desired_revision": revision,
+        "schema_version": 1,
+        "state": "foundation_pending",
+    })
+    try:
+        git("cat-file", "-e", f"{revision}^{{commit}}", capture=True)
+        resolved = git("rev-parse", revision, capture=True).stdout.strip()
+        if resolved != revision:
+            raise RuntimeError("revision mismatch")
+        git("diff", "--quiet", capture=True)
+        git("diff", "--cached", "--quiet", capture=True)
+        git("checkout", "--detach", revision, capture=True)
+        command("chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "apply", capture=True)
+        targets = command(
+            "chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "managed", capture=True,
+        ).stdout.splitlines()
+        write_state({
+            "attempt": attempt,
+            "desired_revision": revision,
+            "managed_targets": sorted(set(filter(None, targets))),
+            "previous_managed_targets": (
+                current["managed_targets"] if successful != revision
+                else current["previous_managed_targets"]
+            ),
+            "previous_revision": successful if successful != revision else current.get("previous_revision"),
+            "revision": revision,
+            "schema_version": 1,
+            "state": "foundation_ready",
+        })
+    except (OSError, RuntimeError, subprocess.CalledProcessError):
+        failed = dict(current)
+        failed.update({
+            "attempt": attempt,
+            "desired_revision": revision,
+            "schema_version": 1,
+            "state": "failed_retryable",
+        })
+        write_state(failed)
+        raise SystemExit("foundation apply failed") from None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="operation", required=True)
+    apply_parser = subparsers.add_parser("apply")
+    apply_parser.add_argument("revision")
+    subparsers.add_parser("retry")
+    subparsers.add_parser("rollback")
+    subparsers.add_parser("status")
+    arguments = parser.parse_args()
+    state = read_state()
+    if arguments.operation == "status":
+        print(json.dumps(state, sort_keys=True, separators=(",", ":")))
+        return
+    descriptor = lock()
+    try:
+        state = read_state()
+        if arguments.operation == "apply":
+            apply(arguments.revision)
+        elif arguments.operation == "retry":
+            if not state.get("desired_revision"):
+                raise SystemExit("no foundation revision is available to retry")
+            apply(state["desired_revision"])
+        else:
+            if not state.get("previous_revision"):
+                raise SystemExit("no previous foundation revision is available")
+            apply(state["previous_revision"])
+    finally:
+        os.close(descriptor)
+
+
+if __name__ == "__main__":
+    main()
