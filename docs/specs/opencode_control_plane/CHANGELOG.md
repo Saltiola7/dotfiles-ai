@@ -1,5 +1,12 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - Same-Session Initiative Build
+
+- Restricted `dbsctr_initiative_launch` and its Herdr child creation to Discovery
+  Coordinator. Primary Build modes now use exact approval-bound Initiative Begin
+  and remain in their current same-repository session; Plan and subagents deny
+  both Initiative paths.
+
 ## 2026-08-31 - History Projection Availability Readiness
 
 - Bound ready aggregate History and Incident summary subprocesses to the

@@ -535,7 +535,7 @@ type InitiativeToolContext = {
   ask: (request: { permission: string; patterns: string[]; always: string[] }) => Promise<unknown>
 }
 
-async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext) {
+async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext, launch = true) {
   const source = args.initiativeSourceRepository ?? context.worktree
   const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, source)
   if (receipt.context !== args.context)
@@ -571,7 +571,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     github_repository: args.githubRepository ?? null,
   })
   await context.ask({
-    permission: "dbsctr_initiative_launch",
+    permission: launch ? "dbsctr_initiative_launch" : "dbsctr_initiative_begin",
     patterns: [approval],
     always: [],
   })
@@ -587,7 +587,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     throw new Error("DBSCTR applicability plan changed after approval")
   if (await gitDefaultBranch(target) !== baseBranch)
     throw new Error("Initiative target default branch changed after approval")
-  return JSON.stringify(await beginCycle({ ...args, baseBranch }, target, true, process.env, {
+  return JSON.stringify(await beginCycle({ ...args, baseBranch }, target, launch, process.env, {
     sessionID: context.sessionID,
     messageID: context.messageID,
     directory: context.directory,
@@ -596,7 +596,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
 }
 
 export const begin = tool({
-  description: "Create an isolated DBSCTR branch/worktree, or launch an exactly approved Initiative slice when initiative is provided. Protected-base merge delivery becomes draft_pr; githubRepository is derived from origin.",
+  description: "Create an isolated DBSCTR branch/worktree, or begin an exactly approved Initiative slice in the current Build session.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
@@ -611,13 +611,11 @@ export const begin = tool({
       manifestPath: tool.schema.string(),
       sliceId: tool.schema.string(),
       proceed: tool.schema.literal(true),
-      initiativeSourceRepository: tool.schema.string().optional(),
-      targetRepository: tool.schema.string().optional(),
     }).optional(),
   },
   async execute(args, context) {
     if (args.initiative !== undefined)
-      return await launchInitiative({ ...args, ...args.initiative }, context)
+      return await launchInitiative({ ...args, ...args.initiative }, context, false)
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
       sessionID: context.sessionID,
       messageID: context.messageID,

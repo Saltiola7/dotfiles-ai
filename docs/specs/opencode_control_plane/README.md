@@ -752,19 +752,18 @@ moved or closed automatically.
 ### Initiative slice launch
 
 Given an Initiative slice has a fresh readiness receipt and exact approval, when
-the Discovery Coordinator or a native or provider-affine primary Build agent
-invokes `dbsctr_initiative_launch`, then OpenCode asks for the digest-bound launch
-and the adapter retains its repository, plan-digest, ownership, and mutation
-checks. Plan and all subagents deny the launcher. They return a handoff instead of
-probing a denied tool or substituting `dbsctr_vm_handoff`, which remains a distinct
-sanitized VM implementation workflow.
+the Discovery Coordinator invokes `dbsctr_initiative_launch`, then OpenCode asks
+for the digest-bound launch and creates the isolated child Build in the same Herdr
+workspace. Native and provider-affine Build agents, Plan, and all subagents deny
+the child launcher. They never probe it or substitute `dbsctr_vm_handoff`, which
+remains a distinct sanitized VM implementation workflow.
 
-Given the host registry omits the standalone Initiative launcher export, when a
-primary Build invokes the always-present `dbsctr_begin` with an explicit
+Given a primary Build invokes `dbsctr_begin` with an explicit
 Initiative manifest, slice, and `proceed=true`, then the adapter executes the same
-fresh receipt, exact approval, repository, plan-digest, ownership, mutation, and
-launch checks. Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents
-continue to deny it.
+fresh receipt, exact approval, repository, plan-digest, ownership, and mutation
+checks, attaches the current same-repository runtime, and creates no Herdr child.
+Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents continue to
+deny it.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
@@ -1027,9 +1026,9 @@ injects only the durable path, digest, state, and ready-slice IDs into normal an
 pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
-`dbsctr_initiative_launch`, or explicit Initiative mode on `dbsctr_begin` when
-that standalone export is omitted, validates a fresh readiness receipt before
-requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+`dbsctr_initiative_launch` and explicit Initiative mode on `dbsctr_begin` validate
+a fresh readiness receipt before requesting approval bound to
+`initiative:slice:digest`. Only the coordinator launcher asks Herdr 0.8.2 to create a background tab
 and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
 clients start fresh. Both paths start with bounded receipt-free shell arguments,
@@ -1040,10 +1039,10 @@ only a confirmed agent may remain pending. Herdr identities remain private
 advisory correlation only. The complete behavior and failure contract is in
 [`features/initiative-launch-atomicity.md`](features/initiative-launch-atomicity.md).
 
-The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
-agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
-an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
-a fallback or alias.
+The Discovery Coordinator asks for child Initiative launch. Primary `build`,
+`build-gpt`, and `build-claude` ask only for same-session Initiative Begin. Plan
+and every subagent deny both paths. Tool absence is an authorization boundary,
+not a capability probe, and `dbsctr_vm_handoff` is not a fallback or alias.
 
 ### DKS query availability
 
