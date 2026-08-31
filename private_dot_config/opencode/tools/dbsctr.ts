@@ -134,9 +134,13 @@ export const review = tool({
 
 export const incident_scan = tool({
   description: "Read registered incidents and bounded redacted failed-call signals without changing state.",
-  args: { scope: tool.schema.enum(["global", "current"]).optional().default("global") },
+  args: {
+    scope: tool.schema.enum(["global", "current"]).optional().default("global"),
+    summaryOnly: tool.schema.boolean().optional().default(false),
+  },
   async execute(args, context) {
-    return await incidentScan(context.worktree, args.scope === "current" ? context.sessionID : undefined)
+    return await incidentScan(context.worktree, args.scope === "current" ? context.sessionID : undefined,
+      args.summaryOnly)
   },
 })
 
@@ -254,6 +258,7 @@ export const review_history = tool({
     exclusionDigest: tool.schema.string().optional(),
     limit: tool.schema.number().int().min(1).max(100).optional().default(100),
     cursor: tool.schema.number().int().min(0).optional().default(0),
+    aggregateOnly: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
     return await reviewHistory(args, context.worktree, context.sessionID, context.messageID)
@@ -363,6 +368,7 @@ export const history_telemetry = tool({
     exclusionDigest: tool.schema.string().optional(),
     limit: tool.schema.number().int().min(1).max(100).optional().default(25),
     cursor: tool.schema.number().int().min(0).optional().default(0),
+    aggregateOnly: tool.schema.boolean().optional().default(false),
   },
   async execute(args, context) {
     return await historyTelemetry(args, context.worktree, context.sessionID, context.messageID)
