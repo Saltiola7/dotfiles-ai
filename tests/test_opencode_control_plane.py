@@ -403,7 +403,8 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
-        "dbsctr_initiative_launch": "ask",
+        "dbsctr_initiative_launch": "deny",
+        "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -583,7 +584,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const initiative_launch = tool({' in tools
-    assert 'permission: "dbsctr_initiative_launch"' in tools
+    assert '"dbsctr_initiative_launch" : "dbsctr_initiative_begin"' in tools
     assert "proceed: tool.schema.literal(true)" in tools
     assert 'export const audit = tool({' in tools
     assert 'export const inspect = tool({' in tools
@@ -661,14 +662,19 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     config = rendered_config()
     for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
-    assert config["permission"]["dbsctr_initiative_launch"] == "ask"
-    launch_primaries = {"discovery-coordinator.md", "build-gpt.md", "build-claude.md"}
+    assert config["permission"]["dbsctr_initiative_launch"] == "deny"
+    assert config["permission"]["dbsctr_initiative_begin"] == "deny"
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
-        if agent.name in launch_primaries:
+        if agent.name == "discovery-coordinator.md":
             assert "dbsctr_initiative_launch: ask" in agent.read_text()
         else:
             assert "dbsctr_initiative_launch: deny" in agent.read_text()
+        if agent.name in {"build-gpt.md", "build-claude.md"}:
+            assert "dbsctr_initiative_begin: ask" in agent.read_text()
+        else:
+            assert "dbsctr_initiative_begin: ask" not in agent.read_text()
+            assert "dbsctr_initiative_begin: allow" not in agent.read_text()
     routing = (OC / "AGENTS.md").read_text()
     assert "never probe or substitute a denied launcher" in routing
     assert "`dbsctr_vm_handoff` is not an Initiative launcher" in routing
@@ -2048,8 +2054,20 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         text=True, capture_output=True, check=True,
     )
     assert json.loads(fallback.stdout)["initiative"]["manifest_digest"] == digest
-    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_launch"
+    assert json.loads(fallback.stdout)["herdr"] == "not_launched"
+    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_begin"
     assert "<initiative-receipt>" in calls.read_text()
+    assert "<--opencode-session-id>\n<parent-session>" in calls.read_text()
+    assert herdr_calls.read_text() == ""
+
+    begin_changed = subprocess.run(
+        ["bun", "-e", begin_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "MUTATE_PLAN": "1"},
+        text=True, capture_output=True,
+    )
+    assert begin_changed.returncode != 0 and "plan changed after approval" in begin_changed.stderr
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(

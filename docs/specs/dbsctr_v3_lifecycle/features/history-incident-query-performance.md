@@ -408,9 +408,11 @@ CREATE TABLE index_rows (
 CREATE INDEX index_rows_ascending
   ON index_rows(generation_id,session_id,part_time,part_rowid);
 CREATE INDEX index_rows_recovery
-  ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid);
+  ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid)
+  WHERE tool_key_digest IS NOT NULL;
 CREATE INDEX index_rows_incident
-  ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC);
+  ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC)
+  WHERE tool_state='failed';
 CREATE TABLE active_generation (
   singleton INTEGER PRIMARY KEY CHECK (singleton=1),
   generation_id TEXT NOT NULL REFERENCES index_generations(generation_id)
@@ -504,6 +506,9 @@ excludes private disposition digests, classifies only sanitized tool and failure
 values, and resolves recovery through a later projected success with the same
 private session and tool-key digest. It reads no raw state or error body. Detailed
 Incident mode keeps its existing source path unchanged.
+The recovery and Incident indexes are partial by contract: non-tool rows consume
+no recovery-index entry, and non-failed rows consume no Incident-index entry.
+Changing either predicate is a private schema incompatibility and requires rebuild.
 
 Privacy forgetting deletes dependent captures and invalidates any generation
 containing the forgotten family in the same exclusive-lock operation. A changed

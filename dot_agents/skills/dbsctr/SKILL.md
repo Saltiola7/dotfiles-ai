@@ -181,6 +181,10 @@ state machine. Standing authorization for validated Build-primary begin, resume,
 Plan and subagents remain denied and Plan hands off the validated plan. The `launch` argument defaults to `false`; when
 explicitly true in a Herdr pane, the same authorization covers launching OpenCode
 in the new worktree. Herdr state is presentation only and never gate evidence.
+For an approved Initiative slice, a primary Build uses only `dbsctr_begin`'s
+explicit Initiative mode. It preserves exact approval and receipt identity while
+attaching the current same-repository runtime without launching a child session.
+Only the Discovery coordinator uses `dbsctr_initiative_launch` for a child Build.
 
 When the applicability plan contains `graphify`, run `dbsctrctl graphify-check`
 after the final affected source change and before Final Push. The helper runs the

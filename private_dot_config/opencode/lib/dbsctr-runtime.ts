@@ -1593,7 +1593,7 @@ export async function beginCycle(args: {
   const sameRuntimeRepository = runtime === undefined
     || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
   const sameInitiativeCheckout = await realpath(initiativeSourceCwd) === await realpath(cwd)
-  const runtimeArgv = runtime && sameRuntimeRepository && initiative === undefined ? [
+  const runtimeArgv = runtime && sameRuntimeRepository && (initiative === undefined || !launch) ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
