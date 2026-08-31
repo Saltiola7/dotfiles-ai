@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - History Projection Storage Readiness
+
+- Reopened projection readiness after the full representative sidecar reached
+  1,214.5 MiB and exceeded the 1 GiB acceptance cap.
+- Required partial recovery and Incident indexes: only 710,292 tool rows enter the
+  recovery index and only 24,611 failed rows enter the Incident index, instead of
+  indexing 2.46 million mostly-null rows twice.
+- This Discovery repair changes private schema authority only; implementation and
+  live size evidence remain separately gated. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-31 - History Materialized Projection Readiness
 
 - Reopened History/Incident core after the ordering-only boundary index activated
