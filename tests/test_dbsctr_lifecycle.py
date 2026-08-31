@@ -197,7 +197,7 @@ def test_codex_next_slices_are_dependency_ordered_and_distribution_ready():
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
     assert "`codex-distribution` receipt-ready" in normalized_initiative
-    assert "**Status:** Distribution receipt ready; implementation and deployment not started" in distribution
+    assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
         "Documented `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",

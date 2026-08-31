@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", roots=None):
+def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", roots=None,
+           runtime="opencode"):
     return {
         "dotfiles_ai": {
             "opencode": {
@@ -26,7 +27,8 @@ def values(enabled=True, review_workdir="/tmp/dotfiles-ai", backend="native", ro
                        "provider": "openai-codex", "backlog_roots": roots or [],
                        "project_profiles": False},
             "rnd": {
-                "enabled": enabled, "backend": backend, "review_workdir": review_workdir,
+                "enabled": enabled, "backend": backend, "runtime": runtime,
+                "review_workdir": review_workdir,
                 "review_hour": 9, "review_minute": 15, "watchdog_interval_seconds": 300,
                 "workspace_label": "DBSCTR R&D", "github_account": "test-user",
                 "github_repository": "test-user/dotfiles-ai",
@@ -62,6 +64,34 @@ def test_rnd_schedule_is_machine_local_opt_in():
     assert ".local/bin/dbsctr-rnd" in disabled
     assert not (ROOT / "dot_local/bin/executable_hermes-update").exists()
     assert not (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl").exists()
+
+
+def test_runtime_selector_does_not_activate_worker_routing():
+    opencode = values(runtime="opencode")
+    codex = values(runtime="codex")
+    assert render("dot_local/bin/executable_dbsctr-rnd.tmpl", opencode) == render(
+        "dot_local/bin/executable_dbsctr-rnd.tmpl", codex)
+    assert render(
+        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", opencode
+    ) == render(
+        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", codex
+    )
+    for path in (
+        "run_onchange_after_configure-hermes.sh.tmpl",
+        "run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl",
+    ):
+        assert render(path, opencode) == render(path, codex)
+
+    distribution = "\n".join((ROOT / path).read_text() for path in (
+        "dot_local/bin/executable_codex-install.tmpl",
+        "dot_local/bin/executable_codex.tmpl",
+        "dot_local/bin/executable_codex-project",
+        "dot_local/bin/executable_codex-rollback",
+        "run_onchange_before_install-opencode.sh.tmpl",
+        "run_onchange_after_project-codex.sh.tmpl",
+    ))
+    for forbidden in ("codex login", "OPENAI_API_KEY", "auth.json", "thread/resume"):
+        assert forbidden not in distribution
 
 
 def test_rnd_expands_machine_local_herdr_path():

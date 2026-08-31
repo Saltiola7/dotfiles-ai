@@ -12,8 +12,20 @@
 {{- if and (eq .dotfiles_ai.pm_kernel.jira_adapter "acli") (or (not .dotfiles_ai.pm_kernel.jira_project) (not .dotfiles_ai.pm_kernel.jira_issue_types)) -}}
 {{ fail "ACLI Jira requires a project and allowed issue types" }}
 {{- end -}}
+{{- if not (has .dotfiles_ai.rnd.runtime (list "opencode" "codex")) -}}
+{{ fail "rnd.runtime must be opencode or codex" }}
+{{- end -}}
+{{- range $workspace := .dotfiles_ai.sandbox.workspaces -}}
+{{- if and (hasKey $workspace "runtime") (not (kindIs "string" (get $workspace "runtime"))) -}}
+{{ fail "workspace runtime must be a string" }}
+{{- end -}}
+{{- $runtime := get $workspace "runtime" | default "" -}}
+{{- if not (has $runtime (list "" "opencode" "codex")) -}}
+{{ fail "workspace runtime must be empty, opencode, or codex" }}
+{{- end -}}
+{{- end -}}
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
@@ -27,6 +39,11 @@
     "knowledge_postgres_enabled": {{ .dotfiles_ai.knowledge_store.postgres_enabled | toJson }}
   },
   "state_root": {{ .dotfiles_ai.state.root | toJson }},
+  "codex": {
+    "version": {{ .dotfiles_ai.codex.version | toJson }},
+    "linux_asset_url": {{ .dotfiles_ai.codex.linux_asset_url | toJson }},
+    "linux_asset_sha256": {{ .dotfiles_ai.codex.linux_asset_sha256 | toJson }}
+  },
   "lima_home": {{ .dotfiles_ai.sandbox.lima_home | toJson }},
   "tailscale": {
     "enabled": {{ .dotfiles_ai.tailscale.enabled | toJson }},
@@ -50,6 +67,7 @@
     "atuin_sync_address": {{ .dotfiles_ai.atuin.sync_address | toJson }},
     "hermes_enabled": {{ .dotfiles_ai.hermes.enabled | toJson }},
     "rnd_backend": {{ .dotfiles_ai.rnd.backend | toJson }},
+    "rnd_runtime": {{ .dotfiles_ai.rnd.runtime | toJson }},
     "vertex_project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
     "vertex_location": {{ .dotfiles_ai.opencode.vertex_location | toJson }},
     "vertex_account": {{ .dotfiles_ai.opencode.vertex_account | toJson }}
@@ -61,6 +79,7 @@
       "instance": {{ $workspace.instance | toJson }},
       "shell_alias": {{ $workspace.shell_alias | default "" | toJson }},
       "federate": {{ $workspace.federate | toJson }},
+      "runtime": {{ get $workspace "runtime" | default "" | toJson }},
       "hermes_projects": {{ get $workspace "hermes_projects" | default false | toJson }},
       "hermes_backlog_roots": {{ get $workspace "hermes_backlog_roots" | default list | toJson }},
       "mounts": {{ $workspace.mounts | toJson }}

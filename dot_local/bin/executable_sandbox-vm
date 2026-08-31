@@ -40,6 +40,10 @@ MAKE_VERIFY = "rpm -q make >/dev/null && exec /usr/bin/make --version"
 OPENCODE_VERSION = "1.18.25"
 OPENCODE_SHA256 = "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5"
 HOST_OPENCODE = "/opt/homebrew/bin/opencode"
+CODEX_VERSION = "0.151.0"
+CODEX_LINUX_ASSET_URL = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
+CODEX_LINUX_ASSET_SHA256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
+HOST_CODEX = "/opt/homebrew/bin/codex"
 OPENCODE_PROVISION_MARKER = "# dotfiles-ai-opencode"
 OPENCODE_INSTALL = f"""\
 {OPENCODE_PROVISION_MARKER}
@@ -190,7 +194,7 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6, 7}:
+    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6, 7, 8}:
         raise ValueError("invalid sandbox config")
     if value["schema_version"] == 4:
         value["schema_version"] = 5
@@ -211,6 +215,17 @@ def validate_config(value):
     if value["schema_version"] == 6:
         value["schema_version"] = 7
         value.setdefault("pm_kernel", {}).setdefault("knowledge_postgres_enabled", False)
+    if value["schema_version"] == 7:
+        value["schema_version"] = 8
+        value.setdefault("codex", {
+            "version": CODEX_VERSION,
+            "linux_asset_url": CODEX_LINUX_ASSET_URL,
+            "linux_asset_sha256": CODEX_LINUX_ASSET_SHA256,
+        })
+        value.setdefault("guest", {}).setdefault("rnd_runtime", "opencode")
+        for workspace in value.get("workspaces", []):
+            if isinstance(workspace, dict):
+                workspace.setdefault("runtime", "")
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
@@ -220,6 +235,11 @@ def validate_config(value):
     state_root = value.get("state_root", "")
     if not isinstance(state_root, str) or state_root and not Path(state_root).is_absolute():
         raise ValueError("invalid state root")
+    if value.get("codex") != {
+            "version": CODEX_VERSION,
+            "linux_asset_url": CODEX_LINUX_ASSET_URL,
+            "linux_asset_sha256": CODEX_LINUX_ASSET_SHA256}:
+        raise ValueError("invalid Codex release")
     if not isinstance(value.get("template"), str) or not value["template"].startswith("/"):
         raise ValueError("invalid workspace template")
     atuin_workspace = value.get("atuin_workspace")
@@ -259,13 +279,15 @@ def validate_config(value):
     if isinstance(guest, dict):
         guest.setdefault("hermes_enabled", False)
         guest.setdefault("rnd_backend", "native")
+        guest.setdefault("rnd_runtime", "opencode")
     if not isinstance(guest, dict) or set(guest) != {
             "default_model", "small_model", "theme",
-            "atuin_sync_address", "hermes_enabled", "rnd_backend",
+            "atuin_sync_address", "hermes_enabled", "rnd_backend", "rnd_runtime",
             "vertex_project", "vertex_location", "vertex_account"} or any(
             not isinstance(guest[name], str) for name in guest if name != "hermes_enabled") \
             or not isinstance(guest["hermes_enabled"], bool) \
-            or guest["rnd_backend"] not in {"native", "hermes"}:
+            or guest["rnd_backend"] not in {"native", "hermes"} \
+            or guest["rnd_runtime"] not in {"opencode", "codex"}:
         raise ValueError("invalid guest settings")
     if not re.fullmatch(r"https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", guest["atuin_sync_address"]):
         raise ValueError("invalid guest Atuin sync address")
@@ -280,9 +302,10 @@ def validate_config(value):
         if isinstance(workspace, dict):
             workspace.setdefault("hermes_projects", False)
             workspace.setdefault("hermes_backlog_roots", [])
+            workspace.setdefault("runtime", "")
         if not isinstance(workspace, dict) or set(workspace) != {
                 "name", "instance", "shell_alias", "federate", "hermes_projects",
-                "hermes_backlog_roots", "mounts"}:
+                "hermes_backlog_roots", "runtime", "mounts"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
@@ -293,6 +316,8 @@ def validate_config(value):
                 or not isinstance(workspace["federate"], bool)
                 or not isinstance(workspace["hermes_projects"], bool)):
             raise ValueError(f"invalid {name} workspace")
+        if workspace["runtime"] not in {"", "opencode", "codex"}:
+            raise ValueError(f"invalid {name} workspace runtime")
         if (not isinstance(shell_alias, str) or shell_alias and
                 (not ALIAS.fullmatch(shell_alias) or shell_alias == "sandbox-vm" or shell_alias in aliases)):
             raise ValueError(f"invalid {name} shell alias")
@@ -534,6 +559,11 @@ def guest_config(config, workspace):
         'lmstudio_base_url = "http://host.lima.internal:1234/v1"',
         f"theme = {quote(guest['theme'])}",
         "",
+        "[data.dotfiles_ai.codex]",
+        f"version = {quote(config['codex']['version'])}",
+        f"linux_asset_url = {quote(config['codex']['linux_asset_url'])}",
+        f"linux_asset_sha256 = {quote(config['codex']['linux_asset_sha256'])}",
+        "",
         "[data.dotfiles_ai.atuin]",
         f"sync_address = {quote(guest['atuin_sync_address'])}",
         f"server_enabled = {'true' if workspace['name'] == config['atuin_workspace'] else 'false'}",
@@ -554,6 +584,7 @@ def guest_config(config, workspace):
         "[data.dotfiles_ai.rnd]",
         f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
         f"backend = {quote(guest['rnd_backend'])}",
+        f"runtime = {quote(guest['rnd_runtime'])}",
         f"review_workdir = {quote(next(mount['guest'] for mount in workspace['mounts'] if mount['writable']))}",
         "review_hour = 9",
         "review_minute = 0",
@@ -595,6 +626,7 @@ def guest_config(config, workspace):
         f"instance = {quote(workspace['instance'])}",
         f"shell_alias = {quote(workspace['shell_alias'])}",
         f"federate = {'true' if workspace['federate'] else 'false'}",
+        f"runtime = {quote(workspace['runtime'])}",
     ]
     for mount in workspace["mounts"]:
         lines.extend([
@@ -609,6 +641,31 @@ def guest_config(config, workspace):
             f"reference_subpath = {quote(mount['reference_subpath'])}",
         ])
     return "\n".join(lines) + "\n"
+
+
+def resolve_runtime(config, workspace):
+    return workspace["runtime"] or config["guest"]["rnd_runtime"]
+
+
+def deployment_archive(source):
+    source = Path(source)
+    if not source.is_absolute() or source.is_symlink() or not (source / ".git").exists():
+        raise ValueError("invalid deployment source")
+    if command(["git", "-C", str(source), "status", "--porcelain"]):
+        raise ValueError("deployment source is dirty")
+    revision = command(["git", "-C", str(source), "rev-parse", "HEAD"])
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("invalid deployment revision")
+    descriptor, archive = tempfile.mkstemp(prefix="dotfiles-ai-deploy-", suffix=".tar.gz")
+    os.close(descriptor)
+    try:
+        command(["git", "-C", str(source), "archive", "--format=tar.gz",
+                 f"--add-virtual-file=.dotfiles-ai-deploy-commit:{revision}",
+                 f"--output={archive}", "HEAD"], timeout=120)
+    except Exception:
+        Path(archive).unlink(missing_ok=True)
+        raise
+    return Path(archive), revision
 
 
 def update_workspace(config, workspace, execute=command):
@@ -632,10 +689,44 @@ trap - EXIT
         timeout=120,
         input_data=guest_config(config, workspace).encode(),
     )
-    source = f"{home}/.local/share/chezmoi-dotfiles-ai"
-    execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
-    execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
-             f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+    deployment_source = os.environ.get("DOTFILES_AI_DEPLOY_SOURCE", "")
+    if deployment_source:
+        archive, revision = deployment_archive(deployment_source)
+        remote = f"/tmp/dotfiles-ai-{revision}.tar.gz"
+        try:
+            execute(["limactl", "copy", str(archive), f"{instance}:{remote}"], timeout=300)
+            execute(["limactl", "shell", instance, "--", "sh", "-ceu", '''
+archive=$1
+expected=$2
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"; rm -f "$archive"' EXIT
+mkdir "$tmp/source"
+tar -xzf "$archive" -C "$tmp/source"
+test "$(cat "$tmp/source/.dotfiles-ai-deploy-commit")" = "$expected"
+rm "$tmp/source/.dotfiles-ai-deploy-commit"
+chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
+  "$HOME/.local/bin/codex" \
+  "$HOME/.local/bin/codex-archive" \
+  "$HOME/.local/bin/codex-control-plane" \
+  "$HOME/.local/bin/codex-install" \
+  "$HOME/.local/bin/codex-project" \
+  "$HOME/.local/bin/codex-rollback" \
+  "$HOME/.config/dotfiles-ai/codex-managed" \
+  "$HOME/install-codex.sh" \
+  "$HOME/project-codex.sh"
+''', "deploy-codex", remote, revision], timeout=600)
+        finally:
+            archive.unlink(missing_ok=True)
+    else:
+        source = f"{home}/.local/share/chezmoi-dotfiles-ai"
+        execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
+        execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
+                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+    execute(["limactl", "shell", instance, "--", "sh", "-ceu",
+             'exec "$HOME/.local/bin/codex-install"'], timeout=300)
+    execute(["limactl", "shell", instance, "--", "sh", "-ceu",
+             'exec "$HOME/.local/bin/codex-project" "$HOME/.config/dotfiles-ai/codex-managed" '
+             '"$HOME/.local/state/dotfiles-ai/codex"'], timeout=300)
 
 
 def _instance_state(execute, instance):
@@ -783,6 +874,25 @@ def guest_opencode_version(workspace, execute=command):
     return _opencode_version(value, workspace["name"])
 
 
+def _codex_version(value, source):
+    version = value.strip()
+    matches = re.findall(r"(?<![0-9])\d+\.\d+\.\d+(?![0-9])", version)
+    if (len(version) > 128 or re.search(r"[\x00-\x1f\x7f]", version)
+            or matches != [CODEX_VERSION]):
+        raise RuntimeError(f"{source} Codex version mismatch")
+    return matches[0]
+
+
+def host_codex_version(execute=command):
+    return _codex_version(execute([HOST_CODEX, "--version"], timeout=30), "host")
+
+
+def guest_codex_version(workspace, execute=command):
+    value = execute(["limactl", "shell", workspace["instance"], "--", "sh", "-ceu",
+                     'exec "$HOME/.local/libexec/dotfiles-ai/codex" --version'], timeout=120)
+    return _codex_version(value, workspace["name"])
+
+
 def verify_opencode_parity(config, workspace, execute=command):
     host = host_opencode_version(execute)
     instance = workspace["instance"]
@@ -798,11 +908,70 @@ def verify_opencode_parity(config, workspace, execute=command):
     return {"host": host, "guest": guest, "instance": instance}
 
 
-def update_managed_workspace(config, workspace, execute=command, installer=None, updater=None):
+def verify_codex_version_parity(config, workspace, execute=command):
+    host = host_codex_version(execute)
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, _ = _instance_state(execute, instance)
+        try:
+            if not running:
+                execute(["limactl", "start", instance], timeout=120)
+            guest = guest_codex_version(workspace, execute)
+        finally:
+            _restore_instance_state(execute, instance, running)
+    return {"host": host, "guest": guest, "instance": instance}
+
+
+def _rollback_code():
+    installed = Path(__file__).with_name("codex-rollback")
+    source = Path(__file__).with_name("executable_codex-rollback")
+    path = installed if installed.exists() else source
+    value = path.read_bytes()
+    if not value or len(value) > 256 * 1024:
+        raise RuntimeError("Codex rollback helper is unavailable")
+    return value
+
+
+def codex_snapshot(workspace, execute=command):
+    token = execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "snapshot"],
+                    timeout=120, input_data=_rollback_code()).strip()
+    if not re.fullmatch(r"[0-9a-f]{32}", token):
+        raise RuntimeError("invalid Codex rollback token")
+    return token
+
+
+def codex_restore(workspace, token, execute=command):
+    execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "restore", token],
+            timeout=300, input_data=_rollback_code())
+
+
+def codex_discard(workspace, token, execute=command):
+    execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "discard", token],
+            timeout=120, input_data=_rollback_code())
+
+
+def _snapshot_action(config, workspace, token, action, execute):
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, _ = _instance_state(execute, instance)
+        try:
+            if not running:
+                execute(["limactl", "start", instance], timeout=120)
+            action(workspace, token, execute)
+        finally:
+            _restore_instance_state(execute, instance, running)
+
+
+def update_managed_workspace(config, workspace, execute=command, installer=None, updater=None,
+                             snapshotter=codex_snapshot, restorer=codex_restore,
+                             discarder=codex_discard, retain_backup=False):
     instance = workspace["instance"]
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
     with _instance_lock(lock_root, instance):
         running, current = _instance_state(execute, instance)
+        token = None
         try:
             if installer is None:
                 _install_opencode_locked(workspace, execute, running, current)
@@ -810,20 +979,62 @@ def update_managed_workspace(config, workspace, execute=command, installer=None,
                 installer(config, workspace, execute)
             if not running:
                 execute(["limactl", "start", instance], timeout=120)
+            token = snapshotter(workspace, execute)
             if updater is not None:
                 updater(config, workspace, execute)
-            return guest_opencode_version(workspace, execute)
+            result = {
+                "opencode": guest_opencode_version(workspace, execute),
+                "codex": guest_codex_version(workspace, execute),
+            }
+            if not retain_backup:
+                discarder(workspace, token, execute)
+                token = None
+        except Exception as error:
+            if token is not None:
+                try:
+                    restorer(workspace, token, execute)
+                except Exception as rollback_error:
+                    raise RuntimeError("Codex update and rollback failed") from rollback_error
+            raise
         finally:
             _restore_instance_state(execute, instance, running)
+    return (result, token) if retain_backup else result
 
 
-def update_all_workspaces(config, execute=command, installer=None, updater=None):
+def update_all_workspaces(config, execute=command, installer=None, updater=None,
+                          snapshotter=codex_snapshot, restorer=codex_restore,
+                          discarder=codex_discard):
     host = host_opencode_version(execute)
+    codex_host = host_codex_version(execute)
+    updater = update_workspace if updater is None else updater
     versions = {}
-    for workspace in config["workspaces"]:
-        versions[workspace["name"]] = update_managed_workspace(
-            config, workspace, execute, installer, updater)
-    return {"host": host, "workspaces": versions}
+    retained = []
+    try:
+        for workspace in config["workspaces"]:
+            versions[workspace["name"]], token = update_managed_workspace(
+                config, workspace, execute, installer, updater, snapshotter,
+                restorer, discarder, retain_backup=True)
+            retained.append((workspace, token))
+    except Exception as error:
+        rollback_errors = []
+        for workspace, token in reversed(retained):
+            try:
+                _snapshot_action(config, workspace, token, restorer, execute)
+            except Exception as rollback_error:
+                rollback_errors.append(rollback_error)
+        if rollback_errors:
+            raise RuntimeError("ordered Codex rollout and rollback failed") from error
+        raise
+    for workspace, token in retained:
+        _snapshot_action(config, workspace, token, discarder, execute)
+    return {
+        "host": host,
+        "workspaces": {name: value["opencode"] for name, value in versions.items()},
+        "codex": {
+            "host": codex_host,
+            "workspaces": {name: value["codex"] for name, value in versions.items()},
+        },
+    }
 
 
 def service_token(config, execute=command):
@@ -1580,10 +1791,10 @@ def main(argv=None, invocation=None):
         argv = ["shell", matches[0], *(alias_args or ["herdr"])]
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "start", "stop", "update", "install-make", "instance", "render", "validate", "shell", "tailscale-enroll", "parity"):
+    for name in ("create", "start", "stop", "update", "install-make", "instance", "render", "validate", "shell", "tailscale-enroll", "parity", "codex-version-parity"):
         sub = commands.add_parser(name)
         sub.add_argument("workspace")
-        if name == "parity":
+        if name in {"parity", "codex-version-parity"}:
             sub.add_argument("--instance")
         if name == "shell":
             sub.add_argument("args", nargs=argparse.REMAINDER)
@@ -1684,6 +1895,11 @@ def main(argv=None, invocation=None):
             raise SystemExit("workspace instance changed")
         print(json.dumps(verify_opencode_parity(config, workspace), sort_keys=True))
         return
+    if args.command == "codex-version-parity":
+        if args.instance and workspace["instance"] != args.instance:
+            raise SystemExit("workspace instance changed")
+        print(json.dumps(verify_codex_version_parity(config, workspace), sort_keys=True))
+        return
     if args.command == "render":
         print(render_workspace(config, workspace), end="")
         return
@@ -1728,8 +1944,11 @@ def main(argv=None, invocation=None):
         return
     if args.command == "update":
         host = host_opencode_version()
+        host_codex_version()
+        codex_host = host_codex_version()
         guest = update_managed_workspace(config, workspace, updater=update_workspace)
-        print(json.dumps({"workspace": args.workspace, "status": "updated", "opencode": {"host": host, "guest": guest},
+        print(json.dumps({"workspace": args.workspace, "status": "updated", "opencode": {"host": host, "guest": guest["opencode"]},
+                          "codex": {"host": codex_host, "guest": guest["codex"]},
                           "allocation": status_report(config)}, sort_keys=True))
 
 

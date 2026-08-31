@@ -291,7 +291,7 @@ is specified in [`features/codex-cli.md`](features/codex-cli.md).
 | State | not_applicable: claim and cycle states are authoritative in the lifecycle specification | - | `dbsctr_v3_lifecycle` | Lifecycle owner |
 | Data/trust | required: host/workspace trust flowchart plus Codex feature topology | What may cross VM and host boundaries? | Federated Host R&D contracts and `features/codex-cli.md` | Distribution owner; federation changes |
 | Schema | not_applicable: TOML and generated schema contracts remain authoritative text and tests | - | Interfaces And Contracts | Distribution owner |
-| Dependency/deployment | required: delivered host/workspace flowchart plus captured Codex feature flowchart | Which managed components run on host and guests? | Engineering Profile, workspace contracts, and `features/codex-cli.md` | Distribution owner; topology changes |
+| Dependency/deployment | required: delivered host/workspace flowchart plus deployed Codex feature flowchart | Which managed components run on host and guests? | Engineering Profile, workspace contracts, and `features/codex-cli.md` | Distribution owner; topology changes |
 | Quantitative | not_applicable: limits such as retention and worker caps are independent invariants, not comparative evidence | - | Contracts and PRODUCT success evidence | Distribution owner |
 
 DAI-024 adds the optional personal Atuin service and host loopback ingress shown
@@ -303,7 +303,7 @@ machine-local source selection. Neither changes topology, approval, or trust
 boundaries; the same visuals remain current.
 
 The flowchart below remains canonical for the delivered OpenCode/Hermes/Herdr
-topology. The captured, not-yet-delivered Codex host/guest homes, managed
+topology. The deployed Codex host/guest homes, managed
 launchers, desktop separation, install flow, and target transitions are
 canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
 required until Codex deployment updates this delivered topology.

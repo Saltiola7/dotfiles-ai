@@ -7,8 +7,139 @@ exit 0
 {{ end -}}
 
 command -v brew >/dev/null || {
-    echo "Homebrew is required to install OpenCode: https://brew.sh" >&2
+    echo "Homebrew is required to install managed agent packages: https://brew.sh" >&2
     exit 1
 }
 
+expected={{ .dotfiles_ai.codex.version | quote }}
+export HOMEBREW_NO_AUTO_UPDATE=1
+available=$(brew info --cask codex --json=v2 | python3 -c 'import json,sys; print(json.load(sys.stdin)["casks"][0]["version"])')
+[[ $available == "$expected" ]] || { echo "Homebrew Codex cask version mismatch" >&2; exit 1; }
+prefix=$(brew --prefix)
+codex="$prefix/bin/codex"
+package_state="$HOME/.local/state/dotfiles-ai/codex-package"
+transaction="$package_state/transaction"
+record="$package_state/homebrew-bin"
+read_transaction() {
+    python3 - "$transaction" <<'PY'
+import os, stat, sys
+path = os.path.abspath(os.path.expanduser(sys.argv[1]))
+if not os.path.lexists(path):
+    raise SystemExit(0)
+metadata = os.lstat(path)
+if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 32):
+    raise SystemExit("unsafe Codex package transaction")
+with open(path, encoding="utf-8") as stream:
+    value = stream.read()
+if value not in {"new_install\n", "existing\n"}:
+    raise SystemExit("invalid Codex package transaction")
+print(value.strip())
+PY
+}
+write_transaction() {
+    python3 - "$transaction" "$1" <<'PY'
+import os, stat, sys, tempfile
+path, value = sys.argv[1:]
+parent = os.path.dirname(path)
+os.makedirs(parent, mode=0o700, exist_ok=True)
+metadata = os.lstat(parent)
+if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o700):
+    raise SystemExit("unsafe Codex package transaction directory")
+descriptor, temporary = tempfile.mkstemp(prefix=".codex-package-transaction.", dir=parent)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(value + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    directory = os.open(parent, os.O_RDONLY)
+    os.fsync(directory)
+    os.close(directory)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+remove_transaction() {
+    python3 - "$transaction" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+if os.path.lexists(path):
+    metadata = os.lstat(path)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 32):
+        raise SystemExit("unsafe Codex package transaction")
+    if open(path, encoding="utf-8").read() not in {"new_install\n", "existing\n"}:
+        raise SystemExit("invalid Codex package transaction")
+    os.unlink(path)
+    directory = os.open(os.path.dirname(path), os.O_RDONLY)
+    os.fsync(directory)
+    os.close(directory)
+PY
+}
+prior=$(read_transaction)
+if [[ -n $prior ]]; then
+    :
+elif brew list --cask codex >/dev/null 2>&1; then
+    [[ -x $codex ]] || { echo "existing Homebrew Codex binary is unavailable" >&2; exit 1; }
+    current=$($codex --version)
+    [[ ${#current} -le 128 && ( $current == "$expected" || $current == *" $expected" ) ]] || {
+        echo "existing Homebrew Codex version requires a separate upgrade" >&2
+        exit 1
+    }
+    prior=existing
+else
+    prior=new_install
+fi
+write_transaction "$prior"
+rollback_package() {
+    status=${1:-$?}
+    trap - ERR
+    if [[ $prior == new_install ]]; then
+        brew uninstall --cask codex >/dev/null 2>&1 || true
+        rm -f "$record"
+    fi
+    remove_transaction
+    exit "$status"
+}
+trap rollback_package ERR
 brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"
+
+[[ -x $codex ]] || { echo "managed Codex binary is unavailable" >&2; rollback_package 1; }
+version=$($codex --version)
+[[ ${#version} -le 128 && ( $version == "$expected" || $version == *" $expected" ) ]] || {
+    echo "managed Codex version mismatch" >&2
+    rollback_package 1
+}
+available=$(brew info --cask codex --json=v2 | python3 -c 'import json,sys; print(json.load(sys.stdin)["casks"][0]["version"])')
+[[ $available == "$expected" ]] || { echo "Homebrew Codex cask changed during installation" >&2; rollback_package 1; }
+resolved=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$codex")
+[[ $resolved == "$prefix/Caskroom/codex/$expected/"* ]] || {
+    echo "managed Codex binary is outside the Homebrew cask" >&2
+    rollback_package 1
+}
+python3 - "$record" "$resolved" <<'PY'
+import os
+from pathlib import Path
+import sys
+import tempfile
+record = Path(sys.argv[1])
+value = sys.argv[2]
+record.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+if record.parent.is_symlink() or record.is_symlink():
+    raise SystemExit("unsafe Codex executable record")
+descriptor, temporary = tempfile.mkstemp(prefix=".codex-homebrew-bin.", dir=record.parent)
+with os.fdopen(descriptor, "w") as stream:
+    stream.write(value + "\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.chmod(temporary, 0o600)
+os.replace(temporary, record)
+directory = os.open(record.parent, os.O_RDONLY)
+os.fsync(directory)
+os.close(directory)
+PY
+trap - ERR
