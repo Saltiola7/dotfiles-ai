@@ -4,7 +4,8 @@ set -euo pipefail
 
 source="$HOME/.config/dotfiles-ai/codex-managed"
 {{ if eq .chezmoi.os "darwin" -}}
-transaction="$HOME/.config/dotfiles-ai/codex-package-transaction"
+package_state="$HOME/.local/state/dotfiles-ai/codex-package"
+transaction="$package_state/transaction"
 transaction_state() {
     python3 - "$transaction" <<'PY'
 import os, stat, sys
@@ -45,7 +46,7 @@ rollback_package() {
     if [[ $state == new_install ]]; then
         export HOMEBREW_NO_AUTO_UPDATE=1
         brew uninstall --cask codex >/dev/null 2>&1 || true
-        rm -f "$HOME/.config/dotfiles-ai/codex-homebrew-bin"
+        rm -f "$package_state/homebrew-bin"
     fi
     remove_transaction
     exit "$status"

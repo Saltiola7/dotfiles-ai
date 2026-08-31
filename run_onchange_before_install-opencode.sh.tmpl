@@ -17,8 +17,9 @@ available=$(brew info --cask codex --json=v2 | python3 -c 'import json,sys; prin
 [[ $available == "$expected" ]] || { echo "Homebrew Codex cask version mismatch" >&2; exit 1; }
 prefix=$(brew --prefix)
 codex="$prefix/bin/codex"
-transaction="$HOME/.config/dotfiles-ai/codex-package-transaction"
-record="$HOME/.config/dotfiles-ai/codex-homebrew-bin"
+package_state="$HOME/.local/state/dotfiles-ai/codex-package"
+transaction="$package_state/transaction"
+record="$package_state/homebrew-bin"
 read_transaction() {
     python3 - "$transaction" <<'PY'
 import os, stat, sys

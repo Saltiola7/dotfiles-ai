@@ -19,7 +19,7 @@ export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ end -}}
 {{ if eq .chezmoi.os "darwin" -}}
 expected={{ .dotfiles_ai.codex.version | quote }}
-real=$("$HOME/.local/bin/codex-project" --resolve-homebrew "$HOME/.config/dotfiles-ai/codex-homebrew-bin" "$expected")
+real=$("$HOME/.local/bin/codex-project" --resolve-homebrew "$HOME/.local/state/dotfiles-ai/codex-package/homebrew-bin" "$expected")
 {{ else -}}
 real="$HOME/.local/libexec/dotfiles-ai/codex"
 expected={{ .dotfiles_ai.codex.version | quote }}

@@ -168,7 +168,7 @@ def test_codex_distribution_sources_are_pinned_and_inert() -> None:
     assert "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6" in defaults
     assert 'mv -f "$target.new" "$target"' in linux_installer
     assert "CODEX_HOME" in wrapper and 'exec "$real" "$@"' in wrapper
-    assert "codex-homebrew-bin" in wrapper
+    assert "codex-package/homebrew-bin" in wrapper
     assert "/opt/homebrew/bin/codex" not in wrapper
     assert ".dotfiles-ai-managed.json" in projector
     assert ".dotfiles-ai-journal.json" in projector
@@ -247,7 +247,7 @@ esac
 
     subprocess.run(["bash"], input=installer, text=True, env=environment, check=True)
 
-    transaction = home / ".config/dotfiles-ai/codex-package-transaction"
+    transaction = home / ".local/state/dotfiles-ai/codex-package/transaction"
     assert transaction.read_text().strip() == "new_install"
     assert (prefix / ".codex-installed").exists()
     managed_bin = home / ".local/bin"
@@ -269,7 +269,7 @@ esac
     assert result.returncode != 0
     assert "uninstall --cask codex" in log.read_text()
     assert not (prefix / ".codex-installed").exists()
-    assert not (home / ".config/dotfiles-ai/codex-homebrew-bin").exists()
+    assert not (home / ".local/state/dotfiles-ai/codex-package/homebrew-bin").exists()
     assert desktop.read_text() == "desktop"
 
 
@@ -289,7 +289,7 @@ if [[ ${1:-} == --version ]]; then printf '%s\n' 'codex-cli 0.151.0'; exit; fi
 printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
 ''')
     real.chmod(0o755)
-    record = home / ".config/dotfiles-ai/codex-homebrew-bin"
+    record = home / ".local/state/dotfiles-ai/codex-package/homebrew-bin"
     record.parent.mkdir(parents=True)
     record.write_text(str(real) + "\n")
     record.chmod(0o600)
