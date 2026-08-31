@@ -15,6 +15,14 @@
   Commit: `b623430`. Gate Exceptions: none. Intended Final Push: feature branch
   and draft pull request into protected `main`.
 
+## 2026-08-30 - History Aggregate Read-Side Cache Contract
+
+- Clarified that bounded aggregate telemetry may create an owner-private,
+  atomic, 24-hour transient capture without gaining permission to mutate review,
+  Incident, cycle, gate, claim, or canonical source state.
+- Implementation and typed availability remain owned by their dependent Build
+  slices; this Discovery update changes normative authority only.
+
 ## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
 
 - Kept Initiative manifests repository-relative while adding an explicitly

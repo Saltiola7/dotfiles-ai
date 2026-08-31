@@ -669,6 +669,13 @@ and validate the returned contract before exposure. Legacy history without a
 telemetry envelope is normalized only to explicit `unavailable` fields; adapters
 never infer a value or classification.
 
+Read-only classification permits the lifecycle helper to create an owner-private
+transient aggregate capture as a derived cache. The helper owns its lock, atomic
+publication, exact source/query binding, 24-hour retention, privacy invalidation,
+and expired unreferenced cleanup. A failed create leaves no capture. This cache
+cannot change review markers, Incidents, cycles, gates, claims, or canonical
+source state and therefore does not grant a private-state mutation permission.
+
 Plan, Reviewer, Explore, Scout, and Builder agents cannot attach runtimes or
 write analytics state. Read-only analytics access and permissioned private-state
 writes remain separate tools. OpenCode adapters never duplicate helper lifecycle,
