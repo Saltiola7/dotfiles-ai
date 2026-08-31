@@ -5,7 +5,7 @@ slug: "keep-initiative-build-in-session"
 context: "opencode_control_plane"
 title: "Keep Build-led Initiative work in the current session"
 kind: "task"
-state: "in_progress"
+state: "done"
 priority: "high"
 points: null
 depends_on: []
@@ -31,8 +31,9 @@ validation:
   - "Focused and affected control-plane/lifecycle pytest, independent boundary review, rendered permissions, and targeted deployment smoke"
 created: "2026-08-31"
 updated: "2026-08-31"
-completed: null
-commits: []
+completed: "2026-08-31"
+commits:
+  - "96a7bbd145f8e8100f13c2d5d4ec5fd07aed7b45"
 jira_publications: []
 migration: null
 ---
@@ -55,4 +56,11 @@ isolated Herdr child session.
 
 ## Evidence
 
-- Pending.
+- The regression failed before implementation because Build inherited child
+  launch permission and Initiative Begin returned `herdr: launched`.
+- All 80 affected control-plane and lifecycle tests pass. Independent review
+  found no remaining correctness, security, or contract issue.
+- Deployment used an explicit overlay to preserve live unmerged History-query
+  and serial-Discovery changes. The second preview was idempotent and direct
+  OpenCode resolution confirms Build asks only for Initiative Begin, Discovery
+  Coordinator asks only for child launch, and Plan/global defaults deny both.

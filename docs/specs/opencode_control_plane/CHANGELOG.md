@@ -5,7 +5,9 @@
 - Restricted `dbsctr_initiative_launch` and its Herdr child creation to Discovery
   Coordinator. Primary Build modes now use exact approval-bound Initiative Begin
   and remain in their current same-repository session; Plan and subagents deny
-  both Initiative paths.
+  both Initiative paths. All 80 affected tests pass and independent review found
+  no remaining issue. Targeted overlay deployment preserved concurrent unmerged
+  managed changes and resolved idempotently. Gate Commit: `96a7bbd`.
 
 ## 2026-08-31 - History Projection Availability Readiness
 
