@@ -154,3 +154,18 @@ one machine boundary: exit `75`, empty stdout, and stderr exactly
 `projection_busy`. Lock acquisition and one optional policy repair share a
 two-second deadline. OpenCode, not DKS, owns the later model-visible availability
 envelope.
+
+## History Boundary Index
+
+History and Incident population discovery uses one owner-private derived boundary
+index instead of repeatedly ordering the full OpenCode part table. The lifecycle
+context owns this rebuildable cache. It stores source row identity and ordering
+metadata only, never prompt, response, command, error, or tool payload content.
+
+Only an atomically ready generation may serve aggregate or summary queries. A
+missing, preparing, source-incompatible, privacy-stale, or corrupt generation is
+explicitly unavailable and returns no partial population. Incremental maintenance
+must reach the requested snapshot ceiling before use. Source replacement, rowid
+regression, schema incompatibility, or a privacy tombstone invalidates affected
+state and requires bounded rebuild. Detailed History and Incident modes remain
+independent of this cache.

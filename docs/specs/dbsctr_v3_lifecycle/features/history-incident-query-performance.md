@@ -14,6 +14,7 @@ availability.
 | Reduction | Binds the page, bulk-reduces metrics, and validates summary schemas | Does not recompute lifecycle metrics |
 | Availability | Returns valid local output or fails closed | Bounds the subprocess and maps operational failure to typed availability |
 | Privacy | Omits private identities and raw text from summary modes | Prevents unavailable or rejected output from entering model context |
+| Index state | Owns private preparation, activation, invalidation, and retirement | Receives only sanitized availability |
 
 ## Ubiquitous Language
 
@@ -23,6 +24,8 @@ availability.
 | Aggregate Page | Metrics and distributions reduced only for one Immutable Page without candidate bodies or identifiers. |
 | Incident Summary | Bounded counts by allowlisted tool, sanitized failure class, and recovery state without signal identity or evidence. |
 | Availability Denominator | Separate available and unavailable member counts carried beside one metric. |
+| Boundary Index | Owner-private derived ordering metadata used to select exact source boundaries without reading every payload. |
+| Index Generation | One versioned preparing or ready Boundary Index population bound to source, schema, privacy, and row ceilings. |
 
 ## Required Behavior
 
@@ -57,6 +60,31 @@ availability.
 - When History or Incident evidence is requested
 - Then the existing candidate and detailed response contracts remain unchanged
 
+**Scenario: Activate one exact boundary generation**
+
+- Given a source schema with stable `session_id`, `rowid`, and `time_created`
+- When bounded maintenance reaches one captured part ceiling
+- Then it records ordering keys in exact `(session_id, time_created, rowid)` order
+- And atomically activates the generation only after source, schema, privacy,
+  coverage, uniqueness, and ordering validation pass
+- And stores no source body or model-visible evidence
+
+**Scenario: Refuse an unavailable boundary generation**
+
+- Given the index is missing, preparing, corrupt, privacy-stale, source-incompatible,
+  or behind the requested part ceiling
+- When aggregate History or Incident summary requests population discovery
+- Then the helper exits temporarily unavailable without scanning all source payloads
+- And returns no partial population, aggregate, summary, or citation-like evidence
+
+**Scenario: Invalidate private indexed identity**
+
+- Given a privacy tombstone invalidates one indexed session family
+- When the tombstone commits
+- Then captures containing that family are deleted in the same privacy operation
+- And the active generation is invalidated before another summary read
+- And maintenance rebuilds without the forgotten family before activation
+
 ## Interfaces
 
 The lifecycle CLI adds `--aggregate-only` to structured History telemetry and
@@ -65,6 +93,29 @@ The lifecycle CLI adds `--aggregate-only` to structured History telemetry and
 owner-private transient capture under the existing 24-hour retention policy.
 Provider adapters expose the corresponding `aggregateOnly` and `summaryOnly`
 booleans. Both default to `false`.
+
+`history-source-index-maintain` owns bounded preparation. It reads the configured
+OpenCode source and owner-private lifecycle state, accepts no caller-supplied rows,
+and returns only schema version, generation state, covered row ceiling, indexed
+row count, and continuation-needed boolean. It never returns source IDs or bodies.
+Aggregate and summary reads never synchronously perform an unbounded rebuild.
+One invocation reads at most 50,000 source rows and consumes at most five seconds
+of monotonic maintenance time, whichever comes first. These bounds are fixed, not
+caller configuration.
+
+Maintenance output has exactly:
+
+```json
+{"schema_version":1,"state":"preparing","covered_part_ceiling":0,"indexed_rows":0,"continuation_needed":true}
+```
+
+`state` is `preparing` or `ready`; counts are non-negative signed 64-bit integers.
+No generation, source, privacy, path, session, message, or part identity is output.
+
+Operational index unavailability has one local machine boundary: process status
+`75`, empty stdout, and stderr exactly `source_index_unavailable\n`. Missing,
+preparing, stale, incompatible, corrupt, and insufficiently covered generations
+share this sanitized class. OpenCode owns later model-visible availability.
 
 Aggregate History output preserves the existing schema identity and snapshot
 envelope, sets `mode=aggregate`, and contains only:
@@ -244,6 +295,113 @@ canonical filters, limit, cursor, ordered hidden page IDs, and every selected so
 identity. A cache is optional; when absent, these values still define immutable
 continuation and digest validation.
 
+### Boundary Index Contract
+
+The index is the separate owner-private SQLite sidecar
+`reviews/history-source-index.sqlite3` under lifecycle review state, mode `0600`,
+with symlink and non-owner rejection. It is not part of Git, review
+history, backup or federation payloads, transient capture output, or canonical
+OpenCode state. Schema version 1 contains:
+
+- generation metadata: opaque generation ID, `preparing` or `ready` state,
+  source file identity, source schema identity, privacy epoch digest, captured
+  session and part ceilings, indexed part rowid, indexed row count, and timestamps;
+- ordering rows: private session ID, part rowid, and integer part time only;
+- indexes supporting exact `(session_id, part_time, part_rowid)` ascending and
+  descending boundary reads.
+
+No title, prompt, response, command, URL, credential, environment value, body,
+error, model output, message ID, part ID, cycle ID, or evidence text is stored.
+Raw private session IDs remain owner-local and are never emitted.
+
+The exact private schema is:
+
+```sql
+CREATE TABLE index_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE index_generations (
+  generation_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('preparing','ready')),
+  source_device INTEGER NOT NULL,
+  source_inode INTEGER NOT NULL,
+  schema_digest TEXT NOT NULL,
+  privacy_epoch_digest TEXT NOT NULL,
+  session_ceiling INTEGER NOT NULL,
+  target_part_ceiling INTEGER NOT NULL,
+  indexed_part_rowid INTEGER NOT NULL,
+  covered_part_ceiling INTEGER NOT NULL,
+  indexed_row_count INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE index_rows (
+  generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
+  part_rowid INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  part_time INTEGER NOT NULL,
+  PRIMARY KEY (generation_id,part_rowid)
+) WITHOUT ROWID;
+CREATE INDEX index_rows_ascending
+  ON index_rows(generation_id,session_id,part_time,part_rowid);
+CREATE TABLE active_generation (
+  singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+  generation_id TEXT NOT NULL REFERENCES index_generations(generation_id)
+);
+```
+
+`index_meta` contains exactly `schema_version=1`. Digests are lowercase SHA-256;
+generation and session IDs use existing private opaque-ID validation. Every count,
+ceiling, rowid, and timestamp is a non-negative signed 64-bit integer. Descending
+boundary reads use `index_rows_ascending` in reverse order. Readers always add
+`part_rowid <= covered_part_ceiling`, so rows appended beyond visible coverage
+cannot affect an older capture.
+
+Maintenance holds the existing exclusive review lock and reads at most 50,000
+rows with one ordered source query over `rowid > indexed_part_rowid` through the
+captured target ceiling. It commits each valid chunk atomically. A preparing
+generation is never query-visible. Resumption requires exact source file,
+schema, privacy, generation, and prior row-ceiling identity. `session_id`,
+`rowid`, and `time_created` are immutable ordering authorities; source replacement,
+rowid regression, incompatible schema, invalid timestamp, duplicate ordering
+identity, or detected key mutation discards the preparing generation and requires
+rebuild.
+
+The private source-file identity is device, inode, and schema digest; mutable size
+and modification time are observations, not replacement identity. The schema
+digest binds table and index definitions plus the selected column names and types.
+An append-only source may extend a ready generation without copying prior rows:
+new rows remain outside its visible covered ceiling while bounded transactions
+append them, and one final transaction advances the ready ceiling. Captures whose
+part ceiling is already covered remain readable during catch-up. New snapshots
+beyond coverage return `source_index_unavailable`.
+
+Initial activation and rebuild verify complete coverage through the captured part
+ceiling, exact row count, unique rowids, valid integer timestamps, ordering
+indexes, source identity, and current privacy epoch in one transaction. They then
+swap the active generation pointer atomically. Readers hold the existing shared
+review lock and use only the active ready generation. Aggregate capture identity
+binds the private generation ID without emitting it. Old generations may be
+deleted only after activation and when no transient capture references them.
+
+First and last 16 boundary rows per session are selected from the sidecar in a
+fixed number of bulk queries. Their rowids are then used to read only bounded
+source bodies needed for existing eligibility semantics. Page metrics remain
+separate and page-scoped. The sidecar never becomes metric or source-content
+authority.
+
+Privacy forgetting deletes dependent captures and invalidates any generation
+containing the forgotten family in the same exclusive-lock operation. A changed
+privacy epoch is always stale. Expired transient captures do not keep a generation
+alive. Source disappearance or replacement leaves the index unavailable; it does
+not serve stale membership.
+
+Rollback deletes the sidecar. Detailed modes continue unchanged. Aggregate and
+summary modes return `source_index_unavailable` until bounded maintenance activates
+a fresh generation. Retirement removes preparing and ready generations after all
+dependent captures expire or are deleted.
+
 The persisted capture is a derived read-side cache, not review, Incident, cycle,
 or gate state. The lifecycle helper owns its owner-private directory, existing
 exclusive review lock, atomic publish, 24-hour retention, exact query/source
@@ -279,7 +437,7 @@ valid rows means no overflow; 101 valid rows means count 100 and overflow true.
 |---|---|---|---|---|
 | Boundary | required: ownership table | Which context owns reduction versus subprocess availability? | Purpose and Interfaces | Ownership change |
 | Interaction | required: sequence diagram | Is the page selected before expensive reduction? | Required Behavior and Reduction Contract | Query-order change |
-| State | required: transient capture lifecycle | Can first read, continuation, expiry, and failed publication be distinguished? | Reduction Contract and state diagram | Capture lifecycle change |
+| State | required: transient capture and boundary-index lifecycles | Can preparation, activation, invalidation, continuation, expiry, and failed publication be distinguished? | Reduction Contract and state diagrams | Capture or index lifecycle change |
 | Data/trust | required: flowchart | Can private candidate or signal identity reach aggregate output? | Privacy And Failure Contract | Privacy-boundary change |
 | Schema | required: field tables are the accessible canonical schema | Which fields are present in summary modes? | Interfaces | Response-shape change |
 | Dependency/deployment | not_applicable: existing helper and typed adapters are extended | - | Purpose | Runtime dependency change |
@@ -333,6 +491,26 @@ continuations until 24-hour expiry or privacy invalidation, after which cleanup
 removes them.
 
 ```mermaid
+stateDiagram-v2
+    accTitle: Boundary index generation lifecycle
+    accDescr: Bounded maintenance prepares a private generation. Complete validated coverage activates it atomically. Source, schema, privacy, or integrity drift invalidates it; queries use only ready generations.
+    [*] --> Preparing: bounded maintenance starts
+    Preparing --> Preparing: append validated chunk
+    Preparing --> Ready: validate and atomically activate
+    Preparing --> Invalid: source or validation mismatch
+    Ready --> Ready: append outside coverage and atomically advance ceiling
+    Ready --> Invalid: source, schema, privacy, or integrity drift
+    Invalid --> [*]: delete generation
+    Ready --> [*]: retire after references clear
+```
+
+**Text Equivalent:** Maintenance writes bounded validated chunks to a preparing
+generation. Complete source and privacy coverage activates it atomically. Queries
+use only a ready generation. Source replacement, schema drift, privacy change,
+coverage mismatch, or corruption invalidates the generation. Invalid generations
+are deleted; ready generations retire only after dependent captures clear.
+
+```mermaid
 flowchart LR
     accTitle: History and Incident summary trust flow
     accDescr: Private candidates and signals remain in the lifecycle source. Only allowlisted counts, metrics, availability, overflow, and continuation reach local typed consumers.
@@ -357,6 +535,14 @@ never enter aggregate output.
 - Incident fixtures prove allowlisted grouping, unknown collapse, truthful
   overflow, and absence of forbidden identities.
 - Existing candidate and detailed-mode fixtures remain byte-compatible.
+- Sidecar fixtures prove bounded chunk resume, exact 16-row boundary parity,
+  atomic activation, preparing-state unavailability, source replacement and
+  rowid-regression rebuild, symlink and permission rejection, and payload absence.
+- Privacy fixtures prove forgetting invalidates dependent captures and generations
+  before another read.
+- On a representative large source, five post-warmup aggregate and Incident
+  summary runs each complete with p95 below 30 seconds, no detailed-result drift,
+  and no source body in the sidecar.
 
 ## Gate Ledger
 
@@ -380,3 +566,4 @@ never enter aggregate output.
 - Replacing immutable pagination with one unbounded aggregate.
 - Changing review completion, Incident mutation, or privacy dispositions.
 - Claiming causal performance improvement from mixed cohorts.
+- Mutating the OpenCode database or requiring a source-owned index or migration.
