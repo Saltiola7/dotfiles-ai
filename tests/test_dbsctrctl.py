@@ -20,6 +20,10 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
+HISTORY_SOURCE_SCHEMA = (
+    Path(__file__).parents[1]
+    / "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
+)
 GATES = (
     "domain", "behavior", "spec", "contract", "test_driven_implementation",
     "refactor", "review_integrate", "release", "deploy", "operate", "maintain_retire",
@@ -373,6 +377,32 @@ def test_history_source_parser_failures_are_bounded(tmp_path):
         assert result.stdout == ""
         assert result.stderr.strip() == "dbsctrctl: history_source_invalid_arguments"
         assert len(result.stderr.encode()) <= 256
+
+
+def test_history_source_authoritative_schema_matches_portability_contract():
+    schema = json.loads(HISTORY_SOURCE_SCHEMA.read_text())
+    assert schema["$ref"] == "#/$defs/envelope"
+    assert schema["$defs"]["page"]["additionalProperties"] is False
+    assert schema["$defs"]["envelope"]["additionalProperties"] is False
+    integer_nodes = []
+
+    def visit(value):
+        if isinstance(value, dict):
+            kind = value.get("type")
+            if kind == "integer" or isinstance(kind, list) and "integer" in kind:
+                integer_nodes.append(value)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(schema)
+    assert integer_nodes
+    assert all(node["maximum"] <= 9007199254740991 for node in integer_nodes)
+    assert schema["$defs"]["metrics"]["properties"]["cost_total"]["anyOf"][0] == {
+        "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$",
+    }
 
 
 class DbsctrctlTest(unittest.TestCase):
