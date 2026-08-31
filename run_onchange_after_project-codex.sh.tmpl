@@ -1,0 +1,66 @@
+#!/bin/bash
+# Managed Codex source and package: {{ include "Brewfile" | sha256sum }} {{ .dotfiles_ai.codex | toJson | sha256sum }} {{ include "run_onchange_before_install-opencode.sh.tmpl" | sha256sum }} {{ include "dot_local/bin/executable_codex-project" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/config.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/AGENTS.md" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/build.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/discovery.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/plan.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/review.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/explore.toml" | sha256sum }} {{ include "private_dot_config/dotfiles-ai/codex-managed/agents/scout.toml" | sha256sum }}
+set -euo pipefail
+
+source="$HOME/.config/dotfiles-ai/codex-managed"
+{{ if eq .chezmoi.os "darwin" -}}
+transaction="$HOME/.config/dotfiles-ai/codex-package-transaction"
+transaction_state() {
+    python3 - "$transaction" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+if not os.path.lexists(path):
+    raise SystemExit(0)
+metadata = os.lstat(path)
+if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 32):
+    raise SystemExit("unsafe Codex package transaction")
+value = open(path, encoding="utf-8").read()
+if value not in {"new_install\n", "existing\n"}:
+    raise SystemExit("invalid Codex package transaction")
+print(value.strip())
+PY
+}
+remove_transaction() {
+    python3 - "$transaction" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+if os.path.lexists(path):
+    metadata = os.lstat(path)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 32):
+        raise SystemExit("unsafe Codex package transaction")
+    if open(path, encoding="utf-8").read() not in {"new_install\n", "existing\n"}:
+        raise SystemExit("invalid Codex package transaction")
+    os.unlink(path)
+    directory = os.open(os.path.dirname(path), os.O_RDONLY)
+    os.fsync(directory)
+    os.close(directory)
+PY
+}
+rollback_package() {
+    status=${1:-$?}
+    trap - ERR
+    state=$(transaction_state)
+    if [[ $state == new_install ]]; then
+        export HOMEBREW_NO_AUTO_UPDATE=1
+        brew uninstall --cask codex >/dev/null 2>&1 || true
+        rm -f "$HOME/.config/dotfiles-ai/codex-homebrew-bin"
+    fi
+    remove_transaction
+    exit "$status"
+}
+trap rollback_package ERR
+{{ end -}}
+{{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+target={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
+"$HOME/.local/bin/state-root-exec" "$HOME/.local/bin/codex-project" "$source" "$target"
+{{ else -}}
+target="$HOME/.local/state/dotfiles-ai/codex"
+"$HOME/.local/bin/codex-project" "$source" "$target"
+{{ end -}}
+{{ if eq .chezmoi.os "darwin" -}}
+remove_transaction
+trap - ERR
+{{ end -}}

@@ -1,6 +1,6 @@
 # Managed Codex CLI Distribution
 
-**Status:** Distribution receipt ready; implementation and deployment not started
+**Status:** Distribution implemented; controlled deployment pending
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -279,7 +279,8 @@ cross-runtime activation.
 ## Validation
 
 ```bash
-uv run --group test pytest tests/test_portable_distribution.py tests/test_lima_sandbox.py tests/test_herdr_launchagent.py tests/test_dbsctr_rnd.py -q
+uv run --group test pytest tests/test_codex_distribution.py tests/test_portable_distribution.py tests/test_lima_sandbox.py tests/test_herdr_launchagent.py tests/test_dbsctr_rnd.py -q
+python3 -m py_compile dot_local/bin/executable_codex-project dot_local/bin/executable_codex-archive dot_local/bin/executable_codex-rollback dot_local/bin/executable_sandbox-vm
 git diff --check
 ```
 

@@ -1,0 +1,9 @@
+#!/bin/bash
+# Codex release: {{ .dotfiles_ai.codex | toJson | sha256sum }} {{ include "dot_local/bin/executable_codex-install.tmpl" | sha256sum }} {{ include "dot_local/bin/executable_codex-archive" | sha256sum }}
+set -euo pipefail
+
+{{ if ne .chezmoi.os "linux" -}}
+exit 0
+{{ end -}}
+
+exec "$HOME/.local/bin/codex-install"

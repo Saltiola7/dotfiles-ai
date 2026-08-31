@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import shutil
+import stat
+import sys
+import tempfile
+
+
+MANIFEST = ".dotfiles-ai-managed.json"
+JOURNAL = ".dotfiles-ai-journal.json"
+STAGING = ".dotfiles-ai-staging"
+MAX_FILES = 64
+MAX_FILE_SIZE = 1024 * 1024
+MAX_TOTAL_SIZE = 4 * 1024 * 1024
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(64 * 1024):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def checked_path(value, *, reject_git=False):
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise ValueError("managed path must be absolute")
+    if ".." in path.parts or os.path.normpath(str(path)) != str(path):
+        raise ValueError("managed path is not normalized")
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("managed path contains symlink")
+        if reject_git and ((current / ".git").is_dir() or (current / ".git").is_file()):
+            raise ValueError("managed state is inside a Git worktree")
+    return path
+
+
+def private_directory(path):
+    existed = path.exists() or path.is_symlink()
+    if not existed:
+        try:
+            path.mkdir(parents=True, mode=0o700)
+            fsync_directory(path.parent)
+        except FileExistsError:
+            pass
+    metadata = path.stat(follow_symlinks=False)
+    if (path.is_symlink() or not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o700):
+        raise ValueError("unsafe managed directory")
+
+
+def relative_name(path):
+    value = PurePosixPath(path)
+    if value.is_absolute() or not value.parts or any(part in {"", ".", ".."} for part in value.parts):
+        raise ValueError("unsafe managed path")
+    if value.as_posix() not in {"config.toml", "AGENTS.md"} and not (
+            value.parts[0] == "agents" and value.suffix == ".toml"):
+        raise ValueError("unexpected managed path")
+    return value.as_posix()
+
+
+def source_files(source):
+    expected = [source / "config.toml", source / "AGENTS.md"]
+    agents = source / "agents"
+    if not agents.is_dir() or agents.is_symlink():
+        raise ValueError("managed agents directory is unavailable")
+    expected.extend(sorted(agents.rglob("*.toml")))
+    files = {}
+    total = 0
+    for path in expected:
+        relative = relative_name(path.relative_to(source).as_posix())
+        metadata = path.stat(follow_symlinks=False)
+        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise ValueError("unsafe managed source")
+        if metadata.st_size > MAX_FILE_SIZE:
+            raise ValueError("managed source file is too large")
+        total += metadata.st_size
+        files[relative] = digest(path)
+    if not files or len(files) > MAX_FILES or total > MAX_TOTAL_SIZE:
+        raise ValueError("managed source exceeds bounds")
+    for path in source.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("managed source contains symlink")
+        if path.is_file() and path not in expected:
+            raise ValueError("managed source contains unexpected file")
+    return files
+
+
+def read_json(path):
+    metadata = path.stat(follow_symlinks=False)
+    if (path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > MAX_FILE_SIZE):
+        raise ValueError("unsafe managed metadata")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_manifest(target):
+    path = target / MANIFEST
+    if path.is_symlink():
+        raise ValueError("unsafe ownership manifest")
+    if not path.exists():
+        return {}
+    value = read_json(path)
+    if not isinstance(value, dict) or set(value) != {"schema_version", "files"} or value["schema_version"] != 1:
+        raise ValueError("invalid ownership manifest")
+    files = value["files"]
+    if not isinstance(files, dict) or len(files) > MAX_FILES:
+        raise ValueError("invalid ownership manifest")
+    for name, value_digest in files.items():
+        relative_name(name)
+        if (not isinstance(value_digest, str) or len(value_digest) != 64
+                or any(character not in "0123456789abcdef" for character in value_digest)):
+            raise ValueError("invalid ownership manifest")
+    return files
+
+
+def atomic_json(path, value):
+    private_directory(path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def publish_entry(staged, target):
+    private_directory(target.parent)
+    os.replace(staged, target)
+    target.chmod(0o600)
+    with target.open("rb") as stream:
+        os.fsync(stream.fileno())
+    fsync_directory(target.parent)
+
+
+def validate_current(target, name, expected):
+    path = target / name
+    if path.is_symlink():
+        raise ValueError("managed target is a symlink")
+    if not path.exists():
+        if expected is not None:
+            raise ValueError("managed target is missing")
+        return None
+    metadata = path.stat(follow_symlinks=False)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600):
+        raise ValueError("unsafe managed target")
+    value = digest(path)
+    if expected is None:
+        raise ValueError("unmanaged target collision")
+    if value != expected:
+        raise ValueError("managed target changed")
+    return value
+
+
+def recovery_digest(path):
+    metadata = path.stat(follow_symlinks=False)
+    if (path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600):
+        raise ValueError("unsafe managed recovery target")
+    return digest(path)
+
+
+def verify_locked_directory(descriptor, path):
+    opened = os.fstat(descriptor)
+    current = path.stat(follow_symlinks=False)
+    if path.is_symlink() or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+        raise ValueError("managed directory changed while locked")
+
+
+def recover(target):
+    journal_path = target / JOURNAL
+    staging = target / STAGING
+    if journal_path.is_symlink() or staging.is_symlink():
+        raise ValueError("unsafe managed transaction metadata")
+    if not journal_path.exists():
+        if staging.exists():
+            raise ValueError("orphaned managed staging")
+        return
+    journal = read_json(journal_path)
+    if not isinstance(journal, dict) or set(journal) != {"schema_version", "entries", "manifest"} \
+            or journal["schema_version"] != 1 or not isinstance(journal["entries"], list):
+        raise ValueError("invalid managed journal")
+    manifest = journal["manifest"]
+    if not isinstance(manifest, dict) or len(manifest) > MAX_FILES:
+        raise ValueError("invalid managed journal")
+    seen = set()
+    for entry in journal["entries"]:
+        if not isinstance(entry, dict) or set(entry) != {"path", "old", "new"}:
+            raise ValueError("invalid managed journal")
+        name = relative_name(entry["path"])
+        if (not isinstance(entry["new"], str) or len(entry["new"]) != 64
+                or any(character not in "0123456789abcdef" for character in entry["new"])
+                or entry["old"] != "absent" and (
+                    not isinstance(entry["old"], str) or len(entry["old"]) != 64
+                    or any(character not in "0123456789abcdef" for character in entry["old"]))):
+            raise ValueError("invalid managed journal")
+        if name in seen or manifest.get(name) != entry["new"]:
+            raise ValueError("invalid managed journal")
+        seen.add(name)
+        current = target / name
+        if current.is_symlink():
+            raise ValueError("managed target is a symlink")
+        if current.exists() and recovery_digest(current) == entry["new"]:
+            continue
+        if entry["old"] == "absent":
+            if current.exists():
+                raise ValueError("managed recovery is ambiguous")
+        elif not current.exists() or recovery_digest(current) != entry["old"]:
+            raise ValueError("managed recovery is ambiguous")
+        staged = staging / name
+        if staged.is_symlink() or not staged.is_file() or digest(staged) != entry["new"]:
+            raise ValueError("managed staging is invalid")
+        publish_entry(staged, current)
+    if seen != set(manifest):
+        raise ValueError("invalid managed journal")
+    atomic_json(target / MANIFEST, {"schema_version": 1, "files": manifest})
+    if staging.exists():
+        shutil.rmtree(staging)
+        fsync_directory(target)
+    journal_path.unlink()
+    fsync_directory(target)
+
+
+def validate_home(target, state_root=None):
+    target = checked_path(target, reject_git=True)
+    metadata = target.stat(follow_symlinks=False)
+    if (target.is_symlink() or not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o700):
+        raise ValueError("unsafe managed CODEX_HOME")
+    if state_root is not None:
+        root = checked_path(state_root)
+        sentinel = root / ".dotfiles-ai-state"
+        metadata = sentinel.stat(follow_symlinks=False)
+        if (sentinel.is_symlink() or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.getuid() or metadata.st_mode & 0o022):
+            raise ValueError("invalid centralized state sentinel")
+    return target
+
+
+def resolve_homebrew(record, version):
+    record = checked_path(record)
+    metadata = record.stat(follow_symlinks=False)
+    if (record.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 4096):
+        raise ValueError("unsafe Homebrew executable record")
+    value = record.read_text(encoding="utf-8").strip()
+    if not value or "\n" in value or "\x00" in value:
+        raise ValueError("invalid Homebrew executable record")
+    executable = checked_path(value)
+    parts = executable.parts
+    marker = next((index for index in range(len(parts) - 3)
+                   if parts[index:index + 3] == ("Caskroom", "codex", version)), None)
+    metadata = executable.stat(follow_symlinks=False)
+    if (marker is None or executable.is_symlink() or not stat.S_ISREG(metadata.st_mode)
+            or not os.access(executable, os.X_OK)):
+        raise ValueError("invalid Homebrew Codex executable")
+    return executable
+
+
+def project(source, target):
+    source = checked_path(source)
+    target = checked_path(target, reject_git=True)
+    if not source.is_dir() or source.is_symlink():
+        raise ValueError("managed source is unavailable")
+    private_directory(target)
+    lock = os.open(target, os.O_RDONLY)
+    previous_directory = os.open(".", os.O_RDONLY)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        verify_locked_directory(lock, target)
+        os.fchdir(lock)
+        anchored = Path(".")
+        recover(anchored)
+        verify_locked_directory(lock, target)
+        desired = source_files(source)
+        verify_locked_directory(lock, target)
+        previous = read_manifest(anchored)
+        if set(previous) - set(desired):
+            raise ValueError("managed source removal requires explicit migration")
+        entries = []
+        for name, new_digest in desired.items():
+            old_digest = validate_current(anchored, name, previous.get(name))
+            entries.append({"path": name, "old": old_digest or "absent", "new": new_digest})
+        staging = anchored / STAGING
+        private_directory(staging)
+        for entry in entries:
+            destination = staging / entry["path"]
+            private_directory(destination.parent)
+            shutil.copyfile(source / entry["path"], destination, follow_symlinks=False)
+            destination.chmod(0o600)
+            if digest(destination) != entry["new"]:
+                raise ValueError("managed staging digest mismatch")
+            with destination.open("rb") as stream:
+                os.fsync(stream.fileno())
+        directories = {staging, *(path.parent for path in staging.rglob("*") if path.is_file())}
+        for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+            fsync_directory(directory)
+        atomic_json(anchored / JOURNAL, {"schema_version": 1, "entries": entries, "manifest": desired})
+        verify_locked_directory(lock, target)
+        recover(anchored)
+        verify_locked_directory(lock, target)
+    finally:
+        os.fchdir(previous_directory)
+        os.close(previous_directory)
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        os.close(lock)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--validate-home"] and len(argv) in {2, 3}:
+        validate_home(Path(argv[1]), Path(argv[2]) if len(argv) == 3 else None)
+        return
+    if argv[:1] == ["--resolve-homebrew"] and len(argv) == 3:
+        print(resolve_homebrew(Path(argv[1]), argv[2]))
+        return
+    if len(argv) != 2:
+        raise SystemExit("usage: codex-project SOURCE CODEX_HOME")
+    project(Path(argv[0]), Path(argv[1]))
+
+
+if __name__ == "__main__":
+    main()
