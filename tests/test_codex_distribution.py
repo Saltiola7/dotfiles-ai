@@ -339,6 +339,7 @@ def test_archive_extracts_only_the_exact_regular_executable(tmp_path: Path) -> N
 
 def test_archive_accepts_an_explicit_x86_64_executable(tmp_path: Path) -> None:
     helper = load_archive()
+    assert helper.MAX_SIZE >= 270_815_680
     expected = "codex-x86_64-unknown-linux-musl"
     archive = tmp_path / "codex.tar.gz"
     with tarfile.open(archive, "w:gz") as bundle:

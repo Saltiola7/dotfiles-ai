@@ -7,7 +7,7 @@ import tarfile
 
 
 EXPECTED = "codex-aarch64-unknown-linux-musl"
-MAX_SIZE = 256 * 1024 * 1024
+MAX_SIZE = 320 * 1024 * 1024
 
 
 def validate_target(target):
