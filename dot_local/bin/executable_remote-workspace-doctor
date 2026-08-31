@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+env_file=${DOTFILES_AI_REMOTE_WORKSPACE_ENV:-$HOME/.config/dotfiles-ai/remote-workspace.env}
+[ ! -f "$env_file" ] || . "$env_file"
+
+for command in gcloud mise ssh herdr; do
+    command -v "$command" >/dev/null || {
+        echo "remote workspace requires $command" >&2
+        exit 1
+    }
+done
+
+: "${REMOTE_DEV_PROJECT:?remote workspace project is not configured}"
+: "${REMOTE_DEV_ZONE:?remote workspace zone is not configured}"
+: "${REMOTE_DEV_INSTANCE:?remote workspace instance is not configured}"
+: "${REMOTE_DEV_REPOSITORY:?remote workspace repository is not configured}"
+[ -d "$REMOTE_DEV_REPOSITORY" ] || {
+    echo "remote workspace repository does not exist" >&2
+    exit 1
+}
+
+account=${REMOTE_DEV_ACCOUNT:-$(gcloud config get account 2>/dev/null)}
+[ -n "$account" ] && [ "$account" != "(unset)" ] || {
+    echo "select a gcloud account" >&2
+    exit 1
+}
+
+if [ -n "${REMOTE_DEV_TAILSCALE_HOST:-}" ]; then
+    command -v tailscale >/dev/null || {
+        echo "alternate workspace access requires tailscale" >&2
+        exit 1
+    }
+fi
+
+echo "remote workspace prerequisites ready"

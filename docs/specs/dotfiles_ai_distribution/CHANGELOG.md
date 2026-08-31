@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-29 - DAI-034 Portable Remote Workspace Client
+
+- Added an opt-in machine-local remote-workspace profile, private environment
+  rendering, and prerequisite doctor without embedding endpoint identity or
+  credentials in public source.
+- Added mise and Google Cloud CLI to the managed macOS packages while preserving
+  repository-owned lifecycle tasks as the sole remote-operation interface.
+- Full validation passed with `559 passed, 1 skipped`, plus Ruff, shell syntax,
+  rendering checks, and Git diff hygiene. Gate Commit: `73f8ff1`; no live
+  installation or network enrollment occurred. Intended delivery is the feature
+  branch and draft pull request into protected `main`.
+
 ## 2026-08-30 - Managed Codex Distribution
 
 - Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host
