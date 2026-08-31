@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "release": "0.151.0",
+  "adapter_revision": "codex-adapter-1",
+  "disposition": "exact",
+  "mapping": "hook_session_id_equals_thread_id",
+  "protocol_schema_sha256": "0d00aee4fbb8c9de8634c05234acf535f9998ec7fa0b0ba07f37b748e31ee0b5",
+  "platforms": {
+    "host_macos": {
+      "cli_thread_relation": "exact",
+      "thread_session_relation": "thread",
+      "resume_identity": "exact",
+      "fork_parent_relation": "exact",
+      "fork_session_relation": "fork_thread",
+      "content_rejection": "passed",
+      "cli_jsonl_sha256": "22b607c7f0fe6d0d7f07cb8b8ca1f73c04f33ce2cdd16d6feb25300f302258b7",
+      "hook_evidence_sha256": "6ed8d91a79ed5db4d981200596d9f6f181504e115e0bb915188db2da25bec2b1",
+      "app_server_evidence_sha256": "1ea82ea0e4ca7c6fd7d13dfc55336e8b27be16799e986b0c4d3d0a84ea5c224f"
+    },
+    "fedora_lima_guest": {
+      "cli_thread_relation": "exact",
+      "thread_session_relation": "thread",
+      "resume_identity": "exact",
+      "fork_parent_relation": "exact",
+      "fork_session_relation": "fork_thread",
+      "content_rejection": "passed",
+      "cli_jsonl_sha256": "60815fd91b32b9638ef7eb53ef8f98a1406732e2ca891d66e64b40f3e6481d1b",
+      "hook_evidence_sha256": "f65c56f622c22573cc91edeeaba80ddace0457a9f4c9eb6b7517bffc575573a2",
+      "app_server_evidence_sha256": "0e17cd27506555b171ef8f1df738f06a9373ebd84e441ded5596bdd3bc58b434"
+    }
+  }
+}

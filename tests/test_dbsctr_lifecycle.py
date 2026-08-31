@@ -143,7 +143,7 @@ def test_current_distribution_profile_names_hermes_orchestration():
     assert "opt-in native R&D scheduling" not in spec
 
 
-def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
+def test_codex_next_slices_are_dependency_ordered_and_history_ready():
     manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
     contexts = {item["id"]: item for item in manifest["contexts"]}
     slices = {item["id"]: item for item in manifest["slices"]}
@@ -154,7 +154,7 @@ def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
     assert slices["codex-distribution"]["state"] == "delivered"
     assert slices["codex-distribution"]["execution_owner"] == "build"
     assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
-    assert slices["codex-identity-probe"]["state"] == "ready"
+    assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
     assert {
@@ -164,7 +164,7 @@ def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
             "codex-federation-parity", "codex-parity-readiness",
         )
     } == {
-        "codex-history-parity": ("captured", ["codex-identity-probe"]),
+        "codex-history-parity": ("ready", ["codex-identity-probe"]),
         "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
         "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
         "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
@@ -185,7 +185,7 @@ def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-identity-probe"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-parity"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -196,7 +196,7 @@ def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`codex-identity-probe` ready" in normalized_initiative
+    assert "`codex-history-parity` ready" in normalized_initiative
     assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
         "Documented `thread/list` and `thread/read`",
@@ -225,6 +225,59 @@ def test_codex_next_slices_are_dependency_ordered_and_identity_probe_ready():
     ) in normalized_control_plane
     assert "transcript content rejects the event" in normalized_operation
     assert "transcript content, prompt, tool data" in normalized_operation
+
+    probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
+
+    def validate_probe(value):
+        assert set(value) == {
+            "schema_version", "release", "adapter_revision", "disposition", "mapping",
+            "protocol_schema_sha256", "platforms",
+        }
+        assert value["schema_version"] == 1
+        assert value["release"] == "0.151.0"
+        assert value["adapter_revision"] == "codex-adapter-1"
+        assert value["disposition"] in {"exact", "mapped"}
+        assert value["mapping"] in {
+            "hook_session_id_equals_thread_id",
+            "hook_session_id_equals_thread_session_id",
+        }
+        assert set(value["platforms"]) == {"host_macos", "fedora_lima_guest"}
+        for result in value["platforms"].values():
+            assert set(result) == {
+                "cli_thread_relation", "thread_session_relation", "resume_identity",
+                "fork_parent_relation", "fork_session_relation", "content_rejection",
+                "cli_jsonl_sha256", "hook_evidence_sha256",
+                "app_server_evidence_sha256",
+            }
+            assert result["cli_thread_relation"] == "exact"
+            assert result["thread_session_relation"] in {"thread", "distinct"}
+            assert result["resume_identity"] == "exact"
+            assert result["fork_parent_relation"] == "exact"
+            assert result["fork_session_relation"] in {
+                "parent_session", "fork_thread", "distinct",
+            }
+            assert result["content_rejection"] in {"passed", "not_observed"}
+        digests = [value["protocol_schema_sha256"]] + [
+            digest
+            for result in value["platforms"].values()
+            for key, digest in result.items()
+            if key.endswith("_sha256")
+        ]
+        assert all(
+            len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+            for digest in digests
+        )
+
+    validate_probe(probe)
+    assert probe["disposition"] == "exact"
+    assert probe["mapping"] == "hook_session_id_equals_thread_id"
+    invalid_probe = dict(probe, unexpected_private_field="rejected")
+    try:
+        validate_probe(invalid_probe)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("identity probe schema accepted an unknown field")
 
 
 def test_v3_module_registry_is_extensible_and_normalized():

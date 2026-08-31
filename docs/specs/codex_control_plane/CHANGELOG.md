@@ -1,16 +1,23 @@
 # Codex Control Plane Changelog
 
-## 2026-08-30 - Identity Probe Readiness
+## 2026-08-30 - Exact Cross-Platform Identity
 
 - Reconciled merged distribution PR `#104` and recorded the host and all managed
   Fedora guests on the frozen Codex `0.151.0` release with isolated configuration,
   state, and separately verified boundary-local login prerequisites.
-- Marked distribution delivered and promoted only the Discovery-owned identity
-  probe. History, worker routing, recovery, federation, and final parity remain
-  dependency-gated until the bounded hook-to-thread probe passes.
+- Proved exact equality among hook session, CLI JSONL thread, app-server thread,
+  and root-session identity on macOS and representative Fedora. Resume preserved
+  exact identity; fork preserved exact parent ancestry with a new fork-thread
+  root. The shared stable protocol-schema digest matched across platforms.
+- Marked distribution and identity delivered and promoted only history parity.
+  Worker routing, recovery, federation, and final parity remain dependency-gated.
 - No account identity, credential, runtime identifier, guest name, path, prompt,
   transcript, or private state is retained in Git. Release and Deploy are not
-  applicable; Operate is the bounded host and representative-Fedora probe.
+  applicable; the bounded host and representative-Fedora Operate probe passed.
+  Initiative validation, 231 affected tests, Python compilation, Git whitespace,
+  and independent elevated-risk review passed. Gate Exceptions: none. Discovery
+  commits: `d1cf745` and the commit containing this entry. Intended Final Push:
+  feature branch and draft pull request into protected `main`.
 
 ## 2026-08-30 - Host Foundation
 

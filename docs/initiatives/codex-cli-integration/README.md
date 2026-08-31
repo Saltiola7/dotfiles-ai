@@ -113,11 +113,11 @@ The completed host-foundation hook correction was a Discovery-owned readiness
 revalidation persisted by the Build primary; it did not change slice scope,
 dependencies, execution ownership, or parity meaning.
 
-This Initiative creates no PM Kernel tickets. The manifest records the merged
-host foundation and distribution as delivered and marks only the Discovery-owned
-`codex-identity-probe` ready. Worker, history, recovery, federation, and final
-parity slices remain dependency-gated. Applicability plans and Cycle Records
-cannot substitute for a fresh Initiative readiness receipt.
+This Initiative creates no PM Kernel tickets. The manifest records host
+foundation, distribution, and the exact cross-platform identity probe as
+delivered and marks only `codex-history-parity` ready. Worker routing, recovery,
+federation, and final parity remain dependency-gated. Applicability plans and
+Cycle Records cannot substitute for a fresh Initiative readiness receipt.
 
 ## Release Groups
 
@@ -157,9 +157,11 @@ with SHA-256
 `c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6`.
 Host and guest version, configuration, state isolation, rollback, and separate
 boundary-local authentication prerequisites have passed.
-The identity probe must compare hook `session_id`, app-server `thread.id`, and
-`thread.sessionId` on macOS and Fedora before exact attach, recovery, or history
-correlation becomes ready.
+The frozen-version identity probe proved hook `session_id`, CLI JSONL thread
+identity, app-server `thread.id`, and root `thread.sessionId` are exactly equal on
+macOS and representative Fedora. Resume preserved exact identity; fork returned
+an exact parent relation and a new root equal to the fork thread.
 Official `0.151.0` source confirms recursive `agents/**/*.toml` role discovery,
 inline command hooks, and the common hook `transcript_path` field. Installed
-identity behavior remains unverified until the identity-probe slice completes.
+identity behavior is authoritative only for the frozen release and must be
+reprobed on upgrade.

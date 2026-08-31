@@ -94,6 +94,46 @@ Result values are:
 | `unavailable` | Identity-dependent slices remain blocked. |
 
 Temporal, cwd, process, pane, or model-only correlation never passes.
+Only an `exact` or `mapped` outcome produces the public success matrix below.
+An `ambiguous` or `unavailable` outcome keeps the slice blocked and records only
+its bounded reason in private evidence and the changelog; it never publishes an
+incomplete identity matrix.
+
+## Frozen Release Result
+
+Codex `0.151.0` with adapter revision `codex-adapter-1` passed on managed macOS
+and one representative Fedora Lima guest. On both platform classes, hook
+`session_id`, CLI JSONL thread identity, app-server `thread.id`, and root
+`thread.sessionId` were exactly equal. `thread/resume` returned the exact thread
+and root identity. `thread/fork` returned a distinct fork whose
+`forkedFromId` exactly named the parent and whose new root `sessionId` equaled the
+fork thread ID. A content-bearing hook event failed closed while bounded
+`SessionStart` and `SessionEnd` identity events passed.
+
+The source-controlled matrix is
+[`identity-probe-result.json`](identity-probe-result.json). It contains only
+platform classes, relation dispositions, release and adapter identity, and
+SHA-256 evidence digests. Opaque IDs, account data, paths, prompts, transcripts,
+raw protocol bodies, guest names, and private records remain outside Git. This
+result is authoritative only for `0.151.0`; every release upgrade reopens the
+probe.
+
+The top-level keys are exactly `schema_version`, `release`, `adapter_revision`,
+`disposition`, `mapping`, `protocol_schema_sha256`, and `platforms`.
+`disposition` is `exact` or `mapped`. `mapping` is exactly
+`hook_session_id_equals_thread_id` for direct equality or
+`hook_session_id_equals_thread_session_id` for a deterministic mapped result.
+`platforms` contains exactly `host_macos` and `fedora_lima_guest`.
+Each platform contains exactly `cli_thread_relation`,
+`thread_session_relation`, `resume_identity`, `fork_parent_relation`,
+`fork_session_relation`, `content_rejection`, `cli_jsonl_sha256`,
+`hook_evidence_sha256`, and `app_server_evidence_sha256`.
+`cli_thread_relation`, `resume_identity`, and `fork_parent_relation` are
+`exact`; `thread_session_relation` is `thread` or `distinct`;
+`fork_session_relation` is `parent_session`, `fork_thread`, or `distinct`; and
+`content_rejection` is `passed` or `not_observed`. Every digest is 64 lowercase
+hexadecimal characters. An unknown key or enum invalidates the result rather
+than widening retained evidence.
 
 ## Installation And State Checks
 

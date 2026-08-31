@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Host foundation and distribution delivered; identity probe ready
+**Status:** Exact identity delivered; history parity ready
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -354,10 +354,10 @@ codex-control-plane dbsctr OPERATION
 ```
 
 The first adapter stage uses installed `codex --version`, `codex exec --json`,
-and documented command hooks. The second stage proposes the
-installed `codex app-server` over stdio and the documented target methods
-`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. These interfaces
-remain unavailable until the frozen-version host and Fedora probes pass.
+and documented command hooks. The frozen-version identity probe validated the
+installed `codex app-server` stdio handshake and documented target methods
+`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. The managed
+session commands remain unavailable until the history-parity adapter is built.
 Experimental item/turn pagination and WebSocket transport are excluded.
 Every stdio connection completes documented `initialize` and `initialized`
 handshake messages without opting into `experimentalApi` before a thread method.
@@ -436,8 +436,10 @@ Facts:
   every registered Fedora guest with isolated state and authentication.
 - The frozen baseline is public release `0.151.0`; each identity probe must
   revalidate its runtime, hook shape, and app-server methods.
-- Official hook documentation does not guarantee whether hook `session_id`
-  equals app-server `thread.id` or root `thread.sessionId`.
+- Official hook documentation does not guarantee identity equality across
+  releases; the frozen `0.151.0` host and Fedora probe found hook `session_id`,
+  CLI JSONL thread identity, app-server `thread.id`, and root `thread.sessionId`
+  exactly equal.
 - Official `0.151.0` source includes `transcript_path` in common hook payloads,
   recursive `agents/**/*.toml` role discovery, and inline command hooks.
 - The official Python SDK source at the target tag pins an older CLI runtime, so
