@@ -101,6 +101,11 @@ running or stopped state. It fails before guest mutation if either host version
 differs from its managed pin. A later guest failure restores every earlier guest
 in reverse order from private content-bounded snapshots; failed rollback is
 reported and retained for operator recovery.
+Before a feature branch is published, an explicitly approved deployment may set
+`DOTFILES_AI_DEPLOY_SOURCE` to one clean local checkout. The controller transfers
+an exact commit-marked Git archive to a temporary guest directory, applies it,
+and removes it without changing the guest's canonical checkout. Normal updates
+continue to use the configured checkout and `git pull --ff-only`.
 
 `sandbox-vm parity WORKSPACE` reports exact host and direct guest OpenCode
 versions, fails on any mismatch, and restores a stopped guest after probing it.

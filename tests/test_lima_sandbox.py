@@ -327,6 +327,34 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
     assert len(calls) == 2
 
 
+def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    archive = tmp_path / "source.tar.gz"
+    archive.write_bytes(b"archive")
+    revision = "a" * 40
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_SOURCE", str(tmp_path / "source"))
+    monkeypatch.setattr(helper, "deployment_archive", lambda _source: (archive, revision))
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "true" if "podman" in argv else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    argv = [call[0] for call in calls]
+    assert ["limactl", "copy", str(archive),
+            f"workspace1-sandbox:/tmp/dotfiles-ai-{revision}.tar.gz"] in argv
+    deployment = next(call for call in argv if "deploy-codex" in call)
+    assert deployment[-2:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision]
+    assert not any("pull" in call for call in argv)
+    assert not archive.exists()
+
+
 def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)

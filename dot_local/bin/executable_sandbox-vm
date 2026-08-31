@@ -647,6 +647,27 @@ def resolve_runtime(config, workspace):
     return workspace["runtime"] or config["guest"]["rnd_runtime"]
 
 
+def deployment_archive(source):
+    source = Path(source)
+    if not source.is_absolute() or source.is_symlink() or not (source / ".git").exists():
+        raise ValueError("invalid deployment source")
+    if command(["git", "-C", str(source), "status", "--porcelain"]):
+        raise ValueError("deployment source is dirty")
+    revision = command(["git", "-C", str(source), "rev-parse", "HEAD"])
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("invalid deployment revision")
+    descriptor, archive = tempfile.mkstemp(prefix="dotfiles-ai-deploy-", suffix=".tar.gz")
+    os.close(descriptor)
+    try:
+        command(["git", "-C", str(source), "archive", "--format=tar.gz",
+                 f"--add-virtual-file=.dotfiles-ai-deploy-commit:{revision}",
+                 f"--output={archive}", "HEAD"], timeout=120)
+    except Exception:
+        Path(archive).unlink(missing_ok=True)
+        raise
+    return Path(archive), revision
+
+
 def update_workspace(config, workspace, execute=command):
     instance = workspace["instance"]
     home = execute(["limactl", "shell", "--start", instance, "--", "printenv", "HOME"], timeout=120)
@@ -668,10 +689,30 @@ trap - EXIT
         timeout=120,
         input_data=guest_config(config, workspace).encode(),
     )
-    source = f"{home}/.local/share/chezmoi-dotfiles-ai"
-    execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
-    execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
-             f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+    deployment_source = os.environ.get("DOTFILES_AI_DEPLOY_SOURCE", "")
+    if deployment_source:
+        archive, revision = deployment_archive(deployment_source)
+        remote = f"/tmp/dotfiles-ai-{revision}.tar.gz"
+        try:
+            execute(["limactl", "copy", str(archive), f"{instance}:{remote}"], timeout=300)
+            execute(["limactl", "shell", instance, "--", "sh", "-ceu", '''
+archive=$1
+expected=$2
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"; rm -f "$archive"' EXIT
+mkdir "$tmp/source"
+tar -xzf "$archive" -C "$tmp/source"
+test "$(cat "$tmp/source/.dotfiles-ai-deploy-commit")" = "$expected"
+rm "$tmp/source/.dotfiles-ai-deploy-commit"
+chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply
+''', "deploy-codex", remote, revision], timeout=600)
+        finally:
+            archive.unlink(missing_ok=True)
+    else:
+        source = f"{home}/.local/share/chezmoi-dotfiles-ai"
+        execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
+        execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
+                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",
              'exec "$HOME/.local/bin/codex-install"'], timeout=300)
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",
