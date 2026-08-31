@@ -15,12 +15,13 @@ Discovery auto-triages broad multi-context, multi-repository, independently
 deliverable, or release-grouped intent into a durable Initiative under
 `docs/initiatives/<slug>/`. Git material-statement coverage, context homes,
 specifications and fresh readiness receipts are authoritative across
-compaction; Herdr and OpenCode identities are advisory only. Context Discovery
-may run concurrently only with disjoint ownership and satisfied dependencies.
+compaction; Herdr and OpenCode identities are advisory only. Discovery runs
+serially in the invoking primary and never launches Context Discovery child
+sessions.
 Discovery and DBSCTR never create or read PM Kernel tickets. Require exact user
 approval for the current digest-bound slice before invoking
 `dbsctr_initiative_launch`; late material intent reopens affected readiness.
-Discovery coordinators and primary Build agents may invoke that typed launcher.
+Primary Build agents may invoke that typed launcher.
 When the host registry omits only that export, a primary Build may use the
 explicit Initiative mode of typed `dbsctr_begin`; it executes the same receipt,
 exact approval, repository, plan-digest, ownership, and mutation checks. Ordinary
@@ -119,9 +120,9 @@ Treat a graph as a routing hint, not a mandatory dependency. Check its recorded
 commit and whether the query matches the task; fall back immediately when stale,
 weak, or irrelevant. Source remains authoritative.
 
-Explore owns local Initiative research. Scout or Context7 may research bounded
-privacy-safe external facts without repeated approval, but governed private
-content must never leave the local boundary.
+Discovery performs local and privacy-safe external research directly without
+Task or child sessions. Governed private content must never leave the local
+boundary.
 
 ## Lifecycle Version
 

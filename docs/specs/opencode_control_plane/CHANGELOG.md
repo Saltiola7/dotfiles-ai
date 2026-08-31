@@ -1,5 +1,24 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-30 - Serial Current-Primary Discovery
+
+- Restored `/discovery` to the invoking primary without an agent or subtask
+  override, prohibited Task and child sessions during Discovery, and made Plan
+  hand durable writes and Initiative launch to Build.
+- Retired the Discovery Coordinator agent and stale dedicated command, including
+  deterministic cleanup of prior file-based and merged machine-local copies while
+  preserving unrelated machine-local commands.
+- Regression checks failed against the old coordinator routing and cleanup before
+  implementation. All 80 affected lifecycle/control-plane tests and Git whitespace
+  validation pass. The targeted managed apply is source-identical; fresh OpenCode
+  1.18.25 resolution contains neither coordinator agent nor command, and a bounded
+  Plan `/discovery` smoke kept the worktree's child-session count at zero.
+- Existing OpenCode processes require restart. Rollback restores the prior command,
+  agent, skill, routing, and modifier together, reapplies them, and restarts
+  OpenCode. Implementation Gate Commits: `b7712ed`, `cd348da`, `28e8ffa`. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
 ## 2026-08-30 - Coordinator Workspace Affinity
 
 - Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's

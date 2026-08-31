@@ -3,5 +3,9 @@
 {{- if eq (trim .chezmoi.stdin) "" -}}
 {{ $managed | toPrettyJson }}
 {{- else -}}
-{{ mergeOverwrite (fromJson .chezmoi.stdin) $managed | toPrettyJson }}
+{{- $existing := fromJson .chezmoi.stdin -}}
+{{- if hasKey $existing "command" -}}
+{{- $_ := unset (get $existing "command") "discovery-coordinator" -}}
+{{- end -}}
+{{ mergeOverwrite $existing $managed | toPrettyJson }}
 {{- end -}}

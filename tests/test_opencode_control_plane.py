@@ -116,6 +116,10 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
             "external_directory": {"/local": "allow"},
             "bash": {"machine-local *": "allow"},
         },
+        "command": {
+            "discovery-coordinator": {"template": "stale"},
+            "machine-local": {"template": "keep"},
+        },
     }))
     target.chmod(0o644)
     command = [
@@ -128,6 +132,8 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     merged = json.loads(target.read_text())
     assert merged["provider"]["machine-local"]["options"]["endpoint"] == "local"
     assert merged["references"]["machine-local"]["path"] == "/local"
+    assert merged["command"]["machine-local"]["template"] == "keep"
+    assert "discovery-coordinator" not in merged["command"]
     assert merged["permission"]["external_directory"]["/local"] == "allow"
     assert merged["permission"]["bash"]["machine-local *"] == "allow"
     assert merged["permission"]["bash"]["pmctl jira publish*"] == "ask"
@@ -330,9 +336,10 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
-        assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
-    assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
+    for name in ("discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
+        body = (OC / f"commands/{name}.md").read_text()
+        assert "\nagent:" not in body
+        assert "\nsubtask:" not in body
     exact = {
         "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol-fast"),
         "dbsctr-claude": ("build-claude", "google-vertex-anthropic/claude-opus-5@default"),
@@ -440,7 +447,7 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
             assert "dbsctr_execution_dag: allow" in body
             assert "external_directory:" not in body
         else:
-            assert ("mode: primary" if agent.name == "discovery-coordinator.md" else "mode: subagent") in body
+            assert "mode: subagent" in body
             assert "dbsctr_begin: allow" not in body
             assert "dbsctr_attach: allow" not in body
             assert "dbsctr_reconcile: allow" not in body
@@ -660,7 +667,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
     assert config["permission"]["dbsctr_initiative_launch"] == "ask"
-    launch_primaries = {"discovery-coordinator.md", "build-gpt.md", "build-claude.md"}
+    launch_primaries = {"build-gpt.md", "build-claude.md"}
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
         if agent.name in launch_primaries:
@@ -2409,6 +2416,8 @@ def test_removed_managed_integrations_are_absent():
         ".config/opencode/agents/explore-bedrock.md",
         ".config/opencode/agents/scout-bedrock.md",
         ".config/opencode/agents/builder-bedrock.md",
+        ".config/opencode/agents/discovery-coordinator.md",
+        ".config/opencode/commands/discovery-coordinator.md",
     }
 def test_dks_context_is_bounded_metadata_only(tmp_path: Path) -> None:
     runtime = OC / "lib/dbsctr-runtime.ts"

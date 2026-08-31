@@ -7,3 +7,5 @@ Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
 .config/opencode/agents/explore-bedrock.md
 .config/opencode/agents/scout-bedrock.md
 .config/opencode/agents/builder-bedrock.md
+.config/opencode/agents/discovery-coordinator.md
+.config/opencode/commands/discovery-coordinator.md

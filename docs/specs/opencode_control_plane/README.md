@@ -183,18 +183,14 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native, dedicated R&D, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Only the dedicated build-rnd primary may request a ledger-validated VM implementation handoff; ordinary Build and every other agent deny it. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Thin commands run in the selected native, dedicated R&D, or provider-affine primary. Plan remains read-only and hands approved scope to Build. Discovery runs serially in that current primary without Task or child sessions; Plan hands specification writes and Initiative launch to Build. Only the dedicated build-rnd primary may request a ledger-validated VM implementation handoff; ordinary Build and every other agent deny it. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra outside Discovery, and explicit review to Sol. Build may use only same-provider bounded subagents outside Discovery, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
     P -->|Scheduled R&D only| BR[build-rnd primary]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
-    P -->|Discovery command or tab| D[Discovery Coordinator]
-    D -->|Interactive investigation| LCLI[Local CLI, APIs, and notebook kernels]
-    D -->|Policy-gated, locally filtered queries| E
-    D -->|Structured edits| Q[Durable docs artifacts]
-    D -->|Privacy-safe public facts| R[Scout]
+    N -->|Serial read-only Discovery| S
     B -->|Generic bounded work| X[Inheriting subagents]
     G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
     C -->|Bedrock only| A[Bedrock subagents]
@@ -202,7 +198,6 @@ flowchart TD
     BR -->|Ledger-validated VM handoff only| T
     G --> S
     C --> S
-    D -->|Approved Initiative launch| T
     B -->|Approved Initiative launch| T
     G -->|Approved Initiative launch| T
     C -->|Approved Initiative launch| T
@@ -214,25 +209,22 @@ flowchart TD
     B -->|Desktop approval required| M[Official 1Password Environment MCP]
 ```
 
-**Text Equivalent:** Thin commands select a native, Discovery, or provider-affine primary.
-Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents. A separate `build-rnd` primary runs only managed
+**Text Equivalent:** Thin commands run in the selected native or provider-affine
+primary. Discovery remains in that primary and performs research serially without
+Task or child sessions. Plan is read-only and hands specification writes and
+Initiative launch to Build. Native Build may use generic inheriting subagents
+outside Discovery. A separate `build-rnd` primary runs only managed
 `/dbsctr-improve` sessions and alone may request the ledger-validated VM handoff;
-ordinary Build and every other agent deny that launcher. The Discovery Coordinator may investigate through unrestricted
-local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
-through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy-safe
-public facts. Governed private result bodies remain local; only locally filtered,
-privacy-safe metadata enters model context. Unrestricted Discovery Bash can reach
-the external boundary under prompt and standing policy rather than OpenCode command
-matching. `build-gpt` routes read-only Explore to Luna, Scout and
+ordinary Build and every other agent deny that launcher. Discovery inherits the
+current primary's tool and permission boundaries and uses direct local or
+privacy-safe external research tools. Governed private result bodies remain local.
+`build-gpt` routes read-only Explore to Luna, Scout and
 Builder to Terra, and explicit review to Sol while remaining entirely within
 OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
-lifecycle skills and typed local adapters. The Discovery Coordinator and primary
-Build agents may request an approved Initiative launch; Plan and all subagents
-must hand it off. Validated local effects may reach the worktree or private local
-state; external or destructive effects remain
-permission-gated for Build and confirmation-gated by policy for unrestricted
-Discovery Bash. An operator-confirmed Incident fork may send only bounded,
+lifecycle skills and typed local adapters. Primary Build agents may request an
+approved Initiative launch; Plan and all subagents must hand it off. Validated
+local effects may reach the worktree or private local state; external or
+destructive effects remain permission-gated. An operator-confirmed Incident fork may send only bounded,
 credential-redacted Incident Evidence through typed adapters to the active model
 and private local state. Host Build may request official 1Password Environment
 operations, but the desktop app retains approval and the MCP never returns secret
@@ -322,14 +314,15 @@ database. Any failed guest smoke check restores that backup.
 | Integration Evidence | Tests, contracts, diff coherence, and downstream checks; not a generic request for the model to review itself again. |
 | Evaluation Cohort | Five comparable completed cycles evaluated under one versioned rubric without automatic remediation authority. |
 | Scoped Runtime Environment | Component-specific state variables exported only to the runtime that owns their paths, rather than inherited by every child process. |
-| Discovery Coordinator | User-facing primary that investigates and coordinates Discovery, persists durable `docs/**` artifacts, and requests exact approval before launching a ready slice. |
+| Current-primary Discovery | Serial Discovery executed directly by the invoking primary without Task or child sessions. |
 
 ## Behavior
 
 ### Provider-neutral commands
 
 Given any selected primary, when `/dbsctr`, `/discovery`, or `/qa` runs, then
-the command uses that primary and does not force OpenAI.
+the command uses that primary and does not select another agent or force a
+subtask.
 
 ### Plan and Build permissions
 
@@ -337,17 +330,14 @@ Given a Plan primary, edits are denied and Bash requires approval. Given a Build
 primary, local commands run by default while known external, destructive,
 deployment, publishing, and Git-write commands require approval.
 
-### Interactive Discovery permissions
+### Serial Discovery execution
 
-Given the Discovery Coordinator needs live local or private-system evidence, when
-it investigates a bounded question, then unrestricted Bash is available for the
-native CLI, API, or notebook-kernel path. It does not use browser automation as a
-shell proxy when a direct interface exists. Its structured edit permission remains
-limited to `docs/**`, but Bash is not a filesystem or side-effect sandbox; external,
-destructive, costly, irreversible, and material scope-expansion actions retain the
-user-confirmation boundary. Governed private result bodies remain local and only
-locally filtered, privacy-safe metadata or bounded typed-adapter output may enter
-hosted-model context.
+Given `/discovery` is invoked, when the current primary loads the Discovery skill,
+then it performs local and privacy-safe external research directly and does not
+invoke Task or create child sessions. It inherits the current primary's tool and
+permission boundaries. When Plan reaches durable artifact writes or an approved
+Initiative launch, it returns a Build Handoff instead of probing denied authority;
+Build resumes only from committed specifications and fresh launch evidence.
 
 ### Scoped centralized state
 
@@ -736,7 +726,7 @@ moved or closed automatically.
 ### Initiative slice launch
 
 Given an Initiative slice has a fresh readiness receipt and exact approval, when
-the Discovery Coordinator or a native or provider-affine primary Build agent
+a native or provider-affine primary Build agent
 invokes `dbsctr_initiative_launch`, then OpenCode asks for the digest-bound launch
 and the adapter retains its repository, plan-digest, ownership, and mutation
 checks. Plan and all subagents deny the launcher. They return a handoff instead of
@@ -1000,12 +990,10 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
 
 ### Initiative Discovery Orchestration
 
-`/discovery` routes to an interactive coordinator with unrestricted Bash and a
-`docs/**`-scoped structured edit tool. The coordinator prefers native CLI, API,
-and notebook-kernel interfaces over browser automation, while user confirmation
-remains required for external, destructive, costly, irreversible, or materially
-expanded effects. It keeps governed private result bodies local and admits only
-locally filtered, privacy-safe evidence to model context. A global OpenCode plugin reads
+`/discovery` has no agent or subtask override. It loads the Discovery skill in the
+current primary and executes serially without Task or child sessions. Plan returns
+a Build Handoff for durable writes or Initiative launch; Build inherits its normal
+permission and confirmation boundaries. A global OpenCode plugin reads
 repository-relative Initiative manifests, invokes deterministic validation, and
 injects only the durable path, digest, state, and ready-slice IDs into normal and
 pre-compaction context. Invalid manifests block readiness rather than falling
@@ -1024,10 +1012,9 @@ only a confirmed agent may remain pending. Herdr identities remain private
 advisory correlation only. The complete behavior and failure contract is in
 [`features/initiative-launch-atomicity.md`](features/initiative-launch-atomicity.md).
 
-The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
-agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
-an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
-a fallback or alias.
+Primary `build`, `build-gpt`, and `build-claude` agents ask for Initiative launch.
+Plan and every subagent deny it. Tool absence is an authorization boundary, not a
+capability probe, and `dbsctr_vm_handoff` is not a fallback or alias.
 
 ### DKS query availability
 
@@ -1064,7 +1051,7 @@ hosted subagent prompts. Invalid successful or cross-mode output fails closed.
 | Opus availability | Exact Opus 5 request through the configured Bedrock route | Live smoke when account access permits | Follow-up when unavailable; no fallback |
 | Evaluation identity | Privacy-safe exact identity, historical backfill, cohort replay, and report-only authority | Focused helper and adapter fixtures | Required after DAI-011 reconciliation |
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
-| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
+| Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; Discovery remains serial in the current primary | Command routing, skill contract, plugin, helper, fork/fallback, typed-approval fixtures, and fresh session smoke | Required when Initiative orchestration changes |
 | DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
 | History/Incident query availability | Mode-specific aggregate, summary, and detailed validation; timeout cleanup; unavailable-without-result; hosted privacy | Focused Bun-backed process fixtures plus fresh local smoke | Required when History/Incident adapters change |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
@@ -1073,10 +1060,9 @@ hosted subagent prompts. Invalid successful or cross-mode output fails closed.
 ## Risks
 
 - Bash patterns are guardrails, not an OS sandbox.
-- Discovery Coordinator Bash is unrestricted and can bypass its structured
-  `docs/**` edit boundary. Its role prompt and the standing confirmation policy,
-  not OpenCode command matching, guard source, external, destructive, costly, and
-  irreversible effects.
+- Discovery inherits the current primary's permissions. Invoking it from Plan
+  cannot persist specifications or launch an Initiative; the Build Handoff must
+  remain complete enough to resume without a child session.
 - A same-user host agent may request 1Password Environment mutations. The desktop
   app's explicit approval and lock state remain the authorization boundary; review
   prompts before approving writes and disable the MCP integration to revoke access.
