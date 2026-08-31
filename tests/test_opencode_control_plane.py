@@ -2410,6 +2410,7 @@ def test_removed_managed_integrations_are_absent():
         ".config/opencode/agents/explore-bedrock.md",
         ".config/opencode/agents/scout-bedrock.md",
         ".config/opencode/agents/builder-bedrock.md",
+        ".config/opencode/agents/discovery-coordinator.md",
     }
 def test_dks_context_is_bounded_metadata_only(tmp_path: Path) -> None:
     runtime = OC / "lib/dbsctr-runtime.ts"
