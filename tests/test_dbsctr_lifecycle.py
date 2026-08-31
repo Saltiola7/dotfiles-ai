@@ -54,6 +54,10 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "shell proxy when a direct interface exists" in coordinator
     assert "keep governed private result bodies local" in coordinator
     assert "dbsctr_initiative_launch: ask" in coordinator
+    for agent in ("build-gpt", "build-claude"):
+        build = text(f"private_dot_config/opencode/agents/{agent}.md")
+        assert "dbsctr_initiative_launch: deny" in build
+        assert "dbsctr_initiative_begin: ask" in build
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
