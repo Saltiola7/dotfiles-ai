@@ -6,7 +6,7 @@
 | Owner | Dotfiles owner |
 | Languages/frameworks | JSON/JSONC and Go-template configuration; Markdown prompts; TypeScript adapters and plugins; Python contract tests |
 | Modules | ML/AI, Security |
-| Runtime/platform support | OpenCode on managed macOS and Fedora 44 Lima guests; Bun; Python `>=3.12` tests |
+| Runtime/platform support | OpenCode on managed macOS, Fedora 44 Lima guests, and CentOS Stream 10 x86_64 remote workspaces; Bun; Python `>=3.12` tests |
 | Compatibility | Preserve native Plan-to-Build and provider-affine Build workflows; capability-probe experimental or version-dependent interfaces |
 | Trust/data | Local configuration and public provider metadata; credentials, transcripts, and private runtime identity remain outside Git |
 | Delivery | Feature branch and draft pull request; managed OpenCode apply only after affected gates pass |

@@ -1,5 +1,13 @@
 # Codex Control Plane Changelog
 
+## 2026-08-31 - Remote User Authentication Discovery
+
+- Added the CentOS x86_64 peer-runtime contract with dedicated user-local
+  `CODEX_HOME`, checksum-pinned installation, independent login, and content-free
+  readiness proof.
+- Prohibited automatic login, host or peer credential copying, desktop-state
+  access, and private storage inspection. No package or runtime changed.
+
 ## 2026-08-31 - History Parity Readiness Correction
 
 - Reopened the empty history Build cycle before source changes because the ready

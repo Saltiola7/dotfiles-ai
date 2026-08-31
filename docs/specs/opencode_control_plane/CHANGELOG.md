@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - Remote User Authentication Discovery
+
+- Defined isolated CentOS x86_64 OpenCode configuration and independent per-user
+  OpenAI and Vertex authentication without credential-dependent render or shell
+  startup.
+- Restricted readiness probes to content-free provider outcomes and prohibited
+  host or peer credential copying. No managed configuration or runtime changed.
+
 ## 2026-08-31 - History Source-Index Availability Contract
 
 - Reserved exact `source_index_unavailable` lifecycle classification for missing,

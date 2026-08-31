@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-31 - CentOS Remote Workspace Discovery
+
+- Added the target contract for generic CentOS Stream 10 x86_64 user-local
+  distribution, immutable-revision apply, sanitized bootstrap state,
+  idempotency, and rollback.
+- Kept macOS and Fedora aarch64 behavior unchanged and prohibited user, employer,
+  client, project, machine, tailnet, endpoint, and credential identity in public
+  source or rendered defaults.
+- No package, target, service, user home, credential, or runtime changed.
+  RWUE-001 remains blocked on source governance and digest-bound approval.
+
 ## 2026-08-30 - Managed Codex Distribution
 
 - Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host

@@ -18,6 +18,22 @@
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
+### RWUE-002 Initiative Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds independent authenticated OpenCode state to multiple users on a shared remote host |
+| Delivery intent | Draft pull request; disposable CentOS proof followed by separately approved two-user deployment |
+| Scope | CentOS x86_64 rendering, user-local OpenCode install/configuration, OpenAI and Vertex login readiness, and sanitized provider probes |
+| Overrides | Never copy host or peer credentials; rendering and shell startup remain credential-free; each Unix user owns isolated config, data, cache, and authentication |
+
+Given a foundation-ready remote user, OpenCode resolves the managed control plane
+without requiring authentication during render or startup. The user then
+authenticates OpenAI and Vertex independently. Provider probes may report only
+provider class and success/failure; account, project, token, endpoint, session,
+prompt, and response data remain private. Another user's state is never read,
+copied, mounted, or used as fallback.
+
 ### OCP-16 Cycle Overrides
 
 | Field | Value |
