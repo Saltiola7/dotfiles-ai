@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - History Boundary Index Readiness
+
+- Reopened History/Incident core readiness after exact time-ordered population
+  discovery exceeded the bounded live smoke on a large OpenCode source.
+- Specified an owner-private, payload-free derived boundary index with incremental
+  generations, atomic activation, explicit unavailability, source replacement
+  recovery, privacy invalidation, rollback, and warm-query acceptance evidence.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-08-31 - Knowledge Privacy Lock Isolation Discovery
 
 - Separated DKS privacy guarding from unrelated review-ledger integrity work while

@@ -1057,6 +1057,10 @@ separate schemas. Bounded subprocess timeout becomes typed unavailability after
 process-group cleanup, never an empty cohort or zero count. Aggregate and summary
 results exclude private candidate, Signal, cycle, and snapshot identity from
 hosted subagent prompts. Invalid successful or cross-mode output fails closed.
+Lifecycle status `75` with empty stdout and stderr exactly
+`source_index_unavailable\n` is a retryable local source-unavailable condition;
+no other output receives that classification. Index generation, coverage, source,
+privacy, path, and row identities never enter the model-visible envelope.
 
 ## Validation Strategy
 

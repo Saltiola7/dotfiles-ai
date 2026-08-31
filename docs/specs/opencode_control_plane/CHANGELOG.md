@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - History Source-Index Availability Contract
+
+- Reserved exact `source_index_unavailable` lifecycle classification for missing,
+  preparing, stale, incompatible, corrupt, or insufficiently covered private
+  History boundary-index generations.
+- Kept generation, source, privacy, path, and row identities outside the later
+  model-visible availability envelope. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
 ## 2026-08-31 - Optional DKS Routing Discovery
 
 - Replaced mandatory DKS-first routing with one optional project- and revision-
