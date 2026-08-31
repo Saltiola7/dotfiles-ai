@@ -22,10 +22,8 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
         assert "Do not answer from memory" in body
-        if command == "discovery":
-            assert "\nagent: discovery-coordinator\n" in body
-        else:
-            assert "\nagent:" not in body
+        assert "\nagent:" not in body
+        assert "\nsubtask:" not in body
 
     assert not (COMMANDS / "discovery2.md").exists()
     assert not (COMMANDS / "dbsctr2.md").exists()
@@ -45,19 +43,9 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
                  "initiative-receipt", "exact user approval"):
         assert term in discovery
 
-    coordinator = text("private_dot_config/opencode/agents/discovery-coordinator.md")
-    assert "mode: primary" in coordinator
-    assert '"docs/**": allow' in coordinator
-    assert '"*": deny' in coordinator
-    assert "bash: allow" in coordinator
-    assert "native CLI, API, or notebook kernel" in coordinator
-    assert "shell proxy when a direct interface exists" in coordinator
-    assert "keep governed private result bodies local" in coordinator
-    assert "dbsctr_initiative_launch: ask" in coordinator
-    assert "explore-openai: allow" in coordinator
-    assert "scout-openai: allow" in coordinator
-    for agent in ("explore-openai", "scout-openai"):
-        assert "bash: deny" in text(f"private_dot_config/opencode/agents/{agent}.md")
+    assert not (ROOT / "private_dot_config/opencode/agents/discovery-coordinator.md").exists()
+    assert "executes serially without Task or child sessions" in discovery
+    assert "performs research directly" in discovery
 
     assert "name: dbsctr" in dbsctr
     assert "trigger: /dbsctr" in dbsctr

@@ -29,9 +29,9 @@ requirement, constraint, decision, risk, idea, and non-goal a stable `INT-NNN`
 ID. Record its kind, disposition, and artifact or slice coverage; never copy raw
 transcripts, credentials, URLs, machine paths, or transient Herdr identities.
 Propose one home repository and dependencies for each bounded context, then get
-user approval for the complete context map before starting Context Discovery
-lanes. No material statement may remain uncovered unless explicitly deferred or
-rejected.
+user approval for the complete context map before continuing through each context
+serially. No material statement may remain uncovered unless explicitly deferred
+or rejected.
 
 Use `dbsctrctl initiative-check --manifest PATH --json` after every material
 manifest change. A slice is ready only when it has stable requirements,
@@ -169,15 +169,15 @@ assumptions, non-goals, and open risks distinct. Active Cycle Records live under
 ## OpenCode Execution
 
 Use todos for current interview/artifact state and specs/Git for durable state.
-Delegate only independent research or ownership-disjoint Context Discovery.
-Explore handles local evidence. Scout or Context7 has standing approval only for
-bounded privacy-safe external facts and never receives governed private content.
-Log agent/model routes and trust sourced research unless uncertain,
-contradictory, or controlling a risky decision.
+Discovery executes serially without Task or child sessions in the invoking
+primary. It performs research directly with local read-only tools and bounded
+privacy-safe external tools; governed private content never leaves the local
+boundary. Trust sourced research unless uncertain, contradictory, or controlling
+a risky decision.
 
-Plan is read-only. When writes are unavailable, return artifact-ready decisions
-and a Build Handoff without claiming files changed. Build verifies freshness
-before persisting them.
+Plan is read-only. When writes or Initiative launch are unavailable, return
+artifact-ready decisions and a Build Handoff without claiming files changed.
+Build verifies freshness before persisting them.
 
 ## Handoff
 
