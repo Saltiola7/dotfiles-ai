@@ -10,8 +10,13 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 version = "0.151.0"
 linux_asset_url = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
 linux_asset_sha256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
+linux_amd64_asset_url = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-x86_64-unknown-linux-musl.tar.gz"
+linux_amd64_asset_sha256 = "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6"
 
 [data.dotfiles_ai.opencode]
+version = "1.18.25"
+linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
+linux_amd64_asset_sha256 = "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78"
 # Vertex Claude stays off until vertex_project is set. Authenticate each
 # environment separately with an isolated ADC file; never commit these values.
 # Bootstrap once by hand, because the helper below only deploys after
@@ -56,6 +61,8 @@ version = "0.8.2"
 protocol = 20
 asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-macos-aarch64"
 asset_sha256 = "a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574"
+linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64"
+linux_amd64_asset_sha256 = "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4"
 
 [data.dotfiles_ai.hermes]
 # Hermes is the optional orchestration plane; authenticate this environment separately.
@@ -78,6 +85,22 @@ server_enabled = false # generated true only inside the selected server workspac
 # Enrollment keys and private tailnet identity never belong in this file.
 enabled = false
 ssh = false
+
+[data.dotfiles_ai.remote_workspace]
+# Optional client configuration. Values remain in this machine-local file and
+# render only into the local environment target.
+enabled = false
+repository = "/path/to/workspace-repository"
+project = "example-project"
+zone = "example-region-a"
+instance = "example-workspace"
+account = "user@example.com" # blank uses the selected gcloud account
+tailscale_host = "" # optional FQDN for the alternate SSH path
+
+[data.dotfiles_ai.remote_user_environment]
+# Distinct from the local remote_workspace client above. Enable only inside a
+# standalone CentOS Stream 10 x86_64 user home.
+enabled = false
 
 [data.dotfiles_ai.rnd]
 # Keep false on machines that should not schedule autonomous review workers.

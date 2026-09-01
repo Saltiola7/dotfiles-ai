@@ -1,5 +1,39 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - History Projection Adapters
+
+- Exposed aggregate History and Incident summary modes through closed, bounded
+  OpenCode adapters while keeping detailed mode compatibility and private
+  identities outside returned summaries.
+- Deployed the managed runtime and tool adapters with the lifecycle projection-v2
+  helper. Focused control-plane tests and live aggregate/summary operations passed.
+
+## 2026-08-31 - Same-Session Initiative Build
+
+- Restricted `dbsctr_initiative_launch` and its Herdr child creation to Discovery
+  Coordinator. Primary Build modes now use exact approval-bound Initiative Begin
+  and remain in their current same-repository session; Plan and subagents deny
+  both Initiative paths. All 80 affected tests pass and independent review found
+  no remaining issue. Targeted overlay deployment preserved concurrent unmerged
+  managed changes and resolved idempotently. Gate Commit: `96a7bbd`.
+
+## 2026-08-31 - History Projection Availability Readiness
+
+- Bound ready aggregate History and Incident summary subprocesses to the
+  lifecycle-owned body-free schema-version-2 projection after ordering-only live
+  operations exceeded 180 seconds on the representative source.
+- Kept projection build, extension, verification, compaction, and source payload
+  access outside model-visible requests. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
+## 2026-08-31 - Remote User Authentication Discovery
+
+- Defined isolated CentOS x86_64 OpenCode configuration and independent per-user
+  OpenAI and Vertex authentication without credential-dependent render or shell
+  startup.
+- Restricted readiness probes to content-free provider outcomes and prohibited
+  host or peer credential copying. No managed configuration or runtime changed.
+
 ## 2026-08-31 - History Source-Index Availability Contract
 
 - Reserved exact `source_index_unavailable` lifecycle classification for missing,

@@ -473,8 +473,35 @@ export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd 
   return await run(argv, cwd)
 }
 
-export async function incidentScan(cwd = process.cwd(), sessionID?: string) {
-  return await run(["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID])], cwd)
+export async function incidentScan(cwd = process.cwd(), sessionID?: string, summaryOnly = false) {
+  const argv = ["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID]),
+    ...(summaryOnly ? ["--summary-only"] : [])]
+  if (!summaryOnly) return await run(argv, cwd)
+  const value = await analyticsJSON(argv, cwd)
+  const keys = ["schema_version", "mode", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+    "incident_count", "incident_overflow", "signal_count", "signal_overflow", "groups"]
+  const failures = ["timed_out", "cancelled", "permission_denied", "service_unavailable", "invalid_output",
+    "tool_error", "tool_failed", "unknown"]
+  const fixedTools = ["apply_patch", "bash", "glob", "grep", "question", "read", "skill", "task",
+    "todowrite", "webfetch", "unknown"]
+  if (!exactKeys(value, keys) || value.schema_version !== 1 || value.mode !== "summary"
+      || !validCount(value.snapshot) || !validCount(value.session_ceiling) || !validCount(value.part_ceiling)
+      || !/^[0-9a-f]{64}$/.test(value.database_digest) || !validCount(value.incident_count, 100)
+      || !validCount(value.signal_count, 100) || typeof value.incident_overflow !== "boolean"
+      || typeof value.signal_overflow !== "boolean" || !Array.isArray(value.groups) || value.groups.length > 100
+      || value.groups.some((group: any) => !exactKeys(group, ["tool", "failure_class", "recovered", "count"])
+        || !(fixedTools.includes(group.tool) || /^(?:dbsctr_|dks_|herdr_)[A-Za-z0-9._:/-]+$/.test(group.tool)
+          && group.tool.length <= 128)
+        || !failures.includes(group.failure_class) || typeof group.recovered !== "boolean"
+        || !validCount(group.count, 100) || group.count < 1)
+      || new Set(value.groups.map((group: any) => JSON.stringify([
+        group.tool, group.failure_class, group.recovered]))).size !== value.groups.length
+      || JSON.stringify(value.groups) !== JSON.stringify([...value.groups].sort((left: any, right: any) =>
+        right.count - left.count || lexicalCompare(left.tool, right.tool)
+        || lexicalCompare(left.failure_class, right.failure_class) || Number(left.recovered) - Number(right.recovered)))
+      || value.groups.reduce((sum: number, group: any) => sum + group.count, 0) !== value.signal_count)
+    throw new Error("analytics helper returned invalid incident summary")
+  return JSON.stringify(value)
 }
 
 export async function incidentRegister(input: {
@@ -552,6 +579,7 @@ export async function reviewHistory(args: {
   exclusionDigest?: string
   limit?: number
   cursor?: number
+  aggregateOnly?: boolean
 }, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
 }
@@ -1223,6 +1251,26 @@ function exactKeys(value: any, keys: string[]) {
     && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0")
 }
 
+function validCount(value: any, maximum = Number.MAX_SAFE_INTEGER) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= maximum
+}
+
+function lexicalCompare(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function validMetric(value: any, selected: number) {
+  const keys = ["available_count", "unavailable_count", "mean", "p50", "p90"]
+  const metricValue = (item: any) => item === "unavailable" || validCount(item)
+  return exactKeys(value, keys) && validCount(value.available_count, selected)
+    && validCount(value.unavailable_count, selected)
+    && value.available_count + value.unavailable_count === selected
+    && metricValue(value.mean) && metricValue(value.p50) && metricValue(value.p90)
+    && (value.available_count > 0
+      ? [value.mean, value.p50, value.p90].every(item => validCount(item))
+      : [value.mean, value.p50, value.p90].every(item => item === "unavailable"))
+}
+
 export async function historyCapture(args: { captureID: string; cursor?: number; limit?: number }, cwd = process.cwd()) {
   const argv = ["dbsctrctl", "history-capture", "--capture-id", args.captureID]
   if (args.cursor !== undefined) argv.push("--cursor", String(args.cursor), "--limit", String(args.limit ?? 100))
@@ -1244,6 +1292,59 @@ export async function historyCapture(args: { captureID: string; cursor?: number;
 export async function historyTelemetry(args: Parameters<typeof reviewHistory>[0], cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   const value = await analyticsJSON(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
   const limit = args.limit ?? 25
+  if ((args as any).aggregateOnly) {
+    const keys = ["schema_version", "mode", "capture_id", "snapshot", "session_ceiling", "part_ceiling",
+      "database_digest", "exclusion_digest", "query", "limit", "cursor", "selected_count", "continuation",
+      "digest", "cohort", "metrics", "distributions"]
+    const queryKeys = ["after", "before", "method_revision", "cycle_filter_applied", "state", "context",
+      "project_digest", "reviewed_status", "archive_only"]
+    const partitions: Record<string, string[]> = {
+      relation: ["primary", "child", "unavailable"], review: ["review", "non_review", "unavailable"],
+      correlation_quality: ["exact", "family", "worktree", "source", "ambiguous", "unavailable"],
+      cycle_states: ["active", "blocked", "abandoned", "completed", "unknown"],
+    }
+    const distribution = (rows: any) => Array.isArray(rows) && rows.length <= 100
+      && rows.every((row: any) => exactKeys(row, ["value", "count"])
+        && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(row.value) && validCount(row.count) && row.count > 0)
+      && new Set(rows.map((row: any) => row.value)).size === rows.length
+      && JSON.stringify(rows) === JSON.stringify([...rows].sort((left: any, right: any) =>
+        right.count - left.count || lexicalCompare(left.value, right.value)))
+    const selected = value.selected_count
+    if (!exactKeys(value, keys) || value.schema_version !== 1 || value.mode !== "aggregate"
+        || value.limit !== limit || value.cursor !== (args.cursor ?? 0)
+        || !validCount(selected, limit) || !validCount(value.snapshot) || !validCount(value.session_ceiling)
+        || !validCount(value.part_ceiling) || !/^[0-9a-f]{64}$/.test(value.database_digest)
+        || value.exclusion_digest !== null && !/^[0-9a-f]{64}$/.test(value.exclusion_digest)
+        || !/^[0-9a-f]{24}$/.test(value.capture_id) || !/^[0-9a-f]{64}$/.test(value.digest)
+        || value.continuation !== null && (!validCount(value.continuation) || value.continuation <= value.cursor)
+        || !exactKeys(value.query, queryKeys) || typeof value.query.cycle_filter_applied !== "boolean"
+        || typeof value.query.archive_only !== "boolean"
+        || value.query.after !== null && !validCount(value.query.after)
+        || value.query.before !== null && !validCount(value.query.before)
+        || value.query.after !== null && value.query.before !== null && value.query.after > value.query.before
+        || value.query.method_revision !== null && !/^3\.[0-9]+$/.test(value.query.method_revision)
+        || ![null, "active", "blocked", "abandoned", "completed", "unknown"].includes(value.query.state)
+        || value.query.context !== null && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.query.context)
+        || value.query.project_digest !== null && !/^[0-9a-f]{64}$/.test(value.query.project_digest)
+        || ![null, "reviewed", "unreviewed"].includes(value.query.reviewed_status)
+        || !exactKeys(value.cohort, ["sessions", "correlation_quality", "cycle_states"])
+        || !exactKeys(value.cohort.sessions, ["relation", "review", "telemetry_available", "telemetry_unavailable"])
+        || Object.entries(partitions).some(([name, names]) => {
+          const partition = name in value.cohort.sessions ? value.cohort.sessions[name] : value.cohort[name]
+          return !exactKeys(partition, names) || !Object.values(partition).every(item => validCount(item))
+            || (name === "cycle_states" ? false
+              : Object.values(partition).reduce((sum: number, item: any) => sum + item, 0) !== selected)
+        })
+        || !validCount(value.cohort.sessions.telemetry_available, selected)
+        || !validCount(value.cohort.sessions.telemetry_unavailable, selected)
+        || value.cohort.sessions.telemetry_available + value.cohort.sessions.telemetry_unavailable !== selected
+        || !exactKeys(value.metrics, ["elapsed_ms", "tokens", "tool_calls", "tool_errors", "child_sessions", "delegations"])
+        || !Object.values(value.metrics).every(metric => validMetric(metric, selected))
+        || !exactKeys(value.distributions, ["agents", "models"])
+        || !distribution(value.distributions.agents) || !distribution(value.distributions.models))
+      throw new Error("analytics helper returned invalid aggregate telemetry")
+    return JSON.stringify(value)
+  }
   const telemetryKeys = ["schema_version", "approval_count", "retry_count", "delegation_count", "model_families",
     "error_classes", "token_total", "cost_total", "provider_ids", "model_ids", "agent_ids", "session_relation",
     "core_revisions", "overlay_revisions", "gate_failure_count", "gate_reopen_count", "remediation_round_count",
@@ -1492,7 +1593,7 @@ export async function beginCycle(args: {
   const sameRuntimeRepository = runtime === undefined
     || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
   const sameInitiativeCheckout = await realpath(initiativeSourceCwd) === await realpath(cwd)
-  const runtimeArgv = runtime && sameRuntimeRepository && initiative === undefined ? [
+  const runtimeArgv = runtime && sameRuntimeRepository && (initiative === undefined || !launch) ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,

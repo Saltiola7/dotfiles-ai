@@ -1,5 +1,61 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - History And Incident Projection V2
+
+- Delivered body-free full and immutable append-delta projection generations for
+  History membership, source-heavy metrics, safe model/tool categories, and
+  Incident failure/recovery classification. Detailed modes and public aggregate
+  and summary schemas remain unchanged.
+- Added bounded phased maintenance, capture-bound ancestor retention, depth-15
+  compaction, privacy invalidation, source verification, schema-v1 rebuild,
+  partial tool/failure indexes, and process-local unchanged-ledger integrity
+  receipts. The deployed representative sidecar is 120 MiB.
+- Affected QA passed 186 helper tests, one expected skip, 21 subtests, and 80
+  lifecycle/control-plane tests. Five post-warmup runs measured aggregate p95 at
+  6.40 seconds and Incident summary p95 at 2.64 seconds. Gate Exceptions: none.
+  Release: not applicable. Deployment: managed helper and OpenCode adapters.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-31 - Projection V2 Message Authority Correction
+
+- Reopened projection-v2 implementation before its first Gate Commit because the
+  approved schema required message-derived model/provider authority without a
+  body-free message projection or resumable verification cursor.
+- Added exact owner-private `index_messages` rows and
+  `verified_message_rowid`. Maintenance stores only message row/session/timestamp
+  identity, one-way body digest, safe model, provider-error bit, and marker flags;
+  bodies remain source-local and ready reads remain body-free.
+- Required bounded message and part verification before activation so
+  mutation-between-chunks forces rebuild. Scope, dependencies, outputs, and
+  ready slice identity are unchanged.
+
+## 2026-08-31 - History Projection Storage Readiness
+
+- Reopened projection readiness after the full representative sidecar reached
+  1,214.5 MiB and exceeded the 1 GiB acceptance cap.
+- Required partial recovery and Incident indexes: only 710,292 tool rows enter the
+  recovery index and only 24,611 failed rows enter the Incident index, instead of
+  indexing 2.46 million mostly-null rows twice.
+- This Discovery repair changes private schema authority only; implementation and
+  live size evidence remain separately gated. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
+## 2026-08-31 - History Materialized Projection Readiness
+
+- Reopened History/Incident core after the ordering-only boundary index activated
+  successfully on a representative 72 GiB source but aggregate and Incident
+  summary operations still exceeded 180 seconds.
+- Replaced schema version 1 readiness with a body-free schema-version-2
+  materialized projection for immutable full/delta generations, session
+  eligibility, source-heavy metrics, safe categories, and failure/recovery
+  classification. Ready paths prohibit source payload scans and preserve exact
+  output, privacy, continuation, invalidation, rollback, and detailed modes.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-31 - Generic History Source Readiness
 
 - Reopened the empty Codex history cycle before implementation because no

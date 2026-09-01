@@ -6,7 +6,7 @@
 | Owner | Dotfiles owner |
 | Languages/frameworks | Bash, Zsh, C, Swift, ServiceManagement, Go templates, app bundles, launchd plists, and Markdown |
 | Modules | Security, Cloud |
-| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, Fedora Lima guests, OpenCode, Codex CLI, chezmoi, 1Password CLI, and Keychain |
+| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, Fedora Lima guests, CentOS Stream 10 x86_64 remote workspaces, OpenCode, Codex CLI, chezmoi, 1Password CLI, Keychain, and Linux runtime-local authentication |
 | Compatibility | Shell startup remains nonblocking; optional auth never becomes startup-required; existing OpenCode and Herdr processes survive migration and recovery failures |
 | Trust/data | Credentials remain in environment, Keychain, cache, 1Password, or runtime-local auth; health records contain no prompt, session, database, repository, or state-root path |
 | Delivery | Feature branch and draft pull request; signed-host or recovery activation only after explicit operation gates pass |

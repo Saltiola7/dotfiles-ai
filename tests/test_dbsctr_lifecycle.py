@@ -54,6 +54,10 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "shell proxy when a direct interface exists" in coordinator
     assert "keep governed private result bodies local" in coordinator
     assert "dbsctr_initiative_launch: ask" in coordinator
+    for agent in ("build-gpt", "build-claude"):
+        build = text(f"private_dot_config/opencode/agents/{agent}.md")
+        assert "dbsctr_initiative_launch: deny" in build
+        assert "dbsctr_initiative_begin: ask" in build
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
@@ -254,6 +258,13 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     ]
     assert "generic-history-source-pages" in control_plane
     assert "never enter a page" in control_plane
+
+    projection = text(
+        "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
+    )
+    assert "CREATE TABLE index_messages" in projection
+    assert "verified_message_rowid" in projection
+    assert "body digest" in projection
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 

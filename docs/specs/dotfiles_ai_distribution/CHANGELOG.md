@@ -1,5 +1,46 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-08-31 - CentOS Remote User Foundation
+
+- Added a default-off CentOS Stream 10 x86_64 user foundation with independently
+  pinned OpenCode, Codex, Herdr, Atuin, Starship, 1Password CLI, Docker Compose,
+  and Google Cloud CLI assets while preserving Fedora aarch64 defaults.
+- Added an owner-private, lock-safe foundation state command with full-commit
+  apply, same-revision retry, managed-target manifests, content-free status, and
+  rollback that preserves credentials, sessions, history, and unrelated files.
+- A disposable CentOS Stream 10 x86_64 container passed checksum verification,
+  two empty-convergent applies, exact runtime versions, and sanitized status.
+  Affected compatibility validation passed 158 tests; the repository-wide run
+  passed 657 tests, one expected skip, and 21 subtests after removing inherited
+  live DBSCTR state-root variables to match isolated CI execution.
+- Gate Commits: `5732639`, `495ad76`, `305baed`, and `020a8e6`. Gate Exceptions:
+  none. No live GCE user home, provider credential, tailnet policy, or service was
+  changed. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
+## 2026-08-31 - CentOS Remote Workspace Discovery
+
+- Added the target contract for generic CentOS Stream 10 x86_64 user-local
+  distribution, immutable-revision apply, sanitized bootstrap state,
+  idempotency, and rollback.
+- Kept macOS and Fedora aarch64 behavior unchanged and prohibited user, employer,
+  client, project, machine, tailnet, endpoint, and credential identity in public
+  source or rendered defaults.
+- No package, target, service, user home, credential, or runtime changed.
+  RWUE-001 remains digest- and approval-gated.
+
+## 2026-08-29 - DAI-034 Portable Remote Workspace Client
+
+- Added an opt-in machine-local remote-workspace profile, private environment
+  rendering, and prerequisite doctor without embedding endpoint identity or
+  credentials in public source.
+- Added mise and Google Cloud CLI to the managed macOS packages while preserving
+  repository-owned lifecycle tasks as the sole remote-operation interface.
+- Full validation passed with `559 passed, 1 skipped`, plus Ruff, shell syntax,
+  rendering checks, and Git diff hygiene. Gate Commit: `73f8ff1`; no live
+  installation or network enrollment occurred. Intended delivery is the feature
+  branch and draft pull request into protected `main`.
+
 ## 2026-08-30 - Managed Codex Distribution
 
 - Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host

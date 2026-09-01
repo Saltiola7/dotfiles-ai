@@ -21,6 +21,7 @@ def data(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
 ) -> dict:
     return {
         "dotfiles_ai": {
@@ -30,8 +31,13 @@ def data(
                 "version": codex_version,
                 "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
                 "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
+                "linux_amd64_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-x86_64-unknown-linux-musl.tar.gz",
+                "linux_amd64_asset_sha256": "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6",
             },
             "opencode": {
+                "version": "1.18.25",
+                "linux_amd64_asset_url": "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz",
+                "linux_amd64_asset_sha256": "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78",
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
                 "vertex_credentials": vertex_credentials,
@@ -45,6 +51,9 @@ def data(
                 "theme": "nord",
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
+                "version": "0.8.2",
+                "linux_amd64_asset_url": "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+                "linux_amd64_asset_sha256": "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4",
             },
             "hermes": {
                 "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
@@ -53,6 +62,16 @@ def data(
             },
             "atuin": {"sync_address": "https://atuin.example.com", "server_enabled": False},
             "tailscale": {"enabled": False, "ssh": False},
+            "remote_workspace": {
+                "enabled": True,
+                "repository": str(ROOT),
+                "project": "example-project",
+                "zone": "example-zone-a",
+                "instance": "example-workspace",
+                "account": "user@example.com",
+                "tailscale_host": "example-workspace.example.ts.net",
+            },
+            "remote_user_environment": {"enabled": remote_user_environment},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -120,6 +139,7 @@ def chezmoi(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -127,8 +147,9 @@ def chezmoi(
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
             json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
-                            pm_image, pm_backup_dir, state_root, rnd_runtime,
-                            workspace_runtime, codex_version)),
+                             pm_image, pm_backup_dir, state_root, rnd_runtime,
+                             workspace_runtime, codex_version,
+                             remote_user_environment)),
             *args,
         ],
         input=template,
@@ -144,10 +165,117 @@ def test_macos_installs_official_opencode_tap() -> None:
 
     assert 'tap "anomalyco/tap"' in brewfile
     assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert 'brew "mise"' in brewfile
+    assert 'cask "google-cloud-sdk"' in brewfile
     assert '{{ include "Brewfile" | sha256sum }}' in installer
     assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
     assert "Homebrew is required to install managed agent packages" in installer
     assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+
+
+def test_remote_workspace_config_stays_machine_local() -> None:
+    profile = chezmoi(
+        "execute-template", template=(ROOT / "dot_common_profile.tmpl").read_text()
+    ).stdout
+    env = chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/remote-workspace.env")
+    ).stdout
+    managed = set(chezmoi("managed").stdout.splitlines())
+
+    assert "remote-workspace.env" not in profile
+    assert f'REMOTE_DEV_REPOSITORY="{ROOT}"' in env
+    assert 'REMOTE_DEV_PROJECT="example-project"' in env
+    assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
+    assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
+    assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
+    assert 'REMOTE_DEV_TAILSCALE_HOST="example-workspace.example.ts.net"' in env
+    assert ".local/bin/remote-workspace" in managed
+    assert ".local/bin/remote-workspace-doctor" in managed
+
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    assert "[dotfiles_ai.remote_workspace]" in defaults
+    assert "[data.dotfiles_ai.remote_workspace]" in example
+
+
+def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> None:
+    for command in ("mise", "herdr", "tailscale"):
+        path = tmp_path / command
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text("#!/bin/sh\necho user@example.com\n")
+    gcloud.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh", str(ROOT / "dot_local/bin/executable_remote-workspace-doctor")],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "REMOTE_DEV_PROJECT": "example-project",
+            "REMOTE_DEV_ZONE": "example-zone-a",
+            "REMOTE_DEV_INSTANCE": "example-workspace",
+            "REMOTE_DEV_REPOSITORY": str(ROOT),
+            "REMOTE_DEV_TAILSCALE_HOST": "example-workspace.example.ts.net",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(tmp_path / "missing.env"),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "remote workspace prerequisites ready"
+
+
+def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    env_file = tmp_path / "remote-workspace.env"
+    env_file.write_text(f'export REMOTE_DEV_REPOSITORY="{repository}"\n')
+    mise = tmp_path / "mise"
+    mise.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PWD" "$*"\n')
+    mise.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            str(ROOT / "dot_local/bin/executable_remote-workspace"),
+            "remote-status",
+            "--verbose",
+        ],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(env_file),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == [
+        str(repository),
+        "run remote-status --verbose",
+    ]
+
+
+def test_remote_user_environment_scripts_render_as_shell() -> None:
+    scripts = [
+        "run_onchange_after_install-guest-development-tools.sh.tmpl",
+        "run_onchange_after_install-starship.sh.tmpl",
+        "run_onchange_after_install-atuin.sh.tmpl",
+        "dot_local/bin/executable_codex-install.tmpl",
+        "dot_local/bin/executable_opencode-install.tmpl",
+        "run_onchange_after_install-01-remote-opencode.sh.tmpl",
+        "run_onchange_after_install-00-remote-herdr.sh.tmpl",
+    ]
+    rendered = []
+    for path in scripts:
+        output = chezmoi(
+            "execute-template",
+            remote_user_environment=True,
+            template=(ROOT / path).read_text(),
+        ).stdout
+        subprocess.run(["bash", "-n"], input=output, text=True, check=True)
+        rendered.append(output)
+    assert all("x86_64" in output for output in rendered[:5] + rendered[6:])
+    assert 'exec "$HOME/.local/bin/opencode-install"' in rendered[5]
 
 
 def test_codex_distribution_sources_are_pinned_and_inert() -> None:

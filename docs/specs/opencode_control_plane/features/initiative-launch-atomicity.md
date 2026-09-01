@@ -31,13 +31,21 @@ authority. Herdr identities and terminal state remain advisory.
 ### Resolve the coordinator checkout
 
 - Given the manifest is in a checkout other than the invoking OpenCode session,
-  when a coordinator or primary Build launches a ready slice, then it supplies
+  when the Discovery coordinator launches a ready slice, then it supplies
   the Initiative source separately from the repository-relative manifest path.
 - The adapter validates the source GitHub origin against the receipt's
   coordinator repository before approval and revalidates the receipt from the
   same source after approval.
 - Absolute manifest paths remain invalid. Omitting the source retains the
   invoking worktree as the source for same-checkout launches.
+
+### Continue a Build-led Discovery session
+
+- Given a primary Build runs Discovery in the Initiative context home, when it
+  begins an approved slice through explicit Initiative Begin, then it binds the
+  same receipt and approval, attaches the current runtime, and creates no Herdr
+  tab or OpenCode child.
+- Cross-repository child creation remains exclusive to the Discovery coordinator.
 
 ### Preserve coordinator workspace affinity
 
@@ -78,10 +86,12 @@ authority. Herdr identities and terminal state remain advisory.
 
 ## Interface And Contract
 
-`dbsctr_initiative_launch` and Initiative mode on `dbsctr_begin` accept optional
-`initiativeSourceRepository`. It must be a readable Git checkout whose GitHub
-origin matches the fresh receipt's `coordinator_repository`. `manifestPath`
-remains `docs/initiatives/<slug>/MANIFEST.json` and is resolved in that checkout.
+`dbsctr_initiative_launch` accepts optional `initiativeSourceRepository`. It must
+be a readable Git checkout whose GitHub origin matches the fresh receipt's
+`coordinator_repository`. `manifestPath` remains
+`docs/initiatives/<slug>/MANIFEST.json` and is resolved in that checkout.
+Initiative mode on `dbsctr_begin` accepts neither source nor target overrides; it
+uses the invoking same-repository Build worktree and attaches that runtime.
 
 Approval remains bound to manifest digest, blob, commit, coordinator repository,
 context-home repository, plan digest, base branch, cycle identity, risk, and
@@ -100,8 +110,8 @@ Before creating any tab, the shared launch path resolves the invoking pane with
 identity through `herdr tab create --workspace <workspace_id>`. The returned tab,
 root pane, and confirmed agent must belong to that workspace. Missing, malformed,
 or mismatched identity fails closed; Herdr UI focus is never a fallback. This
-contract applies to ordinary `dbsctr_begin` with `launch=true`, Initiative mode on
-`dbsctr_begin`, and `dbsctr_initiative_launch`.
+contract applies to ordinary `dbsctr_begin` with `launch=true` and
+`dbsctr_initiative_launch`. Initiative mode on `dbsctr_begin` creates no tab.
 
 Failure cleanup is limited to the launcher-owned tab. Cleanup failure remains a
 launch failure and is reported rather than hidden. Once an OpenCode agent is
