@@ -1,5 +1,14 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - Cross-Repository Same-Session Begin Readiness
+
+- Required explicit Initiative Begin to accept separate coordinator and
+  context-home checkouts while reusing the existing receipt, origin, plan,
+  branch, occupancy, approval, and post-approval race checks.
+- Kept the current Build primary attached without Herdr or child-session creation;
+  same-repository defaults and the Discovery-only child launcher remain unchanged.
+  This Discovery update changes no managed adapter or runtime.
+
 ## 2026-08-31 - History Projection Adapters
 
 - Exposed aggregate History and Incident summary modes through closed, bounded
