@@ -352,6 +352,7 @@ def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout
     deployment = next(call for call in argv if "deploy-codex" in call)
     assert deployment[-2:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision]
     assert '"$HOME/.local/bin/codex-archive"' in deployment[-4]
+    assert "apply --force" in deployment[-4]
     assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-4]
     assert '"$HOME/.config/dotfiles-ai/codex-managed"' in deployment[-4]
     assert not any("pull" in call for call in argv)

@@ -704,11 +704,12 @@ mkdir "$tmp/source"
 tar -xzf "$archive" -C "$tmp/source"
 test "$(cat "$tmp/source/.dotfiles-ai-deploy-commit")" = "$expected"
 rm "$tmp/source/.dotfiles-ai-deploy-commit"
+chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply --force \
+  "$HOME/.local/bin/dbsctrctl"
 chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
   "$HOME/.local/bin/codex" \
   "$HOME/.local/bin/codex-archive" \
   "$HOME/.local/bin/codex-control-plane" \
-  "$HOME/.local/bin/dbsctrctl" \
   "$HOME/.local/bin/codex-install" \
   "$HOME/.local/bin/codex-project" \
   "$HOME/.local/bin/codex-rollback" \
