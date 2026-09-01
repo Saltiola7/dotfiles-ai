@@ -81,6 +81,9 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     for source in (tools, starship, atuin, codex, opencode, herdr):
         assert "remote_user_environment.enabled" in source
         assert "uname -m" in source
+    rendered_tools = _render("run_onchange_after_install-guest-development-tools.sh.tmpl")
+    assert 'exec "$HOME/.local/share/google-cloud-sdk-580.0.0/bin/gcloud" "$@"' in rendered_tools
+    assert 'ln -sfn "$destination/bin/gcloud"' not in rendered_tools
     assert "DOTFILES_AI_SYSTEMCTL" in tools
     assert "install-00-remote-herdr.sh" in ignore
     assert "install-01-remote-opencode.sh" in ignore

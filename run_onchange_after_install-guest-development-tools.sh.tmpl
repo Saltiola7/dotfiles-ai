@@ -65,4 +65,12 @@ if ! mv "$destination.new" "$destination"; then
   exit 1
 fi
 rm -rf "$destination.old"
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+printf '%s\n' '#!/bin/sh' \
+  'exec "$HOME/.local/share/google-cloud-sdk-580.0.0/bin/gcloud" "$@"' \
+  >"$HOME/.local/bin/.gcloud.new"
+chmod 0755 "$HOME/.local/bin/.gcloud.new"
+mv -f "$HOME/.local/bin/.gcloud.new" "$HOME/.local/bin/gcloud"
+{{ else -}}
 ln -sfn "$destination/bin/gcloud" "$HOME/.local/bin/gcloud"
+{{ end -}}

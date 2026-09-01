@@ -315,6 +315,12 @@ def test_remote_user_environment_scripts_render_as_shell() -> None:
         rendered.append(output)
     assert all("x86_64" in output for output in rendered[:5] + rendered[6:])
     assert 'exec "$HOME/.local/bin/opencode-install"' in rendered[5]
+    fedora_tools = chezmoi(
+        "execute-template",
+        remote_user_environment=False,
+        template=(ROOT / scripts[0]).read_text(),
+    ).stdout
+    assert 'ln -sfn "$destination/bin/gcloud" "$HOME/.local/bin/gcloud"' in fedora_tools
 
 
 def test_codex_distribution_sources_are_pinned_and_inert() -> None:
