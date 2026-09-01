@@ -1920,6 +1920,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
                    cwd=source, check=True)
     receipt_cwds = tmp_path / "receipt.cwds"
+    begin_cwds = tmp_path / "begin.cwds"
     cycle = tmp_path / "cycle"
     cycle.mkdir()
     digest = "a" * 64
@@ -1939,7 +1940,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
         f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
-        f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
+        f'else [ -z "$BEGIN_CWDS" ] || pwd >> "$BEGIN_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
@@ -2042,10 +2043,14 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     begin_script = script.replace(
         "import { initiative_launch }", "import { begin }"
     ).replace(
-        "initiative_launch.execute({",
-        "begin.execute({initiative:{manifestPath:\"docs/initiatives/test/MANIFEST.json\",sliceId:\"slice-a\",proceed:true},",
-    ).replace(
         'manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,', ""
+    ).replace(
+        '...(process.env.SOURCE ? {initiativeSourceRepository:process.env.SOURCE} : {}),', ""
+    ).replace(
+        '...(process.env.TARGET ? {targetRepository:process.env.TARGET} : {})', ""
+    ).replace(
+        "initiative_launch.execute({",
+        "begin.execute({initiative:begin.args.initiative.parse({manifestPath:\"docs/initiatives/test/MANIFEST.json\",sliceId:\"slice-a\",proceed:true,...(process.env.SOURCE ? {initiativeSourceRepository:process.env.SOURCE} : {}),...(process.env.TARGET ? {targetRepository:process.env.TARGET} : {})}),",
     )
     fallback = subprocess.run(
         ["bun", "-e", begin_script], cwd=ROOT,
@@ -2060,11 +2065,28 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert "<--opencode-session-id>\n<parent-session>" in calls.read_text()
     assert herdr_calls.read_text() == ""
 
+    calls.write_text("")
+    receipt_cwds.write_text("")
+    cross_checkout = subprocess.run(
+        ["bun", "-e", begin_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "SOURCE": str(source), "TARGET": str(target),
+             "RECEIPT_CWDS": str(receipt_cwds), "BEGIN_CWDS": str(begin_cwds)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(cross_checkout.stdout)["herdr"] == "not_launched"
+    assert set(receipt_cwds.read_text().splitlines()) == {str(source)}
+    assert set(begin_cwds.read_text().splitlines()) == {str(target)}
+    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_begin"
+    assert herdr_calls.read_text() == ""
+
     begin_changed = subprocess.run(
         ["bun", "-e", begin_script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
              "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
-             "APPROVAL": str(approval), "MUTATE_PLAN": "1"},
+             "APPROVAL": str(approval), "SOURCE": str(source), "TARGET": str(target),
+             "MUTATE_PLAN": "1"},
         text=True, capture_output=True,
     )
     assert begin_changed.returncode != 0 and "plan changed after approval" in begin_changed.stderr
