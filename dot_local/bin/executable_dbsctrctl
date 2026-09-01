@@ -2,6 +2,7 @@
 """Deterministic local DBSCTR lifecycle helper."""
 
 import argparse
+from collections import deque
 import concurrent.futures
 import contextlib
 import fcntl
@@ -48,7 +49,7 @@ REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
 INCIDENT_SCHEMA = 1
-HISTORY_SOURCE_INDEX_SCHEMA = 2
+HISTORY_SOURCE_INDEX_SCHEMA = 3
 HISTORY_SOURCE_INDEX_OUTPUT_SCHEMA = 1
 HISTORY_SOURCE_INDEX_CHUNK = 50_000
 IMPROVEMENT_SCHEMA = 5
@@ -5841,19 +5842,12 @@ def open_history_source_index(root, create=False):
         try:
             version = probe.execute(
                 "SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
-            index_sql = {name: (sql or "") for name, sql in probe.execute(
-                "SELECT name,sql FROM sqlite_master WHERE type='index' AND name IN "
-                "('index_rows_recovery','index_rows_incident')")}
         except sqlite3.Error:
-            version, index_sql = None, {}
+            version = None
         finally:
             probe.close()
-        predicates_valid = ("WHERE tool_key_digest IS NOT NULL" in index_sql.get("index_rows_recovery", "")
-                            and "WHERE tool_state='failed'" in index_sql.get("index_rows_incident", ""))
-        if version == ("1",) or version == (str(HISTORY_SOURCE_INDEX_SCHEMA),) and not predicates_valid:
+        if version != (str(HISTORY_SOURCE_INDEX_SCHEMA),):
             path.unlink()
-        elif version != (str(HISTORY_SOURCE_INDEX_SCHEMA),):
-            fail("history source index schema is incompatible")
     connection = sqlite3.connect(path if create else f"{path.resolve().as_uri()}?mode=ro", uri=not create)
     if create:
         os.chmod(path, 0o600)
@@ -5869,30 +5863,24 @@ def ensure_history_source_index_schema(connection):
         ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS index_generations (
           generation_id TEXT PRIMARY KEY,
-          base_generation_id TEXT REFERENCES index_generations(generation_id),
-          depth INTEGER NOT NULL CHECK (depth BETWEEN 0 AND 15),
           state TEXT NOT NULL CHECK (state IN ('preparing','ready')),
-          phase TEXT NOT NULL CHECK (phase IN ('sessions','messages','parts','finalizing','ready')),
           source_device INTEGER NOT NULL,
           source_inode INTEGER NOT NULL,
           schema_digest TEXT NOT NULL,
           privacy_epoch_digest TEXT NOT NULL,
+          captured_at INTEGER NOT NULL,
           target_session_ceiling INTEGER NOT NULL,
           target_message_ceiling INTEGER NOT NULL,
           target_part_ceiling INTEGER NOT NULL,
-          indexed_session_rowid INTEGER NOT NULL,
-          indexed_message_rowid INTEGER NOT NULL,
-          indexed_part_rowid INTEGER NOT NULL,
-          finalized_session_rowid INTEGER NOT NULL,
-          verified_part_rowid INTEGER NOT NULL,
           covered_session_ceiling INTEGER NOT NULL,
           covered_message_ceiling INTEGER NOT NULL,
           covered_part_ceiling INTEGER NOT NULL,
           session_row_count INTEGER NOT NULL,
           message_row_count INTEGER NOT NULL,
           part_row_count INTEGER NOT NULL,
+          material_row_count INTEGER NOT NULL,
           created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
+          completed_at INTEGER
         );
         CREATE TABLE IF NOT EXISTS index_sessions (
           generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
@@ -5931,8 +5919,7 @@ def ensure_history_source_index_schema(connection):
           part_rowid INTEGER NOT NULL,
           session_id TEXT NOT NULL,
           part_time INTEGER NOT NULL,
-          part_updated INTEGER NOT NULL,
-          source_digest TEXT NOT NULL,
+          material_kind TEXT NOT NULL CHECK (material_kind IN ('boundary','tool','both')),
           eligibility_flags INTEGER NOT NULL,
           tool_name TEXT,
           tool_key_digest TEXT,
@@ -5967,20 +5954,20 @@ def ensure_history_source_index_schema(connection):
 def validate_history_source_index_schema(connection):
     expected = {
         "index_meta": ("key", "value"),
-        "index_generations": ("generation_id", "base_generation_id", "depth", "state", "phase",
-                              "source_device", "source_inode", "schema_digest", "privacy_epoch_digest",
+        "index_generations": ("generation_id", "state", "source_device", "source_inode",
+                              "schema_digest", "privacy_epoch_digest", "captured_at",
                               "target_session_ceiling", "target_message_ceiling", "target_part_ceiling",
-                              "indexed_session_rowid", "indexed_message_rowid", "indexed_part_rowid",
-                              "finalized_session_rowid", "verified_part_rowid", "covered_session_ceiling",
+                              "covered_session_ceiling",
                               "covered_message_ceiling", "covered_part_ceiling", "session_row_count",
-                              "message_row_count", "part_row_count", "created_at", "updated_at"),
+                              "message_row_count", "part_row_count", "material_row_count", "created_at",
+                              "completed_at"),
         "index_sessions": ("generation_id", "session_id", "session_rowid", "parent_session_id",
                            "created_at", "last_activity", "eligible", "review_marker", "project_digest",
                            "source_digest", "part_count", "tool_call_count", "tool_error_count",
                            "provider_error_count", "child_count", "delegation_count", "token_total"),
         "index_session_values": ("generation_id", "session_id", "kind", "value"),
-        "index_rows": ("generation_id", "part_rowid", "session_id", "part_time", "part_updated",
-                       "source_digest", "eligibility_flags", "tool_name", "tool_key_digest",
+        "index_rows": ("generation_id", "part_rowid", "session_id", "part_time", "material_kind",
+                       "eligibility_flags", "tool_name", "tool_key_digest",
                        "tool_state", "failure_class", "disposition_digest"),
         "active_generation": ("singleton", "generation_id"),
     }
@@ -6006,13 +5993,11 @@ def validate_history_source_index_schema(connection):
 
 
 HISTORY_GENERATION_COLUMNS = (
-    "generation_id", "base_generation_id", "depth", "state", "phase", "source_device",
-    "source_inode", "schema_digest", "privacy_epoch_digest", "target_session_ceiling",
-    "target_message_ceiling", "target_part_ceiling", "indexed_session_rowid",
-    "indexed_message_rowid", "indexed_part_rowid", "finalized_session_rowid",
-    "verified_part_rowid", "covered_session_ceiling", "covered_message_ceiling",
+    "generation_id", "state", "source_device", "source_inode", "schema_digest",
+    "privacy_epoch_digest", "captured_at", "target_session_ceiling", "target_message_ceiling",
+    "target_part_ceiling", "covered_session_ceiling", "covered_message_ceiling",
     "covered_part_ceiling", "session_row_count", "message_row_count", "part_row_count",
-    "created_at", "updated_at",
+    "material_row_count", "created_at", "completed_at",
 )
 HISTORY_SESSION_COLUMNS = (
     "generation_id", "session_id", "session_rowid", "parent_session_id", "created_at",
@@ -6030,24 +6015,10 @@ def history_projection_generation(connection, generation_id):
 
 
 def history_projection_chain(connection, generation_id):
-    chain, seen, expected_depth = [], set(), None
-    while generation_id is not None:
-        if generation_id in seen or len(chain) >= 16:
-            raise SourceIndexUnavailable("source_index_unavailable")
-        generation = history_projection_generation(connection, generation_id)
-        if generation is None or generation["state"] != "ready":
-            raise SourceIndexUnavailable("source_index_unavailable")
-        if expected_depth is None:
-            expected_depth = generation["depth"]
-        if generation["depth"] != expected_depth:
-            raise SourceIndexUnavailable("source_index_unavailable")
-        chain.append(generation)
-        seen.add(generation_id)
-        generation_id = generation["base_generation_id"]
-        expected_depth -= 1
-    if expected_depth != -1:
+    generation = history_projection_generation(connection, generation_id)
+    if generation is None or generation["state"] != "ready":
         raise SourceIndexUnavailable("source_index_unavailable")
-    return chain
+    return [generation]
 
 
 def history_projection_session(connection, chain, session_id):
@@ -6085,7 +6056,7 @@ def history_projection_values(connection, chain, session_id, kind):
 
 
 def history_projection_prune(connection, root, active_generation_id):
-    keep = {item["generation_id"] for item in history_projection_chain(connection, active_generation_id)}
+    keep = {active_generation_id}
     referenced = set()
     if ledger_exists(root):
         with ledger_connection(root) as ledger:
@@ -6094,13 +6065,9 @@ def history_projection_prune(connection, root, active_generation_id):
                 generation_id = value.get("source_generation")
                 if isinstance(generation_id, str) and re.fullmatch(r"[0-9a-f]{32}", generation_id):
                     referenced.add(generation_id)
-    for generation_id in referenced:
-        generation = history_projection_generation(connection, generation_id)
-        while generation is not None and generation["generation_id"] not in keep:
-            keep.add(generation["generation_id"])
-            generation = history_projection_generation(connection, generation["base_generation_id"])
+    keep.update(referenced)
     for generation_id, in connection.execute(
-            "SELECT generation_id FROM index_generations ORDER BY depth DESC").fetchall():
+            "SELECT generation_id FROM index_generations").fetchall():
         if generation_id not in keep:
             connection.execute("DELETE FROM index_generations WHERE generation_id=?", (generation_id,))
 
@@ -6185,7 +6152,7 @@ def require_history_source_index(args, part_ceiling=None, generation_id=None, se
             row = connection.execute("SELECT generation_id FROM active_generation WHERE singleton=1").fetchone()
             generation_id = row[0] if row else None
         generation = history_projection_generation(connection, generation_id)
-        if (generation is None or generation["state"] != "ready" or generation["phase"] != "ready"
+        if (generation is None or generation["state"] != "ready"
                 or (generation["source_device"], generation["source_inode"], generation["schema_digest"],
                     generation["privacy_epoch_digest"]) !=
                    (layout["device"], layout["inode"], layout["schema_digest"], privacy_digest)):
@@ -6536,6 +6503,216 @@ def command_history_source_index_maintain(args):
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
 
 
+def command_history_source_index_refresh(args):
+    started = time.monotonic()
+    root = review_root(args.state_root)
+    database = opencode_database(args.database)
+    layout = history_source_layout(database)
+    privacy_digest = history_privacy_epoch_digest(root)
+    forgotten = set(review_index(root)["forgotten_sessions"])
+    index = open_history_source_index(root, create=True)
+    source = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    generation_id = uuid.uuid4().hex
+    captured_at = int(time.time() * 1000)
+    try:
+        ensure_history_source_index_schema(index)
+        validate_history_source_index_schema(index)
+        index.execute("DELETE FROM index_generations WHERE state='preparing'")
+        source.execute("BEGIN")
+        layout["session_ceiling"] = source.execute(
+            f'SELECT COALESCE(MAX(rowid),0) FROM "{layout["session"]}"').fetchone()[0]
+        layout["message_ceiling"] = source.execute(
+            f'SELECT COALESCE(MAX(rowid),0) FROM "{layout["message"]}"').fetchone()[0]
+        layout["part_ceiling"] = source.execute(
+            f'SELECT COALESCE(MAX(rowid),0) FROM "{layout["part"]}"').fetchone()[0]
+        generation = {"generation_id": generation_id}
+        values = (generation_id, "preparing", layout["device"], layout["inode"],
+                  layout["schema_digest"], privacy_digest, captured_at, layout["session_ceiling"],
+                  layout["message_ceiling"], layout["part_ceiling"], 0, 0, 0, 0, 0, 0, 0,
+                  captured_at, None)
+        index.execute(f"INSERT INTO index_generations VALUES ({','.join('?' for _ in values)})", values)
+        stats, models, first_rows, last_rows = {}, {}, {}, {}
+        for session_id, in source.execute(
+                f'SELECT "{layout["session_id"]}" FROM "{layout["session"]}" '
+                "WHERE rowid<=? ORDER BY rowid", (layout["session_ceiling"],)):
+            session_id = str(session_id)
+            if history_projection_insert_session(index, source, layout, generation,
+                                                 session_id, forgotten, []):
+                row = index.execute(
+                    "SELECT source_digest,last_activity FROM index_sessions "
+                    "WHERE generation_id=? AND session_id=?", (generation_id, session_id)).fetchone()
+                stats[session_id] = [0, 0, 0, 0, row[1], row[0]]
+                models[session_id] = set(history_projection_values(index, [generation], session_id, "model"))
+        message_count = 0
+        message_query = (f'SELECT rowid,"{layout["message_id"]}","{layout["message_session"]}",'
+                         f'"{layout["message_time"]}",' +
+                         (f'"{layout["message_updated"]}",' if layout["message_updated"] else "") +
+                         f'"{layout["message_body"]}" FROM "{layout["message"]}" '
+                         "WHERE rowid<=? ORDER BY rowid")
+        for row in source.execute(message_query, (layout["message_ceiling"],)):
+            rowid, message_id, session_id, created, *tail = row
+            session_id = str(session_id)
+            if session_id not in stats:
+                continue
+            updated, body = (tail if layout["message_updated"] else (created, tail[0]))
+            text = str(body)
+            try:
+                payload = json.loads(text, object_pairs_hook=no_duplicate_keys)
+            except (json.JSONDecodeError, RuntimeError):
+                payload = {}
+            digest = history_projection_digest(None, ["message", rowid, session_id, message_id,
+                                                       created, updated,
+                                                       hashlib.sha256(text.encode()).hexdigest()])
+            stats[session_id][3] += int(isinstance(payload, dict) and payload.get("error") is not None)
+            stats[session_id][5] = history_projection_digest(stats[session_id][5], digest)
+            if isinstance(payload, dict):
+                model_value = payload.get("model")
+                model = ((model_value.get("modelID") if isinstance(model_value, dict) else None)
+                         or payload.get("modelID"))
+                if model := history_projection_safe_value(model):
+                    models[session_id].add(model)
+            message_count += 1
+        part_count = 0
+        part_query = (f'SELECT rowid,"{layout["part_id"]}","{layout["part_message"]}",'
+                      f'"{layout["part_session"]}","{layout["part_time"]}",' +
+                      (f'"{layout["part_updated"]}",' if layout["part_updated"] else "") +
+                      f'"{layout["part_body"]}" FROM "{layout["part"]}" '
+                      "WHERE rowid<=? ORDER BY rowid")
+        for row in source.execute(part_query, (layout["part_ceiling"],)):
+            rowid, part_id, message_id, session_id, created, *tail = row
+            session_id = str(session_id)
+            if session_id not in stats:
+                continue
+            updated, body = (tail if layout["part_updated"] else (created, tail[0]))
+            text, lowered = str(body), str(body)[:2048].lower()
+            flags = ((1 if "dbsctr" in lowered else 0) | (2 if "/discovery" in lowered else 0)
+                     | (4 if "/qa" in lowered else 0) | (8 if "dbsctr-improve" in lowered else 0))
+            try:
+                payload = json.loads(text, object_pairs_hook=no_duplicate_keys)
+            except (json.JSONDecodeError, RuntimeError):
+                payload = {}
+            state = payload.get("state") if isinstance(payload, dict) else None
+            raw_tool = ((payload.get("tool") or payload.get("name") or state.get("tool"))
+                        if isinstance(payload, dict) and isinstance(state, dict) else None)
+            raw_tool = raw_tool if isinstance(raw_tool, str) else None
+            tool_name = incident_summary_tool(raw_tool) if raw_tool else None
+            status = str(state.get("status", "")).lower() if isinstance(state, dict) else ""
+            tool_state = ("success" if status in ("completed", "success") else
+                          "failed" if status in ("error", "failed") else "other" if raw_tool else None)
+            failure = incident_failure_class(state, status) if tool_state == "failed" else None
+            tool_key = hashlib.sha256(f"{generation_id}\0{raw_tool}".encode()).hexdigest() if raw_tool else None
+            disposition = (incident_signal_id(session_id, str(message_id), str(part_id), raw_tool)
+                           if tool_state == "failed" else None)
+            material = (generation_id, rowid, session_id, created, "tool", flags, tool_name,
+                        tool_key, tool_state, failure, disposition)
+            if raw_tool:
+                index.execute("INSERT INTO index_rows VALUES (?,?,?,?,?,?,?,?,?,?,?)", material)
+            first = first_rows.setdefault(session_id, [])
+            if len(first) < 16:
+                first.append(material)
+            last_rows.setdefault(session_id, deque(maxlen=16)).append(material)
+            digest = history_projection_digest(None, ["part", rowid, session_id, part_id, message_id,
+                                                       created, updated,
+                                                       hashlib.sha256(text.encode()).hexdigest()])
+            item = stats[session_id]
+            item[0] += 1
+            item[1] += int(raw_tool is not None)
+            item[2] += int(tool_state == "failed")
+            item[4] = max(item[4], created)
+            item[5] = history_projection_digest(item[5], digest)
+            part_count += 1
+        child_counts = {}
+        for parent, in index.execute(
+                "SELECT parent_session_id FROM index_sessions WHERE generation_id=? "
+                "AND parent_session_id IS NOT NULL", (generation_id,)):
+            child_counts[parent] = child_counts.get(parent, 0) + 1
+        for session_id, item in stats.items():
+            boundary = {row[1]: row for row in [*first_rows.get(session_id, []),
+                                                *last_rows.get(session_id, [])]}
+            flags = 0
+            for row in boundary.values():
+                flags |= row[5]
+                index.execute("INSERT INTO index_rows VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+                              "ON CONFLICT(generation_id,part_rowid) DO UPDATE SET material_kind='both'",
+                              (row[0], row[1], row[2], row[3], "boundary", *row[5:]))
+            eligible = int(bool(flags & 7) or any(value.lower() in (
+                "reviewer-openai", "builder-openai", "builder-bedrock") for value in
+                (row[0] for row in index.execute(
+                    "SELECT value FROM index_session_values WHERE generation_id=? "
+                    "AND session_id=? AND kind='agent'", (generation_id, session_id)))))
+            index.execute("UPDATE index_sessions SET eligible=?,review_marker=?,part_count=?,"
+                          "tool_call_count=?,tool_error_count=?,provider_error_count=?,last_activity=?,"
+                          "source_digest=?,child_count=?,delegation_count=? WHERE generation_id=? AND session_id=?",
+                          (eligible, int(bool(flags & 8)), item[0], item[1], item[2], item[3], item[4],
+                           item[5], child_counts.get(session_id, 0), child_counts.get(session_id, 0),
+                           generation_id, session_id))
+            index.executemany("INSERT OR IGNORE INTO index_session_values VALUES (?,?,?,?)",
+                              ((generation_id, session_id, "model", value)
+                               for value in models[session_id]))
+        if history_privacy_epoch_digest(root) != privacy_digest:
+            fail("history projection privacy changed during refresh")
+        material_count = index.execute(
+            "SELECT count(*) FROM index_rows WHERE generation_id=?", (generation_id,)).fetchone()[0]
+        if history_source_index_path(root).stat().st_size > 1536 * 1024 * 1024:
+            fail("history source index preparation exceeds storage limit")
+        completed_at = int(time.time() * 1000)
+        index.execute("UPDATE index_generations SET state='ready',covered_session_ceiling=?,"
+                      "covered_message_ceiling=?,covered_part_ceiling=?,session_row_count=?,"
+                      "message_row_count=?,part_row_count=?,material_row_count=?,completed_at=? "
+                      "WHERE generation_id=?", (layout["session_ceiling"], layout["message_ceiling"],
+                      layout["part_ceiling"], len(stats), message_count, part_count, material_count,
+                      completed_at, generation_id))
+        index.execute("INSERT INTO active_generation VALUES (1,?) ON CONFLICT(singleton) "
+                      "DO UPDATE SET generation_id=excluded.generation_id", (generation_id,))
+        history_projection_prune(index, root, generation_id)
+        page_size = index.execute("PRAGMA page_size").fetchone()[0]
+        used_pages = (index.execute("PRAGMA page_count").fetchone()[0]
+                      - index.execute("PRAGMA freelist_count").fetchone()[0])
+        if used_pages * page_size > 1024 * 1024 * 1024:
+            fail("history source index exceeds storage limit")
+        index.commit()
+        index.execute("VACUUM")
+        result = {"schema_version": 1, "state": "ready", "captured_at": captured_at,
+                  "duration_ms": int((time.monotonic() - started) * 1000),
+                  "indexed_sessions": len(stats), "material_rows": material_count}
+    except Exception:
+        index.rollback()
+        index.execute("DELETE FROM index_generations WHERE generation_id=?", (generation_id,))
+        index.commit()
+        raise
+    finally:
+        source.close()
+        index.close()
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def command_history_source_index_status(args):
+    root = review_root(args.state_root)
+    try:
+        connection = open_history_source_index(root)
+        validate_history_source_index_schema(connection)
+        row = connection.execute(
+            "SELECT g.captured_at,g.covered_part_ceiling FROM active_generation a "
+            "JOIN index_generations g ON g.generation_id=a.generation_id WHERE a.singleton=1 "
+            "AND g.state='ready'").fetchone()
+        preparing = connection.execute(
+            "SELECT 1 FROM index_generations WHERE state='preparing' LIMIT 1").fetchone()
+        state = "refreshing" if preparing else "ready" if row else "unavailable"
+        captured_at, ceiling = row if row else (None, None)
+        age = max(0, int(time.time()) - captured_at // 1000) if captured_at is not None else None
+    except (sqlite3.Error, RuntimeError):
+        state, captured_at, age, ceiling = "unavailable", None, None, None
+    finally:
+        if "connection" in locals():
+            connection.close()
+    print(json.dumps({"schema_version": 1, "state": state, "captured_at": captured_at,
+                      "age_seconds": age, "covered_part_ceiling": ceiling},
+                     sort_keys=True, separators=(",", ":")))
+
+
+command_history_source_index_maintain = command_history_source_index_refresh
+
+
 def history_projection_scan(args, snapshot):
     source_index = args.source_index
     root = review_root(args.state_root)
@@ -6776,8 +6953,9 @@ def review_scan(args):
                       PARTITION BY session_id ORDER BY part_time,part_rowid) first_rank,
                     row_number() OVER (
                       PARTITION BY session_id ORDER BY part_time DESC,part_rowid DESC) last_rank
-                  FROM history_index.index_rows
-                  WHERE generation_id=? AND part_rowid<=?{selected_index_filter}
+                   FROM history_index.index_rows
+                  WHERE generation_id=? AND part_rowid<=?
+                    AND material_kind IN ('boundary','both'){selected_index_filter}
                 )
                 SELECT session_id,part_rowid,part_time FROM ranked
                 WHERE first_rank<=16 OR last_rank<=16
@@ -13506,7 +13684,14 @@ def parser():
     history_source_index = commands.add_parser("history-source-index-maintain")
     history_source_index.add_argument("--database")
     history_source_index.add_argument("--state-root")
-    history_source_index.set_defaults(func=command_history_source_index_maintain)
+    history_source_index.set_defaults(func=command_history_source_index_refresh)
+    history_source_refresh = commands.add_parser("history-source-index-refresh")
+    history_source_refresh.add_argument("--database")
+    history_source_refresh.add_argument("--state-root")
+    history_source_refresh.set_defaults(func=command_history_source_index_refresh)
+    history_source_status = commands.add_parser("history-source-index-status")
+    history_source_status.add_argument("--state-root")
+    history_source_status.set_defaults(func=command_history_source_index_status)
     capture_save = commands.add_parser("history-capture-save")
     capture_save.add_argument("--database")
     capture_save.add_argument("--state-root")
