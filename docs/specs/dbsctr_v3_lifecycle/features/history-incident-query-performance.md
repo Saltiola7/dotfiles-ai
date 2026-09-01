@@ -26,7 +26,7 @@ availability.
 | Availability Denominator | Separate available and unavailable member counts carried beside one metric. |
 | Materialized Projection | Owner-private, body-free derived session, metric, ordering, and Incident classification state used by aggregate and summary reads. |
 | Projection Generation | One immutable full or append-delta projection bound to source, schema, privacy, and row ceilings. |
-| Projection Chain | An active generation and at most 15 immutable ancestors whose newest session rows and append-only part rows resolve one exact snapshot. |
+| Projection Chain | An active generation and at most 15 immutable ancestors whose newest session rows and append-only message and part rows resolve one exact snapshot. |
 
 ## Required Behavior
 
@@ -348,6 +348,7 @@ CREATE TABLE index_generations (
   indexed_message_rowid INTEGER NOT NULL,
   indexed_part_rowid INTEGER NOT NULL,
   finalized_session_rowid INTEGER NOT NULL,
+  verified_message_rowid INTEGER NOT NULL,
   verified_part_rowid INTEGER NOT NULL,
   covered_session_ceiling INTEGER NOT NULL,
   covered_message_ceiling INTEGER NOT NULL,
@@ -390,6 +391,20 @@ CREATE TABLE index_session_values (
   FOREIGN KEY (generation_id,session_id)
     REFERENCES index_sessions(generation_id,session_id) ON DELETE CASCADE
 ) WITHOUT ROWID;
+CREATE TABLE index_messages (
+  generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
+  message_rowid INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  message_time INTEGER NOT NULL,
+  message_updated INTEGER NOT NULL,
+  source_digest TEXT NOT NULL,
+  eligibility_flags INTEGER NOT NULL,
+  model_value TEXT,
+  provider_error INTEGER NOT NULL CHECK (provider_error IN (0,1)),
+  PRIMARY KEY (generation_id,message_rowid)
+) WITHOUT ROWID;
+CREATE INDEX index_messages_session
+  ON index_messages(generation_id,session_id,message_time,message_rowid);
 CREATE TABLE index_rows (
   generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
   part_rowid INTEGER NOT NULL,
@@ -432,7 +447,8 @@ unknown bits are invalid. A session is eligible when its exact first/last-16 fla
 or safe agent value satisfies the existing detailed-mode seed rule. Project,
 source, tool-key, and disposition digests use lowercase SHA-256 except the existing
 24-hex disposition identity. Parent IDs are null or valid private opaque IDs.
-Agent/model values use `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`; failure classes use
+Agent/model values use `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`; message model values
+use the same syntax and provider errors are `0` or `1`; failure classes use
 the exact summary allowlist. A non-tool row has null tool fields. A failed tool row
 has tool name, key digest, failure class, and disposition digest; a successful tool
 row has tool name and key digest but no failure or disposition value. Session
@@ -441,16 +457,19 @@ counters are complete cumulative non-negative values at that generation; only
 
 A full generation has depth zero and contains every eligible source row through
 its captured ceilings. An append-delta generation references the previously active
-generation, contains only newly read part rows and complete cumulative session
+generation, contains only newly read message and part rows and complete cumulative session
 rows for touched or new sessions, and has depth one greater than its parent. A
 Projection Chain resolves each session from the newest generation that contains
-it and unions append-only part rows across ancestors. At depth 15, maintenance
+it and unions append-only message and part rows across ancestors. Message rows
+resolve by immutable message rowid for verification and category authority; part
+rows resolve by immutable part rowid for metrics, Incident, and recovery. At depth 15, maintenance
 builds a new full generation before another extension. Immutable captures bind one
 generation ID, so later activation never changes continuation metrics or membership.
 
 Maintenance holds the existing exclusive review lock and reads at most 50,000
 source rows total and consumes at most five monotonic seconds. Hidden phases read
-session, message, and part rows in rowid order, then finalize touched session
+session, message, and part rows in rowid order, then verifies projected message
+and part rows by persisted rowid cursors before finalizing touched session
 projections. Maintenance parses source bodies only to derive marker bits, body
 digests, safe model/tool categories, metric counters, failure classes, recovery
 keys, and disposition digests. It commits each valid chunk atomically. A preparing
@@ -468,7 +487,9 @@ private session ID, created/updated times, and SHA-256 body digest. A session so
 digest is SHA-256 over its canonical session identity followed by ordered message
 and part source digests. Eligibility flags inspect the same bounded first-2048 body
 prefix as detailed mode. Session scalar columns supply token/project/model values;
-message rows supply model and provider-error values; part rows supply tool/error
+message projections store only row/session/timestamp identity, body digest, safe
+model value, provider-error bit, and marker flags; message rows supply model and
+provider-error values; part rows supply tool/error
 counters and Incident classification; session parent relationships supply child
 and delegation counts. Rebuild and delta finalization must produce byte-identical
 session projections for the same source snapshot regardless of chunk boundaries.
@@ -492,7 +513,9 @@ Aggregate capture identity binds the private generation ID without emitting it.
 An ancestor may be deleted only when it is outside the active chain and no
 transient capture references it.
 
-Finalization resolves exact first and last 16 boundary flags per touched session,
+Finalization first revalidates every covered projected message and part source
+digest through resumable `verified_message_rowid` and `verified_part_rowid`
+cursors, then resolves exact first and last 16 boundary flags per touched session,
 updates eligibility and cumulative counters, and stores complete session rows.
 Ready aggregate membership, distributions, and source-heavy metric counters come
 from the Projection Chain. Selected-page lifecycle correlation remains page-scoped.

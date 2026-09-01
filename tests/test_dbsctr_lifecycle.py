@@ -259,6 +259,13 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert "generic-history-source-pages" in control_plane
     assert "never enter a page" in control_plane
 
+    projection = text(
+        "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
+    )
+    assert "CREATE TABLE index_messages" in projection
+    assert "verified_message_rowid" in projection
+    assert "body digest" in projection
+
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 
     def validate_probe(value):
