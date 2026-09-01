@@ -1,5 +1,35 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-01 - Exact Linked-Source Initiative Begin
+
+- Exposed optional Initiative source and target checkout fields inside
+  `dbsctr_begin`'s nested Initiative schema while retaining the shared receipt,
+  origin, approval, occupancy, plan, default-branch, and race checks. Schema-5
+  Begin now binds runtime validation to the exact recorded source checkout;
+  unrelated linked worktrees still fail closed and Initiative Begin creates no
+  Herdr call.
+- Red-first regressions covered linked-source Begin and attach, unrelated
+  worktrees, real nested-schema parsing, separate Initiative source/target
+  checkouts, and zero Herdr calls. Affected tests passed, the configured full
+  suite passed with 669 tests, one expected skip, and 21 subtests, and independent
+  review found no in-scope issue.
+- The already-identical managed tool stayed at SHA-256
+  `75c510d2dfadd6fd3b110321688f3e96221ebee05d532634db6a8efc69dcbd10`.
+  The helper delta `c327a899fb0dd3011984ed2f31c2df8aafc5b442bc812c9e866e7a808feac2a6`
+  was applied without overwriting concurrent helper changes; the deployed helper
+  is `c3232a93e270803212a984ad2e2ca8b4e3e991ee51d672370c6d362d94c45bd2`.
+  A fresh process loaded both fields and the live helper passed linked-source
+  Begin/attach smoke. No Herdr process or tab was used. Gate Commit: `cd69c8c`.
+  Gate Exceptions: none. Intended Final Push: replacement draft pull request into
+  protected `main`, superseding but not closing draft PR #121.
+
+## 2026-09-01 - History Snapshot Availability Alignment
+
+- Aligned later typed History/Incident availability with the lifecycle-owned
+  schema-version-3 immutable snapshot and separate freshness status.
+- Model-visible requests still never build, refresh, or scan source payloads;
+  adapter implementation remains in the dependent runtime-recovery slice.
+
 ## 2026-09-01 - Remote User Authentication
 
 - Forced remote OpenCode config, data, state, and cache into the invoking Unix

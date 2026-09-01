@@ -169,7 +169,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-history-adapter"]["depends_on"] == [
         "codex-identity-probe", "generic-history-source-pages",
     ]
-    assert {"INT-013", "INT-020"} <= set(slices["codex-history-adapter"]["requirements"])
+    assert {"INT-013", "INT-020", "INT-033"} <= set(
+        slices["codex-history-adapter"]["requirements"]
+    )
     assert {
         name: (slices[name]["state"], slices[name]["depends_on"])
         for name in (
@@ -283,11 +285,21 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "release": "0.151.0",
     }
     assert adapter_contract["provider_ids"] == ["openai"]
+    assert adapter_contract["history_modes"] == ["legacy", "paginated"]
     assert adapter_contract["failure"] == {
         "exit_status": 2,
         "stdout": "",
         "stderr": "codex-control-plane: history_adapter_unavailable\n",
     }
+    adapter_plan = json.loads(text(
+        "docs/specs/codex_control_plane/CODEX-HISTORY-ADAPTER.plan.json"
+    ))
+    assert adapter_plan["profile"] == "docs/specs/codex_control_plane/PROFILE.md"
+    assert adapter_plan["gates"]["release"]["applicability"] == "not_applicable"
+    assert all(adapter_plan["gates"][gate]["applicability"] == "required" for gate in (
+        "domain", "behavior", "spec", "contract", "test_driven_implementation",
+        "refactor", "review_integrate", "deploy", "operate", "maintain_retire",
+    ))
     assert adapter_contract["unavailable_reasons"] == {
         "tokens": "stable_thread_response_omits_tokens",
         "cost": "stable_thread_response_omits_cost",
@@ -310,15 +322,30 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "`turn_count` is the number of native turns",
         "Tool counts equal emitted signals",
         "Frozen item discriminator",
+        "never invokes `thread/turns/list`, `thread/items/list`",
+        'describes `includeTurns` as "full-history hydration"',
+        "For either accepted history mode",
     ):
         assert phrase in normalized_adapter
 
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
     )
-    assert "CREATE TABLE index_messages" in projection
-    assert "verified_message_rowid" in projection
-    assert "body digest" in projection
+    assert "history-source-index-refresh" in projection
+    assert "single SQLite read transaction" in projection
+    assert "material_kind" in projection
+    assert "CREATE TABLE index_messages" not in projection
+    schedule = text(
+        "docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"
+    )
+    assert "04:30" in schedule
+    assert "single-flight" in schedule
+    assert "prior ready snapshot" in schedule
+    speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
+    refresh = next(item for item in speed["slices"]
+                   if item["id"] == "history-projection-refresh-schedule")
+    assert refresh["state"] == "captured"
+    assert refresh["depends_on"] == ["history-incident-query-core"]
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 

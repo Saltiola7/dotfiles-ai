@@ -38,8 +38,9 @@ The user approved this complete context map on 2026-08-29.
 | `safe-cycle-concurrency` | `build` | Proven-independent real-cycle work overlaps after benchmark qualification | `federated-cycle-trends` |
 | `performance-audit-workflow` | `build` | Reproducible report-only audit and ranked optimization portfolio | `lifecycle-runtime-summary` |
 | `runtime-query-recovery` | `build` | OpenCode attempts project- and revision-compatible DKS once within five seconds, then returns typed availability and continues | None |
-| `history-incident-query-core` | `build` | Page-first aggregate History and bounded Incident summaries | None |
-| `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `runtime-query-recovery` |
+| `history-incident-query-core` | `build` | Page-first aggregate History and bounded Incident summaries from an immutable snapshot refresh | None |
+| `history-projection-refresh-schedule` | `build` | Daily low-priority hands-off snapshot refresh with safe failure and rollback | `history-incident-query-core` |
+| `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `history-projection-refresh-schedule`, `runtime-query-recovery` |
 | `knowledge-privacy-lock-isolation` | `build` | DKS privacy guarding no longer contends with unrelated review-ledger work | None |
 | `dks-routing-value-gate` | `build` | Automatic DKS routing remains enabled only when paired evidence beats direct source inspection | `runtime-query-recovery`, `dks-fast-fallback`, `knowledge-privacy-lock-isolation` |
 | `performance-audit-v2` | `build` | Deterministic audit reduction, aggregate evidence, and verified source-absence handling | `performance-audit-workflow`, `history-incident-runtime-recovery` |
@@ -164,28 +165,23 @@ envelope.
 ## History Materialized Projection
 
 History aggregate and Incident summary reads use one owner-private body-free
-materialized projection instead of reconstructing membership and metrics from the
-full OpenCode source. The lifecycle context owns this rebuildable cache. Bounded
-maintenance derives session eligibility, exact ordering, source-heavy counters,
-safe model/tool categories, and failure/recovery classifications while storing no
-prompt, response, command, raw error, credential, or tool payload content.
+materialized snapshot instead of reconstructing membership and metrics from the
+full OpenCode source. One asynchronous refresh reads a single SQLite transaction,
+streams complete session aggregates, and retains only first/last boundary and tool
+rows. It stores no prompt, response, command, raw error, credential, or tool
+payload content.
 
 Only an atomically ready generation may serve aggregate or summary queries. A
-missing, preparing, source-incompatible, privacy-stale, or corrupt generation is
-explicitly unavailable and returns no partial population. Incremental maintenance
-builds immutable append-delta generations over one active chain and compacts
-before depth sixteen. Captures bind one generation, so source append never changes
-an existing continuation. Source replacement, rowid regression, schema
-incompatibility, or a privacy tombstone invalidates affected state and requires
-bounded rebuild. Ready queries read no source body columns; detailed History and
-Incident modes remain independent of this projection.
+daily 04:30 low-priority single-flight job builds a replacement while queries keep
+serving the prior completed snapshot with explicit freshness. Failure discards
+only preparation. Captures bind one generation, privacy invalidates immediately,
+and ready queries read no source body columns. Detailed modes remain independent.
 
-The first projection-v2 delivery merged without body-free message rows or a
-resumable message verification cursor. Post-delivery authority review therefore
-reopened `history-incident-query-core`: preparation must retain message-derived
-model and provider-error authority without message bodies and must verify covered
-message and part digests before activation. The delivered output schemas and
-latency boundary remain unchanged.
+Live schema-v2 remediation proved that repeated five-second builders cannot form
+one immutable view of a mutable 72 GiB source and that retaining every neutral row
+approaches the 1 GiB cap. Schema version 3 therefore replaces micro-maintenance
+with one transaction-bound full refresh and compact material-row storage. The
+delivered output schemas and latency boundary remain unchanged.
 
 DKS privacy guarding uses a dedicated lifecycle privacy lock. Unrelated review,
 History, Incident, and capture work cannot block a query, while forget and expiry

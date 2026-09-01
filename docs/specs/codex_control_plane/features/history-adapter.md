@@ -55,8 +55,17 @@ For the requested offset/limit, the adapter issues one `thread/read` per member
 with `includeTurns: true`. Top-level responses must match the pinned generated
 schemas. Additive optional `Thread` fields are ignored. Required fields, selected
 field types, or known enum discriminators that differ from the pinned contract
-fail closed. `historyMode` must be `legacy`; paginated history is unavailable and
-does not enable experimental turn/item pagination.
+fail closed. `historyMode` must be `legacy` or `paginated` and must match between
+list and read. Both modes use only stable `thread/read(includeTurns=true)`; every
+returned turn must have `itemsView: full`. The adapter never invokes
+`thread/turns/list`, `thread/items/list`, or any experimental pagination method.
+The frozen `ThreadReadParams` schema explicitly describes `includeTurns` as
+"full-history hydration" for paginated threads, and the pinned
+`ThreadReadResponse` has no continuation field. Those generated-schema hashes are
+the exhaustive-read authority for release `0.151.0`; a changed description or
+response shape changes a hash and fails before app-server startup. Absent,
+summary-only, or non-full turn items are unavailable rather than silently
+truncated.
 
 Each line is bounded to 1 MiB, total stdout to 20 MiB, input to 1 MiB, members to
 100, entries to 20, and the whole operation to five seconds. EOF, duplicate IDs,
@@ -89,7 +98,8 @@ is unavailable. `parent_id` is `parentThreadId` when present, otherwise
 `forkedFromId`; both present with unequal values is a conflict. All emitted IDs
 must satisfy the generic opaque-ID contract.
 
-Only `legacy` turns with `itemsView: full` are accepted. `userMessage` contributes
+For either accepted history mode, only turns with `itemsView: full` are accepted.
+`userMessage` contributes
 only `content` elements whose type is `text` and whose `text_elements` is empty;
 each text becomes one generic user content item in source order.
 Any image, audio, local image, skill, mention, or unknown user input rejects the
@@ -141,6 +151,9 @@ only its body-free valid status is consumed before probe metadata is emitted.
   and no native-storage or lifecycle-state mutation.
 - Host and every managed guest run positive and privacy-negative body-free probes
   before Operate passes.
+- The current host's body-free runtime probe confirms paginated history returns
+  full item views through stable `thread/read`; no private identity or content is
+  retained as evidence.
 
 ## Visual Evidence
 
