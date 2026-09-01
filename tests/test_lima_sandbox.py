@@ -350,12 +350,40 @@ def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout
     assert ["limactl", "copy", str(archive),
             f"workspace1-sandbox:/tmp/dotfiles-ai-{revision}.tar.gz"] in argv
     deployment = next(call for call in argv if "deploy-codex" in call)
-    assert deployment[-2:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision]
-    assert '"$HOME/.local/bin/codex-archive"' in deployment[-4]
-    assert "apply --force" in deployment[-4]
-    assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-4]
-    assert '"$HOME/.config/dotfiles-ai/codex-managed"' in deployment[-4]
+    assert deployment[-3:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision, "0"]
+    assert '"$HOME/.local/bin/codex-archive"' in deployment[-5]
+    assert "apply --force" in deployment[-5]
+    assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-5]
+    assert '"$HOME/.config/dotfiles-ai/codex-managed"' in deployment[-5]
     assert not any("pull" in call for call in argv)
+    assert not archive.exists()
+
+
+def test_update_can_deploy_only_exact_lifecycle_helper(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    archive = tmp_path / "source.tar.gz"
+    archive.write_bytes(b"archive")
+    revision = "b" * 40
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_SOURCE", str(tmp_path / "source"))
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_HELPER_ONLY", "1")
+    monkeypatch.setattr(helper, "deployment_archive", lambda _source: (archive, revision))
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "true" if "podman" in argv else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    argv = [call[0] for call in calls]
+    deployment = next(call for call in argv if "deploy-codex" in call)
+    assert deployment[-1] == "1"
+    assert "apply --force" in deployment[-5]
+    assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-5]
+    assert not any(call is not deployment and "codex-install" in call[-1] for call in argv)
     assert not archive.exists()
 
 
