@@ -169,7 +169,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-history-adapter"]["depends_on"] == [
         "codex-identity-probe", "generic-history-source-pages",
     ]
-    assert {"INT-013", "INT-020"} <= set(slices["codex-history-adapter"]["requirements"])
+    assert {"INT-013", "INT-020", "INT-033"} <= set(
+        slices["codex-history-adapter"]["requirements"]
+    )
     assert {
         name: (slices[name]["state"], slices[name]["depends_on"])
         for name in (
@@ -283,6 +285,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "release": "0.151.0",
     }
     assert adapter_contract["provider_ids"] == ["openai"]
+    assert adapter_contract["history_modes"] == ["legacy", "paginated"]
     assert adapter_contract["failure"] == {
         "exit_status": 2,
         "stdout": "",
@@ -319,6 +322,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "`turn_count` is the number of native turns",
         "Tool counts equal emitted signals",
         "Frozen item discriminator",
+        "never invokes `thread/turns/list`, `thread/items/list`",
+        'describes `includeTurns` as "full-history hydration"',
+        "For either accepted history mode",
     ):
         assert phrase in normalized_adapter
 
