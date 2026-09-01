@@ -14,6 +14,17 @@
   Release: not applicable. Deployment: managed lifecycle helper. Intended Final
   Push: feature branch and draft pull request into protected `main`.
 
+## 2026-09-01 - Exact Linked Source Runtime
+
+- Bound new schema-5 source records to the initiating checkout's stable worktree
+  identity while retaining canonical `primary_worktree` locators and legacy
+  no-identity readability. Begin and attach accept only the cycle or that exact
+  source checkout; unrelated linked worktrees fail closed.
+- Full repository validation passed with 669 tests, one expected skip, and 21
+  subtests. The exact helper delta was deployed over concurrent managed helper
+  changes and passed a live linked-source Begin/attach smoke. No process restart
+  or Herdr operation was required. Gate Commit: `cd69c8c`. Gate Exceptions: none.
+
 ## 2026-09-01 - History Snapshot Refresh Readiness
 
 - Reopened `history-incident-query-core` after live R4 evidence showed that a

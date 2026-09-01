@@ -1572,6 +1572,60 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(json.loads(run(isolated, "status", "--json").stdout)["cycle_id"], "isolated-1")
         self.assertEqual(run(self.repo, "status", "--json").stdout.strip(), "null")
 
+    def test_begin_and_attach_runtime_from_exact_linked_source(self):
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        linked = Path(self.temp.name) / "linked-source"
+        unrelated = Path(self.temp.name) / "unrelated"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "worktree", "add", "-b", "linked-source", str(linked), "HEAD"],
+                       cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "branch", "--set-upstream-to=origin/master", "linked-source"],
+                       cwd=linked, check=True, capture_output=True)
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        handoff = json.loads(run(
+            linked, "begin", "--cycle-id", "linked-1", "--context", "test",
+            "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--opencode-session-id", "session-linked", "--opencode-worktree", str(linked),
+            "--opencode-directory", str(linked / "docs"), env=env,
+        ).stdout)
+        cycle = Path(handoff["worktree"])
+        record_path = self.repo / ".git/dbsctr/cycles/linked-1.json"
+        record = json.loads(record_path.read_text())
+        self.assertEqual(record["source"]["locator"], {"root": "primary_worktree", "path": "."})
+        self.assertRegex(record["source"]["id"], r"^[0-9a-f]{16}$")
+        self.assertEqual(record["runtime"]["opencode"]["path_root"], "primary_worktree")
+
+        home = Path(self.temp.name) / "attach-home"
+        database = home / ".local/share/opencode/opencode.db"
+        database.parent.mkdir(parents=True)
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, agent text);
+            create table message (id text primary key, session_id text, data text);
+            insert into session values ('session-resumed', null, 'build-gpt');
+            insert into message values ('message-resumed', 'session-resumed',
+                '{"model":{"providerID":"openai","modelID":"gpt-5.6-sol"}}');
+        """)
+        connection.commit()
+        connection.close()
+        attach_env = {**env, "HOME": str(home)}
+        common = ("--opencode-session-id", "session-resumed",
+                  "--opencode-message-id", "message-resumed")
+        run(cycle, "attach-runtime", *common, "--opencode-directory", str(linked),
+            "--opencode-worktree", str(linked), env=attach_env)
+        self.assertEqual(json.loads(record_path.read_text())["runtime"]["opencode"]["session_ids"],
+                         ["session-linked", "session-resumed"])
+
+        subprocess.run(["git", "worktree", "add", "-b", "unrelated", str(unrelated), "HEAD"],
+                       cwd=self.repo, check=True, capture_output=True)
+        rejected = run(cycle, "attach-runtime", *common, "--opencode-directory", str(unrelated),
+                       "--opencode-worktree", str(unrelated), env=attach_env, ok=False)
+        self.assertIn("invalid OpenCode runtime paths", rejected.stderr)
+
     def test_begin_normalizes_protected_merge_and_repository_identity(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_begin_delivery", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -1676,7 +1730,15 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertNotIn(str(registry), json.dumps(record))
         self.assertNotIn("git_dir", record["worktree"])
         self.assertEqual(record["source"]["locator"], {"root": "primary_worktree", "path": "."})
+        self.assertRegex(record["source"]["id"], r"^[0-9a-f]{16}$")
         self.assertNotIn("path", record["source"])
+
+        legacy = json.loads(json.dumps(record))
+        legacy["source"].pop("id")
+        record_path.write_text(json.dumps(legacy))
+        self.assertEqual(json.loads(run(Path(handoff["worktree"]), "status", "--json", env=env).stdout)[
+            "cycle_id"], "portable-1")
+        record_path.write_text(json.dumps(record))
 
         relocated = Path(self.temp.name) / "relocated"
         relocated.parent.mkdir(parents=True, exist_ok=True)
@@ -2007,11 +2069,10 @@ class DbsctrctlTest(unittest.TestCase):
         other = Path(self.temp.name) / "other"
         other.mkdir()
         subprocess.run(["git", "init"], cwd=other, check=True, capture_output=True)
-        run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
-            "--opencode-directory", str(other), "--opencode-worktree", str(other), env=env)
-        cross_record = json.loads(self.record_path().read_text())
-        self.assertEqual(cross_record["runtime"]["opencode"]["session_ids"], ["session-resumed"])
-        self.assertNotEqual(cross_record["runtime"]["opencode"].get("worktree"), str(other))
+        unrelated = run(self.repo, "attach-runtime", "--opencode-session-id", "session-resumed", *common,
+                        "--opencode-directory", str(other), "--opencode-worktree", str(other),
+                        env=env, ok=False)
+        self.assertIn("invalid OpenCode runtime paths", unrelated.stderr)
 
         record["state"] = "completed"
         self.record_path().write_text(json.dumps(record))

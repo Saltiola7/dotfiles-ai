@@ -208,6 +208,27 @@ def worktree_id(root):
     return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
+def worktree_for_id(root, identifier):
+    if not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-f]{16}", identifier):
+        fail("Cycle Record contains an invalid source worktree identity")
+    repository = repository_identity(root)
+    candidates = []
+    current = None
+    for line in git(root, "worktree", "list", "--porcelain").stdout.splitlines() + [""]:
+        if line.startswith("worktree "):
+            current = {"path": line.removeprefix("worktree "), "branch": "detached"}
+        elif current is not None and line.startswith("branch refs/heads/"):
+            current["branch"] = line.removeprefix("branch refs/heads/")
+        elif not line and current is not None:
+            identity = f"{repository}\0{current['branch']}"
+            if hashlib.sha256(identity.encode()).hexdigest()[:16] == identifier:
+                candidates.append(Path(current["path"]).resolve())
+            current = None
+    if len(candidates) != 1:
+        fail("source worktree identity changed")
+    return candidates[0]
+
+
 def dbsctr_state_root(value=None):
     if value:
         return Path(value).expanduser()
@@ -2804,7 +2825,7 @@ def validate_schema5_ids(value, name, required):
     return value
 
 
-def validate_schema5_adapter(root, harness_id, adapter):
+def validate_schema5_adapter(root, record, harness_id, adapter):
     required = {"schema_version", "harness_id", "adapter_revision", "session_ids",
                 "worktree", "availability"}
     optional = {"turn_ids", "family_id", "activation"}
@@ -2821,9 +2842,10 @@ def validate_schema5_adapter(root, harness_id, adapter):
                                     or not OPAQUE_ID.fullmatch(adapter["family_id"])):
         schema5_fail(f"{harness_id} family ID")
     try:
+        source = record_source_worktree(root, record)
         locator_path(adapter["worktree"], {
             "cycle_worktree": root,
-            "primary_worktree": primary_worktree(root),
+            "primary_worktree": source if source is not None else primary_worktree(root),
         }, "schema 5 adapter worktree")
     except RuntimeError:
         schema5_fail(f"{harness_id} worktree")
@@ -2850,7 +2872,7 @@ def validate_schema5_runtime(root, record, allow_synthetic_codex=False):
     if "codex" in adapters and not allow_synthetic_codex:
         schema5_fail("Codex adapter is unavailable")
     for harness_id, adapter in adapters.items():
-        validate_schema5_adapter(root, harness_id, adapter)
+        validate_schema5_adapter(root, record, harness_id, adapter)
     legacy = runtime.get("opencode")
     generic = adapters.get("opencode")
     if (legacy is None) != (generic is None):
@@ -2968,8 +2990,10 @@ def record_source_worktree(root, record):
     if "locator" not in source:
         value = source.get("path")
         return Path(value).expanduser().resolve() if isinstance(value, str) and value else None
-    return locator_path(source.get("locator"), {"primary_worktree": primary_worktree(root)},
-                        "source worktree")
+    locator = source.get("locator")
+    source_root = (worktree_for_id(root, source["id"]) if "id" in source
+                   else primary_worktree(root))
+    return locator_path(locator, {"primary_worktree": source_root}, "source worktree")
 
 
 def record_worktree_matches(root, record, worktree):
@@ -3738,7 +3762,7 @@ def completion_artifact_check(record):
 
 
 def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True, git_env=None):
+                portable=True, git_env=None, source_record=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -3839,8 +3863,9 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         "state": "active", "commits": [], "gates": gates, "evidence": {"version": 1, "items": {}},
         "metrics": {"gate_failure_count": 0, "gate_reopen_count": 0, "remediation_round_count": 0},
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
-                              for name in ARTIFACTS},
+                             for name in ARTIFACTS},
         "runtime": {"adapters": {}},
+        **({"source": source_record} if source_record is not None else {}),
     }
     message_id = getattr(args, "opencode_message_id", None)
     session_id = (session_for_message(None, message_id) if message_id is not None
@@ -3860,7 +3885,7 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             runtime_root = root.resolve()
             root_name = "cycle_worktree"
             if runtime_worktree != runtime_root:
-                runtime_root = primary_worktree(root)
+                runtime_root = record_source_worktree(root, record)
                 root_name = "primary_worktree"
                 if runtime_worktree != runtime_root:
                     fail("invalid OpenCode runtime paths")
@@ -4051,14 +4076,16 @@ def command_begin(args):
                 fail(result.stderr.strip() or "cannot configure linked DVC cache type")
         locator = relative_locator(worktree, registry, "dbsctr_worktrees")
         portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
+        source_record.pop("path")
+        source_record.update({
+            "id": worktree_id(source),
+            "locator": {"root": "primary_worktree", "path": "."},
+        })
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                             worktree_locator=locator, portable=portable, git_env=delivery_env)
+                             worktree_locator=locator, portable=portable, git_env=delivery_env,
+                             source_record=source_record)
         if initiative is not None:
             record["initiative"] = initiative
-        if record["schema_version"] in (4, 5):
-            source_record.pop("path")
-            source_record["locator"] = {"root": "primary_worktree", "path": "."}
-        record["source"] = source_record
         save(cycle_dir(worktree) / "cycles" / f"{args.cycle_id}.json", record)
     except Exception:
         git(source, "worktree", "remove", str(worktree), check=False)
@@ -5315,6 +5342,8 @@ def command_attach_runtime(args):
                 opencode["directory"] = runtime_directory.relative_to(source_worktree).as_posix() or "."
         elif record.get("schema_version") not in (4, 5) and runtime_worktree in {root, source_worktree}:
             opencode["worktree"] = str(runtime_worktree)
+        else:
+            fail("invalid OpenCode runtime paths")
         sync_schema5_opencode(record)
         if record.get("schema_version") == 5:
             validate_schema5_runtime(root, record)
