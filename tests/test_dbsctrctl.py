@@ -4170,7 +4170,7 @@ class DbsctrctlTest(unittest.TestCase):
         """)
         source.executemany(
             "insert into part values (?, 'message-refresh', 'session-refresh', ?, ?)",
-            [(f"part-{index}", 1784073600000 + index, json.dumps(
+            [(f"part-{index}", 1784073500000 if index == 21 else 1784073600000 + index, json.dumps(
                 {"type": "tool", "tool": "read", "state": {"status": "failed"}}
                 if index == 20 else {"type": "text", "text": "DBSCTR" if index == 0 else f"neutral-{index}"}
             )) for index in range(40)],
@@ -4178,6 +4178,15 @@ class DbsctrctlTest(unittest.TestCase):
         source.commit()
         source.close()
         state = Path(self.temp.name) / "history-refresh-state"
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True, mode=0o700)
+        stale = sqlite3.connect(reviews / "history-source-index.sqlite3")
+        stale.executescript("create table index_meta (key text primary key,value text);"
+                            "insert into index_meta values ('schema_version','3');"
+                            "create table stale_schema (value text);")
+        stale.commit()
+        stale.close()
+        os.chmod(reviews / "history-source-index.sqlite3", 0o600)
 
         refreshed = json.loads(run(
             self.repo, "history-source-index-refresh", "--database", str(database),
@@ -4211,8 +4220,8 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(indexed.execute(
             "select material_kind,tool_name,failure_class from index_rows where part_rowid=21"
         ).fetchone(), ("tool", "read", "tool_failed"))
-        self.assertIsNone(indexed.execute(
-            "select 1 from index_rows where part_rowid=22").fetchone())
+        self.assertEqual(indexed.execute(
+            "select material_kind from index_rows where part_rowid=22").fetchone(), ("boundary",))
         indexed.close()
         self.assertNotIn(b"neutral-20", sidecar.read_bytes())
 
@@ -4226,6 +4235,9 @@ class DbsctrctlTest(unittest.TestCase):
                           status["covered_part_ceiling"]),
                          (1, "ready", refreshed["captured_at"], 40))
         self.assertGreaterEqual(status["age_seconds"], 0)
+        retired = run(self.repo, "history-source-index-maintain", "--database", str(database),
+                      "--state-root", str(state), ok=False)
+        self.assertIn("invalid choice", retired.stderr)
         aggregate = json.loads(run(
             self.repo, "review-history", "--database", str(database), "--state-root", str(state),
             "--limit", "1", "--aggregate-only",
@@ -4603,7 +4615,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual((corrupt.returncode, corrupt.stderr), (75, "source_index_unavailable\n"))
         sidecar.unlink()
         sidecar.symlink_to(database)
-        unsafe_link = run(self.repo, "history-source-index-maintain", "--database", str(database),
+        unsafe_link = run(self.repo, "history-source-index-refresh", "--database", str(database),
                           "--state-root", str(state), ok=False)
         self.assertIn("history source index is unsafe", unsafe_link.stderr)
 
@@ -4624,7 +4636,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-zero-state"
         for _ in range(20):
             maintained = json.loads(run(
-                self.repo, "history-source-index-maintain", "--database", str(database),
+                self.repo, "history-source-index-refresh", "--database", str(database),
                 "--state-root", str(state)).stdout)
             if maintained["state"] == "ready":
                 break
