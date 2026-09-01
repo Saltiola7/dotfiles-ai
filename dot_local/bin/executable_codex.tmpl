@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-{{ if .dotfiles_ai.state.root -}}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+{{ else if .dotfiles_ai.state.root -}}
 export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 [[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" && ! -L "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]] || {
     echo "Codex start blocked: centralized state root is unavailable" >&2
@@ -12,7 +14,7 @@ export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
 export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ end -}}
 
-{{ if .dotfiles_ai.state.root -}}
+{{ if and .dotfiles_ai.state.root (not .dotfiles_ai.remote_user_environment.enabled) -}}
 "$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" "$DOTFILES_AI_STATE_ROOT" || exit 75
 {{ else -}}
 "$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" || exit 75

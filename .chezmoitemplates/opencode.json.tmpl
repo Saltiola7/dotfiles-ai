@@ -42,7 +42,7 @@
     "google-vertex-anthropic": {
       "options": {
         "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
-        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if .dotfiles_ai.opencode.vertex_credentials }},
+        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if and .dotfiles_ai.opencode.vertex_credentials (not .dotfiles_ai.remote_user_environment.enabled) }},
         "googleAuthOptions": {
           "keyFilename": {{ .dotfiles_ai.opencode.vertex_credentials | toJson }}
         }{{ end }}
