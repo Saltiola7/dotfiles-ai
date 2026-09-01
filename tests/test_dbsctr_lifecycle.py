@@ -288,6 +288,15 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "stdout": "",
         "stderr": "codex-control-plane: history_adapter_unavailable\n",
     }
+    adapter_plan = json.loads(text(
+        "docs/specs/codex_control_plane/CODEX-HISTORY-ADAPTER.plan.json"
+    ))
+    assert adapter_plan["profile"] == "docs/specs/codex_control_plane/PROFILE.md"
+    assert adapter_plan["gates"]["release"]["applicability"] == "not_applicable"
+    assert all(adapter_plan["gates"][gate]["applicability"] == "required" for gate in (
+        "domain", "behavior", "spec", "contract", "test_driven_implementation",
+        "refactor", "review_integrate", "deploy", "operate", "maintain_retire",
+    ))
     assert adapter_contract["unavailable_reasons"] == {
         "tokens": "stable_thread_response_omits_tokens",
         "cost": "stable_thread_response_omits_cost",
@@ -316,9 +325,21 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
     )
-    assert "CREATE TABLE index_messages" in projection
-    assert "verified_message_rowid" in projection
-    assert "body digest" in projection
+    assert "history-source-index-refresh" in projection
+    assert "single SQLite read transaction" in projection
+    assert "material_kind" in projection
+    assert "CREATE TABLE index_messages" not in projection
+    schedule = text(
+        "docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"
+    )
+    assert "04:30" in schedule
+    assert "single-flight" in schedule
+    assert "prior ready snapshot" in schedule
+    speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
+    refresh = next(item for item in speed["slices"]
+                   if item["id"] == "history-projection-refresh-schedule")
+    assert refresh["state"] == "captured"
+    assert refresh["depends_on"] == ["history-incident-query-core"]
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 

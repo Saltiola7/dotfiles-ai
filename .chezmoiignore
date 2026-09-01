@@ -41,6 +41,7 @@ install-guest-development-tools.sh
 install-codex.sh
 .local/bin/opencode-install
 .local/bin/remote-user-foundation
+.local/bin/remote-agent-readiness
 install-00-remote-herdr.sh
 install-01-remote-opencode.sh
 {{ end }}
@@ -132,6 +133,7 @@ load-dbsctr-rnd-launchagents.sh
 .local/bin/opencode
 .local/bin/opencode-install
 .local/bin/remote-user-foundation
+.local/bin/remote-agent-readiness
 install-00-remote-herdr.sh
 install-01-remote-opencode.sh
 {{ end }}

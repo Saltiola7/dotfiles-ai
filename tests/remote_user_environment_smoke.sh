@@ -35,3 +35,10 @@ test -z "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/ch
 "$HOME/.local/bin/opencode" --version
 "$HOME/.local/bin/herdr" --version
 "$HOME/.local/bin/remote-user-foundation" status
+
+set +e
+readiness=$("$HOME/.local/bin/remote-agent-readiness")
+readiness_status=$?
+set -e
+test "$readiness_status" -eq 1
+test "$readiness" = '{"codex":"failure","onepassword":"failure","openai":"failure","state":"auth_pending","vertex":"failure"}'

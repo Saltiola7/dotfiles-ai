@@ -1,5 +1,31 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-01 - Portable Rollout Runtime Readiness
+
+- Split public user bootstrap, content-free authentication-state refresh, and
+  strict client preflight from the private two-user deployment slice.
+- Required one immutable public revision, owned non-symlinked paths, structural
+  failure as `failed_retryable`, incomplete login as `auth_pending`, complete
+  probes as `ready`, and no automatic interactive authentication.
+- Required a usable configured root `mise.toml`, cwd-independent task forwarding,
+  disposable CentOS proof, and no shared-VM access. No runtime changed.
+
+## 2026-09-01 - History Projection Refresh Schedule Readiness
+
+- Specified an explicitly enabled daily 04:30 local, low-priority, single-flight
+  LaunchAgent for lifecycle-owned History snapshot refresh.
+- Refresh failure, overlap, timeout, sleep, restart, disablement, and rollback
+  preserve the prior projection and expose only bounded content-free status.
+- This Discovery change installs or loads no job; implementation and managed-host
+  activation remain separately approval-gated after lifecycle refresh delivery.
+
+## 2026-09-01 - Remote Agent Authentication
+
+- Added a remote-only content-free agent readiness target and forced OpenCode,
+  Codex, and Vertex runtime state into each invoking Unix user's home.
+- Preserved credential-free render, installation, update, rollback, and shell
+  startup; authentication remains an explicit per-user operation.
+
 ## 2026-08-31 - CentOS Remote User Foundation
 
 - Added a default-off CentOS Stream 10 x86_64 user foundation with independently

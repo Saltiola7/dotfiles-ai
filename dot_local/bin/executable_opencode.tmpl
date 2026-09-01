@@ -1,5 +1,10 @@
 #!/bin/bash
-{{ if .dotfiles_ai.state.root -}}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CACHE_HOME="$HOME/.cache"
+{{ else if .dotfiles_ai.state.root -}}
 export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 export XDG_DATA_HOME={{ printf "%s/xdg/data" .dotfiles_ai.state.root | quote }}
 export XDG_STATE_HOME={{ printf "%s/xdg/state" .dotfiles_ai.state.root | quote }}

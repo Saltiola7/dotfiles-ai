@@ -60,6 +60,19 @@ shell/TOML/JSON, verify x86_64 release digests, scan public output for private
 identity, compare cross-source target ownership, and prove install, idempotency,
 update, failure, and rollback in a disposable CentOS x86_64 environment.
 
+### RWUE-005A Initiative Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds executable user bootstrap and authentication-state transitions used by a live two-user rollout |
+| Delivery intent | Feature branch and draft pull request; disposable CentOS proof before private rollout |
+| Scope | User-owned immutable-revision bootstrap, structural integrity checks, content-free auth-state refresh, strict portable client doctor, and cwd-independent mise forwarding |
+| Overrides | No shared VM, cloud mutation, provider login, personal overlay, private identity, or credential handling belongs to this slice |
+
+The normative behavior, interfaces, state transitions, trust boundary, Gate
+Ledger, and validation are in
+[`features/remote-user-rollout-runtime.md`](features/remote-user-rollout-runtime.md).
+
 ### DAI-005 Cycle Overrides
 
 | Field | Value |

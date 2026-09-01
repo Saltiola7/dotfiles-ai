@@ -11,6 +11,19 @@
   changes and passed a live linked-source Begin/attach smoke. No process restart
   or Herdr operation was required. Gate Commit: `cd69c8c`. Gate Exceptions: none.
 
+## 2026-09-01 - History Snapshot Refresh Readiness
+
+- Reopened `history-incident-query-core` after live R4 evidence showed that a
+  mutable source restarted phased verification, maintenance p95 exceeded five
+  seconds, and a correct all-row sidecar approached the 1 GiB cap.
+- Replaced repeated micro-maintenance with one asynchronous full refresh over a
+  single SQLite read transaction. Schema version 3 streams complete session
+  aggregates and retains only boundary and tool rows while the prior immutable
+  snapshot remains available until atomic activation.
+- Split daily 04:30 launchd scheduling into the distribution-owned
+  `history-projection-refresh-schedule` slice. Implementation, deployment, live
+  refresh, size, freshness, and rollback remain separately approval-gated.
+
 ## 2026-09-01 - Generic History Source Pages
 
 - Added one stateless `history-source-validate` stdin envelope with closed schema,
