@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-01 - History Snapshot Refresh Delivery
+
+- Replaced phased micro-maintenance with one single-flight schema-version-3
+  refresh over an immutable SQLite read transaction. The prior snapshot remains
+  available until bounded activation validation and atomic replacement.
+- Streamed neutral interior rows into complete session aggregates while retaining
+  only first/last boundary and tool rows. The representative refresh completed in
+  7m00s, indexed 5,530 sessions and 796,085 material rows, and produced a 292.1
+  MiB sidecar.
+- Five warm runs measured aggregate p95 at 8.85s and Incident summary p95 at
+  3.24s. Full helper and affected union tests passed. Gate Exceptions: none.
+  Release: not applicable. Deployment: managed lifecycle helper. Intended Final
+  Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-09-01 - History Snapshot Refresh Readiness
 
 - Reopened `history-incident-query-core` after live R4 evidence showed that a
