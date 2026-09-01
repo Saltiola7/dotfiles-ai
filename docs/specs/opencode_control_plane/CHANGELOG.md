@@ -1,5 +1,20 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - Cross-Repository Initiative Begin
+
+- Exposed optional Initiative source and target checkout fields inside
+  `dbsctr_begin`'s nested Initiative schema while retaining the shared receipt,
+  origin, approval, plan, branch, occupancy, and post-approval race checks.
+- A red-first cross-checkout Begin regression now parses the real nested schema,
+  resolves source and target separately, and proves no Herdr call. All 47 affected
+  tests, Python compilation, Bun bundling, and Git whitespace validation pass.
+- The targeted managed adapter deployment is source-identical at SHA-256
+  `75c510d2dfadd6fd3b110321688f3e96221ebee05d532634db6a8efc69dcbd10`.
+  A fresh process loaded both fields and executed `dbsctr_status` for OCP-51-R1.
+  Gate Commit: `ae1ba17`. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft pull request into protected `main`. Existing OpenCode processes
+  require restart to load the expanded schema.
+
 ## 2026-08-31 - Cross-Repository Same-Session Begin Readiness
 
 - Required explicit Initiative Begin to accept separate coordinator and
