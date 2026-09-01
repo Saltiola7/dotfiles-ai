@@ -316,9 +316,21 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
     )
-    assert "CREATE TABLE index_messages" in projection
-    assert "verified_message_rowid" in projection
-    assert "body digest" in projection
+    assert "history-source-index-refresh" in projection
+    assert "single SQLite read transaction" in projection
+    assert "material_kind" in projection
+    assert "CREATE TABLE index_messages" not in projection
+    schedule = text(
+        "docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"
+    )
+    assert "04:30" in schedule
+    assert "single-flight" in schedule
+    assert "prior ready snapshot" in schedule
+    speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
+    refresh = next(item for item in speed["slices"]
+                   if item["id"] == "history-projection-refresh-schedule")
+    assert refresh["state"] == "captured"
+    assert refresh["depends_on"] == ["history-incident-query-core"]
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 
