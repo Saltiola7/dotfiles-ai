@@ -1,5 +1,14 @@
 # Codex Control Plane Changelog
 
+## 2026-09-01 - History Adapter Sanitization Readiness
+
+- Reopened readiness after current stable history contained interim commentary,
+  web-search items, and text rejected by the generic privacy validator.
+- Fixed deterministic projection: discard known interim/unsupported non-content
+  items, discard unsafe text items, mark content partial with a fixed reason, and
+  retain fail-closed handling for unknown shapes. No payload from discarded items
+  enters pages or probe output.
+
 ## 2026-09-01 - Paginated Stable Read Readiness
 
 - Reopened adapter readiness after the current host exposed only paginated

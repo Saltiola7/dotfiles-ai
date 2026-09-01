@@ -103,15 +103,16 @@ For either accepted history mode, only turns with `itemsView: full` are accepted
 only `content` elements whose type is `text` and whose `text_elements` is empty;
 each text becomes one generic user content item in source order.
 Any image, audio, local image, skill, mention, or unknown user input rejects the
-entry. `agentMessage` contributes only `text` when `phase` is `final_answer` or
-null and `delivery` and `memoryCitation` are null.
+complete operation. `agentMessage` contributes only `text` when `phase` is `final_answer` or
+null and `delivery` and `memoryCitation` are null. Stable `commentary` agent
+messages are interim output and are discarded without projection.
 
 | Frozen item discriminator | Action |
 |---|---|
 | `userMessage`, `agentMessage` | Project bounded text as defined above |
 | `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`, `collabAgentToolCall` | Emit one bounded signal as defined below; never project payload fields |
-| `hookPrompt`, `functionCallOutput`, `plan`, `reasoning`, `subAgentActivity`, `imageView`, `sleep`, `enteredReviewMode`, `exitedReviewMode`, `contextCompaction` | Discard without projection |
-| `webSearch`, `imageGeneration`, unknown discriminator | Reject the complete operation |
+| `hookPrompt`, `functionCallOutput`, `plan`, `reasoning`, `subAgentActivity`, `imageView`, `sleep`, `webSearch`, `imageGeneration`, `enteredReviewMode`, `exitedReviewMode`, `contextCompaction` | Discard without projection |
+| Unknown discriminator | Reject the complete operation |
 
 Content preserves native turn, item, and user-content order. `turn_count` is the
 number of native turns. User/assistant counts equal emitted generic content items
@@ -126,18 +127,23 @@ generic `completed`; `failed`, `declined`, or `interrupted` map to `failed`, wit
 failure class `permission` for declined, `network` for failed MCP, `command` for
 failed command/file/dynamic calls, and `unknown` otherwise. Recovered is false.
 Timestamp is turn `completedAt`, or `startedAt` only when completed time is null;
-both null, `inProgress`, contradictory success/error fields, web/image tools, or
-any unknown tool variant rejects the complete operation. Tool counts equal
+both null, `inProgress`, contradictory success/error fields, or any unknown tool
+variant rejects the complete operation. Tool counts equal
 emitted signals and failed signals exactly; no arguments, output, errors, names,
 paths, prompts, or model fields are read into the page.
 
-Content or signals above 100 reject the entry rather than truncating. Any text
-rejected by the generic validator's lexical/privacy policy rejects the complete
-operation with a fixed error; this slice performs no lossy or inferred redaction.
+Content or signals above 100 reject the entry rather than truncating. Before page
+construction, each candidate text is checked with the delivered generic
+validator's exact byte, control, credential, entropy, email, URL, POSIX,
+Windows-drive, and UNC lexical predicates. A rejected text item is discarded in
+full; the entry's content availability becomes `partial` with fixed reason
+`unsafe_text_discarded`. Safe sibling text remains in source order. The adapter
+never rewrites, truncates, or emits an unsafe value.
 
 Family ID is `sessionId`. Token and cost values are null with `unavailable` and
-the exact fixed reasons in the contract; content availability is `available`,
-including an empty accepted content list. Successful tool signals use
+the exact fixed reasons in the contract. Content availability is `available`,
+including an empty accepted content list, only when no unsafe text was discarded;
+otherwise it is `partial` as defined above. Successful tool signals use
 `failure_class: none`. Every constructed envelope is sent through a private
 stdin subprocess running `dbsctrctl history-source-validate --envelope-json -`;
 only its body-free valid status is consumed before probe metadata is emitted.
@@ -154,6 +160,8 @@ only its body-free valid status is consumed before probe metadata is emitted.
 - The current host's body-free runtime probe confirms paginated history returns
   full item views through stable `thread/read`; no private identity or content is
   retained as evidence.
+- The current host's positive body-free probe also covers interim commentary,
+  web-search items, and unsafe-text omission with partial availability.
 
 ## Visual Evidence
 
