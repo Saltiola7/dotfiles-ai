@@ -2106,6 +2106,31 @@ def test_query_repairs_once_retries_and_preserves_success_payload(monkeypatch) -
     assert "baseline ranking policy unavailable" in repair
 
 
+def test_query_repair_cannot_cross_shared_deadline(monkeypatch) -> None:
+    dks = load_dksctl()
+    statements = []
+
+    class Session:
+        def execute(self, sql):
+            statements.append(sql)
+            return ["t"] if "pg_try_advisory_lock" in sql else []
+
+        def close(self):
+            self.closed = True
+
+    session = Session()
+    clock = iter((0.0, 0.0, 1.0, 1.0, 2.0))
+    monkeypatch.setattr(dks, "PsqlSession", lambda _config: session)
+    monkeypatch.setattr(dks.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(dks.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(dks.ProjectionBusy):
+        dks.restore_baseline_before(2.0, {}, "dotfiles-ai")
+    assert session.closed
+    assert any("statement_timeout=1000" in sql for sql in statements)
+    assert not any(sql == "COMMIT;" for sql in statements)
+
+
 def test_projection_busy_cli_bytes(monkeypatch, capsys) -> None:
     dks = load_dksctl()
     monkeypatch.setattr(dks, "load_config", lambda _path: {"projects": {"dotfiles-ai": {}}})

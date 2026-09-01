@@ -1817,16 +1817,30 @@ def acquire_activation_session(config, project_id, shared, deadline):
     return None
 
 
+def execute_before(session, deadline, sql):
+    remaining_ms = math.ceil((deadline - time.monotonic()) * 1000)
+    if remaining_ms <= 0:
+        raise ProjectionBusy()
+    try:
+        session.execute(f"SET statement_timeout={remaining_ms};")
+        return session.execute(sql)
+    except RuntimeError as error:
+        if time.monotonic() >= deadline:
+            raise ProjectionBusy() from error
+        raise
+
+
 def restore_baseline_before(deadline, config, project_id):
     session = acquire_activation_session(config, project_id, False, deadline)
     if session is None:
         raise ProjectionBusy()
     try:
-        session.execute("BEGIN;")
-        session.execute("SELECT activation_id FROM dks.ranking_policies "
-                        "WHERE project_id=current_setting('dks.project_id') AND active FOR UPDATE;")
-        session.execute("\n".join(ranking_fallback_statements(project_id)))
-        session.execute("COMMIT;")
+        execute_before(session, deadline, "BEGIN;")
+        execute_before(session, deadline, "SELECT activation_id FROM dks.ranking_policies "
+                       "WHERE project_id=current_setting('dks.project_id') AND active FOR UPDATE;")
+        for statement in ranking_fallback_statements(project_id):
+            execute_before(session, deadline, statement)
+        execute_before(session, deadline, "COMMIT;")
     finally:
         session.close()
 
