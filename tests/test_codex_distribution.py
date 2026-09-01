@@ -432,6 +432,9 @@ def test_guest_rollback_restores_source_and_managed_state_only(tmp_path: Path) -
     guest_config = home / ".config/dotfiles-ai/chezmoi.toml"
     guest_config.parent.mkdir(parents=True)
     guest_config.write_text("old config")
+    lifecycle = home / ".local/bin/dbsctrctl"
+    lifecycle.parent.mkdir(parents=True)
+    lifecycle.write_text("old lifecycle")
 
     token = helper.snapshot(home)
     (source / "version").write_text("new")
@@ -442,8 +445,9 @@ def test_guest_rollback_restores_source_and_managed_state_only(tmp_path: Path) -
     managed.write_text("new managed")
     binary.write_text("new binary")
     guest_config.write_text("new config")
+    lifecycle.write_text("new lifecycle")
     added = home / ".local/bin/codex-project"
-    added.parent.mkdir(parents=True)
+    added.parent.mkdir(parents=True, exist_ok=True)
     added.write_text("new helper")
 
     helper.restore(token, home)
@@ -454,6 +458,7 @@ def test_guest_rollback_restores_source_and_managed_state_only(tmp_path: Path) -
     assert managed.read_text() == "old managed"
     assert binary.read_text() == "old binary"
     assert guest_config.read_text() == "old config"
+    assert lifecycle.read_text() == "old lifecycle"
     assert not added.exists()
     assert auth.read_text() == "private"
     helper.discard(token, home)
