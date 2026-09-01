@@ -281,8 +281,10 @@ define closed review, Incident, telemetry, immutable-capture, and benchmark
 reducers before promoting that slice. A source page alone does not satisfy any
 consumer or benchmark contract.
 
-Only supported user-message and agent-message text may enter future `content`.
-Text is bounded and privacy-validated locally; unsafe text rejects the operation. Reasoning, images, credentials,
+Only supported user-message and final agent-message text may enter future
+`content`. Text is bounded and privacy-validated locally; an unsafe item is
+discarded, safe siblings remain ordered, and content availability becomes
+`partial`. Reasoning, images, credentials,
 high-entropy tokens, URLs, absolute paths, tool commands, arguments, output,
 environment, and raw protocol fields never enter a page. Supported tool items
 may contribute only bounded status signals and counts. Missing token or cost data

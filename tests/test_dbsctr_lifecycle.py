@@ -169,7 +169,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-history-adapter"]["depends_on"] == [
         "codex-identity-probe", "generic-history-source-pages",
     ]
-    assert {"INT-013", "INT-020", "INT-033"} <= set(
+    assert {"INT-013", "INT-020", "INT-033", "INT-034"} <= set(
         slices["codex-history-adapter"]["requirements"]
     )
     assert {
@@ -286,6 +286,29 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     }
     assert adapter_contract["provider_ids"] == ["openai"]
     assert adapter_contract["history_modes"] == ["legacy", "paginated"]
+    assert adapter_contract["content_policy"]["unsafe_text"] == {
+        "action": "discard", "availability": "partial", "reason": "unsafe_text_discarded",
+    }
+    assert adapter_contract["content_policy"]["discard_agent_phases"] == ["commentary"]
+    assert set(adapter_contract["content_policy"]["discard_item_types"]) == {
+        "hookPrompt", "functionCallOutput", "plan", "reasoning", "subAgentActivity",
+        "imageView", "sleep", "webSearch", "imageGeneration", "enteredReviewMode",
+        "exitedReviewMode", "contextCompaction",
+    }
+    assert adapter_contract["unknown_policy"] == {
+        "item_type": "reject_operation",
+        "user_input_type": "reject_operation",
+        "tool_status": "reject_operation",
+        "missing_required_field": "reject_operation",
+        "additive_optional_thread_field": "ignore",
+    }
+    assert adapter_contract["aggregate_policy"] == {
+        "turn_count": "native_turn_count",
+        "user_message_count": "emitted_safe_user_content_count",
+        "assistant_message_count": "emitted_safe_assistant_content_count",
+        "tool_call_count": "emitted_tool_signal_count",
+        "tool_error_count": "emitted_failed_tool_signal_count",
+    }
     assert adapter_contract["failure"] == {
         "exit_status": 2,
         "stdout": "",
@@ -312,6 +335,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert all("subAgentThreadSpawn" in request["sourceKinds"]
                for request in adapter_contract["thread_list"]["requests"])
     normalized_adapter = " ".join(adapter.split())
+    assert "unsafe item is discarded, safe siblings remain ordered" in normalized_control_plane
     for phrase in (
         "Timestamps remain Unix seconds",
         "private stdin subprocess",
@@ -325,6 +349,8 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "never invokes `thread/turns/list`, `thread/items/list`",
         'describes `includeTurns` as "full-history hydration"',
         "For either accepted history mode",
+        "A rejected text item is discarded in full",
+        "unknown user input rejects the complete operation",
     ):
         assert phrase in normalized_adapter
 
