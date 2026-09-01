@@ -1443,6 +1443,10 @@ class DbsctrctlTest(unittest.TestCase):
         performance = run(self.repo, "cycle-performance", "--json", ok=False)
         self.assertIn("invalid schema 5 runtime", performance.stderr)
 
+        record["state"] = "retired"
+        path.write_text(json.dumps(record))
+        run(self.repo, "worktree-list", "--json")
+
         path.write_text('{"schema_version":5,"schema_version":5}')
         duplicate = run(self.repo, "worktree-list", "--json", ok=False)
         self.assertIn("duplicate JSON key", duplicate.stderr)
@@ -4215,6 +4219,96 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual([item["part_id"] for item in undisposed["signals"]], ["older-unclaimed"])
         self.assertFalse(undisposed["signal_overflow"])
 
+    def test_history_source_index_refresh_builds_compact_schema_three_snapshot(self):
+        database = Path(self.temp.name) / "history-refresh.db"
+        source = sqlite3.connect(database)
+        source.executescript("""
+            create table session (id text primary key, parent_id text, time_created integer,
+                                  agent text, tokens_input integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text,
+                               time_created integer, data text);
+            insert into session values ('session-refresh', null, 1784073600000,
+                                        'reviewer-openai', 1);
+            insert into message values ('message-refresh', 'session-refresh', 1784073600000,
+                                        '{"model":{"modelID":"model-refresh"}}');
+        """)
+        source.executemany(
+            "insert into part values (?, 'message-refresh', 'session-refresh', ?, ?)",
+            [(f"part-{index}", 1784073500000 if index == 21 else 1784073600000 + index, json.dumps(
+                {"type": "tool", "tool": "read", "state": {"status": "failed"}}
+                if index == 20 else {"type": "text", "text": "DBSCTR" if index == 0 else f"neutral-{index}"}
+            )) for index in range(40)],
+        )
+        source.commit()
+        source.close()
+        state = Path(self.temp.name) / "history-refresh-state"
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True, mode=0o700)
+        stale = sqlite3.connect(reviews / "history-source-index.sqlite3")
+        stale.executescript("create table index_meta (key text primary key,value text);"
+                            "insert into index_meta values ('schema_version','3');"
+                            "create table stale_schema (value text);")
+        stale.commit()
+        stale.close()
+        os.chmod(reviews / "history-source-index.sqlite3", 0o600)
+
+        refreshed = json.loads(run(
+            self.repo, "history-source-index-refresh", "--database", str(database),
+            "--state-root", str(state),
+        ).stdout)
+        self.assertEqual(set(refreshed), {
+            "schema_version", "state", "captured_at", "duration_ms", "indexed_sessions",
+            "material_rows",
+        })
+        self.assertEqual((refreshed["schema_version"], refreshed["state"],
+                          refreshed["indexed_sessions"], refreshed["material_rows"]),
+                         (1, "ready", 1, 33))
+        sidecar = state / "reviews/history-source-index.sqlite3"
+        indexed = sqlite3.connect(sidecar)
+        self.assertEqual(indexed.execute(
+            "select value from index_meta where key='schema_version'").fetchone(), ("3",))
+        self.assertEqual(tuple(row[1] for row in indexed.execute(
+            "pragma table_info(index_generations)")), (
+                "generation_id", "state", "source_device", "source_inode", "schema_digest",
+                "privacy_epoch_digest", "captured_at", "target_session_ceiling",
+                "target_message_ceiling", "target_part_ceiling", "covered_session_ceiling",
+                "covered_message_ceiling", "covered_part_ceiling", "session_row_count",
+                "message_row_count", "part_row_count", "material_row_count", "created_at",
+                "completed_at",
+            ))
+        self.assertEqual(tuple(row[1] for row in indexed.execute("pragma table_info(index_rows)")), (
+            "generation_id", "part_rowid", "session_id", "part_time", "material_kind",
+            "eligibility_flags", "tool_name", "tool_key_digest", "tool_state", "failure_class",
+            "disposition_digest",
+        ))
+        self.assertEqual(indexed.execute(
+            "select material_kind,tool_name,failure_class from index_rows where part_rowid=21"
+        ).fetchone(), ("tool", "read", "tool_failed"))
+        self.assertEqual(indexed.execute(
+            "select material_kind from index_rows where part_rowid=22").fetchone(), ("boundary",))
+        indexed.close()
+        self.assertNotIn(b"neutral-20", sidecar.read_bytes())
+
+        status = json.loads(run(
+            self.repo, "history-source-index-status", "--state-root", str(state),
+        ).stdout)
+        self.assertEqual(set(status), {
+            "schema_version", "state", "captured_at", "age_seconds", "covered_part_ceiling",
+        })
+        self.assertEqual((status["schema_version"], status["state"], status["captured_at"],
+                          status["covered_part_ceiling"]),
+                         (1, "ready", refreshed["captured_at"], 40))
+        self.assertGreaterEqual(status["age_seconds"], 0)
+        retired = run(self.repo, "history-source-index-maintain", "--database", str(database),
+                      "--state-root", str(state), ok=False)
+        self.assertIn("invalid choice", retired.stderr)
+        aggregate = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--aggregate-only",
+        ).stdout)
+        self.assertEqual((aggregate["mode"], aggregate["selected_count"]), ("aggregate", 1))
+
     def test_history_aggregate_and_incident_summary_use_private_source_index(self):
         database = Path(self.temp.name) / "history-summary.db"
         connection = sqlite3.connect(database)
@@ -4264,27 +4358,17 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         index_module = importlib.util.module_from_spec(spec)
         loader.exec_module(index_module)
-        index_module.HISTORY_SOURCE_INDEX_CHUNK = 20
         maintenance = SimpleNamespace(database=str(database), state_root=str(state))
-        outputs = []
-        for _ in range(20):
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                index_module.command_history_source_index_maintain(maintenance)
-            outputs.append(json.loads(output.getvalue()))
-            if outputs[-1]["state"] == "ready":
-                break
-        self.assertGreaterEqual(len(outputs), 4)
-        self.assertEqual(outputs[-1]["state"], "ready")
-        self.assertEqual(outputs[-1]["indexed_rows"], 39)
-        maintained = outputs[-1]
-        self.assertEqual(maintained["state"], "ready")
-        self.assertFalse(maintained["continuation_needed"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            index_module.command_history_source_index_refresh(maintenance)
+        maintained = json.loads(output.getvalue())
+        self.assertEqual((maintained["state"], maintained["material_rows"]), ("ready", 36))
         sidecar = state / "reviews/history-source-index.sqlite3"
         self.assertEqual(sidecar.stat().st_mode & 0o777, 0o600)
         indexed = sqlite3.connect(sidecar)
         self.assertEqual(indexed.execute(
-            "select value from index_meta where key='schema_version'").fetchone(), ("2",))
+            "select value from index_meta where key='schema_version'").fetchone(), ("3",))
         self.assertEqual({row[0] for row in indexed.execute(
             "select name from sqlite_master where type='table'")}, {
                 "index_meta", "index_generations", "index_sessions", "index_session_values",
@@ -4300,19 +4384,16 @@ class DbsctrctlTest(unittest.TestCase):
             "('index_rows_recovery','index_rows_incident')"))
         self.assertIn("WHERE tool_key_digest IS NOT NULL", index_sql["index_rows_recovery"])
         self.assertIn("WHERE tool_state='failed'", index_sql["index_rows_incident"])
-        self.assertEqual(indexed.execute("select count(*) from index_rows").fetchone()[0], 39)
+        self.assertEqual(indexed.execute("select count(*) from index_rows").fetchone()[0], 36)
         self.assertEqual({row[1] for row in indexed.execute("pragma table_info(index_rows)")},
-                         {"generation_id", "part_rowid", "session_id", "part_time", "part_updated",
-                          "source_digest", "eligibility_flags", "tool_name", "tool_key_digest",
+                         {"generation_id", "part_rowid", "session_id", "part_time", "material_kind",
+                          "eligibility_flags", "tool_name", "tool_key_digest",
                           "tool_state", "failure_class", "disposition_digest"})
         generation_before = indexed.execute("select generation_id from active_generation").fetchone()[0]
         indexed_boundaries = indexed.execute("""
-            select session_id,part_time,part_rowid from (
-              select session_id,part_time,part_rowid,
-                     row_number() over (partition by session_id order by part_time,part_rowid) first_rank,
-                     row_number() over (partition by session_id order by part_time desc,part_rowid desc) last_rank
-              from index_rows where generation_id=?
-            ) where first_rank<=16 or last_rank<=16 order by session_id,part_time,part_rowid
+            select session_id,part_time,part_rowid from index_rows
+            where generation_id=? and material_kind in ('boundary','both')
+            order by session_id,part_time,part_rowid
         """, (generation_before,)).fetchall()
         indexed.close()
         source = sqlite3.connect(database)
@@ -4330,13 +4411,9 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertNotIn(b"failed-private", sidecar.read_bytes())
 
         def maintain_cli():
-            for _ in range(20):
-                value = json.loads(run(
-                    self.repo, "history-source-index-maintain", "--database", str(database),
-                    "--state-root", str(state)).stdout)
-                if value["state"] == "ready":
-                    return value
-            self.fail("history projection did not become ready")
+            return json.loads(run(
+                self.repo, "history-source-index-refresh", "--database", str(database),
+                "--state-root", str(state)).stdout)
 
         validated_index = index_module.require_history_source_index(SimpleNamespace(
             database=str(database), state_root=str(state)))
@@ -4483,9 +4560,6 @@ class DbsctrctlTest(unittest.TestCase):
         session_generation = extension.execute(
             "select generation_id from active_generation").fetchone()[0]
         self.assertNotEqual(session_generation, generation_before)
-        self.assertEqual(extension.execute(
-            "select base_generation_id from index_generations where generation_id=?",
-            (session_generation,)).fetchone(), (generation_before,))
         extension.close()
 
         summary = json.loads(run(self.repo, "incident-scan", "--database", str(database),
@@ -4606,7 +4680,7 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual((corrupt.returncode, corrupt.stderr), (75, "source_index_unavailable\n"))
         sidecar.unlink()
         sidecar.symlink_to(database)
-        unsafe_link = run(self.repo, "history-source-index-maintain", "--database", str(database),
+        unsafe_link = run(self.repo, "history-source-index-refresh", "--database", str(database),
                           "--state-root", str(state), ok=False)
         self.assertIn("history source index is unsafe", unsafe_link.stderr)
 
@@ -4627,7 +4701,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-zero-state"
         for _ in range(20):
             maintained = json.loads(run(
-                self.repo, "history-source-index-maintain", "--database", str(database),
+                self.repo, "history-source-index-refresh", "--database", str(database),
                 "--state-root", str(state)).stdout)
             if maintained["state"] == "ready":
                 break
@@ -4656,51 +4730,50 @@ class DbsctrctlTest(unittest.TestCase):
             [(f"part-{index}", 1784073600000 + index) for index in range(25)],
         )
         connection.commit()
+        connection.execute("pragma journal_mode=wal")
+        connection.close()
         state = Path(self.temp.name) / "history-append-state"
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_append_index", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
-        module.HISTORY_SOURCE_INDEX_CHUNK = 20
         args = SimpleNamespace(database=str(database), state_root=str(state))
+        original_insert = module.history_projection_insert_session
+        appended = [False]
+
+        def insert_and_append(*values):
+            result = original_insert(*values)
+            if not appended[0]:
+                writer = sqlite3.connect(database)
+                writer.execute("insert into part values "
+                               "('part-appended', 'message-append', 'session-append', "
+                               "1784073600100, '{}')")
+                writer.commit()
+                writer.close()
+                appended[0] = True
+            return result
 
         output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            module.command_history_source_index_maintain(args)
-        self.assertEqual((json.loads(output.getvalue())["state"],
-                          json.loads(output.getvalue())["indexed_rows"]), ("preparing", 0))
-        connection.execute("insert into part values "
-                           "('part-appended', 'message-append', 'session-append', 1784073600100, '{}')")
-        connection.commit()
-        connection.close()
-        for _ in range(20):
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                module.command_history_source_index_maintain(args)
-            captured = json.loads(output.getvalue())
-            if captured["state"] == "ready":
-                break
-        self.assertEqual((captured["state"], captured["indexed_rows"]), ("ready", 25))
+        with mock.patch.object(module, "history_projection_insert_session", side_effect=insert_and_append), \
+                contextlib.redirect_stdout(output):
+            module.command_history_source_index_refresh(args)
+        captured = json.loads(output.getvalue())
+        self.assertEqual((captured["state"], captured["material_rows"]), ("ready", 25))
         sidecar = sqlite3.connect(state / "reviews/history-source-index.sqlite3")
         captured_generation = sidecar.execute("select generation_id from active_generation").fetchone()[0]
+        self.assertEqual(sidecar.execute(
+            "select covered_part_ceiling from index_generations where generation_id=?",
+            (captured_generation,)).fetchone(), (25,))
         sidecar.close()
-        for _ in range(20):
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                module.command_history_source_index_maintain(args)
-            extended = json.loads(output.getvalue())
-            if extended["state"] == "ready":
-                sidecar = sqlite3.connect(state / "reviews/history-source-index.sqlite3")
-                extended_generation = sidecar.execute(
-                    "select generation_id from active_generation").fetchone()[0]
-                base = sidecar.execute(
-                    "select base_generation_id from index_generations where generation_id=?",
-                    (extended_generation,)).fetchone()[0]
-                sidecar.close()
-                if extended_generation != captured_generation:
-                    break
-        self.assertEqual((extended["state"], extended["indexed_rows"]), ("ready", 1))
-        self.assertEqual(base, captured_generation)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            module.command_history_source_index_refresh(args)
+        extended = json.loads(output.getvalue())
+        sidecar = sqlite3.connect(state / "reviews/history-source-index.sqlite3")
+        extended_generation = sidecar.execute("select generation_id from active_generation").fetchone()[0]
+        sidecar.close()
+        self.assertEqual((extended["state"], extended["material_rows"]), ("ready", 26))
+        self.assertNotEqual(extended_generation, captured_generation)
 
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"
