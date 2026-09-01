@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-01 - History Projection Refresh Schedule Readiness
+
+- Specified an explicitly enabled daily 04:30 local, low-priority, single-flight
+  LaunchAgent for lifecycle-owned History snapshot refresh.
+- Refresh failure, overlap, timeout, sleep, restart, disablement, and rollback
+  preserve the prior projection and expose only bounded content-free status.
+- This Discovery change installs or loads no job; implementation and managed-host
+  activation remain separately approval-gated after lifecycle refresh delivery.
+
 ## 2026-09-01 - Remote Agent Authentication
 
 - Added a remote-only content-free agent readiness target and forced OpenCode,

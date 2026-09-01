@@ -1081,9 +1081,9 @@ Lifecycle status `75` with empty stdout and stderr exactly
 no other output receives that classification. Index generation, coverage, source,
 privacy, path, and row identities never enter the model-visible envelope.
 Ready aggregate and summary subprocesses consume the lifecycle-owned body-free
-schema-version-2 projection. Projection build, extension, verification, and
-compaction remain separate maintenance work; a model-visible request never scans
-source payload columns or synchronously repairs projection state.
+schema-version-3 snapshot. Asynchronous refresh and freshness status remain
+separate operational work; a model-visible request never scans source payload
+columns or synchronously repairs projection state.
 
 ## Validation Strategy
 

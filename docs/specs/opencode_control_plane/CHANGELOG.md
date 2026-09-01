@@ -1,5 +1,12 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-01 - History Snapshot Availability Alignment
+
+- Aligned later typed History/Incident availability with the lifecycle-owned
+  schema-version-3 immutable snapshot and separate freshness status.
+- Model-visible requests still never build, refresh, or scan source payloads;
+  adapter implementation remains in the dependent runtime-recovery slice.
+
 ## 2026-09-01 - Remote User Authentication
 
 - Forced remote OpenCode config, data, state, and cache into the invoking Unix
