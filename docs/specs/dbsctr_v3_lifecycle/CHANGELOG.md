@@ -1,5 +1,25 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-01 - Generic History Source Pages
+
+- Added one stateless `history-source-validate` stdin envelope with closed schema,
+  immutable membership and continuation checks, canonical Python/JavaScript
+  digests, bounded text/tool/metric validation, lexical secret/path rejection,
+  fixed failure output, and no lifecycle or private-state mutation.
+- Reconciled the delivered History/Incident projection v2 and its body-free
+  message-authority correction without changing existing output contracts.
+- Deployed the exact helper to the host and every managed guest through a
+  helper-only Chezmoi target with reverse-order rollback coverage. All three
+  boundaries passed positive and privacy-negative live smokes; no process
+  restart or private-history read occurred.
+- Affected QA passed 267 tests with one expected skip and 21 subtests before
+  reconciliation; the reconciled lifecycle/control-plane/distribution union and
+  focused deployment/rollback suites passed. One unrelated Herdr timing baseline
+  remains outside affected scope. Gate Exceptions: none. Release: not applicable.
+  Gate Commits: `f509417`, `f210b19`, `95f4668`, `c00c0e7`, `b89ecec`,
+  `7bebd40`, and `d519ae1`. Intended Final Push: feature branch and draft pull
+  request into protected `main`.
+
 ## 2026-08-31 - History And Incident Projection V2
 
 - Delivered body-free full and immutable append-delta projection generations for

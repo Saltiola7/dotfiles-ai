@@ -1,6 +1,6 @@
 # Generic Harness History Source Pages
 
-**Status:** Receipt ready
+**Status:** Implemented and deployed
 **Created:** 2026-08-31
 **Last updated:** 2026-08-31
 
@@ -244,17 +244,17 @@ does not invent a benchmark ID or result.
 
 | Gate | Applicability | Result | Authority | Owner |
 |---|---|---|---|---|
-| Domain | required | pending | Source-page and continuation vocabulary | Primary |
-| Behavior | required | pending | Validation, privacy, stale, and no-mutation scenarios | Primary |
-| Spec | required | pending | This specification and closed schema | Primary |
-| Contract | required | pending | Positive and negative executable schema fixtures | Primary |
-| Test-driven implementation | required | pending | Focused lifecycle helper tests | Primary |
-| Refactor | required | pending | Reuse existing redaction, digest, and bounded-input helpers | Primary |
-| Review/Integrate | required | pending | Affected QA and independent elevated-risk review | Primary |
+| Domain | required | passed | Source-page and continuation vocabulary | Primary |
+| Behavior | required | passed | Validation, privacy, stale, and no-mutation scenarios | Primary |
+| Spec | required | passed | This specification and closed schema | Primary |
+| Contract | required | passed | Positive and negative executable schema fixtures | Primary |
+| Test-driven implementation | required | passed | Focused lifecycle helper tests | Primary |
+| Refactor | required | passed | Reused existing redaction, digest, and bounded-input helpers | Primary |
+| Review/Integrate | required | passed | Affected QA and independent elevated-risk review | Primary |
 | Release | not_applicable: no separately published artifact | not_run | Engineering Profile | Primary |
-| Deploy | required | pending | Managed helper apply | Primary |
-| Operate | required | pending | Live validator positive and privacy-negative smoke | Primary |
-| Maintain/Retire | required | pending | Schema compatibility and retained-state no-mutation evidence | Primary |
+| Deploy | required | passed | Exact managed helper apply on host and all guests | Primary |
+| Operate | required | passed | Host/all-guest positive and privacy-negative smokes | Primary |
+| Maintain/Retire | required | passed | Schema compatibility, rollback, and no-mutation evidence | Primary |
 
 ## Validation
 
