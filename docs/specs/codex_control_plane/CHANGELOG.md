@@ -1,5 +1,17 @@
 # Codex Control Plane Changelog
 
+## 2026-09-01 - Codex History Adapter Readiness
+
+- Reconciled merged generic history-source delivery and promoted only
+  `codex-history-adapter`; consumer parity remains captured.
+- Fixed pinned app-server schema digests, exact read-only list/read requests,
+  private generic page conversion, privacy rejection, and body-free probe output.
+- Deferred closed review, Incident, telemetry, immutable-capture, benchmark, and
+  federation reducers rather than exposing private pages or inferring mappings.
+- No native storage, credentials, paths, raw tool data, reasoning, or public
+  content body is added. Implementation, deployment, operation, and completion
+  remain separately gated.
+
 ## 2026-08-31 - Remote User Authentication Discovery
 
 - Added the CentOS x86_64 peer-runtime contract with dedicated user-local

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "codex_release": "0.151.0",
+  "adapter_revision": "codex-history-adapter-1",
+  "source": {"harness_id": "codex", "adapter_revision": "codex-history-adapter-1", "release": "0.151.0"},
+  "provider_ids": ["openai"],
+  "failure": {"exit_status": 2, "stdout": "", "stderr": "codex-control-plane: history_adapter_unavailable\n"},
+  "generated_schema_sha256": {
+    "v1/InitializeParams.json": "6f0094be9a65242ec779a40794cbd4fdfa32fca1e45084a16adfb50501d33ea2",
+    "v1/InitializeResponse.json": "62ad689c2cb6379913c1d72749cfd8de5089d35760214123518eb92eef11acc9",
+    "v2/ThreadListParams.json": "b227bb78acf9b91060d03c56d3f2072cdd9f1bd08290c11e8869f1a663b16da2",
+    "v2/ThreadListResponse.json": "abbb5b43bc3ea34ed187a496f85bc0223c48630636904d6198a08a17c9d9baed",
+    "v2/ThreadReadParams.json": "dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4",
+    "v2/ThreadReadResponse.json": "f3c5c2f9dac8e20fd8a8a536ae00ea7a7a0dc3c70e5a628ff5b561067cd43206"
+  },
+  "initialize": {
+    "method": "initialize",
+    "params": {"clientInfo": {"name": "dotfiles_ai_history_adapter", "title": "Dotfiles AI History Adapter", "version": "codex-history-adapter-1"}},
+    "notification": {"method": "initialized", "params": {}}
+  },
+  "thread_list": {
+    "method": "thread/list",
+    "requests": [
+      {"cursor": null, "limit": 100, "sortKey": "updated_at", "sortDirection": "desc", "useStateDbOnly": true, "archived": false, "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]},
+      {"cursor": null, "limit": 100, "sortKey": "updated_at", "sortDirection": "desc", "useStateDbOnly": true, "archived": true, "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]}
+    ],
+    "maximum_members": 100,
+    "non_null_next_cursor_means_overflow": true
+  },
+  "thread_read": {"method": "thread/read", "params": {"threadId": "<member-id>", "includeTurns": true}},
+  "unavailable_reasons": {"tokens": "stable_thread_response_omits_tokens", "cost": "stable_thread_response_omits_cost"},
+  "probe_output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schema_version", "status", "source", "member_count", "entry_count", "overflow"],
+    "properties": {
+      "schema_version": {"const": 1},
+      "status": {"const": "valid"},
+      "source": {"const": "codex-app-server"},
+      "member_count": {"type": "integer", "minimum": 0, "maximum": 100},
+      "entry_count": {"type": "integer", "minimum": 0, "maximum": 20},
+      "overflow": {"type": "boolean"}
+    }
+  }
+}

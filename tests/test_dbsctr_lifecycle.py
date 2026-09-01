@@ -161,9 +161,15 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
-    assert slices["generic-history-source-pages"]["state"] == "ready"
+    assert slices["generic-history-source-pages"]["state"] == "delivered"
     assert slices["generic-history-source-pages"]["execution_owner"] == "build"
     assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
+    assert slices["codex-history-adapter"]["state"] == "ready"
+    assert slices["codex-history-adapter"]["execution_owner"] == "build"
+    assert slices["codex-history-adapter"]["depends_on"] == [
+        "codex-identity-probe", "generic-history-source-pages",
+    ]
+    assert {"INT-013", "INT-020"} <= set(slices["codex-history-adapter"]["requirements"])
     assert {
         name: (slices[name]["state"], slices[name]["depends_on"])
         for name in (
@@ -172,7 +178,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         )
     } == {
         "codex-history-parity": (
-            "captured", ["codex-identity-probe", "generic-history-source-pages"]
+            "captured", ["codex-history-adapter"]
         ),
         "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
         "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
@@ -195,7 +201,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["generic-history-source-pages"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-adapter"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -206,10 +212,10 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`generic-history-source-pages` ready" in normalized_initiative
+    assert "`codex-history-adapter` ready" in normalized_initiative
     assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
-        "Documented `thread/list` and `thread/read`",
+        "Pinned stable `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",
         "Existing bounded federated-capture schemas",
         "Every requested capability must have passing evidence",
@@ -258,6 +264,54 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     ]
     assert "generic-history-source-pages" in control_plane
     assert "never enter a page" in control_plane
+    adapter = text("docs/specs/codex_control_plane/features/history-adapter.md")
+    adapter_contract = json.loads(text(
+        "docs/specs/codex_control_plane/features/history-adapter.contract.json"
+    ))
+    assert "history-probe --request-json -" in adapter
+    assert "history-source-validate --envelope-json -" in adapter
+    assert adapter_contract["codex_release"] == "0.151.0"
+    assert all(request["useStateDbOnly"] is True
+               for request in adapter_contract["thread_list"]["requests"])
+    assert {request["archived"]
+            for request in adapter_contract["thread_list"]["requests"]} == {False, True}
+    assert adapter_contract["thread_list"]["non_null_next_cursor_means_overflow"] is True
+    assert adapter_contract["probe_output_schema"]["additionalProperties"] is False
+    assert adapter_contract["source"] == {
+        "harness_id": "codex",
+        "adapter_revision": "codex-history-adapter-1",
+        "release": "0.151.0",
+    }
+    assert adapter_contract["provider_ids"] == ["openai"]
+    assert adapter_contract["failure"] == {
+        "exit_status": 2,
+        "stdout": "",
+        "stderr": "codex-control-plane: history_adapter_unavailable\n",
+    }
+    assert adapter_contract["unavailable_reasons"] == {
+        "tokens": "stable_thread_response_omits_tokens",
+        "cost": "stable_thread_response_omits_cost",
+    }
+    assert len(adapter_contract["generated_schema_sha256"]) == 6
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest)
+               for digest in adapter_contract["generated_schema_sha256"].values())
+    probe_fields = adapter_contract["probe_output_schema"]["properties"]
+    assert "page_digest" not in probe_fields
+    assert all("subAgentThreadSpawn" in request["sourceKinds"]
+               for request in adapter_contract["thread_list"]["requests"])
+    normalized_adapter = " ".join(adapter.split())
+    for phrase in (
+        "Timestamps remain Unix seconds",
+        "private stdin subprocess",
+        "Any server request, second response, unknown envelope field",
+        "memory consolidation mapping to `subAgentOther`",
+        "codex-project-v1\\0unknown",
+        "then compared with lifecycle canonical JSON",
+        "`turn_count` is the number of native turns",
+        "Tool counts equal emitted signals",
+        "Frozen item discriminator",
+    ):
+        assert phrase in normalized_adapter
 
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
