@@ -32,8 +32,8 @@ The stable Engineering Profile is
 
 Private first-login trigger installation, aggregate observation, cloud preview,
 shared-VM deployment, user participation, and personal overlay apply belong to
-RWUE-005 in `mgmri-dge/seo-data-science`. Personal Yazi targets belong to
-RWUE-003 in `Saltiola7/dotfiles`.
+RWUE-005 in the private coordinator repository. Personal Yazi targets belong to
+RWUE-003 in the separately owned personal source.
 
 ## Domain
 
