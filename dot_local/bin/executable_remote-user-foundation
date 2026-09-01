@@ -218,7 +218,10 @@ def validate_integrity(state: dict) -> Path:
         raise RuntimeError("foundation revision changed")
     git("diff", "--quiet", capture=True)
     git("diff", "--cached", "--quiet", capture=True)
-    command("chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "verify", capture=True)
+    if command(
+        "chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "status", capture=True,
+    ).stdout:
+        raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:
         safe_path(HOME / target)
         if not os.path.lexists(HOME / target):
