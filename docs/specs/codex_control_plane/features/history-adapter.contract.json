@@ -4,6 +4,7 @@
   "adapter_revision": "codex-history-adapter-1",
   "source": {"harness_id": "codex", "adapter_revision": "codex-history-adapter-1", "release": "0.151.0"},
   "provider_ids": ["openai"],
+  "history_modes": ["legacy", "paginated"],
   "failure": {"exit_status": 2, "stdout": "", "stderr": "codex-control-plane: history_adapter_unavailable\n"},
   "generated_schema_sha256": {
     "v1/InitializeParams.json": "6f0094be9a65242ec779a40794cbd4fdfa32fca1e45084a16adfb50501d33ea2",
