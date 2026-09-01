@@ -617,6 +617,8 @@ export const begin = tool({
       manifestPath: tool.schema.string(),
       sliceId: tool.schema.string(),
       proceed: tool.schema.literal(true),
+      initiativeSourceRepository: tool.schema.string().optional(),
+      targetRepository: tool.schema.string().optional(),
     }).optional(),
   },
   async execute(args, context) {

@@ -2631,7 +2631,11 @@ availability, opaque identity, and portable-locator validation. New records begi
 with an empty adapter map. OpenCode attachment dual-writes an exact generic
 adapter and the legacy `runtime.opencode` compatibility branch. Schemas 3 and 4
 remain readable and `cycle-portabilize` remains schema 3 to schema 4 only. Native
-Codex identity remains outside this lifecycle slice.
+Codex identity remains outside this lifecycle slice. New schema-5 Begin records
+bind the canonical `primary_worktree` source locator to the initiating checkout's
+stable repository-and-branch worktree identity, so a linked source checkout is
+accepted while unrelated linked worktrees fail closed. Existing records without
+that identity retain Git-primary-worktree resolution without implicit migration.
 
 Schemas `1` through `3` remain readable without implicit rewriting.
 `cycle-portabilize --cycle-id ID` converts only a named active schema-3 cycle
