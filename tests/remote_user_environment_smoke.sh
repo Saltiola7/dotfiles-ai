@@ -60,7 +60,8 @@ damage_status=$?
 set -e
 test "$damage_status" -ne 0
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')" = failed_retryable
-rm -f "$HOME/.bashrc.saved"
+mv "$HOME/.bashrc.saved" "$HOME/.bashrc"
+chezmoi -c "$HOME/.config/dotfiles-ai/chezmoi.toml" -S "$source_root" apply --force
 remote-user-foundation retry
 
 install -d -m 0700 "$HOME/.local/state/dotfiles-ai/codex" "$HOME/.local/share/atuin"
@@ -92,3 +93,4 @@ test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.
 remote-user-foundation rollback
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
+printf 'remote user environment smoke passed\n'
