@@ -40,6 +40,9 @@ CURRENT_METHOD_REVISION = "3.29"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
+HISTORY_SOURCE_INPUT_HARD = 1024 * 1024
+HISTORY_SOURCE_OUTPUT_HARD = 256
+HISTORY_SOURCE_INTEGER_MAX = 9007199254740991
 REVIEW_MAX_LIMIT = 100
 REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
@@ -368,7 +371,327 @@ def review_unsafe(value):
     return (SECRET_VALUE.search(text) or HIGH_ENTROPY.search(text) or
             re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", text) or
             re.search(r"\b(?:https?|ftp)://", text, re.I) or
-            re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text))
+             re.search(r"(?<![A-Za-z0-9._~-])(?:~|/)[^\s`)'\"\]}]+", text))
+
+
+def history_source_fail(reason):
+    fail(f"history_source_{reason}")
+
+
+def history_source_object(value, keys):
+    if not isinstance(value, dict) or set(value) != set(keys):
+        history_source_fail("invalid_schema")
+    return value
+
+
+def history_source_integer(value, minimum=0, maximum=HISTORY_SOURCE_INTEGER_MAX):
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        history_source_fail("invalid_schema")
+    if maximum is not None and value > maximum:
+        history_source_fail("invalid_schema")
+    return value
+
+
+def history_source_identity(value):
+    if not isinstance(value, str) or not OPAQUE_ID.fullmatch(value):
+        history_source_fail("invalid_identity")
+    return value
+
+
+def history_source_digest(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        history_source_fail("invalid_digest")
+    return value
+
+
+def history_source_canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def history_source_hash(value):
+    return hashlib.sha256(history_source_canonical(value)).hexdigest()
+
+
+def history_source_ascii(value, maximum):
+    if (not isinstance(value, str) or not 1 <= len(value.encode("ascii", "ignore")) <= maximum
+            or any(ord(character) < 32 or ord(character) > 126 for character in value)):
+        history_source_fail("invalid_schema")
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError:
+        history_source_fail("invalid_schema")
+    return value
+
+
+def validate_history_source(value):
+    envelope = history_source_object(value, {"request", "page"})
+    request = history_source_object(envelope["request"], {"schema_version", "limit", "continuation"})
+    if history_source_integer(request["schema_version"], 1, 1) != 1:
+        history_source_fail("invalid_schema")
+    limit = history_source_integer(request["limit"], 1, 20)
+
+    def source(value):
+        item = history_source_object(value, {"harness_id", "adapter_revision", "release"})
+        history_source_identity(item["harness_id"])
+        history_source_identity(item["adapter_revision"])
+        history_source_ascii(item["release"], 128)
+        return item
+
+    def members(value):
+        if not isinstance(value, list) or len(value) > 100:
+            history_source_fail("invalid_membership")
+        result = []
+        seen = set()
+        for raw in value:
+            member = history_source_object(raw, {"session_id", "updated_at"})
+            session_id = history_source_identity(member["session_id"])
+            updated_at = history_source_integer(member["updated_at"])
+            if session_id in seen:
+                history_source_fail("invalid_membership")
+            seen.add(session_id)
+            result.append({"session_id": session_id, "updated_at": updated_at})
+        if result != sorted(result, key=lambda item: (-item["updated_at"], item["session_id"])):
+            history_source_fail("invalid_membership")
+        return result
+
+    def continuation(value):
+        item = history_source_object(value, {
+            "source", "snapshot_digest", "overflow", "members", "offset",
+            "previous_page_digest",
+        })
+        item_source = source(item["source"])
+        snapshot = history_source_digest(item["snapshot_digest"])
+        if not isinstance(item["overflow"], bool):
+            history_source_fail("invalid_schema")
+        item_members = members(item["members"])
+        if not item_members:
+            history_source_fail("invalid_membership")
+        offset = history_source_integer(item["offset"], 1, len(item_members))
+        if offset >= len(item_members):
+            history_source_fail("invalid_membership")
+        previous = history_source_digest(item["previous_page_digest"])
+        return {
+            "source": item_source, "snapshot_digest": snapshot, "overflow": item["overflow"],
+            "members": item_members, "offset": offset, "previous_page_digest": previous,
+        }
+
+    incoming = None if request["continuation"] is None else continuation(request["continuation"])
+    page = history_source_object(envelope["page"], {
+        "schema_version", "source", "snapshot_digest", "overflow", "members", "entries",
+        "continuation", "page_digest",
+    })
+    if history_source_integer(page["schema_version"], 1, 1) != 1 or not isinstance(page["overflow"], bool):
+        history_source_fail("invalid_schema")
+    page_source = source(page["source"])
+    page_members = members(page["members"])
+    if page["overflow"] and len(page_members) != 100:
+        history_source_fail("invalid_membership")
+    snapshot_digest = history_source_digest(page["snapshot_digest"])
+    expected_snapshot = history_source_hash({
+        "members": page_members, "overflow": page["overflow"], "source": page_source,
+    })
+    if snapshot_digest != expected_snapshot:
+        history_source_fail("snapshot_mismatch")
+
+    start = 0
+    if incoming is not None:
+        start = incoming["offset"]
+        if any((incoming["source"] != page_source,
+                incoming["snapshot_digest"] != snapshot_digest,
+                incoming["overflow"] != page["overflow"],
+                incoming["members"] != page_members)):
+            history_source_fail("stale_continuation")
+
+    if not isinstance(page["entries"], list) or len(page["entries"]) > 20:
+        history_source_fail("invalid_entries")
+    end = min(start + limit, len(page_members))
+    expected_ids = [item["session_id"] for item in page_members[start:end]]
+    if len(page["entries"]) != len(expected_ids):
+        history_source_fail("invalid_entries")
+
+    source_kinds = {
+        "cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
+        "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown",
+    }
+    availability_statuses = {"available", "unavailable", "partial", "not_requested"}
+
+    def availability(value):
+        if not isinstance(value, dict) or set(value) not in ({"status"}, {"status", "reason"}):
+            history_source_fail("invalid_availability")
+        status = value.get("status")
+        if not isinstance(status, str) or status not in availability_statuses:
+            history_source_fail("invalid_availability")
+        if status in {"unavailable", "partial"}:
+            if set(value) != {"status", "reason"}:
+                history_source_fail("invalid_availability")
+            history_source_ascii(value["reason"], 256)
+        elif set(value) != {"status"}:
+            history_source_fail("invalid_availability")
+        return status
+
+    actual_ids = []
+    for raw in page["entries"]:
+        entry = history_source_object(raw, {
+            "session_id", "family_id", "parent_id", "created_at", "updated_at", "workspace",
+            "project_digest", "source_kind", "provider_id", "content", "tool_signals",
+            "aggregates", "metrics", "availability",
+        })
+        session_id = history_source_identity(entry["session_id"])
+        actual_ids.append(session_id)
+        history_source_identity(entry["family_id"])
+        if entry["parent_id"] is not None:
+            history_source_identity(entry["parent_id"])
+        created_at = history_source_integer(entry["created_at"])
+        updated_at = history_source_integer(entry["updated_at"])
+        if updated_at < created_at:
+            history_source_fail("invalid_timestamp")
+        if (not isinstance(entry["workspace"], str)
+                or entry["workspace"] not in {"primary_worktree", "cycle_worktree", "unknown"}):
+            history_source_fail("invalid_schema")
+        history_source_digest(entry["project_digest"])
+        if not isinstance(entry["source_kind"], str) or entry["source_kind"] not in source_kinds:
+            history_source_fail("invalid_schema")
+        history_source_identity(entry["provider_id"])
+
+        content = entry["content"]
+        if not isinstance(content, list) or len(content) > 100:
+            history_source_fail("invalid_content")
+        roles = {"user": 0, "assistant": 0}
+        for raw_text in content:
+            text = history_source_object(raw_text, {"role", "text"})
+            if text["role"] not in roles or not isinstance(text["text"], str):
+                history_source_fail("invalid_content")
+            encoded = text["text"].encode("utf-8")
+            if (not 1 <= len(encoded) <= 8192
+                    or any(ord(character) < 32 or 127 <= ord(character) <= 159
+                           for character in text["text"])
+                    or review_unsafe(text["text"])
+                    or re.search(
+                        r"(?i)(?:[A-Z]:[\\/]|\\\\[^\\/\s]+[\\/]|(?<![\\A-Za-z0-9._-])\\(?!\\)\S+)",
+                        text["text"],
+                    )):
+                history_source_fail("unsafe_content")
+            roles[text["role"]] += 1
+
+        signals = entry["tool_signals"]
+        if not isinstance(signals, list) or len(signals) > 100:
+            history_source_fail("invalid_tool_signals")
+        signal_ids, error_count = set(), 0
+        for raw_signal in signals:
+            signal = history_source_object(raw_signal, {
+                "signal_id", "tool", "status", "failure_class", "recovered", "timestamp",
+            })
+            if not isinstance(signal["signal_id"], str) or not re.fullmatch(r"[0-9a-f]{24}", signal["signal_id"]):
+                history_source_fail("invalid_tool_signals")
+            if signal["signal_id"] in signal_ids:
+                history_source_fail("invalid_tool_signals")
+            signal_ids.add(signal["signal_id"])
+            if (not isinstance(signal["tool"], str)
+                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", signal["tool"])):
+                history_source_fail("invalid_tool_signals")
+            if (not isinstance(signal["status"], str)
+                    or signal["status"] not in {"error", "failed", "completed", "success"}):
+                history_source_fail("invalid_tool_signals")
+            failed = signal["status"] in {"error", "failed"}
+            if not isinstance(signal["failure_class"], str) or signal["failure_class"] not in {
+                    "command", "permission", "timeout", "network", "validation", "unknown", "none"}:
+                history_source_fail("invalid_tool_signals")
+            if failed == (signal["failure_class"] == "none"):
+                history_source_fail("invalid_tool_signals")
+            if not isinstance(signal["recovered"], bool):
+                history_source_fail("invalid_tool_signals")
+            history_source_integer(signal["timestamp"])
+            error_count += int(failed)
+
+        aggregates = history_source_object(entry["aggregates"], {
+            "turn_count", "user_message_count", "assistant_message_count",
+            "tool_call_count", "tool_error_count",
+        })
+        for name in aggregates:
+            history_source_integer(aggregates[name])
+        if (aggregates["user_message_count"] != roles["user"]
+                or aggregates["assistant_message_count"] != roles["assistant"]
+                or aggregates["tool_call_count"] != len(signals)
+                or aggregates["tool_error_count"] != error_count):
+            history_source_fail("aggregate_mismatch")
+
+        metrics = history_source_object(entry["metrics"], {"token_total", "cost_total"})
+        if metrics["token_total"] is not None:
+            history_source_integer(metrics["token_total"])
+        if (metrics["cost_total"] is not None
+                and (not isinstance(metrics["cost_total"], str)
+                     or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?", metrics["cost_total"]))):
+            history_source_fail("invalid_metrics")
+        statuses = history_source_object(entry["availability"], {"content", "tokens", "cost"})
+        content_status = availability(statuses["content"])
+        token_status = availability(statuses["tokens"])
+        cost_status = availability(statuses["cost"])
+        if content_status in {"unavailable", "not_requested"} and content:
+            history_source_fail("availability_mismatch")
+        if ((token_status == "available") != (metrics["token_total"] is not None)
+                or token_status in {"unavailable", "not_requested"} and metrics["token_total"] is not None
+                or (cost_status == "available") != (metrics["cost_total"] is not None)
+                or cost_status in {"unavailable", "not_requested"} and metrics["cost_total"] is not None):
+            history_source_fail("availability_mismatch")
+
+    if actual_ids != expected_ids:
+        history_source_fail("entry_membership_mismatch")
+    if any(entry["updated_at"] != member["updated_at"]
+           for entry, member in zip(page["entries"], page_members[start:end])):
+        history_source_fail("entry_membership_mismatch")
+
+    page_preimage = {key: page[key] for key in (
+        "entries", "members", "overflow", "schema_version", "snapshot_digest", "source",
+    )}
+    expected_page_digest = history_source_hash(page_preimage)
+    if history_source_digest(page["page_digest"]) != expected_page_digest:
+        history_source_fail("page_digest_mismatch")
+    if end < len(page_members):
+        outgoing = continuation(page["continuation"])
+        expected_outgoing = {
+            "source": page_source, "snapshot_digest": snapshot_digest,
+            "overflow": page["overflow"], "members": page_members, "offset": end,
+            "previous_page_digest": expected_page_digest,
+        }
+        if outgoing != expected_outgoing:
+            history_source_fail("continuation_mismatch")
+    elif page["continuation"] is not None:
+        history_source_fail("continuation_mismatch")
+    return expected_page_digest
+
+
+def command_history_source_validate(args):
+    if args.envelope_json != "-":
+        history_source_fail("stdin_required")
+    raw = sys.stdin.buffer.read(HISTORY_SOURCE_INPUT_HARD + 1)
+    if len(raw) > HISTORY_SOURCE_INPUT_HARD:
+        history_source_fail("input_too_large")
+
+    def pairs(values):
+        result = {}
+        for key, value in values:
+            if key in result:
+                history_source_fail("duplicate_key")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
+    except UnicodeDecodeError:
+        history_source_fail("invalid_utf8")
+    except (json.JSONDecodeError, ValueError, RecursionError):
+        history_source_fail("invalid_json")
+    try:
+        page_digest = validate_history_source(value)
+    except RuntimeError:
+        raise
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        history_source_fail("invalid_schema")
+    result = {"schema_version": 1, "status": "valid", "page_digest": page_digest}
+    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode()) > HISTORY_SOURCE_OUTPUT_HARD:
+        history_source_fail("output_too_large")
+    print(encoded)
 
 
 def review_digest(candidates, snapshot, session_ceiling=None, part_ceiling=None, database_digest=None):
@@ -13151,6 +13474,9 @@ def parser():
     incident_forget.add_argument("--message-id", required=True)
     incident_forget.add_argument("--incident-id", required=True)
     incident_forget.set_defaults(func=command_incident_forget)
+    history_source = commands.add_parser("history-source-validate")
+    history_source.add_argument("--envelope-json", required=True)
+    history_source.set_defaults(func=command_history_source_validate)
     review_history = commands.add_parser("review-history")
     review_history.add_argument("--database")
     review_history.add_argument("--archive-only", action="store_true")
@@ -13498,6 +13824,9 @@ def parser():
 
 def main():
     try:
+        if sys.argv[1:2] == ["history-source-validate"] and (
+                len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
+            history_source_fail("invalid_arguments")
         args = parser().parse_args()
         args.func(args)
     except SourceIndexUnavailable:

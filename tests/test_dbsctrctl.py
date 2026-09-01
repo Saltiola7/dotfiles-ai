@@ -21,6 +21,10 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
+HISTORY_SOURCE_SCHEMA = (
+    Path(__file__).parents[1]
+    / "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
+)
 GATES = (
     "domain", "behavior", "spec", "contract", "test_driven_implementation",
     "refactor", "review_integrate", "release", "deploy", "operate", "maintain_retire",
@@ -98,6 +102,308 @@ def ledger_text(state):
         return "".join(values)
     finally:
         connection.close()
+
+
+def history_source_envelope(continued=False):
+    source = {"harness_id": "codex", "adapter_revision": "codex-adapter-1", "release": "0.151.0"}
+    members = [
+        {"session_id": "session-new", "updated_at": 20},
+        {"session_id": "session-old", "updated_at": 10},
+    ]
+    snapshot = hashlib.sha256(json.dumps(
+        {"members": members, "overflow": False, "source": source},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode()).hexdigest()
+
+    def entry(session_id, created, updated):
+        return {
+            "session_id": session_id,
+            "family_id": session_id,
+            "parent_id": None,
+            "created_at": created,
+            "updated_at": updated,
+            "workspace": "primary_worktree",
+            "project_digest": "a" * 64,
+            "source_kind": "exec",
+            "provider_id": "openai",
+            "content": [
+                {"role": "user", "text": "bounded request"},
+                {"role": "assistant", "text": "bounded response"},
+            ],
+            "tool_signals": [{
+                "signal_id": "b" * 24,
+                "tool": "bash",
+                "status": "failed",
+                "failure_class": "command",
+                "recovered": False,
+                "timestamp": updated,
+            }],
+            "aggregates": {
+                "turn_count": 1,
+                "user_message_count": 1,
+                "assistant_message_count": 1,
+                "tool_call_count": 1,
+                "tool_error_count": 1,
+            },
+            "metrics": {"token_total": 10, "cost_total": "1.25"},
+            "availability": {
+                "content": {"status": "available"},
+                "tokens": {"status": "available"},
+                "cost": {"status": "available"},
+            },
+        }
+
+    first_page = {
+        "schema_version": 1,
+        "source": source,
+        "snapshot_digest": snapshot,
+        "overflow": False,
+        "members": members,
+        "entries": [entry("session-new", 15, 20)],
+    }
+    first_digest = hashlib.sha256(json.dumps(
+        first_page, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode()).hexdigest()
+    continuation = {
+        "source": source,
+        "snapshot_digest": snapshot,
+        "overflow": False,
+        "members": members,
+        "offset": 1,
+        "previous_page_digest": first_digest,
+    }
+    if not continued:
+        first_page.update({"continuation": continuation, "page_digest": first_digest})
+        return {"request": {"schema_version": 1, "limit": 1, "continuation": None}, "page": first_page}
+    second_page = {
+        "schema_version": 1,
+        "source": source,
+        "snapshot_digest": snapshot,
+        "overflow": False,
+        "members": members,
+        "entries": [entry("session-old", 5, 10)],
+    }
+    second_digest = hashlib.sha256(json.dumps(
+        second_page, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode()).hexdigest()
+    second_page.update({"continuation": None, "page_digest": second_digest})
+    return {"request": {"schema_version": 1, "limit": 1, "continuation": continuation}, "page": second_page}
+
+
+def update_history_page_digest(envelope):
+    page = envelope["page"]
+    preimage = {key: page[key] for key in (
+        "entries", "members", "overflow", "schema_version", "snapshot_digest", "source",
+    )}
+    page["page_digest"] = hashlib.sha256(json.dumps(
+        preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode()).hexdigest()
+    if page["continuation"] is not None:
+        page["continuation"]["previous_page_digest"] = page["page_digest"]
+    return envelope
+
+
+def run_history_source(tmp_path, value, *, ok=True, input_text=None, argument="-"):
+    state = tmp_path / "state"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "history-source-validate", "--envelope-json", argument],
+        input=json.dumps(value) if input_text is None else input_text,
+        text=True,
+        capture_output=True,
+        env={**isolated_env(), "DBSCTR_STATE_ROOT": str(state)},
+    )
+    assert (result.returncode == 0) is ok
+    assert not state.exists()
+    return result
+
+
+def test_history_source_validator_accepts_first_and_continued_pages_without_content_output(tmp_path):
+    for continued in (False, True):
+        envelope = history_source_envelope(continued)
+        if not continued:
+            assert envelope["page"]["snapshot_digest"] == "cfa70abb7cfcb8aca9c397f0091cf168cd842978bce7df7ed64c9018ed9cd0a2"
+            assert envelope["page"]["page_digest"] == "b5123fc3c74928792781bb95d7f144ab2f77fc02c2ca2dd3ff82c6f2f54bccc1"
+        result = run_history_source(tmp_path, envelope)
+        assert json.loads(result.stdout) == {
+            "schema_version": 1,
+            "status": "valid",
+            "page_digest": envelope["page"]["page_digest"],
+        }
+        assert "bounded" not in result.stdout
+        assert result.stderr == ""
+
+
+def test_history_source_unicode_digest_matches_python_and_javascript(tmp_path):
+    envelope = history_source_envelope()
+    envelope["page"]["entries"][0]["content"][0]["text"] = "café 😀"
+    update_history_page_digest(envelope)
+    assert envelope["page"]["page_digest"] == "4bd30972bd3331115ccef542c26bb3724b3dfac1a4d4eb4a8e920731f64f9ef3"
+    result = run_history_source(tmp_path, envelope)
+    assert json.loads(result.stdout)["page_digest"] == envelope["page"]["page_digest"]
+
+    node = shutil.which("node")
+    assert node is not None
+    script = r'''
+const crypto = require("crypto");
+const input = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const sort = value => Array.isArray(value) ? value.map(sort) : value && typeof value === "object"
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sort(value[key])])) : value;
+let canonical = JSON.stringify(sort(input));
+let ascii = "";
+for (const character of canonical) {
+  let point = character.codePointAt(0);
+  if (point <= 127) { ascii += character; continue; }
+  if (point <= 65535) { ascii += "\\u" + point.toString(16).padStart(4, "0"); continue; }
+  point -= 65536;
+  ascii += "\\u" + (55296 + (point >> 10)).toString(16).padStart(4, "0");
+  ascii += "\\u" + (56320 + (point & 1023)).toString(16).padStart(4, "0");
+}
+process.stdout.write(crypto.createHash("sha256").update(ascii).digest("hex"));
+'''
+    preimage = {key: envelope["page"][key] for key in (
+        "entries", "members", "overflow", "schema_version", "snapshot_digest", "source",
+    )}
+    javascript = subprocess.run(
+        [node, "-e", script], input=json.dumps(preimage, ensure_ascii=False),
+        text=True, capture_output=True, check=True,
+    )
+    assert javascript.stdout == envelope["page"]["page_digest"]
+
+
+def test_history_source_validator_rejects_schema_privacy_and_semantic_failures(tmp_path):
+    cases = [
+        (lambda value: value["page"].update({"unknown": True}), "invalid_schema"),
+        (lambda value: value["page"].update({"snapshot_digest": "0" * 64}), "snapshot_mismatch"),
+        (lambda value: value["page"]["members"].reverse(), "invalid_membership"),
+        (lambda value: value["page"]["entries"][0].update({"updated_at": 1}), "invalid_timestamp"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": "https://unsafe.invalid"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": r"C:\Users\private\secret.txt"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": r"\\server\share\secret.txt"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": r"\Users\private\secret.txt"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": r"path=\Users\private\secret.txt"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": r"root:\Users\private\secret.txt"}), "unsafe_content"),
+        (lambda value: value["page"]["entries"][0]["content"][0].update({"text": "é" * 5000}), "unsafe_content"),
+        (lambda value: value["request"].update({"schema_version": True}), "invalid_schema"),
+        (lambda value: value["page"].update({"schema_version": True}), "invalid_schema"),
+        (lambda value: value["page"]["entries"][0].update({"workspace": []}), "invalid_schema"),
+        (lambda value: value["page"]["entries"][0].update({"source_kind": {}}), "invalid_schema"),
+        (lambda value: value["page"]["entries"][0]["tool_signals"][0].update({"status": []}), "invalid_tool_signals"),
+        (lambda value: value["page"]["entries"][0]["tool_signals"][0].update({"failure_class": []}), "invalid_tool_signals"),
+        (lambda value: value["page"]["members"][0].update({"updated_at": 9007199254740992}), "invalid_schema"),
+        (lambda value: value["page"]["members"].__setitem__(1, dict(value["page"]["members"][0])), "invalid_membership"),
+        (lambda value: value["page"].update({"overflow": True}), "invalid_membership"),
+        (lambda value: value["page"]["entries"][0].update({"session_id": "wrong-session"}), "entry_membership_mismatch"),
+        (lambda value: value["page"]["entries"][0].update({"updated_at": 19}), "entry_membership_mismatch"),
+        (lambda value: value["page"]["entries"][0]["availability"]["tokens"].update({"status": "unavailable", "reason": "missing"}), "availability_mismatch"),
+        (lambda value: value["page"].update({"page_digest": "0" * 64}), "page_digest_mismatch"),
+        (lambda value: value["page"]["continuation"].update({"offset": 2}), "invalid_membership"),
+        (lambda value: value["page"]["continuation"].update({"previous_page_digest": "0" * 64}), "continuation_mismatch"),
+    ]
+    for mutation, reason in cases:
+        envelope = history_source_envelope()
+        mutation(envelope)
+        result = run_history_source(tmp_path, envelope, ok=False)
+        assert result.stdout == ""
+        assert result.stderr.strip() == f"dbsctrctl: history_source_{reason}"
+
+
+def test_history_source_validator_rejects_stale_continuation_and_unsafe_input(tmp_path):
+    stale = history_source_envelope(continued=True)
+    stale["request"]["continuation"]["source"] = {
+        **stale["request"]["continuation"]["source"], "release": "0.152.0",
+    }
+    result = run_history_source(tmp_path, stale, ok=False)
+    assert "history_source_stale_continuation" in result.stderr
+
+    stale = history_source_envelope(continued=True)
+    stale["request"]["continuation"]["members"] = list(reversed(
+        stale["request"]["continuation"]["members"]
+    ))
+    result = run_history_source(tmp_path, stale, ok=False)
+    assert "history_source_invalid_membership" in result.stderr
+
+    stale = history_source_envelope(continued=True)
+    stale["request"]["continuation"]["snapshot_digest"] = "0" * 64
+    result = run_history_source(tmp_path, stale, ok=False)
+    assert "history_source_stale_continuation" in result.stderr
+
+    terminal = history_source_envelope(continued=True)
+    terminal["page"]["continuation"] = history_source_envelope()["page"]["continuation"]
+    result = run_history_source(tmp_path, terminal, ok=False)
+    assert "history_source_continuation_mismatch" in result.stderr
+
+    duplicate = '{"request":{},"request":{},"page":{}}'
+    result = run_history_source(tmp_path, {}, ok=False, input_text=duplicate)
+    assert "history_source_duplicate_key" in result.stderr
+
+    state = tmp_path / "invalid-utf8-state"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "history-source-validate", "--envelope-json", "-"],
+        input=b"\xff", capture_output=True,
+        env={**isolated_env(), "DBSCTR_STATE_ROOT": str(state)},
+    )
+    assert result.returncode == 1
+    assert result.stdout == b""
+    assert result.stderr.strip() == b"dbsctrctl: history_source_invalid_utf8"
+    assert not state.exists()
+
+    result = run_history_source(tmp_path, {}, ok=False, input_text="x" * (1024 * 1024 + 1))
+    assert "history_source_input_too_large" in result.stderr
+
+    result = run_history_source(tmp_path, {}, ok=False, input_text="[" * 1000)
+    assert result.stderr.strip() == "dbsctrctl: history_source_invalid_json"
+
+    result = run_history_source(tmp_path, {}, ok=False, input_text='{"value":' + "9" * 5000 + "}")
+    assert result.stderr.strip() == "dbsctrctl: history_source_invalid_json"
+
+    private = tmp_path / "private.json"
+    private.write_text(json.dumps(history_source_envelope()))
+    result = run_history_source(tmp_path, {}, ok=False, argument=str(private))
+    assert result.stderr.strip() == "dbsctrctl: history_source_stdin_required"
+    assert private.exists()
+
+
+def test_history_source_parser_failures_are_bounded(tmp_path):
+    commands = [
+        ["history-source-validate"],
+        ["history-source-validate", "--unknown", "private"],
+        ["history-source-validate", "--envelope-json", "-", "--envelope-json", "-"],
+    ]
+    for arguments in commands:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), *arguments], text=True, capture_output=True,
+            env=isolated_env(),
+        )
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert result.stderr.strip() == "dbsctrctl: history_source_invalid_arguments"
+        assert len(result.stderr.encode()) <= 256
+
+
+def test_history_source_authoritative_schema_matches_portability_contract():
+    schema = json.loads(HISTORY_SOURCE_SCHEMA.read_text())
+    assert schema["$ref"] == "#/$defs/envelope"
+    assert schema["$defs"]["page"]["additionalProperties"] is False
+    assert schema["$defs"]["envelope"]["additionalProperties"] is False
+    integer_nodes = []
+
+    def visit(value):
+        if isinstance(value, dict):
+            kind = value.get("type")
+            if kind == "integer" or isinstance(kind, list) and "integer" in kind:
+                integer_nodes.append(value)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(schema)
+    assert integer_nodes
+    assert all(node["maximum"] <= 9007199254740991 for node in integer_nodes)
+    assert schema["$defs"]["metrics"]["properties"]["cost_total"]["anyOf"][0] == {
+        "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$",
+    }
 
 
 class DbsctrctlTest(unittest.TestCase):

@@ -18,6 +18,7 @@ ARTIFACTS = (
     ".local/bin/codex-install",
     ".local/bin/codex-project",
     ".local/bin/codex-rollback",
+    ".local/bin/dbsctrctl",
     ".local/libexec/dotfiles-ai/codex",
     ".config/dotfiles-ai/chezmoi.toml",
     ".config/dotfiles-ai/codex-managed",
