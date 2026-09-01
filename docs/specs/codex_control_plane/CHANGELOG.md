@@ -1,5 +1,14 @@
 # Codex Control Plane Changelog
 
+## 2026-09-01 - Paginated Stable Read Readiness
+
+- Reopened adapter readiness after the current host exposed only paginated
+  threads. A body-free probe confirmed stable `thread/read(includeTurns=true)`
+  returns full item views without turn/item pagination.
+- Allowed frozen legacy and paginated modes through that same stable full-read
+  boundary. Experimental or explicit turn/item pagination remains prohibited;
+  missing, summary, or non-full item views fail closed.
+
 ## 2026-09-01 - History Adapter Applicability Plan
 
 - Added the committed gate-applicability plan required by typed same-session
