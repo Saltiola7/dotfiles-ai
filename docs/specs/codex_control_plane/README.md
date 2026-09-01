@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Exact identity delivered; generic history source ready
+**Status:** Exact identity and generic history source delivered; Codex history adapter ready
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -267,24 +267,22 @@ terminal without implementation.
 
 ## Interfaces
 
-### History parity slice
+### History adapter slice
 
-History parity remains captured until the lifecycle-owned
-`generic-history-source-pages` predecessor is delivered. The Codex slice will
-then own stable `thread/list` plus stable `thread/read` with
-`includeTurns: true`, exact app-server-to-page conversion, and explicit mappings
-into existing review-history, incident-scan, and history-telemetry schemas.
-Benchmarks continue through existing immutable capture and save/replay contracts;
-the Codex adapter will not invent a benchmark identity or result from one page.
+The ready adapter is the private, read-only boundary between stable Codex
+app-server methods and the delivered `generic-history-source-pages` validator. Its complete
+wire, conversion, privacy, and body-free probe contract is
+[`history-adapter.md`](features/history-adapter.md). Generic pages never become
+shell or hosted-provider output; they remain in one local adapter process for a
+later reducer.
 
-Private request, continuation, and thread identity will travel through bounded
-stdin JSON rather than command arguments. The exact Codex commands and
-operation-specific reducer mappings remain Discovery-owned readiness work after
-the generic validator is delivered; Build must not infer them in the predecessor
-slice.
+`codex-history-parity` remains captured behind the adapter. Discovery must still
+define closed review, Incident, telemetry, immutable-capture, and benchmark
+reducers before promoting that slice. A source page alone does not satisfy any
+consumer or benchmark contract.
 
 Only supported user-message and agent-message text may enter future `content`.
-Text is bounded and redacted locally; reasoning, images, credentials,
+Text is bounded and privacy-validated locally; unsafe text rejects the operation. Reasoning, images, credentials,
 high-entropy tokens, URLs, absolute paths, tool commands, arguments, output,
 environment, and raw protocol fields never enter a page. Supported tool items
 may contribute only bounded status signals and counts. Missing token or cost data
