@@ -8,11 +8,13 @@ import re
 import stat
 import subprocess
 import tempfile
+import tomllib
 
 
 SOURCE = Path(os.environ.get(
     "DOTFILES_AI_SOURCE", "~/.local/share/chezmoi-dotfiles-ai"
 )).expanduser()
+HOME = Path(os.environ.get("HOME", ""))
 CONFIG = Path(os.environ.get(
     "DOTFILES_AI_CONFIG", "~/.config/dotfiles-ai/chezmoi.toml"
 )).expanduser()
@@ -25,6 +27,38 @@ STATES = {
     "absent", "foundation_pending", "foundation_ready", "auth_pending",
     "ready", "failed_retryable",
 }
+
+
+def safe_path(path: Path, kind: str | None = None, mode: int | None = None) -> None:
+    try:
+        relative = path.absolute().relative_to(HOME.absolute())
+    except ValueError:
+        raise RuntimeError("foundation path is unsafe") from None
+    current = HOME.absolute()
+    for part in relative.parts:
+        current /= part
+        if not os.path.lexists(current):
+            continue
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise RuntimeError("foundation path is unsafe")
+    if kind == "directory" and not path.is_dir():
+        raise RuntimeError("foundation path is unsafe")
+    if kind == "file" and not path.is_file():
+        raise RuntimeError("foundation path is unsafe")
+    if kind == "executable" and (not path.is_file() or not os.access(path, os.X_OK)):
+        raise RuntimeError("foundation path is unsafe")
+    if mode is not None and stat.S_IMODE(path.stat().st_mode) != mode:
+        raise RuntimeError("foundation path is unsafe")
+
+
+def validate_home() -> None:
+    if not HOME.is_absolute() or not os.path.lexists(HOME):
+        raise RuntimeError("foundation home is unsafe")
+    metadata = HOME.lstat()
+    if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()):
+        raise RuntimeError("foundation home is unsafe")
 
 
 def initial_state() -> dict:
@@ -41,9 +75,9 @@ def initial_state() -> dict:
 
 
 def read_state() -> dict:
-    if not STATE.exists():
+    if not os.path.lexists(STATE):
         return initial_state()
-    metadata = STATE.stat()
+    metadata = STATE.lstat()
     if (STATE.is_symlink() or not STATE.is_file() or metadata.st_uid != os.getuid()
             or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 1_000_000):
         raise SystemExit("foundation state is unsafe")
@@ -61,16 +95,18 @@ def read_state() -> dict:
             or not isinstance(targets, list)
             or not isinstance(previous_targets, list)
             or any(not isinstance(target, str) or not target or "\n" in target
-                   or len(target) > 4096
-                   for target in targets + previous_targets)):
+                    or len(target) > 4096 or Path(target).is_absolute()
+                    or ".." in Path(target).parts
+                    for target in targets + previous_targets)):
         raise SystemExit("foundation state is invalid")
     return value
 
 
 def write_state(value: dict) -> None:
+    validate_home()
+    safe_path(STATE)
     STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if STATE.parent.is_symlink():
-        raise SystemExit("foundation state directory is unsafe")
+    safe_path(STATE.parent, "directory")
     descriptor, temporary = tempfile.mkstemp(prefix=".remote-user-foundation.", dir=STATE.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -96,7 +132,10 @@ def git(*arguments: str, capture: bool = False) -> subprocess.CompletedProcess[s
 
 
 def lock() -> int:
+    validate_home()
+    safe_path(STATE)
     STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safe_path(STATE.parent, "directory")
     path = STATE.with_suffix(STATE.suffix + ".lock")
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     metadata = os.fstat(descriptor)
@@ -128,6 +167,9 @@ def apply(revision: str) -> None:
         "state": "foundation_pending",
     })
     try:
+        validate_home()
+        safe_path(SOURCE, "directory")
+        safe_path(CONFIG, "file", 0o600)
         git("cat-file", "-e", f"{revision}^{{commit}}", capture=True)
         resolved = git("rev-parse", revision, capture=True).stdout.strip()
         if resolved != revision:
@@ -164,7 +206,70 @@ def apply(revision: str) -> None:
         raise SystemExit("foundation apply failed") from None
 
 
-def main() -> None:
+def validate_integrity(state: dict) -> Path:
+    validate_home()
+    if (state["state"] not in {"foundation_ready", "auth_pending", "ready"}
+            or not state.get("revision")
+            or state.get("desired_revision") != state["revision"]):
+        raise RuntimeError("foundation state is not refreshable")
+    safe_path(SOURCE, "directory")
+    safe_path(CONFIG, "file", 0o600)
+    if git("rev-parse", "HEAD", capture=True).stdout.strip() != state["revision"]:
+        raise RuntimeError("foundation revision changed")
+    git("diff", "--quiet", capture=True)
+    git("diff", "--cached", "--quiet", capture=True)
+    command("chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "verify", capture=True)
+    for target in state["managed_targets"]:
+        safe_path(HOME / target)
+        if not os.path.lexists(HOME / target):
+            raise RuntimeError("foundation target is missing")
+    data_path = SOURCE / ".chezmoidata.toml"
+    safe_path(data_path, "file")
+    data = tomllib.loads(data_path.read_text())["dotfiles_ai"]
+    binaries = HOME / ".local/bin"
+    required = {
+        "codex": f"codex-cli {data['codex']['version']}",
+        "herdr": f"herdr {data['herdr']['version']}",
+        "opencode": data["opencode"]["version"],
+    }
+    for name in ("gcloud", "op", "remote-agent-readiness", *required):
+        safe_path(binaries / name, "executable")
+    for name, expected in required.items():
+        output = command(str(binaries / name), "--version", capture=True).stdout.strip()
+        if output != expected:
+            raise RuntimeError("foundation runtime version changed")
+    return binaries / "remote-agent-readiness"
+
+
+def refresh_auth() -> None:
+    current = read_state()
+    try:
+        readiness = validate_integrity(current)
+        result = subprocess.run(
+            [str(readiness)], text=True, capture_output=True, timeout=60,
+        )
+        if len(result.stdout) > 65536:
+            raise RuntimeError("foundation readiness output is invalid")
+        value = json.loads(result.stdout)
+        expected = {"codex", "onepassword", "openai", "state", "vertex"}
+        probes = {value.get(name) for name in expected - {"state"}}
+        if (set(value) != expected or not probes <= {"success", "failure"}
+                or value.get("state") not in {"auth_pending", "ready"}
+                or (value["state"] == "ready") != (result.returncode == 0)
+                or (value["state"] == "ready") != (probes == {"success"})):
+            raise RuntimeError("foundation readiness output is invalid")
+        write_state({**current, "state": value["state"]})
+        if value["state"] == "auth_pending":
+            raise SystemExit(1)
+    except SystemExit:
+        raise
+    except (KeyError, OSError, RuntimeError, subprocess.CalledProcessError,
+            subprocess.TimeoutExpired, tomllib.TOMLDecodeError, json.JSONDecodeError):
+        write_state({**current, "state": "failed_retryable"})
+        raise SystemExit("foundation integrity check failed") from None
+
+
+def run_operation() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="operation", required=True)
     apply_parser = subparsers.add_parser("apply")
@@ -172,6 +277,7 @@ def main() -> None:
     subparsers.add_parser("retry")
     subparsers.add_parser("rollback")
     subparsers.add_parser("status")
+    subparsers.add_parser("refresh-auth")
     arguments = parser.parse_args()
     state = read_state()
     if arguments.operation == "status":
@@ -182,6 +288,8 @@ def main() -> None:
         state = read_state()
         if arguments.operation == "apply":
             apply(arguments.revision)
+        elif arguments.operation == "refresh-auth":
+            refresh_auth()
         elif arguments.operation == "retry":
             if not state.get("desired_revision"):
                 raise SystemExit("no foundation revision is available to retry")
@@ -192,6 +300,13 @@ def main() -> None:
             apply(state["previous_revision"])
     finally:
         os.close(descriptor)
+
+
+def main() -> None:
+    try:
+        run_operation()
+    except (OSError, RuntimeError, json.JSONDecodeError):
+        raise SystemExit("foundation operation failed") from None
 
 
 if __name__ == "__main__":

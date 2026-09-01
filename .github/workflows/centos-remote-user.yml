@@ -10,6 +10,7 @@ on:
       - "dot_local/bin/executable_codex-install.tmpl"
       - "dot_local/bin/executable_opencode*"
       - "dot_local/bin/executable_remote-agent-readiness.tmpl"
+      - "dot_local/bin/executable_remote-user-bootstrap"
       - "dot_local/bin/executable_remote-user-foundation"
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"

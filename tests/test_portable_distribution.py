@@ -206,6 +206,9 @@ def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> N
     gcloud = tmp_path / "gcloud"
     gcloud.write_text("#!/bin/sh\necho user@example.com\n")
     gcloud.chmod(0o755)
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "mise.toml").write_text("[tasks.remote-dev]\nrun = 'true'\n")
 
     result = subprocess.run(
         ["sh", str(ROOT / "dot_local/bin/executable_remote-workspace-doctor")],
@@ -214,7 +217,7 @@ def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> N
             "REMOTE_DEV_PROJECT": "example-project",
             "REMOTE_DEV_ZONE": "example-zone-a",
             "REMOTE_DEV_INSTANCE": "example-workspace",
-            "REMOTE_DEV_REPOSITORY": str(ROOT),
+            "REMOTE_DEV_REPOSITORY": str(repository),
             "REMOTE_DEV_TAILSCALE_HOST": "example-workspace.example.ts.net",
             "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(tmp_path / "missing.env"),
         },
@@ -225,9 +228,43 @@ def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> N
     assert result.stdout.strip() == "remote workspace prerequisites ready"
 
 
+def test_remote_workspace_doctor_rejects_missing_root_mise_before_gcloud(tmp_path: Path) -> None:
+    marker = tmp_path / "gcloud-called"
+    for command in ("herdr", "mise", "ssh"):
+        path = tmp_path / command
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+    gcloud.chmod(0o755)
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    result = subprocess.run(
+        ["sh", str(ROOT / "dot_local/bin/executable_remote-workspace-doctor")],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "REMOTE_DEV_PROJECT": "example-project",
+            "REMOTE_DEV_ZONE": "example-zone-a",
+            "REMOTE_DEV_INSTANCE": "example-workspace",
+            "REMOTE_DEV_REPOSITORY": str(repository),
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(tmp_path / "missing.env"),
+        },
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert result.stderr == "remote workspace repository requires root mise.toml\n"
+    assert not marker.exists()
+
+
 def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
+    (repository / "mise.toml").write_text("[tasks.remote-dev]\nrun = 'true'\n")
+    caller = tmp_path / "caller"
+    caller.mkdir()
     env_file = tmp_path / "remote-workspace.env"
     env_file.write_text(f'export REMOTE_DEV_REPOSITORY="{repository}"\n')
     mise = tmp_path / "mise"
@@ -238,8 +275,9 @@ def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> No
         [
             "sh",
             str(ROOT / "dot_local/bin/executable_remote-workspace"),
-            "remote-status",
-            "--verbose",
+            "remote-dev",
+            "--",
+            "iap",
         ],
         env={
             "PATH": f"{tmp_path}:/usr/bin:/bin",
@@ -248,10 +286,11 @@ def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> No
         text=True,
         capture_output=True,
         check=True,
+        cwd=caller,
     )
     assert result.stdout.splitlines() == [
         str(repository),
-        "run remote-status --verbose",
+        "run remote-dev -- iap",
     ]
 
 

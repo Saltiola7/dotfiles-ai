@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 COMMAND = ROOT / "dot_local/bin/executable_remote-user-foundation"
+BOOTSTRAP = ROOT / "dot_local/bin/executable_remote-user-bootstrap"
 
 
 def _render(path: str) -> str:
@@ -175,9 +176,9 @@ def _commit(repository: Path, content: str) -> str:
 
 def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subprocess.CompletedProcess[str]:
     home = tmp_path / "home"
-    source = tmp_path / "source"
-    state = tmp_path / "state.json"
-    config = tmp_path / "chezmoi.toml"
+    source = home / ".local/share/chezmoi-dotfiles-ai"
+    state = home / ".local/state/dotfiles-ai/remote-user-foundation.json"
+    config = home / ".config/dotfiles-ai/chezmoi.toml"
     binary = tmp_path / "bin"
     binary.mkdir(exist_ok=True)
     chezmoi = binary / "chezmoi"
@@ -185,6 +186,7 @@ def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subproce
         "#!/bin/sh\n"
         "case \" $* \" in\n"
         "  *' managed '*) printf '%s\\n' '.bashrc' '.config/opencode/opencode.json' ;;\n"
+        "  *' verify '*) exit 0 ;;\n"
         "  *' apply '*) test \"${FAIL_APPLY:-0}\" != 1 ;;\n"
         "  *) exit 2 ;;\n"
         "esac\n"
@@ -193,7 +195,7 @@ def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subproce
     environment = {
         **os.environ,
         "HOME": str(home),
-        "PATH": f"{binary}:{os.environ['PATH']}",
+        "PATH": f"{binary}:{home / '.local/bin'}:{os.environ['PATH']}",
         "DOTFILES_AI_SOURCE": str(source),
         "DOTFILES_AI_CONFIG": str(config),
         "DOTFILES_AI_FOUNDATION_STATE": str(state),
@@ -205,22 +207,209 @@ def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subproce
     )
 
 
+def _install_foundation_targets(tmp_path: Path, state: str = "auth_pending") -> Path:
+    home = tmp_path / "home"
+    config = home / ".config/dotfiles-ai/chezmoi.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("\n")
+    config.chmod(0o600)
+    (home / ".config/opencode").mkdir(parents=True, exist_ok=True)
+    (home / ".config/opencode/opencode.json").write_text("{}\n")
+    (home / ".bashrc").write_text("\n")
+    binary = home / ".local/bin"
+    binary.mkdir(parents=True, exist_ok=True)
+    versions = {
+        "codex": "codex-cli 0.151.0",
+        "gcloud": "Google Cloud SDK 580.0.0",
+        "herdr": "herdr 0.8.2",
+        "op": "2.39.0",
+        "opencode": "1.18.25",
+    }
+    for name, version in versions.items():
+        path = binary / name
+        path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{version}'\n")
+        path.chmod(0o755)
+    marker = tmp_path / "readiness-called"
+    readiness = binary / "remote-agent-readiness"
+    failed = state == "auth_pending"
+    readiness.write_text(
+        "#!/bin/sh\n"
+        f"touch '{marker}'\n"
+        f"printf '%s\\n' '{{\"codex\":\"{'failure' if failed else 'success'}\","
+        f"\"onepassword\":\"{'failure' if failed else 'success'}\","
+        f"\"openai\":\"{'failure' if failed else 'success'}\","
+        f"\"state\":\"{state}\",\"vertex\":\"{'failure' if failed else 'success'}\"}}'\n"
+        f"exit {1 if failed else 0}\n"
+    )
+    readiness.chmod(0o755)
+    return marker
+
+
+def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / ".local/share/chezmoi-dotfiles-ai"
+    source.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
+        cwd=source, check=True,
+    )
+    (source / "config.remote-user.example.toml").write_text(
+        'sourceDir = "/home/you/.local/share/chezmoi-dotfiles-ai"\n'
+        'persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"\n'
+    )
+    foundation = source / "dot_local/bin/executable_remote-user-foundation"
+    foundation.parent.mkdir(parents=True)
+    foundation.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >'{tmp_path / 'apply-args'}'\n")
+    foundation.chmod(0o755)
+    subprocess.run(
+        ["git", "add", "config.remote-user.example.toml", "dot_local/bin/executable_remote-user-foundation"],
+        cwd=source, check=True,
+    )
+    revision = _commit(source, "bootstrap")
+    local_bin = home / ".local/bin"
+    local_bin.mkdir(parents=True)
+    chezmoi = local_bin / "chezmoi"
+    chezmoi.write_text("#!/bin/sh\necho 'chezmoi version 2.69.4'\n")
+    chezmoi.chmod(0o755)
+
+    result = subprocess.run(
+        [str(BOOTSTRAP), "bootstrap", revision], text=True, capture_output=True,
+        env={
+            **os.environ,
+            "HOME": str(home),
+            "DOTFILES_AI_SOURCE": str(source),
+            "DOTFILES_AI_CONFIG": str(home / ".config/dotfiles-ai/chezmoi.toml"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = home / ".config/dotfiles-ai/chezmoi.toml"
+    assert str(home) in config.read_text()
+    assert "/home/you" not in config.read_text()
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert (tmp_path / "apply-args").read_text().strip() == f"apply {revision}"
+
+
+def test_remote_user_bootstrap_rejects_symlinked_home(tmp_path: Path) -> None:
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    home = tmp_path / "home"
+    home.symlink_to(real_home, target_is_directory=True)
+
+    result = subprocess.run(
+        [str(BOOTSTRAP), "bootstrap", "a" * 40], text=True, capture_output=True,
+        env={**os.environ, "HOME": str(home)},
+    )
+
+    assert result.returncode != 0
+    assert result.stderr == "bootstrap home is unsafe\n"
+
+
+def test_remote_user_bootstrap_rejects_abbreviated_revision(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = subprocess.run(
+        [str(BOOTSTRAP), "bootstrap", "a" * 12], text=True, capture_output=True,
+        env={**os.environ, "HOME": str(home)},
+    )
+
+    assert result.returncode != 0
+    assert result.stderr == "bootstrap revision must be a full commit identity\n"
+
+
+def _refreshable_foundation(tmp_path: Path) -> tuple[Path, Path]:
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / ".local/share/chezmoi-dotfiles-ai"
+    source.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    (source / ".chezmoidata.toml").write_text(
+        '[dotfiles_ai.codex]\nversion = "0.151.0"\n'
+        '[dotfiles_ai.opencode]\nversion = "1.18.25"\n'
+        '[dotfiles_ai.herdr]\nversion = "0.8.2"\n'
+    )
+    subprocess.run(["git", "add", ".chezmoidata.toml"], cwd=source, check=True)
+    revision = _commit(source, "first")
+    config = home / ".config/dotfiles-ai/chezmoi.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("\n")
+    config.chmod(0o600)
+    assert _foundation(tmp_path, "apply", revision).returncode == 0
+    return home, home / ".local/state/dotfiles-ai/remote-user-foundation.json"
+
+
+def test_foundation_refresh_auth_distinguishes_integrity_and_login_state(tmp_path: Path) -> None:
+    home, state_path = _refreshable_foundation(tmp_path)
+    marker = _install_foundation_targets(tmp_path)
+
+    pending = _foundation(tmp_path, "refresh-auth")
+    assert pending.returncode == 1
+    assert json.loads(state_path.read_text())["state"] == "auth_pending"
+    assert marker.exists()
+
+    marker.unlink()
+    _install_foundation_targets(tmp_path, "ready")
+    ready = _foundation(tmp_path, "refresh-auth")
+    assert ready.returncode == 0
+    assert json.loads(state_path.read_text())["state"] == "ready"
+    assert marker.exists()
+
+    marker.unlink()
+    bashrc = tmp_path / "home/.bashrc"
+    bashrc.unlink()
+    bashrc.symlink_to(tmp_path / "private-history")
+    damaged = _foundation(tmp_path, "refresh-auth")
+    assert damaged.returncode != 0
+    assert json.loads(state_path.read_text())["state"] == "failed_retryable"
+    assert not marker.exists()
+
+
+def test_foundation_refresh_auth_rejects_wrong_runtime_version_before_probe(tmp_path: Path) -> None:
+    home, state_path = _refreshable_foundation(tmp_path)
+    marker = _install_foundation_targets(tmp_path)
+    (home / ".local/bin/opencode").write_text("#!/bin/sh\necho 0.0.0\n")
+    (home / ".local/bin/opencode").chmod(0o755)
+
+    result = _foundation(tmp_path, "refresh-auth")
+
+    assert result.returncode != 0
+    assert json.loads(state_path.read_text())["state"] == "failed_retryable"
+    assert not marker.exists()
+
+
 def test_foundation_apply_retry_and_rollback_preserve_unrelated_state(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / ".local/share/chezmoi-dotfiles-ai"
+    source.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
     first = _commit(source, "first")
     second = _commit(source, "second")
-    home = tmp_path / "home"
-    home.mkdir()
     unrelated = home / "unrelated"
     unrelated.write_text("keep")
+    auth = home / ".local/state/dotfiles-ai/codex/auth.json"
+    history = home / ".local/share/atuin/history.db"
+    auth.parent.mkdir(parents=True)
+    history.parent.mkdir(parents=True)
+    auth.write_text("keep-auth")
+    history.write_text("keep-history")
+    config = home / ".config/dotfiles-ai/chezmoi.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("\n")
+    config.chmod(0o600)
 
     result = _foundation(tmp_path, "apply", first)
     assert result.returncode == 0, result.stderr
-    state_path = tmp_path / "state.json"
+    state_path = home / ".local/state/dotfiles-ai/remote-user-foundation.json"
     state = json.loads(state_path.read_text())
     assert state == {
         "attempt": 1,
@@ -267,6 +456,8 @@ def test_foundation_apply_retry_and_rollback_preserve_unrelated_state(tmp_path: 
     assert state["managed_targets"] == state["previous_managed_targets"]
     assert state["attempt"] == 4
     assert unrelated.read_text() == "keep"
+    assert auth.read_text() == "keep-auth"
+    assert history.read_text() == "keep-history"
 
     status_result = _foundation(tmp_path, "status")
     assert status_result.returncode == 0
