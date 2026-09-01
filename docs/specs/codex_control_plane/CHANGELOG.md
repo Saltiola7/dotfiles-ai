@@ -1,5 +1,11 @@
 # Codex Control Plane Changelog
 
+## 2026-09-01 - History Adapter Applicability Plan
+
+- Added the committed gate-applicability plan required by typed same-session
+  Initiative Begin. Scope, dependencies, runtime contract, and ready slice are
+  unchanged; this correction replaces the invalid Markdown plan handoff.
+
 ## 2026-09-01 - Remote User Authentication
 
 - Forced remote CLI state into the invoking Unix user's dedicated managed

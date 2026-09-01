@@ -288,6 +288,15 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "stdout": "",
         "stderr": "codex-control-plane: history_adapter_unavailable\n",
     }
+    adapter_plan = json.loads(text(
+        "docs/specs/codex_control_plane/CODEX-HISTORY-ADAPTER.plan.json"
+    ))
+    assert adapter_plan["profile"] == "docs/specs/codex_control_plane/PROFILE.md"
+    assert adapter_plan["gates"]["release"]["applicability"] == "not_applicable"
+    assert all(adapter_plan["gates"][gate]["applicability"] == "required" for gate in (
+        "domain", "behavior", "spec", "contract", "test_driven_implementation",
+        "refactor", "review_integrate", "deploy", "operate", "maintain_retire",
+    ))
     assert adapter_contract["unavailable_reasons"] == {
         "tokens": "stable_thread_response_omits_tokens",
         "cost": "stable_thread_response_omits_cost",
