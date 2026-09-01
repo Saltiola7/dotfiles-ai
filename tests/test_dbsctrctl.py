@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import importlib.machinery
 import importlib.util
+import io
 import os
 import shutil
 import sqlite3
@@ -3847,6 +3848,493 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual([item["part_id"] for item in undisposed["signals"]], ["older-unclaimed"])
         self.assertFalse(undisposed["signal_overflow"])
 
+    def test_history_aggregate_and_incident_summary_use_private_source_index(self):
+        database = Path(self.temp.name) / "history-summary.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer,
+                                  model text, tokens_input integer, project_id text);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               time_updated integer, data text);
+        """)
+        for index in range(3):
+            timestamp = 1784073600000 + index
+            connection.execute("insert into session values (?, ?, 'DBSCTR', ?, ?, ?, ?)",
+                               (f"session-{index}", "session-1" if index == 2 else None,
+                                timestamp, f"model-{index}", index + 1, f"project-{index}"))
+            connection.execute("insert into message values (?, ?, ?, '{}')",
+                               (f"message-{index}", f"session-{index}", timestamp))
+            connection.execute("insert into part values (?, ?, ?, ?, ?, ?)",
+                               (f"part-{index}", f"message-{index}", f"session-{index}",
+                                timestamp, timestamp, json.dumps({"type": "text", "text": "DBSCTR"})))
+        connection.execute("insert into part values ('failed-read', 'message-2', 'session-2', "
+                           "1784073600100, 1784073600100, ?)", (json.dumps({
+                               "type": "tool", "tool": "read", "state": {
+                                   "status": "failed", "error": {"code": "TIMEOUT"},
+                               },
+                           }),))
+        connection.execute("insert into part values ('failed-private', 'message-2', 'session-2', "
+                           "1784073600101, 1784073600101, ?)", (json.dumps({
+                               "type": "tool", "tool": "private_tool", "state": {
+                                   "status": "error", "error": {"name": "EACCES"},
+                               },
+                           }),))
+        connection.executemany(
+            "insert into part values (?, 'message-1', 'session-1', ?, ?, ?)",
+            [(f"interior-{index:02}", 1784073600010 + index, 1784073600010 + index,
+              json.dumps({"type": "text", "text": f"neutral {index}"})) for index in range(34)],
+        )
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-summary-state"
+
+        unavailable = run(self.repo, "review-history", "--database", str(database),
+                          "--state-root", str(state), "--limit", "2", "--aggregate-only", ok=False)
+        self.assertEqual(unavailable.returncode, 75)
+        self.assertEqual(unavailable.stderr, "source_index_unavailable\n")
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_source_index", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        index_module = importlib.util.module_from_spec(spec)
+        loader.exec_module(index_module)
+        index_module.HISTORY_SOURCE_INDEX_CHUNK = 20
+        maintenance = SimpleNamespace(database=str(database), state_root=str(state))
+        outputs = []
+        for _ in range(20):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                index_module.command_history_source_index_maintain(maintenance)
+            outputs.append(json.loads(output.getvalue()))
+            if outputs[-1]["state"] == "ready":
+                break
+        self.assertGreaterEqual(len(outputs), 4)
+        self.assertEqual(outputs[-1]["state"], "ready")
+        self.assertEqual(outputs[-1]["indexed_rows"], 39)
+        maintained = outputs[-1]
+        self.assertEqual(maintained["state"], "ready")
+        self.assertFalse(maintained["continuation_needed"])
+        sidecar = state / "reviews/history-source-index.sqlite3"
+        self.assertEqual(sidecar.stat().st_mode & 0o777, 0o600)
+        indexed = sqlite3.connect(sidecar)
+        self.assertEqual(indexed.execute(
+            "select value from index_meta where key='schema_version'").fetchone(), ("2",))
+        self.assertEqual({row[0] for row in indexed.execute(
+            "select name from sqlite_master where type='table'")}, {
+                "index_meta", "index_generations", "index_sessions", "index_session_values",
+                "index_rows", "active_generation",
+            })
+        self.assertEqual({row[0] for row in indexed.execute(
+            "select name from sqlite_master where type='index' and name not like 'sqlite_autoindex_%'")}, {
+                "index_sessions_membership", "index_rows_ascending", "index_rows_recovery",
+                "index_rows_incident",
+            })
+        index_sql = dict(indexed.execute(
+            "select name,sql from sqlite_master where type='index' and name in "
+            "('index_rows_recovery','index_rows_incident')"))
+        self.assertIn("WHERE tool_key_digest IS NOT NULL", index_sql["index_rows_recovery"])
+        self.assertIn("WHERE tool_state='failed'", index_sql["index_rows_incident"])
+        self.assertEqual(indexed.execute("select count(*) from index_rows").fetchone()[0], 39)
+        self.assertEqual({row[1] for row in indexed.execute("pragma table_info(index_rows)")},
+                         {"generation_id", "part_rowid", "session_id", "part_time", "part_updated",
+                          "source_digest", "eligibility_flags", "tool_name", "tool_key_digest",
+                          "tool_state", "failure_class", "disposition_digest"})
+        generation_before = indexed.execute("select generation_id from active_generation").fetchone()[0]
+        indexed_boundaries = indexed.execute("""
+            select session_id,part_time,part_rowid from (
+              select session_id,part_time,part_rowid,
+                     row_number() over (partition by session_id order by part_time,part_rowid) first_rank,
+                     row_number() over (partition by session_id order by part_time desc,part_rowid desc) last_rank
+              from index_rows where generation_id=?
+            ) where first_rank<=16 or last_rank<=16 order by session_id,part_time,part_rowid
+        """, (generation_before,)).fetchall()
+        indexed.close()
+        source = sqlite3.connect(database)
+        source_boundaries = source.execute("""
+            select session_id,time_created,rowid from (
+              select session_id,time_created,rowid,
+                     row_number() over (partition by session_id order by time_created,rowid) first_rank,
+                     row_number() over (partition by session_id order by time_created desc,rowid desc) last_rank
+              from part
+            ) where first_rank<=16 or last_rank<=16 order by session_id,time_created,rowid
+        """).fetchall()
+        source.close()
+        self.assertEqual(indexed_boundaries, source_boundaries)
+        self.assertNotIn(b"DBSCTR", sidecar.read_bytes())
+        self.assertNotIn(b"failed-private", sidecar.read_bytes())
+
+        def maintain_cli():
+            for _ in range(20):
+                value = json.loads(run(
+                    self.repo, "history-source-index-maintain", "--database", str(database),
+                    "--state-root", str(state)).stdout)
+                if value["state"] == "ready":
+                    return value
+            self.fail("history projection did not become ready")
+
+        validated_index = index_module.require_history_source_index(SimpleNamespace(
+            database=str(database), state_root=str(state)))
+        source = sqlite3.connect(database)
+        source.execute("insert into part values ('ceiling-race', 'message-0', 'session-0', "
+                       "1784073600005, 1784073600005, '{}')")
+        source.commit()
+        stable = index_module.review_scan(SimpleNamespace(
+            database=str(database), state_root=str(state), limit=100, cursor=0, snapshot=None,
+            session_ceiling=None, part_ceiling=None, database_digest=None, exclusion_digest=None,
+            excluded_session_id=None, excluded_message_id=None, source_index=validated_index,
+            lock_held=True, include_reviewed=True, history_metrics=False, history_all=True,
+            bind_history=True, membership_only=True, metric_session_ids=None,
+        ))
+        self.assertEqual(stable["part_ceiling"], validated_index["validated_part_ceiling"])
+        source.execute("delete from part where id='ceiling-race'")
+        source.commit()
+        source.close()
+
+        first_run = subprocess.run(
+            [sys.executable, str(SCRIPT), "review-history", "--database", str(database),
+             "--state-root", str(state), "--limit", "2", "--aggregate-only"],
+            cwd=self.repo, text=True, capture_output=True, env=isolated_env(),
+        )
+        self.assertEqual(first_run.returncode, 0, first_run.stderr)
+        first = json.loads(first_run.stdout)
+        self.assertEqual(first["mode"], "aggregate")
+        self.assertEqual(first["selected_count"], 2)
+        self.assertEqual(first["metrics"]["tokens"], {
+            "available_count": 2, "unavailable_count": 0, "mean": 2, "p50": 2, "p90": 3,
+        })
+        self.assertEqual(first["cohort"]["sessions"]["relation"],
+                         {"primary": 1, "child": 1, "unavailable": 0})
+        self.assertNotIn("session-", json.dumps(first))
+        self.assertNotIn("cycle_id", json.dumps(first))
+        detailed = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "100",
+        ).stdout)
+        ledger = sqlite3.connect(state / "reviews/ledger.sqlite3")
+        captured_ids = [row[0] for row in ledger.execute(
+            "select session_id from history_capture_members where capture_id=? order by position",
+            (first["capture_id"],))]
+        ledger.close()
+        self.assertEqual(captured_ids, [item["session_id"] for item in detailed["candidates"]])
+        source = sqlite3.connect(database)
+        source.execute("update part set data=?,time_updated=time_updated+1 where id='part-1'",
+                       (json.dumps({"type": "text", "text": "DBSCTR changed"}),))
+        source.commit()
+        source.close()
+        changed_page = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--cursor", "0", "--capture-id", first["capture_id"],
+            "--aggregate-only",
+        ).stdout)
+        self.assertEqual(changed_page["digest"], first["digest"])
+        source = sqlite3.connect(database)
+        source.execute("update part set data=?,time_updated=time_updated-1 where id='part-1'",
+                       (json.dumps({"type": "text", "text": "DBSCTR"}),))
+        source.commit()
+        source.close()
+        source = sqlite3.connect(database)
+        source.execute("update part set data=?,time_updated=time_updated+1 where id='interior-10'",
+                       (json.dumps({"type": "text", "text": "interior changed"}),))
+        source.commit()
+        source.close()
+        changed_interior = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--cursor", "0", "--capture-id", first["capture_id"],
+            "--aggregate-only",
+        ).stdout)
+        self.assertEqual(changed_interior["digest"], first["digest"])
+        source = sqlite3.connect(database)
+        source.execute("update part set data=?,time_updated=time_updated-1 where id='interior-10'",
+                       (json.dumps({"type": "text", "text": "neutral 10"}),))
+        source.commit()
+        source.close()
+        source = sqlite3.connect(database)
+        source.execute("update message set data='{\"changed\":true}' where id='message-1'")
+        source.commit()
+        source.close()
+        changed_message = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--cursor", "0", "--capture-id", first["capture_id"],
+            "--aggregate-only",
+        ).stdout)
+        self.assertEqual(changed_message["digest"], first["digest"])
+        source = sqlite3.connect(database)
+        source.execute("update message set data='{}' where id='message-1'")
+        source.commit()
+        source.close()
+        second_run = subprocess.run(
+            [sys.executable, str(SCRIPT), "review-history", "--database", str(database),
+             "--state-root", str(state), "--limit", "2", "--cursor", "2",
+             "--capture-id", first["capture_id"], "--aggregate-only"],
+            cwd=self.repo, text=True, capture_output=True, env=isolated_env(),
+        )
+        self.assertEqual(second_run.returncode, 0, second_run.stderr)
+        second = json.loads(second_run.stdout)
+        self.assertEqual(second["selected_count"], 1)
+        self.assertIsNone(second["continuation"])
+        source = sqlite3.connect(database)
+        source.execute("update message set data='{\"page\":2}' where id='message-0'")
+        source.commit()
+        source.close()
+        changed_second = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--cursor", "2", "--capture-id", first["capture_id"],
+            "--aggregate-only",
+        ).stdout)
+        self.assertEqual(changed_second["digest"], second["digest"])
+        source = sqlite3.connect(database)
+        source.execute("update message set data='{}' where id='message-0'")
+        source.commit()
+        source.close()
+        filtered = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--project-digest", hashlib.sha256(b"project-1").hexdigest(),
+            "--aggregate-only",
+        ).stdout)
+        self.assertEqual((filtered["selected_count"], filtered["metrics"]["tokens"]["mean"]), (1, 2))
+        detailed_capture = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--capture",
+        ).stdout)
+        unbound_capture = run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--capture-id", detailed_capture["capture_id"],
+            "--aggregate-only", ok=False,
+        )
+        self.assertEqual((unbound_capture.returncode, unbound_capture.stderr),
+                         (75, "source_index_unavailable\n"))
+
+        source = sqlite3.connect(database)
+        source.execute("insert into session values "
+                       "('session-empty', null, 'empty', 1784073600300, null, null, null)")
+        source.commit()
+        source.close()
+        session_stale = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                       "--state-root", str(state), "--summary-only").stdout)
+        self.assertEqual(session_stale["signal_count"], 2)
+        maintain_cli()
+        extension = sqlite3.connect(sidecar)
+        session_generation = extension.execute(
+            "select generation_id from active_generation").fetchone()[0]
+        self.assertNotEqual(session_generation, generation_before)
+        self.assertEqual(extension.execute(
+            "select base_generation_id from index_generations where generation_id=?",
+            (session_generation,)).fetchone(), (generation_before,))
+        extension.close()
+
+        summary = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                 "--state-root", str(state), "--summary-only").stdout)
+        self.assertEqual(summary["mode"], "summary")
+        self.assertEqual(summary["signal_count"], 2)
+        self.assertEqual(summary["groups"], [
+            {"tool": "read", "failure_class": "timed_out", "recovered": False, "count": 1},
+            {"tool": "unknown", "failure_class": "permission_denied", "recovered": False, "count": 1},
+        ])
+        self.assertNotIn("session-", json.dumps(summary))
+        self.assertNotIn("failed-", json.dumps(summary))
+
+        source = sqlite3.connect(database)
+        source.execute("insert into part values ('late-failure', 'message-2', 'session-2', "
+                       "1784073600200, 1784073600200, ?)", (json.dumps({
+                           "type": "tool", "tool": "bash", "state": {"status": "failed"},
+                       }),))
+        source.commit()
+        source.close()
+        stale = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                               "--state-root", str(state), "--summary-only").stdout)
+        self.assertEqual(stale["signal_count"], 2)
+        maintain_cli()
+        extension = sqlite3.connect(sidecar)
+        part_generation = extension.execute("select generation_id from active_generation").fetchone()[0]
+        self.assertNotEqual(part_generation, session_generation)
+        extension.close()
+        refreshed = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                    "--state-root", str(state), "--summary-only").stdout)
+        self.assertEqual(refreshed["signal_count"], 3)
+        source = sqlite3.connect(database)
+        source.execute("insert into part values ('late-success', 'message-2', 'session-2', "
+                       "1784073600201, 1784073600201, ?)", (json.dumps({
+                           "type": "tool", "tool": "bash", "state": {"status": "completed"},
+                       }),))
+        source.commit()
+        source.close()
+        maintain_cli()
+        recovered = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                   "--state-root", str(state), "--summary-only").stdout)
+        self.assertIn({"tool": "bash", "failure_class": "tool_failed", "recovered": True, "count": 1},
+                      recovered["groups"])
+        extended_run = subprocess.run(
+            [sys.executable, str(SCRIPT), "review-history", "--database", str(database),
+             "--state-root", str(state), "--limit", "2", "--cursor", "2",
+             "--capture-id", first["capture_id"], "--aggregate-only"], cwd=self.repo,
+            text=True, capture_output=True, env=isolated_env(),
+        )
+        self.assertEqual(extended_run.returncode, 0, extended_run.stderr)
+        self.assertEqual(json.loads(extended_run.stdout)["selected_count"], 1)
+        source = sqlite3.connect(database)
+        source.execute("update part set time_created=time_created+1 where id='part-0'")
+        source.commit()
+        source.close()
+        stale_key = json.loads(run(self.repo, "incident-scan", "--database", str(database),
+                                   "--state-root", str(state), "--summary-only").stdout)
+        self.assertEqual(stale_key["signal_count"], 3)
+        maintain_cli()
+        replacement = sqlite3.connect(sidecar)
+        replacement_generation = replacement.execute(
+            "select generation_id from active_generation").fetchone()[0]
+        replacement.close()
+        self.assertNotEqual(replacement_generation, generation_before)
+        source = sqlite3.connect(database)
+        source.execute("delete from part where id in ('late-failure','late-success')")
+        source.commit()
+        source.close()
+        maintain_cli()
+        regression = sqlite3.connect(sidecar)
+        regression_generation = regression.execute(
+            "select generation_id from active_generation").fetchone()[0]
+        regression.close()
+        self.assertNotEqual(regression_generation, replacement_generation)
+
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_incident_summary", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        self.assertEqual(module.incident_failure_class(
+            {"error": {"code": "not mapped", "name": "EACCES"}}, "error"), "tool_error")
+
+        run(self.repo, "review-forget", "--database", str(database),
+            "--state-root", str(state), "--session-id", "session-2")
+        self.assertFalse(sidecar.exists())
+        maintain_cli()
+        rebuilt = sqlite3.connect(sidecar)
+        self.assertEqual(rebuilt.execute(
+            "select count(*) from index_rows where session_id in ('session-1','session-2')").fetchone()[0], 0)
+        post_forget = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "2", "--aggregate-only",
+        ).stdout)
+        self.assertEqual(post_forget["selected_count"], 1)
+        post_forget_incidents = json.loads(run(
+            self.repo, "incident-scan", "--database", str(database), "--state-root", str(state),
+            "--summary-only",
+        ).stdout)
+        self.assertEqual(post_forget_incidents["signal_count"], 0)
+        os.chmod(sidecar, 0o644)
+        unsafe_mode = run(self.repo, "incident-scan", "--database", str(database),
+                          "--state-root", str(state), "--summary-only", ok=False)
+        self.assertEqual((unsafe_mode.returncode, unsafe_mode.stderr),
+                         (75, "source_index_unavailable\n"))
+        os.chmod(sidecar, 0o600)
+        rebuilt.execute("create table unexpected_payload (value text)")
+        rebuilt.commit()
+        extra_object = run(self.repo, "incident-scan", "--database", str(database),
+                           "--state-root", str(state), "--summary-only", ok=False)
+        self.assertEqual((extra_object.returncode, extra_object.stderr),
+                         (75, "source_index_unavailable\n"))
+        rebuilt.execute("drop table unexpected_payload")
+        rebuilt.execute("alter table index_rows add column payload text")
+        rebuilt.commit()
+        rebuilt.close()
+        corrupt = run(self.repo, "incident-scan", "--database", str(database),
+                      "--state-root", str(state), "--summary-only", ok=False)
+        self.assertEqual((corrupt.returncode, corrupt.stderr), (75, "source_index_unavailable\n"))
+        sidecar.unlink()
+        sidecar.symlink_to(database)
+        unsafe_link = run(self.repo, "history-source-index-maintain", "--database", str(database),
+                          "--state-root", str(state), ok=False)
+        self.assertIn("history source index is unsafe", unsafe_link.stderr)
+
+    def test_history_aggregate_reports_authoritative_zero_tool_calls(self):
+        database = Path(self.temp.name) / "history-zero.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, parent_id text, title text, time_created integer,
+                                  agent text, tokens_input integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text, time_created integer,
+                               data text);
+            insert into session values ('session-zero', null, 'empty', 1784073600000,
+                                        'reviewer-openai', 0);
+        """)
+        connection.commit()
+        connection.close()
+        state = Path(self.temp.name) / "history-zero-state"
+        for _ in range(20):
+            maintained = json.loads(run(
+                self.repo, "history-source-index-maintain", "--database", str(database),
+                "--state-root", str(state)).stdout)
+            if maintained["state"] == "ready":
+                break
+        self.assertEqual(maintained["state"], "ready")
+        aggregate = json.loads(run(
+            self.repo, "review-history", "--database", str(database), "--state-root", str(state),
+            "--limit", "1", "--aggregate-only",
+        ).stdout)
+        self.assertEqual(aggregate["metrics"]["tool_calls"], {
+            "available_count": 1, "unavailable_count": 0, "mean": 0, "p50": 0, "p90": 0,
+        })
+
+    def test_history_source_index_finishes_captured_target_while_source_appends(self):
+        database = Path(self.temp.name) / "history-append.db"
+        connection = sqlite3.connect(database)
+        connection.executescript("""
+            create table session (id text primary key, time_created integer);
+            create table message (id text primary key, session_id text, time_created integer, data text);
+            create table part (id text primary key, message_id text, session_id text,
+                               time_created integer, data text);
+            insert into session values ('session-append', 1784073600000);
+            insert into message values ('message-append', 'session-append', 1784073600000, '{}');
+        """)
+        connection.executemany(
+            "insert into part values (?, 'message-append', 'session-append', ?, '{}')",
+            [(f"part-{index}", 1784073600000 + index) for index in range(25)],
+        )
+        connection.commit()
+        state = Path(self.temp.name) / "history-append-state"
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_append_index", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        module.HISTORY_SOURCE_INDEX_CHUNK = 20
+        args = SimpleNamespace(database=str(database), state_root=str(state))
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            module.command_history_source_index_maintain(args)
+        self.assertEqual((json.loads(output.getvalue())["state"],
+                          json.loads(output.getvalue())["indexed_rows"]), ("preparing", 0))
+        connection.execute("insert into part values "
+                           "('part-appended', 'message-append', 'session-append', 1784073600100, '{}')")
+        connection.commit()
+        connection.close()
+        for _ in range(20):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                module.command_history_source_index_maintain(args)
+            captured = json.loads(output.getvalue())
+            if captured["state"] == "ready":
+                break
+        self.assertEqual((captured["state"], captured["indexed_rows"]), ("ready", 25))
+        sidecar = sqlite3.connect(state / "reviews/history-source-index.sqlite3")
+        captured_generation = sidecar.execute("select generation_id from active_generation").fetchone()[0]
+        sidecar.close()
+        for _ in range(20):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                module.command_history_source_index_maintain(args)
+            extended = json.loads(output.getvalue())
+            if extended["state"] == "ready":
+                sidecar = sqlite3.connect(state / "reviews/history-source-index.sqlite3")
+                extended_generation = sidecar.execute(
+                    "select generation_id from active_generation").fetchone()[0]
+                base = sidecar.execute(
+                    "select base_generation_id from index_generations where generation_id=?",
+                    (extended_generation,)).fetchone()[0]
+                sidecar.close()
+                if extended_generation != captured_generation:
+                    break
+        self.assertEqual((extended["state"], extended["indexed_rows"]), ("ready", 1))
+        self.assertEqual(base, captured_generation)
+
     def test_review_snapshot_excludes_sessions_created_during_pagination(self):
         database = Path(self.temp.name) / "snapshot.db"
         connection = __import__("sqlite3").connect(database)
@@ -4845,6 +5333,34 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(telemetry["availability"]["cost_total"], "unavailable")
         self.assertEqual(telemetry["availability"]["error_classes"], "available")
         self.assertEqual(telemetry["error_classes"], {"tool_error": 0})
+
+    def test_write_connection_migrates_capture_schema_before_integrity(self):
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_capture_migration", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        state = Path(self.temp.name) / "capture-migration-state"
+        reviews = state / "reviews"
+        reviews.mkdir(parents=True, mode=0o700)
+        os.chmod(reviews, 0o700)
+        ledger = reviews / "ledger.sqlite3"
+        connection = sqlite3.connect(ledger)
+        module.ledger_schema(connection)
+        connection.commit()
+        module.ensure_capture_schema(connection)
+        connection.execute("drop table history_capture_page_sources")
+        connection.execute("update ledger_meta set value='1' where key='capture_schema'")
+        connection.commit()
+        connection.close()
+        os.chmod(ledger, 0o600)
+
+        with module.ledger_connection(state, write=True) as migrated:
+            self.assertEqual(migrated.execute(
+                "select value from ledger_meta where key='capture_schema'").fetchone(),
+                (str(module.CAPTURE_SCHEMA),))
+            self.assertEqual(migrated.execute(
+                "select count(*) from sqlite_master where type='table' "
+                "and name='history_capture_page_sources'").fetchone(), (1,))
 
     def test_benchmarks_bind_windows_replay_and_classify_association(self):
         loader = importlib.machinery.SourceFileLoader("dbsctrctl_benchmark_module", str(SCRIPT))
