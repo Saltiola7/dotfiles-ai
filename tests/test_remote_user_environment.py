@@ -186,7 +186,7 @@ def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subproce
         "#!/bin/sh\n"
         "case \" $* \" in\n"
         "  *' managed '*) printf '%s\\n' '.bashrc' '.config/opencode/opencode.json' ;;\n"
-        "  *' status '*) exit 0 ;;\n"
+        "  *' status '*) test -f \"$HOME/.bashrc\" && test ! -L \"$HOME/.bashrc\" ;;\n"
         "  *' apply '*) test \"${FAIL_APPLY:-0}\" != 1 ;;\n"
         "  *) exit 2 ;;\n"
         "esac\n"

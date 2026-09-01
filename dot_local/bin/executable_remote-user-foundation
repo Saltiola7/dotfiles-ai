@@ -223,9 +223,8 @@ def validate_integrity(state: dict) -> Path:
     ).stdout:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:
-        safe_path(HOME / target)
-        if not os.path.lexists(HOME / target):
-            raise RuntimeError("foundation target is missing")
+        if os.path.lexists(HOME / target):
+            safe_path(HOME / target)
     data_path = SOURCE / ".chezmoidata.toml"
     safe_path(data_path, "file")
     data = tomllib.loads(data_path.read_text())["dotfiles_ai"]
