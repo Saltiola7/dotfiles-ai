@@ -4,9 +4,37 @@ from pathlib import Path
 import stat
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 COMMAND = ROOT / "dot_local/bin/executable_remote-user-foundation"
+
+
+def _render(path: str) -> str:
+    data = {
+        "dotfiles_ai": {
+            "remote_user_environment": {"enabled": True},
+            "state": {"root": "/shared/state"},
+            "codex": {"version": "0.151.0"},
+            "opencode": {
+                "version": "1.18.25",
+                "vertex_project": "local-project",
+                "vertex_location": "global",
+                "vertex_credentials": "/shared/credentials.json",
+                "vertex_account": "",
+            },
+            "herdr": {"host_enabled": False},
+        }
+    }
+    return subprocess.run(
+        [
+            "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
+            "--config-format", "toml", "--override-data", json.dumps(data),
+            "execute-template",
+        ],
+        input=(ROOT / path).read_text(), text=True, capture_output=True, check=True,
+    ).stdout
 
 
 def test_remote_user_environment_has_distinct_pinned_assets() -> None:
@@ -57,6 +85,81 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "install-01-remote-opencode.sh" in ignore
     wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
     assert '{{ if eq .chezmoi.os "darwin" -}}\n    if [[ $session == 1 ]]' in wrapper
+
+
+def test_remote_agent_wrappers_force_per_user_state_and_adc() -> None:
+    opencode = _render("dot_local/bin/executable_opencode.tmpl")
+    codex = _render("dot_local/bin/executable_codex.tmpl")
+    vertex = _render("dot_local/bin/executable_vertex-reauth.tmpl")
+    config = json.loads(_render(".chezmoitemplates/opencode.json.tmpl"))
+
+    assert 'export XDG_CONFIG_HOME="$HOME/.config"' in opencode
+    assert 'export XDG_DATA_HOME="$HOME/.local/share"' in opencode
+    assert 'export XDG_STATE_HOME="$HOME/.local/state"' in opencode
+    assert 'export XDG_CACHE_HOME="$HOME/.cache"' in opencode
+    assert "/shared/state" not in opencode + codex
+    assert 'export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"' in codex
+    assert 'ADC="$HOME/.config/gcloud/application_default_credentials.json"' in vertex
+    assert "/shared/credentials.json" not in vertex
+    assert config["provider"]["google-vertex-anthropic"]["options"] == {
+        "project": "local-project", "location": "global",
+    }
+
+
+@pytest.mark.parametrize("failed", [None, "opencode", "codex", "vertex-reauth", "op"])
+def test_remote_agent_readiness_is_content_free(tmp_path: Path, failed: str | None) -> None:
+    script = tmp_path / "remote-agent-readiness"
+    script.write_text(_render("dot_local/bin/executable_remote-agent-readiness.tmpl"))
+    script.chmod(0o755)
+    (tmp_path / ".config/opencode").mkdir(parents=True)
+    (tmp_path / ".config/opencode/opencode.json").write_text("{}\n")
+    (tmp_path / ".local/state/dotfiles-ai/codex").mkdir(parents=True)
+    (tmp_path / ".local/state/dotfiles-ai/codex/config.toml").write_text("\n")
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    private = "private-account private-token private-path private-session private-content"
+    commands = {
+        "opencode": f'''#!/bin/bash
+[[ $1 == --version ]] && {{ echo 1.18.25; exit; }}
+[[ {failed!r} == opencode ]] && exit 1
+echo "OpenAI {private}"
+''',
+        "codex": f'''#!/bin/bash
+[[ $1 == --version ]] && {{ echo "codex-cli 0.151.0"; exit; }}
+[[ {failed!r} == codex ]] && exit 1
+echo "{private}"
+''',
+        "vertex-reauth": f'''#!/bin/bash
+[[ {failed!r} == vertex-reauth ]] && exit 1
+echo "{private}"
+''',
+        "op": f'''#!/bin/bash
+[[ {failed!r} == op ]] && exit 1
+echo "{private}"
+''',
+    }
+    for name, source in commands.items():
+        path = binary / name
+        path.write_text(source)
+        path.chmod(0o755)
+
+    result = subprocess.run(
+        [str(script)], text=True, capture_output=True,
+        env={"HOME": str(tmp_path), "PATH": f"{binary}:/usr/bin:/bin"},
+    )
+
+    expected_state = "ready" if failed is None else "auth_pending"
+    expected = {
+        "codex": "failure" if failed == "codex" else "success",
+        "onepassword": "failure" if failed == "op" else "success",
+        "openai": "failure" if failed == "opencode" else "success",
+        "state": expected_state,
+        "vertex": "failure" if failed == "vertex-reauth" else "success",
+    }
+    assert json.loads(result.stdout) == expected
+    assert result.returncode == (0 if failed is None else 1)
+    assert result.stderr == ""
+    assert not any(value in result.stdout for value in private.split())
 
 
 def _commit(repository: Path, content: str) -> str:

@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-01 - Remote Agent Authentication
+
+- Added a remote-only content-free agent readiness target and forced OpenCode,
+  Codex, and Vertex runtime state into each invoking Unix user's home.
+- Preserved credential-free render, installation, update, rollback, and shell
+  startup; authentication remains an explicit per-user operation.
+
 ## 2026-08-31 - CentOS Remote User Foundation
 
 - Added a default-off CentOS Stream 10 x86_64 user foundation with independently

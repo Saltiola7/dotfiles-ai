@@ -23,7 +23,11 @@
 
 set -euo pipefail
 
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+ADC="$HOME/.config/gcloud/application_default_credentials.json"
+{{ else -}}
 ADC={{ .dotfiles_ai.opencode.vertex_credentials | quote }}
+{{ end -}}
 PROJECT={{ .dotfiles_ai.opencode.vertex_project | quote }}
 ACCOUNT={{ .dotfiles_ai.opencode.vertex_account | quote }}
 SCOPES=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/sqlservice.login
@@ -77,4 +81,4 @@ gc auth application-default set-quota-project "$PROJECT" ||
 
 # A login that cannot mint a token is not a successful login.
 gc auth application-default print-access-token >/dev/null
-echo "vertex-reauth: ok — $CONFIG_DIR"
+echo "vertex-reauth: ok"

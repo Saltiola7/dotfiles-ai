@@ -1,0 +1,56 @@
+#!/bin/bash
+set -uo pipefail
+umask 077
+
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CACHE_HOME="$HOME/.cache"
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+
+home_safe() {
+    [[ -n ${HOME:-} && -d $HOME && -O $HOME && ! -L $HOME ]]
+}
+
+openai_ready() {
+    local credentials version
+    [[ -f $XDG_CONFIG_HOME/opencode/opencode.json && ! -L $XDG_CONFIG_HOME/opencode/opencode.json \
+        && -O $XDG_CONFIG_HOME/opencode/opencode.json ]] || return 1
+    version=$(opencode --version 2>/dev/null) || return 1
+    [[ $version == {{ .dotfiles_ai.opencode.version | quote }} ]] || return 1
+    credentials=$(opencode auth list --pure 2>/dev/null) || return 1
+    [[ ${#credentials} -le 65536 ]] || return 1
+    case $credentials in
+        *OpenAI*|*openai*|*OPENAI*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+codex_ready() {
+    local version
+    [[ -f $CODEX_HOME/config.toml && ! -L $CODEX_HOME/config.toml \
+        && -O $CODEX_HOME/config.toml ]] || return 1
+    version=$(codex --version 2>/dev/null) || return 1
+    [[ $version == {{ printf "codex-cli %s" .dotfiles_ai.codex.version | quote }} ]] || return 1
+    codex login status >/dev/null 2>&1
+}
+
+probe() {
+    if home_safe && "$@"; then
+        printf success
+    else
+        printf failure
+        return 1
+    fi
+}
+
+failed=0
+openai=$(probe openai_ready) || failed=1
+codex=$(probe codex_ready) || failed=1
+vertex=$(probe vertex-reauth --check >/dev/null 2>&1 && printf success) || { vertex=failure; failed=1; }
+onepassword=$(probe op whoami >/dev/null 2>&1 && printf success) || { onepassword=failure; failed=1; }
+state=ready
+(( failed == 0 )) || state=auth_pending
+printf '{"codex":"%s","onepassword":"%s","openai":"%s","state":"%s","vertex":"%s"}\n' \
+    "$codex" "$onepassword" "$openai" "$state" "$vertex"
+exit "$failed"

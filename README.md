@@ -119,6 +119,22 @@ Rendering and startup never authenticate providers. OpenAI, Vertex, Codex,
 server, PostgreSQL, knowledge services, R&D scheduling, and privileged container
 daemons stay disabled.
 
+After the foundation succeeds, each user runs their own interactive logins:
+
+```sh
+opencode auth login
+vertex-reauth
+codex login
+op signin
+remote-agent-readiness
+```
+
+Set only the non-secret Vertex project in the private config before running
+`vertex-reauth`. The readiness command returns fixed OpenAI, Vertex, Codex, and
+1Password success/failure classes plus `ready` or `auth_pending`; it discards
+provider output and never prints account, credential, content, session, or path
+data.
+
 ## Optional Lima Workspaces
 
 Managed Fedora workspaces keep OpenCode, Herdr, credentials, sessions, and
