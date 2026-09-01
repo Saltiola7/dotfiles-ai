@@ -1,5 +1,16 @@
 # DBSCTR Knowledge Store Changelog
 
+## 2026-09-01 - DKS Fast-Fallback Delivery
+
+- Separated long replacement preparation from the existing query-visible
+  activation barriers, added bounded shared acquisition and one exclusive policy
+  repair, and mapped exhausted contention to exact exit `75` `projection_busy`.
+- Added remaining-budget PostgreSQL statement timeouts for baseline repair;
+  89 focused tests and Python compilation passed after current-main reconciliation.
+- Deployed the managed helper, restarted reconciliation, and verified a live query
+  succeeded against the prior active projection while reconciliation was running.
+  Gate commits: `4678ff6`, `7c0473f`, and `34d19b2`.
+
 ## 2026-08-30 - DKS Fast-Fallback Readiness
 
 - Preserved existing activation-lock identities for rolling compatibility,
