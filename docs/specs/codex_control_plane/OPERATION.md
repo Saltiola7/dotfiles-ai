@@ -15,7 +15,7 @@
 ```mermaid
 sequenceDiagram
     accTitle: Codex session identity probe
-    accDescr: A disposable controlled session emits a sanitized hook session identifier. The adapter queries the installed app-server for thread and root-session identifiers, then resumes and forks the thread. Only equality, mapping, availability, and digests are retained; transcript content is discarded.
+    accDescr: A disposable controlled session emits a sanitized hook session identifier. The adapter bounds and discards transcript_path without reading it and rejects transcript content, then queries the installed app-server for thread and root-session identifiers, resumes, and forks the thread. Only equality, mapping, availability, and digests are retained.
     participant O as Operator
     participant C as Codex CLI
     participant H as Sanitized hook
@@ -33,11 +33,23 @@ sequenceDiagram
 
 **Text Equivalent:** The operator starts one disposable session containing a
 non-secret correlation nonce. A sanitized hook passes only opaque session and
-turn identities to the adapter. The adapter initializes a version-bound
-app-server stdio connection without experimental capability and uses documented
-methods to list and read the candidate thread, then resumes and forks it. The retained
+turn identities to the adapter. The adapter bounds and discards
+`transcript_path` without reading it, initializes a version-bound app-server
+stdio connection without experimental capability, and uses documented methods
+to list and read the candidate thread, then resumes and forks it. The retained
 result records only exact equality, a deterministic mapping, ambiguity, or
-unavailability plus source digests. Transcript content is discarded.
+unavailability plus source digests. `transcript_path` is discarded unread;
+transcript content rejects the event and never enters retained evidence.
+
+## Hook Privacy
+
+Codex `0.151.0` supplies `transcript_path` as a common hook transport field. The
+sanitizer accepts it only as a bounded UTF-8 string, then must discard
+`transcript_path` without reading it. It never opens, resolves, canonicalizes,
+checks, logs, exposes, or persists the value. Raw `cwd` is handled separately and
+may be canonicalized only to derive the bounded workspace enum. Any other
+path-bearing field, transcript content, prompt, tool data, environment, URL,
+credential, or account field rejects the identity event.
 
 ## Identity Probe
 
@@ -56,7 +68,8 @@ Run after the same frozen Codex release is installed on macOS and Fedora:
    worktree.
 5. Retain hook event enum, opaque `session_id`, turn ID, model ID, workspace enum
    `primary_worktree`, `cycle_worktree`, or `unknown`, timestamp, release, and
-   adapter revision only. Retain no filesystem path.
+   adapter revision only. Bound and discard `transcript_path` without reading it;
+   retain no filesystem path.
 6. Complete documented `initialize` and `initialized` messages over app-server
    stdio without `experimentalApi`, then probe `thread/list` and `thread/read`.
 7. Resume and fork the exact candidate through documented target methods; treat
@@ -81,6 +94,46 @@ Result values are:
 | `unavailable` | Identity-dependent slices remain blocked. |
 
 Temporal, cwd, process, pane, or model-only correlation never passes.
+Only an `exact` or `mapped` outcome produces the public success matrix below.
+An `ambiguous` or `unavailable` outcome keeps the slice blocked and records only
+its bounded reason in private evidence and the changelog; it never publishes an
+incomplete identity matrix.
+
+## Frozen Release Result
+
+Codex `0.151.0` with adapter revision `codex-adapter-1` passed on managed macOS
+and one representative Fedora Lima guest. On both platform classes, hook
+`session_id`, CLI JSONL thread identity, app-server `thread.id`, and root
+`thread.sessionId` were exactly equal. `thread/resume` returned the exact thread
+and root identity. `thread/fork` returned a distinct fork whose
+`forkedFromId` exactly named the parent and whose new root `sessionId` equaled the
+fork thread ID. A content-bearing hook event failed closed while bounded
+`SessionStart` and `SessionEnd` identity events passed.
+
+The source-controlled matrix is
+[`identity-probe-result.json`](identity-probe-result.json). It contains only
+platform classes, relation dispositions, release and adapter identity, and
+SHA-256 evidence digests. Opaque IDs, account data, paths, prompts, transcripts,
+raw protocol bodies, guest names, and private records remain outside Git. This
+result is authoritative only for `0.151.0`; every release upgrade reopens the
+probe.
+
+The top-level keys are exactly `schema_version`, `release`, `adapter_revision`,
+`disposition`, `mapping`, `protocol_schema_sha256`, and `platforms`.
+`disposition` is `exact` or `mapped`. `mapping` is exactly
+`hook_session_id_equals_thread_id` for direct equality or
+`hook_session_id_equals_thread_session_id` for a deterministic mapped result.
+`platforms` contains exactly `host_macos` and `fedora_lima_guest`.
+Each platform contains exactly `cli_thread_relation`,
+`thread_session_relation`, `resume_identity`, `fork_parent_relation`,
+`fork_session_relation`, `content_rejection`, `cli_jsonl_sha256`,
+`hook_evidence_sha256`, and `app_server_evidence_sha256`.
+`cli_thread_relation`, `resume_identity`, and `fork_parent_relation` are
+`exact`; `thread_session_relation` is `thread` or `distinct`;
+`fork_session_relation` is `parent_session`, `fork_thread`, or `distinct`; and
+`content_rejection` is `passed` or `not_observed`. Every digest is 64 lowercase
+hexadecimal characters. An unknown key or enum invalidates the result rather
+than widening retained evidence.
 
 ## Installation And State Checks
 

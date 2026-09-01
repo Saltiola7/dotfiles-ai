@@ -5,6 +5,7 @@ uv.lock
 README.md
 LICENSE
 config.example.toml
+config.remote-user.example.toml
 .github/
 **/.DS_Store
 **/__pycache__/
@@ -35,11 +36,24 @@ install-bash-preexec.sh
 enable-atuin-server.sh
 install-guest-development-tools.sh
 .local/bin/docker
+.local/bin/codex-install
+.local/bin/codex-archive
+install-codex.sh
+.local/bin/opencode-install
+.local/bin/remote-user-foundation
+.local/bin/remote-agent-readiness
+install-00-remote-herdr.sh
+install-01-remote-opencode.sh
 {{ end }}
 
 {{ if not .dotfiles_ai.atuin.server_enabled }}
 .config/containers/systemd/atuin.container
 .config/containers/systemd/atuin-data.volume
+{{ end }}
+{{ if not .dotfiles_ai.remote_workspace.enabled }}
+.config/dotfiles-ai/remote-workspace.env
+.local/bin/remote-workspace
+.local/bin/remote-workspace-doctor
 {{ end }}
 {{ if not (and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled) }}
 .config/containers/systemd/pm-postgres.container
@@ -107,7 +121,6 @@ build-herdr-host.sh
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ end }}
-
 {{ if eq .chezmoi.os "linux" }}
 Library/
 load-herdr-launchagent.sh
@@ -116,7 +129,14 @@ build-herdr-host.sh
 .local/bin/herdr-host
 load-dbsctr-rnd-launchagents.sh
 .local/bin/sandbox-vm
+{{ if not .dotfiles_ai.remote_user_environment.enabled }}
 .local/bin/opencode
+.local/bin/opencode-install
+.local/bin/remote-user-foundation
+.local/bin/remote-agent-readiness
+install-00-remote-herdr.sh
+install-01-remote-opencode.sh
+{{ end }}
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh
 load-atuin-workspace-launchagent.sh
@@ -140,7 +160,9 @@ load-dbsctr-reranker.sh
 .local/bin/pm-psql
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
-.config/dotfiles-ai/
+.config/dotfiles-ai/*
+!.config/dotfiles-ai/codex-managed
+!.config/dotfiles-ai/codex-managed/**
 {{ end }}
 
 {{ if eq .chezmoi.os "darwin" }}

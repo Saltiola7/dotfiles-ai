@@ -1,0 +1,25 @@
+name: centos-remote-user
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".chezmoidata.toml"
+      - ".chezmoiignore"
+      - "config.remote-user.example.toml"
+      - "dot_local/bin/executable_codex-install.tmpl"
+      - "dot_local/bin/executable_opencode*"
+      - "dot_local/bin/executable_remote-agent-readiness.tmpl"
+      - "dot_local/bin/executable_remote-user-foundation"
+      - "dot_local/bin/executable_vertex-reauth.tmpl"
+      - "run_onchange_after_install-*.sh.tmpl"
+      - "tests/remote_user_environment_smoke.sh"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream10
+    steps:
+      - uses: actions/checkout@v4
+      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
+      - run: tests/remote_user_environment_smoke.sh

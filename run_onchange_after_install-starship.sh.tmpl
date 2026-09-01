@@ -2,11 +2,20 @@
 set -eu
 
 version=1.26.0
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+test "$(uname -m)" = x86_64
+asset=starship-x86_64-unknown-linux-musl.tar.gz
+sha256=b7c232b0e8249d8e55a40beb79c5c43a7d370f3f9408bd215deb0170daeaadf3
+{{ else -}}
+test "$(uname -m)" = aarch64
+asset=starship-aarch64-unknown-linux-musl.tar.gz
+sha256=dc30189378d2f2e287384e8a692d3f95ad1df64cf0e8c36aa9201516028aed6b
+{{ end -}}
 archive="$(mktemp)"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$archive" "$tmpdir"' EXIT
-curl -fsSL "https://github.com/starship/starship/releases/download/v${version}/starship-aarch64-unknown-linux-musl.tar.gz" -o "$archive"
-printf '%s  %s\n' dc30189378d2f2e287384e8a692d3f95ad1df64cf0e8c36aa9201516028aed6b "$archive" | sha256sum -c -
+curl -fsSL "https://github.com/starship/starship/releases/download/v${version}/${asset}" -o "$archive"
+printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c -
 install -d -m 0755 "$HOME/.local/bin"
 tar -xzf "$archive" -C "$tmpdir" starship
 install -m 0755 "$tmpdir/starship" "$HOME/.local/bin/.starship.new"

@@ -1,5 +1,19 @@
 # Shell Auth Startup Changelog
 
+## 2026-09-01 - Remote Authentication Readiness
+
+- Kept remote shell startup credential-free while adding an explicit content-free
+  readiness command for user-initiated OpenAI, Vertex, Codex, and 1Password login.
+- Missing authentication reports `auth_pending` without account, credential,
+  content, session, or path data and never starts an interactive login.
+
+## 2026-08-31 - Remote Interactive Authentication Discovery
+
+- Defined credential-free CentOS SSH startup and explicit per-user 1Password,
+  OpenAI, Vertex, Codex, and Atuin authentication after foundation readiness.
+- Excluded macOS Keychain, copied service tokens, shared caches, and automatic
+  interactive login from remote behavior. No shell or credential state changed.
+
 ## 2026-08-30 - Refined Codex Recovery Preconditions
 
 - Required exact-session recovery to use an existing login in the current host

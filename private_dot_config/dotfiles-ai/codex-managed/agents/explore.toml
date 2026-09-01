@@ -1,0 +1,4 @@
+name = "explore"
+description = "Inspect local source and trace repository behavior."
+developer_instructions = "Return verified local source findings without modifying files."
+sandbox_mode = "read-only"

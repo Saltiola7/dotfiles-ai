@@ -68,6 +68,7 @@ sandbox-vm configure-atuin
 sandbox-vm update workspace1
 sandbox-vm update-all
 sandbox-vm parity workspace1
+sandbox-vm codex-version-parity workspace1
 sandbox-vm install-make workspace1
 workspace1sh
 ```
@@ -84,24 +85,34 @@ workspace1sh -- docker compose version
 workspace1sh -- make --version
 ```
 
-`sandbox-vm update` requires the host to run the source-controlled OpenCode
-version, repairs the existing guest's root-owned binary through a checksum-pinned
-Lima system provision, and verifies exact parity before updating user files. It
-also requires an existing guest to already provide rootless Podman. The current
-managed Fedora workspaces meet that precondition. A legacy guest without Podman
-must be recreated from the current rendered template; the restricted guest
-account cannot mutate system packages.
+`sandbox-vm update` requires the host to run the source-controlled OpenCode and
+Codex versions. It repairs the guest's root-owned OpenCode binary, snapshots only
+Codex-managed source, configuration, wrapper, projector, and executable state,
+then applies the guest source and verifies both exact versions. Failure restores
+the prior source revision and Codex-managed artifacts without reading or changing
+guest authentication, sessions, logs, or unrelated state. An existing guest must
+already provide rootless Podman. A legacy guest without Podman must be recreated
+from the current rendered template; the restricted guest account cannot mutate
+system packages.
 
-`sandbox-vm update-all` repairs the managed OpenCode runtime for every configured
-workspace in order and restores each VM's prior running or stopped state without
-applying unrelated guest dotfiles. It fails before guest mutation if the host
-version differs from the managed pin. Use this command after advancing the host
-OpenCode package and source pin so all managed runtimes move together; use
-`sandbox-vm update WORKSPACE` separately when guest source should also be applied.
+`sandbox-vm update-all` applies the managed source and verifies OpenCode and
+Codex for every configured workspace in order while preserving each VM's prior
+running or stopped state. It fails before guest mutation if either host version
+differs from its managed pin. A later guest failure restores every earlier guest
+in reverse order from private content-bounded snapshots; failed rollback is
+reported and retained for operator recovery.
+Before a feature branch is published, an explicitly approved deployment may set
+`DOTFILES_AI_DEPLOY_SOURCE` to one clean local checkout. The controller transfers
+an exact commit-marked Git archive to a temporary guest directory, applies it,
+and removes it without changing the guest's canonical checkout. Normal updates
+continue to use the configured checkout and `git pull --ff-only`.
 
 `sandbox-vm parity WORKSPACE` reports exact host and direct guest OpenCode
 versions, fails on any mismatch, and restores a stopped guest after probing it.
 Typed VM handoff runs this check before creating a Herdr workspace.
+`sandbox-vm codex-version-parity WORKSPACE` provides the equivalent version-only
+Codex check. It does not claim session identity, authentication, worker, history,
+recovery, federation, or complete runtime parity.
 
 An existing guest created before GNU Make was added requires
 `sandbox-vm install-make WORKSPACE`. The controller preserves prior running or
@@ -159,12 +170,12 @@ cold migration and rollback procedure in `docs/ATUIN_PODMAN.md`.
 `shell` resolves the configured instance and defaults `TERM` to
 `xterm-256color`; set `LIMA_TERM` to override it. `update` pulls the guest-owned
 `dotfiles-ai` checkout with `--ff-only` and reapplies its guest configuration.
-Guests use the personal Starship prompt and explicit OpenCode theme through a
-portable Bash profile. Host-only Homebrew, macOS path, plugin, and credential
-startup remains outside the sandbox. Restart OpenCode after an update because it
-does not reload its theme while running.
+Guests use the personal Starship prompt, explicit OpenCode theme, and an isolated
+Codex CLI home through a portable Bash profile. Host-only Homebrew, macOS path,
+plugin, and credential startup remains outside the sandbox. No running process is
+restarted automatically.
 
-Every guest keeps isolated OpenCode, Herdr, credentials, and session storage.
+Every guest keeps isolated OpenCode, Codex CLI, Herdr, credentials, and session storage.
 The guest account can use sudo only for Lima's exact cidata parameter read; all
 other commands remain denied. A boot-time verifier waits for every
 virtiofs mount, verifies the configured read/write mode, confirms a protected

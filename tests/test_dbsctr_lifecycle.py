@@ -54,6 +54,10 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "shell proxy when a direct interface exists" in coordinator
     assert "keep governed private result bodies local" in coordinator
     assert "dbsctr_initiative_launch: ask" in coordinator
+    for agent in ("build-gpt", "build-claude"):
+        build = text(f"private_dot_config/opencode/agents/{agent}.md")
+        assert "dbsctr_initiative_launch: deny" in build
+        assert "dbsctr_initiative_begin: ask" in build
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
@@ -143,19 +147,29 @@ def test_current_distribution_profile_names_hermes_orchestration():
     assert "opt-in native R&D scheduling" not in spec
 
 
-def test_codex_next_slices_are_dependency_ordered_and_host_ready():
+def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     manifest = json.loads(text("docs/initiatives/codex-cli-integration/MANIFEST.json"))
     contexts = {item["id"]: item for item in manifest["contexts"]}
     slices = {item["id"]: item for item in manifest["slices"]}
     statements = {item["id"]: item for item in manifest["statements"]}
 
     assert contexts["codex_control_plane"]["status"] == "ready"
-    assert slices["codex-host-foundation"]["state"] == "ready"
-    assert slices["codex-distribution"]["state"] == "captured"
+    assert slices["codex-host-foundation"]["state"] == "delivered"
+    assert slices["codex-distribution"]["state"] == "delivered"
+    assert slices["codex-distribution"]["execution_owner"] == "build"
     assert slices["codex-distribution"]["depends_on"] == ["codex-host-foundation"]
-    assert slices["codex-identity-probe"]["state"] == "blocked"
+    assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert slices["generic-history-source-pages"]["state"] == "delivered"
+    assert slices["generic-history-source-pages"]["execution_owner"] == "build"
+    assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
+    assert slices["codex-history-adapter"]["state"] == "ready"
+    assert slices["codex-history-adapter"]["execution_owner"] == "build"
+    assert slices["codex-history-adapter"]["depends_on"] == [
+        "codex-identity-probe", "generic-history-source-pages",
+    ]
+    assert {"INT-013", "INT-020"} <= set(slices["codex-history-adapter"]["requirements"])
     assert {
         name: (slices[name]["state"], slices[name]["depends_on"])
         for name in (
@@ -163,7 +177,9 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
             "codex-federation-parity", "codex-parity-readiness",
         )
     } == {
-        "codex-history-parity": ("captured", ["codex-identity-probe"]),
+        "codex-history-parity": (
+            "captured", ["codex-history-adapter"]
+        ),
         "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
         "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
         "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
@@ -173,6 +189,11 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     assert statements["INT-027"]["disposition"] == "ready"
     assert statements["INT-028"]["disposition"] == "ready"
     assert statements["INT-029"]["disposition"] == "ready"
+    assert statements["INT-030"]["disposition"] == "ready"
+    assert statements["INT-031"]["disposition"] == "ready"
+    assert statements["INT-032"]["disposition"] == "ready"
+    assert {"INT-030", "INT-031"} <= set(slices["codex-host-foundation"]["requirements"])
+    assert all("tickets" not in item for item in manifest["slices"])
 
     checked = subprocess.run(
         [sys.executable, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
@@ -180,16 +201,21 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-host-foundation"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-adapter"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
     distribution = text("docs/specs/dotfiles_ai_distribution/features/codex-cli.md")
     operation = text("docs/specs/codex_control_plane/OPERATION.md")
+    normalized_initiative = " ".join(initiative.split())
+    normalized_control_plane = " ".join(control_plane.split())
+    normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
+    assert "`codex-history-adapter` ready" in normalized_initiative
+    assert "**Status:** Distribution deployed; identity probe pending" in distribution
     for phrase in (
-        "Documented `thread/list` and `thread/read`",
+        "Pinned stable `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",
         "Existing bounded federated-capture schemas",
         "Every requested capability must have passing evidence",
@@ -198,13 +224,154 @@ def test_codex_next_slices_are_dependency_ordered_and_host_ready():
     assert "Build, Discovery, Plan, Review, Explore, and Scout" in control_plane
     for phrase in (
         "64 KiB", "five seconds", "codex-adapter-1", "expire after 24 hours",
-        "sole transient path exception", "root containment",
+        "`transcript_path`", "never opens", "root containment",
+        "`$CODEX_HOME/agents/**/*.toml`", "inline command hooks",
     ):
         assert phrase in control_plane
     assert "all registered managed guests" in distribution
+    assert "agents/**/*.toml" in distribution
+    assert "hooks/*" not in distribution
     assert "representative authenticated Fedora guest" in operation
     assert "existing managed `CODEX_HOME`" in operation
     assert "Do not inspect or delete private storage" in operation
+    assert "discard `transcript_path` without reading it" in operation
+    assert (
+        "adapter never opens, resolves, canonicalizes, checks the existence of, "
+        "logs, exposes, or persists that field"
+    ) in normalized_control_plane
+    assert "transcript content rejects the event" in normalized_operation
+    assert "transcript content, prompt, tool data" in normalized_operation
+
+    history_schema = json.loads(text(
+        "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
+    ))
+    assert history_schema["$ref"] == "#/$defs/envelope"
+    assert history_schema["$defs"]["envelope"]["additionalProperties"] is False
+    page = history_schema["$defs"]["page"]
+    assert page["additionalProperties"] is False
+    assert page["properties"]["entries"]["maxItems"] == 20
+    assert page["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["request"]["properties"]["limit"]["maximum"] == 20
+    assert history_schema["$defs"]["continuation"]["properties"]["members"]["maxItems"] == 100
+    assert history_schema["$defs"]["member"]["properties"]["updated_at"]["maximum"] == 9007199254740991
+    entry = history_schema["$defs"]["entry"]
+    assert entry["additionalProperties"] is False
+    assert entry["properties"]["content"]["maxItems"] == 100
+    assert "metrics" in entry["required"]
+    assert entry["properties"]["created_at"]["maximum"] == 9007199254740991
+    assert history_schema["$defs"]["text"]["properties"]["role"]["enum"] == [
+        "user", "assistant",
+    ]
+    assert "generic-history-source-pages" in control_plane
+    assert "never enter a page" in control_plane
+    adapter = text("docs/specs/codex_control_plane/features/history-adapter.md")
+    adapter_contract = json.loads(text(
+        "docs/specs/codex_control_plane/features/history-adapter.contract.json"
+    ))
+    assert "history-probe --request-json -" in adapter
+    assert "history-source-validate --envelope-json -" in adapter
+    assert adapter_contract["codex_release"] == "0.151.0"
+    assert all(request["useStateDbOnly"] is True
+               for request in adapter_contract["thread_list"]["requests"])
+    assert {request["archived"]
+            for request in adapter_contract["thread_list"]["requests"]} == {False, True}
+    assert adapter_contract["thread_list"]["non_null_next_cursor_means_overflow"] is True
+    assert adapter_contract["probe_output_schema"]["additionalProperties"] is False
+    assert adapter_contract["source"] == {
+        "harness_id": "codex",
+        "adapter_revision": "codex-history-adapter-1",
+        "release": "0.151.0",
+    }
+    assert adapter_contract["provider_ids"] == ["openai"]
+    assert adapter_contract["failure"] == {
+        "exit_status": 2,
+        "stdout": "",
+        "stderr": "codex-control-plane: history_adapter_unavailable\n",
+    }
+    assert adapter_contract["unavailable_reasons"] == {
+        "tokens": "stable_thread_response_omits_tokens",
+        "cost": "stable_thread_response_omits_cost",
+    }
+    assert len(adapter_contract["generated_schema_sha256"]) == 6
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest)
+               for digest in adapter_contract["generated_schema_sha256"].values())
+    probe_fields = adapter_contract["probe_output_schema"]["properties"]
+    assert "page_digest" not in probe_fields
+    assert all("subAgentThreadSpawn" in request["sourceKinds"]
+               for request in adapter_contract["thread_list"]["requests"])
+    normalized_adapter = " ".join(adapter.split())
+    for phrase in (
+        "Timestamps remain Unix seconds",
+        "private stdin subprocess",
+        "Any server request, second response, unknown envelope field",
+        "memory consolidation mapping to `subAgentOther`",
+        "codex-project-v1\\0unknown",
+        "then compared with lifecycle canonical JSON",
+        "`turn_count` is the number of native turns",
+        "Tool counts equal emitted signals",
+        "Frozen item discriminator",
+    ):
+        assert phrase in normalized_adapter
+
+    projection = text(
+        "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
+    )
+    assert "CREATE TABLE index_messages" in projection
+    assert "verified_message_rowid" in projection
+    assert "body digest" in projection
+
+    probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
+
+    def validate_probe(value):
+        assert set(value) == {
+            "schema_version", "release", "adapter_revision", "disposition", "mapping",
+            "protocol_schema_sha256", "platforms",
+        }
+        assert value["schema_version"] == 1
+        assert value["release"] == "0.151.0"
+        assert value["adapter_revision"] == "codex-adapter-1"
+        assert value["disposition"] in {"exact", "mapped"}
+        assert value["mapping"] in {
+            "hook_session_id_equals_thread_id",
+            "hook_session_id_equals_thread_session_id",
+        }
+        assert set(value["platforms"]) == {"host_macos", "fedora_lima_guest"}
+        for result in value["platforms"].values():
+            assert set(result) == {
+                "cli_thread_relation", "thread_session_relation", "resume_identity",
+                "fork_parent_relation", "fork_session_relation", "content_rejection",
+                "cli_jsonl_sha256", "hook_evidence_sha256",
+                "app_server_evidence_sha256",
+            }
+            assert result["cli_thread_relation"] == "exact"
+            assert result["thread_session_relation"] in {"thread", "distinct"}
+            assert result["resume_identity"] == "exact"
+            assert result["fork_parent_relation"] == "exact"
+            assert result["fork_session_relation"] in {
+                "parent_session", "fork_thread", "distinct",
+            }
+            assert result["content_rejection"] in {"passed", "not_observed"}
+        digests = [value["protocol_schema_sha256"]] + [
+            digest
+            for result in value["platforms"].values()
+            for key, digest in result.items()
+            if key.endswith("_sha256")
+        ]
+        assert all(
+            len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+            for digest in digests
+        )
+
+    validate_probe(probe)
+    assert probe["disposition"] == "exact"
+    assert probe["mapping"] == "hook_session_id_equals_thread_id"
+    invalid_probe = dict(probe, unexpected_private_field="rejected")
+    try:
+        validate_probe(invalid_probe)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("identity probe schema accepted an unknown field")
 
 
 def test_v3_module_registry_is_extensible_and_normalized():

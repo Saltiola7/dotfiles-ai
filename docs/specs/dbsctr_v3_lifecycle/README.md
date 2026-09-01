@@ -3227,12 +3227,18 @@ file, and removes any temporary bytes after one successful or failed import.
   tombstone/expiry reason, authority subtype, sequence, and digest.
 - Privacy ordering is `status A -> export A -> status A -> transactional deny
   commit A -> content reconcile -> activation -> status A`; a changed status at
-  either check aborts or invalidates queries until rerun. Every lifecycle privacy
-  writer takes an exclusive private-ledger privacy lock. `dbsctrctl
-  knowledge-privacy-guard -- PROGRAM...` takes its shared counterpart, verifies
+  either check aborts or invalidates queries until rerun. Lifecycle operations
+  that add or remove an exported expiry or tombstone take the dedicated knowledge
+  privacy lock exclusively. `dbsctrctl knowledge-privacy-guard -- PROGRAM...`
+  takes its shared counterpart within the caller's remaining deadline, verifies
   the imported sequence/digest, executes the query argument vector without a
-  shell, and holds the lock through result completion. Thus a tombstone cannot
-  race between status validation and cited text return.
+  shell, and holds the lock through result completion. Unrelated review, History,
+  Incident, and capture operations use only the ledger integrity lock and cannot
+  delay the guard. A command requiring both locks uses one canonical order without
+  upgrade. Thus a tombstone cannot race between status validation and cited text
+  return without coupling retrieval to unrelated ledger work. The complete
+  contract is in
+  [`features/knowledge-query-privacy-isolation.md`](features/knowledge-query-privacy-isolation.md).
 - Explicit forget takes precedence over archived/history membership. The export
   never re-emits forgotten text or a content digest that could verify a low-
   entropy secret.

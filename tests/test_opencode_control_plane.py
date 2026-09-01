@@ -403,7 +403,8 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
     }
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
-        "dbsctr_initiative_launch": "ask",
+        "dbsctr_initiative_launch": "deny",
+        "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -583,7 +584,7 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const initiative_launch = tool({' in tools
-    assert 'permission: "dbsctr_initiative_launch"' in tools
+    assert '"dbsctr_initiative_launch" : "dbsctr_initiative_begin"' in tools
     assert "proceed: tool.schema.literal(true)" in tools
     assert 'export const audit = tool({' in tools
     assert 'export const inspect = tool({' in tools
@@ -598,6 +599,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "Only use as /dbsctr-improve's final approved step" in tools
     assert 'export const history_capture = tool({' in tools
     assert 'export const history_telemetry = tool({' in tools
+    assert tools.count("aggregateOnly: tool.schema.boolean().optional().default(false)") == 2
+    assert "summaryOnly: tool.schema.boolean().optional().default(false)" in tools
     assert 'export const benchmark = tool({' in tools
     assert 'export const improvement_status = tool({' in tools
     assert 'export const improvement_claim = tool({' in tools
@@ -659,14 +662,19 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     config = rendered_config()
     for permission in ("dbsctr_lens_summary", "dbsctr_history_capture", "dbsctr_history_telemetry", "dbsctr_benchmark"):
         assert config["permission"][permission] == "allow"
-    assert config["permission"]["dbsctr_initiative_launch"] == "ask"
-    launch_primaries = {"discovery-coordinator.md", "build-gpt.md", "build-claude.md"}
+    assert config["permission"]["dbsctr_initiative_launch"] == "deny"
+    assert config["permission"]["dbsctr_initiative_begin"] == "deny"
     for agent in (OC / "agents").glob("*.md"):
         assert "dbsctr_vm_handoff: deny" in agent.read_text()
-        if agent.name in launch_primaries:
+        if agent.name == "discovery-coordinator.md":
             assert "dbsctr_initiative_launch: ask" in agent.read_text()
         else:
             assert "dbsctr_initiative_launch: deny" in agent.read_text()
+        if agent.name in {"build-gpt.md", "build-claude.md"}:
+            assert "dbsctr_initiative_begin: ask" in agent.read_text()
+        else:
+            assert "dbsctr_initiative_begin: ask" not in agent.read_text()
+            assert "dbsctr_initiative_begin: allow" not in agent.read_text()
     routing = (OC / "AGENTS.md").read_text()
     assert "never probe or substitute a denied launcher" in routing
     assert "`dbsctr_vm_handoff` is not an Initiative launcher" in routing
@@ -701,10 +709,16 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     herdr.write_text(
         "#!/bin/sh\nprintf 'CALL\\nCWD:%s\\n' \"$(pwd)\" >> \"$HERDR_LOG\"\n"
         "printf '<%s>\\n' \"$@\" >> \"$HERDR_LOG\"\n"
-        "[ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }\n"
         "case \"$1 $2\" in\n"
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'pane current') [ \"$HERDR_CURRENT_MISSING\" = 1 ] && printf '{}\\n' || printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') [ \"$HERDR_MALFORMED_TAB\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"bad id\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"bad pane\",\"workspace_id\":\"w1\"}}}\\n' || { [ \"$HERDR_WORKSPACE_MISMATCH\" = 1 ] && printf '{\"result\":{\"tab\":{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"},\"root_pane\":{\"pane_id\":\"w2:p1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n'; } ;;\n"
+        "  'agent start') [ \"$HERDR_FAIL\" = 1 ] && { printf 'herdr-boom\\n' >&2; exit 9; }; "
+        "[ \"$HERDR_NOT_READY\" = 1 ] && { printf 'agent_not_ready\\n' >&2; exit 1; }; "
+        "[ \"$HERDR_MALFORMED\" = 1 ] && { printf '{}\\n'; exit 0; }; "
+        "[ \"$HERDR_AGENT_MISMATCH\" = 1 ] && printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\"}}}\\n' || printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"agent_session\":{\"value\":\"session-launched\"}}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_EXISTS\" = 1 ] || exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab close') : ;;\n"
         "esac\n"
     )
     dbsctr.chmod(0o755)
@@ -740,8 +754,9 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
                               capture_output=True, check=True)
     assert json.loads(launched.stdout)["herdr"] == "launched"
     assert herdr_log.read_text().splitlines() == [
+        "CALL", f"CWD:{ROOT}", "<pane>", "<current>", "<--current>",
         "CALL", f"CWD:{ROOT}", "<tab>", "<create>", "<--cwd>", f"<{cycle}>",
-        "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
+        "<--workspace>", "<w1>", "<--label>", "<DBSCTR x-touch-nope>", "<--no-focus>",
         "CALL", f"CWD:{ROOT}", "<agent>", "<start>",
         f"<dbsctr-x-touch-nope-{hashlib.sha256(str(cycle).encode()).hexdigest()[:8]}>",
         "<--kind>", "<opencode>", "<--pane>", "<w1:p1>", "<-->", f"<{cycle}>",
@@ -762,10 +777,70 @@ def test_dbsctr_tool_runtime_preserves_argv_and_opts_in_to_herdr(tmp_path):
     malformed = subprocess.run(["bun", "-e", script], cwd=ROOT,
                                env={**env, "DBSCTR_MODE": "malformed"}, text=True, capture_output=True)
     assert malformed.returncode != 0
+    herdr_log.write_text("")
     herdr_failed = subprocess.run(["bun", "-e", script, "launch"], cwd=ROOT,
                                   env={**env, "HERDR_FAIL": "1"}, text=True,
                                   capture_output=True, check=True)
     assert json.loads(herdr_failed.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    false_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(false_pending.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<get>" in herdr_log.read_text()
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    real_pending = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_NOT_READY": "1", "HERDR_AGENT_EXISTS": "1"},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(real_pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    missing_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_CURRENT_MISSING": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(missing_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<create>" not in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_workspace = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_WORKSPACE_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_workspace.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w2:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    mismatched_agent = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_AGENT_MISMATCH": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(mismatched_agent.stdout)["herdr"].startswith("launch_failed:")
+    assert "<tab>\n<close>\n<w1:t1>" in herdr_log.read_text()
+
+    herdr_log.write_text("")
+    malformed_tab = subprocess.run(
+        ["bun", "-e", script, "launch"], cwd=ROOT,
+        env={**env, "HERDR_MALFORMED_TAB": "1"}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(malformed_tab.stdout)["herdr"].startswith("launch_failed:")
+    assert "<agent>\n<start>" not in herdr_log.read_text()
 
 
 def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_path):
@@ -780,8 +855,9 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
     (bin_dir / "herdr").write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_LOG"\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') case \"$*\" in *--fork*) [ \"$HERDR_FORK_FAIL\" = 1 ] && { printf 'unknown option --fork\\n' >&2; exit 1; }; [ \"$HERDR_FORK_FAIL\" = 2 ] && { printf 'invalid pane\\n' >&2; exit 1; };; esac; printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text(
@@ -813,7 +889,9 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(fallback.stdout)["herdr_session_mode"] == "fresh_fallback"
-    assert log.read_text().count("<tab>") == 2
+    assert log.read_text().count("<tab>\n<create>") == 2
+    assert log.read_text().count("<--workspace>\n<w1>") == 2
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
     assert f"<-->\n<{cycle}>" in log.read_text()
     log.write_text("")
     unrelated = subprocess.run(
@@ -822,7 +900,8 @@ def test_dbsctr_begin_forks_supported_opencode_session_and_falls_back_fresh(tmp_
         text=True, capture_output=True, check=True,
     )
     assert json.loads(unrelated.stdout)["herdr"].startswith("launch_failed:")
-    assert log.read_text().count("<tab>") == 1
+    assert log.read_text().count("<tab>\n<create>") == 1
+    assert "<tab>\n<close>\n<w1:t1>" in log.read_text()
 
 
 def test_initiative_context_plugin_revalidates_normal_and_compaction_context(tmp_path):
@@ -1056,6 +1135,43 @@ def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):
         "CALL", "<benchmark>", "<--benchmark-id>", f"<{benchmark_id}>",
     ]
 
+    metric = {"available_count": 0, "unavailable_count": 0,
+              "mean": "unavailable", "p50": "unavailable", "p90": "unavailable"}
+    aggregate = {
+        "schema_version": 1, "mode": "aggregate", "capture_id": "c" * 24,
+        "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1, "database_digest": "d" * 64,
+        "exclusion_digest": None, "query": {"after": None, "before": None, "method_revision": None,
+        "cycle_filter_applied": False, "state": None, "context": None, "project_digest": None,
+        "reviewed_status": None, "archive_only": False}, "limit": 7, "cursor": 2,
+        "selected_count": 0, "continuation": None, "digest": "e" * 64,
+        "cohort": {"sessions": {"relation": {"primary": 0, "child": 0, "unavailable": 0},
+                                    "review": {"review": 0, "non_review": 0, "unavailable": 0},
+                                    "telemetry_available": 0, "telemetry_unavailable": 0},
+                   "correlation_quality": {name: 0 for name in (
+                       "exact", "family", "worktree", "source", "ambiguous", "unavailable")},
+                   "cycle_states": {name: 0 for name in (
+                       "active", "blocked", "abandoned", "completed", "unknown")}},
+        "metrics": {name: metric for name in (
+            "elapsed_ms", "tokens", "tool_calls", "tool_errors", "child_sessions", "delegations")},
+        "distributions": {"agents": [], "models": []},
+    }
+    aggregate_script = (
+        f'import {{ historyTelemetry }} from {json.dumps(str(runtime))};'
+        'console.log(await historyTelemetry({limit:7,cursor:2,aggregateOnly:true},process.cwd()));'
+    )
+    aggregate_result = subprocess.run(
+        ["bun", "-e", aggregate_script], cwd=ROOT,
+        env={**env, "TELEMETRY_JSON": json.dumps(aggregate)}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(aggregate_result.stdout) == aggregate
+    invalid_aggregate = {**aggregate, "cohort": {**aggregate["cohort"], "unexpected": 1}}
+    rejected_aggregate = subprocess.run(
+        ["bun", "-e", aggregate_script], cwd=ROOT,
+        env={**env, "TELEMETRY_JSON": json.dumps(invalid_aggregate)}, text=True, capture_output=True,
+    )
+    assert rejected_aggregate.returncode != 0
+    assert "invalid aggregate telemetry" in rejected_aggregate.stderr
+
     malformed = subprocess.run(
         ["bun", "-e", f'import {{ benchmarkResult }} from {json.dumps(str(runtime))};'
          f'await benchmarkResult({json.dumps(benchmark_id)},process.cwd());'],
@@ -1184,23 +1300,29 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
     bin_dir.mkdir()
     log = tmp_path / "incident.log"
     helper = bin_dir / "dbsctrctl"
-    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\nprintf "{}\\n"\n')
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\n'
+                      '[ "$1" = incident-scan ] && printf "%s\\n" "$INCIDENT_SCAN_JSON" || printf "{}\\n"\n')
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ incidentScan, incidentRegister, incidentUpdate, incidentForget }} from {json.dumps(str(runtime))};'
-        'await incidentScan(process.cwd(),"fork-1");'
+        'await incidentScan(process.cwd(),"fork-1",true);'
         'await incidentRegister({sessionID:"fork-1",messageID:"message-1",kind:"defect",'
         'title:"INCIDENT: failed read",summary:"literal; no shell",signalIDs:["a".repeat(24)],'
         'diagnostics:["expected input"],evidence:["/tmp/input"]},process.cwd());'
         'await incidentUpdate("fork-1","message-1","b".repeat(24),"fixing",process.cwd(),"cycle-1");'
         'await incidentForget("fork-1","message-1","b".repeat(24),process.cwd());'
     )
+    incident_summary = {"schema_version": 1, "mode": "summary", "snapshot": 1,
+                        "session_ceiling": 1, "part_ceiling": 1, "database_digest": "a" * 64,
+                        "incident_count": 0, "incident_overflow": False, "signal_count": 0,
+                        "signal_overflow": False, "groups": []}
     subprocess.run(["bun", "-e", script], cwd=ROOT,
-                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log)},
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log),
+                        "INCIDENT_SCAN_JSON": json.dumps(incident_summary)},
                    text=True, capture_output=True, check=True)
     assert log.read_text().splitlines() == [
-        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>",
+        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>", "<--summary-only>",
         "CALL", "<incident-register>", "<--session-id>", "<fork-1>",
         "<--message-id>", "<message-1>", "<--kind>", "<defect>",
         "<--title>", "<INCIDENT: failed read>", "<--summary>", "<literal; no shell>",
@@ -1212,6 +1334,18 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
         "CALL", "<incident-forget>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
         "<--incident-id>", f'<{"b" * 24}>',
     ]
+    invalid_summary = {**incident_summary, "groups": [{
+        "tool": "read", "failure_class": "tool_failed", "recovered": False, "count": 1,
+        "unexpected": "private",
+    }], "signal_count": 1}
+    rejected = subprocess.run(
+        ["bun", "-e", f'import {{ incidentScan }} from {json.dumps(str(runtime))};'
+         'await incidentScan(process.cwd(),undefined,true);'], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log),
+             "INCIDENT_SCAN_JSON": json.dumps(invalid_summary)}, text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0
+    assert "invalid incident summary" in rejected.stderr
 
 
 def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):
@@ -1771,6 +1905,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     bin_dir.mkdir()
     calls = tmp_path / "helper.calls"
     herdr_calls = tmp_path / "herdr.calls"
+    herdr_start_bytes = tmp_path / "herdr.start-bytes"
     approval = tmp_path / "approval.json"
     plan = tmp_path / "plan.json"
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
@@ -1779,6 +1914,12 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     subprocess.run(["git", "init"], cwd=target, check=True, capture_output=True)
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
                    cwd=target, check=True)
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/Saltiola7/dotfiles-ai.git"],
+                   cwd=source, check=True)
+    receipt_cwds = tmp_path / "receipt.cwds"
     cycle = tmp_path / "cycle"
     cycle.mkdir()
     digest = "a" * 64
@@ -1796,16 +1937,22 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
-        f'if [ "$1" = initiative-receipt ]; then printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
+        f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
         f'else printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HERDR_CALLS"\n'
+        'if [ "$1 $2" = "agent start" ] && [ -n "$HERDR_START_BYTES" ]; then printf "%s" "$*" | wc -c > "$HERDR_START_BYTES"; fi\n'
         'case "$1 $2" in\n'
-        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
-        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\"}}}\\n' ;;\n"
+        "  'pane current') printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p0\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'tab create') printf '{\"result\":{\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent start') printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent prompt') [ \"$HERDR_PROMPT_FAIL\" = 1 ] && { printf 'agent_blocked\\n' >&2; exit 1; }; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
+        "  'agent get') [ \"$HERDR_AGENT_GONE\" = 1 ] && exit 1; "
+        "printf '{\"result\":{\"agent\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}\\n' ;;\n"
         'esac\n'
     )
     (bin_dir / "opencode").write_text('#!/bin/sh\nprintf "  --fork  Fork session\\n"\n')
@@ -1818,16 +1965,19 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     tools = OC / "tools/dbsctr.ts"
     script = f'''import {{ initiative_launch }} from {json.dumps(str(tools))};
 const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"parent-session",messageID:"message",
-ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;}}}};
+ask:async(value)=>{{await Bun.write(process.env.APPROVAL,JSON.stringify(value));if(process.env.MUTATE_PLAN==="1")await Bun.write({json.dumps(str(plan))},"changed");if(process.env.MUTATE_TARGET==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.TARGET}}).exited;if(process.env.MUTATE_SOURCE==="1")await Bun.spawn(["git","remote","set-url","origin","https://github.com/other/repo.git"],{{cwd:process.env.SOURCE}}).exited;}}}};
 console.log(await initiative_launch.execute({{
 manifestPath:"docs/initiatives/test/MANIFEST.json",sliceId:"slice-a",proceed:true,
 cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:{json.dumps(str(plan))},
+...(process.env.SOURCE ? {{initiativeSourceRepository:process.env.SOURCE}} : {{}}),
 ...(process.env.TARGET ? {{targetRepository:process.env.TARGET}} : {{}})
 }},context));'''
     result = subprocess.run(
         ["bun", "-e", script], cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
-             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval)},
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds),
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
         text=True, capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["initiative"]["manifest_digest"] == digest
@@ -1851,11 +2001,41 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     ]
     assert f"<--expected-plan-digest>\n<{hashlib.sha256(plan.read_bytes()).hexdigest()}>" in calls.read_text()
     assert "<--expected-repository>\n<Saltiola7/dotfiles-ai>" in calls.read_text()
+    assert f"<--initiative-source>\n<{source}>" in calls.read_text()
     assert "<--base-branch>\n<main>" in calls.read_text()
+    assert set(receipt_cwds.read_text().splitlines()) == {str(source)}
     log = herdr_calls.read_text()
     assert "<--session>\n<parent-session>\n<--fork>" in log
-    assert f'"manifest_digest":"{digest}"' in log
-    assert "<--prompt>" in log
+    assert digest not in log
+    assert "<agent>\n<start>" in log and "<agent>\n<prompt>" in log
+    assert "<pane>\n<current>\n<--current>" in log
+    assert "<tab>\n<create>\n<--cwd>\n<" + str(cycle) + ">\n<--workspace>\n<w1>" in log
+    assert "<--prompt>" not in log
+    assert int(herdr_start_bytes.read_text()) < 1024
+
+    herdr_calls.write_text("")
+    pending = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "RECEIPT_CWDS": str(receipt_cwds), "HERDR_PROMPT_FAIL": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(pending.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
+
+    herdr_calls.write_text("")
+    lost_agent = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls), "APPROVAL": str(approval),
+             "SOURCE": str(source), "HERDR_PROMPT_FAIL": "1", "HERDR_AGENT_GONE": "1",
+             "HERDR_START_BYTES": str(herdr_start_bytes)},
+        text=True, capture_output=True, check=True,
+    )
+    assert json.loads(lost_agent.stdout)["herdr"] == "launch_pending"
+    assert "<tab>\n<close>" not in herdr_calls.read_text()
 
     calls.write_text("")
     herdr_calls.write_text("")
@@ -1874,8 +2054,20 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         text=True, capture_output=True, check=True,
     )
     assert json.loads(fallback.stdout)["initiative"]["manifest_digest"] == digest
-    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_launch"
+    assert json.loads(fallback.stdout)["herdr"] == "not_launched"
+    assert json.loads(approval.read_text())["permission"] == "dbsctr_initiative_begin"
     assert "<initiative-receipt>" in calls.read_text()
+    assert "<--opencode-session-id>\n<parent-session>" in calls.read_text()
+    assert herdr_calls.read_text() == ""
+
+    begin_changed = subprocess.run(
+        ["bun", "-e", begin_script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "MUTATE_PLAN": "1"},
+        text=True, capture_output=True,
+    )
+    assert begin_changed.returncode != 0 and "plan changed after approval" in begin_changed.stderr
 
     plan.write_text('{"profile":"docs/specs/test/PROFILE.md"}')
     changed = subprocess.run(
@@ -1896,6 +2088,15 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         text=True, capture_output=True,
     )
     assert target_changed.returncode != 0 and "target repository changed" in target_changed.stderr
+
+    source_changed = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "SOURCE": str(source), "MUTATE_SOURCE": "1"},
+        text=True, capture_output=True,
+    )
+    assert source_changed.returncode != 0 and "source repository changed" in source_changed.stderr
 
 
 def test_vm_handoff_requires_typed_approval_and_preserves_argv(tmp_path):

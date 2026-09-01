@@ -1,5 +1,10 @@
 #!/bin/bash
-{{ if .dotfiles_ai.state.root -}}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CACHE_HOME="$HOME/.cache"
+{{ else if .dotfiles_ai.state.root -}}
 export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 export XDG_DATA_HOME={{ printf "%s/xdg/data" .dotfiles_ai.state.root | quote }}
 export XDG_STATE_HOME={{ printf "%s/xdg/state" .dotfiles_ai.state.root | quote }}
@@ -35,6 +40,7 @@ if [[ -n ${HERDR_ENV:-} ]]; then
     done
     [[ $auto == 1 || ( ${1:-} == session && ${2:-} == list ) ]] || set -- "$@" --auto
 
+    {{ if eq .chezmoi.os "darwin" -}}
     if [[ $session == 1 ]]; then
         startup_dir=${DOTFILES_AI_STATE_ROOT:-${TMPDIR:-/tmp}}/herdr
         /bin/mkdir -p "$startup_dir" || {
@@ -88,5 +94,10 @@ if [[ -n ${HERDR_ENV:-} ]]; then
         }
         trap - EXIT INT TERM
     fi
+    {{ end -}}
 fi
+{{ if eq .chezmoi.os "linux" -}}
+exec "$HOME/.local/libexec/dotfiles-ai/opencode" "$@"
+{{ else -}}
 exec /opt/homebrew/bin/opencode "$@"
+{{ end -}}

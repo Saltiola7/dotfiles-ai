@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,12 +18,26 @@ def data(
     pm_image: str = "",
     pm_backup_dir: str = "/Volumes/ext/state/pm-kernel/backups",
     state_root: str = "/Volumes/ext/state",
+    rnd_runtime: object = "opencode",
+    workspace_runtime: object = "codex",
+    codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
 ) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
             "state": {"root": state_root},
+            "codex": {
+                "version": codex_version,
+                "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
+                "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
+                "linux_amd64_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-x86_64-unknown-linux-musl.tar.gz",
+                "linux_amd64_asset_sha256": "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6",
+            },
             "opencode": {
+                "version": "1.18.25",
+                "linux_amd64_asset_url": "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz",
+                "linux_amd64_asset_sha256": "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78",
                 "vertex_project": "example-project" if vertex else "",
                 "vertex_location": "global",
                 "vertex_credentials": vertex_credentials,
@@ -36,6 +51,9 @@ def data(
                 "theme": "nord",
                 "launchagent": True,
                 "executable": "/usr/local/bin/herdr",
+                "version": "0.8.2",
+                "linux_amd64_asset_url": "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+                "linux_amd64_asset_sha256": "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4",
             },
             "hermes": {
                 "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
@@ -44,6 +62,16 @@ def data(
             },
             "atuin": {"sync_address": "https://atuin.example.com", "server_enabled": False},
             "tailscale": {"enabled": False, "ssh": False},
+            "remote_workspace": {
+                "enabled": True,
+                "repository": str(ROOT),
+                "project": "example-project",
+                "zone": "example-zone-a",
+                "instance": "example-workspace",
+                "account": "user@example.com",
+                "tailscale_host": "example-workspace.example.ts.net",
+            },
+            "remote_user_environment": {"enabled": remote_user_environment},
             "sandbox": {
                 "enabled": True,
                 "build_workspace": "workspace1",
@@ -55,6 +83,7 @@ def data(
                 "workspaces": [
                     {
                         "name": "workspace1", "instance": "workspace1-sandbox", "shell_alias": "workspace1sh", "federate": True,
+                        "runtime": workspace_runtime,
                         "mounts": [{
                             "host": "/workspace/projects", "guest": "/workspace/projects", "writable": True,
                             "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
@@ -62,6 +91,7 @@ def data(
                     },
                     {
                         "name": "workspace2", "instance": "workspace2-sandbox", "shell_alias": "workspace2sh", "federate": False,
+                        "runtime": "",
                         "mounts": [{
                             "host": "/workspace/reference", "guest": "/workspace/reference", "writable": False,
                             "protect_git_submodules": False, "reference_name": "project-reference",
@@ -75,6 +105,12 @@ def data(
                 "account": "local-account",
                 "user_uuid": "LOCALUUID",
                 "keychain_service": "local-service",
+            },
+            "rnd": {
+                "enabled": False, "backend": "native", "runtime": rnd_runtime,
+                "review_workdir": "", "review_hour": 9, "review_minute": 0,
+                "watchdog_interval_seconds": 300, "workspace_label": "DBSCTR R&D",
+                "github_account": "", "github_repository": "",
             },
             "pm_kernel": {
                 "enabled": bool(pm_image),
@@ -100,6 +136,10 @@ def chezmoi(
     pm_image: str = "",
     pm_backup_dir: str = "/Volumes/ext/state/pm-kernel/backups",
     state_root: str = "/Volumes/ext/state",
+    rnd_runtime: object = "opencode",
+    workspace_runtime: object = "codex",
+    codex_version: str = "0.151.0",
+    remote_user_environment: bool = False,
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -107,7 +147,9 @@ def chezmoi(
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
             json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
-                            pm_image, pm_backup_dir, state_root)),
+                             pm_image, pm_backup_dir, state_root, rnd_runtime,
+                             workspace_runtime, codex_version,
+                             remote_user_environment)),
             *args,
         ],
         input=template,
@@ -123,10 +165,285 @@ def test_macos_installs_official_opencode_tap() -> None:
 
     assert 'tap "anomalyco/tap"' in brewfile
     assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert 'brew "mise"' in brewfile
+    assert 'cask "google-cloud-sdk"' in brewfile
     assert '{{ include "Brewfile" | sha256sum }}' in installer
     assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
-    assert "Homebrew is required to install OpenCode" in installer
+    assert "Homebrew is required to install managed agent packages" in installer
     assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+
+
+def test_remote_workspace_config_stays_machine_local() -> None:
+    profile = chezmoi(
+        "execute-template", template=(ROOT / "dot_common_profile.tmpl").read_text()
+    ).stdout
+    env = chezmoi(
+        "cat", str(Path.home() / ".config/dotfiles-ai/remote-workspace.env")
+    ).stdout
+    managed = set(chezmoi("managed").stdout.splitlines())
+
+    assert "remote-workspace.env" not in profile
+    assert f'REMOTE_DEV_REPOSITORY="{ROOT}"' in env
+    assert 'REMOTE_DEV_PROJECT="example-project"' in env
+    assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
+    assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
+    assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
+    assert 'REMOTE_DEV_TAILSCALE_HOST="example-workspace.example.ts.net"' in env
+    assert ".local/bin/remote-workspace" in managed
+    assert ".local/bin/remote-workspace-doctor" in managed
+
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+    example = (ROOT / "config.example.toml").read_text()
+    assert "[dotfiles_ai.remote_workspace]" in defaults
+    assert "[data.dotfiles_ai.remote_workspace]" in example
+
+
+def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> None:
+    for command in ("mise", "herdr", "tailscale"):
+        path = tmp_path / command
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    gcloud = tmp_path / "gcloud"
+    gcloud.write_text("#!/bin/sh\necho user@example.com\n")
+    gcloud.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh", str(ROOT / "dot_local/bin/executable_remote-workspace-doctor")],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "REMOTE_DEV_PROJECT": "example-project",
+            "REMOTE_DEV_ZONE": "example-zone-a",
+            "REMOTE_DEV_INSTANCE": "example-workspace",
+            "REMOTE_DEV_REPOSITORY": str(ROOT),
+            "REMOTE_DEV_TAILSCALE_HOST": "example-workspace.example.ts.net",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(tmp_path / "missing.env"),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "remote workspace prerequisites ready"
+
+
+def test_remote_workspace_forwards_to_repository_mise_task(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    env_file = tmp_path / "remote-workspace.env"
+    env_file.write_text(f'export REMOTE_DEV_REPOSITORY="{repository}"\n')
+    mise = tmp_path / "mise"
+    mise.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PWD" "$*"\n')
+    mise.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            str(ROOT / "dot_local/bin/executable_remote-workspace"),
+            "remote-status",
+            "--verbose",
+        ],
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "DOTFILES_AI_REMOTE_WORKSPACE_ENV": str(env_file),
+        },
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == [
+        str(repository),
+        "run remote-status --verbose",
+    ]
+
+
+def test_remote_user_environment_scripts_render_as_shell() -> None:
+    scripts = [
+        "run_onchange_after_install-guest-development-tools.sh.tmpl",
+        "run_onchange_after_install-starship.sh.tmpl",
+        "run_onchange_after_install-atuin.sh.tmpl",
+        "dot_local/bin/executable_codex-install.tmpl",
+        "dot_local/bin/executable_opencode-install.tmpl",
+        "run_onchange_after_install-01-remote-opencode.sh.tmpl",
+        "run_onchange_after_install-00-remote-herdr.sh.tmpl",
+    ]
+    rendered = []
+    for path in scripts:
+        output = chezmoi(
+            "execute-template",
+            remote_user_environment=True,
+            template=(ROOT / path).read_text(),
+        ).stdout
+        subprocess.run(["bash", "-n"], input=output, text=True, check=True)
+        rendered.append(output)
+    assert all("x86_64" in output for output in rendered[:5] + rendered[6:])
+    assert 'exec "$HOME/.local/bin/opencode-install"' in rendered[5]
+
+
+def test_codex_distribution_sources_are_pinned_and_inert() -> None:
+    brewfile = (ROOT / "Brewfile").read_text()
+    installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
+    linux_installer = (ROOT / "dot_local/bin/executable_codex-install.tmpl").read_text()
+    wrapper = (ROOT / "dot_local/bin/executable_codex.tmpl").read_text()
+    projector = (ROOT / "dot_local/bin/executable_codex-project").read_text()
+    project_script = (ROOT / "run_onchange_after_project-codex.sh.tmpl").read_text()
+    defaults = (ROOT / ".chezmoidata.toml").read_text()
+
+    assert 'cask "codex"' in brewfile
+    assert ".dotfiles_ai.codex.version" in installer
+    assert "HOMEBREW_NO_AUTO_UPDATE=1" in installer
+    assert "Caskroom/codex/$expected" in installer
+    assert ".dotfiles_ai.codex.linux_asset_url" in linux_installer
+    assert "codex-aarch64-unknown-linux-musl.tar.gz" in defaults
+    assert "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6" in defaults
+    assert 'mv -f "$target.new" "$target"' in linux_installer
+    assert "CODEX_HOME" in wrapper and 'exec "$real" "$@"' in wrapper
+    assert "codex-package/homebrew-bin" in wrapper
+    assert "/opt/homebrew/bin/codex" not in wrapper
+    assert ".dotfiles-ai-managed.json" in projector
+    assert ".dotfiles-ai-journal.json" in projector
+    assert "auth.json" not in projector
+    assert "uninstall --zap" not in installer + linux_installer
+    assert '{{ include "Brewfile" | sha256sum }}' in project_script
+    assert ".dotfiles_ai.codex | toJson | sha256sum" in project_script
+    assert '{{ include "run_onchange_before_install-opencode.sh.tmpl" | sha256sum }}' in project_script
+    assert chezmoi("execute-template", template=project_script).stdout != chezmoi(
+        "execute-template", codex_version="0.152.0", template=project_script).stdout
+    managed = set(chezmoi("managed").stdout.splitlines())
+    assert {
+        ".config/dotfiles-ai/codex-managed/config.toml",
+        ".config/dotfiles-ai/codex-managed/AGENTS.md",
+        ".local/bin/codex", ".local/bin/codex-project",
+    } <= managed
+    ignore = (ROOT / ".chezmoiignore").read_text()
+    assert "!.config/dotfiles-ai/codex-managed/**" in ignore
+    for template in (installer, linux_installer, wrapper, project_script):
+        rendered = chezmoi("execute-template", template=template).stdout
+        subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
+
+
+@pytest.mark.parametrize("global_runtime,workspace_runtime", [
+    ("invalid", ""),
+    ("opencode", "invalid"),
+    (False, ""),
+    ("opencode", True),
+])
+def test_runtime_selector_rejects_invalid_rendered_values(
+        global_runtime: object, workspace_runtime: object) -> None:
+    template = (ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()
+    with pytest.raises(subprocess.CalledProcessError):
+        chezmoi("execute-template", rnd_runtime=global_runtime,
+                workspace_runtime=workspace_runtime, template=template)
+
+
+def test_new_host_cask_is_removed_when_projection_fails(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    binary_directory = tmp_path / "bin"
+    prefix = tmp_path / "homebrew"
+    binary_directory.mkdir()
+    home.mkdir()
+    log = tmp_path / "brew.log"
+    brew = binary_directory / "brew"
+    brew.write_text(f'''#!/bin/bash
+set -eu
+printf '%s\n' "$*" >>{str(log)!r}
+prefix={str(prefix)!r}
+case "$1" in
+  info) printf '%s\n' '{{"casks":[{{"version":"0.151.0"}}]}}' ;;
+  --prefix) printf '%s\n' "$prefix" ;;
+  list) test -f "$prefix/.codex-installed" ;;
+  bundle)
+    target="$prefix/Caskroom/codex/0.151.0/bin/codex"
+    mkdir -p "$(dirname "$target")" "$prefix/bin"
+    cat >"$target" <<'EOF'
+#!/bin/bash
+test "${{1:-}}" = --version && printf '%s\n' 'codex-cli 0.151.0'
+EOF
+    chmod 0755 "$target"
+    ln -sf "$target" "$prefix/bin/codex"
+    touch "$prefix/.codex-installed" ;;
+  uninstall)
+    rm -f "$prefix/.codex-installed" "$prefix/bin/codex"
+    rm -rf "$prefix/Caskroom/codex" ;;
+esac
+''')
+    brew.chmod(0o755)
+    environment = {**os.environ, "HOME": str(home),
+                   "PATH": f"{binary_directory}:{os.environ['PATH']}"}
+    installer = chezmoi(
+        "execute-template", state_root="",
+        template=(ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text(),
+    ).stdout
+
+    subprocess.run(["bash"], input=installer, text=True, env=environment, check=True)
+
+    transaction = home / ".local/state/dotfiles-ai/codex-package/transaction"
+    assert transaction.read_text().strip() == "new_install"
+    assert (prefix / ".codex-installed").exists()
+    managed_bin = home / ".local/bin"
+    managed_bin.mkdir(parents=True)
+    projector = managed_bin / "codex-project"
+    projector.write_bytes((ROOT / "dot_local/bin/executable_codex-project").read_bytes())
+    projector.chmod(0o755)
+    desktop = home / ".codex/sentinel"
+    desktop.parent.mkdir()
+    desktop.write_text("desktop")
+    project = chezmoi(
+        "execute-template", state_root="",
+        template=(ROOT / "run_onchange_after_project-codex.sh.tmpl").read_text(),
+    ).stdout
+
+    result = subprocess.run(["bash"], input=project, text=True, env=environment,
+                            capture_output=True)
+
+    assert result.returncode != 0
+    assert "uninstall --cask codex" in log.read_text()
+    assert not (prefix / ".codex-installed").exists()
+    assert not (home / ".local/state/dotfiles-ai/codex-package/homebrew-bin").exists()
+    assert desktop.read_text() == "desktop"
+
+
+def test_codex_wrapper_uses_isolated_home_and_rejects_symlinked_ancestor(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    managed_bin = home / ".local/bin"
+    codex_home = home / ".local/state/dotfiles-ai/codex"
+    managed_bin.mkdir(parents=True)
+    codex_home.mkdir(parents=True, mode=0o700)
+    projector = managed_bin / "codex-project"
+    projector.write_bytes((ROOT / "dot_local/bin/executable_codex-project").read_bytes())
+    projector.chmod(0o755)
+    real = tmp_path / "homebrew/Caskroom/codex/0.151.0/bin/codex"
+    real.parent.mkdir(parents=True)
+    real.write_text('''#!/bin/bash
+if [[ ${1:-} == --version ]]; then printf '%s\n' 'codex-cli 0.151.0'; exit; fi
+printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
+''')
+    real.chmod(0o755)
+    record = home / ".local/state/dotfiles-ai/codex-package/homebrew-bin"
+    record.parent.mkdir(parents=True)
+    record.write_text(str(real) + "\n")
+    record.chmod(0o600)
+    desktop = home / ".codex/sentinel"
+    desktop.parent.mkdir()
+    desktop.write_text("desktop")
+    wrapper = tmp_path / "codex"
+    wrapper.write_text(chezmoi(
+        "execute-template", state_root="",
+        template=(ROOT / "dot_local/bin/executable_codex.tmpl").read_text(),
+    ).stdout)
+    wrapper.chmod(0o755)
+    environment = {**os.environ, "HOME": str(home)}
+
+    subprocess.run([str(wrapper), "argument with spaces"], env=environment, check=True)
+
+    assert (home / "codex-call").read_text().splitlines() == [
+        str(codex_home), "argument with spaces"]
+    assert desktop.read_text() == "desktop"
+    shutil.rmtree(home / ".local/state/dotfiles-ai")
+    outside = tmp_path / "outside/codex"
+    outside.mkdir(parents=True, mode=0o700)
+    (home / ".local/state/dotfiles-ai").symlink_to(outside.parent, target_is_directory=True)
+    result = subprocess.run([str(wrapper)], env=environment, capture_output=True)
+    assert result.returncode == 75
+    assert desktop.read_text() == "desktop"
 
 
 def test_global_git_ignore_keeps_local_workflows_out_of_repositories() -> None:
@@ -154,7 +471,8 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 7
+    assert sandbox["schema_version"] == 8
+    assert sandbox["codex"]["version"] == "0.151.0"
     assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
@@ -184,6 +502,8 @@ def test_local_data_renders_complete_configs() -> None:
     assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
     assert sandbox["guest"]["hermes_enabled"] is True
     assert sandbox["guest"]["rnd_backend"] == "native"
+    assert sandbox["guest"]["rnd_runtime"] == "opencode"
+    assert sandbox["workspaces"][0]["runtime"] == "codex"
     assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
 
 
@@ -675,7 +995,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 7
+    assert registry["schema_version"] == 8
     assert registry["build_workspace"] == "workspace1"
     assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]

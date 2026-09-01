@@ -42,7 +42,7 @@
     "google-vertex-anthropic": {
       "options": {
         "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
-        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if .dotfiles_ai.opencode.vertex_credentials }},
+        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if and .dotfiles_ai.opencode.vertex_credentials (not .dotfiles_ai.remote_user_environment.enabled) }},
         "googleAuthOptions": {
           "keyFilename": {{ .dotfiles_ai.opencode.vertex_credentials | toJson }}
         }{{ end }}
@@ -113,7 +113,8 @@
   "agent": {
     "build": {
       "permission": {
-        "dbsctr_initiative_launch": "ask",
+        "dbsctr_initiative_launch": "deny",
+        "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_reconcile": "allow",
@@ -234,7 +235,8 @@
   "plugin": ["@dietrichgebert/ponytail@4.8.4"],
   "permission": {
     "dbsctr_status": "allow",
-    "dbsctr_initiative_launch": "ask",
+    "dbsctr_initiative_launch": "deny",
+    "dbsctr_initiative_begin": "deny",
     "dks_context": "allow",
     "dbsctr_begin": "deny",
     "dbsctr_attach": "deny",

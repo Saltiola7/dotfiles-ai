@@ -15,6 +15,7 @@ replace the DBSCTR specifications as lifecycle authority.
 | Transfer files from another chezmoi source | [Existing Chezmoi Migration](#existing-chezmoi-migration) |
 | Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
 | Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
+| Configure a standalone CentOS user | [CentOS Remote User Foundation](#centos-remote-user-foundation) |
 | Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
 
 ## Requirements
@@ -84,6 +85,55 @@ branch and creates a draft pull request into protected `main`.
 
 See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for configuration, continuous use,
 promotion, batch integration, health, recovery, history retention, and rollback.
+
+## CentOS Remote User Foundation
+
+The default-off remote user role supports a standalone CentOS Stream 10 x86_64
+home without changing the Fedora Lima profile. Host bootstrap supplies system
+packages and `chezmoi`; this source owns user-local tools and configuration.
+
+```sh
+git clone https://github.com/Saltiola7/dotfiles-ai.git \
+  "$HOME/.local/share/chezmoi-dotfiles-ai"
+install -d -m 0700 "$HOME/.config/dotfiles-ai"
+install -m 0600 \
+  "$HOME/.local/share/chezmoi-dotfiles-ai/config.remote-user.example.toml" \
+  "$HOME/.config/dotfiles-ai/chezmoi.toml"
+revision=$(git -C "$HOME/.local/share/chezmoi-dotfiles-ai" rev-parse HEAD)
+"$HOME/.local/share/chezmoi-dotfiles-ai/dot_local/bin/executable_remote-user-foundation" \
+  apply "$revision"
+```
+
+Replace `/home/you` in the private config before applying. The command accepts
+only a full commit identity, records an owner-private managed-target manifest,
+and emits content-free status:
+
+```sh
+remote-user-foundation status
+remote-user-foundation retry
+remote-user-foundation rollback
+```
+
+Rendering and startup never authenticate providers. OpenAI, Vertex, Codex,
+1Password, and optional Atuin login remain explicit per-user operations. Atuin
+server, PostgreSQL, knowledge services, R&D scheduling, and privileged container
+daemons stay disabled.
+
+After the foundation succeeds, each user runs their own interactive logins:
+
+```sh
+opencode auth login
+vertex-reauth
+codex login
+op signin
+remote-agent-readiness
+```
+
+Set only the non-secret Vertex project in the private config before running
+`vertex-reauth`. The readiness command returns fixed OpenAI, Vertex, Codex, and
+1Password success/failure classes plus `ready` or `auth_pending`; it discards
+provider output and never prints account, credential, content, session, or path
+data.
 
 ## Optional Lima Workspaces
 

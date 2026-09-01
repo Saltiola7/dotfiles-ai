@@ -473,8 +473,35 @@ export async function reviewScan(limit = 25, cursor = 0, snapshot?: number, cwd 
   return await run(argv, cwd)
 }
 
-export async function incidentScan(cwd = process.cwd(), sessionID?: string) {
-  return await run(["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID])], cwd)
+export async function incidentScan(cwd = process.cwd(), sessionID?: string, summaryOnly = false) {
+  const argv = ["dbsctrctl", "incident-scan", ...(sessionID === undefined ? [] : ["--session-id", sessionID]),
+    ...(summaryOnly ? ["--summary-only"] : [])]
+  if (!summaryOnly) return await run(argv, cwd)
+  const value = await analyticsJSON(argv, cwd)
+  const keys = ["schema_version", "mode", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+    "incident_count", "incident_overflow", "signal_count", "signal_overflow", "groups"]
+  const failures = ["timed_out", "cancelled", "permission_denied", "service_unavailable", "invalid_output",
+    "tool_error", "tool_failed", "unknown"]
+  const fixedTools = ["apply_patch", "bash", "glob", "grep", "question", "read", "skill", "task",
+    "todowrite", "webfetch", "unknown"]
+  if (!exactKeys(value, keys) || value.schema_version !== 1 || value.mode !== "summary"
+      || !validCount(value.snapshot) || !validCount(value.session_ceiling) || !validCount(value.part_ceiling)
+      || !/^[0-9a-f]{64}$/.test(value.database_digest) || !validCount(value.incident_count, 100)
+      || !validCount(value.signal_count, 100) || typeof value.incident_overflow !== "boolean"
+      || typeof value.signal_overflow !== "boolean" || !Array.isArray(value.groups) || value.groups.length > 100
+      || value.groups.some((group: any) => !exactKeys(group, ["tool", "failure_class", "recovered", "count"])
+        || !(fixedTools.includes(group.tool) || /^(?:dbsctr_|dks_|herdr_)[A-Za-z0-9._:/-]+$/.test(group.tool)
+          && group.tool.length <= 128)
+        || !failures.includes(group.failure_class) || typeof group.recovered !== "boolean"
+        || !validCount(group.count, 100) || group.count < 1)
+      || new Set(value.groups.map((group: any) => JSON.stringify([
+        group.tool, group.failure_class, group.recovered]))).size !== value.groups.length
+      || JSON.stringify(value.groups) !== JSON.stringify([...value.groups].sort((left: any, right: any) =>
+        right.count - left.count || lexicalCompare(left.tool, right.tool)
+        || lexicalCompare(left.failure_class, right.failure_class) || Number(left.recovered) - Number(right.recovered)))
+      || value.groups.reduce((sum: number, group: any) => sum + group.count, 0) !== value.signal_count)
+    throw new Error("analytics helper returned invalid incident summary")
+  return JSON.stringify(value)
 }
 
 export async function incidentRegister(input: {
@@ -552,6 +579,7 @@ export async function reviewHistory(args: {
   exclusionDigest?: string
   limit?: number
   cursor?: number
+  aggregateOnly?: boolean
 }, cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   return await run(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
 }
@@ -1223,6 +1251,26 @@ function exactKeys(value: any, keys: string[]) {
     && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0")
 }
 
+function validCount(value: any, maximum = Number.MAX_SAFE_INTEGER) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= maximum
+}
+
+function lexicalCompare(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function validMetric(value: any, selected: number) {
+  const keys = ["available_count", "unavailable_count", "mean", "p50", "p90"]
+  const metricValue = (item: any) => item === "unavailable" || validCount(item)
+  return exactKeys(value, keys) && validCount(value.available_count, selected)
+    && validCount(value.unavailable_count, selected)
+    && value.available_count + value.unavailable_count === selected
+    && metricValue(value.mean) && metricValue(value.p50) && metricValue(value.p90)
+    && (value.available_count > 0
+      ? [value.mean, value.p50, value.p90].every(item => validCount(item))
+      : [value.mean, value.p50, value.p90].every(item => item === "unavailable"))
+}
+
 export async function historyCapture(args: { captureID: string; cursor?: number; limit?: number }, cwd = process.cwd()) {
   const argv = ["dbsctrctl", "history-capture", "--capture-id", args.captureID]
   if (args.cursor !== undefined) argv.push("--cursor", String(args.cursor), "--limit", String(args.limit ?? 100))
@@ -1244,6 +1292,59 @@ export async function historyCapture(args: { captureID: string; cursor?: number;
 export async function historyTelemetry(args: Parameters<typeof reviewHistory>[0], cwd = process.cwd(), excludedSessionID?: string, excludedMessageID?: string) {
   const value = await analyticsJSON(reviewHistoryArgv(args, excludedSessionID, excludedMessageID), cwd)
   const limit = args.limit ?? 25
+  if ((args as any).aggregateOnly) {
+    const keys = ["schema_version", "mode", "capture_id", "snapshot", "session_ceiling", "part_ceiling",
+      "database_digest", "exclusion_digest", "query", "limit", "cursor", "selected_count", "continuation",
+      "digest", "cohort", "metrics", "distributions"]
+    const queryKeys = ["after", "before", "method_revision", "cycle_filter_applied", "state", "context",
+      "project_digest", "reviewed_status", "archive_only"]
+    const partitions: Record<string, string[]> = {
+      relation: ["primary", "child", "unavailable"], review: ["review", "non_review", "unavailable"],
+      correlation_quality: ["exact", "family", "worktree", "source", "ambiguous", "unavailable"],
+      cycle_states: ["active", "blocked", "abandoned", "completed", "unknown"],
+    }
+    const distribution = (rows: any) => Array.isArray(rows) && rows.length <= 100
+      && rows.every((row: any) => exactKeys(row, ["value", "count"])
+        && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(row.value) && validCount(row.count) && row.count > 0)
+      && new Set(rows.map((row: any) => row.value)).size === rows.length
+      && JSON.stringify(rows) === JSON.stringify([...rows].sort((left: any, right: any) =>
+        right.count - left.count || lexicalCompare(left.value, right.value)))
+    const selected = value.selected_count
+    if (!exactKeys(value, keys) || value.schema_version !== 1 || value.mode !== "aggregate"
+        || value.limit !== limit || value.cursor !== (args.cursor ?? 0)
+        || !validCount(selected, limit) || !validCount(value.snapshot) || !validCount(value.session_ceiling)
+        || !validCount(value.part_ceiling) || !/^[0-9a-f]{64}$/.test(value.database_digest)
+        || value.exclusion_digest !== null && !/^[0-9a-f]{64}$/.test(value.exclusion_digest)
+        || !/^[0-9a-f]{24}$/.test(value.capture_id) || !/^[0-9a-f]{64}$/.test(value.digest)
+        || value.continuation !== null && (!validCount(value.continuation) || value.continuation <= value.cursor)
+        || !exactKeys(value.query, queryKeys) || typeof value.query.cycle_filter_applied !== "boolean"
+        || typeof value.query.archive_only !== "boolean"
+        || value.query.after !== null && !validCount(value.query.after)
+        || value.query.before !== null && !validCount(value.query.before)
+        || value.query.after !== null && value.query.before !== null && value.query.after > value.query.before
+        || value.query.method_revision !== null && !/^3\.[0-9]+$/.test(value.query.method_revision)
+        || ![null, "active", "blocked", "abandoned", "completed", "unknown"].includes(value.query.state)
+        || value.query.context !== null && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.query.context)
+        || value.query.project_digest !== null && !/^[0-9a-f]{64}$/.test(value.query.project_digest)
+        || ![null, "reviewed", "unreviewed"].includes(value.query.reviewed_status)
+        || !exactKeys(value.cohort, ["sessions", "correlation_quality", "cycle_states"])
+        || !exactKeys(value.cohort.sessions, ["relation", "review", "telemetry_available", "telemetry_unavailable"])
+        || Object.entries(partitions).some(([name, names]) => {
+          const partition = name in value.cohort.sessions ? value.cohort.sessions[name] : value.cohort[name]
+          return !exactKeys(partition, names) || !Object.values(partition).every(item => validCount(item))
+            || (name === "cycle_states" ? false
+              : Object.values(partition).reduce((sum: number, item: any) => sum + item, 0) !== selected)
+        })
+        || !validCount(value.cohort.sessions.telemetry_available, selected)
+        || !validCount(value.cohort.sessions.telemetry_unavailable, selected)
+        || value.cohort.sessions.telemetry_available + value.cohort.sessions.telemetry_unavailable !== selected
+        || !exactKeys(value.metrics, ["elapsed_ms", "tokens", "tool_calls", "tool_errors", "child_sessions", "delegations"])
+        || !Object.values(value.metrics).every(metric => validMetric(metric, selected))
+        || !exactKeys(value.distributions, ["agents", "models"])
+        || !distribution(value.distributions.agents) || !distribution(value.distributions.models))
+      throw new Error("analytics helper returned invalid aggregate telemetry")
+    return JSON.stringify(value)
+  }
   const telemetryKeys = ["schema_version", "approval_count", "retry_count", "delegation_count", "model_families",
     "error_classes", "token_total", "cost_total", "provider_ids", "model_ids", "agent_ids", "session_relation",
     "core_revisions", "overlay_revisions", "gate_failure_count", "gate_reopen_count", "remediation_round_count",
@@ -1489,8 +1590,10 @@ export async function beginCycle(args: {
   const commonDirectory = async (directory: string) => realpath(await run([
     "git", "rev-parse", "--path-format=absolute", "--git-common-dir",
   ], directory))
-  const sameRepository = runtime === undefined || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
-  const runtimeArgv = runtime && sameRepository && initiative === undefined ? [
+  const sameRuntimeRepository = runtime === undefined
+    || await commonDirectory(runtime.worktree) === await commonDirectory(cwd)
+  const sameInitiativeCheckout = await realpath(initiativeSourceCwd) === await realpath(cwd)
+  const runtimeArgv = runtime && sameRuntimeRepository && (initiative === undefined || !launch) ? [
     "--opencode-session-id", runtime.sessionID,
     "--opencode-message-id", runtime.messageID,
     "--opencode-directory", runtime.directory,
@@ -1513,7 +1616,7 @@ export async function beginCycle(args: {
       "--expected-plan-digest", approved!.planDigest,
       "--expected-repository", approved!.targetRepository,
       "--resume-existing",
-      ...(sameRepository ? [] : ["--initiative-source", initiativeSourceCwd]),
+      ...(sameInitiativeCheckout ? [] : ["--initiative-source", initiativeSourceCwd]),
     ]),
     ...runtimeArgv,
   ], cwd)
@@ -1531,22 +1634,54 @@ export async function beginCycle(args: {
   if (handoff.resumed === true && handoff.runtime_attached === true)
     return { ...handoff, herdr: "already_attached" }
   if (!launch || env.HERDR_ENV !== "1") return { ...handoff, herdr: "not_launched" }
+  let ownedTabID: string | undefined
+  let agentConfirmed = false
   try {
-    const createTab = async () => JSON.parse(await run([
-      "herdr", "tab", "create",
-      "--cwd", handoff.worktree,
-      "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
-      "--no-focus",
-    ], cwd))
+    const herdrID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+    const current = JSON.parse(await run(["herdr", "pane", "current", "--current"], cwd))
+    const callerPaneID = current?.result?.pane?.pane_id
+    const workspaceID = current?.result?.pane?.workspace_id
+    if (typeof callerPaneID !== "string" || !herdrID.test(callerPaneID)
+        || typeof workspaceID !== "string" || !herdrID.test(workspaceID))
+      throw new Error("Herdr returned no coordinator workspace")
+    const createTab = async () => {
+      const value = JSON.parse(await run([
+        "herdr", "tab", "create",
+        "--cwd", handoff.worktree,
+        "--workspace", workspaceID,
+        "--label", `DBSCTR ${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`,
+        "--no-focus",
+      ], cwd))
+      const tabID = value?.result?.tab?.tab_id
+      const paneID = value?.result?.root_pane?.pane_id
+      if (typeof tabID === "string" && herdrID.test(tabID)) ownedTabID = tabID
+      if (typeof tabID !== "string" || !herdrID.test(tabID)
+          || typeof paneID !== "string" || !herdrID.test(paneID)
+          || value?.result?.tab?.workspace_id !== workspaceID
+          || value?.result?.root_pane?.workspace_id !== workspaceID)
+        throw new Error("Herdr tab creation returned no matching workspace pane")
+      return value
+    }
+    const closeOwnedTab = async () => {
+      if (ownedTabID === undefined || agentConfirmed) return
+      const tabID = ownedTabID
+      await run(["herdr", "tab", "close", tabID], cwd)
+      ownedTabID = undefined
+    }
+    const parseAgent = (output: string, pane: string) => {
+      const value = JSON.parse(output)
+      const agent = value?.result?.agent ?? value?.agent
+      if (agent === null || typeof agent !== "object" || agent.pane_id !== pane
+          || agent.tab_id !== ownedTabID || agent.workspace_id !== workspaceID)
+        throw new Error("Herdr returned no matching OpenCode agent")
+      return agent
+    }
+    const getAgent = async (name: string, pane: string) =>
+      parseAgent(await run(["herdr", "agent", "get", name], cwd), pane)
     let tab = await createTab()
     let paneID = tab?.result?.root_pane?.pane_id
-    if (typeof paneID !== "string") throw new Error("Herdr tab creation returned no root pane")
-    const prompt = initiative === undefined ? [] : [
-      "--prompt",
-      `Start only the approved DBSCTR slice. Re-read its Git artifacts and revalidate the manifest digest before acting. If a material readiness gap exists, stop without editing normative contracts or slice scope and report readiness_reopened to Discovery. Otherwise attach this runtime and implement; update only completion evidence after implementation. Readiness receipt: ${JSON.stringify(initiative)}`,
-    ]
     const buildAgent = initiative === undefined ? [] : ["--agent", "build"]
-    const fresh = [handoff.worktree, ...buildAgent, ...prompt]
+    const fresh = [handoff.worktree, ...buildAgent]
     let opencode = fresh
     let forked = false
     if (runtime !== undefined) {
@@ -1554,7 +1689,7 @@ export async function beginCycle(args: {
       try { supportsFork = /(?:^|\s)--fork(?:\s|$)/m.test(await run(["opencode", "--help"], cwd)) } catch {}
       if (supportsFork) {
         forked = true
-        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent, ...prompt]
+        opencode = [handoff.worktree, "--session", runtime.sessionID, "--fork", ...buildAgent]
       }
     }
     const agentBase = `dbsctr-${args.cycleId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`
@@ -1564,56 +1699,83 @@ export async function beginCycle(args: {
       "herdr", "agent", "start", name, "--kind", "opencode", "--pane", pane, "--", ...argv,
     ], cwd)
     let started: string
+    let activeName = agentName
     let sessionMode = forked ? "fork" : "fresh"
-    const pending = (name: string) => ({
+    const result = (status: "launched" | "launch_pending", name: string, agent: any) => ({
       ...handoff,
       ...(initiative === undefined ? {} : { initiative }),
-      herdr: "launch_pending",
+      herdr: status,
       herdr_session_mode: sessionMode,
       herdr_agent_name: name,
-      herdr_pane_id: paneID,
-      ...((tab?.result?.tab?.tab_id) === undefined ? {} : { herdr_tab_id: tab.result.tab.tab_id }),
+      herdr_pane_id: agent.pane_id,
+      ...((agent.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
+        : { herdr_tab_id: agent.tab_id ?? tab.result.tab.tab_id }),
+      ...(agent.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
+      ...(typeof agent?.agent_session?.value === "string"
+        ? { herdr_opencode_session_id: agent.agent_session.value } : {}),
     })
+    let agent: any
     try {
       started = await start(agentName, paneID, opencode)
+      agent = parseAgent(started, paneID)
+      agentConfirmed = true
     } catch (error) {
       const failure = String(error)
-      if (/agent_not_ready/i.test(failure)) return pending(agentName)
+      if (/agent_not_ready/i.test(failure)) {
+        try {
+          agent = await getAgent(agentName, paneID)
+          agentConfirmed = true
+          return result("launch_pending", agentName, agent)
+        } catch {
+          throw error
+        }
+      }
       if (!forked || !/(?:--fork|\bfork(?:ing)?\b|(?:invalid|unknown|not.?found|expired).{0,32}\bsession\b|\bsession\b.{0,32}(?:invalid|unknown|not.?found|expired))/i.test(failure)) throw error
+      await closeOwnedTab()
       tab = await createTab()
       paneID = tab?.result?.root_pane?.pane_id
-      if (typeof paneID !== "string") throw new Error("Herdr fallback tab creation returned no root pane")
       const fallbackName = `${agentBase.slice(0, 21)}-f-${createHash("sha256").update(handoff.worktree).digest("hex").slice(0, 8)}`
+      activeName = fallbackName
       sessionMode = "fresh_fallback"
       try {
         started = await start(fallbackName, paneID, fresh)
+        agent = parseAgent(started, paneID)
+        agentConfirmed = true
       } catch (fallbackError) {
-        if (/agent_not_ready/i.test(String(fallbackError))) return pending(fallbackName)
+        if (/agent_not_ready/i.test(String(fallbackError))) {
+          try {
+            agent = await getAgent(fallbackName, paneID)
+            agentConfirmed = true
+            return result("launch_pending", fallbackName, agent)
+          } catch {
+            throw fallbackError
+          }
+        }
         throw fallbackError
       }
     }
-    try {
-      const value = JSON.parse(started)
-      const agent = value?.result?.agent ?? value?.agent ?? value
-      const sessionID = agent?.agent_session?.value
-      const launchedPaneID = agent?.pane_id ?? paneID
-      if (typeof launchedPaneID === "string") return {
-        ...handoff,
-        ...(initiative === undefined ? {} : { initiative }),
-        herdr: "launched",
-        herdr_session_mode: sessionMode,
-        herdr_pane_id: launchedPaneID,
-        ...((agent?.tab_id ?? tab?.result?.tab?.tab_id) === undefined ? {}
-          : { herdr_tab_id: agent?.tab_id ?? tab.result.tab.tab_id }),
-        ...(agent?.workspace_id === undefined ? {} : { herdr_workspace_id: agent.workspace_id }),
-        ...(typeof sessionID === "string" ? { herdr_opencode_session_id: sessionID } : {}),
+    if (initiative !== undefined) {
+      const instruction = `Start approved DBSCTR cycle ${args.cycleId}. Read its bound Initiative receipt and Git artifacts from this worktree, revalidate readiness, then attach and implement. If readiness materially changed, do not edit normative scope; report readiness_reopened.`
+      try {
+        agent = parseAgent(await run(["herdr", "agent", "prompt", activeName, instruction], cwd), paneID)
+      } catch (promptError) {
+        try {
+          agent = await getAgent(activeName, paneID)
+          return result("launch_pending", activeName, agent)
+        } catch {
+          return result("launch_pending", activeName, agent)
+        }
       }
-    } catch {
-      // Herdr launch is useful even when this version emits no structured metadata.
     }
-    return { ...handoff, ...(initiative === undefined ? {} : { initiative }), herdr: "launched",
-      herdr_session_mode: sessionMode }
+    return result("launched", activeName, agent)
   } catch (error) {
+    if (ownedTabID !== undefined && !agentConfirmed) {
+      try {
+        await run(["herdr", "tab", "close", ownedTabID], cwd)
+      } catch (cleanupError) {
+        return { ...handoff, herdr: `launch_failed: ${error}; cleanup_failed: ${cleanupError}` }
+      }
+    }
     return { ...handoff, herdr: `launch_failed: ${error}` }
   }
 }

@@ -1,5 +1,102 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-01 - Remote Agent Authentication
+
+- Added a remote-only content-free agent readiness target and forced OpenCode,
+  Codex, and Vertex runtime state into each invoking Unix user's home.
+- Preserved credential-free render, installation, update, rollback, and shell
+  startup; authentication remains an explicit per-user operation.
+
+## 2026-08-31 - CentOS Remote User Foundation
+
+- Added a default-off CentOS Stream 10 x86_64 user foundation with independently
+  pinned OpenCode, Codex, Herdr, Atuin, Starship, 1Password CLI, Docker Compose,
+  and Google Cloud CLI assets while preserving Fedora aarch64 defaults.
+- Added an owner-private, lock-safe foundation state command with full-commit
+  apply, same-revision retry, managed-target manifests, content-free status, and
+  rollback that preserves credentials, sessions, history, and unrelated files.
+- A disposable CentOS Stream 10 x86_64 container passed checksum verification,
+  two empty-convergent applies, exact runtime versions, and sanitized status.
+  Affected compatibility validation passed 158 tests; the repository-wide run
+  passed 657 tests, one expected skip, and 21 subtests after removing inherited
+  live DBSCTR state-root variables to match isolated CI execution.
+- Gate Commits: `5732639`, `495ad76`, `305baed`, and `020a8e6`. Gate Exceptions:
+  none. No live GCE user home, provider credential, tailnet policy, or service was
+  changed. Intended Final Push: feature branch and draft pull request into
+  protected `main`.
+
+## 2026-08-31 - CentOS Remote Workspace Discovery
+
+- Added the target contract for generic CentOS Stream 10 x86_64 user-local
+  distribution, immutable-revision apply, sanitized bootstrap state,
+  idempotency, and rollback.
+- Kept macOS and Fedora aarch64 behavior unchanged and prohibited user, employer,
+  client, project, machine, tailnet, endpoint, and credential identity in public
+  source or rendered defaults.
+- No package, target, service, user home, credential, or runtime changed.
+  RWUE-001 remains digest- and approval-gated.
+
+## 2026-08-29 - DAI-034 Portable Remote Workspace Client
+
+- Added an opt-in machine-local remote-workspace profile, private environment
+  rendering, and prerequisite doctor without embedding endpoint identity or
+  credentials in public source.
+- Added mise and Google Cloud CLI to the managed macOS packages while preserving
+  repository-owned lifecycle tasks as the sole remote-operation interface.
+- Full validation passed with `559 passed, 1 skipped`, plus Ruff, shell syntax,
+  rendering checks, and Git diff hygiene. Gate Commit: `73f8ff1`; no live
+  installation or network enrollment occurred. Intended delivery is the feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Managed Codex Distribution
+
+- Installed the official Codex `0.151.0` Homebrew cask on the Apple Silicon host
+  and the checksum-pinned aarch64 musl release in both registered Fedora guests.
+- Added a dedicated CLI `CODEX_HOME`, PATH wrapper, digest-owned journaled
+  projection, versioned runtime-selector schema, exact temporary-source guest
+  deployment, package rollback, and reverse-order all-guest rollback without
+  reading or changing authentication, sessions, logs, desktop state, or worker
+  routing.
+- A host target-mode preflight and the first broad guest apply failed closed;
+  package and guest rollback completed before owner-approved directory hardening
+  and Codex-only deployment remediation. Both guests retained their prior running
+  state and clean canonical source checkout.
+- Two hundred eight affected tests, Python compilation, rendered Bash/Chezmoi,
+  Initiative validation, Git whitespace, official release metadata, controlled
+  host/two-guest deployment, runtime smokes, and independent elevated-risk review
+  passed. Gate Exceptions: none. Release is not applicable. Gate Commits:
+  `38bd08eda526400884de3338f80c3757ebcbc85e`,
+  `3d25ec089280bfcc8336a7ea23988964acd357a4`,
+  `da8f306b1041dddd679a8da71b1ff4638f62996e`, and
+  `4b131de9e2a6a48cf2574bbab1e9166d6c5db490`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Promoted Codex Distribution Readiness
+
+- Recorded merged host-foundation delivery and promoted only
+  `codex-distribution` to receipt-ready without changing package, configuration,
+  guest, runtime, authentication, or deployment state.
+- Retained Codex `0.151.0`, the Fedora aarch64 musl asset, and its digest as
+  proposed implementation inputs subject to fresh Build verification. Exact
+  version output remains a bounded deployment probe because upstream does not
+  document its stdout shape.
+- Identity, worker, history, recovery, federation, and final parity slices remain
+  dependency-blocked pending fresh evidence from their predecessors.
+- Initiative validation, 54 affected lifecycle and distribution tests, Python
+  compilation, Git whitespace, official-source verification, and independent
+  elevated-risk review passed. Gate Exceptions: none. Release, Deploy, and
+  Operate are not applicable. Development Gate Commit:
+  `d35d3ca7f966af70c908f2f49e33e605cd82d600`. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
+## 2026-08-30 - Align Codex Managed Source Projection
+
+- Aligned the captured distribution contract with the approved host-foundation
+  source: project recursive `agents/**/*.toml` roles and carry the five identity
+  hooks inline in `config.toml` rather than projecting a separate hook tree.
+- No package, configuration, guest, runtime, authentication, or deployment state
+  changed; `codex-distribution` remains captured behind host foundation.
+
 ## 2026-08-30 - Refined Codex Distribution Readiness
 
 - Fixed distribution as the second of two sequential pull requests, responsible

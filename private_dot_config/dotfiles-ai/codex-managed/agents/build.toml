@@ -1,0 +1,7 @@
+name = "build"
+description = "Implement approved changes in explicitly owned files."
+developer_instructions = "Implement the approved scope, preserve trust boundaries, and leave integration to the primary."
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false

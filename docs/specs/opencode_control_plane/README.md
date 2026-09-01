@@ -18,6 +18,22 @@
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
+### RWUE-002 Initiative Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: adds independent authenticated OpenCode state to multiple users on a shared remote host |
+| Delivery intent | Draft pull request; disposable CentOS proof followed by separately approved two-user deployment |
+| Scope | CentOS x86_64 rendering, user-local OpenCode install/configuration, OpenAI and Vertex login readiness, and sanitized provider probes |
+| Overrides | Never copy host or peer credentials; rendering and shell startup remain credential-free; each Unix user owns isolated config, data, cache, and authentication |
+
+Given a foundation-ready remote user, OpenCode resolves the managed control plane
+without requiring authentication during render or startup. The user then
+authenticates OpenAI and Vertex independently. Provider probes may report only
+provider class and success/failure; account, project, token, endpoint, session,
+prompt, and response data remain private. Another user's state is never read,
+copied, mounted, or used as fallback.
+
 ### OCP-16 Cycle Overrides
 
 | Field | Value |
@@ -143,6 +159,15 @@
 | Delivery intent | Deliver a draft pull request, merge after explicit approval, then apply and verify the managed OpenCode target |
 | Scope | Correct base and Fast GPT-5.6 Sol metadata to the provider's 1,050,000 context, 922,000 input, and 128,000 output limits |
 | Overrides | Preserve the 65,536-token recent tail and inherit OpenCode's automatic trigger, 20,000-token safety reserve, pruning, and turn defaults |
+
+### OCP-49 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: nondeterministic Herdr focus can place an implementation session in an unrelated project workspace |
+| Delivery intent | Deploy the corrected managed launcher, verify cross-focus workspace affinity, and deliver a draft pull request |
+| Scope | Shared ordinary and Initiative DBSCTR launch placement, fork fallback, fail-closed caller identity, focused regressions, and isolated live smoke |
+| Overrides | Create a new tab in the live coordinator workspace; never use UI focus as fallback; do not move or close existing misplaced sessions |
 
 ## Overview
 
@@ -660,6 +685,13 @@ and validate the returned contract before exposure. Legacy history without a
 telemetry envelope is normalized only to explicit `unavailable` fields; adapters
 never infer a value or classification.
 
+Read-only classification permits the lifecycle helper to create an owner-private
+transient aggregate capture as a derived cache. The helper owns its lock, atomic
+publication, exact source/query binding, 24-hour retention, privacy invalidation,
+and expired unreferenced cleanup. A failed create leaves no capture. This cache
+cannot change review markers, Incidents, cycles, gates, claims, or canonical
+source state and therefore does not grant a private-state mutation permission.
+
 Plan, Reviewer, Explore, Scout, and Builder agents cannot attach runtimes or
 write analytics state. Read-only analytics access and permissioned private-state
 writes remain separate tools. OpenCode adapters never duplicate helper lifecycle,
@@ -710,22 +742,32 @@ destructive operations, external writes, deployment, DVC push, and non-DBSCTR
 Git push retain their existing permission boundaries. Optional Herdr launch
 remains explicit through `launch=true` and never becomes lifecycle authority.
 
+Given any ordinary or Initiative DBSCTR launch is invoked from a Herdr-managed
+OpenCode pane, when the shared launcher creates its Build tab, then it resolves
+the live caller pane and creates one new tab explicitly in that pane's workspace.
+Herdr UI focus never selects the destination. Missing or mismatched caller
+workspace identity fails before a tab can be retained; existing sessions are not
+moved or closed automatically.
+
 ### Initiative slice launch
 
 Given an Initiative slice has a fresh readiness receipt and exact approval, when
-the Discovery Coordinator or a native or provider-affine primary Build agent
-invokes `dbsctr_initiative_launch`, then OpenCode asks for the digest-bound launch
-and the adapter retains its repository, plan-digest, ownership, and mutation
-checks. Plan and all subagents deny the launcher. They return a handoff instead of
-probing a denied tool or substituting `dbsctr_vm_handoff`, which remains a distinct
-sanitized VM implementation workflow.
+the Discovery Coordinator invokes `dbsctr_initiative_launch`, then OpenCode asks
+for the digest-bound launch and creates the isolated child Build in the same Herdr
+workspace. Native and provider-affine Build agents, Plan, and all subagents deny
+the child launcher. They never probe it or substitute `dbsctr_vm_handoff`, which
+remains a distinct sanitized VM implementation workflow.
 
-Given the host registry omits the standalone Initiative launcher export, when a
-primary Build invokes the always-present `dbsctr_begin` with an explicit
+Given a primary Build invokes `dbsctr_begin` with an explicit
 Initiative manifest, slice, and `proceed=true`, then the adapter executes the same
-fresh receipt, exact approval, repository, plan-digest, ownership, mutation, and
-launch checks. Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents
-continue to deny it.
+fresh receipt, exact approval, repository, plan-digest, ownership, and mutation
+checks, attaches the current runtime, and creates no Herdr child. For a
+cross-repository slice, the nested Initiative input names separate coordinator
+and context-home checkouts; the relative manifest resolves only in the
+coordinator, while the plan and cycle resolve only in the context home. Both
+origins and every approval-bound input are checked again after approval. Omitting
+the checkout fields preserves same-repository behavior. Ordinary `dbsctr_begin`
+remains prompt-free, and Plan and subagents continue to deny it.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
@@ -988,28 +1030,44 @@ injects only the durable path, digest, state, and ready-slice IDs into normal an
 pre-compaction context. Invalid manifests block readiness rather than falling
 back to compressed prose.
 
-`dbsctr_initiative_launch`, or explicit Initiative mode on `dbsctr_begin` when
-that standalone export is omitted, validates a fresh readiness receipt before
-requesting approval bound to `initiative:slice:digest`. Herdr 0.8.2 creates a background tab
+`dbsctr_initiative_launch` and explicit Initiative mode on `dbsctr_begin` validate
+a fresh readiness receipt before requesting approval bound to
+`initiative:slice:digest`. Only the coordinator launcher asks Herdr 0.8.2 to create a background tab
 and starts a named OpenCode agent in its root pane. The adapter capability-probes
 OpenCode `--fork`; supported parents fork into the target worktree, while older
-clients start fresh. Both paths receive the same content-free receipt prompt.
-Herdr identities remain private advisory correlation only.
+clients start fresh. Both paths start with bounded receipt-free shell arguments,
+then submit the same content-free cycle instruction through the confirmed agent.
+An optional validated Initiative source checkout resolves cross-worktree relative
+manifests. Failed attempts without an agent close only their launcher-owned tab;
+only a confirmed agent may remain pending. Herdr identities remain private
+advisory correlation only. The complete behavior and failure contract is in
+[`features/initiative-launch-atomicity.md`](features/initiative-launch-atomicity.md).
 
-The Discovery Coordinator and primary `build`, `build-gpt`, and `build-claude`
-agents ask for Initiative launch. Plan and every subagent deny it. Tool absence is
-an authorization boundary, not a capability probe, and `dbsctr_vm_handoff` is not
-a fallback or alias.
+The Discovery Coordinator asks for child Initiative launch. Primary `build`,
+`build-gpt`, and `build-claude` ask only for same-session Initiative Begin. Plan
+and every subagent deny both paths. Tool absence is an authorization boundary,
+not a capability probe, and `dbsctr_vm_handoff` is not a fallback or alias.
 
 ### DKS query availability
 
-`dks_context` settles within its existing 35-second subprocess deadline. Valid
-project-scoped citation metadata is returned as explicitly untrusted
-`availability=available` data. Recognized operational failure and timeout return
-sanitized typed unavailability without citations, raw output, paths, process or
-lock identities, or source content. Malformed successful output remains a
-fail-closed contract error. Typed unavailability never authorizes automatic
-cross-project or filesystem search.
+`dks_context` is one optional accelerator for broad questions in a configured
+project. Exact-path, fixed-commit, unconfigured-project, and stale-revision work
+proceeds directly to authoritative source inspection. One attempt shares one
+five-second monotonic deadline across routing, subprocess, privacy, lock,
+embedding, database, and ranking work. Valid project- and revision-compatible
+citation metadata is returned as explicitly untrusted `availability=available`
+data. Recognized operational failure and timeout return sanitized typed
+unavailability without citations, raw output, paths, process or lock identities,
+or source content, then source inspection continues without automatic DKS retry.
+Malformed or incompatible successful output remains a fail-closed contract error.
+
+Automatic DKS routing remains enabled only while current paired fixed-source
+evidence shows no correctness regression or added tool errors, p95 below five
+seconds, and at least ten percent lower median completion time than direct source
+inspection. Failure disables automatic routing without retiring the projection or
+manual CLI. The complete contracts are in
+[`features/dks-query-recovery.md`](features/dks-query-recovery.md) and
+[`features/dks-routing-value-gate.md`](features/dks-routing-value-gate.md).
 
 ### History and Incident query availability
 
@@ -1018,6 +1076,14 @@ separate schemas. Bounded subprocess timeout becomes typed unavailability after
 process-group cleanup, never an empty cohort or zero count. Aggregate and summary
 results exclude private candidate, Signal, cycle, and snapshot identity from
 hosted subagent prompts. Invalid successful or cross-mode output fails closed.
+Lifecycle status `75` with empty stdout and stderr exactly
+`source_index_unavailable\n` is a retryable local source-unavailable condition;
+no other output receives that classification. Index generation, coverage, source,
+privacy, path, and row identities never enter the model-visible envelope.
+Ready aggregate and summary subprocesses consume the lifecycle-owned body-free
+schema-version-2 projection. Projection build, extension, verification, and
+compaction remain separate maintenance work; a model-visible request never scans
+source payload columns or synchronously repairs projection state.
 
 ## Validation Strategy
 
@@ -1038,6 +1104,7 @@ hosted subagent prompts. Invalid successful or cross-mode output fails closed.
 | Runtime activation | Loaded identity survives fresh/restarted sessions and rejects on-disk/runtime drift or attached-root disagreement | Fresh process and stale-process fixtures | Required after implementation |
 | Initiative context | Normal turns and compaction receive a freshly validated Git anchor; stale readiness cannot launch; the coordinator has interactive Bash without broader structured edits | Agent permission, plugin, helper, fork/fallback, typed-approval fixtures, and fresh shell smoke | Required when Initiative orchestration changes |
 | DKS query availability | Available citations, typed operational unavailability, timeout cleanup, and malformed-success rejection | Focused Bun-backed control-plane fixtures plus live scheduled-reconcile smoke | Required when DKS tool behavior changes |
+| DKS routing value | Paired fixed-source DKS-assisted versus direct inspection, exact identity, sanitized metrics, thresholds, and fail-closed disablement | Deterministic harness fixtures plus at least five real post-warmup pairs | Required before automatic DKS routing activation |
 | History/Incident query availability | Mode-specific aggregate, summary, and detailed validation; timeout cleanup; unavailable-without-result; hosted privacy | Focused Bun-backed process fixtures plus fresh local smoke | Required when History/Incident adapters change |
 | Centralized state | Native-default and configured-root rendering, plist validity, exact permissions, schema-4 relocation, schema-3 compatibility, and explicit rollback | Focused Herdr, control-plane, and `dbsctrctl` tests | Required before migration |
 | Client history migration | Read-only consistent copy, exact selection, path rebasing, identity scrubbing, event retention, semantic relationship checks, and rollback | Focused migration tests, disposable live-data rehearsal, SQLite checks, and guest smoke | Required for OCP-38 |

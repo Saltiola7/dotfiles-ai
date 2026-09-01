@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+{{ else if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+[[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" && ! -L "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]] || {
+    echo "Codex start blocked: centralized state root is unavailable" >&2
+    exit 75
+}
+export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
+{{ else -}}
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+{{ end -}}
+
+{{ if and .dotfiles_ai.state.root (not .dotfiles_ai.remote_user_environment.enabled) -}}
+"$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" "$DOTFILES_AI_STATE_ROOT" || exit 75
+{{ else -}}
+"$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" || exit 75
+{{ end -}}
+{{ if eq .chezmoi.os "darwin" -}}
+expected={{ .dotfiles_ai.codex.version | quote }}
+real=$("$HOME/.local/bin/codex-project" --resolve-homebrew "$HOME/.local/state/dotfiles-ai/codex-package/homebrew-bin" "$expected")
+{{ else -}}
+real="$HOME/.local/libexec/dotfiles-ai/codex"
+expected={{ .dotfiles_ai.codex.version | quote }}
+{{ end -}}
+[[ -x $real && ! $real -ef $0 ]] || { echo "managed Codex binary is unavailable" >&2; exit 1; }
+version=$($real --version)
+[[ ${#version} -le 128 && ( $version == "$expected" || $version == *" $expected" ) ]] || {
+    echo "managed Codex version mismatch" >&2
+    exit 1
+}
+exec "$real" "$@"

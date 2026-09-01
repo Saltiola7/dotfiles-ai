@@ -1,5 +1,139 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-01 - Generic History Source Pages
+
+- Added one stateless `history-source-validate` stdin envelope with closed schema,
+  immutable membership and continuation checks, canonical Python/JavaScript
+  digests, bounded text/tool/metric validation, lexical secret/path rejection,
+  fixed failure output, and no lifecycle or private-state mutation.
+- Reconciled the delivered History/Incident projection v2 and its body-free
+  message-authority correction without changing existing output contracts.
+- Deployed the exact helper to the host and every managed guest through a
+  helper-only Chezmoi target with reverse-order rollback coverage. All three
+  boundaries passed positive and privacy-negative live smokes; no process
+  restart or private-history read occurred.
+- Affected QA passed 267 tests with one expected skip and 21 subtests before
+  reconciliation; the reconciled lifecycle/control-plane/distribution union and
+  focused deployment/rollback suites passed. One unrelated Herdr timing baseline
+  remains outside affected scope. Gate Exceptions: none. Release: not applicable.
+  Gate Commits: `f509417`, `f210b19`, `95f4668`, `c00c0e7`, `b89ecec`,
+  `7bebd40`, and `d519ae1`. Intended Final Push: feature branch and draft pull
+  request into protected `main`.
+
+## 2026-08-31 - History And Incident Projection V2
+
+- Delivered body-free full and immutable append-delta projection generations for
+  History membership, source-heavy metrics, safe model/tool categories, and
+  Incident failure/recovery classification. Detailed modes and public aggregate
+  and summary schemas remain unchanged.
+- Added bounded phased maintenance, capture-bound ancestor retention, depth-15
+  compaction, privacy invalidation, source verification, schema-v1 rebuild,
+  partial tool/failure indexes, and process-local unchanged-ledger integrity
+  receipts. The deployed representative sidecar is 120 MiB.
+- Affected QA passed 186 helper tests, one expected skip, 21 subtests, and 80
+  lifecycle/control-plane tests. Five post-warmup runs measured aggregate p95 at
+  6.40 seconds and Incident summary p95 at 2.64 seconds. Gate Exceptions: none.
+  Release: not applicable. Deployment: managed helper and OpenCode adapters.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-31 - Projection V2 Post-Delivery Reopening
+
+- Reopened `history-incident-query-core` after projection-v2 delivery merged
+  because the implementation omitted body-free message authority and resumable
+  message verification required for exact model/provider reduction and
+  mutation-safe activation.
+- Bound the correction to new Initiative requirement `INT-043`. Exact owner-private
+  `index_messages` rows and `verified_message_rowid` retain only message
+  row/session/timestamp identity, one-way body digest, safe model, provider-error
+  bit, and marker flags; bodies remain source-local and ready reads remain
+  body-free.
+- Required bounded message and part verification before activation so
+  mutation-between-chunks forces rebuild. Dependencies, public outputs, and slice
+  identity are unchanged; implementation, deployment, operation, and completion
+  require a fresh digest-bound approval.
+
+## 2026-08-31 - History Projection Storage Readiness
+
+- Reopened projection readiness after the full representative sidecar reached
+  1,214.5 MiB and exceeded the 1 GiB acceptance cap.
+- Required partial recovery and Incident indexes: only 710,292 tool rows enter the
+  recovery index and only 24,611 failed rows enter the Incident index, instead of
+  indexing 2.46 million mostly-null rows twice.
+- This Discovery repair changes private schema authority only; implementation and
+  live size evidence remain separately gated. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
+## 2026-08-31 - History Materialized Projection Readiness
+
+- Reopened History/Incident core after the ordering-only boundary index activated
+  successfully on a representative 72 GiB source but aggregate and Incident
+  summary operations still exceeded 180 seconds.
+- Replaced schema version 1 readiness with a body-free schema-version-2
+  materialized projection for immutable full/delta generations, session
+  eligibility, source-heavy metrics, safe categories, and failure/recovery
+  classification. Ready paths prohibit source payload scans and preserve exact
+  output, privacy, continuation, invalidation, rollback, and detailed modes.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-31 - Generic History Source Readiness
+
+- Reopened the empty Codex history cycle before implementation because no
+  lifecycle-owned source-page or private-text contract connected native history
+  to shared consumers.
+- Added a separate generic predecessor with closed stdin request-and-page
+  envelopes, full snapshot membership, non-circular canonical digests, bounded
+  redacted text, tool signals, metrics and availability, stale handling, lexical
+  privacy, and stateless no-mutation validation.
+- Kept native parsing and review, incident, telemetry, benchmark, and federation
+  mappings in later owning slices. Initiative validation, 248 affected tests, one
+  expected skip, 21 subtests, JSON parsing, Git whitespace, and independent
+  elevated-risk review passed. Gate Exceptions: none. Release, Deploy, Operate,
+  and Maintain/Retire are not applicable to this Discovery-only correction.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+- Build review reopened portability before its first Gate Commit. The schema now
+  caps every integer at `2^53 - 1`, uses canonical decimal-string cost, and names
+  POSIX, Windows drive-qualified, and UNC path rejection so Python and JavaScript
+  implementations share digest and privacy semantics.
+
+## 2026-08-31 - History Boundary Index Readiness
+
+- Reopened History/Incident core readiness after exact time-ordered population
+  discovery exceeded the bounded live smoke on a large OpenCode source.
+- Specified an owner-private, payload-free derived boundary index with incremental
+  generations, atomic activation, explicit unavailability, source replacement
+  recovery, privacy invalidation, rollback, and warm-query acceptance evidence.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
+## 2026-08-31 - Knowledge Privacy Lock Isolation Discovery
+
+- Separated DKS privacy guarding from unrelated review-ledger integrity work while
+  preserving exclusive forget and expiry serialization through cited result
+  completion.
+- Required one canonical dual-lock order, bounded shared acquisition, sanitized
+  timing evidence, and unchanged tombstone, rollback, and non-resurrection rules.
+- This change establishes durable authority only; implementation, deployment, and
+  live contention evidence remain separately gated.
+
+## 2026-08-30 - History/Incident Core Readiness Repair
+
+- Bound aggregate History and Incident summary modes to exact version-1 JSON
+  schemas, metric authorities, cohort semantics, deterministic ordering, bounded
+  tool and failure-class allowlists, and truthful 100-row overflow.
+- Required hidden page identity before bulk metric work and bound immutable
+  continuation and optional cache reuse to exact source and method identity.
+- This Discovery repair changes normative authority only; implementation,
+  deployment, operation, and completion remain separately gated. Gate
+  Exceptions: none. Intended Final Push: feature branch and draft pull request
+  into protected `main`.
+
 ## 2026-08-30 - Cycle-Speed Contract Reconciliation
 
 - Reconciled the delivered performance-audit workflow, specified deterministic

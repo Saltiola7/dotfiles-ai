@@ -1,5 +1,128 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-01 - Remote User Authentication
+
+- Forced remote OpenCode config, data, state, and cache into the invoking Unix
+  user's home and kept Vertex credential paths out of rendered configuration.
+- Added one content-free readiness command for independently initiated OpenAI,
+  Vertex, Codex, and 1Password authentication. Provider output is discarded.
+- Red-first focused tests and affected OpenCode, Codex, distribution, and remote
+  environment tests passed. Disposable CentOS proof and Gate Commit identities
+  are recorded by the completing cycle; no shared VM or live credential was used.
+
+## 2026-08-31 - Cross-Repository Same-Session Begin Readiness
+
+- Required explicit Initiative Begin to accept separate coordinator and
+  context-home checkouts while reusing the existing receipt, origin, plan,
+  branch, occupancy, approval, and post-approval race checks.
+- Kept the current Build primary attached without Herdr or child-session creation;
+  same-repository defaults and the Discovery-only child launcher remain unchanged.
+  This Discovery update changes no managed adapter or runtime.
+
+## 2026-08-31 - History Projection Adapters
+
+- Exposed aggregate History and Incident summary modes through closed, bounded
+  OpenCode adapters while keeping detailed mode compatibility and private
+  identities outside returned summaries.
+- Deployed the managed runtime and tool adapters with the lifecycle projection-v2
+  helper. Focused control-plane tests and live aggregate/summary operations passed.
+
+## 2026-08-31 - Same-Session Initiative Build
+
+- Restricted `dbsctr_initiative_launch` and its Herdr child creation to Discovery
+  Coordinator. Primary Build modes now use exact approval-bound Initiative Begin
+  and remain in their current same-repository session; Plan and subagents deny
+  both Initiative paths. All 80 affected tests pass and independent review found
+  no remaining issue. Targeted overlay deployment preserved concurrent unmerged
+  managed changes and resolved idempotently. Gate Commit: `96a7bbd`.
+
+## 2026-08-31 - History Projection Availability Readiness
+
+- Bound ready aggregate History and Incident summary subprocesses to the
+  lifecycle-owned body-free schema-version-2 projection after ordering-only live
+  operations exceeded 180 seconds on the representative source.
+- Kept projection build, extension, verification, compaction, and source payload
+  access outside model-visible requests. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
+## 2026-08-31 - Remote User Authentication Discovery
+
+- Defined isolated CentOS x86_64 OpenCode configuration and independent per-user
+  OpenAI and Vertex authentication without credential-dependent render or shell
+  startup.
+- Restricted readiness probes to content-free provider outcomes and prohibited
+  host or peer credential copying. No managed configuration or runtime changed.
+
+## 2026-08-31 - History Source-Index Availability Contract
+
+- Reserved exact `source_index_unavailable` lifecycle classification for missing,
+  preparing, stale, incompatible, corrupt, or insufficiently covered private
+  History boundary-index generations.
+- Kept generation, source, privacy, path, and row identities outside the later
+  model-visible availability envelope. This Discovery-only contract changes no
+  deployed adapter. Gate Exceptions: none.
+
+## 2026-08-31 - Optional DKS Routing Discovery
+
+- Replaced mandatory DKS-first routing with one optional project- and revision-
+  compatible attempt under a shared five-second deadline and immediate typed
+  fallback to authoritative source inspection.
+- Required a paired value gate covering correctness, errors, p95, median completion
+  time, tool calls, and token cost; failed or stale evidence disables automatic
+  routing without retiring the projection or manual CLI.
+- This change establishes durable authority only; implementation, benchmark,
+  deployment, and activation remain separately gated.
+
+## 2026-08-30 - Cross-Checkout Initiative Source Repair
+
+- Restored explicit Initiative-source launch by resolving the selected checkout
+  to its Git root and rejecting missing or non-repository sources without path
+  disclosure.
+- Scrubbed inherited Git repository and configuration overrides from local
+  repository validation so source identity cannot be redirected by process state.
+- All 229 affected tests, one expected skip, 21 subtests, Python compilation,
+  and independent security review pass. Gate Commit: `48a604a`. Gate Exceptions:
+  none. Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
+## 2026-08-30 - Coordinator Workspace Affinity
+
+- Bound ordinary and Initiative DBSCTR Build tabs to the invoking Herdr pane's
+  live workspace instead of UI focus, including fresh fallback, and failed closed
+  before retaining malformed or mismatched caller, tab, pane, or agent identity.
+- Preserved previously confirmed agents when a later prompt re-probe fails and
+  retained the existing rule that no pre-existing session is moved or closed.
+- All 47 affected control-plane tests and Bun bundling pass, and independent
+  review found no remaining issue. Deployment applied only the launcher delta on
+  top of a concurrent managed query-summary runtime and preserved that unrelated
+  work. A live cross-focus smoke created the disposable tab in the coordinator
+  workspace while another workspace remained focused, then closed it. Gate
+  Commit: `b623430`. Gate Exceptions: none. Intended Final Push: feature branch
+  and draft pull request into protected `main`.
+
+## 2026-08-30 - History Aggregate Read-Side Cache Contract
+
+- Clarified that bounded aggregate telemetry may create an owner-private,
+  atomic, 24-hour transient capture without gaining permission to mutate review,
+  Incident, cycle, gate, claim, or canonical source state.
+- Implementation and typed availability remain owned by their dependent Build
+  slices; this Discovery update changes normative authority only.
+
+## 2026-08-30 - Atomic Cross-Checkout Initiative Launch
+
+- Kept Initiative manifests repository-relative while adding an explicitly
+  validated coordinator checkout for cross-worktree launch.
+- Replaced receipt-bearing shell launch input with confirmed-agent prompting,
+  required strict Herdr launch identity, and made failed pre-agent tab creation
+  transactional.
+- Added regressions for source/target separation, terminal-input bounds, malformed
+  launch output, pending-agent proof, cleanup, and fork fallback. All 47 focused
+  control-plane tests and Bun bundling pass. The two-file managed apply is
+  source-identical; fresh Bun schema loading exposes both source arguments, and a
+  disposable Herdr 0.8.2 session detected the bounded Build command before being
+  stopped and deleted. Gate Commit: `ee7f8ae`. Gate Exceptions: none. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-08-30 - Query-Recovery Contract Reconciliation
 
 - Bound DKS contention classification to exit `75`, empty stdout, and exact

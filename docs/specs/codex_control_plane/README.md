@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Host foundation ready; implementation and capability probes not started
+**Status:** Exact identity and generic history source delivered; Codex history adapter ready
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -15,6 +15,21 @@ The stable profile is [`PROFILE.md`](PROFILE.md).
 | Scope | Host and Fedora guest CLI, native configuration, shared DBSCTR adapter, history, workers, recovery, and parity evidence |
 | Non-goals | Desktop management, OpenCode retirement, MCP, plugin packaging, private storage parsing, SDK-bundled runtime, Rust rewrite, or Codex fork |
 
+### RWUE-002 Remote Workspace Override
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: installs authenticated Codex CLI state for separate users on one shared remote host |
+| Delivery | Draft pull request; disposable CentOS proof followed by separately approved two-user deployment |
+| Scope | Checksum-pinned x86_64 CLI, dedicated user-local `CODEX_HOME`, managed configuration, independent login, and content-free readiness probe |
+| Non-goals | Desktop state, shared API keys, copied host login, peer state access, automatic login, or private storage inspection |
+
+Each remote user authenticates Codex independently after distribution succeeds.
+Rendering, install, update, rollback, and shell startup require no Codex
+credential. Readiness proves exact version, isolated home, managed configuration,
+and authenticated command availability without retaining account, token, thread,
+prompt, response, path, or runtime identity.
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a
@@ -25,12 +40,11 @@ contracts without creating another lifecycle state machine.
 
 ## Problem
 
-The repository currently manages OpenCode deeply but does not install or
-configure Codex CLI. Codex state defaults overlap the separately managed desktop
-application, and OpenCode-specific session, permission, history, worker, and
-recovery adapters cannot be assumed to work for Codex. The control plane must add
-equivalent outcomes without copying client internals or weakening lifecycle
-authority.
+The repository now installs and configures Codex CLI beside deeply managed
+OpenCode while keeping the separately managed desktop application isolated.
+OpenCode-specific session, permission, history, worker, and recovery adapters
+cannot be assumed to work for Codex. The control plane must prove equivalent
+outcomes without copying client internals or weakening lifecycle authority.
 
 ## Goals
 
@@ -137,7 +151,7 @@ changes lifecycle state, and returns a bounded result.
 ```mermaid
 flowchart LR
     accTitle: Codex identity and evidence trust flow
-    accDescr: Host, guest, and desktop Codex state remain separate. Allowed opaque identity and bounded event classes pass through a sanitizer into private lifecycle evidence. Prompts, transcripts, tool arguments, tool output, credentials, URLs, account identity, and absolute paths are rejected.
+    accDescr: Host, guest, and desktop Codex state remain separate. Allowed opaque identity and bounded event classes pass through a sanitizer into private lifecycle evidence. Transient cwd is reduced to a workspace enum and transcript_path is discarded unread. Prompts, transcripts, tool arguments, tool output, credentials, URLs, account identity, and every other path are rejected.
     H[Host CODEX_HOME] --> S[Codex sanitizer]
     V[Guest CODEX_HOME] --> S
     P[Desktop default state] -. never read .-> S
@@ -149,8 +163,10 @@ flowchart LR
 **Text Equivalent:** Host and guest Codex homes are independent sources. Desktop
 state is never read. The sanitizer permits only opaque identities, bounded event
 and workspace enums, model ID, and timestamp into private DBSCTR evidence.
-Credentials, prompts, transcripts, tool inputs and outputs, URLs, account
-identity, and all filesystem paths are rejected.
+Transient `cwd` is reduced to a workspace enum and `transcript_path` is bounded
+then discarded without reading it. Credentials, prompts, transcripts, tool
+inputs and outputs, URLs, account identity, and every other filesystem path are
+rejected.
 
 ```mermaid
 stateDiagram-v2
@@ -218,11 +234,15 @@ terminal without implementation.
 ### Hooks and evidence
 
 - Given a configured hook runs, when the adapter receives its payload, then it
-  accepts only event enum, opaque session and turn IDs, model ID, timestamp, and
+  emits only event enum, opaque session and turn IDs, model ID, timestamp, and
   workspace enum `primary_worktree`, `cycle_worktree`, or `unknown`.
+- Given the documented payload contains `transcript_path`, when the adapter
+  validates the hook, then it bounds and discards that field without opening,
+  canonicalizing, logging, exposing, or persisting it.
 - Given a hook contains prompt, transcript, tool input or output, environment,
   URL, credential, account identity, or any filesystem path except documented
-  transient `cwd`, then the adapter rejects the event without persistence.
+  transient `cwd` and `transcript_path`, then the adapter rejects the event
+  without persistence.
 - Given a hook fails, when lifecycle work continues, then no Cycle Record or gate
   changes because a hook never owns lifecycle state.
 
@@ -247,6 +267,28 @@ terminal without implementation.
 
 ## Interfaces
 
+### History adapter slice
+
+The ready adapter is the private, read-only boundary between stable Codex
+app-server methods and the delivered `generic-history-source-pages` validator. Its complete
+wire, conversion, privacy, and body-free probe contract is
+[`history-adapter.md`](features/history-adapter.md). Generic pages never become
+shell or hosted-provider output; they remain in one local adapter process for a
+later reducer.
+
+`codex-history-parity` remains captured behind the adapter. Discovery must still
+define closed review, Incident, telemetry, immutable-capture, and benchmark
+reducers before promoting that slice. A source page alone does not satisfy any
+consumer or benchmark contract.
+
+Only supported user-message and agent-message text may enter future `content`.
+Text is bounded and privacy-validated locally; unsafe text rejects the operation. Reasoning, images, credentials,
+high-entropy tokens, URLs, absolute paths, tool commands, arguments, output,
+environment, and raw protocol fields never enter a page. Supported tool items
+may contribute only bounded status signals and counts. Missing token or cost data
+is explicitly unavailable and is never inferred. The exact shared page contract is
+[`harness-history-source.schemas.json`](../dbsctr_v3_lifecycle/features/harness-history-source.schemas.json).
+
 ### Host foundation slice
 
 `codex-host-foundation` is the first of two sequential pull requests. It owns the
@@ -261,6 +303,14 @@ explicit launch sandbox and approval policy.
 This slice adds fake-command and schema tests but does not install Codex, project
 files into `CODEX_HOME`, authenticate, claim native identity, or deploy a running
 adapter. `codex-distribution` owns those actions after this slice is delivered.
+
+Portable source is staged under
+`~/.config/dotfiles-ai/codex-managed/` as `config.toml`, `AGENTS.md`, and six
+`agents/*.toml` files. Distribution later projects those files into the managed
+CLI home, where Codex `0.151.0` discovers custom roles recursively as
+`$CODEX_HOME/agents/**/*.toml`. The staged `config.toml` uses inline command hooks
+that invoke `codex-control-plane hook EVENT`; no machine path, provider, model,
+credential, or private runtime state is embedded in source.
 
 #### Native role policy
 
@@ -282,7 +332,9 @@ account identity, or machine paths.
 The first slice configures identity-only `SessionStart`, `SessionEnd`,
 `SubagentStart`, `SubagentStop`, and `Stop` hooks. Tool, permission, prompt,
 compaction, and notification hooks remain unconfigured until a later slice has a
-specific parity need. The adapter converts version-probed documented payloads to:
+specific parity need. These are inline command hooks in managed `config.toml`,
+not a second hook-discovery or lifecycle mechanism. The adapter converts
+version-probed documented payloads to:
 
 ```json
 {
@@ -298,22 +350,28 @@ specific parity need. The adapter converts version-probed documented payloads to
 `event`, `session_id`, `workspace`, and adapter-owned `observed_at` are required.
 Optional `turn_id` and `model_id` are present only when the installed documented
 payload supplies them. Opaque IDs and model IDs are ASCII presentation IDs of at
-most 128 bytes. Workspace is `primary_worktree`, `cycle_worktree`, or `unknown`;
-documented raw `cwd` is the sole transient path exception. It must be an absolute
+most 128 bytes. Workspace is `primary_worktree`, `cycle_worktree`, or `unknown`.
+
+Documented raw `cwd` is a transient classification input. It must be an absolute
 UTF-8 path of at most 4096 bytes with no NUL or control characters, resolve to an
 existing directory, and canonicalize successfully. The adapter compares that
 canonical path against canonical Git worktree roots using root containment,
 classifies a unique primary or active cycle worktree, otherwise emits `unknown`,
-and discards raw and canonical paths before output, storage, or logging. Any
-other path-bearing field rejects the event.
+and discards raw and canonical paths before output, storage, or logging.
+
+Documented raw `transcript_path` is a separate transient transport field. It must
+be a UTF-8 string of at most 4096 bytes with no NUL or control characters. The
+adapter never opens, resolves, canonicalizes, checks the existence of, logs,
+exposes, or persists that field; it discards the value immediately after bounded
+schema validation. Any other path-bearing field rejects the event.
 
 Hook stdin is at most 64 KiB, the normalized record at most 8 KiB, bounded reasons
 at most 256 ASCII bytes, and hook processing at most five seconds. Version/help
 probes allow at most 1 MiB and 30 seconds; app-server handshake and each method
 allow at most 1 MiB and ten seconds. Unknown required fields, duplicate JSON keys,
 invalid UTF-8, non-ASCII identity, overflow, timeout, or content-bearing prompt,
-transcript, tool argument/output, environment, URL, credential, or account fields
-produce no identity record.
+transcript content, tool argument/output, environment, URL, credential, or
+account fields produce no identity record.
 
 `codex-control-plane` returns `0` only for a validated command result, `1` for a
 validation, capability, runtime, or transport failure, and `2` for CLI usage.
@@ -322,7 +380,7 @@ bounded private success or failure record they return `0` to avoid making an
 observability hook an execution authority. Owner-only hook records retain only
 the normalized envelope or a bounded failure enum and expire after 24 hours.
 
-The planned executable is `codex-control-plane`, implemented in Python without a
+The managed executable is `codex-control-plane`, implemented in Python without a
 daemon or private database:
 
 ```text
@@ -332,11 +390,11 @@ codex-control-plane session list|read|resume|fork
 codex-control-plane dbsctr OPERATION
 ```
 
-The first adapter stage proposes installed `codex --version`,
-`codex exec --json`, and documented command hooks. The second stage proposes the
-installed `codex app-server` over stdio and the documented target methods
-`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. These interfaces
-remain unavailable until the frozen-version host and Fedora probes pass.
+The first adapter stage uses installed `codex --version`, `codex exec --json`,
+and documented command hooks. The frozen-version identity probe validated the
+installed `codex app-server` stdio handshake and documented target methods
+`thread/list`, `thread/read`, `thread/resume`, and `thread/fork`. The managed
+session commands remain unavailable until the history-parity adapter is built.
 Experimental item/turn pagination and WebSocket transport are excluded.
 Every stdio connection completes documented `initialize` and `initialized`
 handshake messages without opting into `experimentalApi` before a thread method.
@@ -395,6 +453,8 @@ final parity for a requested outcome without a separately approved scope change.
   inside the current boundary; the control plane never performs login.
 - Cwd and worktree data is reduced to validated repository-relative identity
   before persistence or model exposure.
+- The documented hook `transcript_path` key is bounded and discarded; the
+  adapter never accesses the referenced transcript or retains its path.
 - Hook records are owner-only, bounded, retained under private state, and never
   contain content fields.
 - App-server compatibility is version-probed and unknown required fields fail
@@ -409,11 +469,16 @@ final parity for a requested outcome without a separately approved scope change.
 
 Facts:
 
-- Codex CLI was not on the host `PATH` during Discovery.
-- The proposed frozen baseline is public release `0.151.0`; implementation must
-  revalidate its tag, asset, digest, hook shape, and app-server methods.
-- Official hook documentation does not guarantee whether hook `session_id`
-  equals app-server `thread.id` or root `thread.sessionId`.
+- Codex CLI `0.151.0` is installed through the managed wrapper on the host and
+  every registered Fedora guest with isolated state and authentication.
+- The frozen baseline is public release `0.151.0`; each identity probe must
+  revalidate its runtime, hook shape, and app-server methods.
+- Official hook documentation does not guarantee identity equality across
+  releases; the frozen `0.151.0` host and Fedora probe found hook `session_id`,
+  CLI JSONL thread identity, app-server `thread.id`, and root `thread.sessionId`
+  exactly equal.
+- Official `0.151.0` source includes `transcript_path` in common hook payloads,
+  recursive `agents/**/*.toml` role discovery, and inline command hooks.
 - The official Python SDK source at the target tag pins an older CLI runtime, so
   it is not the baseline adapter.
 
@@ -446,12 +511,12 @@ Risks:
 
 ```bash
 python3 dot_local/bin/executable_dbsctrctl initiative-check --manifest docs/initiatives/codex-cli-integration/MANIFEST.json --json
-uv run --group test pytest tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py -q
-python3 -m py_compile dot_local/bin/executable_dbsctrctl
+uv run --group test pytest tests/test_codex_control_plane.py tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py -q
+python3 -m py_compile dot_local/bin/executable_codex-control-plane dot_local/bin/executable_dbsctrctl
 git diff --check
 ```
 
-Implementation adds focused `tests/test_codex_control_plane.py` coverage before
-the first source change. Live validation additionally requires exact host and guest version, state
+Focused `tests/test_codex_control_plane.py` coverage preceded the first source
+change. Live validation additionally requires exact host and guest version, state
 isolation, hook correlation, version-probed documented app-server methods, worker launch/resume,
 federation, and process-preserving recovery evidence.

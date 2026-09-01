@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import uuid
+
+
+TOKEN = re.compile(r"^[0-9a-f]{32}$")
+ARTIFACTS = (
+    ".local/bin/codex",
+    ".local/bin/codex-archive",
+    ".local/bin/codex-install",
+    ".local/bin/codex-project",
+    ".local/bin/codex-rollback",
+    ".local/bin/dbsctrctl",
+    ".local/libexec/dotfiles-ai/codex",
+    ".config/dotfiles-ai/chezmoi.toml",
+    ".config/dotfiles-ai/codex-managed",
+    ".local/state/dotfiles-ai/codex-package/homebrew-bin",
+    ".local/state/dotfiles-ai/codex-package/transaction",
+    ".local/state/dotfiles-ai/codex/config.toml",
+    ".local/state/dotfiles-ai/codex/AGENTS.md",
+    ".local/state/dotfiles-ai/codex/agents",
+    ".local/state/dotfiles-ai/codex/.dotfiles-ai-managed.json",
+    ".local/state/dotfiles-ai/codex/.dotfiles-ai-journal.json",
+    ".local/state/dotfiles-ai/codex/.dotfiles-ai-staging",
+)
+
+
+def command(*argv):
+    return subprocess.run(argv, check=True, text=True, capture_output=True).stdout.strip()
+
+
+def safe_relative(value):
+    path = PurePosixPath(value)
+    if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("unsafe rollback path")
+    return path
+
+
+def safe_home_path(home, relative):
+    home = Path(home)
+    relative = safe_relative(relative)
+    if not home.is_absolute() or home.is_symlink():
+        raise ValueError("unsafe rollback home")
+    metadata = home.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid():
+        raise ValueError("unsafe rollback home")
+    current = home
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("rollback path contains a symlinked ancestor")
+        if current.exists():
+            metadata = current.stat(follow_symlinks=False)
+            if metadata.st_uid != os.getuid():
+                raise ValueError("rollback path has foreign ownership")
+    return current
+
+
+def safe_existing(path):
+    if path.is_symlink():
+        raise ValueError("rollback path is a symlink")
+    if path.is_dir():
+        for child in path.rglob("*"):
+            if child.is_symlink():
+                raise ValueError("rollback tree contains a symlink")
+    elif path.exists() and not path.is_file():
+        raise ValueError("rollback path has unsupported type")
+
+
+def private_directory(path):
+    if path.is_symlink():
+        raise ValueError("rollback directory is a symlink")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    metadata = path.stat(follow_symlinks=False)
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o700):
+        raise ValueError("unsafe rollback directory")
+
+
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def copy(source, destination):
+    safe_existing(source)
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if source.is_dir():
+        shutil.copytree(source, destination)
+        for path in destination.rglob("*"):
+            if path.is_file():
+                with path.open("rb") as stream:
+                    os.fsync(stream.fileno())
+        directories = {destination, *(path for path in destination.rglob("*") if path.is_dir())}
+        for path in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+            fsync_directory(path)
+    else:
+        shutil.copy2(source, destination)
+        with destination.open("rb") as stream:
+            os.fsync(stream.fileno())
+    fsync_directory(destination.parent)
+
+
+def source_identity(home):
+    source = safe_home_path(home, ".local/share/chezmoi-dotfiles-ai")
+    if command("git", "-C", str(source), "status", "--porcelain"):
+        raise ValueError("guest source is dirty")
+    revision = command("git", "-C", str(source), "rev-parse", "HEAD")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("invalid guest source revision")
+    return source, revision
+
+
+def snapshot(home=None):
+    home = Path.home() if home is None else Path(home)
+    source, revision = source_identity(home)
+    root = home / ".local/state/dotfiles-ai/codex-rollbacks"
+    private_directory(root)
+    token = uuid.uuid4().hex
+    backup = root / token
+    private_directory(backup)
+    present = []
+    for value in ARTIFACTS:
+        relative = safe_relative(value)
+        path = safe_home_path(home, relative)
+        if path.exists() or path.is_symlink():
+            copy(path, backup / "files" / relative)
+            present.append(value)
+    metadata = {"schema_version": 1, "source": str(source), "revision": revision,
+                "present": present}
+    descriptor, temporary = tempfile.mkstemp(prefix=".snapshot.", dir=backup)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(metadata, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, backup / "snapshot.json")
+    fsync_directory(backup)
+    return token
+
+
+def backup_path(home, token):
+    if not TOKEN.fullmatch(token):
+        raise ValueError("invalid rollback token")
+    path = safe_home_path(home, f".local/state/dotfiles-ai/codex-rollbacks/{token}")
+    safe_existing(path)
+    return path
+
+
+def read_snapshot(home, token):
+    backup = backup_path(home, token)
+    metadata_path = backup / "snapshot.json"
+    metadata = metadata_path.stat(follow_symlinks=False)
+    if (metadata_path.is_symlink() or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_size > 64 * 1024):
+        raise ValueError("unsafe rollback metadata")
+    value = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "source", "revision", "present"}
+            or value["schema_version"] != 1 or not re.fullmatch(r"[0-9a-f]{40}", value["revision"])
+            or not isinstance(value["present"], list) or any(item not in ARTIFACTS for item in value["present"])):
+        raise ValueError("invalid rollback metadata")
+    source = safe_home_path(home, ".local/share/chezmoi-dotfiles-ai")
+    if value["source"] != str(source):
+        raise ValueError("rollback source changed")
+    return backup, value
+
+
+def remove(path):
+    safe_existing(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def restore(token, home=None):
+    home = Path.home() if home is None else Path(home)
+    backup, metadata = read_snapshot(home, token)
+    source, _ = source_identity(home)
+    artifacts = []
+    for value in ARTIFACTS:
+        relative = safe_relative(value)
+        current = safe_home_path(home, relative)
+        if current.exists() or current.is_symlink():
+            safe_existing(current)
+        saved = backup / "files" / relative
+        if value in metadata["present"]:
+            safe_existing(saved)
+        artifacts.append((value, current, saved))
+    command("git", "-C", str(source), "reset", "--hard", metadata["revision"])
+    for value, current, saved in artifacts:
+        if current.exists() or current.is_symlink():
+            remove(current)
+        if value in metadata["present"]:
+            copy(saved, current)
+
+
+def discard(token, home=None):
+    home = Path.home() if home is None else Path(home)
+    backup, _ = read_snapshot(home, token)
+    shutil.rmtree(backup)
+    fsync_directory(backup.parent)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["snapshot"]:
+        print(snapshot())
+        return
+    if len(argv) == 2 and argv[0] in {"restore", "discard"}:
+        globals()[argv[0]](argv[1])
+        return
+    raise SystemExit("usage: codex-rollback snapshot | restore TOKEN | discard TOKEN")
+
+
+if __name__ == "__main__":
+    main()
