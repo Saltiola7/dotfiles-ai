@@ -1443,6 +1443,10 @@ class DbsctrctlTest(unittest.TestCase):
         performance = run(self.repo, "cycle-performance", "--json", ok=False)
         self.assertIn("invalid schema 5 runtime", performance.stderr)
 
+        record["state"] = "retired"
+        path.write_text(json.dumps(record))
+        run(self.repo, "worktree-list", "--json")
+
         path.write_text('{"schema_version":5,"schema_version":5}')
         duplicate = run(self.repo, "worktree-list", "--json", ok=False)
         self.assertIn("duplicate JSON key", duplicate.stderr)

@@ -2909,7 +2909,7 @@ def read_cycle_record(root, path, label="Cycle Record"):
         schema_version = record["schema_version"]
         if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5):
             fail(f"unsupported Cycle Record schema: {schema_version}")
-        if schema_version == 5:
+        if schema_version == 5 and record.get("state") != "retired":
             validate_schema5_runtime(root, record)
     return record
 
