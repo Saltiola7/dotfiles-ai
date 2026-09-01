@@ -41,10 +41,16 @@ authority. Herdr identities and terminal state remain advisory.
 
 ### Continue a Build-led Discovery session
 
-- Given a primary Build runs Discovery in the Initiative context home, when it
-  begins an approved slice through explicit Initiative Begin, then it binds the
-  same receipt and approval, attaches the current runtime, and creates no Herdr
-  tab or OpenCode child.
+- Given a primary Build runs Discovery outside the Initiative context home, when
+  it begins an approved cross-repository slice through explicit Initiative Begin,
+  then it supplies the coordinator checkout and context-home checkout separately.
+- The adapter resolves the relative manifest in the coordinator checkout, the
+  applicability plan and cycle in the context-home checkout, and validates both
+  GitHub origins against the receipt before and after approval.
+- Given those checks pass, Initiative Begin binds the same receipt and approval,
+  attaches the current runtime to the target cycle, and creates no Herdr tab or
+  OpenCode child. Omitting both checkout overrides preserves same-repository
+  behavior.
 - Cross-repository child creation remains exclusive to the Discovery coordinator.
 
 ### Preserve coordinator workspace affinity
@@ -86,12 +92,16 @@ authority. Herdr identities and terminal state remain advisory.
 
 ## Interface And Contract
 
-`dbsctr_initiative_launch` accepts optional `initiativeSourceRepository`. It must
-be a readable Git checkout whose GitHub origin matches the fresh receipt's
-`coordinator_repository`. `manifestPath` remains
-`docs/initiatives/<slug>/MANIFEST.json` and is resolved in that checkout.
-Initiative mode on `dbsctr_begin` accepts neither source nor target overrides; it
-uses the invoking same-repository Build worktree and attaches that runtime.
+`dbsctr_initiative_launch` accepts optional `initiativeSourceRepository` and
+`targetRepository`. Initiative mode on `dbsctr_begin` accepts the same optional
+fields inside its `initiative` object. The source must be a readable Git checkout
+whose GitHub origin matches the fresh receipt's `coordinator_repository`; the
+target must be a readable Git checkout whose GitHub origin matches the receipt's
+context-home `repository`. `manifestPath` remains
+`docs/initiatives/<slug>/MANIFEST.json` and is resolved in the source checkout.
+The applicability plan, default branch, cycle-occupancy check, and cycle creation
+are resolved in the target checkout. Omitting both fields uses the invoking
+same-repository Build worktree for source and target.
 
 Approval remains bound to manifest digest, blob, commit, coordinator repository,
 context-home repository, plan digest, base branch, cycle identity, risk, and
@@ -120,7 +130,9 @@ confirmed, the adapter does not destroy it automatically.
 ## Validation
 
 - Focused Bun-backed adapter tests cover separate source and target checkouts,
-  source-origin mismatch, approval revalidation, and both launcher entry points.
+  source/target origin mismatch, approval revalidation, and both launcher entry
+  points. The `dbsctr_begin` schema exposes both fields only inside its explicit
+  Initiative object, and a cross-checkout Begin creates no Herdr call.
 - Herdr fixtures prove receipt JSON is absent from terminal launch input, a
   bounded agent prompt follows confirmed startup, malformed success fails closed,
   failed attempts close their tabs, fork fallback closes its first tab, and only
@@ -165,7 +177,7 @@ confirmed, the adapter does not destroy it automatically.
 ```mermaid
 sequenceDiagram
     accTitle: Atomic cross-checkout Initiative launch
-    accDescr: The launcher validates a repository-relative manifest in the coordinator checkout, binds it to a cycle in the target repository, resolves the invoking Herdr workspace, starts OpenCode there with a short shell command, and either prompts the confirmed agent or closes an unowned failed tab.
+    accDescr: The adapter validates a repository-relative manifest in the coordinator checkout and binds it to a cycle in the target repository. Same-session Initiative Begin attaches the current primary without Herdr. Discovery child launch resolves the invoking Herdr workspace, starts OpenCode there with a short shell command, and either prompts the confirmed agent or closes an unowned failed tab.
     participant S as Initiative source
     participant L as OpenCode launcher
     participant T as Target repository
@@ -173,28 +185,35 @@ sequenceDiagram
     participant B as Build agent
     L->>S: Validate relative manifest and fresh receipt
     L->>T: Bind approved receipt and create or resume cycle
-    L->>H: Resolve invoking pane and coordinator workspace
-    alt Coordinator workspace resolved
-        L->>H: Create launcher-owned tab in coordinator workspace
-        L->>H: Start OpenCode with short arguments
-    else Caller identity unavailable
-        H-->>L: No authoritative workspace
-        L-->>L: Fail without creating a tab
-    end
-    alt OpenCode agent confirmed
-        H-->>L: Expected agent and pane
-        L->>B: Prompt with bounded cycle instruction
+    alt Same-session Initiative Begin
+        L->>B: Attach current primary to target cycle
         B->>T: Read Cycle Record and revalidate Git readiness
-    else No agent exists
-        H-->>L: Startup failure
-        L->>H: Close launcher-owned tab
+    else Discovery child launch
+        L->>H: Resolve invoking pane and coordinator workspace
+        alt Coordinator workspace resolved
+            L->>H: Create launcher-owned tab in coordinator workspace
+            L->>H: Start OpenCode with short arguments
+        else Caller identity unavailable
+            H-->>L: No authoritative workspace
+            L-->>L: Fail without creating a tab
+        end
+        alt OpenCode agent confirmed
+            H-->>L: Expected agent and pane
+            L->>B: Prompt with bounded cycle instruction
+            B->>T: Read Cycle Record and revalidate Git readiness
+        else No agent exists
+            H-->>L: Startup failure
+            L->>H: Close launcher-owned tab
+        end
     end
 ```
 
-**Text Equivalent:** The launcher reads the repository-relative manifest from
-the explicitly selected coordinator checkout and binds the approved receipt to a
-cycle in the context-home repository. It resolves the invoking Herdr pane and
-creates a new tab explicitly in that pane's workspace, independent of UI focus.
-It starts OpenCode without receipt content in the shell command and prompts only
-a confirmed Build agent. If the workspace cannot be resolved, it creates no tab;
-if no agent exists after startup failure, it closes only the tab it created.
+**Text Equivalent:** The adapter reads the repository-relative manifest from the
+explicitly selected coordinator checkout and binds the approved receipt to a
+cycle in the selected context-home repository. Same-session Initiative Begin
+attaches the current Build primary to that cycle without using Herdr. Discovery
+child launch resolves the invoking Herdr pane and creates a new tab explicitly in
+that pane's workspace, independent of UI focus. It starts OpenCode without
+receipt content in the shell command and prompts only a confirmed Build agent. If
+the workspace cannot be resolved, it creates no tab; if no agent exists after
+startup failure, it closes only the tab it created.

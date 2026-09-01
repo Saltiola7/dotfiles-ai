@@ -37,18 +37,21 @@
   Intended Final Push: feature branch and draft pull request into protected
   `main`.
 
-## 2026-08-31 - Projection V2 Message Authority Correction
+## 2026-08-31 - Projection V2 Post-Delivery Reopening
 
-- Reopened projection-v2 implementation before its first Gate Commit because the
-  approved schema required message-derived model/provider authority without a
-  body-free message projection or resumable verification cursor.
-- Added exact owner-private `index_messages` rows and
-  `verified_message_rowid`. Maintenance stores only message row/session/timestamp
-  identity, one-way body digest, safe model, provider-error bit, and marker flags;
-  bodies remain source-local and ready reads remain body-free.
+- Reopened `history-incident-query-core` after projection-v2 delivery merged
+  because the implementation omitted body-free message authority and resumable
+  message verification required for exact model/provider reduction and
+  mutation-safe activation.
+- Bound the correction to new Initiative requirement `INT-043`. Exact owner-private
+  `index_messages` rows and `verified_message_rowid` retain only message
+  row/session/timestamp identity, one-way body digest, safe model, provider-error
+  bit, and marker flags; bodies remain source-local and ready reads remain
+  body-free.
 - Required bounded message and part verification before activation so
-  mutation-between-chunks forces rebuild. Scope, dependencies, outputs, and
-  ready slice identity are unchanged.
+  mutation-between-chunks forces rebuild. Dependencies, public outputs, and slice
+  identity are unchanged; implementation, deployment, operation, and completion
+  require a fresh digest-bound approval.
 
 ## 2026-08-31 - History Projection Storage Readiness
 

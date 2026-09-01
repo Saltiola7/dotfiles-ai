@@ -180,6 +180,13 @@ incompatibility, or a privacy tombstone invalidates affected state and requires
 bounded rebuild. Ready queries read no source body columns; detailed History and
 Incident modes remain independent of this projection.
 
+The first projection-v2 delivery merged without body-free message rows or a
+resumable message verification cursor. Post-delivery authority review therefore
+reopened `history-incident-query-core`: preparation must retain message-derived
+model and provider-error authority without message bodies and must verify covered
+message and part digests before activation. The delivered output schemas and
+latency boundary remain unchanged.
+
 DKS privacy guarding uses a dedicated lifecycle privacy lock. Unrelated review,
 History, Incident, and capture work cannot block a query, while forget and expiry
 mutations still cannot race cited result completion. Automatic routing remains

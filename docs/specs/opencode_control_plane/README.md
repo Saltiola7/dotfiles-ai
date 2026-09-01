@@ -761,9 +761,13 @@ remains a distinct sanitized VM implementation workflow.
 Given a primary Build invokes `dbsctr_begin` with an explicit
 Initiative manifest, slice, and `proceed=true`, then the adapter executes the same
 fresh receipt, exact approval, repository, plan-digest, ownership, and mutation
-checks, attaches the current same-repository runtime, and creates no Herdr child.
-Ordinary `dbsctr_begin` remains prompt-free, and Plan and subagents continue to
-deny it.
+checks, attaches the current runtime, and creates no Herdr child. For a
+cross-repository slice, the nested Initiative input names separate coordinator
+and context-home checkouts; the relative manifest resolves only in the
+coordinator, while the plan and cycle resolve only in the context home. Both
+origins and every approval-bound input are checked again after approval. Omitting
+the checkout fields preserves same-repository behavior. Ordinary `dbsctr_begin`
+remains prompt-free, and Plan and subagents continue to deny it.
 
 Given the primary orchestrator operates on a helper-created isolated worktree,
 OpenCode allows external-directory access beneath the native worktree root and,
