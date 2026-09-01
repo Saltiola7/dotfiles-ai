@@ -45,8 +45,11 @@ REVIEW_RETENTION_SECONDS = 90 * 24 * 60 * 60
 REVIEW_DORMANT_MS = 7 * 24 * 60 * 60 * 1000
 REVIEW_LEDGER_SCHEMA = 1
 INCIDENT_SCHEMA = 1
+HISTORY_SOURCE_INDEX_SCHEMA = 2
+HISTORY_SOURCE_INDEX_OUTPUT_SCHEMA = 1
+HISTORY_SOURCE_INDEX_CHUNK = 50_000
 IMPROVEMENT_SCHEMA = 5
-CAPTURE_SCHEMA = 1
+CAPTURE_SCHEMA = 2
 FEDERATED_CAPTURE_RETENTION_MS = 24 * 60 * 60 * 1000
 BENCHMARK_SCHEMA = 1
 PHASE_SCHEMA = 1
@@ -57,6 +60,7 @@ PHASES = GATES[:6] + ("operation",)
 PHASE_OPERATIONS = ("marker", "typed_tool", "task", "read", "readonly_qa",
                     "operator_wait", "external_wait")
 EXCLUDED_PHASE_OPERATIONS = ("operator_wait", "external_wait")
+LEDGER_INTEGRITY_RECEIPTS = {}
 BENCHMARK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 BENCHMARK_METRICS = {
     "candidate_count", "cycle_count", "child_count", "elapsed_ms", "tool_count",
@@ -106,6 +110,10 @@ BACKLOG_COMMIT = re.compile(r"(?<![0-9a-f])[0-9a-f]{7,64}(?![0-9a-f])")
 
 def fail(message):
     raise RuntimeError(message)
+
+
+class SourceIndexUnavailable(RuntimeError):
+    pass
 
 
 def git(root, *args, check=True, env=None):
@@ -607,6 +615,9 @@ def ledger_connection(root, write=False, path=None):
     path = path or ledger_path(root)
     private_path(path.parent, stat.S_IFDIR, 0o700, "ledger directory")
     private_path(path, stat.S_IFREG, 0o600, "review ledger")
+    details = path.stat()
+    identity = (details.st_dev, details.st_ino, details.st_size, details.st_mtime_ns)
+    receipt_key = str(path.resolve())
     try:
         connection = sqlite3.connect(str(path) if write else f"file:{path}?mode=ro", uri=not write)
         connection.execute("PRAGMA foreign_keys=ON")
@@ -625,7 +636,14 @@ def ledger_connection(root, write=False, path=None):
             if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                 fail("private review ledger foreign-key check failed")
             ensure_improvement_schema(connection)
-        ledger_integrity(connection)
+        if write:
+            ensure_capture_schema(connection)
+        if write or LEDGER_INTEGRITY_RECEIPTS.get(receipt_key) != identity:
+            ledger_integrity(connection)
+            if write:
+                LEDGER_INTEGRITY_RECEIPTS.pop(receipt_key, None)
+            else:
+                LEDGER_INTEGRITY_RECEIPTS[receipt_key] = identity
         if write:
             ensure_knowledge_privacy_schema(connection)
             ensure_incident_schema(connection)
@@ -1011,23 +1029,34 @@ def ensure_capture_schema(connection):
     row = connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone()
     if row == (str(CAPTURE_SCHEMA),):
         return
-    if row is not None:
+    if row not in (None, ("1",)):
         fail("private history capture ledger has an unsupported schema")
     try:
         connection.execute("BEGIN IMMEDIATE")
-        connection.execute("""CREATE TABLE history_captures (
-            capture_id TEXT PRIMARY KEY,
-            payload TEXT NOT NULL
-        ) WITHOUT ROWID""")
-        connection.execute("""CREATE TABLE history_capture_members (
+        if row is None:
+            connection.execute("""CREATE TABLE history_captures (
+                capture_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            ) WITHOUT ROWID""")
+            connection.execute("""CREATE TABLE history_capture_members (
+                capture_id TEXT NOT NULL REFERENCES history_captures(capture_id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY (capture_id, position),
+                UNIQUE (capture_id, session_id)
+            ) WITHOUT ROWID""")
+        connection.execute("""CREATE TABLE history_capture_page_sources (
             capture_id TEXT NOT NULL REFERENCES history_captures(capture_id) ON DELETE CASCADE,
-            position INTEGER NOT NULL,
-            session_id TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            PRIMARY KEY (capture_id, position),
-            UNIQUE (capture_id, session_id)
+            cursor INTEGER NOT NULL,
+            digest TEXT NOT NULL,
+            PRIMARY KEY (capture_id, cursor)
         ) WITHOUT ROWID""")
-        connection.execute("INSERT INTO ledger_meta VALUES ('capture_schema', ?)", (str(CAPTURE_SCHEMA),))
+        if row is None:
+            connection.execute("INSERT INTO ledger_meta VALUES ('capture_schema', ?)", (str(CAPTURE_SCHEMA),))
+        else:
+            connection.execute("UPDATE ledger_meta SET value=? WHERE key='capture_schema'",
+                               (str(CAPTURE_SCHEMA),))
         connection.commit()
     except Exception:
         connection.rollback()
@@ -1035,7 +1064,9 @@ def ensure_capture_schema(connection):
 
 
 def capture_integrity(connection):
-    expected = {"history_captures", "history_capture_members"}
+    schema = connection.execute("SELECT value FROM ledger_meta WHERE key='capture_schema'").fetchone()
+    expected = ({"history_captures", "history_capture_members", "history_capture_page_sources"}
+                if schema == (str(CAPTURE_SCHEMA),) else {"history_captures", "history_capture_members"})
     tables = {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'history_capture%'")}
     if tables != expected:
@@ -1049,6 +1080,12 @@ def capture_integrity(connection):
             fail("private history capture identity mismatch")
         members = history_capture_members(connection, capture_id)
         validate_history_capture(manifest, members)
+    if "history_capture_page_sources" in expected:
+        for capture_id, cursor, digest in connection.execute(
+                "SELECT capture_id,cursor,digest FROM history_capture_page_sources"):
+            if (not re.fullmatch(r"[0-9a-f]{24}", capture_id) or type(cursor) is not int or cursor < 0
+                    or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                fail("private history capture page source is invalid")
 
 
 def history_capture_members(connection, capture_id):
@@ -5388,6 +5425,936 @@ def review_priority(item):
     return min(values, default=5)
 
 
+def history_source_index_path(root):
+    return root / "reviews/history-source-index.sqlite3"
+
+
+def history_privacy_epoch_digest(root):
+    index = review_index(root)
+    identity = {"schema_version": 1, "forgotten_sessions": sorted(index["forgotten_sessions"].items())}
+    return hashlib.sha256(ledger_payload(identity).encode()).hexdigest()
+
+
+def history_source_layout(database):
+    if not database.is_file() or database.is_symlink():
+        fail("OpenCode database is missing or unsafe")
+    details = database.stat()
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        tables = {row[0].lower(): row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"session", "message", "part"} <= set(tables):
+            fail("OpenCode database lacks required session/message/part tables")
+        session, message, part = (tables[name] for name in ("session", "message", "part"))
+        def mapped(table):
+            return {row[1].lower().replace("_", ""): row[1]
+                    for row in connection.execute(f'PRAGMA table_info("{table}")')}
+
+        session_columns, message_columns, part_columns = map(mapped, (session, message, part))
+        def required(columns, names, label):
+            value = next((columns[name] for name in names if name in columns), None)
+            if value is None:
+                fail(f"OpenCode {label} column is missing")
+            return value
+
+        session_id = required(session_columns, ("id",), "session identity")
+        session_time = required(session_columns, ("timecreated", "createdat", "time", "timestamp"),
+                                "session timestamp")
+        message_id = required(message_columns, ("id",), "message identity")
+        message_session = required(message_columns, ("sessionid", "session"), "message session identity")
+        message_time = required(message_columns, ("timecreated", "createdat", "time", "timestamp"),
+                                "message timestamp")
+        message_body = required(message_columns, ("data", "text", "content"), "message body")
+        part_id = required(part_columns, ("id",), "part identity")
+        part_message = required(part_columns, ("messageid", "message"), "part message identity")
+        part_session = required(part_columns, ("sessionid", "session"), "part session identity")
+        part_time = required(part_columns, ("timecreated", "createdat", "time", "timestamp"),
+                             "part timestamp")
+        part_body = required(part_columns, ("data", "text", "content"), "part body")
+        schema_rows = connection.execute(
+            "SELECT type,name,sql FROM sqlite_master WHERE tbl_name IN (?,?,?) OR name IN (?,?,?) "
+            "ORDER BY type,name", (session, message, part, session, message, part)).fetchall()
+        schema_digest = hashlib.sha256(ledger_payload({
+            "objects": schema_rows, "session_id": session_id, "session_time": session_time,
+            "message_id": message_id, "message_session": message_session,
+            "message_time": message_time, "message_body": message_body,
+            "part_id": part_id, "part_message": part_message,
+            "part_session": part_session, "part_time": part_time, "part_body": part_body,
+        }).encode()).hexdigest()
+        session_ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid),0) FROM "{session}"').fetchone()[0]
+        message_ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid),0) FROM "{message}"').fetchone()[0]
+        part_ceiling = connection.execute(f'SELECT COALESCE(MAX(rowid),0) FROM "{part}"').fetchone()[0]
+    finally:
+        if "connection" in locals():
+            connection.close()
+    return {"device": details.st_dev, "inode": details.st_ino, "schema_digest": schema_digest,
+            "session": session, "message": message, "part": part,
+            "session_columns": session_columns, "message_columns": message_columns,
+            "part_columns": part_columns, "session_id": session_id, "session_time": session_time,
+            "message_id": message_id, "message_session": message_session,
+            "message_time": message_time, "message_updated": message_columns.get("timeupdated"),
+            "message_body": message_body, "part_id": part_id, "part_message": part_message,
+            "part_session": part_session, "part_time": part_time,
+            "part_updated": part_columns.get("timeupdated"), "part_body": part_body,
+            "session_ceiling": session_ceiling, "message_ceiling": message_ceiling,
+            "part_ceiling": part_ceiling}
+
+
+def open_history_source_index(root, create=False):
+    path = history_source_index_path(root)
+    if path.exists() or path.is_symlink():
+        if path.is_symlink() or not path.is_file():
+            fail("history source index is unsafe")
+        details = path.stat()
+        if details.st_uid != os.getuid() or details.st_mode & 0o077:
+            fail("history source index is unsafe")
+    elif not create:
+        raise SourceIndexUnavailable("source_index_unavailable")
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(path.parent, 0o700)
+    if create and path.exists():
+        probe = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            version = probe.execute(
+                "SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
+            index_sql = {name: (sql or "") for name, sql in probe.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='index' AND name IN "
+                "('index_rows_recovery','index_rows_incident')")}
+        except sqlite3.Error:
+            version, index_sql = None, {}
+        finally:
+            probe.close()
+        predicates_valid = ("WHERE tool_key_digest IS NOT NULL" in index_sql.get("index_rows_recovery", "")
+                            and "WHERE tool_state='failed'" in index_sql.get("index_rows_incident", ""))
+        if version == ("1",) or version == (str(HISTORY_SOURCE_INDEX_SCHEMA),) and not predicates_valid:
+            path.unlink()
+        elif version != (str(HISTORY_SOURCE_INDEX_SCHEMA),):
+            fail("history source index schema is incompatible")
+    connection = sqlite3.connect(path if create else f"{path.resolve().as_uri()}?mode=ro", uri=not create)
+    if create:
+        os.chmod(path, 0o600)
+    connection.execute("PRAGMA foreign_keys=ON")
+    return connection
+
+
+def ensure_history_source_index_schema(connection):
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS index_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS index_generations (
+          generation_id TEXT PRIMARY KEY,
+          base_generation_id TEXT REFERENCES index_generations(generation_id),
+          depth INTEGER NOT NULL CHECK (depth BETWEEN 0 AND 15),
+          state TEXT NOT NULL CHECK (state IN ('preparing','ready')),
+          phase TEXT NOT NULL CHECK (phase IN ('sessions','messages','parts','finalizing','ready')),
+          source_device INTEGER NOT NULL,
+          source_inode INTEGER NOT NULL,
+          schema_digest TEXT NOT NULL,
+          privacy_epoch_digest TEXT NOT NULL,
+          target_session_ceiling INTEGER NOT NULL,
+          target_message_ceiling INTEGER NOT NULL,
+          target_part_ceiling INTEGER NOT NULL,
+          indexed_session_rowid INTEGER NOT NULL,
+          indexed_message_rowid INTEGER NOT NULL,
+          indexed_part_rowid INTEGER NOT NULL,
+          finalized_session_rowid INTEGER NOT NULL,
+          verified_part_rowid INTEGER NOT NULL,
+          covered_session_ceiling INTEGER NOT NULL,
+          covered_message_ceiling INTEGER NOT NULL,
+          covered_part_ceiling INTEGER NOT NULL,
+          session_row_count INTEGER NOT NULL,
+          message_row_count INTEGER NOT NULL,
+          part_row_count INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS index_sessions (
+          generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
+          session_id TEXT NOT NULL,
+          session_rowid INTEGER NOT NULL,
+          parent_session_id TEXT,
+          created_at INTEGER NOT NULL,
+          last_activity INTEGER NOT NULL,
+          eligible INTEGER NOT NULL CHECK (eligible IN (0,1)),
+          review_marker INTEGER NOT NULL CHECK (review_marker IN (0,1)),
+          project_digest TEXT,
+          source_digest TEXT NOT NULL,
+          part_count INTEGER NOT NULL,
+          tool_call_count INTEGER NOT NULL,
+          tool_error_count INTEGER NOT NULL,
+          provider_error_count INTEGER NOT NULL,
+          child_count INTEGER NOT NULL,
+          delegation_count INTEGER NOT NULL,
+          token_total INTEGER,
+          PRIMARY KEY (generation_id,session_id),
+          UNIQUE (generation_id,session_rowid)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS index_sessions_membership
+          ON index_sessions(generation_id,eligible,last_activity DESC,session_id);
+        CREATE TABLE IF NOT EXISTS index_session_values (
+          generation_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('agent','model')),
+          value TEXT NOT NULL,
+          PRIMARY KEY (generation_id,session_id,kind,value),
+          FOREIGN KEY (generation_id,session_id)
+            REFERENCES index_sessions(generation_id,session_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS index_rows (
+          generation_id TEXT NOT NULL REFERENCES index_generations(generation_id) ON DELETE CASCADE,
+          part_rowid INTEGER NOT NULL,
+          session_id TEXT NOT NULL,
+          part_time INTEGER NOT NULL,
+          part_updated INTEGER NOT NULL,
+          source_digest TEXT NOT NULL,
+          eligibility_flags INTEGER NOT NULL,
+          tool_name TEXT,
+          tool_key_digest TEXT,
+          tool_state TEXT CHECK (tool_state IN ('success','failed','other')),
+          failure_class TEXT,
+          disposition_digest TEXT,
+          PRIMARY KEY (generation_id,part_rowid)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS index_rows_ascending
+          ON index_rows(generation_id,session_id,part_time,part_rowid);
+        CREATE INDEX IF NOT EXISTS index_rows_recovery
+          ON index_rows(generation_id,session_id,tool_key_digest,part_time,part_rowid)
+          WHERE tool_key_digest IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS index_rows_incident
+          ON index_rows(generation_id,tool_state,part_time DESC,part_rowid DESC)
+          WHERE tool_state='failed';
+        CREATE TABLE IF NOT EXISTS active_generation (
+          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+          generation_id TEXT NOT NULL REFERENCES index_generations(generation_id)
+        );
+    """)
+    row = connection.execute("SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
+    if row is None:
+        connection.execute("INSERT INTO index_meta VALUES ('schema_version',?)",
+                           (str(HISTORY_SOURCE_INDEX_SCHEMA),))
+    elif row[0] != str(HISTORY_SOURCE_INDEX_SCHEMA):
+        fail("history source index schema is incompatible")
+    if connection.execute("SELECT count(*) FROM index_meta").fetchone()[0] != 1:
+        fail("history source index metadata is invalid")
+
+
+def validate_history_source_index_schema(connection):
+    expected = {
+        "index_meta": ("key", "value"),
+        "index_generations": ("generation_id", "base_generation_id", "depth", "state", "phase",
+                              "source_device", "source_inode", "schema_digest", "privacy_epoch_digest",
+                              "target_session_ceiling", "target_message_ceiling", "target_part_ceiling",
+                              "indexed_session_rowid", "indexed_message_rowid", "indexed_part_rowid",
+                              "finalized_session_rowid", "verified_part_rowid", "covered_session_ceiling",
+                              "covered_message_ceiling", "covered_part_ceiling", "session_row_count",
+                              "message_row_count", "part_row_count", "created_at", "updated_at"),
+        "index_sessions": ("generation_id", "session_id", "session_rowid", "parent_session_id",
+                           "created_at", "last_activity", "eligible", "review_marker", "project_digest",
+                           "source_digest", "part_count", "tool_call_count", "tool_error_count",
+                           "provider_error_count", "child_count", "delegation_count", "token_total"),
+        "index_session_values": ("generation_id", "session_id", "kind", "value"),
+        "index_rows": ("generation_id", "part_rowid", "session_id", "part_time", "part_updated",
+                       "source_digest", "eligibility_flags", "tool_name", "tool_key_digest",
+                       "tool_state", "failure_class", "disposition_digest"),
+        "active_generation": ("singleton", "generation_id"),
+    }
+    expected_indexes = {"index_sessions_membership", "index_rows_ascending",
+                        "index_rows_recovery", "index_rows_incident"}
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    indexes = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_autoindex_%'")}
+    index_sql = {name: (sql or "") for name, sql in connection.execute(
+        "SELECT name,sql FROM sqlite_master WHERE type='index'")}
+    columns = {table: tuple(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))
+               for table in expected if table in tables}
+    row = (connection.execute("SELECT value FROM index_meta WHERE key='schema_version'").fetchone()
+           if "index_meta" in tables else None)
+    if (tables != set(expected) or indexes != expected_indexes
+            or row != (str(HISTORY_SOURCE_INDEX_SCHEMA),)
+            or any(columns.get(table) != names for table, names in expected.items())
+            or connection.execute("SELECT count(*) FROM index_meta").fetchone()[0] != 1
+            or "WHERE tool_key_digest IS NOT NULL" not in index_sql.get("index_rows_recovery", "")
+            or "WHERE tool_state='failed'" not in index_sql.get("index_rows_incident", "")):
+        raise SourceIndexUnavailable("source_index_unavailable")
+
+
+HISTORY_GENERATION_COLUMNS = (
+    "generation_id", "base_generation_id", "depth", "state", "phase", "source_device",
+    "source_inode", "schema_digest", "privacy_epoch_digest", "target_session_ceiling",
+    "target_message_ceiling", "target_part_ceiling", "indexed_session_rowid",
+    "indexed_message_rowid", "indexed_part_rowid", "finalized_session_rowid",
+    "verified_part_rowid", "covered_session_ceiling", "covered_message_ceiling",
+    "covered_part_ceiling", "session_row_count", "message_row_count", "part_row_count",
+    "created_at", "updated_at",
+)
+HISTORY_SESSION_COLUMNS = (
+    "generation_id", "session_id", "session_rowid", "parent_session_id", "created_at",
+    "last_activity", "eligible", "review_marker", "project_digest", "source_digest",
+    "part_count", "tool_call_count", "tool_error_count", "provider_error_count",
+    "child_count", "delegation_count", "token_total",
+)
+
+
+def history_projection_generation(connection, generation_id):
+    row = connection.execute(
+        f"SELECT {','.join(HISTORY_GENERATION_COLUMNS)} FROM index_generations WHERE generation_id=?",
+        (generation_id,)).fetchone()
+    return dict(zip(HISTORY_GENERATION_COLUMNS, row)) if row else None
+
+
+def history_projection_chain(connection, generation_id):
+    chain, seen, expected_depth = [], set(), None
+    while generation_id is not None:
+        if generation_id in seen or len(chain) >= 16:
+            raise SourceIndexUnavailable("source_index_unavailable")
+        generation = history_projection_generation(connection, generation_id)
+        if generation is None or generation["state"] != "ready":
+            raise SourceIndexUnavailable("source_index_unavailable")
+        if expected_depth is None:
+            expected_depth = generation["depth"]
+        if generation["depth"] != expected_depth:
+            raise SourceIndexUnavailable("source_index_unavailable")
+        chain.append(generation)
+        seen.add(generation_id)
+        generation_id = generation["base_generation_id"]
+        expected_depth -= 1
+    if expected_depth != -1:
+        raise SourceIndexUnavailable("source_index_unavailable")
+    return chain
+
+
+def history_projection_session(connection, chain, session_id):
+    for generation in chain:
+        row = connection.execute(
+            f"SELECT {','.join(HISTORY_SESSION_COLUMNS)} FROM index_sessions "
+            "WHERE generation_id=? AND session_id=?", (generation["generation_id"], session_id)).fetchone()
+        if row:
+            return dict(zip(HISTORY_SESSION_COLUMNS, row))
+    return None
+
+
+def history_projection_sessions(connection, chain):
+    sessions = {}
+    for generation in chain:
+        for row in connection.execute(
+                f"SELECT {','.join(HISTORY_SESSION_COLUMNS)} FROM index_sessions WHERE generation_id=?",
+                (generation["generation_id"],)):
+            sessions.setdefault(row[1], dict(zip(HISTORY_SESSION_COLUMNS, row)))
+    return sessions
+
+
+def history_projection_values(connection, chain, session_id, kind):
+    for generation in chain:
+        rows = [row[0] for row in connection.execute(
+            "SELECT value FROM index_session_values WHERE generation_id=? AND session_id=? AND kind=?",
+            (generation["generation_id"], session_id, kind))]
+        if rows:
+            return rows
+        if connection.execute(
+                "SELECT 1 FROM index_sessions WHERE generation_id=? AND session_id=?",
+                (generation["generation_id"], session_id)).fetchone():
+            return []
+    return []
+
+
+def history_projection_prune(connection, root, active_generation_id):
+    keep = {item["generation_id"] for item in history_projection_chain(connection, active_generation_id)}
+    referenced = set()
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            for payload, in ledger.execute("SELECT payload FROM history_captures"):
+                value = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+                generation_id = value.get("source_generation")
+                if isinstance(generation_id, str) and re.fullmatch(r"[0-9a-f]{32}", generation_id):
+                    referenced.add(generation_id)
+    for generation_id in referenced:
+        generation = history_projection_generation(connection, generation_id)
+        while generation is not None and generation["generation_id"] not in keep:
+            keep.add(generation["generation_id"])
+            generation = history_projection_generation(connection, generation["base_generation_id"])
+    for generation_id, in connection.execute(
+            "SELECT generation_id FROM index_generations ORDER BY depth DESC").fetchall():
+        if generation_id not in keep:
+            connection.execute("DELETE FROM index_generations WHERE generation_id=?", (generation_id,))
+
+
+def history_projection_safe_value(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", value) else None
+
+
+def history_projection_digest(previous, value):
+    seed = bytes.fromhex(previous) if previous else b""
+    return hashlib.sha256(seed + hashlib.sha256(ledger_payload(value).encode()).digest()).hexdigest()
+
+
+def history_projection_source_session(source, layout, session_id):
+    cursor = source.execute(
+        f'SELECT rowid,* FROM "{layout["session"]}" WHERE "{layout["session_id"]}"=?', (session_id,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    names = ["rowid", *(item[0] for item in cursor.description[1:])]
+    return {name.lower().replace("_", ""): value for name, value in zip(names, row)}
+
+
+def history_projection_insert_session(index, source, layout, generation, session_id, forgotten, chain):
+    existing = index.execute(
+        "SELECT 1 FROM index_sessions WHERE generation_id=? AND session_id=?",
+        (generation["generation_id"], session_id)).fetchone()
+    if existing:
+        return True
+    if session_id in forgotten:
+        return False
+    inherited = history_projection_session(index, chain, session_id) if chain else None
+    if inherited:
+        values = [generation["generation_id"], *(inherited[name] for name in HISTORY_SESSION_COLUMNS[1:])]
+        index.execute(f"INSERT INTO index_sessions VALUES ({','.join('?' for _ in values)})", values)
+        for kind in ("agent", "model"):
+            index.executemany("INSERT INTO index_session_values VALUES (?,?,?,?)",
+                              ((generation["generation_id"], session_id, kind, value)
+                               for value in history_projection_values(index, chain, session_id, kind)))
+        return True
+    row = history_projection_source_session(source, layout, session_id)
+    if row is None:
+        return False
+    columns = layout["session_columns"]
+    parent_name = next((name for name in ("parentid", "parent") if name in columns), None)
+    parent = row.get(parent_name) if parent_name else None
+    created = row.get(layout["session_time"].lower().replace("_", ""))
+    if (type(row.get("rowid")) is not int or not isinstance(session_id, str)
+            or not OPAQUE_ID.fullmatch(session_id) or parent is not None
+            and (not isinstance(parent, str) or not OPAQUE_ID.fullmatch(parent))
+            or type(created) is not int or created < 0):
+        fail("OpenCode source contains invalid session projection identity")
+    project_name = columns.get("projectid")
+    project = row.get(project_name.lower().replace("_", "")) if project_name else None
+    project_digest = hashlib.sha256(project.encode()).hexdigest() if isinstance(project, str) and project else None
+    token_names = [columns[name].lower().replace("_", "") for name in (
+        "tokensinput", "tokensoutput", "tokensreasoning", "tokenscacheread", "tokenscachewrite")
+        if name in columns]
+    tokens = [row.get(name) for name in token_names]
+    token_total = sum(tokens) if tokens and all(type(value) is int and value >= 0 for value in tokens) else None
+    digest = history_projection_digest(None, ["session", row["rowid"], session_id, parent, created, project, tokens])
+    values = (generation["generation_id"], session_id, row["rowid"], parent, created, created,
+              0, 0, project_digest, digest, 0, 0, 0, 0, 0, 0, token_total)
+    index.execute(f"INSERT INTO index_sessions VALUES ({','.join('?' for _ in values)})", values)
+    for kind, name in (("agent", columns.get("agent")), ("model", columns.get("model"))):
+        value = history_projection_safe_value(row.get(name.lower().replace("_", "")) if name else None)
+        if value:
+            index.execute("INSERT INTO index_session_values VALUES (?,?,?,?)",
+                          (generation["generation_id"], session_id, kind, value))
+    return True
+
+
+def require_history_source_index(args, part_ceiling=None, generation_id=None, session_ceiling=None):
+    root = review_root(args.state_root)
+    database = opencode_database(args.database)
+    layout = history_source_layout(database)
+    privacy_digest = history_privacy_epoch_digest(root)
+    try:
+        connection = open_history_source_index(root)
+        validate_history_source_index_schema(connection)
+        if generation_id is None:
+            row = connection.execute("SELECT generation_id FROM active_generation WHERE singleton=1").fetchone()
+            generation_id = row[0] if row else None
+        generation = history_projection_generation(connection, generation_id)
+        if (generation is None or generation["state"] != "ready" or generation["phase"] != "ready"
+                or (generation["source_device"], generation["source_inode"], generation["schema_digest"],
+                    generation["privacy_epoch_digest"]) !=
+                   (layout["device"], layout["inode"], layout["schema_digest"], privacy_digest)):
+            raise SourceIndexUnavailable("source_index_unavailable")
+        chain = history_projection_chain(connection, generation_id)
+        required_part = generation["covered_part_ceiling"] if part_ceiling is None else part_ceiling
+        required_session = generation["covered_session_ceiling"] if session_ceiling is None else session_ceiling
+        if (required_part > generation["covered_part_ceiling"]
+                or required_session > generation["covered_session_ceiling"]):
+            raise SourceIndexUnavailable("source_index_unavailable")
+        forgotten = sorted(review_index(root)["forgotten_sessions"])
+    except (sqlite3.Error, RuntimeError) as error:
+        if isinstance(error, SourceIndexUnavailable):
+            raise
+        raise SourceIndexUnavailable("source_index_unavailable") from None
+    finally:
+        if "connection" in locals():
+            connection.close()
+    return {**layout, "generation_id": generation_id, "chain_ids": [item["generation_id"] for item in chain],
+            "privacy_epoch_digest": privacy_digest, "forgotten_sessions": forgotten,
+            "validated_part_ceiling": required_part, "validated_session_ceiling": required_session,
+            "validated_message_ceiling": generation["covered_message_ceiling"]}
+
+
+def command_history_source_index_maintain(args):
+    root = review_root(args.state_root)
+    database = opencode_database(args.database)
+    with review_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        # Leave process startup, schema validation, commit, and JSON output inside the five-second envelope.
+        deadline = time.monotonic() + 4.5
+        layout = history_source_layout(database)
+        privacy_digest = history_privacy_epoch_digest(root)
+        forgotten = set(review_index(root)["forgotten_sessions"])
+        index = open_history_source_index(root, create=True)
+        source = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        try:
+            ensure_history_source_index_schema(index)
+            validate_history_source_index_schema(index)
+            active_row = index.execute("SELECT generation_id FROM active_generation WHERE singleton=1").fetchone()
+            active = history_projection_generation(index, active_row[0]) if active_row else None
+            if active and ((active["source_device"], active["source_inode"], active["schema_digest"],
+                            active["privacy_epoch_digest"]) !=
+                           (layout["device"], layout["inode"], layout["schema_digest"], privacy_digest)
+                           or active["covered_session_ceiling"] > layout["session_ceiling"]
+                           or active["covered_message_ceiling"] > layout["message_ceiling"]
+                           or active["covered_part_ceiling"] > layout["part_ceiling"]):
+                index.execute("DELETE FROM active_generation")
+                index.execute("DELETE FROM index_generations")
+                index.commit()
+                active = None
+            preparing_row = index.execute(
+                "SELECT generation_id FROM index_generations WHERE state='preparing' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            generation = history_projection_generation(index, preparing_row[0]) if preparing_row else None
+            if generation is None and active and (
+                    active["covered_session_ceiling"] == layout["session_ceiling"]
+                    and active["covered_message_ceiling"] == layout["message_ceiling"]
+                    and active["covered_part_ceiling"] == layout["part_ceiling"]):
+                active_chain = history_projection_chain(index, active["generation_id"])
+                chain_ids = [item["generation_id"] for item in active_chain]
+                slots = ",".join("?" for _ in chain_ids)
+                cursor = source.execute(
+                    f'SELECT rowid,"{layout["part_id"]}","{layout["part_message"]}",'
+                    f'"{layout["part_session"]}","{layout["part_time"]}",'
+                    + (f'"{layout["part_updated"]}",' if layout["part_updated"] else "")
+                    + f'"{layout["part_body"]}" FROM "{layout["part"]}" WHERE rowid>? AND rowid<=? '
+                    "ORDER BY rowid LIMIT ?",
+                    (active["verified_part_rowid"], active["covered_part_ceiling"],
+                     HISTORY_SOURCE_INDEX_CHUNK))
+                invalid, last, seen = False, active["verified_part_rowid"], 0
+                for row in cursor:
+                    if time.monotonic() >= deadline:
+                        break
+                    rowid, part_id, message_id, session_id, created, *tail = row
+                    updated, body = (tail if layout["part_updated"] else (created, tail[0]))
+                    last, seen = rowid, seen + 1
+                    if str(session_id) in forgotten:
+                        continue
+                    projected = index.execute(
+                        f"SELECT source_digest FROM index_rows WHERE generation_id IN ({slots}) "
+                        "AND part_rowid=? LIMIT 1", (*chain_ids, rowid)).fetchone()
+                    digest = history_projection_digest(None, ["part", rowid, str(session_id), part_id,
+                                                               message_id, created, updated,
+                                                               hashlib.sha256(str(body).encode()).hexdigest()])
+                    if projected is None or projected[0] != digest:
+                        invalid = True
+                        break
+                if invalid:
+                    index.execute("DELETE FROM active_generation")
+                    index.execute("DELETE FROM index_generations")
+                    index.commit()
+                    active = None
+                else:
+                    verified = 0 if seen == 0 or last >= active["covered_part_ceiling"] else last
+                    index.execute("UPDATE index_generations SET verified_part_rowid=?,updated_at=? "
+                                  "WHERE generation_id=?",
+                                  (verified, int(time.time() * 1000), active["generation_id"]))
+                    index.commit()
+                    result = {"schema_version": HISTORY_SOURCE_INDEX_OUTPUT_SCHEMA, "state": "ready",
+                              "covered_part_ceiling": active["covered_part_ceiling"],
+                              "indexed_rows": active["part_row_count"], "continuation_needed": False}
+                    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+                    return
+            if generation is None:
+                base = active if active and active["depth"] < 15 else None
+                generation_id = uuid.uuid4().hex
+                timestamp = int(time.time() * 1000)
+                start_session = base["covered_session_ceiling"] if base else 0
+                start_message = base["covered_message_ceiling"] if base else 0
+                start_part = base["covered_part_ceiling"] if base else 0
+                values = (generation_id, base["generation_id"] if base else None,
+                          base["depth"] + 1 if base else 0, "preparing", "sessions",
+                          layout["device"], layout["inode"], layout["schema_digest"], privacy_digest,
+                          layout["session_ceiling"], layout["message_ceiling"], layout["part_ceiling"],
+                          start_session, start_message, start_part, 0, 0, 0, 0, 0, 0, 0, 0,
+                          timestamp, timestamp)
+                index.execute(f"INSERT INTO index_generations VALUES ({','.join('?' for _ in values)})", values)
+                index.commit()
+                generation = history_projection_generation(index, generation_id)
+            chain = history_projection_chain(index, generation["base_generation_id"]) if generation["base_generation_id"] else []
+            phase = generation["phase"]
+            processed = 0
+            if phase == "sessions":
+                cursor = source.execute(
+                    f'SELECT "{layout["session_id"]}" FROM "{layout["session"]}" '
+                    "WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?",
+                    (generation["indexed_session_rowid"], generation["target_session_ceiling"],
+                     HISTORY_SOURCE_INDEX_CHUNK))
+                last, seen = generation["indexed_session_rowid"], 0
+                for session_id, in cursor:
+                    if time.monotonic() >= deadline:
+                        break
+                    row = history_projection_source_session(source, layout, str(session_id))
+                    seen += 1
+                    last = row["rowid"] if row else last
+                    if history_projection_insert_session(index, source, layout, generation,
+                                                         str(session_id), forgotten, chain):
+                        processed += 1
+                exhausted = last >= generation["target_session_ceiling"] or seen == 0
+                if exhausted:
+                    last = generation["target_session_ceiling"]
+                index.execute("UPDATE index_generations SET indexed_session_rowid=?,session_row_count="
+                              "session_row_count+?,phase=?,updated_at=? WHERE generation_id=?",
+                              (last, processed, "messages" if exhausted else "sessions",
+                               int(time.time() * 1000), generation["generation_id"]))
+            elif phase == "messages":
+                table = layout["message"]
+                cursor = source.execute(
+                    f'SELECT rowid,"{layout["message_id"]}","{layout["message_session"]}",'
+                    f'"{layout["message_time"]}",'
+                    + (f'"{layout["message_updated"]}",' if layout["message_updated"] else "")
+                    + f'"{layout["message_body"]}" FROM "{table}" WHERE rowid>? AND rowid<=? '
+                    "ORDER BY rowid LIMIT ?",
+                    (generation["indexed_message_rowid"], generation["target_message_ceiling"],
+                     HISTORY_SOURCE_INDEX_CHUNK))
+                last, seen = generation["indexed_message_rowid"], 0
+                for row in cursor:
+                    if time.monotonic() >= deadline:
+                        break
+                    rowid, message_id, session_id, created, *tail = row
+                    seen += 1
+                    updated, body = (tail if layout["message_updated"] else (created, tail[0]))
+                    last = rowid
+                    session_id = str(session_id)
+                    if session_id in forgotten or not history_projection_insert_session(
+                            index, source, layout, generation, session_id, forgotten, chain):
+                        continue
+                    try:
+                        payload = json.loads(body, object_pairs_hook=no_duplicate_keys) if isinstance(body, str) else {}
+                    except (json.JSONDecodeError, RuntimeError):
+                        payload = {}
+                    digest = history_projection_digest(None, ["message", rowid, session_id,
+                                                               message_id, created, updated,
+                                                               hashlib.sha256(str(body).encode()).hexdigest()])
+                    current = index.execute(
+                        "SELECT source_digest FROM index_sessions WHERE generation_id=? AND session_id=?",
+                        (generation["generation_id"], session_id)).fetchone()[0]
+                    provider_error = int(isinstance(payload, dict) and payload.get("error") is not None)
+                    index.execute("UPDATE index_sessions SET source_digest=?,provider_error_count="
+                                  "provider_error_count+? WHERE generation_id=? AND session_id=?",
+                                  (history_projection_digest(current, digest), provider_error,
+                                   generation["generation_id"], session_id))
+                    model = None
+                    if isinstance(payload, dict):
+                        model_value = payload.get("model")
+                        model = ((model_value.get("modelID") if isinstance(model_value, dict) else None)
+                                 or payload.get("modelID"))
+                    model = history_projection_safe_value(model)
+                    if model:
+                        index.execute("INSERT OR IGNORE INTO index_session_values VALUES (?,?,?,?)",
+                                      (generation["generation_id"], session_id, "model", model))
+                    processed += 1
+                exhausted = last >= generation["target_message_ceiling"] or seen == 0
+                if exhausted:
+                    last = generation["target_message_ceiling"]
+                index.execute("UPDATE index_generations SET indexed_message_rowid=?,message_row_count="
+                              "message_row_count+?,phase=?,updated_at=? WHERE generation_id=?",
+                              (last, processed, "parts" if exhausted else "messages",
+                               int(time.time() * 1000), generation["generation_id"]))
+            elif phase == "parts":
+                table = layout["part"]
+                cursor = source.execute(
+                    f'SELECT rowid,"{layout["part_id"]}","{layout["part_message"]}",'
+                    f'"{layout["part_session"]}","{layout["part_time"]}",'
+                    + (f'"{layout["part_updated"]}",' if layout["part_updated"] else "")
+                    + f'"{layout["part_body"]}" FROM "{table}" WHERE rowid>? AND rowid<=? '
+                    "ORDER BY rowid LIMIT ?",
+                    (generation["indexed_part_rowid"], generation["target_part_ceiling"],
+                     HISTORY_SOURCE_INDEX_CHUNK))
+                last, seen = generation["indexed_part_rowid"], 0
+                updates = {}
+                for row in cursor:
+                    if time.monotonic() >= deadline:
+                        break
+                    rowid, part_id, message_id, session_id, created, *tail = row
+                    seen += 1
+                    updated, body = (tail if layout["part_updated"] else (created, tail[0]))
+                    last = rowid
+                    session_id = str(session_id)
+                    if session_id in forgotten or not history_projection_insert_session(
+                            index, source, layout, generation, session_id, forgotten, chain):
+                        continue
+                    if (type(rowid) is not int or type(created) is not int or created < 0
+                            or type(updated) is not int or updated < 0):
+                        fail("OpenCode source contains invalid projected part identity")
+                    text = str(body)
+                    lowered = text[:2048].lower()
+                    flags = ((1 if "dbsctr" in lowered else 0)
+                             | (2 if "/discovery" in lowered else 0)
+                             | (4 if "/qa" in lowered else 0)
+                             | (8 if "dbsctr-improve" in lowered else 0))
+                    try:
+                        payload = json.loads(text, object_pairs_hook=no_duplicate_keys)
+                    except (json.JSONDecodeError, RuntimeError):
+                        payload = {}
+                    state = payload.get("state") if isinstance(payload, dict) else None
+                    raw_tool = ((payload.get("tool") or payload.get("name") or state.get("tool"))
+                                if isinstance(payload, dict) and isinstance(state, dict) else None)
+                    raw_tool = raw_tool if isinstance(raw_tool, str) else None
+                    tool_name = incident_summary_tool(raw_tool) if raw_tool else None
+                    status = str(state.get("status", "")).lower() if isinstance(state, dict) else ""
+                    tool_state = ("success" if status in ("completed", "success") else
+                                  "failed" if status in ("error", "failed") else
+                                  "other" if raw_tool else None)
+                    failure = incident_failure_class(state, status) if tool_state == "failed" else None
+                    tool_key_generation = chain[-1]["generation_id"] if chain else generation["generation_id"]
+                    tool_key = hashlib.sha256(
+                        f"{tool_key_generation}\0{raw_tool}".encode()).hexdigest() if raw_tool else None
+                    disposition = (incident_signal_id(session_id, str(message_id), str(part_id), raw_tool)
+                                   if tool_state == "failed" else None)
+                    digest = history_projection_digest(None, ["part", rowid, session_id, part_id,
+                                                               message_id, created, updated,
+                                                               hashlib.sha256(text.encode()).hexdigest()])
+                    index.execute("INSERT INTO index_rows VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                  (generation["generation_id"], rowid, session_id, created, updated,
+                                   digest, flags, tool_name, tool_key, tool_state, failure, disposition))
+                    item = updates.setdefault(session_id, [0, 0, 0, 0, None])
+                    item[0] += 1
+                    item[1] += int(raw_tool is not None)
+                    item[2] += int(tool_state == "failed")
+                    item[3] = max(item[3], created)
+                    item[4] = history_projection_digest(item[4], digest)
+                    processed += 1
+                for session_id, (parts, tools, errors, activity, digest) in updates.items():
+                    current = index.execute(
+                        "SELECT source_digest,last_activity FROM index_sessions WHERE generation_id=? AND session_id=?",
+                        (generation["generation_id"], session_id)).fetchone()
+                    index.execute("UPDATE index_sessions SET part_count=part_count+?,tool_call_count="
+                                  "tool_call_count+?,tool_error_count=tool_error_count+?,last_activity=?,"
+                                  "source_digest=? WHERE generation_id=? AND session_id=?",
+                                  (parts, tools, errors, max(current[1], activity),
+                                   history_projection_digest(current[0], digest),
+                                   generation["generation_id"], session_id))
+                exhausted = last >= generation["target_part_ceiling"] or seen == 0
+                if exhausted:
+                    last = generation["target_part_ceiling"]
+                index.execute("UPDATE index_generations SET indexed_part_rowid=?,part_row_count="
+                              "part_row_count+?,phase=?,updated_at=? WHERE generation_id=?",
+                              (last, processed, "finalizing" if exhausted else "parts",
+                               int(time.time() * 1000), generation["generation_id"]))
+            else:
+                local_rows = index.execute(
+                    "SELECT session_id,session_rowid FROM index_sessions WHERE generation_id=? "
+                    "AND session_rowid>? ORDER BY session_rowid LIMIT 500",
+                    (generation["generation_id"], generation["finalized_session_rowid"])).fetchall()
+                resolved = history_projection_sessions(index, [generation, *chain])
+                child_counts = {}
+                for item in resolved.values():
+                    if item["parent_session_id"]:
+                        child_counts[item["parent_session_id"]] = child_counts.get(item["parent_session_id"], 0) + 1
+                last = generation["finalized_session_rowid"]
+                chain_ids = [generation["generation_id"], *(item["generation_id"] for item in chain)]
+                placeholders = ",".join("?" for _ in chain_ids)
+                for session_id, session_rowid in local_rows:
+                    if time.monotonic() >= deadline:
+                        break
+                    rows = index.execute(
+                        f"SELECT eligibility_flags,part_time,part_rowid FROM index_rows WHERE generation_id IN "
+                        f"({placeholders}) AND session_id=? ORDER BY part_time,part_rowid",
+                        (*chain_ids, session_id)).fetchall()
+                    boundary = rows[:16] + rows[-16:]
+                    flags = 0
+                    for value, _, _ in boundary:
+                        flags |= value
+                    agents = history_projection_values(index, [generation, *chain], session_id, "agent")
+                    eligible = int(bool(flags & 7) or any(value.lower() in (
+                        "reviewer-openai", "builder-openai", "builder-bedrock") for value in agents))
+                    index.execute("UPDATE index_sessions SET eligible=?,review_marker=?,child_count=?,"
+                                  "delegation_count=? WHERE generation_id=? AND session_id=?",
+                                  (eligible, int(bool(flags & 8)), child_counts.get(session_id, 0),
+                                   child_counts.get(session_id, 0), generation["generation_id"], session_id))
+                    last = session_rowid
+                    processed += 1
+                exhausted = index.execute(
+                    "SELECT 1 FROM index_sessions WHERE generation_id=? AND session_rowid>? LIMIT 1",
+                    (generation["generation_id"], last)).fetchone() is None
+                if exhausted:
+                    timestamp = int(time.time() * 1000)
+                    index.execute("UPDATE index_generations SET state='ready',phase='ready',"
+                                  "covered_session_ceiling=target_session_ceiling,"
+                                  "covered_message_ceiling=target_message_ceiling,"
+                                  "covered_part_ceiling=target_part_ceiling,finalized_session_rowid=?,updated_at=? "
+                                  "WHERE generation_id=?", (last, timestamp, generation["generation_id"]))
+                    index.execute("INSERT INTO active_generation VALUES (1,?) ON CONFLICT(singleton) "
+                                  "DO UPDATE SET generation_id=excluded.generation_id",
+                                  (generation["generation_id"],))
+                    history_projection_prune(index, root, generation["generation_id"])
+                else:
+                    index.execute("UPDATE index_generations SET finalized_session_rowid=?,updated_at=? "
+                                  "WHERE generation_id=?",
+                                  (last, int(time.time() * 1000), generation["generation_id"]))
+            index.commit()
+            generation = history_projection_generation(index, generation["generation_id"])
+            result = {"schema_version": HISTORY_SOURCE_INDEX_OUTPUT_SCHEMA,
+                      "state": generation["state"],
+                      "covered_part_ceiling": (generation["covered_part_ceiling"]
+                                               if generation["state"] == "ready" else
+                                               active["covered_part_ceiling"] if active else 0),
+                      "indexed_rows": generation["part_row_count"],
+                      "continuation_needed": generation["state"] != "ready"}
+        except Exception:
+            index.rollback()
+            raise
+        finally:
+            source.close()
+            index.close()
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def history_projection_scan(args, snapshot):
+    source_index = args.source_index
+    root = review_root(args.state_root)
+    try:
+        index = open_history_source_index(root)
+        validate_history_source_index_schema(index)
+        chain = history_projection_chain(index, source_index["generation_id"])
+        sessions = history_projection_sessions(index, chain)
+        values = {session_id: {"agent": [], "model": []} for session_id in sessions}
+        for generation in chain:
+            for session_id, kind, value in index.execute(
+                    "SELECT session_id,kind,value FROM index_session_values WHERE generation_id=?",
+                    (generation["generation_id"],)):
+                if (session_id in sessions
+                        and sessions[session_id]["generation_id"] == generation["generation_id"]):
+                    values[session_id][kind].append(value)
+    except (sqlite3.Error, RuntimeError) as error:
+        if isinstance(error, SourceIndexUnavailable):
+            raise
+        raise SourceIndexUnavailable("source_index_unavailable") from None
+    finally:
+        if "index" in locals():
+            index.close()
+    for session_id in source_index["forgotten_sessions"]:
+        sessions.pop(session_id, None)
+        values.pop(session_id, None)
+    sessions = {session_id: item for session_id, item in sessions.items()
+                if item["session_rowid"] <= source_index["validated_session_ceiling"]
+                and REVIEW_START_MS <= item["created_at"] <= snapshot}
+    values = {session_id: values[session_id] for session_id in sessions}
+    adjacency = {session_id: set() for session_id in sessions}
+    for session_id, item in sessions.items():
+        parent = item["parent_session_id"]
+        if parent in adjacency:
+            adjacency[session_id].add(parent)
+            adjacency[parent].add(session_id)
+    seeds = {session_id for session_id, item in sessions.items() if item["eligible"]}
+    eligible_ids, pending = set(seeds), list(seeds)
+    while pending:
+        current = pending.pop()
+        for related in adjacency.get(current, ()) - eligible_ids:
+            eligible_ids.add(related)
+            pending.append(related)
+    selected = getattr(args, "metric_session_ids", None)
+    if selected is not None:
+        eligible_ids.intersection_update(selected)
+    improvement_sessions = set()
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='improvement_workers'").fetchone():
+                improvement_sessions = {row[0] for row in ledger.execute(
+                    "SELECT session_id FROM improvement_workers WHERE session_id IS NOT NULL")}
+    reviewed_sessions, _ = reviewed_ids(args.state_root, snapshot, lock=not getattr(args, "lock_held", False))
+    cycle_cache, identity_cache, candidates = {}, {}, []
+    for session_id in eligible_ids:
+        item = sessions[session_id]
+        reviewed = session_id in reviewed_sessions
+        if reviewed and not getattr(args, "include_reviewed", False):
+            continue
+        family, family_pending = {session_id}, [session_id]
+        while family_pending:
+            current = family_pending.pop()
+            for related in adjacency.get(current, ()) - family:
+                family.add(related)
+                family_pending.append(related)
+        membership_only = getattr(args, "membership_only", False)
+        if membership_only:
+            cycles, correlation = [], "unavailable"
+        else:
+            cycles, correlation = correlated_cycles(
+                None, set(), family, cycle_cache, exact_session_id=session_id, with_quality=True)
+        metrics = {
+            "project_digest": item["project_digest"] or "unavailable",
+            "child_count": item["child_count"], "tool_count": item["tool_call_count"],
+            "tool_call_count": item["tool_call_count"], "tool_error_count": item["tool_error_count"],
+            "provider_error_count": item["provider_error_count"],
+            "delegation_count": item["delegation_count"], "cost_total": "unavailable",
+            "token_total": item["token_total"] if item["token_total"] is not None else "unavailable",
+            "model_families": sorted({model_family(value) for value in values[session_id]["model"]
+                                      if model_family(value) != "unavailable"}) or "unavailable",
+            "provider_ids": "unavailable", "model_ids": values[session_id]["model"] or "unavailable",
+            "agent_ids": values[session_id]["agent"] or "unavailable",
+            "session_relation": "child" if item["parent_session_id"] else "primary",
+            "core_revisions": "unavailable", "overlay_revisions": "unavailable",
+        }
+        children = sorted(adjacency[session_id] - ({item["parent_session_id"]}
+                          if item["parent_session_id"] else set()))[:16]
+        candidate = {
+            "session_id": session_id, "parent_session_id": item["parent_session_id"],
+            "child_session_ids": children, "timestamp": str(item["created_at"]),
+            "last_activity": str(item["last_activity"]), "cycles": cycles,
+            "attention": review_attention(cycles, item["last_activity"], snapshot),
+            "correlation_quality": correlation,
+            "reviewed_status": "reviewed" if reviewed else "unreviewed",
+            "review_session": bool(item["review_marker"] or family.intersection(improvement_sessions)),
+        }
+        if getattr(args, "bind_history", False):
+            candidate["_history_identity"] = history_identity(
+                cycles, None, family, item["project_digest"] or "unavailable", identity_cache)
+        if getattr(args, "history_metrics", False):
+            candidate["_history_metrics"] = metrics
+            candidate["telemetry"] = history_telemetry(candidate, metrics)
+        candidates.append(candidate)
+    candidates.sort(key=lambda item: (int(item["last_activity"]), item["session_id"]), reverse=True)
+    source_identities = {session_id: sessions[session_id]["source_digest"] for session_id in eligible_ids}
+    database_digest = hashlib.sha256(ledger_payload({
+        "mode": "history-source-projection-v2", "generation_id": source_index["generation_id"],
+        "schema_digest": source_index["schema_digest"],
+        "privacy_epoch_digest": source_index["privacy_epoch_digest"],
+        "session_ceiling": source_index["validated_session_ceiling"],
+        "message_ceiling": source_index["validated_message_ceiling"],
+        "part_ceiling": source_index["validated_part_ceiling"],
+    }).encode()).hexdigest()
+    if args.database_digest is not None and args.database_digest != database_digest:
+        fail("OpenCode database changed within the review snapshot")
+    page = candidates if getattr(args, "history_all", False) else candidates[args.cursor:args.cursor + args.limit]
+    page_identity = history_page_digest(page, source_identities, args.limit, args.cursor)
+    cycles = [cycle for item in page for cycle in item["cycles"]]
+    states = [cycle["state"] for cycle in cycles]
+    result = {
+        "schema_version": 2, "candidates": page,
+        "scorecard": {"active": states.count("active"), "blocked": states.count("blocked"),
+                      "abandoned": states.count("abandoned"),
+                      "dormant": sum("dormant" in item["attention"] for item in page),
+                      "completed": states.count("completed"),
+                      "unknown": sum(not item["cycles"] for item in page)},
+        "session_ids": [item["session_id"] for item in page],
+        "cycle_ids": sorted({cycle["cycle_id"] for cycle in cycles}),
+        "digest": review_digest(page, snapshot, source_index["validated_session_ceiling"],
+                                source_index["validated_part_ceiling"], page_identity),
+        "limit": args.limit, "cursor": args.cursor, "snapshot": snapshot,
+        "session_ceiling": source_index["validated_session_ceiling"],
+        "part_ceiling": source_index["validated_part_ceiling"],
+        "database_digest": database_digest, "exclusion_digest": getattr(args, "exclusion_digest", None),
+        "continuation": None,
+        "_excluded_session_ids": list(source_index["forgotten_sessions"]),
+        "_source_identities": source_identities,
+    }
+    return result
+
+
 def review_scan(args):
     if args.limit < 1 or args.limit > REVIEW_MAX_LIMIT or args.cursor < 0:
         fail("review scan limit must be 1 through 100 and cursor non-negative")
@@ -5405,9 +6372,12 @@ def review_scan(args):
     excluded_message_id = getattr(args, "excluded_message_id", None)
     if excluded_message_id is not None and not OPAQUE_ID.fullmatch(excluded_message_id):
         fail("invalid excluded message ID")
+    if getattr(args, "source_index", None) is not None:
+        return history_projection_scan(args, snapshot)
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         connection.execute("BEGIN")
+        source_index = getattr(args, "source_index", None)
         tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"session", "message", "part"} <= set(tables):
             fail("OpenCode database lacks required session/message/part tables")
@@ -5428,7 +6398,26 @@ def review_scan(args):
         if (type(session_ceiling) is not int or not 0 <= session_ceiling <= 2**63 - 1
                 or type(part_ceiling) is not int or not 0 <= part_ceiling <= 2**63 - 1):
             fail("review scan row ceilings must be non-negative integers")
+        if (source_index is not None
+                and (session_ceiling != source_index["validated_session_ceiling"]
+                     or part_ceiling != source_index["validated_part_ceiling"])):
+            raise SourceIndexUnavailable("source_index_unavailable")
         sid = sqlite_name(connection, session, ("id",))
+        selected_metric_ids = getattr(args, "metric_session_ids", None)
+        if selected_metric_ids is not None:
+            if (not isinstance(selected_metric_ids, set) or len(selected_metric_ids) > REVIEW_MAX_LIMIT
+                    or any(not isinstance(value, str) or not OPAQUE_ID.fullmatch(value)
+                           for value in selected_metric_ids)):
+                fail("review history metric selection is invalid")
+            selected_metric_values = tuple(sorted(selected_metric_ids))
+            selected_index_filter = (
+                f' AND session_id IN ({",".join("?" for _ in selected_metric_values)})'
+                if selected_metric_values else " AND 0")
+            selected_session_filter = (
+                f' AND s."{sid}" IN ({",".join("?" for _ in selected_metric_values)})'
+                if selected_metric_values else " AND 0")
+        else:
+            selected_metric_values, selected_index_filter, selected_session_filter = (), "", ""
         pid = sqlite_name(connection, part, ("id",))
         parent = sqlite_name(connection, session, ("parentid", "parent")) if any(
             row[1].lower().replace("_", "") in ("parentid", "parent") for row in connection.execute(f"PRAGMA table_info({session})")
@@ -5448,11 +6437,34 @@ def review_scan(args):
         mbody = next((message_columns[name] for name in ("data", "text", "content")
                       if name in message_columns), None)
         pmessage = sqlite_name(connection, part, ("messageid",))
+        psession = sqlite_name(connection, part, ("sessionid", "session"))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
         part_time = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
         part_columns = {row[1].lower().replace("_", ""): row[1]
                         for row in connection.execute(f'PRAGMA table_info("{part}")')}
         part_updated = part_columns.get("timeupdated")
+        if source_index is not None:
+            connection.execute("ATTACH DATABASE ? AS history_index",
+                               (f"{history_source_index_path(review_root(args.state_root)).resolve().as_uri()}?mode=ro",))
+            connection.execute(f"""CREATE TEMP TABLE selected_boundaries AS
+                WITH ranked AS (
+                  SELECT session_id,part_rowid,part_time,
+                    row_number() OVER (
+                      PARTITION BY session_id ORDER BY part_time,part_rowid) first_rank,
+                    row_number() OVER (
+                      PARTITION BY session_id ORDER BY part_time DESC,part_rowid DESC) last_rank
+                  FROM history_index.index_rows
+                  WHERE generation_id=? AND part_rowid<=?{selected_index_filter}
+                )
+                SELECT session_id,part_rowid,part_time FROM ranked
+                WHERE first_rank<=16 OR last_rank<=16
+            """, (source_index["generation_id"], part_ceiling, *selected_metric_values))
+            connection.execute("CREATE INDEX selected_boundaries_session ON selected_boundaries(session_id,part_time,part_rowid)")
+            if connection.execute(
+                    f'''SELECT 1 FROM selected_boundaries b JOIN "{part}" p ON p.rowid=b.part_rowid
+                        WHERE p."{source_index["part_session"]}"<>b.session_id
+                           OR typeof(p."{part_time}")!='integer' OR p."{part_time}"<>b.part_time LIMIT 1''').fetchone():
+                raise SourceIndexUnavailable("source_index_unavailable")
         if exclusion_digest is not None:
             root = next((str(row[0]) for row in connection.execute(f'SELECT "{sid}" FROM "{session}"')
                          if session_id_digest(str(row[0])) == exclusion_digest), None)
@@ -5463,6 +6475,8 @@ def review_scan(args):
                     if excluded_message_id is not None else excluded_session_id)
             exclusion_digest = session_id_digest(root) if root is not None else None
         excluded_sessions = excluded_review_family(connection, session, root) if root is not None else set()
+        if source_index is not None:
+            excluded_sessions.update(source_index["forgotten_sessions"])
         excluded = tuple(sorted(excluded_sessions))
         session_exclusion = (f' AND "{sid}" NOT IN ({",".join("?" for _ in excluded)})' if excluded else "")
         message_exclusion = (f' AND (m."{msession}" NOT IN ({",".join("?" for _ in excluded)}) '
@@ -5488,7 +6502,7 @@ def review_scan(args):
             encoded = json.dumps(row, sort_keys=True, default=str).encode()
             identity.update(encoded)
             source_identities.setdefault(str(row[0]), hashlib.sha256()).update(b"s\0" + encoded)
-        if mtime and mbody:
+        if source_index is None and mtime and mbody:
             for row in connection.execute(
                     f'SELECT m."{msession}", m."{mid}", m."{mtime}", m."{mbody}" FROM "{message}" m '
                     f'JOIN "{session}" s ON s."{sid}"=m."{msession}" '
@@ -5501,25 +6515,35 @@ def review_scan(args):
                     + hashlib.sha256(str(message_body).encode()).digest()).digest()
                 identity.update(encoded)
                 source_identities.setdefault(str(session_value), hashlib.sha256()).update(encoded)
-        part_identity_values = f'p."{pbody}"' + (f', p."{part_updated}"' if part_updated else '')
-        part_identity_query = (
-            f'SELECT m."{msession}", p."{pid}", p."{part_time}", {part_identity_values} FROM "{part}" p '
-            f'LEFT JOIN "{message}" m ON p."{pmessage}"=m."{mid}" '
-            f'WHERE p."{part_time}" BETWEEN ? AND ? AND p.rowid <= ?{message_exclusion} ORDER BY p."{pid}"'
-        )
-        for row in connection.execute(
-                part_identity_query,
-                (REVIEW_START_MS, snapshot, part_ceiling, *excluded)):
-            session_value, part_id, part_timestamp, *part_values = row
-            source = hashlib.sha256(f"p\0{session_value}\0{part_id}\0{part_timestamp}\0".encode())
-            for part_value in part_values:
-                source.update(hashlib.sha256(str(part_value).encode()).digest())
-            encoded = source.digest()
-            identity.update(encoded)
-            if session_value is not None:
-                source_identities.setdefault(str(session_value), hashlib.sha256()).update(encoded)
+        if source_index is None:
+            part_identity_values = f'p."{pbody}"' + (f', p."{part_updated}"' if part_updated else '')
+            part_identity_query = (
+                f'SELECT m."{msession}", p."{pid}", p."{part_time}", {part_identity_values} FROM "{part}" p '
+                f'LEFT JOIN "{message}" m ON p."{pmessage}"=m."{mid}" '
+                f'WHERE p."{part_time}" BETWEEN ? AND ? AND p.rowid <= ?{message_exclusion} ORDER BY p."{pid}"'
+            )
+            for row in connection.execute(
+                    part_identity_query,
+                    (REVIEW_START_MS, snapshot, part_ceiling, *excluded)):
+                session_value, part_id, part_timestamp, *part_values = row
+                source = hashlib.sha256(f"p\0{session_value}\0{part_id}\0{part_timestamp}\0".encode())
+                for part_value in part_values:
+                    source.update(hashlib.sha256(str(part_value).encode()).digest())
+                encoded = source.digest()
+                identity.update(encoded)
+                if session_value is not None:
+                    source_identities.setdefault(str(session_value), hashlib.sha256()).update(encoded)
+        else:
+            identity.update(ledger_payload({
+                "mode": "history-source-index-v1", "generation_id": source_index["generation_id"],
+                "schema_digest": source_index["schema_digest"],
+                "privacy_epoch_digest": source_index["privacy_epoch_digest"],
+                "session_ceiling": session_ceiling, "part_ceiling": part_ceiling,
+            }).encode())
         database_digest = identity.hexdigest()
-        for table, column in ((session, created), (part, part_time)):
+        timestamp_authorities = ((session, created),) if source_index is not None else (
+            (session, created), (part, part_time))
+        for table, column in timestamp_authorities:
             invalid = connection.execute(
                 f'SELECT 1 FROM "{table}" WHERE "{column}" IS NOT NULL '
                 f'AND (typeof("{column}") != \'integer\' OR "{column}" < 100000000000) LIMIT 1'
@@ -5534,16 +6558,28 @@ def review_scan(args):
         children = (f'(SELECT group_concat(c."{sid}", ",") FROM "{session}" c '
                     f'WHERE c."{parent}"=content.session_id AND c."{created}" <= ? AND c.rowid <= ?{child_exclusion})') if parent else "NULL"
         time_filter = f'(typeof(s."{created}") = \'integer\' AND s."{created}" BETWEEN ? AND ? AND s.rowid <= ?)'
-        part_order = f'p."{part_time}" DESC'
-        part_source = (f'SELECT substr(p."{pbody}", 1, 2048) body FROM "{message}" m '
-                       f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
-                       f'AND p."{part_time}" <= ? AND p.rowid <= ?')
-        body = (f'(SELECT group_concat(body, "\\n") FROM ('
-                f'SELECT body FROM ({part_source} ORDER BY {part_order.replace(" DESC", " ASC")} LIMIT 16) '
-                 f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
-        last_activity = (f'MAX({created_value}, COALESCE((SELECT MAX(p."{part_time}") FROM "{message}" m '
-                         f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
-                         f'AND p."{part_time}" <= ? AND p.rowid <= ?), {created_value}))')
+        if source_index is not None:
+            body = (f'(SELECT group_concat(body, "\\n") FROM ('
+                    f'SELECT substr(p."{pbody}",1,2048) body FROM selected_boundaries b '
+                    f'JOIN "{part}" p ON p.rowid=b.part_rowid WHERE b.session_id=s."{sid}" '
+                    f'ORDER BY b.part_time,b.part_rowid))')
+            last_activity = (f'MAX({created_value}, COALESCE((SELECT MAX(part_time) '
+                             f'FROM history_index.index_rows WHERE generation_id='
+                             f'\'{source_index["generation_id"]}\' AND session_id=s."{sid}" '
+                             f'AND part_rowid<={part_ceiling}), {created_value}))')
+            body_parameters = ()
+        else:
+            part_order = f'p."{part_time}" DESC'
+            part_source = (f'SELECT substr(p."{pbody}", 1, 2048) body FROM "{message}" m '
+                           f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
+                           f'AND p."{part_time}" <= ? AND p.rowid <= ?')
+            body = (f'(SELECT group_concat(body, "\\n") FROM ('
+                    f'SELECT body FROM ({part_source} ORDER BY {part_order.replace(" DESC", " ASC")} LIMIT 16) '
+                     f'UNION ALL SELECT body FROM ({part_source} ORDER BY {part_order} LIMIT 16)))')
+            last_activity = (f'MAX({created_value}, COALESCE((SELECT MAX(p."{part_time}") FROM "{message}" m '
+                             f'JOIN "{part}" p ON p."{pmessage}"=m."{mid}" WHERE m."{msession}"=s."{sid}" '
+                             f'AND p."{part_time}" <= ? AND p.rowid <= ?), {created_value}))')
+            body_parameters = (snapshot, part_ceiling, snapshot, part_ceiling, snapshot, part_ceiling)
         query = f"""
             WITH RECURSIVE content AS (
                 SELECT s."{sid}" session_id, {parent_value} parent_id,
@@ -5551,7 +6587,7 @@ def review_scan(args):
                        {directory_value} directory,
                        {agent_value} agent, COALESCE({body}, '') body
                 FROM "{session}" s
-                WHERE {time_filter}{session_exclusion}
+                WHERE {time_filter}{session_exclusion}{selected_session_filter}
             ), seeds AS (
                 SELECT session_id FROM content
                 WHERE lower(body) LIKE '%dbsctr%'
@@ -5570,14 +6606,24 @@ def review_scan(args):
             FROM content JOIN expanded ON expanded.session_id=content.session_id
             ORDER BY content.created_at, content.session_id
         """
-        parameters = (snapshot, part_ceiling, snapshot, part_ceiling, snapshot, part_ceiling,
-                      REVIEW_START_MS, snapshot, session_ceiling, *excluded,
+        parameters = (*body_parameters, REVIEW_START_MS, snapshot, session_ceiling, *excluded,
+                      *selected_metric_values,
                       *((snapshot, session_ceiling, *excluded) if parent else ()))
         rows = connection.execute(query, parameters).fetchall()
+        project_digests = {}
+        project_column = session_columns.get("projectid")
+        if getattr(args, "bind_history", False) and project_column:
+            for session_value, project_value in connection.execute(
+                    f'SELECT s."{sid}",s."{project_column}" FROM "{session}" s '
+                    f'WHERE {time_filter}{session_exclusion}{selected_session_filter}',
+                    (REVIEW_START_MS, snapshot, session_ceiling, *excluded, *selected_metric_values)):
+                if isinstance(project_value, str) and project_value:
+                    project_digests[str(session_value)] = hashlib.sha256(project_value.encode()).hexdigest()
         history_metrics = {}
         if getattr(args, "history_metrics", False):
-            wanted_sessions = {str(row[0]) for row in rows}
-            project_column = session_columns.get("projectid")
+            selected_metrics = getattr(args, "metric_session_ids", None)
+            wanted_sessions = ({str(row[0]) for row in rows} if selected_metrics is None
+                               else {str(row[0]) for row in rows}.intersection(selected_metrics))
             cost_column = session_columns.get("cost")
             model_column = session_columns.get("model")
             token_columns = [session_columns[name] for name in (
@@ -5607,9 +6653,10 @@ def review_scan(args):
                 model = scalar.get(model_column) if model_column else None
                 family = model_family(model) if isinstance(model, str) else "unavailable"
                 history_metrics[session_id] = {
-                    "project_digest": project_digest, "tool_count": "unavailable",
-                    "tool_call_count": "unavailable", "tool_error_count": "unavailable",
-                    "provider_error_count": "unavailable", "delegation_count": "unavailable",
+                    "project_digest": project_digest, "child_count": 0 if parent else "unavailable",
+                    "tool_count": 0,
+                    "tool_call_count": 0, "tool_error_count": 0,
+                    "provider_error_count": "unavailable", "delegation_count": 0 if parent else "unavailable",
                     "cost_total": cost_total, "token_total": token_total,
                     "model_families": [family] if family != "unavailable" else "unavailable",
                     "provider_ids": "unavailable", "model_ids": "unavailable",
@@ -5633,11 +6680,12 @@ def review_scan(args):
                         session_id = str(session_value)
                         if session_id in history_metrics:
                             history_metrics[session_id]["delegation_count"] = int(delegation_count)
-                metric_sql = (f'SELECT m."{msession}", SUM({tool_case}), SUM({error_case}) '
-                              f'FROM "{message}" m JOIN "{part}" p ON p."{pmessage}"=m."{mid}" '
-                              f'WHERE m."{msession}" IN ({placeholders}) AND p."{part_time}" BETWEEN ? AND ? '
-                               f'AND p.rowid <= ?{message_exclusion} GROUP BY m."{msession}"')
-                metric_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, part_ceiling, *excluded)
+                            history_metrics[session_id]["child_count"] = int(delegation_count)
+                metric_sql = (f'SELECT p."{psession}", SUM({tool_case}), SUM({error_case}) '
+                              f'FROM "{part}" p WHERE p."{psession}" IN ({placeholders}) '
+                              f'AND p."{part_time}" BETWEEN ? AND ? AND p.rowid <= ? '
+                              f'GROUP BY p."{psession}"')
+                metric_args = (*sorted(wanted_sessions), REVIEW_START_MS, snapshot, part_ceiling)
                 for session_value, tool_calls, tool_errors in connection.execute(metric_sql, metric_args):
                     session_id = str(session_value)
                     if session_id in history_metrics:
@@ -5713,9 +6761,13 @@ def review_scan(args):
         if reviewed and not getattr(args, "include_reviewed", False):
             continue
         related_ids = families.get(session_id, {session_id})
-        cycles, correlation_quality = correlated_cycles(
-            directory, set(), related_ids, cycle_cache, exact_session_id=session_id, with_quality=True,
-        )
+        membership_only = getattr(args, "membership_only", False)
+        if membership_only:
+            cycles, correlation_quality = [], "unavailable"
+        else:
+            cycles, correlation_quality = correlated_cycles(
+                directory, set(), related_ids, cycle_cache, exact_session_id=session_id, with_quality=True,
+            )
         if getattr(args, "history_metrics", False):
             metrics = history_metrics.get(session_id, {})
             metrics["session_relation"] = "child" if parent_id else "primary"
@@ -5738,15 +6790,19 @@ def review_scan(args):
                           "cycles": cycles, "attention": attention,
                            "correlation_quality": correlation_quality,
                            "reviewed_status": "reviewed" if reviewed else "unreviewed",
-                           "review_session": bool(set(related_ids).intersection(
-                               improvement_sessions | review_markers))}
+                            "review_session": bool(set(related_ids).intersection(
+                                improvement_sessions | review_markers))}
+        if getattr(args, "bind_history", False):
+            candidate["_history_identity"] = history_identity(
+                cycles, directory, related_ids, project_digests.get(session_id, "unavailable"), identity_cache,
+            )
         if getattr(args, "history_metrics", False):
             metrics = history_metrics.get(session_id, {})
             candidate["_history_metrics"] = metrics
             candidate["telemetry"] = history_telemetry(candidate, metrics)
-            candidate["_history_identity"] = history_identity(
-                cycles, directory, related_ids, metrics.get("project_digest", "unavailable"), identity_cache,
-            )
+            if getattr(args, "bind_history", False):
+                candidate["_history_identity"]["project_digest"] = metrics.get(
+                    "project_digest", candidate["_history_identity"]["project_digest"])
         eligible.append(candidate)
     manifest = []
     for item in eligible:
@@ -5755,9 +6811,10 @@ def review_scan(args):
             value["history_identity"] = item.get("_history_identity", {})
             value["history_metrics"] = item.get("_history_metrics", {})
         manifest.append(value)
-    database_digest = hashlib.sha256(
-        (database_digest + "\0" + json.dumps(manifest, sort_keys=True, separators=(",", ":"))).encode()
-    ).hexdigest()
+    if source_index is None:
+        database_digest = hashlib.sha256(
+            (database_digest + "\0" + json.dumps(manifest, sort_keys=True, separators=(",", ":"))).encode()
+        ).hexdigest()
     if (continuation and args.database_digest != database_digest
             and not getattr(args, "allow_database_drift", False)):
         fail("OpenCode database changed within the review snapshot")
@@ -5791,10 +6848,11 @@ def review_scan(args):
                           "database_digest": database_digest, "exclusion_digest": exclusion_digest}
          if not getattr(args, "history_all", False) and len(eligible) > args.cursor + args.limit else None}
     result["_excluded_session_ids"] = sorted(excluded_sessions)
-    if getattr(args, "history_metrics", False):
+    if getattr(args, "history_metrics", False) or source_index is not None:
         result["_source_identities"] = {key: value.hexdigest() for key, value in source_identities.items()}
     encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if not getattr(args, "history_metrics", False) and len(encoded.encode()) > REVIEW_SCAN_HARD:
+    if (not getattr(args, "history_metrics", False) and not getattr(args, "capture_all", False)
+            and len(encoded.encode()) > REVIEW_SCAN_HARD):
         fail("review scan response exceeds bound")
     return result
 
@@ -5849,15 +6907,54 @@ def incident_signal_id(session_id, message_id, part_id, tool):
     return hashlib.sha256(f"{session_id}\0{message_id}\0{part_id}\0{tool}".encode()).hexdigest()[:24]
 
 
+def incident_normalize_token(value):
+    if not isinstance(value, str):
+        return None
+    value = re.sub(r"[ .\-/:]+", "_", value.strip(" \t\n\r\v\f").lower())
+    return value if re.fullmatch(r"[a-z0-9_]+", value) else None
+
+
+def incident_failure_class(state, status):
+    error = state.get("error") if isinstance(state, dict) else None
+    token = None
+    if isinstance(error, dict):
+        token = (incident_normalize_token(error.get("code")) if "code" in error
+                 else incident_normalize_token(error.get("name")))
+    mapping = {
+        "timeout": "timed_out", "timed_out": "timed_out", "timeout_error": "timed_out",
+        "cancelled": "cancelled", "canceled": "cancelled", "abort_error": "cancelled",
+        "permission_denied": "permission_denied", "eacces": "permission_denied",
+        "eperm": "permission_denied", "service_unavailable": "service_unavailable",
+        "unavailable": "service_unavailable", "invalid_output": "invalid_output",
+        "validation_error": "invalid_output",
+    }
+    normalized_status = incident_normalize_token(status)
+    return mapping.get(token, "tool_error" if normalized_status == "error" else
+                       "tool_failed" if normalized_status == "failed" else "unknown")
+
+
+def incident_summary_tool(value):
+    fixed = {"apply_patch", "bash", "glob", "grep", "question", "read", "skill", "task",
+             "todowrite", "webfetch"}
+    if value in fixed or isinstance(value, str) and re.fullmatch(
+            r"(?:dbsctr_|dks_|herdr_)[A-Za-z0-9._:/-]+", value) and len(value) <= 128:
+        return value
+    return "unknown"
+
+
 def incident_scan_data(args):
     session_id = getattr(args, "session_id", None)
     if session_id is not None and not OPAQUE_ID.fullmatch(session_id):
         fail("invalid incident session ID")
     scan = review_scan(argparse.Namespace(
         database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT, cursor=0,
-        snapshot=None, session_ceiling=None, part_ceiling=None, database_digest=None,
+        snapshot=None,
+        session_ceiling=getattr(args, "source_index", {}).get("validated_session_ceiling"),
+        part_ceiling=getattr(args, "source_index", {}).get("validated_part_ceiling"), database_digest=None,
         excluded_session_id=None, excluded_message_id=None, exclusion_digest=None,
-        history_metrics=True, history_all=True, include_reviewed=True, bind_history=False,
+        history_metrics=not getattr(args, "summary_only", False), history_all=True,
+        include_reviewed=True, bind_history=False,
+        source_index=getattr(args, "source_index", None), metric_session_ids=None,
         lock_held=False,
     ))
     candidate_ids = {item["session_id"] for item in scan["candidates"]}
@@ -5883,6 +6980,7 @@ def incident_scan_data(args):
         msession = sqlite_name(connection, message, ("sessionid",))
         pid = sqlite_name(connection, part, ("id",))
         pmessage = sqlite_name(connection, part, ("messageid",))
+        psession = sqlite_name(connection, part, ("sessionid", "session"))
         ptime = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
         pbody = sqlite_name(connection, part, ("data", "text", "content"))
         rows = []
@@ -5919,24 +7017,32 @@ def incident_scan_data(args):
         if "connection" in locals():
             connection.close()
     calls = []
+    strict = getattr(args, "summary_only", False)
     for source_session, message_id, part_id, timestamp, raw, recovered in rows:
         try:
             payload = json.loads(raw, object_pairs_hook=no_duplicate_keys)
         except (TypeError, json.JSONDecodeError, RuntimeError):
+            if strict:
+                fail("incident summary selected an invalid row")
             continue
         state = payload.get("state") if isinstance(payload, dict) else None
         if not isinstance(payload, dict) or payload.get("type") != "tool" or not isinstance(state, dict):
+            if strict:
+                fail("incident summary selected an invalid row")
             continue
         tool_name = payload.get("tool") or payload.get("name") or state.get("tool") or "unknown"
         if not isinstance(tool_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", tool_name):
             tool_name = "unknown"
         status = state.get("status")
         if not isinstance(status, str):
+            if strict:
+                fail("incident summary selected an invalid row")
             continue
         calls.append({"session_id": str(source_session), "message_id": str(message_id),
                       "part_id": str(part_id), "timestamp": int(timestamp),
                       "tool": tool_name, "status": status.lower(), "state": state,
-                      "recovered": bool(recovered)})
+                      "recovered": bool(recovered),
+                      "_failure_class": incident_failure_class(state, status)})
     incidents = []
     if ledger_exists(root):
         with ledger_connection(root) as ledger:
@@ -5969,6 +7075,7 @@ def incident_scan_data(args):
             "timestamp": item["timestamp"], "tool": item["tool"], "status": item["status"],
             "recovered": item["recovered"],
             "evidence": incident_redact(detail, 1024),
+            "_failure_class": item["_failure_class"],
         })
     signals.sort(key=lambda item: (item["recovered"], -item["timestamp"], item["signal_id"]))
     result = {"schema_version": 1, "incidents": incidents[:100], "signals": signals[:100],
@@ -5980,8 +7087,99 @@ def incident_scan_data(args):
     return result
 
 
+def incident_projection_summary(args, source_index):
+    scan = review_scan(argparse.Namespace(
+        database=args.database, state_root=args.state_root, limit=REVIEW_MAX_LIMIT, cursor=0,
+        snapshot=int(datetime.now(timezone.utc).timestamp() * 1000),
+        session_ceiling=source_index["validated_session_ceiling"],
+        part_ceiling=source_index["validated_part_ceiling"], database_digest=None,
+        excluded_session_id=None, excluded_message_id=None, exclusion_digest=None,
+        history_metrics=False, history_all=True, include_reviewed=True, bind_history=False,
+        source_index=source_index, metric_session_ids=None, membership_only=True,
+        capture_all=True, lock_held=False,
+    ))
+    session_id = getattr(args, "session_id", None)
+    candidate_ids = {item["session_id"] for item in scan["candidates"]}
+    scope = incident_scope(scan["candidates"], session_id) if session_id else candidate_ids
+    root = review_root(args.state_root)
+    dispositions, incident_count, incident_overflow = set(), 0, False
+    if ledger_exists(root):
+        with ledger_connection(root) as ledger:
+            if ledger.execute("SELECT value FROM ledger_meta WHERE key='incident_schema'").fetchone():
+                dispositions = {row[0] for row in ledger.execute(
+                    "SELECT signal_id FROM incident_signal_dispositions")}
+                if scope:
+                    placeholders = ",".join("?" for _ in scope)
+                    count = ledger.execute(
+                        f"SELECT count(*) FROM (SELECT 1 FROM incidents WHERE session_id IN ({placeholders}) "
+                        "LIMIT 101)", tuple(sorted(scope))).fetchone()[0]
+                else:
+                    count = 0
+                incident_count, incident_overflow = min(count, 100), count > 100
+    try:
+        index = open_history_source_index(root)
+        validate_history_source_index_schema(index)
+        chain = history_projection_chain(index, source_index["generation_id"])
+        chain_ids = [item["generation_id"] for item in chain]
+        if not scope:
+            failed, successes = [], {}
+        else:
+            generation_slots = ",".join("?" for _ in chain_ids)
+            session_slots = ",".join("?" for _ in scope)
+            values = (*chain_ids, *sorted(scope))
+            failed = index.execute(
+                f"SELECT session_id,part_time,part_rowid,tool_name,tool_key_digest,failure_class,"
+                f"disposition_digest FROM index_rows WHERE generation_id IN ({generation_slots}) "
+                f"AND session_id IN ({session_slots}) AND tool_state='failed'",
+                values).fetchall()
+            successes = {}
+            for projected_session, tool_key, projected_time in index.execute(
+                    f"SELECT session_id,tool_key_digest,max(part_time) FROM index_rows "
+                    f"WHERE generation_id IN ({generation_slots}) AND session_id IN ({session_slots}) "
+                    "AND tool_state='success' GROUP BY session_id,tool_key_digest", values):
+                successes[(projected_session, tool_key)] = projected_time
+    except (sqlite3.Error, RuntimeError) as error:
+        if isinstance(error, SourceIndexUnavailable):
+            raise
+        raise SourceIndexUnavailable("source_index_unavailable") from None
+    finally:
+        if "index" in locals():
+            index.close()
+    projected = []
+    for projected_session, timestamp, rowid, tool, tool_key, failure, disposition in failed:
+        if disposition in dispositions:
+            continue
+        recovered = successes.get((projected_session, tool_key), -1) > timestamp
+        projected.append((recovered, -timestamp, rowid, tool or "unknown", failure or "unknown"))
+    projected.sort()
+    visible = projected[:100]
+    groups = {}
+    for recovered, _, _, tool, failure in visible:
+        key = (incident_summary_tool(tool), failure, recovered)
+        groups[key] = groups.get(key, 0) + 1
+    return {
+        "schema_version": 1, "mode": "summary", "snapshot": scan["snapshot"],
+        "session_ceiling": scan["session_ceiling"], "part_ceiling": scan["part_ceiling"],
+        "database_digest": scan["database_digest"], "incident_count": incident_count,
+        "incident_overflow": incident_overflow, "signal_count": len(visible),
+        "signal_overflow": len(projected) > 100,
+        "groups": [{"tool": key[0], "failure_class": key[1], "recovered": key[2], "count": count}
+                   for key, count in sorted(groups.items(), key=lambda item: (-item[1], *item[0]))],
+    }
+
+
 def command_incident_scan(args):
-    print(json.dumps(incident_scan_data(args), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+    if not getattr(args, "summary_only", False):
+        result = incident_scan_data(args)
+        for signal in result["signals"]:
+            signal.pop("_failure_class", None)
+    else:
+        root = review_root(args.state_root)
+        require_review_lock_safe(root)
+        with existing_review_lock(root):
+            args.source_index = require_history_source_index(args)
+            result = incident_projection_summary(args, args.source_index)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
 def incident_session_parent(database, session_id, message_id):
@@ -6570,7 +7768,8 @@ def history_aggregates(candidate):
     created, activity = candidate.get("timestamp"), candidate.get("last_activity")
     elapsed = int(activity) - int(created) if str(created).isdigit() and str(activity).isdigit() else "unavailable"
     structural = candidate.get("_history_metrics") if isinstance(candidate.get("_history_metrics"), dict) else {}
-    return {"candidate_count": 1, "cycle_count": len(states), "child_count": len(candidate.get("child_session_ids", [])),
+    return {"candidate_count": 1, "cycle_count": len(states),
+            "child_count": structural.get("child_count", len(candidate.get("child_session_ids", []))),
             "elapsed_ms": elapsed if isinstance(elapsed, int) and elapsed >= 0 else "unavailable",
             "tool_count": structural.get("tool_count", "unavailable"),
             "tool_call_count": structural.get("tool_call_count", "unavailable"),
@@ -6606,7 +7805,9 @@ def validate_history_capture(value, members):
                "database_digest", "exclusion_digest", "page_size", "pages", "member_count",
                "members_digest", "aggregates"}
     transient = {"kind", "created_at"}
-    if (not isinstance(value, dict) or set(value) not in (allowed, allowed | transient)
+    private_index = {"source_generation"}
+    if (not isinstance(value, dict) or set(value) not in (
+            allowed, allowed | transient, allowed | private_index, allowed | transient | private_index)
             or value.get("schema_version") != 1
             or not isinstance(value.get("query"), dict)
             or set(value["query"]) != {"after", "before", "method_revision", "cycle_id", "state", "context",
@@ -6618,6 +7819,8 @@ def validate_history_capture(value, members):
             or bool(value["pages"]) != bool(value["member_count"])
             or not isinstance(value.get("aggregates"), dict)):
         fail("private history capture has an invalid schema")
+    if "source_generation" in value and not re.fullmatch(r"[0-9a-f]{32}", value["source_generation"]):
+        fail("private history capture has an invalid source generation")
     if transient.issubset(value) and (value["kind"] != "federated" or type(value["created_at"]) is not int
                                       or value["created_at"] < REVIEW_START_MS):
         fail("private history capture has an invalid retention identity")
@@ -6646,7 +7849,15 @@ def validate_history_capture(value, members):
     expected_cursor = 0
     total = 0
     for position, page in enumerate(value["pages"]):
-        if (not isinstance(page, dict) or set(page) != {"cursor", "limit", "count", "continuation", "digest"}
+        page_fields = {"cursor", "limit", "count", "continuation", "digest"}
+        if "source_digest" in page:
+            page_fields.add("source_digest")
+            history_digest(page["source_digest"], "capture page source digest")
+        if "source_scope" in page:
+            page_fields.add("source_scope")
+            if page["source_scope"] not in ("boundary", "full"):
+                fail("private history capture page source scope is invalid")
+        if (not isinstance(page, dict) or set(page) != page_fields
                 or type(page.get("cursor")) is not int or page["cursor"] != expected_cursor
                 or page.get("limit") != value["page_size"] or type(page.get("count")) is not int
                 or not 1 <= page["count"] <= page["limit"]):
@@ -6798,8 +8009,61 @@ def history_page_digest(records, source_identities, limit, cursor):
     return identity.hexdigest()
 
 
+def history_page_source_identities(database_value, session_ids, snapshot, part_ceiling, seeds):
+    if not session_ids:
+        return seeds
+    database = opencode_database(database_value)
+    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    try:
+        tables = {row[0].lower(): row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        message, part = tables["message"], tables["part"]
+        mid = sqlite_name(connection, message, ("id",))
+        msession = sqlite_name(connection, message, ("sessionid",))
+        message_columns = {row[1].lower().replace("_", ""): row[1]
+                           for row in connection.execute(f'PRAGMA table_info("{message}")')}
+        mbody = next((message_columns[name] for name in ("data", "text", "content")
+                      if name in message_columns), None)
+        mtime = next((message_columns[name] for name in ("timecreated", "createdat", "time", "timestamp")
+                      if name in message_columns), None)
+        mupdated = message_columns.get("timeupdated")
+        pmessage = sqlite_name(connection, part, ("messageid",))
+        psession = sqlite_name(connection, part, ("sessionid", "session"))
+        pbody = sqlite_name(connection, part, ("data", "text", "content"))
+        ptime = sqlite_name(connection, part, ("timecreated", "createdat", "time", "timestamp"))
+        part_columns = {row[1].lower().replace("_", ""): row[1]
+                        for row in connection.execute(f'PRAGMA table_info("{part}")')}
+        pupdated = part_columns.get("timeupdated")
+        placeholders = ",".join("?" for _ in session_ids)
+        digests = {session_id: hashlib.sha256(bytes.fromhex(seeds.get(session_id, "0" * 64)))
+                   for session_id in session_ids}
+        if mbody and mtime:
+            mutation = f'"{mupdated}"' if mupdated else f'"{mbody}"'
+            for session_id, message_id, timestamp, mutation_value in connection.execute(
+                    f'SELECT "{msession}","{mid}","{mtime}",{mutation} FROM "{message}" '
+                    f'WHERE "{msession}" IN ({placeholders}) AND "{mtime}"<=? ORDER BY "{msession}","{mid}"',
+                    (*sorted(session_ids), snapshot)):
+                digests[str(session_id)].update(hashlib.sha256(
+                    f"m\0{message_id}\0{timestamp}\0{mutation_value}".encode()).digest())
+        mutation = f'p."{pupdated}"' if pupdated else f'p."{pbody}"'
+        for session_id, part_id, timestamp, mutation_value in connection.execute(
+                f'SELECT p."{psession}",p.rowid,p."{ptime}",{mutation} FROM "{part}" p '
+                f'WHERE p."{psession}" IN ({placeholders}) AND p.rowid<=? AND p."{ptime}"<=? '
+                f'ORDER BY p."{psession}",p.rowid', (*sorted(session_ids), part_ceiling, snapshot)):
+            digests[str(session_id)].update(hashlib.sha256(
+                f"p\0{part_id}\0{timestamp}\0{mutation_value}".encode()).digest())
+        return {session_id: digest.hexdigest() for session_id, digest in digests.items()}
+    except (KeyError, sqlite3.Error) as error:
+        fail(f"cannot bind history page source: {error}")
+    finally:
+        connection.close()
+
+
 def history_identity(cycles, session_directory=None, session_ids=(), project_digest="unavailable", cache=None):
     """Use only unambiguous Cycle Record structure; never session prose or paths."""
+    if not cycles and not session_ids:
+        return {"method_revision": "unavailable", "context": "unavailable",
+                "project_digest": project_digest}
     cache_key = (str(session_directory or ""), tuple(item["cycle_id"] for item in cycles))
     if cache is not None and cache_key in cache:
         return {**cache[cache_key], "project_digest": project_digest}
@@ -6976,11 +8240,18 @@ def review_history_page(args, lock_held=False):
                 fail("review history replay intersects the excluded session family")
             records = report["evidence"]
         elif not args.archive_only:
+            aggregate_membership = getattr(args, "aggregate_membership", False)
             live = review_scan(argparse.Namespace(database=args.database, state_root=args.state_root,
                                limit=REVIEW_MAX_LIMIT, cursor=0, snapshot=args.snapshot,
                                session_ceiling=args.session_ceiling, part_ceiling=args.part_ceiling,
                                 database_digest=args.database_digest, lock_held=True,
-                                 include_reviewed=True, history_metrics=True, history_all=True, bind_history=True,
+                                 include_reviewed=True, history_metrics=not aggregate_membership,
+                                 history_all=True,
+                                 bind_history=not getattr(args, "membership_only", False),
+                                 source_index=getattr(args, "source_index", None),
+                                 metric_session_ids=getattr(args, "metric_session_ids", None),
+                                 membership_only=getattr(args, "membership_only", False),
+                                 capture_all=getattr(args, "capture_all", False),
                                   excluded_session_id=args.excluded_session_id,
                                   excluded_message_id=args.excluded_message_id,
                                   exclusion_digest=args.exclusion_digest))
@@ -7027,6 +8298,10 @@ def review_history_page(args, lock_held=False):
         records = sorted((record for record in records if include(record)),
                          key=lambda item: (int(item["completed_at"]), item["session_id"]), reverse=True)
         page = records[args.cursor:args.cursor + args.limit]
+        if getattr(args, "source_index", None) is not None and not args.replay and not args.archive_only:
+            identity_cursor = getattr(args, "source_identity_cursor", args.cursor)
+            boundary_source_digest = history_page_digest(
+                page, live.get("_source_identities", {}), args.limit, identity_cursor)
         empty_archive = {"snapshot": 0, "session_ceiling": 0, "part_ceiling": 0,
                          "database_digest": hashlib.sha256(b"").hexdigest(), "exclusion_digest": None}
         metadata = ({} if args.replay else live if not args.archive_only else
@@ -7042,6 +8317,10 @@ def review_history_page(args, lock_held=False):
             history_page_digest(page, live.get("_source_identities", {}) if not args.archive_only and not args.replay else {},
                                 args.limit, args.cursor),
         )
+        if getattr(args, "metric_session_ids", None) is not None:
+            result["_boundary_source_digest"] = boundary_source_digest
+            result["_page_source_digest"] = history_page_digest(
+                page, live.get("_source_identities", {}), args.limit, identity_cursor)
         for name in ("snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"):
             supplied = getattr(args, name)
             if args.replay and supplied is not None:
@@ -7052,8 +8331,12 @@ def review_history_page(args, lock_held=False):
             result["_capture_records"] = records
             result["_capture_source_identities"] = (
                 live.get("_source_identities", {}) if not args.archive_only and not args.replay else {})
+            if getattr(args, "source_index", None) is not None:
+                result["_source_generation"] = args.source_index["generation_id"]
+                result["_full_source_sessions"] = [item["session_id"] for item in page]
             return result
-    encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    encoded = json.dumps({key: value for key, value in result.items() if not key.startswith("_")},
+                         sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode()) > HISTORY_SCAN_HARD:
         fail("review history response exceeds bound")
     return result
@@ -7081,6 +8364,147 @@ def history_capture_review_page(manifest, members, limit, cursor):
     if len(json.dumps(result, sort_keys=True, separators=(",", ":")).encode()) > HISTORY_SCAN_HARD:
         fail("review history response exceeds bound")
     return result
+
+
+def history_metric(values, selected_count):
+    available = sorted(value for value in values if type(value) is int and value >= 0)
+    if not available:
+        summary = {"mean": "unavailable", "p50": "unavailable", "p90": "unavailable"}
+    else:
+        rank = lambda percentile: available[min(len(available) - 1, math.ceil(percentile * len(available)) - 1)]
+        summary = {"mean": sum(available) // len(available), "p50": rank(.5), "p90": rank(.9)}
+    return {"available_count": len(available), "unavailable_count": selected_count - len(available), **summary}
+
+
+def history_aggregate_page(manifest, members, limit, cursor, source_digest):
+    if limit != manifest["page_size"] or cursor < 0 or cursor % limit:
+        fail("review history capture page identity changed")
+    page = members[cursor:cursor + limit]
+    continuation = cursor + limit if len(members) > cursor + limit else None
+    selected_count = len(page)
+    relation = [item.get("telemetry", {}).get("session_relation", "unavailable") for item in page]
+    review = [("review" if item.get("review_session") is True else "non_review"
+               if item.get("review_session") is False else "unavailable") for item in page]
+    telemetry = [item.get("telemetry") for item in page]
+    correlation = [item.get("correlation_quality", "unavailable") for item in page]
+    cycles = [cycle for item in page for cycle in item.get("cycles", [])]
+    metric_sources = {
+        "elapsed_ms": [item.get("aggregates", {}).get("elapsed_ms") for item in page],
+        "tokens": [item.get("telemetry", {}).get("token_total") for item in page],
+        "tool_calls": [item.get("aggregates", {}).get("tool_call_count") for item in page],
+        "tool_errors": [item.get("aggregates", {}).get("tool_error_count") for item in page],
+        "child_sessions": [item.get("aggregates", {}).get("child_count") for item in page],
+        "delegations": [item.get("telemetry", {}).get("delegation_count") for item in page],
+    }
+
+    def distribution(name):
+        counts = {}
+        for item in page:
+            values = item.get("telemetry", {}).get(name, "unavailable")
+            if isinstance(values, list):
+                for value in set(values):
+                    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", value):
+                        counts[value] = counts.get(value, 0) + 1
+        return [{"value": value, "count": count}
+                for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:100]]
+
+    private_identity = {"mode": "aggregate-v1", "capture_id": manifest["capture_id"],
+                        "snapshot": manifest["snapshot"], "session_ceiling": manifest["session_ceiling"],
+                        "part_ceiling": manifest["part_ceiling"], "database_digest": manifest["database_digest"],
+                        "exclusion_digest": manifest["exclusion_digest"], "query": manifest["query"],
+                        "limit": limit, "cursor": cursor,
+                        "session_ids": [item["session_id"] for item in page],
+                        "source_digest": source_digest}
+    query = manifest["query"]
+    return {
+        "schema_version": 1, "mode": "aggregate", "capture_id": manifest["capture_id"],
+        "snapshot": manifest["snapshot"], "session_ceiling": manifest["session_ceiling"],
+        "part_ceiling": manifest["part_ceiling"], "database_digest": manifest["database_digest"],
+        "exclusion_digest": manifest["exclusion_digest"],
+        "query": {"after": query["after"], "before": query["before"],
+                  "method_revision": query["method_revision"],
+                  "cycle_filter_applied": query["cycle_id"] is not None, "state": query["state"],
+                  "context": query["context"], "project_digest": query["project_digest"],
+                  "reviewed_status": query["reviewed_status"], "archive_only": query["archive_only"]},
+        "limit": limit, "cursor": cursor, "selected_count": selected_count,
+        "continuation": continuation,
+        "digest": hashlib.sha256(ledger_payload(private_identity).encode()).hexdigest(),
+        "cohort": {
+            "sessions": {
+                "relation": {name: relation.count(name) for name in ("primary", "child", "unavailable")},
+                "review": {name: review.count(name) for name in ("review", "non_review", "unavailable")},
+                "telemetry_available": sum(isinstance(item, dict) for item in telemetry),
+                "telemetry_unavailable": sum(not isinstance(item, dict) for item in telemetry),
+            },
+            "correlation_quality": {name: correlation.count(name) for name in (
+                "exact", "family", "worktree", "source", "ambiguous", "unavailable")},
+            "cycle_states": {name: sum(cycle.get("state") == name for cycle in cycles) for name in (
+                "active", "blocked", "abandoned", "completed", "unknown")},
+        },
+        "metrics": {name: history_metric(values, selected_count) for name, values in metric_sources.items()},
+        "distributions": {"agents": distribution("agent_ids"), "models": distribution("model_ids")},
+    }
+
+
+def bind_history_capture_page_source(root, capture_id, cursor, digest):
+    connection = ensure_ledger_for_write(root)
+    try:
+        ensure_capture_schema(connection)
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT digest FROM history_capture_page_sources WHERE capture_id=? AND cursor=?",
+            (capture_id, cursor)).fetchone()
+        if row is None:
+            connection.execute("INSERT INTO history_capture_page_sources VALUES (?,?,?)",
+                               (capture_id, cursor, digest))
+        elif row[0] != digest:
+            fail("review history capture source changed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def aggregate_history_records(args, manifest, members, source_index, lock_held=True):
+    expected = members[args.cursor:args.cursor + args.limit]
+    wanted = {item["session_id"] for item in expected}
+    if not expected:
+        return members, hashlib.sha256(b"").hexdigest()
+    query = manifest["query"]
+    page_args = argparse.Namespace(
+        database=args.database, state_root=args.state_root, archive_only=False,
+        limit=args.limit, cursor=0, after=query["after"], before=query["before"],
+        method_revision=query["method_revision"], cycle_id=query["cycle_id"], state=query["state"],
+        context=query["context"], project_digest=query["project_digest"],
+        reviewed_status=query["reviewed_status"], replay=None, snapshot=manifest["snapshot"],
+        session_ceiling=manifest["session_ceiling"], part_ceiling=manifest["part_ceiling"],
+        database_digest=manifest["database_digest"], exclusion_digest=manifest["exclusion_digest"],
+        excluded_session_id=None, excluded_message_id=None, capture_all=False,
+        aggregate_membership=False, source_index=source_index, metric_session_ids=wanted,
+        source_identity_cursor=args.cursor,
+    )
+    enriched_page = review_history_page(page_args, lock_held=lock_held)
+    stored_page = next((item for item in manifest["pages"] if item["cursor"] == args.cursor), None)
+    aggregate_source_digest = enriched_page.pop("_page_source_digest", None)
+    boundary_source_digest = enriched_page.pop("_boundary_source_digest", None)
+    if stored_page is None:
+        fail("review history capture source changed")
+    if stored_page.get("source_scope") == "full":
+        if stored_page.get("source_digest") != aggregate_source_digest:
+                fail("review history capture source changed")
+    else:
+        if stored_page.get("source_digest") != boundary_source_digest:
+                fail("review history capture source changed")
+        bind_history_capture_page_source(review_root(args.state_root), manifest["capture_id"],
+                                         args.cursor, aggregate_source_digest)
+    enriched = enriched_page["candidates"]
+    if [item["session_id"] for item in enriched] != [item["session_id"] for item in expected]:
+        fail("review history capture population changed")
+    result = list(members)
+    result[args.cursor:args.cursor + len(enriched)] = enriched
+    return result, aggregate_source_digest
 
 
 def capture_history_args(args):
@@ -7124,6 +8548,8 @@ def prune_federated_captures(connection, now):
 def persist_history_capture(root, source, page_size, allow_empty=False, transient=False):
     members = [validate_history_evidence(item) for item in source.pop("_capture_records")]
     source_identities = source.pop("_capture_source_identities")
+    source_generation = source.pop("_source_generation", None)
+    full_source_sessions = set(source.pop("_full_source_sessions", []))
     if not members and not allow_empty:
         fail("history capture query selected no evidence")
     identity = {name: source[name] for name in (
@@ -7134,6 +8560,9 @@ def persist_history_capture(root, source, page_size, allow_empty=False, transien
         continuation = cursor + page_size if len(members) > cursor + page_size else None
         pages.append({"cursor": cursor, "limit": page_size, "count": len(records),
                       "continuation": continuation,
+                      "source_scope": "full" if {item["session_id"] for item in records} <= full_source_sessions
+                      else "boundary",
+                      "source_digest": history_page_digest(records, source_identities, page_size, cursor),
                       "digest": review_digest(
                           records, identity["snapshot"], identity["session_ceiling"], identity["part_ceiling"],
                           history_page_digest(records, source_identities, page_size, cursor))})
@@ -7141,6 +8570,8 @@ def persist_history_capture(root, source, page_size, allow_empty=False, transien
                 "pages": pages, "member_count": len(members),
                 "members_digest": hashlib.sha256(ledger_payload(members).encode()).hexdigest(),
                 "aggregates": history_capture_aggregates(members)}
+    if source_generation is not None:
+        manifest["source_generation"] = source_generation
     if transient:
         manifest.update({"kind": "federated", "created_at": max(REVIEW_START_MS, int(time.time() * 1000))})
     manifest["capture_id"] = hashlib.sha256(ledger_payload(manifest).encode()).hexdigest()[:24]
@@ -7172,7 +8603,51 @@ def persist_history_capture(root, source, page_size, allow_empty=False, transien
 
 def command_review_history(args):
     root = review_root(args.state_root)
-    if args.capture:
+    aggregate_only = getattr(args, "aggregate_only", False)
+    if aggregate_only:
+        if args.capture or args.replay or args.archive_only:
+            fail("aggregate history requires a live immutable capture")
+        if args.capture_id:
+            changed = any(getattr(args, name) is not None for name in (
+                "after", "before", "method_revision", "cycle_id", "state", "context", "project_digest",
+                "reviewed_status", "snapshot", "session_ceiling", "part_ceiling", "database_digest",
+                "excluded_session_id", "excluded_message_id", "exclusion_digest"))
+            if changed:
+                fail("review history capture query cannot change")
+            require_review_lock_safe(root)
+            with review_lock(root) as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                with ledger_connection(root) as connection:
+                    manifest, members = load_history_capture(connection, args.capture_id)
+                if "source_generation" not in manifest:
+                    raise SourceIndexUnavailable("source_index_unavailable")
+                source_index = require_history_source_index(
+                    args, manifest["part_ceiling"], manifest.get("source_generation"),
+                    manifest["session_ceiling"])
+                members, source_digest = aggregate_history_records(args, manifest, members, source_index)
+        else:
+            if any(getattr(args, name) is not None for name in (
+                    "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest")):
+                fail("aggregate history creates its own immutable snapshot")
+            with review_lock(root) as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                source_index = require_history_source_index(args)
+                membership_only = not any(getattr(args, name) is not None for name in (
+                    "method_revision", "cycle_id", "state", "context", "project_digest"))
+                capture_args = argparse.Namespace(**{
+                    **vars(args), "aggregate_only": False, "capture": False, "capture_all": True,
+                    "aggregate_membership": True, "membership_only": membership_only,
+                    "source_index": source_index,
+                    "session_ceiling": source_index["validated_session_ceiling"],
+                    "part_ceiling": source_index["validated_part_ceiling"],
+                    "metric_session_ids": None,
+                })
+                source = review_history_page(capture_args, lock_held=True)
+                manifest, members = persist_history_capture(
+                    root, source, args.limit, allow_empty=True, transient=True)
+                members, source_digest = aggregate_history_records(args, manifest, members, source_index)
+        result = history_aggregate_page(manifest, members, args.limit, args.cursor, source_digest)
+    elif args.capture:
         if (args.capture_id or args.replay or any(getattr(args, name) is not None for name in (
                 "snapshot", "session_ceiling", "part_ceiling", "database_digest", "exclusion_digest"))):
             fail("review history accepts only one capture identity")
@@ -8500,7 +9975,9 @@ def command_review_migrate(args):
             with ledger_connection(root, write=True) as connection:
                 recover_forget_state(root, connection)
                 ledger_integrity(connection)
-                digest = content_digest(ledger_content(connection))
+                migration = connection.execute(
+                    "SELECT value FROM ledger_meta WHERE key='migration_digest'").fetchone()
+                digest = migration[0] if migration else content_digest(ledger_content(connection))
             print(json.dumps({"migrated": False, "digest": digest}, sort_keys=True))
             return
         legacy_json_files(root)
@@ -8545,6 +10022,7 @@ def command_review_migrate(args):
             connection.close()
             os.replace(temporary, ledger_path(root))
             os.chmod(ledger_path(root), 0o600)
+            history_source_index_path(root).unlink(missing_ok=True)
             fsync_directory(directory)
         except Exception:
             if "connection" in locals():
@@ -8696,6 +10174,7 @@ def command_review_restore(args):
                 ledger_integrity(check)
             os.replace(temporary, ledger_path(root))
             os.chmod(ledger_path(root), 0o600)
+            history_source_index_path(root).unlink(missing_ok=True)
             fsync_directory(directory)
         finally:
             temporary.unlink(missing_ok=True)
@@ -9423,6 +10902,13 @@ def command_review_forget(args):
     root = review_root(args.state_root)
     if not OPAQUE_ID.fullmatch(args.session_id):
         fail("invalid review forget ID")
+    database = opencode_database(args.database)
+    if not database.is_file() and history_source_index_path(root).exists():
+        fail("review forget requires source family authority")
+    forgotten_family = (historical_excluded_family(args.database, args.session_id)
+                        if database.is_file() else {args.session_id})
+    placeholders = ",".join("?" for _ in forgotten_family)
+    family_values = tuple(sorted(forgotten_family))
     require_review_lock_safe(root)
     with review_lock(root) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -9430,28 +10916,31 @@ def command_review_forget(args):
         history_evidence(root)
         reports = history_reports(root)
         cohorts = history_cohorts(root)
-        dependent = {item["report_id"] for item in reports + cohorts if args.session_id in item["cohort"]}
+        dependent = {item["report_id"] for item in reports + cohorts
+                     if set(item["cohort"]).intersection(forgotten_family)}
         capture_dependent = ([row[0] for row in connection.execute(
-            "SELECT capture_id FROM history_capture_members WHERE session_id=?", (args.session_id,))]
+            f"SELECT DISTINCT capture_id FROM history_capture_members WHERE session_id IN ({placeholders})",
+            family_values)]
             if connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_capture_members'").fetchone() else [])
         value = review_index(root)
         session_times = [timestamp for _, report, timestamp in review_reports(root)
-                         if args.session_id in report["session_ids"]]
-        session_times.append(value["sessions"].get(args.session_id, 0))
+                         if set(report["session_ids"]).intersection(forgotten_family)]
+        session_times.extend(value["sessions"].get(session_id, 0) for session_id in forgotten_family)
         incident_ids = [row[0] for row in connection.execute(
-            "SELECT incident_id FROM incidents WHERE session_id=?", (args.session_id,))]
+            f"SELECT incident_id FROM incidents WHERE session_id IN ({placeholders})", family_values)]
         incident_signals = [row[0] for row in connection.execute(
             "SELECT signal_id FROM incident_signal_dispositions WHERE incident_id IN "
-            "(SELECT incident_id FROM incidents WHERE session_id=?)", (args.session_id,))]
-        removed = args.session_id in reviewed_ids_unlocked(root)[0] or bool(incident_ids)
+            f"(SELECT incident_id FROM incidents WHERE session_id IN ({placeholders}))", family_values)]
+        removed = bool(forgotten_family.intersection(reviewed_ids_unlocked(root)[0])) or bool(incident_ids)
         forgotten_at = max(int(datetime.now(timezone.utc).timestamp() * 1000), max(session_times) + 1)
         staged = None
         quarantine_name = f".forget-{uuid.uuid4().hex}"
         try:
             connection.execute("BEGIN IMMEDIATE")
             prune_review_reports(root, connection=connection)
-            connection.execute("DELETE FROM history_evidence WHERE session_id=?", (args.session_id,))
+            connection.executemany("DELETE FROM history_evidence WHERE session_id=?",
+                                   ((session_id,) for session_id in forgotten_family))
             for report_id in dependent:
                 connection.execute("DELETE FROM ledger_entries WHERE scope='history' AND report_id=?", (report_id,))
                 connection.execute("DELETE FROM history_reports WHERE report_id=?", (report_id,))
@@ -9462,16 +10951,17 @@ def command_review_forget(args):
             if incident_ids:
                 connection.execute(
                     "UPDATE incident_signal_dispositions SET incident_id=NULL,disposition='forgotten',timestamp=? "
-                    "WHERE incident_id IN (SELECT incident_id FROM incidents WHERE session_id=?)",
-                    (forgotten_at, args.session_id))
-                connection.execute("DELETE FROM incidents WHERE session_id=?", (args.session_id,))
-            connection.execute(
+                    f"WHERE incident_id IN (SELECT incident_id FROM incidents WHERE session_id IN ({placeholders}))",
+                    (forgotten_at, *family_values))
+                connection.execute(f"DELETE FROM incidents WHERE session_id IN ({placeholders})", family_values)
+            connection.executemany(
                 "INSERT INTO review_tombstones VALUES ('forgotten_session', ?, ?) "
                 "ON CONFLICT(kind, item_id) DO UPDATE SET timestamp=max(timestamp, excluded.timestamp)",
-                (args.session_id, forgotten_at),
+                ((session_id, forgotten_at) for session_id in forgotten_family),
             )
-            record_knowledge_privacy_tombstone(
-                connection, "telemetry", args.session_id, "forgotten", forgotten_at)
+            for session_id in forgotten_family:
+                record_knowledge_privacy_tombstone(
+                    connection, "telemetry", session_id, "forgotten", forgotten_at)
             for report_id in dependent:
                 record_knowledge_privacy_tombstone(
                     connection, "history_report", report_id, "forgotten", forgotten_at)
@@ -9488,6 +10978,12 @@ def command_review_forget(args):
                                (quarantine_name,))
             staged = stage_pre_forget_state(root, quarantine_name)
             connection.commit()
+            index_path = history_source_index_path(root)
+            if index_path.exists() or index_path.is_symlink():
+                if index_path.is_symlink() or not index_path.is_file():
+                    fail("history source index is unsafe")
+                index_path.unlink()
+                fsync_directory(index_path.parent)
         except Exception:
             connection.rollback()
             if staged is not None:
@@ -11625,6 +13121,7 @@ def parser():
     incident_scan.add_argument("--database")
     incident_scan.add_argument("--state-root")
     incident_scan.add_argument("--session-id")
+    incident_scan.add_argument("--summary-only", action="store_true")
     incident_scan.set_defaults(func=command_incident_scan)
     incident_register = commands.add_parser("incident-register")
     incident_register.add_argument("--database")
@@ -11678,7 +13175,12 @@ def parser():
     review_history.add_argument("--exclusion-digest")
     review_history.add_argument("--capture", action="store_true")
     review_history.add_argument("--capture-id")
+    review_history.add_argument("--aggregate-only", action="store_true")
     review_history.set_defaults(func=command_review_history)
+    history_source_index = commands.add_parser("history-source-index-maintain")
+    history_source_index.add_argument("--database")
+    history_source_index.add_argument("--state-root")
+    history_source_index.set_defaults(func=command_history_source_index_maintain)
     capture_save = commands.add_parser("history-capture-save")
     capture_save.add_argument("--database")
     capture_save.add_argument("--state-root")
@@ -11802,6 +13304,7 @@ def parser():
     review_prune.add_argument("--state-root")
     review_prune.set_defaults(func=command_review_prune)
     review_forget = commands.add_parser("review-forget")
+    review_forget.add_argument("--database")
     review_forget.add_argument("--state-root")
     review_forget.add_argument("--session-id", required=True)
     review_forget.set_defaults(func=command_review_forget)
@@ -11997,6 +13500,9 @@ def main():
     try:
         args = parser().parse_args()
         args.func(args)
+    except SourceIndexUnavailable:
+        print("source_index_unavailable", file=sys.stderr)
+        return 75
     except (RuntimeError, OSError, json.JSONDecodeError, sqlite3.Error) as error:
         print(f"dbsctrctl: {error}", file=sys.stderr)
         return 1

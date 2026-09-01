@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-08-31 - History And Incident Projection V2
+
+- Delivered body-free full and immutable append-delta projection generations for
+  History membership, source-heavy metrics, safe model/tool categories, and
+  Incident failure/recovery classification. Detailed modes and public aggregate
+  and summary schemas remain unchanged.
+- Added bounded phased maintenance, capture-bound ancestor retention, depth-15
+  compaction, privacy invalidation, source verification, schema-v1 rebuild,
+  partial tool/failure indexes, and process-local unchanged-ledger integrity
+  receipts. The deployed representative sidecar is 120 MiB.
+- Affected QA passed 186 helper tests, one expected skip, 21 subtests, and 80
+  lifecycle/control-plane tests. Five post-warmup runs measured aggregate p95 at
+  6.40 seconds and Incident summary p95 at 2.64 seconds. Gate Exceptions: none.
+  Release: not applicable. Deployment: managed helper and OpenCode adapters.
+  Intended Final Push: feature branch and draft pull request into protected
+  `main`.
+
 ## 2026-08-31 - Projection V2 Message Authority Correction
 
 - Reopened projection-v2 implementation before its first Gate Commit because the

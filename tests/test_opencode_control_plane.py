@@ -599,6 +599,8 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert "Only use as /dbsctr-improve's final approved step" in tools
     assert 'export const history_capture = tool({' in tools
     assert 'export const history_telemetry = tool({' in tools
+    assert tools.count("aggregateOnly: tool.schema.boolean().optional().default(false)") == 2
+    assert "summaryOnly: tool.schema.boolean().optional().default(false)" in tools
     assert 'export const benchmark = tool({' in tools
     assert 'export const improvement_status = tool({' in tools
     assert 'export const improvement_claim = tool({' in tools
@@ -1133,6 +1135,43 @@ def test_compact_analytics_adapters_bound_validate_and_preserve_argv(tmp_path):
         "CALL", "<benchmark>", "<--benchmark-id>", f"<{benchmark_id}>",
     ]
 
+    metric = {"available_count": 0, "unavailable_count": 0,
+              "mean": "unavailable", "p50": "unavailable", "p90": "unavailable"}
+    aggregate = {
+        "schema_version": 1, "mode": "aggregate", "capture_id": "c" * 24,
+        "snapshot": 1, "session_ceiling": 1, "part_ceiling": 1, "database_digest": "d" * 64,
+        "exclusion_digest": None, "query": {"after": None, "before": None, "method_revision": None,
+        "cycle_filter_applied": False, "state": None, "context": None, "project_digest": None,
+        "reviewed_status": None, "archive_only": False}, "limit": 7, "cursor": 2,
+        "selected_count": 0, "continuation": None, "digest": "e" * 64,
+        "cohort": {"sessions": {"relation": {"primary": 0, "child": 0, "unavailable": 0},
+                                    "review": {"review": 0, "non_review": 0, "unavailable": 0},
+                                    "telemetry_available": 0, "telemetry_unavailable": 0},
+                   "correlation_quality": {name: 0 for name in (
+                       "exact", "family", "worktree", "source", "ambiguous", "unavailable")},
+                   "cycle_states": {name: 0 for name in (
+                       "active", "blocked", "abandoned", "completed", "unknown")}},
+        "metrics": {name: metric for name in (
+            "elapsed_ms", "tokens", "tool_calls", "tool_errors", "child_sessions", "delegations")},
+        "distributions": {"agents": [], "models": []},
+    }
+    aggregate_script = (
+        f'import {{ historyTelemetry }} from {json.dumps(str(runtime))};'
+        'console.log(await historyTelemetry({limit:7,cursor:2,aggregateOnly:true},process.cwd()));'
+    )
+    aggregate_result = subprocess.run(
+        ["bun", "-e", aggregate_script], cwd=ROOT,
+        env={**env, "TELEMETRY_JSON": json.dumps(aggregate)}, text=True, capture_output=True, check=True,
+    )
+    assert json.loads(aggregate_result.stdout) == aggregate
+    invalid_aggregate = {**aggregate, "cohort": {**aggregate["cohort"], "unexpected": 1}}
+    rejected_aggregate = subprocess.run(
+        ["bun", "-e", aggregate_script], cwd=ROOT,
+        env={**env, "TELEMETRY_JSON": json.dumps(invalid_aggregate)}, text=True, capture_output=True,
+    )
+    assert rejected_aggregate.returncode != 0
+    assert "invalid aggregate telemetry" in rejected_aggregate.stderr
+
     malformed = subprocess.run(
         ["bun", "-e", f'import {{ benchmarkResult }} from {json.dumps(str(runtime))};'
          f'await benchmarkResult({json.dumps(benchmark_id)},process.cwd());'],
@@ -1261,23 +1300,29 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
     bin_dir.mkdir()
     log = tmp_path / "incident.log"
     helper = bin_dir / "dbsctrctl"
-    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\nprintf "{}\\n"\n')
+    helper.write_text('#!/bin/sh\nprintf "CALL\\n" >> "$INCIDENT_LOG"\nprintf "<%s>\\n" "$@" >> "$INCIDENT_LOG"\n'
+                      '[ "$1" = incident-scan ] && printf "%s\\n" "$INCIDENT_SCAN_JSON" || printf "{}\\n"\n')
     helper.chmod(0o755)
     runtime = OC / "lib/dbsctr-runtime.ts"
     script = (
         f'import {{ incidentScan, incidentRegister, incidentUpdate, incidentForget }} from {json.dumps(str(runtime))};'
-        'await incidentScan(process.cwd(),"fork-1");'
+        'await incidentScan(process.cwd(),"fork-1",true);'
         'await incidentRegister({sessionID:"fork-1",messageID:"message-1",kind:"defect",'
         'title:"INCIDENT: failed read",summary:"literal; no shell",signalIDs:["a".repeat(24)],'
         'diagnostics:["expected input"],evidence:["/tmp/input"]},process.cwd());'
         'await incidentUpdate("fork-1","message-1","b".repeat(24),"fixing",process.cwd(),"cycle-1");'
         'await incidentForget("fork-1","message-1","b".repeat(24),process.cwd());'
     )
+    incident_summary = {"schema_version": 1, "mode": "summary", "snapshot": 1,
+                        "session_ceiling": 1, "part_ceiling": 1, "database_digest": "a" * 64,
+                        "incident_count": 0, "incident_overflow": False, "signal_count": 0,
+                        "signal_overflow": False, "groups": []}
     subprocess.run(["bun", "-e", script], cwd=ROOT,
-                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log)},
+                   env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log),
+                        "INCIDENT_SCAN_JSON": json.dumps(incident_summary)},
                    text=True, capture_output=True, check=True)
     assert log.read_text().splitlines() == [
-        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>",
+        "CALL", "<incident-scan>", "<--session-id>", "<fork-1>", "<--summary-only>",
         "CALL", "<incident-register>", "<--session-id>", "<fork-1>",
         "<--message-id>", "<message-1>", "<--kind>", "<defect>",
         "<--title>", "<INCIDENT: failed read>", "<--summary>", "<literal; no shell>",
@@ -1289,6 +1334,18 @@ def test_dbsctr_incident_runtime_preserves_literal_argv(tmp_path):
         "CALL", "<incident-forget>", "<--session-id>", "<fork-1>", "<--message-id>", "<message-1>",
         "<--incident-id>", f'<{"b" * 24}>',
     ]
+    invalid_summary = {**incident_summary, "groups": [{
+        "tool": "read", "failure_class": "tool_failed", "recovered": False, "count": 1,
+        "unexpected": "private",
+    }], "signal_count": 1}
+    rejected = subprocess.run(
+        ["bun", "-e", f'import {{ incidentScan }} from {json.dumps(str(runtime))};'
+         'await incidentScan(process.cwd(),undefined,true);'], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "INCIDENT_LOG": str(log),
+             "INCIDENT_SCAN_JSON": json.dumps(invalid_summary)}, text=True, capture_output=True,
+    )
+    assert rejected.returncode != 0
+    assert "invalid incident summary" in rejected.stderr
 
 
 def test_dbsctr_review_adapters_pass_excluded_session_id(tmp_path):

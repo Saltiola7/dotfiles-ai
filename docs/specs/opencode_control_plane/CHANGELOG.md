@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## 2026-08-31 - History Projection Adapters
+
+- Exposed aggregate History and Incident summary modes through closed, bounded
+  OpenCode adapters while keeping detailed mode compatibility and private
+  identities outside returned summaries.
+- Deployed the managed runtime and tool adapters with the lifecycle projection-v2
+  helper. Focused control-plane tests and live aggregate/summary operations passed.
+
 ## 2026-08-31 - Same-Session Initiative Build
 
 - Restricted `dbsctr_initiative_launch` and its Herdr child creation to Discovery
