@@ -23,4 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
+      - name: Prepare source identity
+        run: |
+          if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git init -q
+            git config user.name CI
+            git config user.email ci@example.invalid
+            git add -A
+            git commit -q -m baseline
+          fi
       - run: tests/remote_user_environment_smoke.sh
