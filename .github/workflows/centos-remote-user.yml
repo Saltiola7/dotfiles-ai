@@ -23,14 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
-      - name: Prepare source identity
+      - name: Run smoke
         run: |
-          unset GIT_DIR GIT_WORK_TREE
-          if ! git -C "$GITHUB_WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            git -C "$GITHUB_WORKSPACE" init -q
-            git -C "$GITHUB_WORKSPACE" config user.name CI
-            git -C "$GITHUB_WORKSPACE" config user.email ci@example.invalid
-            git -C "$GITHUB_WORKSPACE" add -A
-            git -C "$GITHUB_WORKSPACE" commit -q -m baseline
-          fi
-      - run: tests/remote_user_environment_smoke.sh
+          git init --bare -q /tmp/dotfiles-ai-ci.git
+          export GIT_DIR=/tmp/dotfiles-ai-ci.git
+          export GIT_WORK_TREE="$PWD"
+          git config user.name CI
+          git config user.email ci@example.invalid
+          git add -A
+          git commit -q -m baseline
+          git remote add origin https://github.com/Saltiola7/dotfiles-ai.git
+          tests/remote_user_environment_smoke.sh
