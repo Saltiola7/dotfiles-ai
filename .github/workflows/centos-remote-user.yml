@@ -25,9 +25,12 @@ jobs:
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
       - name: Run smoke
         run: |
-          git init --bare -q /tmp/dotfiles-ai-ci.git
-          export GIT_DIR=/tmp/dotfiles-ai-ci.git
-          export GIT_WORK_TREE="$PWD"
+          source=/home/you/.local/share/chezmoi-dotfiles-ai
+          install -d -m 0700 /home/you
+          install -d -m 0755 "$source"
+          tar --exclude=.git -cf - . | tar -xf - -C "$source"
+          cd "$source"
+          git init -q
           git config user.name CI
           git config user.email ci@example.invalid
           git add -A
