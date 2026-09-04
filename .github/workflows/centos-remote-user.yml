@@ -25,6 +25,7 @@ jobs:
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
       - name: Run smoke
         run: |
+          unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
           source=/home/you/.local/share/chezmoi-dotfiles-ai
           install -d -m 0700 /home/you
           install -d -m 0755 "$source"
