@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-01 - Portable Rollout Runtime
+
+- Added an owner- and symlink-safe bootstrap for one full public revision,
+  checksum-pinned user-local chezmoi, structural foundation validation, and
+  content-free `auth_pending`, `ready`, and `failed_retryable` refreshes without
+  starting authentication.
+- Required a usable configured root `mise.toml` before client mutation and proved
+  repository-bound `mise run remote-dev -- iap` forwarding from another working
+  directory. CentOS receives a regular gcloud launcher while existing Fedora
+  symlink behavior remains unchanged.
+- Affected validation passed 46 tests; CI-equivalent full validation passed 681
+  tests, one expected skip, and 21 subtests. Shell/Python syntax, Git diff hygiene,
+  and a disposable CentOS Stream 10 x86_64 bootstrap, retry, empty reapply,
+  `auth_pending`, simulated `ready`, integrity failure, update, and rollback passed.
+  Authentication, sessions, and history survived rollback; no live login, shared
+  VM, cloud runtime, private endpoint, personal source, or production home was
+  accessed. The named disposable Podman machine was removed.
+- Gate Commits: `042cf96`, `d6388fe`, `b3ca452`, `86b81fd`, `c4052d3`, and
+  `247982e`. Gate Exceptions: none. Release and DVC are not applicable. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-09-01 - Portable Rollout Runtime Readiness
 
 - Split public user bootstrap, content-free authentication-state refresh, and

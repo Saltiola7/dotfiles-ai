@@ -5,26 +5,17 @@ source_root=$(cd "$(dirname "$0")/.." && pwd)
 export HOME=/home/you
 export PATH="/tmp/dotfiles-ai-test-bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export DOTFILES_AI_SYSTEMCTL=/tmp/dotfiles-ai-test-bin/systemctl
-install -d -m 0700 "$HOME" "$HOME/.config/dotfiles-ai"
-install -d -m 0755 /tmp/dotfiles-ai-test-bin /usr/local/bin
+export DOTFILES_AI_SOURCE="$source_root"
+install -d -m 0700 "$HOME"
+install -d -m 0755 /tmp/dotfiles-ai-test-bin
 printf '#!/bin/sh\nexit 0\n' >"$DOTFILES_AI_SYSTEMCTL"
 chmod 0755 "$DOTFILES_AI_SYSTEMCTL"
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-curl -fsSL --retry 3 --retry-all-errors \
-  https://github.com/twpayne/chezmoi/releases/download/v2.69.4/chezmoi_2.69.4_linux_amd64.tar.gz \
-  -o "$tmp/chezmoi.tgz"
-printf '%s  %s\n' 5054cf09cb2993725f525c8bb6ec3ff8625489ecfc061e019c17e737e7c7057b "$tmp/chezmoi.tgz" | sha256sum -c -
-tar -xzf "$tmp/chezmoi.tgz" -C "$tmp" chezmoi
-install -m 0755 "$tmp/chezmoi" /usr/local/bin/chezmoi
-install -m 0600 "$source_root/config.remote-user.example.toml" "$HOME/.config/dotfiles-ai/chezmoi.toml"
+revision=$(git -C "$source_root" rev-parse HEAD)
+"$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"
+remote-user-bootstrap bootstrap "$revision"
 
-apply() {
-  chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply
-}
-apply
-apply
+remote-user-foundation apply "$revision"
 test -z "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)"
 
 "$HOME/.local/bin/starship" --version
@@ -34,11 +25,72 @@ test -z "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/ch
 "$HOME/.local/bin/codex" --version
 "$HOME/.local/bin/opencode" --version
 "$HOME/.local/bin/herdr" --version
-"$HOME/.local/bin/remote-user-foundation" status
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
 
 set +e
-readiness=$("$HOME/.local/bin/remote-agent-readiness")
-readiness_status=$?
+remote-user-foundation refresh-auth
+refresh_status=$?
 set -e
-test "$readiness_status" -eq 1
-test "$readiness" = '{"codex":"failure","onepassword":"failure","openai":"failure","state":"auth_pending","vertex":"failure"}'
+test "$refresh_status" -eq 1
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')" = auth_pending
+
+ready_bin=/tmp/dotfiles-ai-ready-bin
+install -d -m 0755 "$ready_bin"
+cat >"$ready_bin/opencode" <<'EOF'
+#!/bin/sh
+test "${1:-}" != --version || { echo 1.18.25; exit; }
+echo OpenAI
+EOF
+cat >"$ready_bin/codex" <<'EOF'
+#!/bin/sh
+test "${1:-}" != --version || { echo 'codex-cli 0.151.0'; exit; }
+exit 0
+EOF
+for command in vertex-reauth op; do
+  printf '#!/bin/sh\nexit 0\n' >"$ready_bin/$command"
+done
+chmod 0755 "$ready_bin"/*
+PATH="$ready_bin:$PATH" remote-user-foundation refresh-auth
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')" = ready
+
+mv "$HOME/.bashrc" "$HOME/.bashrc.saved"
+set +e
+remote-user-foundation refresh-auth
+damage_status=$?
+set -e
+test "$damage_status" -ne 0
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')" = failed_retryable
+mv "$HOME/.bashrc.saved" "$HOME/.bashrc"
+chezmoi -c "$HOME/.config/dotfiles-ai/chezmoi.toml" -S "$source_root" apply --force
+remote-user-foundation retry
+
+install -d -m 0700 "$HOME/.local/state/dotfiles-ai/codex" "$HOME/.local/share/atuin"
+printf keep-auth >"$HOME/.local/state/dotfiles-ai/codex/auth.json"
+printf keep-history >"$HOME/.local/share/atuin/history.db"
+git -C "$source_root" config user.name Test
+git -C "$source_root" config user.email test@example.com
+git -C "$source_root" commit --allow-empty -m update >/dev/null
+update_revision=$(git -C "$source_root" rev-parse HEAD)
+remote-user-foundation apply "$update_revision"
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$update_revision"
+remote-user-foundation rollback
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
+test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
+test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
+
+git -C "$source_root" commit --allow-empty -m failure-retry >/dev/null
+retry_revision=$(git -C "$source_root" rev-parse HEAD)
+cp "$HOME/.config/dotfiles-ai/chezmoi.toml" /tmp/chezmoi.toml
+printf invalid >"$HOME/.config/dotfiles-ai/chezmoi.toml"
+set +e
+remote-user-foundation apply "$retry_revision"
+failure_status=$?
+set -e
+test "$failure_status" -ne 0
+install -m 0600 /tmp/chezmoi.toml "$HOME/.config/dotfiles-ai/chezmoi.toml"
+remote-user-foundation retry
+test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$retry_revision"
+remote-user-foundation rollback
+test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
+test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
+printf 'remote user environment smoke passed\n'
