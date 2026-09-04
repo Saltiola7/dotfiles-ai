@@ -29,7 +29,7 @@ jobs:
           source=/home/you/.local/share/chezmoi-dotfiles-ai
           install -d -m 0700 /home/you
           install -d -m 0755 "$source"
-          tar --exclude=.git -cf - . | tar -xf - -C "$source"
+          tar --exclude=.git -cf - . | tar --no-same-owner -xf - -C "$source"
           env -i PATH="$PATH" git init -q "$source"
           git --git-dir="$source/.git" --work-tree="$source" config user.name CI
           git --git-dir="$source/.git" --work-tree="$source" config user.email ci@example.invalid
@@ -37,4 +37,5 @@ jobs:
           git --git-dir="$source/.git" --work-tree="$source" commit -q -m baseline
           git --git-dir="$source/.git" --work-tree="$source" remote add origin https://github.com/Saltiola7/dotfiles-ai.git
           cd "$source"
-          env -i PATH="$PATH" tests/remote_user_environment_smoke.sh
+          env -i PATH="$PATH" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+            GIT_CONFIG_VALUE_0="$source" tests/remote_user_environment_smoke.sh
