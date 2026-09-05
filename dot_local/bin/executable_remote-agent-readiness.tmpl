@@ -31,7 +31,7 @@ codex_ready() {
     [[ -f $CODEX_HOME/config.toml && ! -L $CODEX_HOME/config.toml \
         && -O $CODEX_HOME/config.toml ]] || return 1
     version=$(codex --version 2>/dev/null) || return 1
-    [[ $version == {{ printf "codex-cli %s" .dotfiles_ai.codex.version | quote }} ]] || return 1
+    [[ $version =~ ^codex-cli\ (0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
     codex login status >/dev/null 2>&1
 }
 

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ def data(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    codex_channel: str = "stable",
     remote_user_environment: bool = False,
 ) -> dict:
     return {
@@ -28,6 +30,7 @@ def data(
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
             "state": {"root": state_root},
             "codex": {
+                "channel": codex_channel,
                 "version": codex_version,
                 "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
                 "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
@@ -139,6 +142,7 @@ def chezmoi(
     rnd_runtime: object = "opencode",
     workspace_runtime: object = "codex",
     codex_version: str = "0.151.0",
+    codex_channel: str = "stable",
     remote_user_environment: bool = False,
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -148,7 +152,7 @@ def chezmoi(
             "--config-format", "toml", "--override-data",
             json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
                              pm_image, pm_backup_dir, state_root, rnd_runtime,
-                             workspace_runtime, codex_version,
+                             workspace_runtime, codex_version, codex_channel,
                              remote_user_environment)),
             *args,
         ],
@@ -313,7 +317,8 @@ def test_remote_user_environment_scripts_render_as_shell() -> None:
         ).stdout
         subprocess.run(["bash", "-n"], input=output, text=True, check=True)
         rendered.append(output)
-    assert all("x86_64" in output for output in rendered[:5] + rendered[6:])
+    assert all("x86_64" in output for index, output in enumerate(rendered)
+               if index not in {3, 5})
     assert 'exec "$HOME/.local/bin/opencode-install"' in rendered[5]
     fedora_tools = chezmoi(
         "execute-template",
@@ -323,7 +328,7 @@ def test_remote_user_environment_scripts_render_as_shell() -> None:
     assert 'ln -sfn "$destination/bin/gcloud" "$HOME/.local/bin/gcloud"' in fedora_tools
 
 
-def test_codex_distribution_sources_are_pinned_and_inert() -> None:
+def test_codex_distribution_uses_rolling_stable_direct_binary() -> None:
     brewfile = (ROOT / "Brewfile").read_text()
     installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
     linux_installer = (ROOT / "dot_local/bin/executable_codex-install.tmpl").read_text()
@@ -332,37 +337,42 @@ def test_codex_distribution_sources_are_pinned_and_inert() -> None:
     project_script = (ROOT / "run_onchange_after_project-codex.sh.tmpl").read_text()
     defaults = (ROOT / ".chezmoidata.toml").read_text()
 
-    assert 'cask "codex"' in brewfile
-    assert ".dotfiles_ai.codex.version" in installer
+    updater = (ROOT / "dot_local/bin/executable_codex-update-all").read_text()
+    run_after = (ROOT / "run_after_update-codex.sh.tmpl").read_text()
+
+    assert 'cask "codex"' not in brewfile
+    assert ".dotfiles_ai.codex.version" not in installer
     assert "HOMEBREW_NO_AUTO_UPDATE=1" in installer
-    assert "Caskroom/codex/$expected" in installer
-    assert ".dotfiles_ai.codex.linux_asset_url" in linux_installer
-    assert "codex-aarch64-unknown-linux-musl.tar.gz" in defaults
-    assert "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6" in defaults
-    assert 'mv -f "$target.new" "$target"' in linux_installer
-    assert "CODEX_HOME" in wrapper and 'exec "$real" "$@"' in wrapper
-    assert "codex-package/homebrew-bin" in wrapper
+    assert "Caskroom/codex" not in installer
+    assert "channel = \"stable\"" in defaults
+    assert "api.github.com/repos/openai/codex/releases/latest" in updater
+    assert "release-lock.json" in updater
+    assert 'exec "$HOME/.local/bin/codex-update-all"' in run_after
+    assert run_after.count('exec "$HOME/.local/bin/codex-update-all"') == 1
+    assert "exit 0" in linux_installer
+    assert "CODEX_HOME" in wrapper and '--exec-managed "$lock" "$real" "$@"' in wrapper
+    assert "release-lock.json" in wrapper
     assert "/opt/homebrew/bin/codex" not in wrapper
     assert ".dotfiles-ai-managed.json" in projector
     assert ".dotfiles-ai-journal.json" in projector
     assert "auth.json" not in projector
-    assert "uninstall --zap" not in installer + linux_installer
-    assert '{{ include "Brewfile" | sha256sum }}' in project_script
-    assert ".dotfiles_ai.codex | toJson | sha256sum" in project_script
-    assert '{{ include "run_onchange_before_install-opencode.sh.tmpl" | sha256sum }}' in project_script
-    assert chezmoi("execute-template", template=project_script).stdout != chezmoi(
-        "execute-template", codex_version="0.152.0", template=project_script).stdout
+    assert "uninstall" not in installer + linux_installer + updater
+    assert 'include "dot_local/bin/executable_codex-project"' in project_script
+    assert "Brewfile" not in project_script
     managed = set(chezmoi("managed").stdout.splitlines())
     assert {
         ".config/dotfiles-ai/codex-managed/config.toml",
         ".config/dotfiles-ai/codex-managed/AGENTS.md",
-        ".local/bin/codex", ".local/bin/codex-project",
+        ".local/bin/codex", ".local/bin/codex-project", ".local/bin/codex-update-all",
     } <= managed
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert "!.config/dotfiles-ai/codex-managed/**" in ignore
-    for template in (installer, linux_installer, wrapper, project_script):
+    for template in (installer, linux_installer, wrapper, project_script, run_after):
         rendered = chezmoi("execute-template", template=template).stdout
         subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        chezmoi("execute-template", codex_channel="beta", template=run_after)
 
 
 @pytest.mark.parametrize("global_runtime,workspace_runtime", [
@@ -379,71 +389,14 @@ def test_runtime_selector_rejects_invalid_rendered_values(
                 workspace_runtime=workspace_runtime, template=template)
 
 
-def test_new_host_cask_is_removed_when_projection_fails(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    binary_directory = tmp_path / "bin"
-    prefix = tmp_path / "homebrew"
-    binary_directory.mkdir()
-    home.mkdir()
-    log = tmp_path / "brew.log"
-    brew = binary_directory / "brew"
-    brew.write_text(f'''#!/bin/bash
-set -eu
-printf '%s\n' "$*" >>{str(log)!r}
-prefix={str(prefix)!r}
-case "$1" in
-  info) printf '%s\n' '{{"casks":[{{"version":"0.151.0"}}]}}' ;;
-  --prefix) printf '%s\n' "$prefix" ;;
-  list) test -f "$prefix/.codex-installed" ;;
-  bundle)
-    target="$prefix/Caskroom/codex/0.151.0/bin/codex"
-    mkdir -p "$(dirname "$target")" "$prefix/bin"
-    cat >"$target" <<'EOF'
-#!/bin/bash
-test "${{1:-}}" = --version && printf '%s\n' 'codex-cli 0.151.0'
-EOF
-    chmod 0755 "$target"
-    ln -sf "$target" "$prefix/bin/codex"
-    touch "$prefix/.codex-installed" ;;
-  uninstall)
-    rm -f "$prefix/.codex-installed" "$prefix/bin/codex"
-    rm -rf "$prefix/Caskroom/codex" ;;
-esac
-''')
-    brew.chmod(0o755)
-    environment = {**os.environ, "HOME": str(home),
-                   "PATH": f"{binary_directory}:{os.environ['PATH']}"}
-    installer = chezmoi(
-        "execute-template", state_root="",
-        template=(ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text(),
-    ).stdout
+def test_homebrew_install_no_longer_owns_or_uninstalls_codex() -> None:
+    brewfile = (ROOT / "Brewfile").read_text()
+    installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
+    projector = (ROOT / "run_onchange_after_project-codex.sh.tmpl").read_text()
 
-    subprocess.run(["bash"], input=installer, text=True, env=environment, check=True)
-
-    transaction = home / ".local/state/dotfiles-ai/codex-package/transaction"
-    assert transaction.read_text().strip() == "new_install"
-    assert (prefix / ".codex-installed").exists()
-    managed_bin = home / ".local/bin"
-    managed_bin.mkdir(parents=True)
-    projector = managed_bin / "codex-project"
-    projector.write_bytes((ROOT / "dot_local/bin/executable_codex-project").read_bytes())
-    projector.chmod(0o755)
-    desktop = home / ".codex/sentinel"
-    desktop.parent.mkdir()
-    desktop.write_text("desktop")
-    project = chezmoi(
-        "execute-template", state_root="",
-        template=(ROOT / "run_onchange_after_project-codex.sh.tmpl").read_text(),
-    ).stdout
-
-    result = subprocess.run(["bash"], input=project, text=True, env=environment,
-                            capture_output=True)
-
-    assert result.returncode != 0
-    assert "uninstall --cask codex" in log.read_text()
-    assert not (prefix / ".codex-installed").exists()
-    assert not (home / ".local/state/dotfiles-ai/codex-package/homebrew-bin").exists()
-    assert desktop.read_text() == "desktop"
+    assert 'cask "codex"' not in brewfile
+    assert "brew uninstall" not in installer + projector
+    assert "homebrew-bin" not in installer + projector
 
 
 def test_codex_wrapper_uses_isolated_home_and_rejects_symlinked_ancestor(tmp_path: Path) -> None:
@@ -455,16 +408,36 @@ def test_codex_wrapper_uses_isolated_home_and_rejects_symlinked_ancestor(tmp_pat
     projector = managed_bin / "codex-project"
     projector.write_bytes((ROOT / "dot_local/bin/executable_codex-project").read_bytes())
     projector.chmod(0o755)
-    real = tmp_path / "homebrew/Caskroom/codex/0.151.0/bin/codex"
+    updater = managed_bin / "codex-update-all"
+    updater.write_text("#!/bin/sh\nexit 0\n")
+    updater.chmod(0o755)
+    real = home / ".local/libexec/dotfiles-ai/codex"
     real.parent.mkdir(parents=True)
     real.write_text('''#!/bin/bash
 if [[ ${1:-} == --version ]]; then printf '%s\n' 'codex-cli 0.151.0'; exit; fi
 printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
 ''')
-    real.chmod(0o755)
-    record = home / ".local/state/dotfiles-ai/codex-package/homebrew-bin"
-    record.parent.mkdir(parents=True)
-    record.write_text(str(real) + "\n")
+    real.chmod(0o700)
+    record = home / ".local/state/dotfiles-ai/codex-package/release-lock.json"
+    record.parent.mkdir(parents=True, mode=0o700)
+    record.write_text(json.dumps({
+        "schema_version": 1, "channel": "stable", "release": "0.151.0",
+        "tag": "rust-v0.151.0", "platform": "darwin-aarch64",
+        "binary_sha256": hashlib.sha256(real.read_bytes()).hexdigest(),
+        "target_count": 1, "targets_digest": hashlib.sha256(b"targets").hexdigest(),
+        "assets": {
+            platform: {
+                "url": f"https://github.com/openai/codex/releases/download/rust-v0.151.0/{asset}",
+                "sha256": "a" * 64, "size": 1,
+            }
+            for platform, asset in {
+                "darwin-aarch64": "codex-aarch64-apple-darwin.tar.gz",
+                "linux-aarch64": "codex-aarch64-unknown-linux-musl.tar.gz",
+                "linux-x86_64": "codex-x86_64-unknown-linux-musl.tar.gz",
+            }.items()
+        },
+        "validator_revision": "codex-release-validator-1", "previous": None,
+    }))
     record.chmod(0o600)
     desktop = home / ".codex/sentinel"
     desktop.parent.mkdir()
@@ -477,7 +450,10 @@ printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
     wrapper.chmod(0o755)
     environment = {**os.environ, "HOME": str(home)}
 
-    subprocess.run([str(wrapper), "argument with spaces"], env=environment, check=True)
+    launched = subprocess.run(
+        [str(wrapper), "argument with spaces"], env=environment, capture_output=True,
+    )
+    assert launched.returncode == 0, launched.stderr.decode()
 
     assert (home / "codex-call").read_text().splitlines() == [
         str(codex_home), "argument with spaces"]
@@ -516,8 +492,8 @@ def test_local_data_renders_complete_configs() -> None:
     )
     assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
     assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 8
-    assert sandbox["codex"]["version"] == "0.151.0"
+    assert sandbox["schema_version"] == 9
+    assert sandbox["codex"] == {"channel": "stable"}
     assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
     assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
@@ -1040,7 +1016,7 @@ def test_dynamic_workspace_registry_and_template_render() -> None:
         "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
     ).stdout)
     assert registry["enabled"] is True
-    assert registry["schema_version"] == 8
+    assert registry["schema_version"] == 9
     assert registry["build_workspace"] == "workspace1"
     assert registry["atuin_workspace"] == "workspace1"
     assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]

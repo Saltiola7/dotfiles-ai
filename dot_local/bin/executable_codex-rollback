@@ -18,12 +18,19 @@ ARTIFACTS = (
     ".local/bin/codex-install",
     ".local/bin/codex-project",
     ".local/bin/codex-rollback",
+    ".local/bin/codex-update-all",
     ".local/bin/dbsctrctl",
     ".local/libexec/dotfiles-ai/codex",
     ".config/dotfiles-ai/chezmoi.toml",
     ".config/dotfiles-ai/codex-managed",
     ".local/state/dotfiles-ai/codex-package/homebrew-bin",
     ".local/state/dotfiles-ai/codex-package/transaction",
+    ".local/state/dotfiles-ai/codex-package/release-lock.json",
+    ".local/state/dotfiles-ai/codex-package/rejected-candidate.json",
+    ".local/state/dotfiles-ai/codex-package/candidate-lock.json",
+    ".local/state/dotfiles-ai/codex-package/candidate-codex",
+    ".local/state/dotfiles-ai/codex-package/previous-lock.json",
+    ".local/state/dotfiles-ai/codex-package/previous-codex",
     ".local/state/dotfiles-ai/codex/config.toml",
     ".local/state/dotfiles-ai/codex/AGENTS.md",
     ".local/state/dotfiles-ai/codex/agents",
@@ -130,25 +137,30 @@ def snapshot(home=None):
     token = uuid.uuid4().hex
     backup = root / token
     private_directory(backup)
-    present = []
-    for value in ARTIFACTS:
-        relative = safe_relative(value)
-        path = safe_home_path(home, relative)
-        if path.exists() or path.is_symlink():
-            copy(path, backup / "files" / relative)
-            present.append(value)
-    metadata = {"schema_version": 1, "source": str(source), "revision": revision,
-                "present": present}
-    descriptor, temporary = tempfile.mkstemp(prefix=".snapshot.", dir=backup)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        json.dump(metadata, stream, sort_keys=True, separators=(",", ":"))
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.chmod(temporary, 0o600)
-    os.replace(temporary, backup / "snapshot.json")
-    fsync_directory(backup)
-    return token
+    try:
+        present = []
+        for value in ARTIFACTS:
+            relative = safe_relative(value)
+            path = safe_home_path(home, relative)
+            if path.exists() or path.is_symlink():
+                copy(path, backup / "files" / relative)
+                present.append(value)
+        metadata = {"schema_version": 1, "source": str(source), "revision": revision,
+                    "present": present}
+        descriptor, temporary = tempfile.mkstemp(prefix=".snapshot.", dir=backup)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(metadata, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, backup / "snapshot.json")
+        fsync_directory(backup)
+        return token
+    except Exception:
+        shutil.rmtree(backup, ignore_errors=True)
+        fsync_directory(root)
+        raise
 
 
 def backup_path(home, token):
