@@ -690,6 +690,7 @@ trap - EXIT
     )
     deployment_source = os.environ.get("DOTFILES_AI_DEPLOY_SOURCE", "")
     helper_only = os.environ.get("DOTFILES_AI_DEPLOY_HELPER_ONLY") == "1"
+    rolling_helpers = os.environ.get("DOTFILES_AI_DEPLOY_CODEX_ROLLING") == "1"
     if deployment_source:
         archive, revision = deployment_archive(deployment_source)
         remote = f"/tmp/dotfiles-ai-{revision}.tar.gz"
@@ -706,7 +707,14 @@ test "$(cat "$tmp/source/.dotfiles-ai-deploy-commit")" = "$expected"
 rm "$tmp/source/.dotfiles-ai-deploy-commit"
 chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply --force \
   "$HOME/.local/bin/dbsctrctl"
-if [ "$3" = 1 ]; then
+if [ "$3" = lifecycle ]; then
+  exit 0
+fi
+if [ "$3" = rolling ]; then
+  chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply --force \
+    "$HOME/.local/bin/codex" \
+    "$HOME/.local/bin/codex-project" \
+    "$HOME/.local/bin/codex-update-all"
   exit 0
 fi
 chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
@@ -720,7 +728,8 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
   "$HOME/.config/dotfiles-ai/codex-managed" \
   "$HOME/install-codex.sh" \
   "$HOME/project-codex.sh"
-''', "deploy-codex", remote, revision, "1" if helper_only else "0"], timeout=600)
+''', "deploy-codex", remote, revision,
+             "lifecycle" if helper_only else "rolling" if rolling_helpers else "full"], timeout=600)
         finally:
             archive.unlink(missing_ok=True)
     else:
@@ -728,7 +737,7 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
         execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
         execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
                  f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
-    if helper_only:
+    if helper_only or rolling_helpers:
         return
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",
              'exec "$HOME/.local/bin/codex-project" "$HOME/.config/dotfiles-ai/codex-managed" '

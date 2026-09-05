@@ -383,7 +383,7 @@ def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout
     assert ["limactl", "copy", str(archive),
             f"workspace1-sandbox:/tmp/dotfiles-ai-{revision}.tar.gz"] in argv
     deployment = next(call for call in argv if "deploy-codex" in call)
-    assert deployment[-3:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision, "0"]
+    assert deployment[-3:] == [f"/tmp/dotfiles-ai-{revision}.tar.gz", revision, "full"]
     assert '"$HOME/.local/bin/codex-archive"' in deployment[-5]
     assert "apply --force" in deployment[-5]
     assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-5]
@@ -413,11 +413,36 @@ def test_update_can_deploy_only_exact_lifecycle_helper(tmp_path: Path, monkeypat
 
     argv = [call[0] for call in calls]
     deployment = next(call for call in argv if "deploy-codex" in call)
-    assert deployment[-1] == "1"
+    assert deployment[-1] == "lifecycle"
     assert "apply --force" in deployment[-5]
     assert '"$HOME/.local/bin/dbsctrctl"' in deployment[-5]
     assert not any(call is not deployment and "codex-install" in call[-1] for call in argv)
     assert not archive.exists()
+
+
+def test_update_can_bootstrap_only_rolling_codex_helpers(tmp_path: Path, monkeypatch) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    archive = tmp_path / "source.tar.gz"
+    archive.write_bytes(b"archive")
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_SOURCE", str(tmp_path / "source"))
+    monkeypatch.setenv("DOTFILES_AI_DEPLOY_CODEX_ROLLING", "1")
+    monkeypatch.setattr(helper, "deployment_archive", lambda _source: (archive, "b" * 40))
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[-2:] == ["printenv", "HOME"]:
+            return "/home/agent.guest"
+        return "true" if "podman" in argv else ""
+
+    helper.update_workspace(values, values["workspaces"][0], execute=execute)
+
+    deployment = next(call[0] for call in calls if "deploy-codex" in call[0])
+    assert deployment[-1] == "rolling"
+    rolling = deployment[-5].split('if [ "$3" = rolling ]; then', 1)[1].split("exit 0", 1)[0]
+    assert '"$HOME/.local/bin/codex-update-all"' in rolling
+    assert '"$HOME/.config/dotfiles-ai/codex-managed"' not in rolling
 
 
 def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
