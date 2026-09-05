@@ -1,0 +1,1117 @@
+#!/usr/bin/env python3
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import selectors
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+
+ENDPOINT = "https://api.github.com/repos/openai/codex/releases/latest"
+ASSETS = {
+    "darwin-aarch64": "codex-aarch64-apple-darwin.tar.gz",
+    "linux-aarch64": "codex-aarch64-unknown-linux-musl.tar.gz",
+    "linux-x86_64": "codex-x86_64-unknown-linux-musl.tar.gz",
+}
+ARCHIVE_MEMBERS = {
+    "darwin-aarch64": "codex-aarch64-apple-darwin",
+    "linux-aarch64": "codex-aarch64-unknown-linux-musl",
+    "linux-x86_64": "codex-x86_64-unknown-linux-musl",
+}
+DOWNLOAD_HOSTS = {"github.com", "release-assets.githubusercontent.com"}
+MAX_METADATA = 1024 * 1024
+MAX_ASSET = 256 * 1024 * 1024
+MAX_OUTPUT = 20 * 1024 * 1024
+VALIDATOR_REVISION = "codex-release-validator-1"
+LEGACY_RELEASE = "0.151.0"
+LEGACY_LINUX_AARCH64_BINARY_SHA256 = "56f026015ccc3ebc12895282200d89c216892bf6fa15fa7f228e6e0c6ad6ce76"
+LEGACY_ASSETS = {
+    "darwin-aarch64": {"sha256": "6409e2c65994d294a92bc7330148ebc447ab23908bd7f5c71e718425a622c965", "size": 92447008},
+    "linux-aarch64": {"sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6", "size": 96130483},
+    "linux-x86_64": {"sha256": "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6", "size": 103937941},
+}
+for _platform, _asset in LEGACY_ASSETS.items():
+    _asset["url"] = f"https://github.com/openai/codex/releases/download/rust-v{LEGACY_RELEASE}/{ASSETS[_platform]}"
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+DIGEST = re.compile(r"^[0-9a-f]{64}$")
+REASONS = {
+    "none", "metadata_unavailable", "candidate_invalid", "target_unavailable",
+    "validation_failed", "activation_failed", "rollback_completed", "rollback_failed",
+}
+
+
+class UpdateError(Exception):
+    def __init__(self, reason="candidate_invalid"):
+        self.reason = reason
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def no_duplicates(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate key")
+        value[key] = item
+    return value
+
+
+def parse_json(raw, maximum=MAX_METADATA):
+    if len(raw) > maximum:
+        raise UpdateError
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise UpdateError
+
+
+def semver(value):
+    match = SEMVER.fullmatch(value) if isinstance(value, str) else None
+    if not match:
+        raise UpdateError
+    return tuple(map(int, match.groups()))
+
+
+def platform_id():
+    machine = platform.machine().lower()
+    if sys.platform == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-aarch64"
+    if sys.platform.startswith("linux") and machine in {"arm64", "aarch64"}:
+        return "linux-aarch64"
+    if sys.platform.startswith("linux") and machine == "x86_64":
+        return "linux-x86_64"
+    raise UpdateError("validation_failed")
+
+
+def package_root():
+    override = os.environ.get("DOTFILES_AI_CODEX_PACKAGE_ROOT")
+    root = Path(override).expanduser() if override else Path.home() / ".local/state/dotfiles-ai/codex-package"
+    if not root.is_absolute():
+        raise UpdateError("validation_failed")
+    return root
+
+
+def binary_path():
+    override = os.environ.get("DOTFILES_AI_CODEX_BINARY")
+    path = Path(override).expanduser() if override else Path.home() / ".local/libexec/dotfiles-ai/codex"
+    if not path.is_absolute():
+        raise UpdateError("validation_failed")
+    return path
+
+
+def private_directory(path):
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise UpdateError("validation_failed")
+        if not current.exists():
+            break
+    if path.is_symlink():
+        raise UpdateError("validation_failed")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    metadata = path.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid():
+        raise UpdateError("validation_failed")
+    path.chmod(0o700)
+
+
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def atomic_json(path, value):
+    private_directory(path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(canonical(value) + b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        Path(temporary).unlink(missing_ok=True)
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def copy_regular(source, destination):
+    source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        metadata = os.fstat(source_fd)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise UpdateError("validation_failed")
+        destination_fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o700)
+        try:
+            while chunk := os.read(source_fd, 1024 * 1024):
+                view = memoryview(chunk)
+                while view:
+                    written = os.write(destination_fd, view)
+                    if written <= 0:
+                        raise OSError("short Codex backup write")
+                    view = view[written:]
+            os.fsync(destination_fd)
+        except Exception:
+            os.close(destination_fd)
+            destination_fd = None
+            Path(destination).unlink(missing_ok=True)
+            fsync_directory(Path(destination).parent)
+            raise
+        finally:
+            if destination_fd is not None:
+                os.close(destination_fd)
+    finally:
+        os.close(source_fd)
+    fsync_directory(Path(destination).parent)
+
+
+def read_regular(path, maximum, mode=0o600):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        raise UpdateError("validation_failed")
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != mode or metadata.st_size > maximum):
+            raise UpdateError("validation_failed")
+        chunks, size = [], 0
+        while chunk := os.read(descriptor, min(64 * 1024, maximum + 1 - size)):
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > maximum:
+                raise UpdateError("validation_failed")
+        value = b"".join(chunks)
+        if len(value) != metadata.st_size:
+            raise UpdateError("validation_failed")
+        return value
+    finally:
+        os.close(descriptor)
+
+
+def process_lock(root):
+    descriptor = os.open(root / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    metadata = os.fstat(descriptor)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600):
+        os.close(descriptor)
+        raise UpdateError("validation_failed")
+    return descriptor
+
+
+def validate_asset(value, expected_name):
+    if not isinstance(value, dict) or value.get("name") != expected_name:
+        raise UpdateError
+    digest = value.get("digest")
+    size = value.get("size")
+    url = value.get("browser_download_url")
+    if (not isinstance(digest, str) or not digest.startswith("sha256:")
+            or not DIGEST.fullmatch(digest[7:]) or type(size) is not int
+            or not 0 < size <= MAX_ASSET or not isinstance(url, str)):
+        raise UpdateError
+    expected = f"https://github.com/openai/codex/releases/download/"
+    if not url.startswith(expected) or url.rsplit("/", 1)[-1] != expected_name:
+        raise UpdateError
+    return {"url": url, "sha256": digest[7:], "size": size}
+
+
+def validate_release(value):
+    if (not isinstance(value, dict) or value.get("draft") is not False
+            or value.get("prerelease") is not False):
+        raise UpdateError
+    release = value.get("name")
+    semver(release)
+    if value.get("tag_name") != f"rust-v{release}" or not isinstance(value.get("assets"), list):
+        raise UpdateError
+    by_name = {}
+    for asset in value["assets"]:
+        if isinstance(asset, dict) and asset.get("name") in ASSETS.values():
+            if asset["name"] in by_name:
+                raise UpdateError
+            by_name[asset["name"]] = asset
+    if set(by_name) != set(ASSETS.values()):
+        raise UpdateError
+    return {
+        "release": release,
+        "tag": f"rust-v{release}",
+        "assets": {name: validate_asset(by_name[asset], asset) for name, asset in ASSETS.items()},
+    }
+
+
+def fetch_release(opener=urllib.request.urlopen):
+    request = urllib.request.Request(ENDPOINT, headers={"Accept": "application/vnd.github+json"})
+    try:
+        with opener(request, timeout=30) as response:
+            raw = response.read(MAX_METADATA + 1)
+    except (OSError, urllib.error.URLError):
+        raise UpdateError("metadata_unavailable")
+    return validate_release(parse_json(raw))
+
+
+class RedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self):
+        self.count = 0
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        from urllib.parse import urlparse
+        self.count += 1
+        parsed = urlparse(newurl)
+        if self.count > 3 or parsed.scheme != "https" or parsed.hostname not in DOWNLOAD_HOSTS:
+            raise UpdateError
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+def download(asset, destination):
+    handler = RedirectHandler()
+    opener = urllib.request.build_opener(handler)
+    request = urllib.request.Request(asset["url"], headers={"Accept": "application/octet-stream"})
+    try:
+        with opener.open(request, timeout=30) as response, destination.open("xb") as stream:
+            size = 0
+            digest = hashlib.sha256()
+            while chunk := response.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_ASSET or size > asset["size"]:
+                    raise UpdateError
+                digest.update(chunk)
+                stream.write(chunk)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except (OSError, urllib.error.URLError):
+        destination.unlink(missing_ok=True)
+        raise UpdateError("metadata_unavailable")
+    if size != asset["size"] or digest.hexdigest() != asset["sha256"]:
+        destination.unlink(missing_ok=True)
+        raise UpdateError
+
+
+def extract(archive, destination, expected):
+    try:
+        with tarfile.open(archive, "r:gz") as bundle:
+            members = bundle.getmembers()
+            if (len(members) != 1 or members[0].name != expected or not members[0].isreg()
+                    or not 0 < members[0].size <= MAX_ASSET):
+                raise UpdateError
+            source = bundle.extractfile(members[0])
+            if source is None:
+                raise UpdateError
+            descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o700)
+            with os.fdopen(descriptor, "wb") as output:
+                shutil.copyfileobj(source, output, 1024 * 1024)
+                output.flush()
+                os.fsync(output.fileno())
+    except (OSError, tarfile.TarError):
+        destination.unlink(missing_ok=True)
+        raise UpdateError
+
+
+def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT):
+    process = subprocess.Popen(
+        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+        env=environment,
+    )
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    selector.register(process.stderr, selectors.EVENT_READ)
+    output = {process.stdout: bytearray(), process.stderr: bytearray()}
+    deadline = time.monotonic() + timeout
+    try:
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise UpdateError("validation_failed")
+            for key, _ in selector.select(min(remaining, .1)):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                output[key.fileobj].extend(chunk)
+                if sum(map(len, output.values())) > maximum:
+                    raise UpdateError("validation_failed")
+        code = process.wait(timeout=max(.1, deadline - time.monotonic()))
+    except Exception:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+    finally:
+        selector.close()
+    if code:
+        raise UpdateError("validation_failed")
+    return bytes(output[process.stdout])
+
+
+def schema_has(definitions, name, fields):
+    value = definitions.get(name)
+    return isinstance(value, dict) and fields <= set(value.get("properties", {}))
+
+
+def validate_binary(binary, release, codex_home=None):
+    if not codex_home or not Path(codex_home).is_absolute():
+        raise UpdateError("validation_failed")
+    environment = os.environ.copy()
+    environment["CODEX_HOME"] = str(codex_home)
+    if run([str(binary), "--version"], environment=environment).decode().strip() != f"codex-cli {release}":
+        raise UpdateError("validation_failed")
+    if not run([str(binary), "--help"], environment=environment).strip():
+        raise UpdateError("validation_failed")
+    run([str(binary), "login", "status"], environment=environment)
+    with tempfile.TemporaryDirectory(prefix="codex-schema-") as temporary:
+        run([str(binary), "app-server", "generate-json-schema", "--out", temporary],
+            environment=environment)
+        root = Path(temporary)
+        required = (
+            "v1/InitializeParams.json", "v1/InitializeResponse.json",
+            "v2/ThreadListParams.json",
+            "v2/ThreadListResponse.json", "v2/ThreadReadParams.json",
+            "v2/ThreadReadResponse.json",
+        )
+        schemas = {}
+        for relative in required:
+            path = root / relative
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 4 * 1024 * 1024:
+                raise UpdateError("validation_failed")
+            schemas[relative] = parse_json(path.read_bytes(), 4 * 1024 * 1024)
+        if not {"clientInfo"} <= set(schemas["v1/InitializeParams.json"].get("properties", {})):
+            raise UpdateError("validation_failed")
+        if not {"userAgent", "codexHome"} <= set(
+                schemas["v1/InitializeResponse.json"].get("properties", {})):
+            raise UpdateError("validation_failed")
+        if not {"cursor", "limit", "sortKey", "sortDirection", "sourceKinds", "useStateDbOnly"} \
+                <= set(schemas["v2/ThreadListParams.json"].get("properties", {})):
+            raise UpdateError("validation_failed")
+        if not {"threadId", "includeTurns"} <= set(schemas["v2/ThreadReadParams.json"].get("properties", {})):
+            raise UpdateError("validation_failed")
+        if not {"data", "nextCursor"} <= set(
+                schemas["v2/ThreadListResponse.json"].get("properties", {})):
+            raise UpdateError("validation_failed")
+        if "thread" not in schemas["v2/ThreadReadResponse.json"].get("properties", {}):
+            raise UpdateError("validation_failed")
+        definitions = schemas["v2/ThreadReadResponse.json"].get("definitions", {})
+        if (not schema_has(definitions, "Thread", {
+                "id", "sessionId", "createdAt", "updatedAt", "source", "modelProvider",
+                "cwd", "historyMode", "turns"})
+                or not schema_has(definitions, "Turn", {
+                    "id", "status", "items", "itemsView", "startedAt", "completedAt"})):
+            raise UpdateError("validation_failed")
+        modes = set(definitions.get("ThreadHistoryMode", {}).get("enum", []))
+        if not {"legacy", "paginated"} <= modes:
+            raise UpdateError("validation_failed")
+        item_types = set()
+        for item in definitions.get("ThreadItem", {}).get("oneOf", []):
+            values = item.get("properties", {}).get("type", {}).get("enum", [])
+            if len(values) == 1 and isinstance(values[0], str):
+                item_types.add(values[0])
+        if not {
+            "userMessage", "agentMessage", "reasoning", "commandExecution", "fileChange",
+            "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "subAgentActivity", "webSearch",
+        } <= item_types:
+            raise UpdateError("validation_failed")
+
+
+def lock_generation(value, require_platform=True):
+    required = {
+        "schema_version", "channel", "release", "tag", "platform", "binary_sha256",
+        "target_count", "targets_digest", "assets", "validator_revision",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise UpdateError("validation_failed")
+    semver(value["release"])
+    if (value["schema_version"] != 1 or value["channel"] != "stable"
+            or value["tag"] != f"rust-v{value['release']}" or value["platform"] not in ASSETS
+            or not DIGEST.fullmatch(value["binary_sha256"])
+            or type(value["target_count"]) is not int or not 1 <= value["target_count"] <= 33
+            or not DIGEST.fullmatch(value["targets_digest"])
+            or value["validator_revision"] != VALIDATOR_REVISION
+            or not isinstance(value["assets"], dict) or set(value["assets"]) != set(ASSETS)):
+        raise UpdateError("validation_failed")
+    if require_platform and value["platform"] != platform_id():
+        raise UpdateError("validation_failed")
+    for name, asset in value["assets"].items():
+        if (not isinstance(asset, dict) or set(asset) != {"url", "sha256", "size"}
+                or not DIGEST.fullmatch(asset["sha256"]) or type(asset["size"]) is not int
+                or not 0 < asset["size"] <= MAX_ASSET or not isinstance(asset["url"], str)):
+            raise UpdateError("validation_failed")
+        expected = f"https://github.com/openai/codex/releases/download/rust-v{value['release']}/{ASSETS[name]}"
+        if asset["url"] != expected:
+            raise UpdateError("validation_failed")
+    return value
+
+
+def read_lock(root=None):
+    root = package_root() if root is None else Path(root)
+    path = root / "release-lock.json"
+    if not os.path.lexists(path):
+        return None
+    value = parse_json(read_regular(path, MAX_METADATA))
+    if not isinstance(value, dict) or set(value) != {
+            "schema_version", "channel", "release", "tag", "platform", "binary_sha256",
+            "target_count", "targets_digest", "assets", "validator_revision", "previous"}:
+        raise UpdateError("validation_failed")
+    previous = value.pop("previous")
+    lock_generation(value)
+    value["previous"] = None if previous is None else lock_generation(previous)
+    return value
+
+
+def rejected_candidate(candidate, root=None):
+    root = package_root() if root is None else Path(root)
+    path = root / "rejected-candidate.json"
+    if not os.path.lexists(path):
+        return False
+    value = parse_json(read_regular(path, MAX_METADATA))
+    required = {"schema_version", "release", "candidate_digest", "validator_revision", "reason"}
+    if (not isinstance(value, dict) or set(value) != required or value["schema_version"] != 1
+            or not DIGEST.fullmatch(value.get("candidate_digest", ""))
+            or value["validator_revision"] != VALIDATOR_REVISION
+            or value["reason"] not in {"candidate_invalid", "validation_failed"}):
+        raise UpdateError("validation_failed")
+    if value["release"] != candidate["release"]:
+        return False
+    current = hashlib.sha256(canonical(candidate)).hexdigest()
+    if value["candidate_digest"] != current:
+        raise UpdateError("candidate_invalid")
+    return True
+
+
+def reject_candidate(candidate, reason, root=None):
+    if reason not in {"candidate_invalid", "validation_failed"}:
+        return
+    root = package_root() if root is None else Path(root)
+    atomic_json(root / "rejected-candidate.json", {
+        "schema_version": 1, "release": candidate["release"],
+        "candidate_digest": hashlib.sha256(canonical(candidate)).hexdigest(),
+        "validator_revision": VALIDATOR_REVISION, "reason": reason,
+    })
+
+
+def healthy(lock, binary=None):
+    if lock is None:
+        return False
+    binary = binary_path() if binary is None else Path(binary)
+    try:
+        metadata = binary.stat(follow_symlinks=False)
+        return (not binary.is_symlink() and stat.S_ISREG(metadata.st_mode)
+                and metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) == 0o700
+                and os.access(binary, os.X_OK)
+                and file_digest(binary) == lock["binary_sha256"]
+                and run([str(binary), "--version"], maximum=4096).decode().strip()
+                == f"codex-cli {lock['release']}")
+    except (OSError, UpdateError):
+        return False
+
+
+def target_identity(names):
+    values = ["host", *sorted(names)]
+    return len(values), hashlib.sha256(canonical(values)).hexdigest()
+
+
+def generation(candidate, platform_name, binary_sha, target_count=1, targets_digest=None):
+    targets_digest = targets_digest or hashlib.sha256(canonical(["local"])).hexdigest()
+    return {
+        "schema_version": 1, "channel": "stable", "release": candidate["release"],
+        "tag": candidate["tag"], "platform": platform_name, "binary_sha256": binary_sha,
+        "target_count": target_count, "targets_digest": targets_digest,
+        "assets": candidate["assets"], "validator_revision": VALIDATOR_REVISION,
+    }
+
+
+def adopt_legacy(root, binary):
+    if os.path.lexists(root / "release-lock.json") or not os.path.lexists(binary):
+        return
+    if platform_id() != "linux-aarch64":
+        raise UpdateError("validation_failed")
+    metadata = binary.stat(follow_symlinks=False)
+    if (binary.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) not in {0o700, 0o755}):
+        raise UpdateError("validation_failed")
+    validate_binary(binary, LEGACY_RELEASE, os.environ.get("CODEX_HOME"))
+    if file_digest(binary) != LEGACY_LINUX_AARCH64_BINARY_SHA256:
+        raise UpdateError("validation_failed")
+    binary.chmod(0o700)
+    legacy = {
+        "release": LEGACY_RELEASE, "tag": f"rust-v{LEGACY_RELEASE}",
+        "assets": LEGACY_ASSETS,
+    }
+    lock = generation(legacy, "linux-aarch64", file_digest(binary))
+    lock["previous"] = None
+    atomic_json(root / "release-lock.json", lock)
+
+
+def stage(candidate, root=None, binary=None, target_count=1, targets_digest=None):
+    root = package_root() if root is None else Path(root)
+    binary = binary_path() if binary is None else Path(binary)
+    private_directory(root)
+    private_directory(binary.parent)
+    adopt_legacy(root, binary)
+    current = read_lock(root)
+    platform_name = platform_id()
+    if current and current["release"] == candidate["release"] and (
+            current["tag"] != candidate["tag"] or current["assets"] != candidate["assets"]):
+        raise UpdateError("candidate_invalid")
+    if (current and current["release"] == candidate["release"] and healthy(current, binary)
+            and current["target_count"] == target_count
+            and current["targets_digest"] == (targets_digest or hashlib.sha256(
+                canonical(["local"])).hexdigest())):
+        return "current"
+    archive = root / "candidate.tar.gz"
+    staged = root / "candidate-codex"
+    candidate_lock = root / "candidate-lock.json"
+    for path in (archive, staged, candidate_lock):
+        if path.exists() or path.is_symlink():
+            if path.is_symlink() or not path.is_file():
+                raise UpdateError("validation_failed")
+            path.unlink()
+    download(candidate["assets"][platform_name], archive)
+    extract(archive, staged, ARCHIVE_MEMBERS[platform_name])
+    archive.unlink()
+    validate_binary(staged, candidate["release"], os.environ.get("CODEX_HOME"))
+    new = generation(candidate, platform_name, file_digest(staged), target_count, targets_digest)
+    new["previous"] = None if current is None else {key: value for key, value in current.items() if key != "previous"}
+    atomic_json(candidate_lock, new)
+    return "staged"
+
+
+def transaction(root, phase, had_binary, had_lock, candidate_lock, attempted_activations=0):
+    atomic_json(root / "transaction", {
+        "schema_version": 1, "phase": phase, "had_binary": had_binary, "had_lock": had_lock,
+        "target_count": candidate_lock["target_count"],
+        "targets_digest": candidate_lock["targets_digest"],
+        "attempted_activations": attempted_activations,
+        "candidate_release": candidate_lock["release"],
+        "candidate_sha256": candidate_lock["binary_sha256"],
+    })
+
+
+def activate(root=None, binary=None, finalize=True, attempted_activations=1):
+    root = package_root() if root is None else Path(root)
+    binary = binary_path() if binary is None else Path(binary)
+    candidate_binary = root / "candidate-codex"
+    candidate_lock_path = root / "candidate-lock.json"
+    candidate_binary_present = os.path.lexists(candidate_binary)
+    candidate_lock_present = os.path.lexists(candidate_lock_path)
+    if not candidate_binary_present and not candidate_lock_present:
+        if (root / "transaction").exists():
+            lock = read_lock(root)
+            if not healthy(lock, binary):
+                raise UpdateError("activation_failed")
+            (root / "transaction").unlink()
+            fsync_directory(root)
+        return "current"
+    if not candidate_binary_present or not candidate_lock_present:
+        raise UpdateError("validation_failed")
+    candidate_lock = parse_json(read_regular(candidate_lock_path, MAX_METADATA))
+    candidate_generation = {key: value for key, value in candidate_lock.items() if key != "previous"}
+    lock_generation(candidate_generation)
+    candidate_metadata = candidate_binary.stat(follow_symlinks=False)
+    if (candidate_binary.is_symlink() or not stat.S_ISREG(candidate_metadata.st_mode)
+            or candidate_metadata.st_uid != os.getuid()
+            or stat.S_IMODE(candidate_metadata.st_mode) != 0o700
+            or file_digest(candidate_binary) != candidate_lock["binary_sha256"]):
+        raise UpdateError("validation_failed")
+    previous_binary = root / "previous-codex"
+    previous_lock = root / "previous-lock.json"
+    for path in (previous_binary, previous_lock):
+        if os.path.lexists(path):
+            metadata = path.stat(follow_symlinks=False)
+            if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+                raise UpdateError("validation_failed")
+            path.unlink()
+    current = read_lock(root)
+    had_binary, had_lock = binary.exists(), current is not None
+    transaction(root, "prepared", had_binary, had_lock, candidate_lock)
+    if current is not None:
+        atomic_json(previous_lock, current)
+    if binary.exists():
+        copy_regular(binary, previous_binary)
+        if current is None or file_digest(previous_binary) != current["binary_sha256"]:
+            raise UpdateError("validation_failed")
+    transaction(root, "backed_up", had_binary, had_lock, candidate_lock)
+    try:
+        os.replace(candidate_binary, binary)
+        binary.chmod(0o700)
+        fsync_directory(binary.parent)
+        transaction(root, "activating_host", had_binary, had_lock, candidate_lock, attempted_activations)
+        atomic_json(root / "release-lock.json", candidate_lock)
+        if finalize:
+            transaction(root, "verifying", had_binary, had_lock, candidate_lock, attempted_activations)
+        if not healthy(candidate_lock, binary):
+            raise UpdateError("activation_failed")
+        candidate_lock_path.unlink(missing_ok=True)
+        if finalize:
+            (root / "transaction").unlink(missing_ok=True)
+            fsync_directory(root)
+        return "updated"
+    except Exception:
+        rollback(root, binary)
+        raise
+
+
+def rollback(root=None, binary=None):
+    root = package_root() if root is None else Path(root)
+    binary = binary_path() if binary is None else Path(binary)
+    previous_binary = root / "previous-codex"
+    previous_lock_path = root / "previous-lock.json"
+    transaction_path = root / "transaction"
+    if not os.path.lexists(transaction_path):
+        (root / "candidate-codex").unlink(missing_ok=True)
+        (root / "candidate-lock.json").unlink(missing_ok=True)
+        return
+    journal = read_transaction(root)
+    if journal is None:
+        (root / "candidate-codex").unlink(missing_ok=True)
+        (root / "candidate-lock.json").unlink(missing_ok=True)
+        return
+    previous_binary_present = os.path.lexists(previous_binary)
+    previous_lock_present = os.path.lexists(previous_lock_path)
+    if not journal["had_binary"] and not journal["had_lock"]:
+        if binary.exists():
+            binary.unlink()
+        (root / "release-lock.json").unlink(missing_ok=True)
+        (root / "candidate-codex").unlink(missing_ok=True)
+        (root / "candidate-lock.json").unlink(missing_ok=True)
+        transaction_path.unlink()
+        if binary.exists() or (root / "release-lock.json").exists():
+            raise UpdateError("rollback_failed")
+        fsync_directory(root)
+        return
+    if journal["had_binary"] != journal["had_lock"]:
+        raise UpdateError("rollback_failed")
+    current = read_lock(root)
+    if journal["phase"] in {"prepared", "activating_guests"} and healthy(current, binary):
+        for path in (previous_binary, previous_lock_path, root / "candidate-codex",
+                     root / "candidate-lock.json"):
+            if os.path.lexists(path):
+                metadata = path.stat(follow_symlinks=False)
+                if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+                    raise UpdateError("rollback_failed")
+                path.unlink()
+        transaction_path.unlink()
+        fsync_directory(root)
+        return
+    if not previous_binary_present or not previous_lock_present:
+        raise UpdateError("rollback_failed")
+    previous_lock = parse_json(read_regular(previous_lock_path, MAX_METADATA))
+    previous_generation = {key: value for key, value in previous_lock.items() if key != "previous"}
+    lock_generation(previous_generation)
+    previous_metadata = previous_binary.stat(follow_symlinks=False)
+    if (previous_binary.is_symlink() or not stat.S_ISREG(previous_metadata.st_mode)
+            or previous_metadata.st_uid != os.getuid()
+            or stat.S_IMODE(previous_metadata.st_mode) != 0o700
+            or file_digest(previous_binary) != previous_lock["binary_sha256"]):
+        raise UpdateError("rollback_failed")
+    failed = root / "failed-codex"
+    if binary.exists():
+        os.replace(binary, failed)
+    os.replace(previous_binary, binary)
+    binary.chmod(0o700)
+    fsync_directory(binary.parent)
+    atomic_json(root / "release-lock.json", previous_lock)
+    if not healthy(previous_lock, binary):
+        raise UpdateError("rollback_failed")
+    previous_lock_path.unlink(missing_ok=True)
+    failed.unlink(missing_ok=True)
+    transaction_path.unlink(missing_ok=True)
+    (root / "candidate-codex").unlink(missing_ok=True)
+    (root / "candidate-lock.json").unlink(missing_ok=True)
+    fsync_directory(root)
+
+
+def read_transaction(root):
+    path = root / "transaction"
+    if not os.path.lexists(path):
+        return None
+    try:
+        value = parse_json(read_regular(path, 4096), 4096)
+    except UpdateError:
+        raise UpdateError("rollback_failed")
+    if (not isinstance(value, dict) or set(value) != {
+            "schema_version", "phase", "had_binary", "had_lock", "target_count",
+            "targets_digest", "attempted_activations", "candidate_release", "candidate_sha256"}
+            or value["schema_version"] != 1
+            or value["phase"] not in {
+                "prepared", "backed_up", "activating_guests", "activating_host", "verifying"}
+            or type(value["had_binary"]) is not bool or type(value["had_lock"]) is not bool
+            or type(value["target_count"]) is not int or not DIGEST.fullmatch(value.get("targets_digest", ""))
+            or type(value["attempted_activations"]) is not int
+            or not isinstance(value["candidate_release"], str)
+            or not DIGEST.fullmatch(value.get("candidate_sha256", ""))):
+        raise UpdateError("rollback_failed")
+    return value
+
+
+def recover(root=None, binary=None):
+    root = package_root() if root is None else Path(root)
+    binary = binary_path() if binary is None else Path(binary)
+    if read_transaction(root) is None:
+        return
+    rollback(root, binary)
+
+
+def candidate_request(candidate):
+    return canonical({"schema_version": 1, **candidate})
+
+
+def candidate_from_lock(lock):
+    return {"release": lock["release"], "tag": lock["tag"], "assets": lock["assets"]}
+
+
+def sandbox_config():
+    path = Path(os.environ.get("OPENCODE_VM_CONFIG", "~/.config/dotfiles-ai/sandbox.json")).expanduser()
+    if not path.exists():
+        return []
+    value = parse_json(path.read_bytes())
+    workspaces = value.get("workspaces") if isinstance(value, dict) else None
+    if not isinstance(workspaces, list) or len(workspaces) > 32:
+        raise UpdateError("target_unavailable")
+    names = []
+    for workspace in workspaces:
+        name = workspace.get("name") if isinstance(workspace, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", name):
+            raise UpdateError("target_unavailable")
+        names.append(name)
+    return names
+
+
+def guest_call(action, workspace, candidate=None, expected_release=None):
+    helper = shutil.which("sandbox-vm")
+    if not helper:
+        raise UpdateError("target_unavailable")
+    argv = [helper, f"codex-{action}", workspace, "--request-json", "-"]
+    try:
+        completed = subprocess.run(
+            argv, input=b"" if candidate is None else candidate_request(candidate),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise UpdateError("target_unavailable" if action == "stage" else "activation_failed")
+    if completed.returncode or len(completed.stdout) + len(completed.stderr) > 64 * 1024:
+        raise UpdateError("target_unavailable" if action == "stage" else "activation_failed")
+    value = parse_json(completed.stdout, 64 * 1024)
+    if (not isinstance(value, dict) or set(value) != {
+            "schema_version", "status", "release", "target_count", "reason"}
+            or value["schema_version"] != 1 or value["target_count"] != 1
+            or value["reason"] not in REASONS
+            or value["release"] is not None and not SEMVER.fullmatch(value["release"])
+            or action == "stage" and value["status"] not in {"current", "updated"}
+            or action == "activate" and value["status"] not in {"current", "updated"}
+            or action == "rollback" and value["status"] != "retained"
+            or action in {"stage", "activate"} and value["reason"] != "none"
+            or action == "stage" and value["release"] != candidate["release"]
+            or expected_release is not None and value["release"] != expected_release):
+        raise UpdateError("target_unavailable" if action == "stage" else "activation_failed")
+    return "staged" if action == "stage" and value["status"] == "updated" else value["status"]
+
+
+def recover_host(root, binary, workspaces):
+    journal = read_transaction(root)
+    if journal is None:
+        return
+    count, digest = target_identity(workspaces)
+    if journal["target_count"] != count or journal["targets_digest"] != digest:
+        raise UpdateError("rollback_failed")
+    if journal["phase"] == "verifying":
+        failed = False
+        for workspace in workspaces:
+            try:
+                guest_call("activate", workspace, expected_release=journal["candidate_release"])
+            except Exception:
+                failed = True
+        lock = read_lock(root)
+        if failed or not healthy(lock, binary):
+            raise UpdateError("rollback_failed")
+        (root / "transaction").unlink()
+        fsync_directory(root)
+        return
+    failed = False
+    for workspace in reversed(workspaces):
+        try:
+            guest_call("rollback", workspace)
+        except Exception:
+            failed = True
+    try:
+        recover(root, binary)
+    except Exception:
+        failed = True
+    if failed:
+        raise UpdateError("rollback_failed")
+
+
+def result(status, release, target_count, reason="none"):
+    if reason not in REASONS:
+        reason = "candidate_invalid"
+    print(json.dumps({
+        "schema_version": 1, "status": status, "release": release,
+        "target_count": target_count, "reason": reason,
+    }, sort_keys=True, separators=(",", ":")))
+
+
+def local_update():
+    root, binary = package_root(), binary_path()
+    private_directory(root)
+    descriptor = process_lock(root)
+    with os.fdopen(descriptor, "r+"):
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        recover(root, binary)
+        current = read_lock(root)
+        was_healthy = healthy(current, binary)
+        candidate = None
+        try:
+            candidate = fetch_release()
+            if rejected_candidate(candidate, root):
+                raise UpdateError("validation_failed")
+            if current and semver(candidate["release"]) < semver(current["release"]):
+                raise UpdateError("candidate_invalid")
+            staged = stage(candidate, root, binary)
+            status = activate(root, binary) if staged == "staged" else "current"
+            result(status, candidate["release"], 1)
+            return 0
+        except UpdateError as error:
+            if candidate is not None:
+                reject_candidate(candidate, error.reason, root)
+            if was_healthy:
+                result("retained", current["release"], 1, error.reason)
+                return 0
+            result("retained", None, 1, error.reason)
+            return 1
+
+
+def host_update():
+    root, binary = package_root(), binary_path()
+    private_directory(root)
+    descriptor = process_lock(root)
+    with os.fdopen(descriptor, "r+"):
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        workspaces = sandbox_config()
+        recover_host(root, binary, workspaces)
+        current = read_lock(root)
+        target_count, targets_digest = target_identity(workspaces)
+        was_healthy = (healthy(current, binary) and current["target_count"] == target_count
+                       and current["targets_digest"] == targets_digest)
+        candidate = None
+        staged_guests, activated_guests = [], []
+        host_staged = False
+        if was_healthy:
+            try:
+                active_candidate = candidate_from_lock(current)
+                for workspace in workspaces:
+                    status = guest_call("stage", workspace, active_candidate)
+                    if status == "staged":
+                        staged_guests.append(workspace)
+                        was_healthy = False
+                for workspace in reversed(staged_guests):
+                    guest_call("rollback", workspace)
+                staged_guests.clear()
+            except UpdateError:
+                # The private fleet attestation authorizes soft retention when a
+                # previously verified target is temporarily unreachable.
+                staged_guests.clear()
+        try:
+            candidate = fetch_release()
+            if rejected_candidate(candidate, root):
+                raise UpdateError("validation_failed")
+            if current and semver(candidate["release"]) < semver(current["release"]):
+                raise UpdateError("candidate_invalid")
+            host_staged = stage(
+                candidate, root, binary, target_count=target_count, targets_digest=targets_digest,
+            ) == "staged"
+            for workspace in workspaces:
+                if guest_call("stage", workspace, candidate) == "staged":
+                    staged_guests.append(workspace)
+        except Exception as raw_error:
+            expected = isinstance(raw_error, UpdateError)
+            error = raw_error if expected else UpdateError("validation_failed")
+            if expected and candidate is not None:
+                reject_candidate(candidate, error.reason, root)
+            for workspace in reversed(staged_guests):
+                try:
+                    guest_call("rollback", workspace)
+                except Exception:
+                    pass
+            rollback(root, binary)
+            if expected and was_healthy:
+                result("retained", current["release"], len(workspaces) + 1, error.reason)
+                return 0
+            result("retained", None, len(workspaces) + 1, error.reason)
+            return 1
+        if not host_staged and not staged_guests:
+            result("current", candidate["release"], len(workspaces) + 1)
+            return 0
+        commit_decided = False
+        try:
+            candidate_lock = read_lock(root) if not host_staged else parse_json(
+                read_regular(root / "candidate-lock.json", MAX_METADATA))
+            transaction(root, "activating_guests", binary.exists(), current is not None,
+                        candidate_lock, 0)
+            for workspace in staged_guests:
+                activated_guests.append(workspace)
+                transaction(root, "activating_guests", binary.exists(), current is not None,
+                            candidate_lock, len(activated_guests))
+                guest_call("activate", workspace, expected_release=candidate["release"])
+            status = activate(
+                root, binary, finalize=False, attempted_activations=len(activated_guests) + 1,
+            ) if host_staged else "current"
+            for workspace in workspaces:
+                if guest_call("stage", workspace, candidate) != "current":
+                    raise UpdateError("activation_failed")
+            if not healthy(read_lock(root), binary):
+                raise UpdateError("activation_failed")
+            transaction(root, "verifying", binary.exists(), current is not None,
+                        candidate_lock, len(activated_guests) + 1)
+            commit_decided = True
+            for workspace in staged_guests:
+                if guest_call("activate", workspace, expected_release=candidate["release"]) != "current":
+                    raise UpdateError("activation_failed")
+            (root / "transaction").unlink(missing_ok=True)
+            result("updated" if host_staged or staged_guests else status,
+                   candidate["release"], len(workspaces) + 1)
+            return 0
+        except Exception as activation_error:
+            if commit_decided:
+                result("updated", candidate["release"], len(workspaces) + 1,
+                       "activation_failed")
+                return 1
+            expected = isinstance(activation_error, UpdateError)
+            rollback_failed = False
+            try:
+                rollback(root, binary)
+            except Exception:
+                rollback_failed = True
+            for workspace in reversed(activated_guests):
+                try:
+                    guest_call("rollback", workspace)
+                except Exception:
+                    rollback_failed = True
+            reason = "rollback_failed" if rollback_failed else "rollback_completed"
+            result("retained", current["release"] if current else None,
+                   len(workspaces) + 1, reason)
+            return 1 if rollback_failed or not was_healthy or not expected else 0
+
+
+def parse_candidate(raw):
+    value = parse_json(raw)
+    if not isinstance(value, dict) or value.pop("schema_version", None) != 1:
+        raise UpdateError
+    return validate_release({
+        "name": value.get("release"), "tag_name": value.get("tag"),
+        "draft": False, "prerelease": False,
+        "assets": [{"name": ASSETS[name], "digest": "sha256:" + asset["sha256"],
+                    "size": asset["size"], "browser_download_url": asset["url"]}
+                   for name, asset in value.get("assets", {}).items()],
+    })
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="codex-update-all")
+    parser.add_argument("mode", nargs="?", choices=(
+        "guest-stage", "guest-activate", "guest-rollback", "recover-local"))
+    args = parser.parse_args(argv)
+    try:
+        if args.mode == "guest-stage":
+            candidate = parse_candidate(sys.stdin.buffer.read(MAX_METADATA + 1))
+            root, binary = package_root(), binary_path()
+            private_directory(root)
+            descriptor = process_lock(root)
+            with os.fdopen(descriptor, "r+"):
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                journal = read_transaction(root)
+                if journal is not None:
+                    lock = read_lock(root)
+                    if (journal["candidate_release"] == candidate["release"]
+                            and lock is not None and lock["release"] == candidate["release"]
+                            and healthy(lock, binary)):
+                        result("current", candidate["release"], 1)
+                        return 0
+                    recover(root, binary)
+                status = stage(candidate, root, binary)
+                result("updated" if status == "staged" else "current", candidate["release"], 1)
+                return 0
+        if args.mode == "guest-activate":
+            root, binary = package_root(), binary_path()
+            private_directory(root)
+            descriptor = process_lock(root)
+            with os.fdopen(descriptor, "r+"):
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                status = activate(root, binary, finalize=False)
+                lock = read_lock(root)
+                result(status, lock["release"] if lock else None, 1)
+                return 0
+        if args.mode == "guest-rollback":
+            root, binary = package_root(), binary_path()
+            private_directory(root)
+            descriptor = process_lock(root)
+            with os.fdopen(descriptor, "r+"):
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                rollback(root, binary)
+                lock = read_lock(root)
+                result("retained", lock["release"] if lock else None, 1, "rollback_completed")
+                return 0
+        if args.mode == "recover-local":
+            root, binary = package_root(), binary_path()
+            private_directory(root)
+            descriptor = process_lock(root)
+            with os.fdopen(descriptor, "r+"):
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                if sys.platform == "darwin":
+                    recover_host(root, binary, sandbox_config())
+                else:
+                    recover(root, binary)
+            return 0
+        if os.environ.get("DOTFILES_AI_REMOTE_USER_ENVIRONMENT") == "1":
+            return local_update()
+        if sys.platform == "darwin":
+            return host_update()
+        root, binary = package_root(), binary_path()
+        private_directory(root)
+        descriptor = process_lock(root)
+        with os.fdopen(descriptor, "r+"):
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            recover(root, binary)
+            adopt_legacy(root, binary)
+            lock = read_lock(root)
+            if not healthy(lock, binary):
+                result("retained", lock["release"] if lock else None, 1, "validation_failed")
+                return 1
+            result("current", lock["release"], 1)
+            return 0
+    except Exception:
+        result("retained", None, 0, "rollback_failed")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

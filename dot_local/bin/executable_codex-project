@@ -4,8 +4,11 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import platform
+import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 
@@ -260,24 +263,110 @@ def validate_home(target, state_root=None):
     return target
 
 
-def resolve_homebrew(record, version):
-    record = checked_path(record)
-    metadata = record.stat(follow_symlinks=False)
-    if (record.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 4096):
-        raise ValueError("unsafe Homebrew executable record")
-    value = record.read_text(encoding="utf-8").strip()
-    if not value or "\n" in value or "\x00" in value:
-        raise ValueError("invalid Homebrew executable record")
-    executable = checked_path(value)
-    parts = executable.parts
-    marker = next((index for index in range(len(parts) - 3)
-                   if parts[index:index + 3] == ("Caskroom", "codex", version)), None)
+def _resolve_managed(lock_path, executable):
+    lock_path = checked_path(lock_path)
+    executable = checked_path(executable)
+    metadata = lock_path.stat(follow_symlinks=False)
+    if (lock_path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_size > 1024 * 1024):
+        raise ValueError("unsafe Codex release lock")
+    value = json.loads(lock_path.read_text(encoding="utf-8"))
+    machine = platform.machine().lower()
+    current_platform = ("darwin-aarch64" if sys.platform == "darwin" and machine in {"arm64", "aarch64"}
+                        else "linux-aarch64" if sys.platform.startswith("linux") and machine in {"arm64", "aarch64"}
+                        else "linux-x86_64" if sys.platform.startswith("linux") and machine == "x86_64"
+                        else "unsupported")
+    assets = {
+        "darwin-aarch64": "codex-aarch64-apple-darwin.tar.gz",
+        "linux-aarch64": "codex-aarch64-unknown-linux-musl.tar.gz",
+        "linux-x86_64": "codex-x86_64-unknown-linux-musl.tar.gz",
+    }
+
+    def generation(item):
+        required = {"schema_version", "channel", "release", "tag", "platform", "binary_sha256",
+                    "target_count", "targets_digest", "assets", "validator_revision"}
+        if (not isinstance(item, dict) or set(item) != required or item["schema_version"] != 1
+                or item["channel"] != "stable" or item["tag"] != f"rust-v{item['release']}"
+                or item["platform"] != current_platform or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", item["release"])
+                or not re.fullmatch(r"[0-9a-f]{64}", item["binary_sha256"])
+                or type(item["target_count"]) is not int or not 1 <= item["target_count"] <= 33
+                or not re.fullmatch(r"[0-9a-f]{64}", item["targets_digest"])
+                or item["validator_revision"] != "codex-release-validator-1"
+                or not isinstance(item["assets"], dict) or set(item["assets"]) != set(assets)):
+            raise ValueError("invalid Codex release lock")
+        for name, asset in item["assets"].items():
+            expected = f"https://github.com/openai/codex/releases/download/rust-v{item['release']}/{assets[name]}"
+            if (not isinstance(asset, dict) or set(asset) != {"url", "sha256", "size"}
+                    or asset["url"] != expected or not re.fullmatch(r"[0-9a-f]{64}", asset["sha256"])
+                    or type(asset["size"]) is not int or not 0 < asset["size"] <= 256 * 1024 * 1024):
+                raise ValueError("invalid Codex release lock")
+
+    required = {"schema_version", "channel", "release", "tag", "platform", "binary_sha256",
+                "target_count", "targets_digest", "assets", "validator_revision", "previous"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError("invalid Codex release lock")
+    previous = value.pop("previous")
+    generation(value)
+    if previous is not None:
+        generation(previous)
     metadata = executable.stat(follow_symlinks=False)
-    if (marker is None or executable.is_symlink() or not stat.S_ISREG(metadata.st_mode)
-            or not os.access(executable, os.X_OK)):
-        raise ValueError("invalid Homebrew Codex executable")
+    if (executable.is_symlink() or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700
+            or not os.access(executable, os.X_OK)
+            or digest(executable) != value["binary_sha256"]):
+        raise ValueError("invalid managed Codex executable")
+    result = subprocess.run([executable, "--version"], text=True, capture_output=True, timeout=5)
+    if result.returncode or result.stderr or result.stdout.strip() != f"codex-cli {value['release']}":
+        raise ValueError("invalid managed Codex executable")
     return executable
+
+
+def resolve_managed(lock_path, executable):
+    root = checked_path(Path(lock_path).expanduser()).parent
+    descriptor = os.open(root / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600):
+            raise ValueError("unsafe Codex process lock")
+        fcntl.flock(descriptor, fcntl.LOCK_SH)
+        return _resolve_managed(lock_path, executable)
+    finally:
+        os.close(descriptor)
+
+
+def exec_managed(lock_path, executable, arguments):
+    root = checked_path(Path(lock_path).expanduser()).parent
+    lock = os.open(root / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    launch = Path(executable).parent / f".codex-launch-{os.getpid()}"
+    pid = None
+    try:
+        metadata = os.fstat(lock)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600):
+            raise ValueError("unsafe Codex process lock")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        executable = _resolve_managed(lock_path, executable)
+        if os.path.lexists(launch):
+            raise ValueError("unsafe Codex launch link")
+        os.link(executable, launch, follow_symlinks=False)
+        with executable.open("rb") as stream:
+            script = stream.read(2) == b"#!"
+        pid = os.posix_spawn(launch, [str(executable), *arguments], os.environ)
+        if not script:
+            launch.unlink()
+            fsync_directory(launch.parent)
+    finally:
+        os.close(lock)
+        if pid is None:
+            launch.unlink(missing_ok=True)
+    try:
+        _, status = os.waitpid(pid, 0)
+    finally:
+        if script:
+            launch.unlink(missing_ok=True)
+            fsync_directory(launch.parent)
+    raise SystemExit(os.waitstatus_to_exitcode(status))
 
 
 def project(source, target):
@@ -334,8 +423,11 @@ def main(argv=None):
     if argv[:1] == ["--validate-home"] and len(argv) in {2, 3}:
         validate_home(Path(argv[1]), Path(argv[2]) if len(argv) == 3 else None)
         return
-    if argv[:1] == ["--resolve-homebrew"] and len(argv) == 3:
-        print(resolve_homebrew(Path(argv[1]), argv[2]))
+    if argv[:1] == ["--resolve-managed"] and len(argv) == 3:
+        print(resolve_managed(Path(argv[1]), Path(argv[2])))
+        return
+    if argv[:1] == ["--exec-managed"] and len(argv) >= 3:
+        exec_managed(Path(argv[1]), Path(argv[2]), argv[3:])
         return
     if len(argv) != 2:
         raise SystemExit("usage: codex-project SOURCE CODEX_HOME")

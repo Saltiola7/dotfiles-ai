@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+{{ if ne .dotfiles_ai.codex.channel "stable" -}}
+{{ fail "codex.channel must be stable" }}
+{{ end -}}
+{{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
+{{ else -}}
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+{{ end -}}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export DOTFILES_AI_REMOTE_USER_ENVIRONMENT=1
+{{ end -}}
+exec "$HOME/.local/bin/codex-update-all"
