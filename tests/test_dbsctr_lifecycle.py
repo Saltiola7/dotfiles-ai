@@ -298,7 +298,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "github.com", "release-assets.githubusercontent.com",
     ]
     assert rolling_contract["lock"]["maximum_generations"] == 2
-    assert {"platform", "binary_sha256"} <= set(rolling_contract["lock"]["required"])
+    assert {"platform", "binary_sha256", "target_count", "targets_digest"} <= set(
+        rolling_contract["lock"]["required"]
+    )
     assert rolling_contract["lock"]["platforms"] == [
         "darwin-aarch64", "linux-aarch64", "linux-x86_64",
     ]
@@ -309,6 +311,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "registered_guests", "host",
     ]
     assert rolling_contract["transaction"]["running_process_action"] == "none"
+    assert rolling_contract["transaction_journal"]["phases"] == [
+        "prepared", "backed_up", "activating_guests", "activating_host", "verifying",
+    ]
     assert rolling_contract["transaction"]["roles"] == {
         "darwin": "host_coordinator",
         "managed_fedora": "host_command_only",
