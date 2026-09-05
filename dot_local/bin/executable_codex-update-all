@@ -950,8 +950,8 @@ def host_update():
                 candidate, root, binary, target_count=target_count, targets_digest=targets_digest,
             ) == "staged"
             for workspace in workspaces:
-                guest_call("stage", workspace, candidate)
-                staged_guests.append(workspace)
+                if guest_call("stage", workspace, candidate) == "staged":
+                    staged_guests.append(workspace)
         except Exception as raw_error:
             expected = isinstance(raw_error, UpdateError)
             error = raw_error if expected else UpdateError("validation_failed")
@@ -968,13 +968,16 @@ def host_update():
                 return 0
             result("retained", None, len(workspaces) + 1, error.reason)
             return 1
+        if not host_staged and not staged_guests:
+            result("current", candidate["release"], len(workspaces) + 1)
+            return 0
         commit_decided = False
         try:
             candidate_lock = read_lock(root) if not host_staged else parse_json(
                 read_regular(root / "candidate-lock.json", MAX_METADATA))
             transaction(root, "activating_guests", binary.exists(), current is not None,
                         candidate_lock, 0)
-            for workspace in workspaces:
+            for workspace in staged_guests:
                 activated_guests.append(workspace)
                 transaction(root, "activating_guests", binary.exists(), current is not None,
                             candidate_lock, len(activated_guests))
@@ -990,11 +993,11 @@ def host_update():
             transaction(root, "verifying", binary.exists(), current is not None,
                         candidate_lock, len(activated_guests) + 1)
             commit_decided = True
-            for workspace in workspaces:
+            for workspace in staged_guests:
                 if guest_call("activate", workspace, expected_release=candidate["release"]) != "current":
                     raise UpdateError("activation_failed")
             (root / "transaction").unlink(missing_ok=True)
-            result("updated" if host_staged or activated_guests else status,
+            result("updated" if host_staged or staged_guests else status,
                    candidate["release"], len(workspaces) + 1)
             return 0
         except Exception as activation_error:

@@ -341,8 +341,14 @@ def test_host_rolling_update_stages_all_guests_before_activation(
         return "staged"
 
     monkeypatch.setattr(helper, "stage", staged)
-    monkeypatch.setattr(helper, "guest_call", lambda action, workspace, candidate=None, **_kwargs:
-                        calls.append(f"{action}-{workspace}") or "current")
+    stages = {}
+    def guest(action, workspace, candidate=None, **_kwargs):
+        calls.append(f"{action}-{workspace}")
+        if action == "stage":
+            stages[workspace] = stages.get(workspace, 0) + 1
+            return "staged" if stages[workspace] == 1 else "current"
+        return "current"
+    monkeypatch.setattr(helper, "guest_call", guest)
     monkeypatch.setattr(helper, "activate", lambda *_args, **_kwargs:
                         calls.append("activate-host") or "updated")
 
@@ -381,6 +387,8 @@ def test_host_activation_oserror_rolls_back_every_attempted_guest(
 
     def guest(action, workspace, candidate=None, **_kwargs):
         calls.append((action, workspace))
+        if action == "stage":
+            return "staged"
         if action == "activate" and workspace == "workspace-b":
             raise OSError("lost VM response")
         return "current"
@@ -423,6 +431,7 @@ def test_late_guest_verification_failure_rolls_back_all_activated_guests(
             stage_counts[workspace] = stage_counts.get(workspace, 0) + 1
             if workspace == "workspace-b" and stage_counts[workspace] == 2:
                 raise helper.UpdateError("activation_failed")
+            return "staged" if stage_counts[workspace] == 1 else "current"
         return "current"
 
     monkeypatch.setattr(helper, "stage", staged)
@@ -443,7 +452,7 @@ def test_lost_finalize_response_retains_commit_journal_without_rollback(
     monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
     monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
     candidate = helper.validate_release(release_payload())
-    calls, activations = [], {}
+    calls, activations, stages = [], {}, {}
     monkeypatch.setattr(helper, "fetch_release", lambda: candidate)
     monkeypatch.setattr(helper, "read_lock", lambda *_args: None)
     health = iter((False, True))
@@ -460,6 +469,9 @@ def test_lost_finalize_response_retains_commit_journal_without_rollback(
 
     def guest(action, workspace, candidate=None, **_kwargs):
         calls.append((action, workspace))
+        if action == "stage":
+            stages[workspace] = stages.get(workspace, 0) + 1
+            return "staged" if stages[workspace] == 1 else "current"
         if action == "activate":
             activations[workspace] = activations.get(workspace, 0) + 1
             if workspace == "workspace-b" and activations[workspace] == 2:
