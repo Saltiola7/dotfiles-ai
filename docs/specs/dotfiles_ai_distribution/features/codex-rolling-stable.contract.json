@@ -21,7 +21,8 @@
   },
   "lock": {
     "path": "~/.local/state/dotfiles-ai/codex-package/release-lock.json",
-    "required": ["schema_version", "channel", "release", "tag", "assets", "validator_revision", "previous"],
+    "required": ["schema_version", "channel", "release", "tag", "platform", "binary_sha256", "assets", "validator_revision", "previous"],
+    "platforms": ["darwin-aarch64", "linux-aarch64", "linux-x86_64"],
     "asset_required": ["url", "sha256", "size"],
     "validator_revision": "codex-release-validator-1",
     "maximum_generations": 2

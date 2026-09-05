@@ -84,6 +84,8 @@ closed schema contains exactly:
   "channel": "stable",
   "release": "0.153.3",
   "tag": "rust-v0.153.3",
+  "platform": "darwin-aarch64",
+  "binary_sha256": "<derived executable hex>",
   "assets": {
     "darwin-aarch64": {"url": "<canonical>", "sha256": "<hex>", "size": 1},
     "linux-aarch64": {"url": "<canonical>", "sha256": "<hex>", "size": 1},
@@ -94,14 +96,17 @@ closed schema contains exactly:
 }
 ```
 
-`previous`, when present, has the same release/tag/assets/validator fields but no
-nested `previous`. The lock never stores timestamps, paths, usernames, machine
+`previous`, when present, has the same release/tag/platform/binary digest/assets/
+validator fields but no nested `previous`. `binary_sha256` is derived from the
+closed extracted regular executable after archive verification and before staging;
+it is never substituted with the archive digest. The lock never stores timestamps, paths, usernames, machine
 identity, credentials, API response bodies, or authentication state. An existing
 lock with unknown fields, unsafe values, a missing active binary, or mismatched
 binary digest is unhealthy and cannot authorize a soft failure.
 
 A healthy fleet means host and every registered guest lock select the same
-release and platform digest and every active binary matches. “Latest unchanged”
+release, each lock selects its actual platform asset, and every active binary
+matches that lock's derived executable digest. “Latest unchanged”
 still probes all target locks and binaries; only a healthy fleet may no-op or
 soft-fail. Drift, missing target state, or mixed versions require repair from the
 official active-release assets and fail closed if repair cannot stage everywhere.

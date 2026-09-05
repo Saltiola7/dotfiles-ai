@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - Rolling Executable Digest Correction
+
+- Reopened rolling readiness before source changes because official metadata
+  hashes archives while the wrapper executes an extracted binary.
+- Added exact platform and derived executable SHA-256 to each private active and
+  previous lock generation; archive and binary digests cannot substitute.
+
 ## 2026-09-04 - Codex Rolling Stable Readiness
 
 - Reopened delivered Codex distribution after the moving Homebrew cask deleted
