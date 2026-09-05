@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-04 - Codex Rolling Stable Readiness
+
+- Reopened delivered Codex distribution after the moving Homebrew cask deleted
+  the wrapper's recorded `0.151.0` executable while installing `0.153.3`.
+- Specified Codex-only latest-stable checks on every apply, official archive
+  digests, private release lock, all-target staging, semantic validators,
+  next-launch activation, soft update failure, and reverse rollback.
+- Marked only `codex-rolling-stable` ready. Release reprobe, history adapter,
+  workers, recovery, reducers, benchmarks, and federation remain dependency-gated.
+
 ## 2026-09-01 - Portable Rollout Runtime
 
 - Added an owner- and symlink-safe bootstrap for one full public revision,

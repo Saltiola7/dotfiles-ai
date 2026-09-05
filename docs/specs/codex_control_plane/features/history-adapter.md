@@ -1,6 +1,6 @@
 # Codex History Adapter
 
-**Status:** Ready
+**Status:** Captured pending rolling-release reprobe
 
 ## Boundary
 

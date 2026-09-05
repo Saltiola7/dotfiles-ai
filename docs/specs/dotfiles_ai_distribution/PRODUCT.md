@@ -18,8 +18,9 @@ target files.
 2. On macOS, the source installs OpenCode from its official Homebrew formula;
    OpenCode then loads the managed control plane and DBSCTR tools from complete,
    rendered configuration.
-3. On macOS, the source also installs Codex from its official Homebrew cask;
-   Codex loads independent managed configuration and the same shared skills while
+3. On every apply, the source checks the official stable Codex release, stages
+   one digest-verified compatible candidate on the host and registered guests,
+   and activates it for later launches without interrupting active processes;
    desktop state remains untouched.
 4. Herdr runs on macOS with optional 1Password integration; absence of
    1Password never blocks Herdr or shell startup.
@@ -136,6 +137,9 @@ approval outcome changes.
 - OpenCode resolves the expected agents, commands, skills, and DBSCTR tools.
 - Codex resolves the dedicated CLI home, managed wrapper, shared skills, and
   captured adapter contracts without changing desktop state.
+- Codex update infrastructure failure retains one healthy release everywhere and
+  does not block unrelated chezmoi apply work; bootstrap without a healthy binary
+  remains fail-closed.
 - Herdr configuration and LaunchAgent plists parse and run without embedded
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
