@@ -10,6 +10,40 @@ install -d -m 0700 "$HOME"
 install -d -m 0755 /tmp/dotfiles-ai-test-bin
 printf '#!/bin/sh\nexit 0\n' >"$DOTFILES_AI_SYSTEMCTL"
 chmod 0755 "$DOTFILES_AI_SYSTEMCTL"
+install -d -m 0700 "$HOME/.local/libexec/dotfiles-ai" "$HOME/.local/state/dotfiles-ai/codex-package"
+cat >"$HOME/.local/libexec/dotfiles-ai/codex" <<'EOF'
+#!/bin/sh
+test "${1:-}" != --version || { echo 'codex-cli 0.153.4'; exit; }
+exit 0
+EOF
+chmod 0700 "$HOME/.local/libexec/dotfiles-ai/codex"
+python3 - <<'PY'
+import hashlib, json, os
+from pathlib import Path
+home = Path(os.environ["HOME"])
+binary = home / ".local/libexec/dotfiles-ai/codex"
+version = "0.153.4"
+names = {
+    "darwin-aarch64": "codex-aarch64-apple-darwin.tar.gz",
+    "linux-aarch64": "codex-aarch64-unknown-linux-musl.tar.gz",
+    "linux-x86_64": "codex-x86_64-unknown-linux-musl.tar.gz",
+}
+lock = {
+    "schema_version": 1, "channel": "stable", "release": version,
+    "tag": f"rust-v{version}", "platform": "linux-x86_64",
+    "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+    "target_count": 1,
+    "targets_digest": hashlib.sha256(b'["local"]').hexdigest(),
+    "assets": {platform: {
+        "url": f"https://github.com/openai/codex/releases/download/rust-v{version}/{name}",
+        "sha256": "a" * 64, "size": 1,
+    } for platform, name in names.items()},
+    "validator_revision": "codex-release-validator-1", "previous": None,
+}
+path = home / ".local/state/dotfiles-ai/codex-package/release-lock.json"
+path.write_text(json.dumps(lock, sort_keys=True, separators=(",", ":")) + "\n")
+path.chmod(0o600)
+PY
 
 revision=$(git -C "$source_root" rev-parse HEAD)
 "$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"
