@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - Rolling Authority Digest Correction
+
+- Reopened rolling readiness after review found that one platform asset digest
+  could not detect same-release mutation elsewhere in official metadata.
+- Bound rejections to the canonical full candidate, made crash recovery validate
+  fleet identity before idempotent all-target rollback, and limited lockless
+  adoption to the known delivered Fedora aarch64 `0.151.0` binary.
+
 ## 2026-09-05 - Rolling Fleet Attestation Correction
 
 - Reopened rolling readiness before Gate Commits because host health alone could

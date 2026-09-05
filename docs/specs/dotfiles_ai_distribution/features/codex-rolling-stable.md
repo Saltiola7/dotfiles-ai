@@ -121,9 +121,12 @@ soft-fail. Drift, missing target state, or mixed versions require repair from th
 official active-release assets and fail closed if repair cannot stage everywhere.
 
 One sibling `rejected-candidate.json` uses the same ownership, mode, fsync, and
-symlink rules and contains exactly `schema_version`, `release`, `asset_sha256`,
+symlink rules and contains exactly `schema_version`, `release`, `candidate_digest`,
 `validator_revision`, and one allowlisted body-free reason. A matching rejected
-version/digest/validator no-ops without another download. A newer candidate or
+version/digest/validator no-ops without another download. `candidate_digest` is
+SHA-256 of canonical JSON containing release, tag, and all three exact asset URL,
+size, and digest objects; any same-version difference is authority mutation and
+fails closed rather than clearing rejection. A newer candidate or
 validator revision replaces it atomically; it never authorizes activation.
 
 ## Apply Flow
@@ -199,6 +202,19 @@ digest, attempted activation count, and candidate release/digest. Phases are
 Every phase and rename is fsynced. Recovery runs before metadata lookup and either
 finishes verified activation or rolls attempted targets back; artifacts are not
 deleted until restored health is proven.
+
+Host recovery first validates the journal target count/digest against the current
+sandbox configuration. Mismatch retains the journal and fails closed. A match
+issues idempotent rollback to every current registered workspace in reverse
+configuration order, then rolls back host state; unattempted targets merely clear
+staging while attempted targets restore their retained transaction generation.
+
+The one supported lockless migration is the delivered Fedora aarch64 `0.151.0`
+regular binary. Before staging, its exact version and executable digest are bound
+to a synthetic previous generation using the source-controlled historical
+`0.151.0` release URL/checksum. Unknown lockless versions, unsafe modes, and the
+Homebrew cask are never adopted. A lockless host has no managed direct binary and
+therefore activates `0.153.3` as bootstrap; the retained cask remains untouched.
 
 ## Behaviors
 
