@@ -426,7 +426,7 @@ def test_opencode_rolling_stable_slice_is_ready() -> None:
     slice_ = manifest["slices"][0]
     assert slice_["execution_owner"] == "build"
     assert slice_["context"] == "dotfiles_ai_distribution"
-    assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 9)}
+    assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 10)}
     spec = text("docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md")
     for phrase in (
         "opencode-darwin-arm64.zip",
@@ -435,6 +435,8 @@ def test_opencode_rolling_stable_slice_is_ready() -> None:
         "all-target staging",
         "Current OpenCode/Herdr processes are never restarted",
         "full AI apply",
+        "root-owned `/usr/local/libexec/opencode`",
+        "user-local `~/.local/libexec/dotfiles-ai/opencode`",
     ):
         assert phrase in spec
     plan = json.loads(text("docs/specs/dotfiles_ai_distribution/OPENCODE-ROLLING-STABLE.plan.json"))

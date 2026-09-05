@@ -17,6 +17,17 @@ from host `1.18.29` plus delivered guest `1.18.25`. It does not change OpenCode
 configuration, models, agents, permissions, sessions, credentials, or DBSCTR
 semantics.
 
+Fedora currently executes a root-owned `/usr/local/libexec/opencode` provisioned
+by Lima. First migration verifies its exact delivered `1.18.25` version and
+executable digest, snapshots it as rollback authority without modifying it, then
+installs the candidate at user-local `~/.local/libexec/dotfiles-ai/opencode` and
+switches the managed wrapper. Unknown root binaries fail closed. After all guest
+wrappers and user-local binaries pass fleet validation, the Lima provisioning
+rule stops installing/updating OpenCode; removal of the retained root binary is a
+separate retirement action. Rollback before commit restores wrapper selection to
+the verified root binary; later rolling generations use user-local active/previous
+files only.
+
 ## Release Contract
 
 The updater uses bounded HTTPS metadata from
@@ -101,6 +112,9 @@ discriminators, output overflow, timeout, or crash rejects the candidate.
   helper bootstrap, VM-state restoration, and no divergence.
 - Existing OpenCode control-plane, distribution, remote-user, Lima, and Codex
   rolling tests remain green.
+- Migration fixtures prove root-owned `1.18.25` is read-only rollback authority,
+  unknown root binaries are rejected, wrapper cutover is atomic, and provisioning
+  retirement occurs only after fleet validation.
 - Live Deploy/Operate proves host and every guest version, resolved config/roles,
   current-process preservation, and the previously failing full AI apply.
 
