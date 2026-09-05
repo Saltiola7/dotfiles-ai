@@ -161,13 +161,19 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert slices["codex-rolling-stable"]["state"] == "ready"
+    assert slices["codex-rolling-stable"]["execution_owner"] == "build"
+    assert slices["codex-rolling-stable"]["depends_on"] == ["codex-distribution"]
+    assert slices["codex-release-reprobe"]["state"] == "captured"
+    assert slices["codex-release-reprobe"]["execution_owner"] == "discovery"
+    assert slices["codex-release-reprobe"]["depends_on"] == ["codex-rolling-stable"]
     assert slices["generic-history-source-pages"]["state"] == "delivered"
     assert slices["generic-history-source-pages"]["execution_owner"] == "build"
     assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
-    assert slices["codex-history-adapter"]["state"] == "ready"
+    assert slices["codex-history-adapter"]["state"] == "captured"
     assert slices["codex-history-adapter"]["execution_owner"] == "build"
     assert slices["codex-history-adapter"]["depends_on"] == [
-        "codex-identity-probe", "generic-history-source-pages",
+        "codex-release-reprobe", "generic-history-source-pages",
     ]
     assert {"INT-013", "INT-020", "INT-033", "INT-034"} <= set(
         slices["codex-history-adapter"]["requirements"]
@@ -182,8 +188,8 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "codex-history-parity": (
             "captured", ["codex-history-adapter"]
         ),
-        "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
-        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
+        "codex-worker-routing": ("captured", ["codex-rolling-stable", "codex-release-reprobe"]),
+        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-release-reprobe"]),
         "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
         "codex-parity-readiness": ("blocked", ["codex-state-recovery", "codex-federation-parity"]),
     }
@@ -203,7 +209,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-adapter"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-rolling-stable"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -214,8 +220,8 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`codex-history-adapter` ready" in normalized_initiative
-    assert "**Status:** Distribution deployed; identity probe pending" in distribution
+    assert "only `codex-rolling-stable` is ready" in normalized_initiative
+    assert "**Status:** 0.151 distribution delivered; rolling-stable successor ready" in distribution
     for phrase in (
         "Pinned stable `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",
@@ -266,6 +272,51 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     ]
     assert "generic-history-source-pages" in control_plane
     assert "never enter a page" in control_plane
+    rolling = text("docs/specs/dotfiles_ai_distribution/features/codex-rolling-stable.md")
+    rolling_plan = json.loads(text(
+        "docs/specs/dotfiles_ai_distribution/CODEX-ROLLING-STABLE.plan.json"
+    ))
+    rolling_contract = json.loads(text(
+        "docs/specs/dotfiles_ai_distribution/features/codex-rolling-stable.contract.json"
+    ))
+    normalized_rolling = " ".join(rolling.split())
+    for phrase in (
+        "Every `chezmoi apply` checks",
+        "Stage the candidate on every target",
+        "restore activated targets in reverse order",
+        "never restarted",
+        "soft only before activation",
+        "Homebrew cask",
+    ):
+        assert phrase in normalized_rolling
+    assert rolling_plan["profile"] == "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+    assert rolling_plan["gates"]["release"]["applicability"] == "not_applicable"
+    assert rolling_contract["commands"]["apply"] == ["codex-update-all"]
+    assert rolling_contract["release"]["maximum_metadata_bytes"] == 1024 * 1024
+    assert rolling_contract["release"]["maximum_asset_bytes"] == 256 * 1024 * 1024
+    assert rolling_contract["release"]["download_hosts"] == [
+        "github.com", "release-assets.githubusercontent.com",
+    ]
+    assert rolling_contract["lock"]["maximum_generations"] == 2
+    assert rolling_contract["rejection"]["reasons"] == [
+        "candidate_invalid", "validation_failed",
+    ]
+    assert rolling_contract["transaction"]["activation_order"] == [
+        "registered_guests", "host",
+    ]
+    assert rolling_contract["transaction"]["running_process_action"] == "none"
+    assert rolling_contract["transaction"]["roles"] == {
+        "darwin": "host_coordinator",
+        "managed_fedora": "host_command_only",
+        "remote_centos": "local_only",
+    }
+    assert rolling_contract["result_schema"]["additionalProperties"] is False
+    assert rolling_contract["exit_status"]["retained"] == 0
+    assert rolling_contract["exit_status"]["unhealthy_bootstrap"] == 1
+    assert rolling_contract["exit_status"]["rollback_failed"] == 1
+    assert {"INT-035", "INT-036", "INT-037", "INT-038", "INT-039", "INT-040"} <= set(
+        slices["codex-rolling-stable"]["requirements"]
+    )
     adapter = text("docs/specs/codex_control_plane/features/history-adapter.md")
     adapter_contract = json.loads(text(
         "docs/specs/codex_control_plane/features/history-adapter.contract.json"

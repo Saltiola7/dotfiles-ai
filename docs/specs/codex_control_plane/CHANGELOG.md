@@ -1,5 +1,12 @@
 # Codex Control Plane Changelog
 
+## 2026-09-04 - Rolling Release Reprobe Required
+
+- Reopened the history adapter after Homebrew advanced Codex beyond the frozen
+  release and invalidated the recorded executable.
+- Deferred adapter promotion until transactional rolling-stable distribution and
+  a body-free identity/app-server semantic reprobe pass on host and Fedora.
+
 ## 2026-09-01 - History Adapter Sanitization Readiness
 
 - Reopened readiness after current stable history contained interim commentary,

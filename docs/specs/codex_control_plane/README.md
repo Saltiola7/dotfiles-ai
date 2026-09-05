@@ -1,6 +1,6 @@
 # Codex Control Plane
 
-**Status:** Exact identity and generic history source delivered; Codex history adapter ready
+**Status:** Exact 0.151 identity delivered; rolling release and history adapter reprobe pending
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 

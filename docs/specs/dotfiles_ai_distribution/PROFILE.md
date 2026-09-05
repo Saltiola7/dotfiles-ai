@@ -7,7 +7,7 @@
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
 | Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
-| Compatibility | Stable local TOML keys and managed target paths; OpenCode-default automation; sanitized defaults; pinned native release contracts |
+| Compatibility | Stable local TOML keys and managed target paths; OpenCode-default automation; sanitized defaults; private rolling-stable Codex lock with semantic validators and rollback |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
 | Authorities | Rendered chezmoi output, shell syntax, checksums, `pytest`, launchd validation, and configured runtime smokes |

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "commands": {
+    "apply": ["codex-update-all"],
+    "guest_stage": ["sandbox-vm", "codex-stage", "<workspace>", "--request-json", "-"],
+    "guest_activate": ["sandbox-vm", "codex-activate", "<workspace>", "--request-json", "-"],
+    "guest_rollback": ["sandbox-vm", "codex-rollback", "<workspace>", "--request-json", "-"]
+  },
+  "release": {
+    "endpoint": "https://api.github.com/repos/openai/codex/releases/latest",
+    "download_hosts": ["github.com", "release-assets.githubusercontent.com"],
+    "maximum_redirects": 3,
+    "tag_pattern": "^rust-v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+    "maximum_metadata_bytes": 1048576,
+    "maximum_asset_bytes": 268435456,
+    "assets": {
+      "darwin-aarch64": "codex-aarch64-apple-darwin.tar.gz",
+      "linux-aarch64": "codex-aarch64-unknown-linux-musl.tar.gz",
+      "linux-x86_64": "codex-x86_64-unknown-linux-musl.tar.gz"
+    }
+  },
+  "lock": {
+    "path": "~/.local/state/dotfiles-ai/codex-package/release-lock.json",
+    "required": ["schema_version", "channel", "release", "tag", "assets", "validator_revision", "previous"],
+    "asset_required": ["url", "sha256", "size"],
+    "validator_revision": "codex-release-validator-1",
+    "maximum_generations": 2
+  },
+  "rejection": {
+    "path": "~/.local/state/dotfiles-ai/codex-package/rejected-candidate.json",
+    "required": ["schema_version", "release", "asset_sha256", "validator_revision", "reason"],
+    "reasons": ["candidate_invalid", "validation_failed"]
+  },
+  "validator": {
+    "commands": ["--version", "--help", "login status", "app-server generate-json-schema"],
+    "stable_methods": ["initialize", "thread/list", "thread/read"],
+    "thread_fields": ["id", "sessionId", "createdAt", "updatedAt", "source", "modelProvider", "cwd", "historyMode", "turns"],
+    "turn_fields": ["id", "status", "items", "itemsView", "startedAt", "completedAt"],
+    "history_modes": ["legacy", "paginated"],
+    "required_item_discriminators": ["userMessage", "agentMessage", "reasoning", "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "subAgentActivity", "webSearch"]
+  },
+  "transaction": {
+    "roles": {"darwin": "host_coordinator", "managed_fedora": "host_command_only", "remote_centos": "local_only"},
+    "stage_order": ["host", "registered_guests"],
+    "activation_order": ["registered_guests", "host"],
+    "rollback_order": ["host", "activated_guests_reverse"],
+    "running_process_action": "none"
+  },
+  "result_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schema_version", "status", "release", "target_count", "reason"],
+    "properties": {
+      "schema_version": {"const": 1},
+      "status": {"enum": ["current", "updated", "retained"]},
+      "release": {"type": ["string", "null"], "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+      "target_count": {"type": "integer", "minimum": 0, "maximum": 33},
+      "reason": {"enum": ["none", "metadata_unavailable", "candidate_invalid", "target_unavailable", "validation_failed", "activation_failed", "rollback_completed", "rollback_failed"]}
+    }
+  },
+  "exit_status": {"current": 0, "updated": 0, "retained": 0, "unhealthy_bootstrap": 1, "rollback_failed": 1}
+}
