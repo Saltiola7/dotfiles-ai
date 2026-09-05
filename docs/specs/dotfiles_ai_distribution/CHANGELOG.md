@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - Rolling Fleet Attestation Correction
+
+- Reopened rolling readiness before Gate Commits because host health alone could
+  not authorize soft retention while a registered guest was unavailable.
+- Added private target count/set digest and a closed phase-driven activation
+  journal. Soft retention now requires the current configuration to match the
+  last fully verified fleet; recovery precedes metadata lookup.
+
 ## 2026-09-05 - Rolling Executable Digest Correction
 
 - Reopened rolling readiness before source changes because official metadata

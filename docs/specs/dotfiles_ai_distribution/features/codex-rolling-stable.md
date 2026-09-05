@@ -86,6 +86,8 @@ closed schema contains exactly:
   "tag": "rust-v0.153.3",
   "platform": "darwin-aarch64",
   "binary_sha256": "<derived executable hex>",
+  "target_count": 3,
+  "targets_digest": "<private canonical target-set hex>",
   "assets": {
     "darwin-aarch64": {"url": "<canonical>", "sha256": "<hex>", "size": 1},
     "linux-aarch64": {"url": "<canonical>", "sha256": "<hex>", "size": 1},
@@ -96,13 +98,20 @@ closed schema contains exactly:
 }
 ```
 
-`previous`, when present, has the same release/tag/platform/binary digest/assets/
-validator fields but no nested `previous`. `binary_sha256` is derived from the
+`previous`, when present, has the same release/tag/platform/binary digest/target
+attestation/assets/validator fields but no nested `previous`. `binary_sha256` is derived from the
 closed extracted regular executable after archive verification and before staging;
 it is never substituted with the archive digest. The lock never stores timestamps, paths, usernames, machine
 identity, credentials, API response bodies, or authentication state. An existing
 lock with unknown fields, unsafe values, a missing active binary, or mismatched
 binary digest is unhealthy and cannot authorize a soft failure.
+
+On the host, `target_count` is host plus the current registered workspace count.
+`targets_digest` is SHA-256 of canonical JSON `['host', ...sorted workspace
+names]`; it remains private and is never emitted. A managed guest uses count one
+and canonical `['local']`. Soft retention with an unavailable guest is authorized
+only when the current sandbox configuration reproduces the host lock's count and
+digest, proving that the same fleet passed the prior completed transaction.
 
 A healthy fleet means host and every registered guest lock select the same
 release, each lock selects its actual platform asset, and every active binary
@@ -182,6 +191,14 @@ and non-self-reference before exporting the existing dedicated `CODEX_HOME`.
 - Successful rollback is a soft retained outcome. Failed rollback exits nonzero,
   preserves the transaction for deterministic recovery, and never claims that
   targets are coherent.
+
+The private transaction journal is closed and phase-driven. It records only
+schema version, phase, whether active binary/lock existed, target count, target-set
+digest, attempted activation count, and candidate release/digest. Phases are
+`prepared`, `backed_up`, `activating_guests`, `activating_host`, and `verifying`.
+Every phase and rename is fsynced. Recovery runs before metadata lookup and either
+finishes verified activation or rolls attempted targets back; artifacts are not
+deleted until restored health is proven.
 
 ## Behaviors
 
