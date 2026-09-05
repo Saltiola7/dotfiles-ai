@@ -29,7 +29,7 @@
   },
   "rejection": {
     "path": "~/.local/state/dotfiles-ai/codex-package/rejected-candidate.json",
-    "required": ["schema_version", "release", "asset_sha256", "validator_revision", "reason"],
+    "required": ["schema_version", "release", "candidate_digest", "validator_revision", "reason"],
     "reasons": ["candidate_invalid", "validation_failed"]
   },
   "validator": {
@@ -50,6 +50,11 @@
   "transaction_journal": {
     "required": ["schema_version", "phase", "had_binary", "had_lock", "target_count", "targets_digest", "attempted_activations", "candidate_release", "candidate_sha256"],
     "phases": ["prepared", "backed_up", "activating_guests", "activating_host", "verifying"]
+  },
+  "legacy_migration": {
+    "release": "0.151.0",
+    "platform": "linux-aarch64",
+    "asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
   },
   "result_schema": {
     "type": "object",

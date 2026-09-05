@@ -307,6 +307,9 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert rolling_contract["rejection"]["reasons"] == [
         "candidate_invalid", "validation_failed",
     ]
+    assert "candidate_digest" in rolling_contract["rejection"]["required"]
+    assert "asset_sha256" not in rolling_contract["rejection"]["required"]
+    assert rolling_contract["legacy_migration"]["release"] == "0.151.0"
     assert rolling_contract["transaction"]["activation_order"] == [
         "registered_guests", "host",
     ]
@@ -323,7 +326,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert rolling_contract["exit_status"]["retained"] == 0
     assert rolling_contract["exit_status"]["unhealthy_bootstrap"] == 1
     assert rolling_contract["exit_status"]["rollback_failed"] == 1
-    assert {"INT-035", "INT-036", "INT-037", "INT-038", "INT-039", "INT-040"} <= set(
+    assert {"INT-035", "INT-036", "INT-037", "INT-038", "INT-039", "INT-040", "INT-041"} <= set(
         slices["codex-rolling-stable"]["requirements"]
     )
     adapter = text("docs/specs/codex_control_plane/features/history-adapter.md")
