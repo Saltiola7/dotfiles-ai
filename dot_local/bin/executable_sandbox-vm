@@ -43,7 +43,8 @@ HOST_OPENCODE = "/opt/homebrew/bin/opencode"
 CODEX_VERSION = "0.151.0"
 CODEX_LINUX_ASSET_URL = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
 CODEX_LINUX_ASSET_SHA256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
-HOST_CODEX = "/opt/homebrew/bin/codex"
+CODEX_CHANNEL = "stable"
+HOST_CODEX = str(Path.home() / ".local/bin/codex")
 OPENCODE_PROVISION_MARKER = "# dotfiles-ai-opencode"
 OPENCODE_INSTALL = f"""\
 {OPENCODE_PROVISION_MARKER}
@@ -194,7 +195,7 @@ def _inside(left, right):
 
 
 def validate_config(value):
-    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6, 7, 8}:
+    if not isinstance(value, dict) or value.get("schema_version") not in {4, 5, 6, 7, 8, 9}:
         raise ValueError("invalid sandbox config")
     if value["schema_version"] == 4:
         value["schema_version"] = 5
@@ -226,6 +227,9 @@ def validate_config(value):
         for workspace in value.get("workspaces", []):
             if isinstance(workspace, dict):
                 workspace.setdefault("runtime", "")
+    if value["schema_version"] == 8:
+        value["schema_version"] = 9
+        value["codex"] = {"channel": CODEX_CHANNEL}
     if (not isinstance(value.get("enabled"), bool) or not isinstance(value.get("source"), str)
             or not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", value["source"])):
         raise ValueError("invalid sandbox settings")
@@ -235,10 +239,7 @@ def validate_config(value):
     state_root = value.get("state_root", "")
     if not isinstance(state_root, str) or state_root and not Path(state_root).is_absolute():
         raise ValueError("invalid state root")
-    if value.get("codex") != {
-            "version": CODEX_VERSION,
-            "linux_asset_url": CODEX_LINUX_ASSET_URL,
-            "linux_asset_sha256": CODEX_LINUX_ASSET_SHA256}:
+    if value.get("codex") != {"channel": CODEX_CHANNEL}:
         raise ValueError("invalid Codex release")
     if not isinstance(value.get("template"), str) or not value["template"].startswith("/"):
         raise ValueError("invalid workspace template")
@@ -560,9 +561,7 @@ def guest_config(config, workspace):
         f"theme = {quote(guest['theme'])}",
         "",
         "[data.dotfiles_ai.codex]",
-        f"version = {quote(config['codex']['version'])}",
-        f"linux_asset_url = {quote(config['codex']['linux_asset_url'])}",
-        f"linux_asset_sha256 = {quote(config['codex']['linux_asset_sha256'])}",
+        f"channel = {quote(config.get('codex', {}).get('channel', CODEX_CHANNEL))}",
         "",
         "[data.dotfiles_ai.atuin]",
         f"sync_address = {quote(guest['atuin_sync_address'])}",
@@ -691,6 +690,7 @@ trap - EXIT
     )
     deployment_source = os.environ.get("DOTFILES_AI_DEPLOY_SOURCE", "")
     helper_only = os.environ.get("DOTFILES_AI_DEPLOY_HELPER_ONLY") == "1"
+    rolling_helpers = os.environ.get("DOTFILES_AI_DEPLOY_CODEX_ROLLING") == "1"
     if deployment_source:
         archive, revision = deployment_archive(deployment_source)
         remote = f"/tmp/dotfiles-ai-{revision}.tar.gz"
@@ -707,7 +707,14 @@ test "$(cat "$tmp/source/.dotfiles-ai-deploy-commit")" = "$expected"
 rm "$tmp/source/.dotfiles-ai-deploy-commit"
 chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply --force \
   "$HOME/.local/bin/dbsctrctl"
-if [ "$3" = 1 ]; then
+if [ "$3" = lifecycle ]; then
+  exit 0
+fi
+if [ "$3" = rolling ]; then
+  chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply --force \
+    "$HOME/.local/bin/codex" \
+    "$HOME/.local/bin/codex-project" \
+    "$HOME/.local/bin/codex-update-all"
   exit 0
 fi
 chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
@@ -717,10 +724,12 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
   "$HOME/.local/bin/codex-install" \
   "$HOME/.local/bin/codex-project" \
   "$HOME/.local/bin/codex-rollback" \
+  "$HOME/.local/bin/codex-update-all" \
   "$HOME/.config/dotfiles-ai/codex-managed" \
   "$HOME/install-codex.sh" \
   "$HOME/project-codex.sh"
-''', "deploy-codex", remote, revision, "1" if helper_only else "0"], timeout=600)
+''', "deploy-codex", remote, revision,
+             "lifecycle" if helper_only else "rolling" if rolling_helpers else "full"], timeout=600)
         finally:
             archive.unlink(missing_ok=True)
     else:
@@ -728,10 +737,8 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
         execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
         execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
                  f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
-    if helper_only:
+    if helper_only or rolling_helpers:
         return
-    execute(["limactl", "shell", instance, "--", "sh", "-ceu",
-             'exec "$HOME/.local/bin/codex-install"'], timeout=300)
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",
              'exec "$HOME/.local/bin/codex-project" "$HOME/.config/dotfiles-ai/codex-managed" '
              '"$HOME/.local/state/dotfiles-ai/codex"'], timeout=300)
@@ -885,8 +892,7 @@ def guest_opencode_version(workspace, execute=command):
 def _codex_version(value, source):
     version = value.strip()
     matches = re.findall(r"(?<![0-9])\d+\.\d+\.\d+(?![0-9])", version)
-    if (len(version) > 128 or re.search(r"[\x00-\x1f\x7f]", version)
-            or matches != [CODEX_VERSION]):
+    if len(version) > 128 or re.search(r"[\x00-\x1f\x7f]", version) or len(matches) != 1:
         raise RuntimeError(f"{source} Codex version mismatch")
     return matches[0]
 
@@ -928,6 +934,8 @@ def verify_codex_version_parity(config, workspace, execute=command):
             guest = guest_codex_version(workspace, execute)
         finally:
             _restore_instance_state(execute, instance, running)
+    if guest != host:
+        raise RuntimeError(f"{workspace['name']} Codex version mismatch")
     return {"host": host, "guest": guest, "instance": instance}
 
 
@@ -938,6 +946,16 @@ def _rollback_code():
     value = path.read_bytes()
     if not value or len(value) > 256 * 1024:
         raise RuntimeError("Codex rollback helper is unavailable")
+    return value
+
+
+def _codex_updater_code():
+    installed = Path(__file__).with_name("codex-update-all")
+    source = Path(__file__).with_name("executable_codex-update-all")
+    path = installed if installed.exists() else source
+    value = path.read_bytes()
+    if not value or len(value) > 256 * 1024:
+        raise RuntimeError("Codex updater helper is unavailable")
     return value
 
 
@@ -952,11 +970,51 @@ def codex_snapshot(workspace, execute=command):
 def codex_restore(workspace, token, execute=command):
     execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "restore", token],
             timeout=300, input_data=_rollback_code())
+    execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "discard", token],
+            timeout=120, input_data=_rollback_code())
 
 
 def codex_discard(workspace, token, execute=command):
     execute(["limactl", "shell", workspace["instance"], "--", "python3", "-", "discard", token],
-            timeout=120, input_data=_rollback_code())
+             timeout=120, input_data=_rollback_code())
+
+
+def codex_transaction(config, workspace, action, raw, execute=command):
+    if len(raw) > 1024 * 1024:
+        raise ValueError("Codex transaction request is too large")
+    if action == "stage":
+        value = json.loads(raw)
+        if not isinstance(value, dict) or value.get("schema_version") != 1:
+            raise ValueError("invalid Codex transaction request")
+    elif raw:
+        raise ValueError("unexpected Codex transaction request")
+    instance = workspace["instance"]
+    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
+    with _instance_lock(lock_root, instance):
+        running, _ = _instance_state(execute, instance)
+        try:
+            if not running:
+                execute(["limactl", "start", instance], timeout=120)
+            execute([
+                "limactl", "shell", instance, "--", "sh", "-ceu", '''
+target="$HOME/.local/bin/codex-update-all"
+install -d -m 0700 "$HOME/.local/bin"
+tmp=$(mktemp "$HOME/.local/bin/.codex-update-all.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+cat >"$tmp"
+chmod 0700 "$tmp"
+python3 "$tmp" --help >/dev/null
+mv -f "$tmp" "$target"
+trap - EXIT
+''', "install-codex-updater"], timeout=120, input_data=_codex_updater_code())
+            output = execute([
+                "limactl", "shell", instance, "--", "sh", "-ceu",
+                f'export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"; '
+                f'exec "$HOME/.local/bin/codex-update-all" guest-{action}',
+            ], timeout=600, input_data=raw)
+        finally:
+            _restore_instance_state(execute, instance, running)
+    return output
 
 
 def _snapshot_action(config, workspace, token, action, execute):
@@ -1033,6 +1091,10 @@ def update_all_workspaces(config, execute=command, installer=None, updater=None,
         if rollback_errors:
             raise RuntimeError("ordered Codex rollout and rollback failed") from error
         raise
+    if any(value["codex"] != codex_host for value in versions.values()):
+        for workspace, token in reversed(retained):
+            _snapshot_action(config, workspace, token, restorer, execute)
+        raise RuntimeError("Codex fleet version mismatch")
     for workspace, token in retained:
         _snapshot_action(config, workspace, token, discarder, execute)
     return {
@@ -1839,6 +1901,10 @@ def main(argv=None, invocation=None):
     commands.add_parser("status")
     commands.add_parser("build-workspace")
     commands.add_parser("update-all")
+    for name in ("codex-stage", "codex-activate", "codex-rollback"):
+        sub = commands.add_parser(name)
+        sub.add_argument("workspace")
+        sub.add_argument("--request-json", choices=("-",), required=True)
     atuin = commands.add_parser("configure-atuin")
     atuin.add_argument("--remove", action="store_true")
     pm_postgres = commands.add_parser("configure-pm-postgres")
@@ -1876,6 +1942,18 @@ def main(argv=None, invocation=None):
         return
     if args.command == "update-all":
         print(json.dumps(update_all_workspaces(config), sort_keys=True))
+        return
+    if args.command in {"codex-stage", "codex-activate", "codex-rollback"}:
+        try:
+            workspace = workspace_map(config)[args.workspace]
+        except KeyError:
+            raise SystemExit(f"unknown workspace: {args.workspace}")
+        raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+        if args.command != "codex-stage" and raw.strip():
+            raise SystemExit("unexpected Codex transaction request")
+        output = codex_transaction(config, workspace, args.command[6:], raw)
+        if output:
+            print(output)
         return
     if args.command == "configure-atuin":
         configure_atuin(config, remove=args.remove)

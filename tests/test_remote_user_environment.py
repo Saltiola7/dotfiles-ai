@@ -17,7 +17,7 @@ def _render(path: str) -> str:
         "dotfiles_ai": {
             "remote_user_environment": {"enabled": True},
             "state": {"root": "/shared/state"},
-            "codex": {"version": "0.151.0"},
+            "codex": {"channel": "stable"},
             "opencode": {
                 "version": "1.18.25",
                 "vertex_project": "local-project",
@@ -46,7 +46,7 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     tools = (ROOT / "run_onchange_after_install-guest-development-tools.sh.tmpl").read_text()
     starship = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
     atuin = (ROOT / "run_onchange_after_install-atuin.sh.tmpl").read_text()
-    codex = (ROOT / "dot_local/bin/executable_codex-install.tmpl").read_text()
+    codex = (ROOT / "dot_local/bin/executable_codex-update-all").read_text()
     opencode = (ROOT / "dot_local/bin/executable_opencode-install.tmpl").read_text()
     herdr = (ROOT / "run_onchange_after_install-00-remote-herdr.sh.tmpl").read_text()
 
@@ -70,17 +70,19 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "asset=atuin-x86_64-unknown-linux-musl.tar.gz" in atuin
     assert "5772df4121174a9f0b71c17260727794fde22a71b5a3ee5ac07b227eebcbfa9a" in atuin
     assert "codex-x86_64-unknown-linux-musl" in codex
-    assert '"$archive_binary"' in codex
-    assert "605b4b183f22c645f5def63a5b7191767407fb66a6feaec4eaf10b5b7e0058f6" in defaults
+    assert "api.github.com/repos/openai/codex/releases/latest" in codex
+    assert 'channel = "stable"' in defaults
     assert "opencode-linux-x64.tar.gz" in defaults
     assert "linux_amd64_asset_url" in opencode
     assert "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78" in defaults
     assert "herdr-linux-x86_64" in defaults
     assert "linux_amd64_asset_url" in herdr
     assert "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4" in defaults
-    for source in (tools, starship, atuin, codex, opencode, herdr):
+    for source in (tools, starship, atuin, opencode, herdr):
         assert "remote_user_environment.enabled" in source
         assert "uname -m" in source
+    assert "DOTFILES_AI_REMOTE_USER_ENVIRONMENT" in codex
+    assert "platform.machine" in codex
     rendered_tools = _render("run_onchange_after_install-guest-development-tools.sh.tmpl")
     assert 'exec "$HOME/.local/share/google-cloud-sdk-580.0.0/bin/gcloud" "$@"' in rendered_tools
     assert 'ln -sfn "$destination/bin/gcloud"' not in rendered_tools
