@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - OpenCode Rolling Stable Readiness
+
+- Reopened OpenCode distribution after host Homebrew advanced to `1.18.29` while
+  source/guest parity remained `1.18.25`, breaking full AI apply.
+- Specified official rolling assets, private fleet locks, semantic validation,
+  all-target staging, next-launch activation, soft retention, and durable recovery.
+- Marked one `opencode-rolling-stable` slice ready; no implementation or runtime
+  mutation occurred.
+
 ## 2026-09-05 - Codex Rolling Stable Delivered
 
 - Replaced Homebrew Codex runtime authority with official digest-verified stable

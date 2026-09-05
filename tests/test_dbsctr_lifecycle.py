@@ -417,6 +417,30 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     ):
         assert phrase in normalized_adapter
 
+
+def test_opencode_rolling_stable_slice_is_ready() -> None:
+    manifest = json.loads(text("docs/initiatives/opencode-rolling-stable/MANIFEST.json"))
+    assert [item["id"] for item in manifest["slices"] if item["state"] == "ready"] == [
+        "opencode-rolling-stable"
+    ]
+    slice_ = manifest["slices"][0]
+    assert slice_["execution_owner"] == "build"
+    assert slice_["context"] == "dotfiles_ai_distribution"
+    assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 9)}
+    spec = text("docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md")
+    for phrase in (
+        "opencode-darwin-arm64.zip",
+        "opencode-linux-arm64.tar.gz",
+        "opencode-linux-x64.tar.gz",
+        "all-target staging",
+        "Current OpenCode/Herdr processes are never restarted",
+        "full AI apply",
+    ):
+        assert phrase in spec
+    plan = json.loads(text("docs/specs/dotfiles_ai_distribution/OPENCODE-ROLLING-STABLE.plan.json"))
+    assert plan["profile"] == "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+    assert plan["gates"]["release"]["applicability"] == "not_applicable"
+
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
     )
