@@ -1,10 +1,12 @@
 import importlib.machinery
 import importlib.util
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tarfile
 
@@ -15,6 +17,7 @@ ROOT = Path(__file__).parents[1]
 PROJECTOR = ROOT / "dot_local/bin/executable_codex-project"
 ARCHIVE = ROOT / "dot_local/bin/executable_codex-archive"
 ROLLBACK = ROOT / "dot_local/bin/executable_codex-rollback"
+UPDATER = ROOT / "dot_local/bin/executable_codex-update-all"
 
 
 def load_projector():
@@ -35,6 +38,14 @@ def load_archive():
 
 def load_rollback():
     loader = importlib.machinery.SourceFileLoader("codex_rollback", str(ROLLBACK))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def load_updater():
+    loader = importlib.machinery.SourceFileLoader("codex_update", str(UPDATER))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
@@ -163,22 +174,474 @@ def test_projector_rejects_unsafe_metadata_and_home_modes(tmp_path: Path) -> Non
         helper.validate_home(target)
 
 
-def test_projector_validates_homebrew_executable_record(tmp_path: Path) -> None:
+def test_projector_validates_private_release_lock(tmp_path: Path) -> None:
     helper = load_projector()
-    executable = tmp_path / "prefix/Caskroom/codex/0.151.0/bin/codex"
+    executable = tmp_path / "libexec/codex"
     executable.parent.mkdir(parents=True)
-    executable.write_text("binary")
-    executable.chmod(0o755)
-    record = tmp_path / "record"
-    record.write_text(str(executable) + "\n")
-    record.chmod(0o600)
+    executable.write_text("#!/bin/sh\nprintf 'codex-cli 0.153.3\\n'\n")
+    executable.chmod(0o700)
+    lock = tmp_path / "release-lock.json"
+    lock.write_text(json.dumps({
+        "schema_version": 1, "channel": "stable", "release": "0.153.3",
+        "tag": "rust-v0.153.3", "platform": "darwin-aarch64",
+        "binary_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "target_count": 1, "targets_digest": hashlib.sha256(b"targets").hexdigest(),
+        "assets": load_updater().validate_release(release_payload())["assets"],
+        "validator_revision": "codex-release-validator-1", "previous": None,
+    }))
+    lock.chmod(0o600)
 
-    assert helper.resolve_homebrew(record, "0.151.0") == executable
+    assert helper.resolve_managed(lock, executable) == executable
 
-    record.write_text(str(tmp_path / "outside/codex") + "\n")
-    record.chmod(0o600)
-    with pytest.raises((ValueError, FileNotFoundError)):
-        helper.resolve_homebrew(record, "0.151.0")
+    executable.write_text("changed")
+    with pytest.raises(ValueError, match="executable"):
+        helper.resolve_managed(lock, executable)
+
+
+def release_payload(version="0.153.3"):
+    assets = []
+    for name in (
+        "codex-aarch64-apple-darwin.tar.gz",
+        "codex-aarch64-unknown-linux-musl.tar.gz",
+        "codex-x86_64-unknown-linux-musl.tar.gz",
+    ):
+        assets.append({
+            "name": name, "size": 6, "digest": "sha256:" + "a" * 64,
+            "browser_download_url":
+                f"https://github.com/openai/codex/releases/download/rust-v{version}/{name}",
+        })
+    return {"name": version, "tag_name": f"rust-v{version}", "draft": False,
+            "prerelease": False, "assets": assets}
+
+
+def test_rolling_release_metadata_is_closed_and_platform_complete() -> None:
+    helper = load_updater()
+    value = helper.validate_release(release_payload())
+
+    assert value["release"] == "0.153.3"
+    assert set(value["assets"]) == {"darwin-aarch64", "linux-aarch64", "linux-x86_64"}
+    broken = release_payload()
+    broken["assets"].pop()
+    with pytest.raises(helper.UpdateError):
+        helper.validate_release(broken)
+    with pytest.raises(helper.UpdateError):
+        helper.validate_release({**release_payload(), "prerelease": True})
+
+
+def test_rolling_stage_lock_binds_extracted_binary_and_activates(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    monkeypatch.setattr(helper, "download", lambda _asset, path: path.write_bytes(b"archive"))
+
+    def extract(_archive, destination, _expected):
+        destination.write_text("#!/bin/sh\nprintf 'codex-cli 0.153.3\\n'\n")
+        destination.chmod(0o700)
+
+    monkeypatch.setattr(helper, "extract", extract)
+    monkeypatch.setattr(helper, "validate_binary", lambda *_args: None)
+    candidate = helper.validate_release(release_payload())
+
+    assert helper.stage(candidate) == "staged"
+    staged_lock = json.loads((root / "candidate-lock.json").read_text())
+    assert staged_lock["binary_sha256"] == hashlib.sha256(
+        (root / "candidate-codex").read_bytes()).hexdigest()
+    assert staged_lock["platform"] == "darwin-aarch64"
+    assert stat.S_IMODE((root / "candidate-lock.json").stat().st_mode) == 0o600
+    assert helper.activate() == "updated"
+    assert helper.read_lock()["release"] == "0.153.3"
+    assert helper.healthy(helper.read_lock())
+
+
+def test_same_release_restages_when_fleet_attestation_changes(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    candidate = helper.validate_release(release_payload())
+    current = helper.generation(candidate, "darwin-aarch64", "b" * 64)
+    current["previous"] = None
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    monkeypatch.setattr(helper, "read_lock", lambda *_args: current)
+    monkeypatch.setattr(helper, "healthy", lambda *_args: True)
+    monkeypatch.setattr(helper, "download", lambda _asset, path: path.write_bytes(b"archive"))
+
+    def extract(_archive, destination, _expected):
+        destination.write_bytes(b"candidate")
+        destination.chmod(0o700)
+
+    monkeypatch.setattr(helper, "extract", extract)
+    monkeypatch.setattr(helper, "validate_binary", lambda *_args: None)
+    digest = hashlib.sha256(helper.canonical(["host", "workspace-a"])).hexdigest()
+
+    assert helper.stage(candidate, root, binary, 2, digest) == "staged"
+    lock = json.loads((root / "candidate-lock.json").read_text())
+    assert lock["target_count"] == 2
+    assert lock["targets_digest"] == digest
+
+
+def test_rolling_update_soft_fails_only_with_healthy_active_release(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    binary.write_text("#!/bin/sh\nprintf 'codex-cli 0.153.3\\n'\n")
+    binary.chmod(0o700)
+    generation = {
+        "schema_version": 1, "channel": "stable", "release": "0.153.3",
+        "tag": "rust-v0.153.3", "platform": "darwin-aarch64",
+        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "target_count": 1,
+        "targets_digest": hashlib.sha256(helper.canonical(["local"])).hexdigest(),
+        "assets": helper.validate_release(release_payload())["assets"],
+        "validator_revision": helper.VALIDATOR_REVISION, "previous": None,
+    }
+    helper.atomic_json(root / "release-lock.json", generation)
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    monkeypatch.setattr(helper, "fetch_release", lambda: (_ for _ in ()).throw(
+        helper.UpdateError("metadata_unavailable")))
+
+    assert helper.local_update() == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "retained"
+    binary.unlink()
+    assert helper.local_update() == 1
+
+
+def test_host_rolling_update_stages_all_guests_before_activation(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    candidate = helper.validate_release(release_payload())
+    calls = []
+    monkeypatch.setattr(helper, "fetch_release", lambda: candidate)
+    monkeypatch.setattr(helper, "read_lock", lambda *_args: None)
+    health = iter((False, True))
+    monkeypatch.setattr(helper, "healthy", lambda *_args: next(health))
+    monkeypatch.setattr(helper, "rejected_candidate", lambda *_args: False)
+    monkeypatch.setattr(helper, "sandbox_config", lambda: ["workspace-a", "workspace-b"])
+    def staged(candidate, root, _binary, target_count, targets_digest):
+        calls.append("stage-host")
+        value = helper.generation(
+            candidate, "darwin-aarch64", "b" * 64, target_count, targets_digest,
+        )
+        value["previous"] = None
+        helper.atomic_json(root / "candidate-lock.json", value)
+        return "staged"
+
+    monkeypatch.setattr(helper, "stage", staged)
+    monkeypatch.setattr(helper, "guest_call", lambda action, workspace, candidate=None, **_kwargs:
+                        calls.append(f"{action}-{workspace}") or "current")
+    monkeypatch.setattr(helper, "activate", lambda *_args, **_kwargs:
+                        calls.append("activate-host") or "updated")
+
+    assert helper.host_update() == 0
+
+    assert calls == [
+        "stage-host", "stage-workspace-a", "stage-workspace-b",
+        "activate-workspace-a", "activate-workspace-b", "activate-host",
+        "stage-workspace-a", "stage-workspace-b",
+        "activate-workspace-a", "activate-workspace-b",
+    ]
+    assert json.loads(capsys.readouterr().out)["target_count"] == 3
+
+
+def test_host_activation_oserror_rolls_back_every_attempted_guest(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    candidate = helper.validate_release(release_payload())
+    calls = []
+    monkeypatch.setattr(helper, "fetch_release", lambda: candidate)
+    monkeypatch.setattr(helper, "read_lock", lambda *_args: None)
+    monkeypatch.setattr(helper, "healthy", lambda *_args: False)
+    monkeypatch.setattr(helper, "rejected_candidate", lambda *_args: False)
+    monkeypatch.setattr(helper, "sandbox_config", lambda: ["workspace-a", "workspace-b"])
+
+    def staged(candidate, root, _binary, target_count, targets_digest):
+        value = helper.generation(candidate, "darwin-aarch64", "b" * 64,
+                                  target_count, targets_digest)
+        value["previous"] = None
+        helper.atomic_json(root / "candidate-lock.json", value)
+        return "staged"
+
+    def guest(action, workspace, candidate=None, **_kwargs):
+        calls.append((action, workspace))
+        if action == "activate" and workspace == "workspace-b":
+            raise OSError("lost VM response")
+        return "current"
+
+    monkeypatch.setattr(helper, "stage", staged)
+    monkeypatch.setattr(helper, "guest_call", guest)
+    monkeypatch.setattr(helper, "activate", lambda *_args, **_kwargs: "updated")
+    monkeypatch.setattr(helper, "rollback", lambda *_args: None)
+
+    assert helper.host_update() == 1
+    assert calls[-2:] == [("rollback", "workspace-b"), ("rollback", "workspace-a")]
+    assert json.loads(capsys.readouterr().out)["reason"] == "rollback_completed"
+
+
+def test_late_guest_verification_failure_rolls_back_all_activated_guests(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    candidate = helper.validate_release(release_payload())
+    calls, stage_counts = [], {}
+    monkeypatch.setattr(helper, "fetch_release", lambda: candidate)
+    monkeypatch.setattr(helper, "read_lock", lambda *_args: None)
+    monkeypatch.setattr(helper, "healthy", lambda *_args: False)
+    monkeypatch.setattr(helper, "rejected_candidate", lambda *_args: False)
+    monkeypatch.setattr(helper, "sandbox_config", lambda: ["workspace-a", "workspace-b"])
+
+    def staged(candidate, root, _binary, target_count, targets_digest):
+        value = helper.generation(candidate, "darwin-aarch64", "b" * 64,
+                                  target_count, targets_digest)
+        value["previous"] = None
+        helper.atomic_json(root / "candidate-lock.json", value)
+        return "staged"
+
+    def guest(action, workspace, candidate=None, **_kwargs):
+        calls.append((action, workspace))
+        if action == "stage":
+            stage_counts[workspace] = stage_counts.get(workspace, 0) + 1
+            if workspace == "workspace-b" and stage_counts[workspace] == 2:
+                raise helper.UpdateError("activation_failed")
+        return "current"
+
+    monkeypatch.setattr(helper, "stage", staged)
+    monkeypatch.setattr(helper, "guest_call", guest)
+    monkeypatch.setattr(helper, "activate", lambda *_args, **_kwargs: "updated")
+    monkeypatch.setattr(helper, "rollback", lambda *_args: None)
+
+    assert helper.host_update() == 1
+    assert calls[-2:] == [("rollback", "workspace-b"), ("rollback", "workspace-a")]
+    assert json.loads(capsys.readouterr().out)["reason"] == "rollback_completed"
+
+
+def test_lost_finalize_response_retains_commit_journal_without_rollback(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    candidate = helper.validate_release(release_payload())
+    calls, activations = [], {}
+    monkeypatch.setattr(helper, "fetch_release", lambda: candidate)
+    monkeypatch.setattr(helper, "read_lock", lambda *_args: None)
+    health = iter((False, True))
+    monkeypatch.setattr(helper, "healthy", lambda *_args: next(health))
+    monkeypatch.setattr(helper, "rejected_candidate", lambda *_args: False)
+    monkeypatch.setattr(helper, "sandbox_config", lambda: ["workspace-a", "workspace-b"])
+
+    def staged(candidate, root, _binary, target_count, targets_digest):
+        value = helper.generation(candidate, "darwin-aarch64", "b" * 64,
+                                  target_count, targets_digest)
+        value["previous"] = None
+        helper.atomic_json(root / "candidate-lock.json", value)
+        return "staged"
+
+    def guest(action, workspace, candidate=None, **_kwargs):
+        calls.append((action, workspace))
+        if action == "activate":
+            activations[workspace] = activations.get(workspace, 0) + 1
+            if workspace == "workspace-b" and activations[workspace] == 2:
+                raise OSError("response lost after finalize")
+        return "current"
+
+    monkeypatch.setattr(helper, "stage", staged)
+    monkeypatch.setattr(helper, "guest_call", guest)
+    monkeypatch.setattr(helper, "activate", lambda *_args, **_kwargs: "updated")
+    monkeypatch.setattr(helper, "rollback", lambda *_args: calls.append(("rollback", "host")))
+
+    assert helper.host_update() == 1
+    assert not any(action == "rollback" for action, _ in calls)
+    journal = json.loads((root / "transaction").read_text())
+    assert journal["phase"] == "verifying"
+    assert json.loads(capsys.readouterr().out)["status"] == "updated"
+
+
+def test_interrupted_local_activation_recovers_previous_generation(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    monkeypatch.setenv("DOTFILES_AI_CODEX_PACKAGE_ROOT", str(root))
+    monkeypatch.setenv("DOTFILES_AI_CODEX_BINARY", str(binary))
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    assets = helper.validate_release(release_payload())["assets"]
+
+    def executable(path, version):
+        path.write_text(f"#!/bin/sh\nprintf 'codex-cli {version}\\n'\n")
+        path.chmod(0o700)
+
+    executable(binary, "0.152.0")
+    old = {
+        "schema_version": 1, "channel": "stable", "release": "0.152.0",
+        "tag": "rust-v0.152.0", "platform": "darwin-aarch64",
+        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "target_count": 1, "targets_digest": hashlib.sha256(
+            helper.canonical(["local"])).hexdigest(),
+        "assets": {name: {**asset, "url": asset["url"].replace("0.153.3", "0.152.0")}
+                   for name, asset in assets.items()},
+        "validator_revision": helper.VALIDATOR_REVISION, "previous": None,
+    }
+    helper.atomic_json(root / "release-lock.json", old)
+    candidate_binary = root / "candidate-codex"
+    executable(candidate_binary, "0.153.3")
+    new = helper.generation(
+        {"release": "0.153.3", "tag": "rust-v0.153.3", "assets": assets},
+        "darwin-aarch64", hashlib.sha256(candidate_binary.read_bytes()).hexdigest(),
+    )
+    new["previous"] = {key: value for key, value in old.items() if key != "previous"}
+    helper.atomic_json(root / "candidate-lock.json", new)
+    helper.transaction(root, "prepared", True, True, new)
+    os.replace(binary, root / "previous-codex")
+    helper.atomic_json(root / "previous-lock.json", old)
+    helper.transaction(root, "backed_up", True, True, new)
+    os.replace(candidate_binary, binary)
+
+    helper.recover(root, binary)
+
+    assert helper.read_lock(root)["release"] == "0.152.0"
+    assert helper.healthy(helper.read_lock(root), binary)
+    assert not (root / "transaction").exists()
+
+
+def test_bootstrap_activation_failure_restores_absent_state(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    candidate_binary = root / "candidate-codex"
+    candidate_binary.write_text("candidate")
+    candidate_binary.chmod(0o700)
+    candidate = helper.validate_release(release_payload())
+    lock = helper.generation(candidate, "darwin-aarch64",
+                             hashlib.sha256(candidate_binary.read_bytes()).hexdigest())
+    lock["previous"] = None
+    helper.atomic_json(root / "candidate-lock.json", lock)
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    monkeypatch.setattr(helper, "healthy", lambda *_args: False)
+
+    with pytest.raises(helper.UpdateError):
+        helper.activate(root, binary)
+
+    assert not binary.exists()
+    assert not (root / "release-lock.json").exists()
+    assert not (root / "transaction").exists()
+
+
+def test_guest_activation_failure_retains_unchanged_healthy_host(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    binary.write_text("#!/bin/sh\nprintf 'codex-cli 0.153.3\\n'\n")
+    binary.chmod(0o700)
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    candidate = helper.validate_release(release_payload())
+    count, targets_digest = helper.target_identity(["workspace-a", "workspace-b"])
+    current = helper.generation(
+        candidate, "darwin-aarch64", hashlib.sha256(binary.read_bytes()).hexdigest(),
+        count, targets_digest,
+    )
+    current["previous"] = None
+    helper.atomic_json(root / "release-lock.json", current)
+    (root / "candidate-codex").write_text("staged")
+    (root / "candidate-codex").chmod(0o700)
+    helper.atomic_json(root / "candidate-lock.json", current)
+    helper.transaction(root, "activating_guests", True, True, current, 1)
+
+    helper.rollback(root, binary)
+
+    assert helper.healthy(helper.read_lock(root), binary)
+    assert not (root / "candidate-codex").exists()
+    assert not (root / "transaction").exists()
+
+
+def test_rejected_release_detects_full_authority_mutation(tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    root.mkdir(parents=True, mode=0o700)
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    candidate = helper.validate_release(release_payload())
+    helper.reject_candidate(candidate, "validation_failed", root)
+
+    assert helper.rejected_candidate(candidate, root) is True
+    changed = json.loads(json.dumps(candidate))
+    changed["assets"]["linux-x86_64"]["size"] += 1
+    with pytest.raises(helper.UpdateError):
+        helper.rejected_candidate(changed, root)
+
+
+def test_known_lockless_fedora_binary_is_adopted_for_rollback(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    binary.write_text("#!/bin/sh\nprintf 'codex-cli 0.151.0\\n'\n")
+    binary.chmod(0o755)
+    monkeypatch.setattr(helper, "platform_id", lambda: "linux-aarch64")
+    monkeypatch.setattr(helper, "validate_binary", lambda *_args: None)
+    monkeypatch.setattr(helper, "LEGACY_LINUX_AARCH64_BINARY_SHA256",
+                        hashlib.sha256(binary.read_bytes()).hexdigest())
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+
+    helper.adopt_legacy(root, binary)
+
+    lock = helper.read_lock(root)
+    assert lock["release"] == "0.151.0"
+    assert lock["assets"]["linux-aarch64"]["sha256"] == \
+        "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
+    assert stat.S_IMODE(binary.stat().st_mode) == 0o700
+
+
+def test_persisted_candidate_symlink_and_unsafe_process_lock_fail_closed(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/codex-package"
+    binary = tmp_path / "libexec/codex"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    outside = tmp_path / "outside"
+    outside.write_text("private")
+    (root / "candidate-lock.json").symlink_to(outside)
+    (root / "candidate-codex").write_text("candidate")
+    (root / "candidate-codex").chmod(0o700)
+    with pytest.raises(helper.UpdateError):
+        helper.activate(root, binary)
+    assert outside.read_text() == "private"
+
+    (root / ".lock").write_text("")
+    (root / ".lock").chmod(0o644)
+    with pytest.raises(helper.UpdateError):
+        helper.process_lock(root)
 
 
 def test_projector_validates_centralized_state_sentinel(tmp_path: Path) -> None:

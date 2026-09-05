@@ -29,7 +29,7 @@ def load_helper():
 def config(tmp_path: Path) -> dict:
     (tmp_path / "state/lima").mkdir(parents=True, exist_ok=True)
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "enabled": True,
         "source": "https://github.com/example/dotfiles-ai.git",
         "template": str(tmp_path / "workspace.yaml"),
@@ -40,11 +40,7 @@ def config(tmp_path: Path) -> dict:
             "postgres_image": "", "knowledge_postgres_enabled": False,
         },
         "state_root": str(tmp_path / "state"),
-        "codex": {
-            "version": "0.151.0",
-            "linux_asset_url": "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz",
-            "linux_asset_sha256": "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6",
-        },
+        "codex": {"channel": "stable"},
         "lima_home": str(tmp_path / "state/lima"),
         "tailscale": {"enabled": False, "ssh": False},
         "onepassword": {
@@ -277,8 +273,8 @@ def test_runtime_selector_migrates_and_resolves_without_worker_activation(tmp_pa
     for workspace in legacy["workspaces"]:
         workspace.pop("runtime")
     helper.validate_config(legacy)
-    assert legacy["schema_version"] == 8
-    assert legacy["codex"]["version"] == helper.CODEX_VERSION
+    assert legacy["schema_version"] == 9
+    assert legacy["codex"] == {"channel": "stable"}
     assert legacy["guest"]["rnd_runtime"] == "opencode"
     assert all(workspace["runtime"] == "" for workspace in legacy["workspaces"])
 
@@ -304,7 +300,7 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert calls[1][0][-4:] == ["podman", "info", "--format", "{{.Host.Security.Rootless}}"]
-    assert [call[0][4] for call in calls[2:]] == ["sh", "git", "chezmoi", "sh", "sh"]
+    assert [call[0][4] for call in calls[2:]] == ["sh", "git", "chezmoi", "sh"]
     rendered = tomllib.loads(calls[2][1]["input_data"].decode().replace("__GUEST_HOME__", "/home/agent.guest"))
     assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
@@ -325,6 +321,43 @@ def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> 
         helper.update_workspace(values, values["workspaces"][0], execute=execute)
 
     assert len(calls) == 2
+
+
+def test_codex_transaction_preserves_guest_state_and_forwards_private_request(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    running = False
+    calls = []
+    raw = json.dumps({"schema_version": 1, "release": "0.153.3"}).encode()
+
+    def execute(argv, **kwargs):
+        nonlocal running
+        calls.append((argv, kwargs))
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": workspace["instance"],
+                               "status": "Running" if running else "Stopped"})
+        if argv[:2] == ["limactl", "start"]:
+            running = True
+            return ""
+        if argv[:2] == ["limactl", "stop"]:
+            running = False
+            return ""
+        if argv[:2] == ["limactl", "shell"]:
+            if argv[-1] == "install-codex-updater":
+                assert b"api.github.com/repos/openai/codex/releases/latest" in kwargs["input_data"]
+                return ""
+            assert kwargs["input_data"] == raw
+            assert argv[-1].endswith("guest-stage")
+            assert 'CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"' in argv[-1]
+            return '{"status":"staged"}'
+        raise AssertionError(argv)
+
+    assert helper.codex_transaction(values, workspace, "stage", raw, execute) == \
+        '{"status":"staged"}'
+    assert running is False
+    shell_scripts = [call[0][-1] for call in calls if call[0][:2] == ["limactl", "shell"]]
+    assert shell_scripts[-1].endswith("guest-stage")
 
 
 def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout(
@@ -744,7 +777,7 @@ def test_old_schema_is_normalized_for_ordered_host_migration(tmp_path: Path) -> 
 
     helper.validate_config(values)
 
-    assert values["schema_version"] == 8
+    assert values["schema_version"] == 9
     assert values["onepassword"]["enabled"] is False
     assert values["guest"]["vertex_location"] == "global"
     assert values["pm_kernel"]["enabled"] is False
