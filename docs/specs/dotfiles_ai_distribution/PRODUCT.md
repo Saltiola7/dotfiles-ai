@@ -15,9 +15,10 @@ target files.
 
 1. A developer copies the documented local TOML example, supplies machine-local
    values, initializes the independent chezmoi source, previews, and applies it.
-2. On macOS, the source installs OpenCode from its official Homebrew formula;
-   OpenCode then loads the managed control plane and DBSCTR tools from complete,
-   rendered configuration.
+2. On every apply, the source checks the official stable OpenCode release, stages
+   one compatible digest-verified candidate across host and guests, and activates
+   it for later launches without interrupting active processes; OpenCode then
+   loads the managed control plane and DBSCTR tools from rendered configuration.
 3. On every apply, the source checks the official stable Codex release, stages
    one digest-verified compatible candidate on the host and registered guests,
    and activates it for later launches without interrupting active processes;

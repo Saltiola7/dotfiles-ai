@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "opencode-rolling-stable",
+  "title": "Transactional rolling-stable OpenCode distribution",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Every dotfiles-ai full apply checks and converges the latest compatible stable OpenCode release on the host and all registered managed guests.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-002","kind":"decision","text":"Use official OpenCode release assets and published SHA-256 digests on every platform; Homebrew formula state is not runtime authority.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-003","kind":"constraint","text":"Stage and validate one candidate everywhere before guest-then-host activation; rollback or durable commit recovery prevents fleet divergence.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-004","kind":"decision","text":"Update activation never signals or restarts current OpenCode or Herdr processes; only later launches use the replacement inode.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-005","kind":"constraint","text":"A healthy fleet retains its verified release when metadata, download, validation, or a target is unavailable; unhealthy bootstrap and rollback failure remain nonzero.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-006","kind":"constraint","text":"Preserve OpenCode XDG state, sessions, providers, credentials, configuration, and current process state without inspection or copying across boundaries.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-007","kind":"decision","text":"Validate version, help, resolved managed configuration, CLI role discovery, and required DBSCTR tool loading before activation.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]},
+    {"id":"INT-008","kind":"risk","text":"OpenCode CLI/config contracts can drift on stable releases; incompatible candidates are rejected by canonical full-candidate digest and never activated.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"]}
+  ],
+  "contexts": [
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":["opencode_control_plane"]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"delivered","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"opencode-rolling-stable","context":"dotfiles_ai_distribution","state":"ready","requirements":["INT-001","INT-002","INT-003","INT-004","INT-005","INT-006","INT-007","INT-008"],"depends_on":[],"artifacts":["docs/specs/dotfiles_ai_distribution/OPENCODE-ROLLING-STABLE.plan.json","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md","docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md"],"release_group":"rolling-opencode","execution_owner":"build"}
+  ],
+  "release_groups": [
+    {"id":"rolling-opencode","members":["opencode-rolling-stable"],"state":"planning"}
+  ]
+}
