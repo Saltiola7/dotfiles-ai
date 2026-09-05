@@ -18,7 +18,7 @@ deferred until separately approved; its benchmark requirements remain unchanged.
 
 | Order | Slice | Readiness work before launch |
 |---|---|---|
-| 1 | historical-reporting-repair | Complete structural versus live-authority contract and call-site inventory |
+| 1 | historical-reporting-repair | Contract and applicability plan ready; fresh digest-bound approval required |
 | 2 | history-projection-refresh-schedule | Settle wake/restart semantics, failure-status ownership, and process cleanup |
 | 3 | dks-fast-fallback | Reconcile existing PR #130, source, deployment, and contention evidence |
 | 4 | knowledge-privacy-lock-isolation | Verify complete privacy-writer inventory and canonical lock order |
@@ -48,10 +48,11 @@ identity checks remain mandatory. Retired status must not bypass malformed-recor
 checks. No repair rewrites private cycle records to make a test pass or recreates
 old source checkouts as a permanent dependency.
 
-Before readiness, specify the treatment of malformed members and denominators
-for each reporting consumer, then cover active, completed, retired, removed,
-malformed, and mismatched records. Current implementation's retired-record
-validation bypass is evidence of a gap, not the desired compatibility contract.
+The lifecycle feature contract `historical-reporting-repair.md` preserves
+fail-closed malformed-member handling and existing denominators, with explicit
+historical intent restricted to completed-cycle enumeration and History
+correlation. Current implementation's retired-record validation bypass is evidence
+of a gap, not the desired compatibility contract.
 
 ## Delivery And Gates
 

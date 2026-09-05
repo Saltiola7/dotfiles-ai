@@ -437,7 +437,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert refresh["depends_on"] == ["history-incident-query-core"]
     slices = {item["id"]: item for item in speed["slices"]}
     assert slices["history-incident-query-core"]["state"] == "delivered"
-    assert slices["historical-reporting-repair"]["state"] == "captured"
+    assert slices["historical-reporting-repair"]["state"] == "ready"
     assert "900..3600" in schedule and "900..7200" not in schedule
     assert "explicit age" in " ".join(schedule.split())
 
