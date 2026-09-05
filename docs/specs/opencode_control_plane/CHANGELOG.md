@@ -1,5 +1,25 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-05 - Primary External Directory Access
+
+- Replaced the managed global external-directory deny with `allow` and removed
+  redundant Build/Build-RND path exceptions. Repository references remain
+  advertised. Plan edit denial, explicit Builder restrictions, secret-tool
+  approvals, and Git/lifecycle controls remain unchanged.
+- Three red-first regression checks reproduced the old deny; all 47 affected
+  control-plane tests passed after repair. Modifier coverage verifies replacement
+  of an existing global deny while preserving unrelated machine-local settings.
+- The operator authorized bounded preparation while a required skill reference
+  was inaccessible, then requested bootstrap deployment to break that dependency.
+  Targeted managed-config apply and verify passed before normal gate closure.
+  After the operator restarted OpenCode, the previously denied reference read
+  succeeded. This chronology is not a claim that deployment followed prior gates.
+- Residual risk: primary filesystem location is no longer an OpenCode access
+  boundary; OS permissions, isolation, privacy policy, and tool-specific controls
+  still apply. Rollback reapplies the prior template and requires a restart.
+  Intended delivery: feature-branch draft PR into protected `main`; final commit,
+  gate evidence, and push outcome remain in the Cycle Record.
+
 ## 2026-09-01 - Exact Linked-Source Initiative Begin
 
 - Exposed optional Initiative source and target checkout fields inside
