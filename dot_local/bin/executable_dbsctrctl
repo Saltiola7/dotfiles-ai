@@ -1965,12 +1965,15 @@ def completed_cycle_records(repository):
                    legacy_cycle_dir(repository)}
     for line in git(repository, "worktree", "list", "--porcelain").stdout.splitlines():
         if line.startswith("worktree "):
+            worktree = Path(line.removeprefix("worktree "))
+            if not worktree.is_dir():
+                continue
             with contextlib.suppress(RuntimeError):
-                directories.add(legacy_cycle_dir(Path(line.removeprefix("worktree "))))
+                directories.add(legacy_cycle_dir(worktree))
     paths = sorted({path for directory in directories if directory.is_dir()
                     for path in directory.glob("*.json")})
     for path in paths:
-        record = read_cycle_record(repository, path)
+        record = read_cycle_record(repository, path, historical=True)
         cycle_id = record.get("cycle_id") if isinstance(record, dict) else None
         if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id) or cycle_id != path.stem:
             fail("Cycle Record contains an invalid cycle ID")
@@ -2776,13 +2779,15 @@ def relative_locator(path, base, root_name):
     return {"root": root_name, "path": relative.as_posix() or "."}
 
 
-def locator_path(locator, roots, name):
+def locator_path(locator, roots, name, *, validate_only=False):
     if (not isinstance(locator, dict) or set(locator) != {"root", "path"}
             or locator.get("root") not in roots or not isinstance(locator.get("path"), str)):
         fail(f"invalid {name} locator")
     relative = PurePosixPath(locator["path"])
     if relative.is_absolute() or locator["path"] == "" or ".." in relative.parts:
         fail(f"invalid {name} locator")
+    if validate_only:
+        return None
     base = roots[locator["root"]].resolve()
     candidate = (base / Path(*relative.parts)).resolve()
     try:
@@ -2825,7 +2830,7 @@ def validate_schema5_ids(value, name, required):
     return value
 
 
-def validate_schema5_adapter(root, record, harness_id, adapter):
+def validate_schema5_adapter(root, record, harness_id, adapter, *, historical=False):
     required = {"schema_version", "harness_id", "adapter_revision", "session_ids",
                 "worktree", "availability"}
     optional = {"turn_ids", "family_id", "activation"}
@@ -2842,11 +2847,12 @@ def validate_schema5_adapter(root, record, harness_id, adapter):
                                     or not OPAQUE_ID.fullmatch(adapter["family_id"])):
         schema5_fail(f"{harness_id} family ID")
     try:
-        source = record_source_worktree(root, record)
+        source = None if historical else record_source_worktree(root, record)
         locator_path(adapter["worktree"], {
             "cycle_worktree": root,
-            "primary_worktree": source if source is not None else primary_worktree(root),
-        }, "schema 5 adapter worktree")
+            "primary_worktree": (None if historical else
+                                 source if source is not None else primary_worktree(root)),
+        }, "schema 5 adapter worktree", validate_only=historical)
     except RuntimeError:
         schema5_fail(f"{harness_id} worktree")
     availability = validate_schema5_availability(adapter["availability"])
@@ -2861,7 +2867,7 @@ def validate_schema5_adapter(root, record, harness_id, adapter):
     return adapter
 
 
-def validate_schema5_runtime(root, record, allow_synthetic_codex=False):
+def validate_schema5_runtime(root, record, allow_synthetic_codex=False, *, historical=False):
     runtime = record.get("runtime")
     if not isinstance(runtime, dict) or not set(runtime).issubset({"adapters", "opencode"}):
         schema5_fail("runtime fields")
@@ -2872,7 +2878,7 @@ def validate_schema5_runtime(root, record, allow_synthetic_codex=False):
     if "codex" in adapters and not allow_synthetic_codex:
         schema5_fail("Codex adapter is unavailable")
     for harness_id, adapter in adapters.items():
-        validate_schema5_adapter(root, record, harness_id, adapter)
+        validate_schema5_adapter(root, record, harness_id, adapter, historical=historical)
     legacy = runtime.get("opencode")
     generic = adapters.get("opencode")
     if (legacy is None) != (generic is None):
@@ -2898,7 +2904,7 @@ def validate_schema5_runtime(root, record, allow_synthetic_codex=False):
     return runtime
 
 
-def read_cycle_record(root, path, label="Cycle Record"):
+def read_cycle_record(root, path, label="Cycle Record", *, historical=False):
     try:
         record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -2909,8 +2915,8 @@ def read_cycle_record(root, path, label="Cycle Record"):
         schema_version = record["schema_version"]
         if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5):
             fail(f"unsupported Cycle Record schema: {schema_version}")
-        if schema_version == 5 and record.get("state") != "retired":
-            validate_schema5_runtime(root, record)
+        if schema_version == 5:
+            validate_schema5_runtime(root, record, historical=historical)
     return record
 
 
@@ -5633,7 +5639,7 @@ def correlated_cycles(directory, hinted_ids, session_ids=(), cache=None, exact_s
         record_root = resolved or root_dir()
         for path in paths:
             try:
-                record = read_cycle_record(record_root, path)
+                record = read_cycle_record(record_root, path, historical=True)
                 cycle_id = record.get("cycle_id")
                 if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
                     fail("Cycle Record contains an invalid cycle ID")
