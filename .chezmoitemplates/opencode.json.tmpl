@@ -125,15 +125,7 @@
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
         "dbsctr_vm_handoff": "deny",
-        "1password_*": "ask",
-        "external_directory": {
-          "~/.local/state/dbsctr/worktrees/**": "allow",
-{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
-          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
-{{ end }}          "~/.config/dotfiles-ai/**": "allow",
-          "~/.local/share/chezmoi": "allow",
-          "~/.local/share/chezmoi/**": "allow"
-        }
+        "1password_*": "ask"
       }
     },
     "build-rnd": {
@@ -150,15 +142,7 @@
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
-        "dbsctr_vm_handoff": "ask",
-        "external_directory": {
-          "~/.local/state/dbsctr/worktrees/**": "allow",
-{{ if .dotfiles_ai.state.root }}          {{ .dotfiles_ai.state.root | toJson }}: "allow",
-          {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
-{{ end }}          "~/.config/dotfiles-ai/**": "allow",
-          "~/.local/share/chezmoi": "allow",
-          "~/.local/share/chezmoi/**": "allow"
-        }
+        "dbsctr_vm_handoff": "ask"
       }
     },
     "plan": {
@@ -267,29 +251,7 @@
     "dbsctr_improvement_update": "deny",
     "context7_*": "deny",
     "1password_*": "deny",
-{{ if gt (len $references) 0 -}}
-    "external_directory": {
-      "*": "deny",
-      "~/.local/state/dbsctr/worktrees": "allow",
-      "~/.local/state/dbsctr/worktrees/**": "allow",
-{{ if .dotfiles_ai.state.root }}      {{ .dotfiles_ai.state.root | toJson }}: "allow",
-      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow",
-{{ end -}}
-{{- $first := true -}}
-{{- range $name, $reference := $references }}
-      {{ if not $first }},{{ end }}{{ $reference.path | toJson }}: "allow",
-      {{ printf "%s/**" $reference.path | toJson }}: "allow"{{ $first = false -}}
-{{- end }}
-    },
-{{ else -}}
-    "external_directory": {
-      "*": "deny",
-      "~/.local/state/dbsctr/worktrees": "allow",
-      "~/.local/state/dbsctr/worktrees/**": "allow"{{ if .dotfiles_ai.state.root }},
-      {{ .dotfiles_ai.state.root | toJson }}: "allow",
-      {{ printf "%s/**" .dotfiles_ai.state.root | toJson }}: "allow"{{ end }}
-    },
-{{ end -}}
+    "external_directory": "allow",
     "bash": {
       "*": "allow",
       "rm *": "ask",

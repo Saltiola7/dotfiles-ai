@@ -113,7 +113,7 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
         "provider": {"machine-local": {"options": {"endpoint": "local"}}},
         "references": {"machine-local": {"path": "/local", "description": "Local"}},
         "permission": {
-            "external_directory": {"/local": "allow"},
+            "external_directory": {"*": "deny", "/local": "allow"},
             "bash": {"machine-local *": "allow"},
         },
     }))
@@ -128,7 +128,7 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     merged = json.loads(target.read_text())
     assert merged["provider"]["machine-local"]["options"]["endpoint"] == "local"
     assert merged["references"]["machine-local"]["path"] == "/local"
-    assert merged["permission"]["external_directory"]["/local"] == "allow"
+    assert merged["permission"]["external_directory"] == "allow"
     assert merged["permission"]["bash"]["machine-local *"] == "allow"
     assert merged["permission"]["bash"]["pmctl jira publish*"] == "ask"
     assert merged["permission"]["bash"]["pmctl sprint-review*"] == "ask"
@@ -140,20 +140,10 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
 
 def test_optional_local_repository_reference():
     assert "references" not in rendered_config()
-    assert rendered_config()["permission"]["external_directory"] == {
-        "*": "deny",
-        "~/.local/state/dbsctr/worktrees": "allow",
-        "~/.local/state/dbsctr/worktrees/**": "allow",
-    }
+    assert rendered_config()["permission"]["external_directory"] == "allow"
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
-    assert list(rendered_config(data=centralized)["permission"]["external_directory"].items()) == [
-        ("*", "deny"),
-        ("~/.local/state/dbsctr/worktrees", "allow"),
-        ("~/.local/state/dbsctr/worktrees/**", "allow"),
-        ("/Volumes/ext/state", "allow"),
-        ("/Volumes/ext/state/**", "allow"),
-    ]
+    assert rendered_config(data=centralized)["permission"]["external_directory"] == "allow"
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -170,13 +160,7 @@ def test_optional_local_repository_reference():
             "description": "Project reference.",
         }
     }
-    assert list(rendered["permission"]["external_directory"].items()) == [
-        ("*", "deny"),
-        ("~/.local/state/dbsctr/worktrees", "allow"),
-        ("~/.local/state/dbsctr/worktrees/**", "allow"),
-        ("/workspace/reference/docs", "allow"),
-        ("/workspace/reference/docs/**", "allow"),
-    ]
+    assert rendered["permission"]["external_directory"] == "allow"
 
 
 def test_provider_and_primary_contracts():
@@ -385,22 +369,16 @@ def test_builder_boundaries():
             assert f'"{command}": deny' in body
 
 
-def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
+def test_primary_external_access_preserves_lifecycle_permissions():
     config = rendered_config()
     worktrees = "~/.local/state/dbsctr/worktrees/**"
     local_config = "~/.config/dotfiles-ai/**"
-    personal_chezmoi = "~/.local/share/chezmoi"
-    personal_chezmoi_tree = "~/.local/share/chezmoi/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
     assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
-    assert config["permission"]["external_directory"] == {
-        "*": "deny",
-        "~/.local/state/dbsctr/worktrees": "allow",
-        "~/.local/state/dbsctr/worktrees/**": "allow",
-    }
+    assert config["permission"]["external_directory"] == "allow"
     assert "typed `dbsctr_execution_dag`" in (OC / "AGENTS.md").read_text()
     assert config["agent"]["build"]["permission"] == {
         "dbsctr_initiative_launch": "deny",
@@ -416,17 +394,13 @@ def test_only_build_primaries_can_begin_or_access_dbsctr_worktrees():
         "dbsctr_provider_evaluation_save": "allow",
         "dbsctr_vm_handoff": "deny",
         "1password_*": "ask",
-        "external_directory": {
-            worktrees: "allow", local_config: "allow",
-            personal_chezmoi: "allow", personal_chezmoi_tree: "allow",
-        },
     }
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
-    assert rendered_config(data=centralized)["agent"]["build"]["permission"]["external_directory"] == {
-        worktrees: "allow", "/Volumes/ext/state": "allow", "/Volumes/ext/state/**": "allow",
-        local_config: "allow", personal_chezmoi: "allow", personal_chezmoi_tree: "allow",
-    }
+    for data in (DATA, centralized):
+        permissions = rendered_config(data=data)
+        for name in ("build", "build-rnd", "plan"):
+            assert "external_directory" not in permissions["agent"][name]["permission"]
 
     build_primaries = {"build-gpt.md", "build-claude.md"}
     for agent in (OC / "agents").glob("*.md"):

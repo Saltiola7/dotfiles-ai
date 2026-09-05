@@ -171,6 +171,47 @@ copied, mounted, or used as fallback.
 
 ## Overview
 
+### Primary External Access
+
+The dotfiles owner permits primary agents to access OS-accessible local paths
+without an OpenCode external-directory allowlist. Installed skill references must
+remain readable after loading a skill, independent of configured repository
+references or state roots. This is an elevated-risk permission policy change:
+filesystem location is no longer an OpenCode security boundary for primaries.
+OS permissions and VM isolation remain authoritative. Tool-specific approvals,
+Plan edit denial, explicit Builder external-directory denial, privacy rules, and
+DBSCTR execution and delivery checks remain unchanged. Permission to read does
+not authorize disclosure of credentials or private evidence to hosted providers.
+
+- Given an installed skill has a nested reference outside the checkout, when a
+  primary reads it, no global external-directory deny overrides skill access.
+- Given an existing managed configuration contains the previous global deny,
+  when chezmoi applies the new template, that managed field becomes `allow` and
+  unrelated machine-local values remain preserved.
+- Given Plan or a bounded Builder is selected, when it requests an operation,
+  its separate edit, tool, and explicit external-directory restrictions still
+  apply. Filesystem access never authorizes a lifecycle launch.
+
+The global `permission.external_directory` value is `allow`; Build and Build-RND
+need no generated path exceptions. References remain discovery metadata, not an
+access allowlist. Explicit machine-local agent overrides are not silently removed;
+inspect resolved permissions if access still differs. No model, provider, package,
+or credential changes are part of this policy.
+
+Deployment applies only the managed OpenCode JSON target after rendered-config
+and modifier checks. Existing processes retain loaded permissions until restart.
+Operate evidence requires a legitimate nested skill-reference read in a restarted
+runtime. Rollback restores the previous managed template and reapplies it, then
+restarts OpenCode; it deletes no skill or user data. Re-evaluate this policy when
+agent trust, tool permissions, or host/VM isolation changes.
+
+Validation uses control-plane rendering and modifier fixtures, Plan/Builder and
+sensitive-operation regression tests, managed-target verification, and the live
+reference read. The current cycle requires all kernel gates, Review/Integrate,
+Deploy, Operate, and Maintain/Retire; Release is not applicable because no versioned
+artifact is published. Bootstrap deployment preceded normal gate closure at the
+operator's request; evidence must retain that chronology rather than backdate gates.
+
 The OpenCode control plane owns global providers, agents, commands, permissions,
 skills, and Graphify routing. It keeps OpenAI and Amazon Bedrock workflows
 provider-affine while removing unused Claude Code, Meridian, Headroom, and OMO
@@ -264,15 +305,14 @@ flowchart LR
     R -->|XDG data and state| O[OpenCode durable state]
     R -->|DBSCTR root and registry| D[DBSCTR durable state]
     R -->|worktree directory| H[Herdr worktrees]
-    R -->|exact and recursive allow| P[Build external-directory permission]
     L[Local machine] -->|remain local| K[Config, credentials, caches, sockets, locks, and temporary files]
 ```
 
 **Text Equivalent:** With no configured root, every component keeps its native
 location. With a root, OpenCode and lifecycle workers receive XDG and DBSCTR
 locations. Herdr receives explicit component roots and its worktree directory,
-but not generic XDG paths that would redirect unrelated pane tools. Build receives
-only the root and subtree permissions. Configuration, credentials, caches,
+but not generic XDG paths that would redirect unrelated pane tools. Filesystem
+permission is independent of state-root configuration. Configuration, credentials, caches,
 sockets, locks, and temporary files remain local. This repository change does not
 move live data or restart a running OpenCode process.
 
@@ -948,22 +988,18 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
   Builder subagents.
 - `dbsctr_begin` is allowed for Build without an internal approval callback;
   Plan denies it, and the helper remains the authoritative safety boundary.
-- The helper-owned DBSCTR worktree root is an allowed external directory for the
-  Build primary orchestrators only; the global default is deny and the rule does
-  not broaden arbitrary home-directory, Plan, or subagent access.
-- The standalone `~/.config/dotfiles-ai/**` directory is allowed for Build
-  primaries only so managed machine-local deployment values and source-specific
-  persistent state can be maintained; the personal chezmoi config and all other
-  external paths remain denied.
+- Global external-directory access is allowed so primaries can use installed
+  skills, worktrees, and machine-local configuration without path allowlist drift.
+  Plan edit denial and explicit Builder external-directory denial remain separate
+  controls; OS access does not authorize external disclosure or lifecycle mutation.
 - `dotfiles_ai.state.root` is optional and empty by default. When set, managed
   LaunchAgents receive `DOTFILES_AI_STATE_ROOT`, XDG data/state homes, the DBSCTR
   state/worktree roots, and existing DBSCTR R&D file locations beneath that root.
   Herdr receives `<root>/herdr/worktrees`; native paths remain unchanged when the
   setting is absent or empty.
-- A configured centralized root adds exact-root and recursive-subtree OpenCode
-  external-directory allows after the broad deny for Build primaries. It does not
-  broaden Plan or bounded subagents and does not remove native DBSCTR worktree
-  access needed by legacy cycles.
+- A configured centralized root changes storage locations, not OpenCode
+  external-directory permission. Native and centralized state are equally
+  accessible subject to OS permissions and explicit agent restrictions.
 - Existing OpenCode, DBSCTR review, and R&D SQLite stores remain SQLite. This
   change introduces no database engine. OCP-38 permits only a read-only SQLite
   backup into a new disposable file and requires a fresh guest OpenCode process
@@ -992,11 +1028,9 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
 - Workspace mounts may declare optional reference names and descriptions. A
   declared reference renders its host path on macOS and guest path in the owning
   VM; mounts without reference metadata are not advertised to OpenCode.
-- When references are configured, global external-directory permissions keep
-  the broad deny first and append distinct exact-root and recursive-subtree
-  allows. These patterns cannot be deduplicated against OpenCode's generated
-  `path/*` reference rule, so last-match resolution grants the named repository
-  without opening any sibling or arbitrary external path.
+- Configured references advertise supporting repositories without defining a
+  filesystem allowlist. The managed global `external_directory: allow` avoids
+  overriding OpenCode-generated skill access with a later broad deny.
 - Context7 is a managed remote MCP server. Its tools are globally disabled and
   enabled only for Scout-class agents. Its API key is optional and environment-
   backed when available.
