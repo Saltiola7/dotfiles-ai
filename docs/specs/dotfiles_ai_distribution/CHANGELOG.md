@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - OpenCode Guest Ownership Correction
+
+- Reopened rolling readiness before source commit after Build verified Fedora
+  still executes root-owned provisioned OpenCode rather than the assumed
+  user-local path.
+- Approved user-local migration with the exact root `1.18.25` binary retained as
+  first-migration rollback authority; provisioning retirement follows fleet proof.
+
 ## 2026-09-05 - OpenCode Rolling Stable Readiness
 
 - Reopened OpenCode distribution after host Homebrew advanced to `1.18.29` while
