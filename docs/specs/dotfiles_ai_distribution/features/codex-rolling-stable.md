@@ -1,6 +1,6 @@
 # Codex Rolling Stable Updates
 
-**Status:** Ready
+**Status:** Implemented and deployed
 
 ## Outcome
 
@@ -287,3 +287,15 @@ Build records one candidate version/digest set, metadata and archive byte bounds
 target counts, stage/activation/rollback counts, version parity, retained
 generation count, update duration, and zero process restarts. It never records
 release bodies, paths, private IDs, auth output, or session content.
+
+## Delivery Evidence
+
+- Gate Commits: `8135a3c`, `cbdc9ec`, `6b0439f`.
+- Affected QA: 153 distribution, portability, Lima, and remote-user tests passed;
+  Python compilation and diff checks passed.
+- Deploy/Operate: host and both registered guests run compatible stable release
+  `0.153.4`; wrapper parity passes and guest running/stopped states were preserved.
+- Maintain/Retire: no-op update, lockless migration, crash recovery, reverse
+  rollback, snapshot cleanup, mutation, symlink, and concurrent-launch checks pass.
+- Gate Exceptions: none. Release: not applicable. Intended Final Push: feature
+  branch and draft pull request into protected `main`.

@@ -1,5 +1,18 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-05 - Codex Rolling Stable Delivered
+
+- Replaced Homebrew Codex runtime authority with official digest-verified stable
+  archives and an owner-private platform/binary/fleet release lock.
+- Added every-apply host/guest staging, semantic validation, next-launch atomic
+  activation, durable commit/recovery, reverse rollback, soft retention for the
+  previously verified fleet, and exact guest helper bootstrap.
+- Migrated host and registered guests to Codex `0.153.4` without copying auth,
+  reading session storage, restarting processes, or changing guest running state.
+- Affected QA passed 153 tests. Gate Commits: `8135a3c`, `cbdc9ec`, `6b0439f`.
+  Gate Exceptions: none. Release: not applicable. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
 ## 2026-09-05 - Rolling Authority Digest Correction
 
 - Reopened rolling readiness after review found that one platform asset digest

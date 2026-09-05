@@ -6,6 +6,9 @@ persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
 [data.dotfiles_ai.remote_user_environment]
 enabled = true
 
+[data.dotfiles_ai.codex]
+channel = "stable"
+
 [data.dotfiles_ai.opencode]
 # Set the non-secret project before starting the user-owned Vertex login.
 vertex_project = ""

@@ -25,7 +25,7 @@
 {{- end -}}
 {{- end -}}
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "enabled": {{ .dotfiles_ai.sandbox.enabled | toJson }},
   "source": {{ .dotfiles_ai.distribution.repository | toJson }},
   "template": {{ printf "%s/.config/dotfiles-ai/lima/workspace.yaml" .chezmoi.homeDir | toJson }},
@@ -40,9 +40,7 @@
   },
   "state_root": {{ .dotfiles_ai.state.root | toJson }},
   "codex": {
-    "version": {{ .dotfiles_ai.codex.version | toJson }},
-    "linux_asset_url": {{ .dotfiles_ai.codex.linux_asset_url | toJson }},
-    "linux_asset_sha256": {{ .dotfiles_ai.codex.linux_asset_sha256 | toJson }}
+    "channel": {{ .dotfiles_ai.codex.channel | toJson }}
   },
   "lima_home": {{ .dotfiles_ai.sandbox.lima_home | toJson }},
   "tailscale": {
