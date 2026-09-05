@@ -1445,11 +1445,67 @@ class DbsctrctlTest(unittest.TestCase):
 
         record["state"] = "retired"
         path.write_text(json.dumps(record))
-        run(self.repo, "worktree-list", "--json")
+        retired = run(self.repo, "worktree-list", "--json", ok=False)
+        self.assertIn("invalid schema 5 runtime", retired.stderr)
+
+    def test_historical_reads_validate_structure_without_live_source(self):
+        self.start()
+        loader = importlib.machinery.SourceFileLoader("dbsctrctl_historical", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        record["runtime"]["opencode"] = {
+            "session_ids": ["historical-session"], "path_root": "primary_worktree",
+            "worktree": ".", "directory": ".",
+        }
+        module.sync_schema5_opencode(record)
+        with mock.patch.object(module, "record_source_worktree", side_effect=RuntimeError("source absent")):
+            for state in ("active", "completed", "retired"):
+                record["state"] = state
+                path.write_text(json.dumps(record))
+                self.assertEqual(module.read_cycle_record(self.repo, path, historical=True), record)
+                with self.assertRaisesRegex(RuntimeError, "invalid schema 5 runtime"):
+                    module.read_cycle_record(self.repo, path)
+                for locator in ({"root": "primary_worktree", "path": "../escape"},
+                                {"root": "primary_worktree", "path": "/absolute"},
+                                {"root": "unknown", "path": "."}):
+                    invalid = json.loads(json.dumps(record))
+                    invalid["runtime"]["adapters"]["opencode"]["worktree"] = locator
+                    path.write_text(json.dumps(invalid))
+                    with self.assertRaises(RuntimeError):
+                        module.read_cycle_record(self.repo, path, historical=True)
+                invalid = json.loads(json.dumps(record))
+                invalid["runtime"]["opencode"]["session_ids"] = ["different-session"]
+                path.write_text(json.dumps(invalid))
+                with self.assertRaises(RuntimeError):
+                    module.read_cycle_record(self.repo, path, historical=True)
+            path.write_text(json.dumps(record))
+            self.assertEqual(module.completed_cycle_records(self.repo), [])
+            record["state"] = "completed"
+            path.write_text(json.dumps(record))
+            self.assertEqual(module.completed_cycle_records(self.repo), [record])
+            with mock.patch.object(module, "root_dir", return_value=self.repo):
+                self.assertTrue(module.correlated_cycles(
+                    str(self.repo), [], exact_session_id="historical-session"))
 
         path.write_text('{"schema_version":5,"schema_version":5}')
         duplicate = run(self.repo, "worktree-list", "--json", ok=False)
         self.assertIn("duplicate JSON key", duplicate.stderr)
+
+    def test_cycle_performance_ignores_absent_legacy_worktree(self):
+        self.start()
+        path = self.record_path()
+        record = json.loads(path.read_text())
+        record.update(state="completed", completed_at=record["created_at"])
+        path.write_text(json.dumps(record))
+        baseline = run(self.repo, "cycle-performance", "--json").stdout
+        linked = Path(self.temp.name) / "removed-legacy"
+        subprocess.run(["git", "worktree", "add", "-b", "removed-legacy", str(linked)],
+                       cwd=self.repo, check=True, capture_output=True)
+        shutil.rmtree(linked)
+        self.assertEqual(run(self.repo, "cycle-performance", "--json").stdout, baseline)
 
     def test_linked_worktrees_have_isolated_active_cycles_and_global_ids(self):
         second = Path(self.temp.name) / "second"
