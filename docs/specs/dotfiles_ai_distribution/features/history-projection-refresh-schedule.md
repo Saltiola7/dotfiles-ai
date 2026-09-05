@@ -49,7 +49,7 @@ refresh_minute = 30
 refresh_timeout_seconds = 3600
 ```
 
-Bounds are hour `0..23`, minute `0..59`, and timeout `900..7200`. The managed
+Bounds are hour `0..23`, minute `0..59`, and timeout `900..3600`. The managed
 host enables the feature explicitly; public defaults remain safe for machines
 without an OpenCode source. The installed artifacts are:
 
@@ -73,6 +73,9 @@ changing DKS authority or cadence.
   removes preparation on the next run.
 - Three consecutive failures remain visible in status and logs but do not disable
   the job or remove the prior snapshot.
+- A prior integrity- and privacy-valid snapshot remains readable with explicit
+  age even after missed daily refreshes. Age alone does not expire it or trigger
+  synchronous rebuilding; privacy invalidation remains immediate.
 - Rollback unloads the LaunchAgent and restores prior managed configuration; it
   does not delete projection or OpenCode data.
 - Vulnerability and runtime intake follow the distribution Engineering Profile;

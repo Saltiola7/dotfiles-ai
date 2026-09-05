@@ -7,6 +7,13 @@ remains visible but is not the primary optimization target.
 The coordinator repository is `Saltiola7/dotfiles-ai`. The canonical machine
 ledger is [`MANIFEST.json`](MANIFEST.json).
 
+The approved remaining delivery sequence and unresolved readiness work are in
+[`SERIAL-DELIVERY.md`](SERIAL-DELIVERY.md). That sequence requires one invoking
+primary without child agents or sessions and defers concurrency activation.
+History core was delivered in PR #129, merge `5ae5f3888b74eaaa5d0bdd32ea49a7d2e04210b9`;
+daily scheduling is not included in that delivery. The separate primary-access
+bootstrap repair was delivered in PR #141, merge `8ca28ee121381b8986f79d5518d4d01fd7bb0b75`.
+
 ## Success
 
 - Report autonomous-runtime mean, p50, and p90 with sample count and attribution
@@ -46,6 +53,7 @@ The user approved this complete context map on 2026-08-29.
 | `performance-audit-v2` | `build` | Deterministic audit reduction, aggregate evidence, and verified source-absence handling | `performance-audit-workflow`, `history-incident-runtime-recovery` |
 | `validation-evidence-reuse` | `build` | Exact unchanged validation is reused across applicable gates | `performance-audit-workflow` |
 | `agent-context-budget` | `build` | Conditional subagents, reviewer enforcement, and bounded context growth | `performance-audit-workflow` |
+| `historical-reporting-repair` | `build` | Valid historical records remain readable without live execution authority | None |
 
 Discovery owns normative specifications and slice scope. Build owns only the
 implementation paths declared by its approved slice. Late changes to metric
