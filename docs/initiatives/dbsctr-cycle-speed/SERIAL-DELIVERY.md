@@ -19,7 +19,7 @@ separately approved; its benchmark requirements remain unchanged.
 | Order | Slice | Readiness work before launch |
 |---|---|---|
 | 1 | historical-reporting-repair | Delivered in PR #144, merge `3b79749a1e8c6eb0fc7c261a75bdcffa5a4cbecf` |
-| 2 | history-projection-refresh-schedule | Decisions settled; fresh digest-bound approval required |
+| 2 | history-projection-refresh-schedule | Exact latest-summary status contract settled; fresh digest-bound approval required |
 | 3 | dks-fast-fallback | Reconcile existing PR #130, source, deployment, and contention evidence |
 | 4 | knowledge-privacy-lock-isolation | Verify complete privacy-writer inventory and canonical lock order |
 | 5 | runtime-query-recovery | Reconcile preserved implementation against delivered DKS/privacy behavior |
@@ -35,6 +35,8 @@ This order is an execution constraint, not a replacement for manifest dependency
 edges. A completed specification does not make implementation or deployment done.
 Existing ready labels still require fresh receipt and source checks after any
 manifest revision; none authorizes launching all units as an unattended batch.
+The first scheduler Build receipt was retired empty after exact status fields and
+retention were found unresolved. No implementation change was preserved from it.
 
 ## Reporting Repair Boundary
 

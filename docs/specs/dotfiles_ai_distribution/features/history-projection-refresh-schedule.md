@@ -80,6 +80,30 @@ this slice's Deploy and Operate validation; an always-on host simply fires daily
 at 04:30, and launchd's run-once-at-wake default stays the documented catch-up
 behavior for machines that sleep.
 
+The installed `history-projection-refresh status` command prints exactly one
+latest-summary object and exits zero:
+
+```json
+{"schema_version":1,"state":"never_run","failure_class":null,"consecutive_failures":0,"started_at":null,"finished_at":null,"duration_seconds":null,"snapshot_age_seconds":null,"snapshot_size_bytes":null}
+```
+
+Every field is required. `state` is one of `never_run`, `running`, `succeeded`,
+`failed`, or `timed_out`. `failure_class` is null except for failed terminal
+states and is then one of `timeout`, `source_unavailable`, `refresh_failed`, or
+`status_invalid`. Timestamps are nonnegative Unix milliseconds; duration, age,
+and size are nonnegative integers or null. The wrapper persists only this latest
+summary, atomically and owner-private, at
+`$DOTFILES_AI_STATE_ROOT/dotfiles-ai/history-projection-refresh/status.json` when
+the centralized root is configured, otherwise at
+`~/.local/state/dotfiles-ai/history-projection-refresh/status.json`. It never
+persists a run list. Launchd logs retain bounded event lines.
+
+An overlapping invocation exits zero without replacing the running summary.
+Successful completion resets `consecutive_failures`; failed or timed-out
+completion increments it. Missing state returns `never_run`. Unsafe, malformed,
+oversized, or unsupported state fails closed with exit 75, empty stdout, and
+stderr exactly `scheduler_state_invalid\n`; it is never converted to `never_run`.
+
 04:30 local avoids the existing 03:00 maintenance window, Sunday 03:15 database
 backup, and 09:15 review work. The 15-minute DKS reconciler remains independent;
 low-priority execution and single-flight locking prevent this schedule from
@@ -135,6 +159,9 @@ status and can unload only the owned schedule.
 - Process fixtures prove single-flight skip, wrapper watchdog termination, bounded
   run state and status output, prior-snapshot retention, restart, disablement,
   and rollback.
+- Status fixtures prove exact fields and types, latest-summary replacement,
+  consecutive-failure transitions, missing-state output, owner-only atomic state,
+  and fail-closed malformed, oversized, and unsafe state handling.
 - A controlled live run proves load identity, low-priority execution, successful
   status, and no overlapping process.
 
