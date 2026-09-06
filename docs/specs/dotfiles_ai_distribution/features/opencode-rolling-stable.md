@@ -78,8 +78,9 @@ Before staging succeeds, the candidate must:
 - return exact semantic version and bounded nonempty help;
 - parse the rendered managed `opencode.json` through supported debug/config
   commands without reading credential files;
-- retain native `plan`/`build` and configured role/tool discovery;
-- load the DBSCTR typed tool module and preserve configured permission keys;
+- retain configured `plan`/`build` agents and headless command shapes;
+- preserve configured DBSCTR typed-tool permission keys without invoking a
+  project-scoped tool outside its repository context;
 - preserve headless `--version`, `debug config`, and session-list command shapes;
 - emit only body-free validator status.
 
