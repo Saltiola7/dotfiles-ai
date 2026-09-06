@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import platform
 import re
-import selectors
 import shutil
 import signal
 import stat
@@ -364,45 +363,40 @@ def extract(archive, destination, expected):
 
 
 def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT, combine=False):
-    try:
-        process = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
-            env=environment,
-        )
-    except OSError:
-        raise UpdateError("validation_failed")
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
-    selector.register(process.stderr, selectors.EVENT_READ)
-    output = {process.stdout: bytearray(), process.stderr: bytearray()}
-    deadline = time.monotonic() + timeout
-    try:
-        while selector.get_map():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise UpdateError("validation_failed")
-            for key, _ in selector.select(min(remaining, .1)):
-                chunk = os.read(key.fileobj.fileno(), 65536)
-                if not chunk:
-                    selector.unregister(key.fileobj)
-                    continue
-                output[key.fileobj].extend(chunk)
-                if sum(map(len, output.values())) > maximum:
-                    raise UpdateError("validation_failed")
-        code = process.wait(timeout=max(.1, deadline - time.monotonic()))
-    except Exception:
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
-        raise
-    finally:
-        selector.close()
-    if code:
-        raise UpdateError("validation_failed")
-    value = bytes(output[process.stdout])
-    return value + bytes(output[process.stderr]) if combine else value
+            process = subprocess.Popen(
+                argv, stdout=stdout, stderr=stderr, start_new_session=True,
+                env=environment,
+            )
+        except OSError:
+            raise UpdateError("validation_failed")
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                if (time.monotonic() >= deadline
+                        or os.fstat(stdout.fileno()).st_size + os.fstat(stderr.fileno()).st_size
+                        > maximum):
+                    raise UpdateError("validation_failed")
+                time.sleep(.01)
+            if (process.returncode
+                    or os.fstat(stdout.fileno()).st_size + os.fstat(stderr.fileno()).st_size
+                    > maximum):
+                raise UpdateError("validation_failed")
+        except Exception:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            raise
+        stdout.seek(0)
+        stderr.seek(0)
+        value = stdout.read(maximum + 1)
+        errors = stderr.read(maximum + 1)
+        if len(value) + len(errors) > maximum:
+            raise UpdateError("validation_failed")
+        return value + errors if combine else value
 
 
 def validate_binary(binary, release):
