@@ -8,18 +8,18 @@ Discovery and implementation serially. No child sessions or subagents launch.
 Adjacent Codex and unrelated PRs receive ownership review only. Preserve existing
 dirty and unmerged work; prefer verified resumption to duplicate implementation.
 
-There are twelve remaining delivery units, potentially eleven new cycles when
-the existing DKS fast-fallback cycle can be completed. This is not a promise that
-every unit is ready. Discovery owns contracts and can split a unit only after
-material scope is reconciled. Concurrency implementation and activation are
-deferred until separately approved; its benchmark requirements remain unchanged.
+There are twelve sequenced delivery units. Historical reporting repair is
+delivered (PR #144), leaving eleven. This is not a promise that every unit is
+ready. Discovery owns contracts and can split a unit only after material scope is
+reconciled. Concurrency implementation and activation are deferred until
+separately approved; its benchmark requirements remain unchanged.
 
 ## Sequence And Readiness
 
 | Order | Slice | Readiness work before launch |
 |---|---|---|
-| 1 | historical-reporting-repair | Contract and applicability plan ready; fresh digest-bound approval required |
-| 2 | history-projection-refresh-schedule | Settle wake/restart semantics, failure-status ownership, and process cleanup |
+| 1 | historical-reporting-repair | Delivered in PR #144, merge `3b79749a1e8c6eb0fc7c261a75bdcffa5a4cbecf` |
+| 2 | history-projection-refresh-schedule | Decisions settled; fresh digest-bound approval required |
 | 3 | dks-fast-fallback | Reconcile existing PR #130, source, deployment, and contention evidence |
 | 4 | knowledge-privacy-lock-isolation | Verify complete privacy-writer inventory and canonical lock order |
 | 5 | runtime-query-recovery | Reconcile preserved implementation against delivered DKS/privacy behavior |
