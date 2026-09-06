@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-06 - OpenCode Rolling Stable Delivered
+
+- Added official digest-verified stable assets, private host/guest release locks,
+  semantic compatibility validation, all-target staging, lock-held managed launch,
+  rollback/recovery, and post-commit retirement of legacy guest provisioning.
+- Migrated host and both registered Fedora guests from the root-provisioned
+  `1.18.25` binary to managed OpenCode `1.18.29`; both guests finished stopped.
+- Corrected the observed legacy Fedora binary digest and advanced the validator to
+  revision 2 with context-safe tool discovery and revision-1 lock revalidation.
+- A full force apply with machine defaults was rejected as unsafe after it disabled
+  the sandbox registry; the prior registry was restored and deployment used exact
+  targeted applies. One transient post-update running state was restored, and a
+  repeated idempotent fleet update preserved both guests stopped.
+- Affected QA passed 207 tests. Gate Commits before completion: `c71b13b`,
+  `1056e06`, `9fbedae`. Gate Exceptions: none. Release: not applicable. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-09-05 - OpenCode Guest Ownership Correction
 
 - Reopened rolling readiness before source commit after Build verified Fedora

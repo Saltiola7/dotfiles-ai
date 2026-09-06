@@ -42,21 +42,22 @@ def release_payload(version="1.18.29"):
             "prerelease": False, "assets": assets}
 
 
-def fake_binary(path: Path, version="1.18.29", valid=True):
-    config = ({"agent": {"build": {}, "build-rnd": {}, "plan": {}},
+def fake_binary(path: Path, version="1.18.29", valid=True, tool_valid=True, minimal=False):
+    config = ({"agent": {"build": {}, "plan": {}} if minimal else {"build": {}, "build-rnd": {}, "plan": {}},
                "permission": {"dbsctr_status": "allow", "dbsctr_begin": "deny",
                               "dks_context": "allow", "dbsctr_attach": "deny",
                               "dbsctr_reconcile": "deny", "dbsctr_phase_span": "deny",
                               "dbsctr_execution_benchmark": "deny", "dbsctr_execution_dag": "deny",
-                              "dbsctr_improvement_claim": "allow",
-                              "dbsctr_improvement_update": "allow"}} if valid else {})
+                               "dbsctr_improvement_claim": "allow",
+                               "dbsctr_improvement_update": "allow"}} if valid else {})
+    tool = {} if not tool_valid else {"dbsctr_status": {}}
     path.write_text(
         "#!/bin/sh\n"
         f"case \"$1\" in --version) printf '{version}\\n';; --help) printf 'help\\n' >&2;; "
         "agent) printf 'build primary\\nbuild-rnd primary\\nplan primary\\n';; "
         "session) printf 'opencode session list\\n' >&2;; "
         f"debug) if [ \"$2\" = agent ]; then printf '%s\\n' "
-        "'{\"tool\":\"dbsctr_status\",\"result\":{}}'; else "
+        f"'{json.dumps({'name': 'build', 'tools': tool})}'; else "
         f"printf '%s\\n' '{json.dumps(config)}'; fi;; esac\n"
     )
     path.chmod(0o700)
@@ -129,6 +130,13 @@ def test_semantic_validator_requires_managed_roles_and_permissions(tmp_path: Pat
     with pytest.raises(helper.UpdateError, match="validation_failed"):
         helper.validate_binary(binary, "1.18.29")
 
+    fake_binary(binary, tool_valid=False)
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.validate_binary(binary, "1.18.29")
+
+    fake_binary(binary, minimal=True)
+    helper.validate_binary(binary, "1.18.29")
+
     helper = load_updater()
     helper.run = lambda *_args, **_kwargs: b"\xff"
     with pytest.raises(helper.UpdateError, match="validation_failed"):
@@ -173,8 +181,40 @@ def test_same_release_asset_mutation_is_rejected(tmp_path: Path, monkeypatch) ->
         helper.stage(mutated, root, binary)
 
 
+def test_validator_revision_retries_rejection_and_upgrades_live_lock(
+        tmp_path: Path, monkeypatch) -> None:
+    helper = load_updater()
+    root = tmp_path / "state/opencode-package"
+    binary = tmp_path / "libexec/opencode"
+    root.mkdir(parents=True, mode=0o700)
+    binary.parent.mkdir(parents=True, mode=0o700)
+    fake_binary(binary)
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
+    candidate = helper.validate_release(release_payload())
+    old_revision = "opencode-release-validator-1"
+    helper.atomic_json(root / "rejected-candidate.json", {
+        "schema_version": 1, "release": candidate["release"],
+        "candidate_digest": hashlib.sha256(helper.canonical(candidate)).hexdigest(),
+        "validator_revision": old_revision, "reason": "validation_failed",
+    })
+    assert helper.rejected_candidate(candidate, root) is False
+
+    lock = helper.generation(candidate, "darwin-aarch64", helper.file_digest(binary))
+    lock["validator_revision"] = old_revision
+    lock["previous"] = None
+    helper.atomic_json(root / "release-lock.json", lock)
+    old_lock = helper.read_lock(root)
+    assert helper.healthy(old_lock, binary) is False
+    upgraded = helper.upgrade_validator_lock(root, binary, old_lock)
+    assert upgraded["validator_revision"] == helper.VALIDATOR_REVISION
+    assert helper.read_lock(root)["validator_revision"] == helper.VALIDATOR_REVISION
+
+
 def test_legacy_guest_is_verified_before_migration_marker(tmp_path: Path, monkeypatch) -> None:
     helper = load_updater()
+    assert helper.LEGACY_LINUX_AARCH64_BINARY_SHA256 == (
+        "896c9c9b1942d4d74576868af24bbcbfa3f267d7eeb17aa6b8dff70810800084"
+    )
     root = tmp_path / "state"
     root.mkdir(mode=0o700)
     legacy = tmp_path / "legacy-opencode"

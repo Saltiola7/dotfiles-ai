@@ -36,10 +36,11 @@ DOWNLOAD_HOSTS = {"github.com", "release-assets.githubusercontent.com"}
 MAX_METADATA = 1024 * 1024
 MAX_ASSET = 256 * 1024 * 1024
 MAX_OUTPUT = 20 * 1024 * 1024
-VALIDATOR_REVISION = "opencode-release-validator-1"
+VALIDATOR_REVISION = "opencode-release-validator-2"
+COMPATIBLE_VALIDATOR_REVISIONS = {"opencode-release-validator-1", VALIDATOR_REVISION}
 LEGACY_RELEASE = "1.18.25"
 LEGACY_ROOT = "/usr/local/libexec/opencode"
-LEGACY_LINUX_AARCH64_BINARY_SHA256 = "896c9c9b1942d4d74576868af24bbcbfa3f26d7eeb17aa6b8dff70810800084"
+LEGACY_LINUX_AARCH64_BINARY_SHA256 = "896c9c9b1942d4d74576868af24bbcbfa3f267d7eeb17aa6b8dff70810800084"
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 REASONS = {
@@ -403,31 +404,23 @@ def validate_binary(binary, release):
             raise UpdateError("validation_failed")
         if not run([str(binary), "--help"], environment=environment, combine=True).strip():
             raise UpdateError("validation_failed")
-        roles = run([str(binary), "agent", "list"], environment=environment, maximum=1024 * 1024)
-        if any(not re.search(rb"(?m)^" + name + rb"\b", roles)
-               for name in (b"build", b"build-rnd", b"plan")):
-            raise UpdateError("validation_failed")
         session_help = run([str(binary), "session", "list", "--help"], environment=environment,
                            maximum=1024 * 1024, combine=True)
         if b"session list" not in session_help:
             raise UpdateError("validation_failed")
         config = parse_json(run([str(binary), "debug", "config"], environment=environment))
-        tool = parse_json(run([
-            str(binary), "debug", "agent", "build", "--tool", "dbsctr_status", "--params", "{}",
-        ], environment=environment, maximum=1024 * 1024))
-        if not isinstance(tool, dict) or tool.get("tool") != "dbsctr_status" or "result" not in tool:
-            raise UpdateError("validation_failed")
+        agent = parse_json(run([str(binary), "debug", "agent", "build"],
+                               environment=environment, maximum=1024 * 1024))
     except UnicodeDecodeError:
         raise UpdateError("validation_failed")
     agents = config.get("agent") if isinstance(config, dict) else None
     permissions = config.get("permission") if isinstance(config, dict) else None
     if (not isinstance(agents, dict) or not {"build", "plan"} <= set(agents)
-            or not isinstance(permissions, dict)
-            or not {
-                "dbsctr_status", "dks_context", "dbsctr_begin", "dbsctr_attach",
-                "dbsctr_reconcile", "dbsctr_phase_span", "dbsctr_execution_benchmark",
-                "dbsctr_execution_dag", "dbsctr_improvement_claim", "dbsctr_improvement_update",
-            } <= set(permissions)):
+            or not isinstance(permissions, dict) or "dbsctr_status" not in permissions):
+        raise UpdateError("validation_failed")
+    tools = agent.get("tools") if isinstance(agent, dict) else None
+    if (not isinstance(agent, dict) or agent.get("name") != "build"
+            or not isinstance(tools, dict) or "dbsctr_status" not in tools):
         raise UpdateError("validation_failed")
 
 
@@ -444,7 +437,7 @@ def lock_generation(value, require_platform=True):
             or not DIGEST.fullmatch(value["binary_sha256"])
             or type(value["target_count"]) is not int or not 1 <= value["target_count"] <= 33
             or not DIGEST.fullmatch(value["targets_digest"])
-            or value["validator_revision"] != VALIDATOR_REVISION
+            or value["validator_revision"] not in COMPATIBLE_VALIDATOR_REVISIONS
             or not isinstance(value["assets"], dict) or set(value["assets"]) != set(ASSETS)):
         raise UpdateError("validation_failed")
     if require_platform and value["platform"] != platform_id():
@@ -485,9 +478,11 @@ def rejected_candidate(candidate, root=None):
     required = {"schema_version", "release", "candidate_digest", "validator_revision", "reason"}
     if (not isinstance(value, dict) or set(value) != required or value["schema_version"] != 1
             or not DIGEST.fullmatch(value.get("candidate_digest", ""))
-            or value["validator_revision"] != VALIDATOR_REVISION
+            or not isinstance(value.get("validator_revision"), str)
             or value["reason"] not in {"candidate_invalid", "validation_failed"}):
         raise UpdateError("validation_failed")
+    if value["validator_revision"] != VALIDATOR_REVISION:
+        return False
     if value["release"] != candidate["release"]:
         return False
     current = hashlib.sha256(canonical(candidate)).hexdigest()
@@ -508,7 +503,7 @@ def reject_candidate(candidate, reason, root=None):
 
 
 def healthy(lock, binary=None):
-    if lock is None:
+    if lock is None or lock["validator_revision"] != VALIDATOR_REVISION:
         return False
     binary = binary_path() if binary is None else Path(binary)
     try:
@@ -548,7 +543,7 @@ def exec_managed(arguments):
             recover_host(root, binary, sandbox_config())
         else:
             recover(root, binary)
-        lock = read_lock(root)
+        lock = upgrade_validator_lock(root, binary, read_lock(root))
         executable = binary
         if not healthy(lock, binary):
             if lock is not None or platform_id() != "linux-aarch64":
@@ -598,13 +593,22 @@ def verify_legacy(root):
     })
 
 
+def upgrade_validator_lock(root, binary, current):
+    if current is None or current["validator_revision"] == VALIDATOR_REVISION:
+        return current
+    validate_binary(binary, current["release"])
+    current["validator_revision"] = VALIDATOR_REVISION
+    atomic_json(root / "release-lock.json", current)
+    return current
+
+
 def stage(candidate, root=None, binary=None, target_count=1, targets_digest=None):
     root = package_root() if root is None else Path(root)
     binary = binary_path() if binary is None else Path(binary)
     private_directory(root)
     private_directory(binary.parent)
     verify_legacy(root)
-    current = read_lock(root)
+    current = upgrade_validator_lock(root, binary, read_lock(root))
     platform_name = platform_id()
     if current and current["release"] == candidate["release"] and (
             current["tag"] != candidate["tag"] or current["assets"] != candidate["assets"]):
@@ -652,7 +656,7 @@ def activate(root=None, binary=None, finalize=True, attempted_activations=1):
     candidate_lock_present = os.path.lexists(candidate_lock_path)
     if not candidate_binary_present and not candidate_lock_present:
         if (root / "transaction").exists():
-            lock = read_lock(root)
+            lock = upgrade_validator_lock(root, binary, read_lock(root))
             if not healthy(lock, binary):
                 raise UpdateError("activation_failed")
             (root / "transaction").unlink()
@@ -669,6 +673,10 @@ def activate(root=None, binary=None, finalize=True, attempted_activations=1):
             or stat.S_IMODE(candidate_metadata.st_mode) != 0o700
             or file_digest(candidate_binary) != candidate_lock["binary_sha256"]):
         raise UpdateError("validation_failed")
+    if candidate_lock["validator_revision"] != VALIDATOR_REVISION:
+        validate_binary(candidate_binary, candidate_lock["release"])
+        candidate_lock["validator_revision"] = VALIDATOR_REVISION
+        atomic_json(candidate_lock_path, candidate_lock)
     previous_binary = root / "previous-opencode"
     previous_lock = root / "previous-lock.json"
     for path in (previous_binary, previous_lock):
@@ -677,7 +685,7 @@ def activate(root=None, binary=None, finalize=True, attempted_activations=1):
             if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
                 raise UpdateError("validation_failed")
             path.unlink()
-    current = read_lock(root)
+    current = upgrade_validator_lock(root, binary, read_lock(root))
     had_binary, had_lock = binary.exists(), current is not None
     transaction(root, "prepared", had_binary, had_lock, candidate_lock)
     if current is not None:
@@ -737,7 +745,7 @@ def rollback(root=None, binary=None):
         return
     if journal["had_binary"] != journal["had_lock"]:
         raise UpdateError("rollback_failed")
-    current = read_lock(root)
+    current = upgrade_validator_lock(root, binary, read_lock(root))
     if journal["phase"] in {"prepared", "activating_guests"} and healthy(current, binary):
         for path in (previous_binary, previous_lock_path, root / "candidate-opencode",
                      root / "candidate-lock.json"):
@@ -767,6 +775,7 @@ def rollback(root=None, binary=None):
     binary.chmod(0o700)
     fsync_directory(binary.parent)
     atomic_json(root / "release-lock.json", previous_lock)
+    previous_lock = upgrade_validator_lock(root, binary, previous_lock)
     if not healthy(previous_lock, binary):
         raise UpdateError("rollback_failed")
     previous_lock_path.unlink(missing_ok=True)
@@ -873,7 +882,7 @@ def recover_host(root, binary, workspaces):
         raise UpdateError("rollback_failed")
     if journal["phase"] == "verifying":
         failed = False
-        lock = read_lock(root)
+        lock = upgrade_validator_lock(root, binary, read_lock(root))
         if not healthy(lock, binary):
             raise UpdateError("rollback_failed")
         candidate = candidate_from_lock(lock)
@@ -918,7 +927,7 @@ def local_update():
     with os.fdopen(descriptor, "r+"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         recover(root, binary)
-        current = read_lock(root)
+        current = upgrade_validator_lock(root, binary, read_lock(root))
         was_healthy = healthy(current, binary)
         candidate = None
         try:
@@ -949,7 +958,7 @@ def host_update():
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         workspaces = sandbox_config()
         recover_host(root, binary, workspaces)
-        current = read_lock(root)
+        current = upgrade_validator_lock(root, binary, read_lock(root))
         target_count, targets_digest = target_identity(workspaces)
         was_healthy = (healthy(current, binary) and current["target_count"] == target_count
                        and current["targets_digest"] == targets_digest)
@@ -1091,7 +1100,7 @@ def main(argv=None):
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 journal = read_transaction(root)
                 if journal is not None:
-                    lock = read_lock(root)
+                    lock = upgrade_validator_lock(root, binary, read_lock(root))
                     if (journal["candidate_release"] == candidate["release"]
                             and lock is not None and lock["release"] == candidate["release"]
                             and healthy(lock, binary)):
@@ -1108,7 +1117,7 @@ def main(argv=None):
             with os.fdopen(descriptor, "r+"):
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 status = activate(root, binary, finalize=False)
-                lock = read_lock(root)
+                lock = upgrade_validator_lock(root, binary, read_lock(root))
                 result(status, lock["release"] if lock else None, 1)
                 return 0
         if args.mode == "guest-rollback":
@@ -1118,7 +1127,7 @@ def main(argv=None):
             with os.fdopen(descriptor, "r+"):
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 rollback(root, binary)
-                lock = read_lock(root)
+                lock = upgrade_validator_lock(root, binary, read_lock(root))
                 result("retained", lock["release"] if lock else None, 1, "rollback_completed")
                 return 0
         if args.mode == "guest-verify":
@@ -1134,7 +1143,7 @@ def main(argv=None):
             with os.fdopen(descriptor, "r+"):
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 recover(root, binary)
-                lock = read_lock(root)
+                lock = upgrade_validator_lock(root, binary, read_lock(root))
                 if lock is None or lock["release"] != expected or not healthy(lock, binary):
                     raise UpdateError("validation_failed")
                 result("current", expected, 1)
@@ -1161,7 +1170,7 @@ def main(argv=None):
             fcntl.flock(descriptor, fcntl.LOCK_EX)
             recover(root, binary)
             verify_legacy(root)
-            lock = read_lock(root)
+            lock = upgrade_validator_lock(root, binary, read_lock(root))
             if not healthy(lock, binary):
                 result("retained", lock["release"] if lock else None, 1, "validation_failed")
                 return 1
