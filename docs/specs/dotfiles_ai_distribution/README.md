@@ -485,6 +485,10 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given Homebrew on macOS, when the source first applies or its Brewfile changes,
   then `anomalyco/tap/opencode` is installed idempotently before managed OpenCode
   configuration is applied; a missing Homebrew installation fails with guidance.
+- Given a full apply, when one compatible official stable OpenCode release is
+  available, then host and stopped managed guests stage and validate it before
+  later launches switch to the managed binary. Running guests that still need
+  sandbox-guard migration fail closed without being restarted.
 - Given a valid local TOML, when the source renders and applies, then complete
   OpenCode, DBSCTR, and Herdr targets contain no personal identifiers.
 - Given `[data.dotfiles_ai.rnd].enabled=false`, when the source applies, then no
@@ -984,10 +988,11 @@ feature branch with a draft pull request; the operator retains merge authority.
 
 ## Interfaces And Contracts
 
-- `Brewfile` declares OpenCode, mise, and Google Cloud CLI. Its hash-bound
-  `run_onchange_before_install-opencode.sh` runs on macOS before other apply scripts,
-  fails when Homebrew is unavailable, and delegates package idempotency and
-  upgrades to `brew bundle`.
+- `Brewfile` keeps OpenCode as a macOS bootstrap fallback. The always-run
+  `opencode-update-all` owns official stable release validation, private locks,
+  host/guest staging, activation, recovery, and post-commit retirement of the
+  legacy guest provision. Once package state exists, managed launch fails closed
+  rather than falling back to Homebrew.
 - `[dotfiles_ai.remote_workspace]` is disabled by default and contains only a
   local repository path plus non-secret project, zone, instance, optional account,
   and optional alternate host values. When enabled, chezmoi renders them into a

@@ -50,7 +50,8 @@ revision=$(git -C "$source_root" rev-parse HEAD)
 remote-user-bootstrap bootstrap "$revision"
 
 remote-user-foundation apply "$revision"
-test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = " R update-codex.sh"
+expected_status=$(printf ' R update-codex.sh\n R update-opencode.sh')
+test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
 "$HOME/.local/bin/atuin" --version

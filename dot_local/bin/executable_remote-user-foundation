@@ -221,7 +221,7 @@ def validate_integrity(state: dict) -> Path:
     status = command(
         "chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "status", capture=True,
     ).stdout.splitlines()
-    if any(line != " R update-codex.sh" for line in status):
+    if sorted(status) != [" R update-codex.sh", " R update-opencode.sh"]:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:
         if os.path.lexists(HOME / target):
@@ -230,9 +230,8 @@ def validate_integrity(state: dict) -> Path:
     safe_path(data_path, "file")
     data = tomllib.loads(data_path.read_text())["dotfiles_ai"]
     binaries = HOME / ".local/bin"
-    required = {"herdr": f"herdr {data['herdr']['version']}",
-                "opencode": data["opencode"]["version"]}
-    for name in ("codex", "gcloud", "op", "remote-agent-readiness", *required):
+    required = {"herdr": f"herdr {data['herdr']['version']}"}
+    for name in ("codex", "gcloud", "op", "opencode", "remote-agent-readiness", *required):
         safe_path(binaries / name, "executable")
     codex = command(str(binaries / "codex"), "--version", capture=True).stdout.strip()
     if not re.fullmatch(r"codex-cli (?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", codex):
@@ -241,6 +240,9 @@ def validate_integrity(state: dict) -> Path:
         output = command(str(binaries / name), "--version", capture=True).stdout.strip()
         if output != expected:
             raise RuntimeError("foundation runtime version changed")
+    opencode = command(str(binaries / "opencode"), "--version", capture=True).stdout.strip()
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", opencode):
+        raise RuntimeError("foundation runtime version changed")
     return binaries / "remote-agent-readiness"
 
 
