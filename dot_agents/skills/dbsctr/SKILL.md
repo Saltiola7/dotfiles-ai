@@ -178,9 +178,10 @@ deletion. New DVC worktrees share the source cache and prefer copy-on-write
 Typed OpenCode tools are argument-safe adapters over `dbsctrctl`, not another
 state machine. Standing authorization for validated Build-primary begin, resume, and reconciliation permits
 `dbsctr_begin`, `dbsctr_attach`, `dbsctr_reconcile`, and DBSCTR worktree access after its committed applicability plan;
-Plan and subagents remain denied and Plan hands off the validated plan. The `launch` argument defaults to `false`; when
-explicitly true in a Herdr pane, the same authorization covers launching OpenCode
-in the new worktree. Herdr state is presentation only and never gate evidence.
+Plan and subagents remain denied and Plan hands off the validated plan. Ordinary
+typed Begin stays in the current session and rejects `launch: true` before side
+effects. Only the explicitly selected Discovery-Coordinator may use its approved
+child launcher. Herdr state is presentation only and never gate evidence.
 For an approved Initiative slice, a primary Build uses only `dbsctr_begin`'s
 explicit Initiative mode. It preserves exact approval and receipt identity while
 attaching the current same-repository runtime without launching a child session.
@@ -274,19 +275,16 @@ applicable Capability Requirement.
 
 ## Delegation And OpenCode
 
-Delegate only independent work where benefit exceeds overhead. A write subagent
-receives goal, readable/writable files, off-limits paths, dependencies,
-collision risk, expected output, and validation. Subagents never stage, commit,
-push, deploy, publish, or write outside approved paths. Log agent/model routes.
-
-The primary reviews every Builder patch and owns integration, final validation,
-deployment, staging, and commits. Trust sourced research unless uncertain,
-contradictory, or controlling a risky edit. Retry a failed optimized route once
-with the active same-provider flagship and never cross providers silently.
+Ordinary DBSCTR executes in the current primary without Task or child sessions.
+The primary implements, reviews, validates, deploys, stages and commits directly.
+Only the explicitly selected Discovery-Coordinator may orchestrate approved child
+work under its permissions. Preserve provider affinity and do not infer agent
+authority from the skill name, model, tab label or unavailable tool.
 
 Plan is read-only and ends with a Build Handoff. Build verifies source and
-artifact freshness before writing. Todos and child sessions hold current state;
-specs and Git are durable authority.
+artifact freshness before writing. Request the mode change in the same conversation,
+not another checkout/session as a workaround. Todos hold current state; specs and
+Git are durable authority. File access never overrides lifecycle authorization.
 
 ## Critical-Path Profiling And Safe Concurrency
 
@@ -302,8 +300,9 @@ candidate graph, completed-node set, and exactly one reconciliation node to type
 `dbsctr_execution_dag`. The reconciliation node depends directly or transitively
 on every worker. The helper validates operation classes, dependencies, cycles,
 risk, and ownership overlap. The helper does not dispatch
-work: the primary launches only returned ready nodes with existing parallel tool
-or task calls, records finish spans, then resubmits completed worker IDs. Only the
+work: the primary runs only returned ready nodes with existing parallel tool
+calls, never Task delegation in an ordinary session, records finish spans, then
+resubmits completed worker IDs. Only the
 returned reconciliation node may integrate results and rerun affected validation
 before dependent gates pass. A failed node follows normal gate
 remediation and is never hidden by an automatic serial retry.

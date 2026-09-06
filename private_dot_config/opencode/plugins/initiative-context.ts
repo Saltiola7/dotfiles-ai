@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { resolveCommand } from "../lib/dbsctr-runtime"
 
 async function initiativeContext(worktree: string) {
   const manifests = [...new Bun.Glob("docs/initiatives/*/MANIFEST.json").scanSync({ cwd: worktree })]
@@ -8,10 +9,18 @@ async function initiativeContext(worktree: string) {
 Found ${manifests.length} Initiative manifests; the bounded context limit is 16. Readiness and launch are blocked until the active Initiative is selected explicitly.`
   const anchors: string[] = []
   for (const manifest of manifests) {
-    const child = Bun.spawn(["dbsctrctl", "initiative-check", "--manifest", manifest, "--json"], {
-      cwd: worktree, stdout: "pipe", stderr: "ignore",
-    })
-    const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited])
+    let result: [string, number]
+    try {
+      const command = await resolveCommand(["dbsctrctl", "initiative-check", "--manifest", manifest, "--json"], worktree)
+      const child = Bun.spawn(command.argv, {
+        cwd: worktree, env: command.env, stdout: "pipe", stderr: "ignore",
+      })
+      result = await Promise.all([new Response(child.stdout).text(), child.exited])
+    } catch {
+      anchors.push(`- manifest: ${manifest}\n  status: helper unavailable; readiness and launch are blocked`)
+      continue
+    }
+    const [stdout, exitCode] = result
     if (exitCode !== 0) {
       anchors.push(`- manifest: ${manifest}\n  status: invalid; readiness and launch are blocked`)
       continue

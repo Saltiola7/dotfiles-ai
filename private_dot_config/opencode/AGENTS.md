@@ -15,8 +15,10 @@ Discovery auto-triages broad multi-context, multi-repository, independently
 deliverable, or release-grouped intent into a durable Initiative under
 `docs/initiatives/<slug>/`. Git material-statement coverage, context homes,
 specifications and fresh readiness receipts are authoritative across
-compaction; Herdr and OpenCode identities are advisory only. Context Discovery
-may run concurrently only with disjoint ownership and satisfied dependencies.
+compaction; Herdr and OpenCode identities are advisory only. Ordinary Discovery
+and DBSCTR run in the current primary without Task or child sessions. Only the
+explicitly selected Discovery-Coordinator may orchestrate children, with disjoint
+ownership and satisfied dependencies. Loading Discovery never selects that agent.
 Discovery and DBSCTR never create or read PM Kernel tickets. Require exact user
 approval for the current digest-bound slice before invoking
 `dbsctr_initiative_launch`; late material intent reopens affected readiness.
@@ -106,25 +108,24 @@ When `dks_context` is absent or denied by managed configuration, do not attempt 
 proceed directly to Graphify or authoritative source inspection and keep DKS
 evidence unavailable rather than zero.
 
-Delegate only independent work when parallel ownership makes execution faster or
-safer. Give each write subagent explicit writable paths and off-limits scope.
-The orchestrator reviews and validates integrated work and alone stages or
-commits; subagents never commit.
+Ordinary primaries implement, research and review directly; Task is denied. Only
+the explicitly selected Discovery-Coordinator may delegate under its configured
+permissions. Give delegated work explicit writable paths and off-limits scope;
+subagents never commit. The primary owns integration and validation.
 
-OpenAI Plan agents may use `explore-openai` and `scout-openai`; OpenAI Build
-agents may also use `builder-openai`. `build-claude` may use only the matching
-Vertex agents. Agent IDs and models are independent: selecting a provider model
-never changes the active primary agent. Log each optimized route. On failure, report it and retry once
-by continuing directly with the same-provider flagship. Never cross providers
-silently. For other selected models, use generic inheriting subagents.
+Agent IDs and models are independent: selecting a provider model never changes
+the active primary agent. Preserve provider affinity, log permitted coordinator
+routes and never cross providers silently. A denied capability is not authority
+to recreate the operation through Bash, another tool, or a new session. Plan
+requests a Build mode change in the same conversation when writes are needed.
 
 Treat a graph as a routing hint, not a mandatory dependency. Check its recorded
 commit and whether the query matches the task; fall back immediately when stale,
 weak, or irrelevant. Source remains authoritative.
 
-Explore owns local Initiative research. Scout or Context7 may research bounded
-privacy-safe external facts without repeated approval, but governed private
-content must never leave the local boundary.
+Ordinary Discovery researches directly. The selected coordinator may use Explore
+for local Initiative research and Scout for bounded privacy-safe external facts.
+Governed private content must never leave the local boundary.
 
 ## Lifecycle Version
 
