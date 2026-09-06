@@ -4,6 +4,12 @@ repository = "https://github.com/Saltiola7/dotfiles-ai.git"
 [dotfiles_ai.state]
 root = ""
 
+[dotfiles_ai.history_projection]
+enabled = false
+refresh_hour = 4
+refresh_minute = 30
+refresh_timeout_seconds = 3600
+
 [dotfiles_ai.codex]
 channel = "stable"
 

@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-06 - History Projection Refresh Schedule
+
+- Added a default-off daily 04:30 Background LaunchAgent and owner-private
+  single-flight wrapper for lifecycle-owned History projection refresh.
+- The wrapper records only one atomic, bounded latest-run status; invalid state
+  fails closed, timeouts terminate the refresh process group, and child output
+  cannot enter scheduler logs.
+- Focused distribution validation passed 78 tests. Local deployment loaded the
+  exact job, completed a controlled refresh, and proved disablement preserves the
+  scheduler state before restoring the enabled desired state.
+
 ## 2026-09-05 - OpenCode Guest Ownership Correction
 
 - Reopened rolling readiness before source commit after Build verified Fedora
