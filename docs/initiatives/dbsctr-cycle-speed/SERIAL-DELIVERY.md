@@ -20,8 +20,8 @@ separately approved; its benchmark requirements remain unchanged.
 |---|---|---|
 | 1 | historical-reporting-repair | Delivered in PR #144, merge `3b79749a1e8c6eb0fc7c261a75bdcffa5a4cbecf` |
 | 2 | history-projection-refresh-schedule | Delivered in PR #148, merge `0773ed9f2d3525ca8106a5f9b7f02a2acac6f9e7` |
-| 3 | dks-routing-disable | Disable OpenCode tool exposure and routing under the master flag |
-| 4 | dks-host-disable | Converge the active host to zero DKS runtime surfaces and block re-enable |
+| 3 | dks-routing-disable | Delivered in PR #156, merge `943c4f31e731f5ec5d7ab4e8d03df4efd0541fce` |
+| 4 | dks-host-disable | Exact runtime targets and residual classes ready; fresh approval required |
 | 5 | dks-state-retirement | Irreversibly delete proven DKS state after fresh destructive confirmation |
 | 6 | history-incident-runtime-recovery | Select numeric subprocess deadline independent of deferred DKS work |
 | 7 | performance-audit-v2 | Bind fixed-source reducers, immutable cohorts, and report-only behavior |

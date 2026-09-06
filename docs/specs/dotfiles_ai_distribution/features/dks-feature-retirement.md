@@ -3,7 +3,8 @@
 ## Ownership And State
 
 `dotfiles_ai_distribution` owns the master `knowledge_store.enabled` flag,
-host runtime convergence, managed DKS files, LaunchAgents, logs, and restart.
+host runtime convergence, managed DKS files, LaunchAgents, log deactivation, and
+restart. The dependent DKS state-retirement slice owns permanent log/key deletion.
 The configured PM workspace VM, PostgreSQL, PM Kernel data, forwarding, and
 backups remain active and outside this retirement.
 
@@ -21,15 +22,31 @@ is selected. Source-controlled code, specs, tests, migrations, and Git branches
 remain available.
 
 Disablement unloads the reconcile, embedding, code-embedding, and reranker jobs
-before removing their owned plists, binaries, generated OpenCode tool target,
-machine config, caches, and logs. It removes only DKS Keychain/API-key material;
-database, model, and private corpus deletion belongs to the dependent knowledge
-retirement slice. Ignored targets are actively removed rather than assumed gone.
+before removing their owned plists, installed binaries, generated OpenCode tool
+target, and generated knowledge configuration. Ignored targets are actively
+removed rather than assumed gone. Logs, Keychain/API-key material, database,
+models, private corpus, caches, and receipts remain inaccessible but intact until
+the dependent knowledge-retirement slice writes its sanitized receipt and deletes
+them.
+
+The exact host target set is the four `dev.dotfiles-ai.dbsctr-*` LaunchAgents;
+the installed `dksctl`, `dks-psql`, `dks-postgres-migrate`,
+`dks-benchmark-collector`, embedding, code-embedding, reranker, and runtime-verify
+executables; generated knowledge JSON; and the generated OpenCode `dks.ts` tool.
+No generic DBSCTR helper, History projection, R&D job, PM tool, shared runtime,
+source file, or directory outside these exact targets is removed.
 
 The active host's machine-local config changes only
 `data.dotfiles_ai.knowledge_store.enabled` to false. Subordinate values may remain
 for source compatibility but cannot override the master flag. A fresh OpenCode
 process is required after tool removal.
+
+Until controlled-environment Discovery delivers a receipt contract, any
+`enabled=true` render fails exactly with the bounded class
+`knowledge_store_controlled_environment_required`. Disabled cleanup failures emit
+only the prefix `dks-host-disable:` plus one or more sorted classes from
+`job_loaded`, `process_running`, `runtime_target_present`, `config_present`,
+`tool_present`, or `shared_health_unavailable`; paths and raw errors are excluded.
 
 ## Failure, Recovery, And Validation
 
@@ -61,12 +78,13 @@ flowchart LR
   accTitle: Host DKS retirement boundary
   accDescr: Distribution disables routing and unloads DKS jobs before removing owned host artifacts, while the shared VM, PostgreSQL, PM Kernel, and source capability remain.
   F[Master flag false] --> U[Unload four DKS jobs]
-  U --> R[Remove owned runtime targets and logs]
+  U --> R[Remove owned runtime targets; retain logs for state retirement]
   R --> Z[Zero active DKS surfaces]
   P[Shared VM, PostgreSQL, and PM Kernel] --> K[Remain active]
 ```
 
 **Text Equivalent:** Setting the master flag false unloads all four DKS jobs,
-then removes owned runtime targets and logs. Shared VM, PostgreSQL, PM Kernel,
+then removes owned runtime targets while retaining inactive logs and keys for the
+dependent state-retirement receipt and deletion. Shared VM, PostgreSQL, PM Kernel,
 and Git source remain. Owner: distribution maintainer. Change trigger: managed
 target, enablement, or shared-infrastructure change.
