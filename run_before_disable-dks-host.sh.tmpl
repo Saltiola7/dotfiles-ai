@@ -1,0 +1,63 @@
+{{- if .dotfiles_ai.knowledge_store.enabled -}}
+{{ fail "knowledge_store_controlled_environment_required" }}
+{{- end -}}
+#!/bin/bash
+set -euo pipefail
+[[ "$(uname)" == "Darwin" ]] || exit 0
+
+domain="gui/$(id -u)"
+labels=(
+  dev.dotfiles-ai.dbsctr-knowledge-reconcile
+  dev.dotfiles-ai.dbsctr-embedding
+  dev.dotfiles-ai.dbsctr-code-embedding
+  dev.dotfiles-ai.dbsctr-reranker
+)
+targets=(
+  "$HOME/.local/bin/dksctl"
+  "$HOME/.local/bin/dks-psql"
+  "$HOME/.local/bin/dks-postgres-migrate"
+  "$HOME/.local/bin/dks-benchmark-collector"
+  "$HOME/.local/bin/dbsctr-embedding"
+  "$HOME/.local/bin/dbsctr-embedding-runtime-verify"
+  "$HOME/.local/bin/dbsctr-code-embedding"
+  "$HOME/.local/bin/dbsctr-reranker"
+  "$HOME/.config/dotfiles-ai/knowledge/projects.json"
+  "$HOME/.config/dotfiles-ai/knowledge/embedding-space.json"
+  "$HOME/.config/dotfiles-ai/knowledge/code-embedding-space.json"
+  "$HOME/.config/dotfiles-ai/knowledge/reranker-space.json"
+  "$HOME/.config/opencode/tools/dks.ts"
+)
+for label in "${labels[@]}"; do
+  /bin/launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+done
+for _ in {1..50}; do
+  loaded=false
+  for label in "${labels[@]}"; do
+    if /bin/launchctl print "$domain/$label" >/dev/null 2>&1; then loaded=true; break; fi
+  done
+  "$loaded" || break
+  /bin/sleep 0.1
+done
+
+/bin/rm -f "${targets[@]}"
+for label in "${labels[@]}"; do
+  /bin/rm -f "$HOME/Library/LaunchAgents/$label.plist"
+done
+
+residual=()
+for label in "${labels[@]}"; do
+  /bin/launchctl print "$domain/$label" >/dev/null 2>&1 && residual+=(job_loaded)
+done
+for target in "${targets[@]}"; do
+  [[ -e "$target" || -L "$target" ]] && residual+=(runtime_target_present)
+done
+for port in 11435 11436 11437; do
+  /usr/sbin/lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && residual+=(process_running)
+done
+
+if ((${#residual[@]})); then
+  while IFS= read -r item; do
+    printf 'dks-host-disable: %s\n' "$item" >&2
+  done < <(/usr/bin/printf '%s\n' "${residual[@]}" | /usr/bin/sort -u)
+  exit 1
+fi

@@ -74,6 +74,70 @@ def test_knowledge_store_defaults_off_and_is_host_only() -> None:
     assert "install-dbsctr-embedding.sh" in ignore
 
 
+def test_disabled_host_removes_only_exact_dks_runtime_targets(tmp_path: Path) -> None:
+    path = "run_before_disable-dks-host.sh.tmpl"
+    source = (ROOT / path).read_text()
+    disabled = render(path, enabled=False)
+    subprocess.run(["bash", "-n"], input=disabled, text=True, check=True)
+    for value in (
+        "dev.dotfiles-ai.dbsctr-knowledge-reconcile",
+        "dev.dotfiles-ai.dbsctr-embedding",
+        "dev.dotfiles-ai.dbsctr-code-embedding",
+        "dev.dotfiles-ai.dbsctr-reranker",
+        '"$HOME/.local/bin/dksctl"',
+        '"$HOME/.local/bin/dks-psql"',
+        '"$HOME/.local/bin/dks-postgres-migrate"',
+        '"$HOME/.local/bin/dks-benchmark-collector"',
+        '"$HOME/.config/opencode/tools/dks.ts"',
+        "dks-host-disable: %s",
+    ):
+        assert value in disabled
+    for forbidden in ("rm -rf", "Library/Logs", "dbsctr/knowledge", "dropdb",
+                      "security delete", "op item delete", "pm_kernel"):
+        assert forbidden not in disabled
+    ignore = (ROOT / ".chezmoiignore").read_text()
+    assert ".local/bin/dks-postgres-migrate" in ignore
+    assert ".config/opencode/tools/dks.ts" in ignore
+
+    values = {"dotfiles_ai": {"knowledge_store": {"enabled": True}}}
+    enabled = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(values), "execute-template",
+    ], input=source, text=True, capture_output=True)
+    assert enabled.returncode != 0
+    assert "knowledge_store_controlled_environment_required" in enabled.stderr
+
+    launchctl = tmp_path / "launchctl"
+    lsof = tmp_path / "lsof"
+    for executable in (launchctl, lsof):
+        executable.write_text("#!/bin/sh\nexit 1\n")
+        executable.chmod(0o700)
+    executable_script = disabled.replace("/bin/launchctl", str(launchctl)).replace(
+        "/usr/sbin/lsof", str(lsof))
+    removed = (
+        tmp_path / ".local/bin/dksctl",
+        tmp_path / ".config/opencode/tools/dks.ts",
+        tmp_path / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist",
+    )
+    retained = (
+        tmp_path / "Library/Logs/dbsctr-embedding.log",
+        tmp_path / ".local/state/dbsctr/knowledge/private/embedding-api-key",
+    )
+    for file in removed + retained:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("owned")
+    subprocess.run(["bash"], input=executable_script, text=True, check=True,
+                   env={**os.environ, "HOME": str(tmp_path)})
+    assert not any(file.exists() for file in removed)
+    assert all(file.read_text() == "owned" for file in retained)
+
+    lsof.write_text("#!/bin/sh\nexit 0\n")
+    failed = subprocess.run(["bash"], input=executable_script, text=True, capture_output=True,
+                            env={**os.environ, "HOME": str(tmp_path)})
+    assert failed.returncode == 1 and failed.stdout == ""
+    assert failed.stderr == "dks-host-disable: process_running\n"
+
+
 def test_installer_pins_runtime_and_model_and_installs_atomically() -> None:
     source = (ROOT / "run_onchange_after_install-dbsctr-embedding.sh.tmpl").read_text()
     rendered = render("run_onchange_after_install-dbsctr-embedding.sh.tmpl")

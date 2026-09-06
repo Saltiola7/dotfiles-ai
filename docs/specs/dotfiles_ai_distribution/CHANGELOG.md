@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-06 - DKS Host Disable
+
+- Added an always-run disabled-state convergence script that unloads four exact
+  DKS LaunchAgents and removes only installed DKS executables, generated knowledge
+  config, plists, and the generated OpenCode tool target. Ignored targets cannot
+  remain active after apply.
+- `knowledge_store.enabled=true` now fails before apply pending a separately
+  approved controlled environment. Cleanup remains off and reports only bounded
+  residual classes; it never restarts DKS.
+- Fake-host execution preserved logs and private keys for the dependent retirement
+  receipt while removing exact runtime targets. Affected DKS, distribution,
+  OpenCode, and lifecycle QA passed 201 tests. No database, model, corpus,
+  credential, shared PM resource, or Git history is deleted in this slice.
+- Deployment uses the already-false private master flag and applies only owned
+  retirement behavior. Gate Exceptions: none. Release: not applicable. Intended
+  Final Push: feature-branch draft PR into protected main.
+
 ## 2026-09-06 - OpenCode Rolling Stable Delivered
 
 - Added official digest-verified stable assets, private host/guest release locks,
