@@ -63,19 +63,23 @@ provision:
       printf '%s  %s\n' f9879c21933225a5adb86fafaf904ac06e4395cae915d4f838c9ccffd9cd4847 "$tmp" | sha256sum -c -
       rpm -Uvh --replacepkgs "$tmp"
       rm -f "$tmp"
-      cat >/usr/local/bin/opencode <<'EOF'
-      #!/bin/sh
-      test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
-      case "${1:-}" in
-        acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
-          exec /usr/local/libexec/opencode "$@" ;;
-        *) exec /usr/local/libexec/opencode --auto "$@" ;;
-      esac
-      EOF
-      chmod 0755 /usr/local/bin/opencode
       agent_user="$(getent passwd | awk -F: '$6 ~ /\.guest$/ {print $1}')"
       test -n "$agent_user"
       test "$(printf '%s\n' "$agent_user" | grep -c .)" -eq 1
+      agent_home="$(getent passwd "$agent_user" | cut -d: -f6)"
+      cat >/usr/local/bin/opencode <<EOF
+      #!/bin/sh
+      test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
+      managed="$agent_home/.local/bin/opencode"
+      test -x "\$managed" || { echo "opencode: managed wrapper is unavailable" >&2; exit 75; }
+      case "\${1:-}" in
+        acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
+          exec "\$managed" "\$@" ;;
+        *)
+          exec "\$managed" --auto "\$@" ;;
+      esac
+      EOF
+      chmod 0755 /usr/local/bin/opencode
       printf '%s ALL=(ALL) !ALL\n%s ALL=(root) NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env\n' "$agent_user" "$agent_user" >/etc/sudoers.d/99-opencode-sandbox
       chmod 0440 /etc/sudoers.d/99-opencode-sandbox
       visudo -cf /etc/sudoers.d/99-opencode-sandbox
@@ -142,9 +146,6 @@ provision:
       systemctl daemon-reload
       systemctl enable --now opencode-sandbox-ready.service
       test -e /run/opencode-sandbox-ready
-  - mode: system
-    script: |
-      @@OPENCODE_INSTALL@@
   - mode: user
     script: |
       set -eu

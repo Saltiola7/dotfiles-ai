@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export DOTFILES_AI_REMOTE_USER_ENVIRONMENT=1
+{{ end -}}
+exec "$HOME/.local/bin/opencode-update-all"
