@@ -18,7 +18,8 @@
 - Added an always-run disabled-state convergence script that unloads four exact
   DKS LaunchAgents and removes only installed DKS executables, generated knowledge
   config, plists, and the generated OpenCode tool target. Ignored targets cannot
-  remain active after apply.
+  remain active after apply. Linux excludes this macOS host-only run script so
+  remote managed-target identity remains unchanged.
 - `knowledge_store.enabled=true` now fails before apply pending a separately
   approved controlled environment. Cleanup remains off and reports only bounded
   residual classes; it never restarts DKS.

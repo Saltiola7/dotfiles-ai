@@ -98,6 +98,8 @@ def test_disabled_host_removes_only_exact_dks_runtime_targets(tmp_path: Path) ->
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert ".local/bin/dks-postgres-migrate" in ignore
     assert ".config/opencode/tools/dks.ts" in ignore
+    linux = ignore[ignore.index('{{ if eq .chezmoi.os "linux" }}'):]
+    assert "disable-dks-host.sh" in linux
 
     values = {"dotfiles_ai": {"knowledge_store": {"enabled": True}}}
     enabled = subprocess.run([
