@@ -69,7 +69,9 @@ Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 {{ if not .dotfiles_ai.knowledge_store.enabled }}
 .local/bin/dbsctr-embedding
 .local/bin/dbsctr-embedding-runtime-verify
+.local/bin/dks-postgres-migrate
 .config/dotfiles-ai/knowledge/embedding-space.json
+.config/opencode/tools/dks.ts
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
 {{ end }}
 {{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.quality_services_enabled) }}
@@ -124,6 +126,7 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ end }}
 {{ if eq .chezmoi.os "linux" }}
 Library/
+disable-dks-host.sh
 load-herdr-launchagent.sh
 build-herdr-launchagent-supervisor.sh
 build-herdr-host.sh
