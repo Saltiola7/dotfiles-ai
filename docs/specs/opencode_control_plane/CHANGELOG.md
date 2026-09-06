@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-06 - Restore Host Database Routing
+
+- Reapplied only the OpenCode launcher with the existing machine config and
+  reviewed rolling-stable source, restoring external-volume XDG routing and
+  guards without reverting managed-binary dispatch or running update scripts.
+- Clean-environment `opencode db path` changed from the home-directory database
+  to `/Volumes/ext/state/xdg/data/opencode/opencode.db`; Chezmoi verification and
+  shell syntax validation passed. Existing processes and both databases were
+  retained; accidental-database session reconciliation remains separate.
+- [ADR 0001](adr/0001-preserve-machine-state-routing.md) records the RCA,
+  deployment evidence, explicit-config recovery, and rollback boundaries.
+
 ## 2026-09-05 - Primary External Directory Access
 
 - Replaced the managed global external-directory deny with `allow` and removed
