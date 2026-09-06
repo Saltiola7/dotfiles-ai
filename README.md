@@ -90,28 +90,27 @@ promotion, batch integration, health, recovery, history retention, and rollback.
 
 The default-off remote user role supports a standalone CentOS Stream 10 x86_64
 home without changing the Fedora Lima profile. Host bootstrap supplies system
-packages and `chezmoi`; this source owns user-local tools and configuration.
+packages; this source owns pinned user-local `chezmoi`, tools, and configuration.
 
 ```sh
 git clone https://github.com/Saltiola7/dotfiles-ai.git \
   "$HOME/.local/share/chezmoi-dotfiles-ai"
-install -d -m 0700 "$HOME/.config/dotfiles-ai"
-install -m 0600 \
-  "$HOME/.local/share/chezmoi-dotfiles-ai/config.remote-user.example.toml" \
-  "$HOME/.config/dotfiles-ai/chezmoi.toml"
 revision=$(git -C "$HOME/.local/share/chezmoi-dotfiles-ai" rev-parse HEAD)
-"$HOME/.local/share/chezmoi-dotfiles-ai/dot_local/bin/executable_remote-user-foundation" \
-  apply "$revision"
+"$HOME/.local/share/chezmoi-dotfiles-ai/dot_local/bin/executable_remote-user-bootstrap" \
+  bootstrap "$revision"
 ```
 
-Replace `/home/you` in the private config before applying. The command accepts
-only a full commit identity, records an owner-private managed-target manifest,
-and emits content-free status:
+The bootstrap accepts only a full commit identity, rejects unowned or symlinked
+paths, verifies the public source, installs checksum-pinned `chezmoi`, creates a
+mode-`0600` non-secret config for the current home, and invokes the existing
+foundation apply. The foundation records an owner-private managed-target
+manifest and emits content-free status:
 
 ```sh
 remote-user-foundation status
 remote-user-foundation retry
 remote-user-foundation rollback
+remote-user-foundation refresh-auth
 ```
 
 Rendering and startup never authenticate providers. OpenAI, Vertex, Codex,
@@ -134,6 +133,10 @@ Set only the non-secret Vertex project in the private config before running
 1Password success/failure classes plus `ready` or `auth_pending`; it discards
 provider output and never prints account, credential, content, session, or path
 data.
+`refresh-auth` validates the recorded revision, managed targets, configuration,
+and pinned runtime versions before running that probe. Damage becomes
+`failed_retryable`; incomplete login becomes `auth_pending`; complete probes
+become `ready`. It never starts a login.
 
 ## Optional Lima Workspaces
 

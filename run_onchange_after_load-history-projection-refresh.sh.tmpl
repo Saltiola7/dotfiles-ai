@@ -1,0 +1,24 @@
+#!/bin/bash
+# plist: {{ include "private_Library/LaunchAgents/dev.dotfiles-ai.history-projection-refresh.plist.tmpl" | sha256sum }}
+# wrapper: {{ include "dot_local/bin/executable_history-projection-refresh.tmpl" | sha256sum }}
+set -euo pipefail
+[[ $(uname) == Darwin ]] || exit 0
+domain="gui/$(id -u)"; label=dev.dotfiles-ai.history-projection-refresh
+plist="$HOME/Library/LaunchAgents/$label.plist"
+{{ if not .dotfiles_ai.history_projection.enabled -}}
+if /bin/launchctl print "$domain/$label" >/dev/null 2>&1; then /bin/launchctl bootout "$domain/$label"; fi
+[[ $(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist" 2>/dev/null || true) != "$label" ]] || /bin/rm -f "$plist"
+exit 0
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.history_projection.refresh_hour | int) 0) (gt (.dotfiles_ai.history_projection.refresh_hour | int) 23) -}}
+{{ fail "dotfiles_ai.history_projection.refresh_hour must be 0..23" }}
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.history_projection.refresh_minute | int) 0) (gt (.dotfiles_ai.history_projection.refresh_minute | int) 59) -}}
+{{ fail "dotfiles_ai.history_projection.refresh_minute must be 0..59" }}
+{{ end -}}
+{{ if or (lt (.dotfiles_ai.history_projection.refresh_timeout_seconds | int) 900) (gt (.dotfiles_ai.history_projection.refresh_timeout_seconds | int) 3600) -}}
+{{ fail "dotfiles_ai.history_projection.refresh_timeout_seconds must be 900..3600" }}
+{{ end -}}
+/usr/bin/plutil -lint "$plist" >/dev/null
+/bin/launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+/bin/launchctl bootstrap "$domain" "$plist"

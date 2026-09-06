@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import tarfile
+import tempfile
+import urllib.request
+
+
+PUBLIC_SOURCE = "https://github.com/Saltiola7/dotfiles-ai.git"
+CHEZMOI_VERSION = "2.69.4"
+CHEZMOI_URL = (
+    "https://github.com/twpayne/chezmoi/releases/download/v2.69.4/"
+    "chezmoi_2.69.4_linux_amd64.tar.gz"
+)
+CHEZMOI_SHA256 = "5054cf09cb2993725f525c8bb6ec3ff8625489ecfc061e019c17e737e7c7057b"
+REVISION = re.compile(r"[0-9a-f]{40}")
+HOME = Path(os.environ.get("HOME", ""))
+SOURCE = Path(os.environ.get(
+    "DOTFILES_AI_SOURCE", "~/.local/share/chezmoi-dotfiles-ai"
+)).expanduser()
+CONFIG = Path(os.environ.get(
+    "DOTFILES_AI_CONFIG", "~/.config/dotfiles-ai/chezmoi.toml"
+)).expanduser()
+STATE = Path(os.environ.get(
+    "DOTFILES_AI_FOUNDATION_STATE",
+    "~/.local/state/dotfiles-ai/remote-user-foundation.json",
+)).expanduser()
+
+
+class BootstrapError(Exception):
+    pass
+
+
+def run(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(arguments, check=True, text=True, capture_output=True)
+
+
+def safe_path(path: Path, kind: str | None = None) -> None:
+    try:
+        relative = path.absolute().relative_to(HOME.absolute())
+    except ValueError as error:
+        raise BootstrapError("bootstrap path is unsafe") from error
+    current = HOME.absolute()
+    for part in relative.parts:
+        current /= part
+        if not os.path.lexists(current):
+            continue
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise BootstrapError("bootstrap path is unsafe")
+    if kind == "directory" and not path.is_dir():
+        raise BootstrapError("bootstrap path is unsafe")
+    if kind == "file" and not path.is_file():
+        raise BootstrapError("bootstrap path is unsafe")
+
+
+def validate_home() -> None:
+    if not HOME.is_absolute() or not os.path.lexists(HOME):
+        raise BootstrapError("bootstrap home is unsafe")
+    metadata = HOME.lstat()
+    if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()):
+        raise BootstrapError("bootstrap home is unsafe")
+
+
+def prepare_source(revision: str) -> None:
+    safe_path(SOURCE)
+    if not SOURCE.exists():
+        SOURCE.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        safe_path(SOURCE.parent, "directory")
+        run("git", "clone", "--no-checkout", PUBLIC_SOURCE, str(SOURCE))
+    safe_path(SOURCE, "directory")
+    remote = run("git", "-C", str(SOURCE), "remote", "get-url", "origin").stdout.strip()
+    if remote.removesuffix(".git") != PUBLIC_SOURCE.removesuffix(".git"):
+        raise BootstrapError("bootstrap source is invalid")
+    if run("git", "-C", str(SOURCE), "status", "--porcelain").stdout:
+        raise BootstrapError("bootstrap source is not clean")
+    found = subprocess.run(
+        ["git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}"],
+        text=True, capture_output=True,
+    )
+    if found.returncode:
+        run("git", "-C", str(SOURCE), "fetch", "--no-tags", "origin", "main")
+    run("git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}")
+    resolved = run("git", "-C", str(SOURCE), "rev-parse", revision).stdout.strip()
+    if resolved != revision:
+        raise BootstrapError("bootstrap revision is invalid")
+    run("git", "-C", str(SOURCE), "checkout", "--detach", revision)
+
+
+def prepare_config() -> None:
+    safe_path(CONFIG)
+    if not CONFIG.exists():
+        example = SOURCE / "config.remote-user.example.toml"
+        safe_path(example, "file")
+        CONFIG.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        safe_path(CONFIG.parent, "directory")
+        home = str(HOME).replace("\\", "\\\\").replace('"', '\\"')
+        CONFIG.write_text(example.read_text().replace("/home/you", home))
+    safe_path(CONFIG, "file")
+    CONFIG.chmod(0o600)
+
+
+def install_chezmoi() -> Path:
+    binary = HOME / ".local/bin/chezmoi"
+    safe_path(binary)
+    if binary.is_file() and os.access(binary, os.X_OK):
+        version = subprocess.run(
+            [str(binary), "--version"], text=True, capture_output=True,
+        )
+        if version.returncode == 0 and re.search(rf"\bv?{re.escape(CHEZMOI_VERSION)}\b", version.stdout):
+            return binary
+    if os.uname().sysname != "Linux" or os.uname().machine != "x86_64":
+        raise BootstrapError("bootstrap platform is unsupported")
+    binary.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    safe_path(binary.parent, "directory")
+    with tempfile.TemporaryDirectory(dir=binary.parent) as temporary:
+        archive_path = Path(temporary) / "chezmoi.tgz"
+        with urllib.request.urlopen(CHEZMOI_URL, timeout=60) as response, archive_path.open("wb") as stream:
+            shutil.copyfileobj(response, stream)
+        if hashlib.sha256(archive_path.read_bytes()).hexdigest() != CHEZMOI_SHA256:
+            raise BootstrapError("bootstrap chezmoi checksum failed")
+        with tarfile.open(archive_path, "r:gz") as archive:
+            source = archive.extractfile("chezmoi")
+            if source is None:
+                raise BootstrapError("bootstrap chezmoi archive is invalid")
+            candidate = Path(temporary) / "chezmoi"
+            with candidate.open("wb") as stream:
+                shutil.copyfileobj(source, stream)
+        candidate.chmod(0o755)
+        os.replace(candidate, binary)
+    safe_path(binary, "file")
+    return binary
+
+
+def record_failure(revision: str) -> None:
+    try:
+        safe_path(STATE)
+        STATE.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        safe_path(STATE.parent, "directory")
+        value = {
+            "attempt": 0,
+            "desired_revision": None,
+            "managed_targets": [],
+            "previous_managed_targets": [],
+            "previous_revision": None,
+            "revision": None,
+            "schema_version": 1,
+            "state": "absent",
+        }
+        if STATE.exists():
+            safe_path(STATE, "file")
+            value = json.loads(STATE.read_text())
+            if (value.get("state") == "failed_retryable"
+                    and value.get("desired_revision") == revision):
+                return
+        value.update({
+            "attempt": int(value.get("attempt", 0)) + 1,
+            "desired_revision": revision,
+            "schema_version": 1,
+            "state": "failed_retryable",
+        })
+        descriptor, temporary = tempfile.mkstemp(prefix=".remote-user-bootstrap.", dir=STATE.parent)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, STATE)
+    except (AttributeError, BootstrapError, OSError, TypeError, ValueError,
+            json.JSONDecodeError):
+        pass
+
+
+def bootstrap(revision: str) -> None:
+    if not REVISION.fullmatch(revision):
+        raise BootstrapError("bootstrap revision must be a full commit identity")
+    validate_home()
+    for path in (SOURCE, CONFIG, STATE):
+        safe_path(path)
+    prepare_source(revision)
+    prepare_config()
+    binary = install_chezmoi()
+    foundation = SOURCE / "dot_local/bin/executable_remote-user-foundation"
+    safe_path(foundation, "file")
+    environment = {**os.environ, "PATH": f"{binary.parent}:{os.environ.get('PATH', '')}"}
+    subprocess.run([str(foundation), "apply", revision], check=True, env=environment)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="operation", required=True)
+    command = subparsers.add_parser("bootstrap")
+    command.add_argument("revision")
+    arguments = parser.parse_args()
+    try:
+        bootstrap(arguments.revision)
+    except BootstrapError as error:
+        record_failure(arguments.revision)
+        raise SystemExit(str(error)) from None
+    except (OSError, subprocess.CalledProcessError, tarfile.TarError):
+        record_failure(arguments.revision)
+        raise SystemExit("remote user bootstrap failed") from None
+
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,36 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-05 - Historical Reporting Repair
+
+- Separated explicit historical schema-5 validation from live source resolution
+  for completed-cycle enumeration and History correlation only. Retired records
+  retain structural validation; all other callers keep live authority checks.
+- Legacy enumeration skips absent checkout directories without recreating them
+  or rewriting retained records. Reporting filters, denominators, reductions,
+  and malformed-record failure semantics remain unchanged.
+- Red-first tests reproduced removed legacy checkout failure, missing historical
+  read support, and the retired-record validation bypass. Affected helper and
+  lifecycle tests passed: 229 passed, one skipped, 21 subtests. The source helper
+  restored live cycle-performance reporting; sparse timing is not a speed claim.
+- Deployment target: managed lifecycle helper, with no record or snapshot
+  migration. Rollback restores the prior helper, not private data. Gate exceptions:
+  none. Release: not applicable. Intended Final Push: feature-branch draft PR into
+  protected main; final evidence and actual delivery remain in the Cycle Record.
+
+## 2026-09-01 - History Snapshot Refresh Delivery
+
+- Replaced phased micro-maintenance with one single-flight schema-version-3
+  refresh over an immutable SQLite read transaction. The prior snapshot remains
+  available until bounded activation validation and atomic replacement.
+- Streamed neutral interior rows into complete session aggregates while retaining
+  only first/last boundary and tool rows. The representative refresh completed in
+  7m00s, indexed 5,530 sessions and 796,085 material rows, and produced a 292.1
+  MiB sidecar.
+- Five warm runs measured aggregate p95 at 8.85s and Incident summary p95 at
+  3.24s. Full helper and affected union tests passed. Gate Exceptions: none.
+  Release: not applicable. Deployment: managed lifecycle helper. Intended Final
+  Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-09-01 - Exact Linked Source Runtime
 
 - Bound new schema-5 source records to the initiating checkout's stable worktree

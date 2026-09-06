@@ -19,17 +19,7 @@ export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ else -}}
 "$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" || exit 75
 {{ end -}}
-{{ if eq .chezmoi.os "darwin" -}}
-expected={{ .dotfiles_ai.codex.version | quote }}
-real=$("$HOME/.local/bin/codex-project" --resolve-homebrew "$HOME/.local/state/dotfiles-ai/codex-package/homebrew-bin" "$expected")
-{{ else -}}
 real="$HOME/.local/libexec/dotfiles-ai/codex"
-expected={{ .dotfiles_ai.codex.version | quote }}
-{{ end -}}
-[[ -x $real && ! $real -ef $0 ]] || { echo "managed Codex binary is unavailable" >&2; exit 1; }
-version=$($real --version)
-[[ ${#version} -le 128 && ( $version == "$expected" || $version == *" $expected" ) ]] || {
-    echo "managed Codex version mismatch" >&2
-    exit 1
-}
-exec "$real" "$@"
+lock="$HOME/.local/state/dotfiles-ai/codex-package/release-lock.json"
+"$HOME/.local/bin/codex-update-all" recover-local
+exec "$HOME/.local/bin/codex-project" --exec-managed "$lock" "$real" "$@"

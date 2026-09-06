@@ -19,6 +19,14 @@ done
     echo "remote workspace repository does not exist" >&2
     exit 1
 }
+[ -f "$REMOTE_DEV_REPOSITORY/mise.toml" ] && [ ! -L "$REMOTE_DEV_REPOSITORY/mise.toml" ] || {
+    echo "remote workspace repository requires root mise.toml" >&2
+    exit 1
+}
+(cd "$REMOTE_DEV_REPOSITORY" && mise tasks ls >/dev/null) || {
+    echo "remote workspace repository root mise.toml is unusable" >&2
+    exit 1
+}
 
 account=${REMOTE_DEV_ACCOUNT:-$(gcloud config get account 2>/dev/null)}
 [ -n "$account" ] && [ "$account" != "(unset)" ] || {

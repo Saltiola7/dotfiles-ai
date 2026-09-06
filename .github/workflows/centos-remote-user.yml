@@ -10,6 +10,7 @@ on:
       - "dot_local/bin/executable_codex-install.tmpl"
       - "dot_local/bin/executable_opencode*"
       - "dot_local/bin/executable_remote-agent-readiness.tmpl"
+      - "dot_local/bin/executable_remote-user-bootstrap"
       - "dot_local/bin/executable_remote-user-foundation"
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"
@@ -22,4 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
-      - run: tests/remote_user_environment_smoke.sh
+      - name: Run smoke
+        run: |
+          unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+          source=/home/you/.local/share/chezmoi-dotfiles-ai
+          install -d -m 0700 /home/you
+          install -d -m 0755 "$source"
+          tar --exclude=.git -cf - . | tar --no-same-owner -xf - -C "$source"
+          env -i PATH="$PATH" git init -q "$source"
+          git --git-dir="$source/.git" --work-tree="$source" config user.name CI
+          git --git-dir="$source/.git" --work-tree="$source" config user.email ci@example.invalid
+          git --git-dir="$source/.git" --work-tree="$source" add -A
+          git --git-dir="$source/.git" --work-tree="$source" commit -q -m baseline
+          git --git-dir="$source/.git" --work-tree="$source" remote add origin https://github.com/Saltiola7/dotfiles-ai.git
+          cd "$source"
+          env -i PATH="$PATH" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+            GIT_CONFIG_VALUE_0="$source" tests/remote_user_environment_smoke.sh

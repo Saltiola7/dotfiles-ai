@@ -49,6 +49,9 @@ history request-and-page envelope on 2026-08-31.
 - Distribution updates all registered managed Fedora guests and automatically provisions future managed guests. Identity correlation uses one representative authenticated Fedora guest per frozen release while every guest must pass install, version, configuration, and isolation checks.
 - Host foundation stages portable source under `~/.config/dotfiles-ai/codex-managed/`, defines projected custom roles as `$CODEX_HOME/agents/**/*.toml`, and configures the five identity hooks as inline command hooks.
 - The sanitizer accepts documented `transcript_path` only as bounded transient hook input and discards it without reading, canonicalizing, logging, exposing, or persisting it.
+- Every apply checks Codex stable only. A compatible candidate stages on the host
+  and all registered guests before activation; update infrastructure failure keeps
+  the healthy active release and does not interrupt unrelated apply work.
 
 ## Architecture
 
@@ -84,10 +87,12 @@ guest Codex state, and desktop default state remain separate.
 | `codex-host-foundation` | `build` | Managed Codex source config, six native workflow roles, sanitizer, capability probe, and bounded CLI adapter | `multi-harness-lifecycle` |
 | `codex-distribution` | `build` | Homebrew host install, pinned Fedora install, atomic config projection, and runtime selection | `codex-host-foundation` |
 | `codex-identity-probe` | `discovery` | Cross-platform decision for hook session identity versus app-server thread identity | `codex-distribution` |
-| `codex-history-adapter` | `build` | Private stable app-server conversion into generic source pages | `codex-identity-probe`, `generic-history-source-pages` |
+| `codex-rolling-stable` | `build` | Transactional compatible stable updates on host and registered guests | `codex-distribution` |
+| `codex-release-reprobe` | `discovery` | Revalidate identity and stable app-server semantics after rolling migration | `codex-rolling-stable` |
+| `codex-history-adapter` | `build` | Private stable app-server conversion into generic source pages | `codex-release-reprobe`, `generic-history-source-pages` |
 | `codex-history-parity` | `build` | Supported thread history, incidents, review, telemetry, and benchmarks | `codex-history-adapter` |
-| `codex-worker-routing` | `build` | Explicit Herdr/Hermes/autonomous-worker runtime binding without fallback | `codex-distribution`, `codex-identity-probe` |
-| `codex-state-recovery` | `build` | External-volume circuit breaking and exact supported-session resume | `codex-worker-routing`, `codex-identity-probe` |
+| `codex-worker-routing` | `build` | Explicit Herdr/Hermes/autonomous-worker runtime binding without fallback | `codex-rolling-stable`, `codex-release-reprobe` |
+| `codex-state-recovery` | `build` | External-volume circuit breaking and exact supported-session resume | `codex-worker-routing`, `codex-release-reprobe` |
 | `codex-federation-parity` | `build` | Bounded host/guest history federation and handoff | `codex-history-parity`, `codex-worker-routing` |
 | `codex-parity-readiness` | `discovery` | Outcome-parity assessment with no unexplained unavailable capability | All preceding slices |
 
@@ -98,6 +103,8 @@ guest Codex state, and desktop default state remain separate.
 | `codex-host-foundation` | Portable control-plane source, six TOML native roles, inline identity hooks, bounded transient-path sanitizer, and adapter; no package install, login, or live identity claim | Fake-command/schema tests, shared lifecycle conformance, OpenCode regressions, and reviewed source contract |
 | `codex-distribution` | Install exact host/guest release, project digest-owned config, activate wrapper, and persist selector schema; no worker activation | Host and all-guest version/config/state isolation, rollback, and source-identical deployment after host foundation is delivered |
 | `codex-identity-probe` | Discovery-run disposable correlation on macOS and one representative authenticated Fedora guest | Exact or deterministic versioned mapping across hooks, CLI JSONL, app-server thread identity, resume, and fork; ambiguity keeps dependents blocked |
+| `codex-rolling-stable` | Every apply discovers, stages, validates, and atomically activates one official compatible stable release without restarting processes | Strict metadata/digest, private-lock, all-target staging, semantic validator, soft-failure, no-divergence, reverse-rollback, and host/all-guest evidence |
+| `codex-release-reprobe` | Body-free host/Fedora revalidation after the first rolling migration | Exact identity mapping and stable interface semantics, with incompatible releases retained but not activated |
 | `generic-history-source-pages` | Lifecycle-owned closed page validator over stdin; no native runtime parsing or persistence | Positive/negative schema, continuation, digest, privacy, byte-bound, no-mutation, and existing-consumer compatibility tests |
 | `codex-history-adapter` | Pinned stable `thread/list` and `thread/read` over initialized app-server stdio; private pages remain in-process | Schema-digest, conversion, privacy, continuation, body-free probe, no-mutation, host, and all-guest tests |
 | `codex-history-parity` | Closed in-process reducers consume delivered generic Codex pages | Existing review, Incident, telemetry, immutable-capture, and benchmark schemas; unavailable required fields block parity |
@@ -121,8 +128,9 @@ dependencies, execution ownership, or parity meaning.
 
 This Initiative creates no PM Kernel tickets. The manifest records host
 foundation, distribution, and the exact cross-platform identity probe as
-delivered, including generic history-source validation, and marks only
-`codex-history-adapter` ready. Consumer reducers, benchmark capture, worker
+delivered, including generic history-source validation. The moving Homebrew cask
+invalidated its recorded executable, so only `codex-rolling-stable` is ready.
+Release reprobe, history adapter, consumer reducers, benchmark capture, worker
 routing, recovery, federation, and final parity remain dependency-gated.
 Applicability plans and Cycle Records cannot substitute for a fresh Initiative
 readiness receipt.
@@ -132,8 +140,8 @@ readiness receipt.
 | Group | Members | Exit condition |
 |---|---|---|
 | `contract-foundation` | `multi-harness-lifecycle` | Generic lifecycle adapter contract is delivered without OpenCode regression |
-| `installable-peer` | `codex-host-foundation`, `codex-distribution` | Two sequential pull requests deliver tested control-plane source, then install isolated and explicitly selectable host/guest runtimes |
-| `native-lifecycle` | `codex-identity-probe`, `codex-worker-routing`, `codex-state-recovery` | Exact identity, worker routing, and recovery pass on both platforms |
+| `installable-peer` | `codex-host-foundation`, `codex-distribution`, `codex-rolling-stable` | Managed host/guest runtimes update transactionally without Homebrew drift or divergence |
+| `native-lifecycle` | `codex-identity-probe`, `codex-release-reprobe`, `codex-worker-routing`, `codex-state-recovery` | Exact identity, worker routing, and recovery pass on both platforms |
 | `history-federation` | `generic-history-source-pages`, `codex-history-adapter`, `codex-history-parity`, `codex-federation-parity` | Bounded review, incident, telemetry, and federation outcomes pass |
 | `parity-readiness` | `codex-parity-readiness` | Every requested capability has an evidence-backed passing disposition |
 
@@ -173,3 +181,9 @@ Official `0.151.0` source confirms recursive `agents/**/*.toml` role discovery,
 inline command hooks, and the common hook `transcript_path` field. Installed
 identity behavior is authoritative only for the frozen release and must be
 reprobed on upgrade.
+
+On 2026-09-04 Homebrew reported installed Codex `0.153.3` while the managed
+wrapper's owner-private record still selected the removed `0.151.0` cask path.
+The wrapper failed closed before launch, as designed. Last verified guests remain
+`0.151.0`; Build must re-probe rather than infer their current state. The rolling
+slice replaces this drift-prone package boundary before any adapter resumes.

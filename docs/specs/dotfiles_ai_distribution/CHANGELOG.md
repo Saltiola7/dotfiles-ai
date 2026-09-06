@@ -1,5 +1,100 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-06 - History Projection Refresh Schedule
+
+- Added a default-off daily 04:30 Background LaunchAgent and owner-private
+  single-flight wrapper for lifecycle-owned History projection refresh.
+- The wrapper records only one atomic, bounded latest-run status; invalid state
+  fails closed, timeouts terminate the refresh process group, and child output
+  cannot enter scheduler logs.
+- Focused distribution validation passed 78 tests. Local deployment loaded the
+  exact job, completed a controlled refresh, and proved disablement preserves the
+  scheduler state before restoring the enabled desired state.
+
+## 2026-09-05 - OpenCode Guest Ownership Correction
+
+- Reopened rolling readiness before source commit after Build verified Fedora
+  still executes root-owned provisioned OpenCode rather than the assumed
+  user-local path.
+- Approved user-local migration with the exact root `1.18.25` binary retained as
+  first-migration rollback authority; provisioning retirement follows fleet proof.
+
+## 2026-09-05 - OpenCode Rolling Stable Readiness
+
+- Reopened OpenCode distribution after host Homebrew advanced to `1.18.29` while
+  source/guest parity remained `1.18.25`, breaking full AI apply.
+- Specified official rolling assets, private fleet locks, semantic validation,
+  all-target staging, next-launch activation, soft retention, and durable recovery.
+- Marked one `opencode-rolling-stable` slice ready; no implementation or runtime
+  mutation occurred.
+
+## 2026-09-05 - Codex Rolling Stable Delivered
+
+- Replaced Homebrew Codex runtime authority with official digest-verified stable
+  archives and an owner-private platform/binary/fleet release lock.
+- Added every-apply host/guest staging, semantic validation, next-launch atomic
+  activation, durable commit/recovery, reverse rollback, soft retention for the
+  previously verified fleet, and exact guest helper bootstrap.
+- Migrated host and registered guests to Codex `0.153.4` without copying auth,
+  reading session storage, restarting processes, or changing guest running state.
+- Affected QA passed 153 tests. Gate Commits: `8135a3c`, `cbdc9ec`, `6b0439f`.
+  Gate Exceptions: none. Release: not applicable. Intended Final Push: feature
+  branch and draft pull request into protected `main`.
+
+## 2026-09-05 - Rolling Authority Digest Correction
+
+- Reopened rolling readiness after review found that one platform asset digest
+  could not detect same-release mutation elsewhere in official metadata.
+- Bound rejections to the canonical full candidate, made crash recovery validate
+  fleet identity before idempotent all-target rollback, and limited lockless
+  adoption to the known delivered Fedora aarch64 `0.151.0` binary.
+
+## 2026-09-05 - Rolling Fleet Attestation Correction
+
+- Reopened rolling readiness before Gate Commits because host health alone could
+  not authorize soft retention while a registered guest was unavailable.
+- Added private target count/set digest and a closed phase-driven activation
+  journal. Soft retention now requires the current configuration to match the
+  last fully verified fleet; recovery precedes metadata lookup.
+
+## 2026-09-05 - Rolling Executable Digest Correction
+
+- Reopened rolling readiness before source changes because official metadata
+  hashes archives while the wrapper executes an extracted binary.
+- Added exact platform and derived executable SHA-256 to each private active and
+  previous lock generation; archive and binary digests cannot substitute.
+
+## 2026-09-04 - Codex Rolling Stable Readiness
+
+- Reopened delivered Codex distribution after the moving Homebrew cask deleted
+  the wrapper's recorded `0.151.0` executable while installing `0.153.3`.
+- Specified Codex-only latest-stable checks on every apply, official archive
+  digests, private release lock, all-target staging, semantic validators,
+  next-launch activation, soft update failure, and reverse rollback.
+- Marked only `codex-rolling-stable` ready. Release reprobe, history adapter,
+  workers, recovery, reducers, benchmarks, and federation remain dependency-gated.
+
+## 2026-09-01 - Portable Rollout Runtime
+
+- Added an owner- and symlink-safe bootstrap for one full public revision,
+  checksum-pinned user-local chezmoi, structural foundation validation, and
+  content-free `auth_pending`, `ready`, and `failed_retryable` refreshes without
+  starting authentication.
+- Required a usable configured root `mise.toml` before client mutation and proved
+  repository-bound `mise run remote-dev -- iap` forwarding from another working
+  directory. CentOS receives a regular gcloud launcher while existing Fedora
+  symlink behavior remains unchanged.
+- Affected validation passed 46 tests; CI-equivalent full validation passed 681
+  tests, one expected skip, and 21 subtests. Shell/Python syntax, Git diff hygiene,
+  and a disposable CentOS Stream 10 x86_64 bootstrap, retry, empty reapply,
+  `auth_pending`, simulated `ready`, integrity failure, update, and rollback passed.
+  Authentication, sessions, and history survived rollback; no live login, shared
+  VM, cloud runtime, private endpoint, personal source, or production home was
+  accessed. The named disposable Podman machine was removed.
+- Gate Commits: `042cf96`, `d6388fe`, `b3ca452`, `86b81fd`, `c4052d3`, and
+  `247982e`. Gate Exceptions: none. Release and DVC are not applicable. Intended
+  Final Push: feature branch and draft pull request into protected `main`.
+
 ## 2026-09-01 - Portable Rollout Runtime Readiness
 
 - Split public user bootstrap, content-free authentication-state refresh, and

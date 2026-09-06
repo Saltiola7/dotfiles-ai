@@ -161,15 +161,21 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert slices["codex-identity-probe"]["state"] == "delivered"
     assert slices["codex-identity-probe"]["execution_owner"] == "discovery"
     assert slices["codex-identity-probe"]["depends_on"] == ["codex-distribution"]
+    assert slices["codex-rolling-stable"]["state"] == "ready"
+    assert slices["codex-rolling-stable"]["execution_owner"] == "build"
+    assert slices["codex-rolling-stable"]["depends_on"] == ["codex-distribution"]
+    assert slices["codex-release-reprobe"]["state"] == "captured"
+    assert slices["codex-release-reprobe"]["execution_owner"] == "discovery"
+    assert slices["codex-release-reprobe"]["depends_on"] == ["codex-rolling-stable"]
     assert slices["generic-history-source-pages"]["state"] == "delivered"
     assert slices["generic-history-source-pages"]["execution_owner"] == "build"
     assert slices["generic-history-source-pages"]["depends_on"] == ["multi-harness-lifecycle"]
-    assert slices["codex-history-adapter"]["state"] == "ready"
+    assert slices["codex-history-adapter"]["state"] == "captured"
     assert slices["codex-history-adapter"]["execution_owner"] == "build"
     assert slices["codex-history-adapter"]["depends_on"] == [
-        "codex-identity-probe", "generic-history-source-pages",
+        "codex-release-reprobe", "generic-history-source-pages",
     ]
-    assert {"INT-013", "INT-020", "INT-033"} <= set(
+    assert {"INT-013", "INT-020", "INT-033", "INT-034"} <= set(
         slices["codex-history-adapter"]["requirements"]
     )
     assert {
@@ -182,8 +188,8 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "codex-history-parity": (
             "captured", ["codex-history-adapter"]
         ),
-        "codex-worker-routing": ("captured", ["codex-distribution", "codex-identity-probe"]),
-        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-identity-probe"]),
+        "codex-worker-routing": ("captured", ["codex-rolling-stable", "codex-release-reprobe"]),
+        "codex-state-recovery": ("captured", ["codex-worker-routing", "codex-release-reprobe"]),
         "codex-federation-parity": ("captured", ["codex-history-parity", "codex-worker-routing"]),
         "codex-parity-readiness": ("blocked", ["codex-state-recovery", "codex-federation-parity"]),
     }
@@ -203,7 +209,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
          str(ROOT / "docs/initiatives/codex-cli-integration/MANIFEST.json"), "--json"],
         cwd=ROOT, text=True, capture_output=True, check=True,
     )
-    assert json.loads(checked.stdout)["ready_slices"] == ["codex-history-adapter"]
+    assert json.loads(checked.stdout)["ready_slices"] == ["codex-rolling-stable"]
 
     initiative = text("docs/initiatives/codex-cli-integration/README.md")
     control_plane = text("docs/specs/codex_control_plane/README.md")
@@ -214,8 +220,8 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     normalized_operation = " ".join(operation.split())
     for phrase in ("two sequential pull requests", "existing boundary-local login"):
         assert phrase in initiative
-    assert "`codex-history-adapter` ready" in normalized_initiative
-    assert "**Status:** Distribution deployed; identity probe pending" in distribution
+    assert "only `codex-rolling-stable` is ready" in normalized_initiative
+    assert "**Status:** 0.151 distribution delivered; rolling-stable successor ready" in distribution
     for phrase in (
         "Pinned stable `thread/list` and `thread/read`",
         "Exact runtime, release, adapter revision, and session identity",
@@ -266,6 +272,63 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     ]
     assert "generic-history-source-pages" in control_plane
     assert "never enter a page" in control_plane
+    rolling = text("docs/specs/dotfiles_ai_distribution/features/codex-rolling-stable.md")
+    rolling_plan = json.loads(text(
+        "docs/specs/dotfiles_ai_distribution/CODEX-ROLLING-STABLE.plan.json"
+    ))
+    rolling_contract = json.loads(text(
+        "docs/specs/dotfiles_ai_distribution/features/codex-rolling-stable.contract.json"
+    ))
+    normalized_rolling = " ".join(rolling.split())
+    for phrase in (
+        "Every `chezmoi apply` checks",
+        "Stage the candidate on every target",
+        "restore activated targets in reverse order",
+        "never restarted",
+        "soft only before activation",
+        "Homebrew cask",
+    ):
+        assert phrase in normalized_rolling
+    assert rolling_plan["profile"] == "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+    assert rolling_plan["gates"]["release"]["applicability"] == "not_applicable"
+    assert rolling_contract["commands"]["apply"] == ["codex-update-all"]
+    assert rolling_contract["release"]["maximum_metadata_bytes"] == 1024 * 1024
+    assert rolling_contract["release"]["maximum_asset_bytes"] == 256 * 1024 * 1024
+    assert rolling_contract["release"]["download_hosts"] == [
+        "github.com", "release-assets.githubusercontent.com",
+    ]
+    assert rolling_contract["lock"]["maximum_generations"] == 2
+    assert {"platform", "binary_sha256", "target_count", "targets_digest"} <= set(
+        rolling_contract["lock"]["required"]
+    )
+    assert rolling_contract["lock"]["platforms"] == [
+        "darwin-aarch64", "linux-aarch64", "linux-x86_64",
+    ]
+    assert rolling_contract["rejection"]["reasons"] == [
+        "candidate_invalid", "validation_failed",
+    ]
+    assert "candidate_digest" in rolling_contract["rejection"]["required"]
+    assert "asset_sha256" not in rolling_contract["rejection"]["required"]
+    assert rolling_contract["legacy_migration"]["release"] == "0.151.0"
+    assert rolling_contract["transaction"]["activation_order"] == [
+        "registered_guests", "host",
+    ]
+    assert rolling_contract["transaction"]["running_process_action"] == "none"
+    assert rolling_contract["transaction_journal"]["phases"] == [
+        "prepared", "backed_up", "activating_guests", "activating_host", "verifying",
+    ]
+    assert rolling_contract["transaction"]["roles"] == {
+        "darwin": "host_coordinator",
+        "managed_fedora": "host_command_only",
+        "remote_centos": "local_only",
+    }
+    assert rolling_contract["result_schema"]["additionalProperties"] is False
+    assert rolling_contract["exit_status"]["retained"] == 0
+    assert rolling_contract["exit_status"]["unhealthy_bootstrap"] == 1
+    assert rolling_contract["exit_status"]["rollback_failed"] == 1
+    assert {"INT-035", "INT-036", "INT-037", "INT-038", "INT-039", "INT-040", "INT-041"} <= set(
+        slices["codex-rolling-stable"]["requirements"]
+    )
     adapter = text("docs/specs/codex_control_plane/features/history-adapter.md")
     adapter_contract = json.loads(text(
         "docs/specs/codex_control_plane/features/history-adapter.contract.json"
@@ -286,6 +349,29 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     }
     assert adapter_contract["provider_ids"] == ["openai"]
     assert adapter_contract["history_modes"] == ["legacy", "paginated"]
+    assert adapter_contract["content_policy"]["unsafe_text"] == {
+        "action": "discard", "availability": "partial", "reason": "unsafe_text_discarded",
+    }
+    assert adapter_contract["content_policy"]["discard_agent_phases"] == ["commentary"]
+    assert set(adapter_contract["content_policy"]["discard_item_types"]) == {
+        "hookPrompt", "functionCallOutput", "plan", "reasoning", "subAgentActivity",
+        "imageView", "sleep", "webSearch", "imageGeneration", "enteredReviewMode",
+        "exitedReviewMode", "contextCompaction",
+    }
+    assert adapter_contract["unknown_policy"] == {
+        "item_type": "reject_operation",
+        "user_input_type": "reject_operation",
+        "tool_status": "reject_operation",
+        "missing_required_field": "reject_operation",
+        "additive_optional_thread_field": "ignore",
+    }
+    assert adapter_contract["aggregate_policy"] == {
+        "turn_count": "native_turn_count",
+        "user_message_count": "emitted_safe_user_content_count",
+        "assistant_message_count": "emitted_safe_assistant_content_count",
+        "tool_call_count": "emitted_tool_signal_count",
+        "tool_error_count": "emitted_failed_tool_signal_count",
+    }
     assert adapter_contract["failure"] == {
         "exit_status": 2,
         "stdout": "",
@@ -312,6 +398,7 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     assert all("subAgentThreadSpawn" in request["sourceKinds"]
                for request in adapter_contract["thread_list"]["requests"])
     normalized_adapter = " ".join(adapter.split())
+    assert "unsafe item is discarded, safe siblings remain ordered" in normalized_control_plane
     for phrase in (
         "Timestamps remain Unix seconds",
         "private stdin subprocess",
@@ -325,8 +412,36 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         "never invokes `thread/turns/list`, `thread/items/list`",
         'describes `includeTurns` as "full-history hydration"',
         "For either accepted history mode",
+        "A rejected text item is discarded in full",
+        "unknown user input rejects the complete operation",
     ):
         assert phrase in normalized_adapter
+
+
+def test_opencode_rolling_stable_slice_is_ready() -> None:
+    manifest = json.loads(text("docs/initiatives/opencode-rolling-stable/MANIFEST.json"))
+    assert [item["id"] for item in manifest["slices"] if item["state"] == "ready"] == [
+        "opencode-rolling-stable"
+    ]
+    slice_ = manifest["slices"][0]
+    assert slice_["execution_owner"] == "build"
+    assert slice_["context"] == "dotfiles_ai_distribution"
+    assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 10)}
+    spec = text("docs/specs/dotfiles_ai_distribution/features/opencode-rolling-stable.md")
+    for phrase in (
+        "opencode-darwin-arm64.zip",
+        "opencode-linux-arm64.tar.gz",
+        "opencode-linux-x64.tar.gz",
+        "all-target staging",
+        "Current OpenCode/Herdr processes are never restarted",
+        "full AI apply",
+        "root-owned `/usr/local/libexec/opencode`",
+        "user-local `~/.local/libexec/dotfiles-ai/opencode`",
+    ):
+        assert phrase in spec
+    plan = json.loads(text("docs/specs/dotfiles_ai_distribution/OPENCODE-ROLLING-STABLE.plan.json"))
+    assert plan["profile"] == "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+    assert plan["gates"]["release"]["applicability"] == "not_applicable"
 
     projection = text(
         "docs/specs/dbsctr_v3_lifecycle/features/history-incident-query-performance.md"
@@ -344,8 +459,19 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
     speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
     refresh = next(item for item in speed["slices"]
                    if item["id"] == "history-projection-refresh-schedule")
-    assert refresh["state"] == "captured"
+    assert refresh["state"] == "ready"
     assert refresh["depends_on"] == ["history-incident-query-core"]
+    slices = {item["id"]: item for item in speed["slices"]}
+    assert slices["history-incident-query-core"]["state"] == "delivered"
+    assert slices["historical-reporting-repair"]["state"] == "delivered"
+    assert slices["history-projection-refresh-schedule"]["state"] == "ready"
+    assert slices["history-projection-refresh-schedule"]["requirements"][-2:] == ["INT-050", "INT-051"]
+    assert "900..3600" in schedule and "900..7200" not in schedule
+    assert "explicit age" in " ".join(schedule.split())
+    for phrase in ("status` mode", "SIGTERM to that group", "consecutive-failure counter",
+                   "run-state\nfile", "history-projection-refresh status",
+                   "scheduler_state_invalid\\n", "never_run"):
+        assert phrase in schedule
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 

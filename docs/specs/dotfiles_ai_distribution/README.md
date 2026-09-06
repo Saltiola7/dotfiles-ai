@@ -996,9 +996,20 @@ feature branch with a draft pull request; the operator retains merge authority.
   `mise run` in the configured repository; `remote-workspace doctor` invokes the
   prerequisite check.
 - `remote-workspace-doctor` verifies the local gcloud, mise, SSH, and Herdr
-  commands, requires the configured repository and endpoint coordinates,
+  commands, requires a usable root `mise.toml` in the configured repository plus endpoint coordinates,
   resolves an omitted account from gcloud, and requires the Tailscale client only
   when an alternate host is configured. It performs no remote mutation.
+- `remote-user-bootstrap bootstrap REVISION` accepts one full public commit,
+  rejects user-home symlink or ownership escapes, verifies or clones the fixed
+  public source, installs checksum-pinned chezmoi `2.69.4` under the invoking
+  user's home, creates only the mode-`0600` non-secret remote config, and invokes
+  the existing foundation apply at that exact revision.
+- `remote-user-foundation refresh-auth` verifies the recorded source revision,
+  clean checkout, chezmoi target integrity, owned non-symlinked managed paths,
+  private config, required executables, and exact OpenCode, Codex, and Herdr
+  versions before running the content-free readiness probe. Integrity failure is
+  `failed_retryable`; incomplete user login is `auth_pending`; complete probes
+  are `ready`. It never starts authentication or emits provider output.
 - Remote lifecycle behavior remains owned by the configured repository's mise
   tasks. This repository does not duplicate infrastructure commands, store
   credentials, enroll a node, or define tailnet policy.

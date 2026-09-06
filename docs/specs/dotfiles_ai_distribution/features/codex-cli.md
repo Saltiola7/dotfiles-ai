@@ -1,6 +1,6 @@
 # Managed Codex CLI Distribution
 
-**Status:** Distribution deployed; identity probe pending
+**Status:** 0.151 distribution delivered; rolling-stable successor ready
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
 
@@ -10,6 +10,11 @@ dotfiles-ai installs and configures Codex CLI beside OpenCode on the macOS host
 and every managed Fedora Lima guest. Interactive invocation remains explicit.
 Automation persists one runtime choice without conflating it with the native or
 Hermes scheduling backend.
+
+The delivered `0.151.0` installation contract below remains historical evidence.
+[`codex-rolling-stable.md`](codex-rolling-stable.md) supersedes its Homebrew and
+source-pinned package behavior for future updates without changing configuration,
+runtime selection, state isolation, or projection ownership.
 
 ## Profile And Overrides
 
