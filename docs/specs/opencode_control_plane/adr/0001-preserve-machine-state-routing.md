@@ -101,6 +101,16 @@ controls, not a claim that a new automated deployment gate was implemented.
 
 ## Visual Evidence
 
-No new diagram is required: the configuration-to-XDG-to-database mapping above
-fully describes this single-path correction. No schema, trust boundary, or new
-state transition is introduced.
+| Concern | Decision and review question |
+|---|---|
+| Boundary | not_applicable: the Decision section preserves existing host and remote-user ownership; no new boundary is introduced |
+| Interaction | not_applicable: the ordered Recovery Procedure directly answers how to preview, apply, and verify the launcher |
+| State | not_applicable: Consequences And Recovery Boundaries explicitly distinguish new launches from already-open database connections |
+| Data/trust | not_applicable: no session data crosses a boundary; both databases remain in place |
+| Schema | not_applicable: no database or configuration schema changes |
+| Dependency/deployment | not_applicable: the Decision section states the complete machine-config to XDG to database mapping; a diagram would duplicate it |
+| Quantitative | not_applicable: acceptance is exact path equality, not a trend, distribution, or performance threshold |
+
+Canonical sources are the managed launcher template and machine-local config;
+the control-plane maintainer updates this evidence when routing or recovery
+commands change.
