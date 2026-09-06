@@ -191,10 +191,8 @@ def capture_descriptor() -> dict:
 
 def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     helper = load_helper()
-    assert helper.OPENCODE_VERSION == "1.18.25"
-    assert helper.OPENCODE_SHA256 == "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5"
     template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
-    rendered = helper.render_workspace(config(tmp_path), config(tmp_path)["workspaces"][0], template)
+    helper.render_workspace(config(tmp_path), config(tmp_path)["workspaces"][0], template)
     assert "template:_images/fedora-44" in template
     assert "template:fedora-44" not in template
     assert 'vmType: "vz"' in template
@@ -203,10 +201,11 @@ def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     packages = template.split("dnf install -y", 1)[1].splitlines()[0].split()
     assert "podman" in packages
     assert "make" in packages
-    assert f"/v{helper.OPENCODE_VERSION}/opencode-linux-arm64.tar.gz" in rendered
-    assert helper.OPENCODE_SHA256 in rendered
-    assert helper.OPENCODE_PROVISION_MARKER in rendered
-    assert "/usr/local/libexec/opencode --auto" in template
+    assert "@@OPENCODE_INSTALL@@" not in template
+    assert "opencode-linux-arm64.tar.gz" not in template
+    assert 'managed="$agent_home/.local/bin/opencode"' in template
+    assert "/usr/local/libexec/opencode --auto" not in template
+    assert 'exec "\\$managed" --auto' in template
     assert "configparser.ConfigParser" in template
     assert "opencode-real" not in template
     assert "chmod 4755 /usr/bin/sudo" in template
@@ -218,6 +217,12 @@ def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     assert "After=lima-guestagent.service" in template
     assert "rm -f /run/opencode-sandbox-ready" in template
     assert "touch /run/opencode-sandbox-ready" in template
+    subprocess.run(["sh", "-n", "-"], input=helper.OPENCODE_GUARD_SCRIPT, text=True, check=True)
+    assert helper.OPENCODE_GUARD_SCRIPT.startswith(helper.OPENCODE_GUARD_MARKER + "\n")
+    guard = helper.OPENCODE_GUARD_SCRIPT.replace("$agent_home", "/home/agent.guest")
+    assert 'managed="/home/agent.guest/.local/bin/opencode"' in guard
+    assert 'exec "\\$managed" --auto' in guard
+    assert "grep -q \".local/bin/opencode\"" in helper.OPENCODE_GUARD_PROBE
 
 
 def test_guest_config_sets_shared_visual_theme(tmp_path: Path) -> None:
@@ -360,6 +365,38 @@ def test_codex_transaction_preserves_guest_state_and_forwards_private_request(tm
     assert shell_scripts[-1].endswith("guest-stage")
 
 
+def test_opencode_transaction_preserves_guest_state_and_forwards_request(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    running = False
+    raw = json.dumps({"schema_version": 1, "release": "1.18.29"}).encode()
+
+    def execute(argv, **kwargs):
+        nonlocal running
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": workspace["instance"],
+                               "status": "Running" if running else "Stopped"})
+        if argv[:2] == ["limactl", "start"]:
+            running = True
+            return ""
+        if argv[:2] == ["limactl", "stop"]:
+            running = False
+            return ""
+        if argv[:2] == ["limactl", "shell"]:
+            if argv[-1] == "install-opencode-updater":
+                assert b"api.github.com/repos/anomalyco/opencode/releases/latest" in kwargs["input_data"]
+                return ""
+            assert kwargs["input_data"] == raw
+            assert argv[-1].endswith("guest-stage")
+            return '{"status":"staged"}'
+        raise AssertionError(argv)
+
+    assert helper.opencode_transaction(values, workspace, "stage", raw, execute) == \
+        '{"status":"staged"}'
+    assert running is False
+
+
 def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout(
         tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
@@ -445,11 +482,12 @@ def test_update_can_bootstrap_only_rolling_codex_helpers(tmp_path: Path, monkeyp
     assert '"$HOME/.config/dotfiles-ai/codex-managed"' not in rolling
 
 
-def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
+def test_refresh_opencode_guard_repairs_guest_and_restores_stopped_state(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
     calls = []
-    state = {"running": False, "provision": []}
+    legacy = {"mode": "system", "script": helper.LEGACY_OPENCODE_PROVISION_MARKER + "\nold"}
+    state = {"running": False, "provision": [legacy]}
 
     def execute(argv, **kwargs):
         calls.append(argv)
@@ -462,31 +500,127 @@ def test_install_opencode_repairs_guest_and_restores_stopped_state(tmp_path: Pat
         elif argv[:2] == ["limactl", "stop"]:
             state["running"] = False
         elif argv[:2] == ["limactl", "edit"]:
-            state["provision"] = [helper.OPENCODE_PROVISION]
-        elif argv[-1:] == [helper.OPENCODE_PROBE]:
+            state["provision"] = [helper.OPENCODE_GUARD_PROVISION]
+        elif argv[-1:] == [helper.OPENCODE_GUARD_PROBE]:
             return "missing"
-        elif argv[-1:] == [helper.OPENCODE_VERIFY]:
-            return helper.OPENCODE_VERSION
         return ""
 
-    helper.install_opencode(values, values["workspaces"][0], execute=execute)
+    helper.refresh_opencode_guard(values, values["workspaces"][0], execute=execute)
 
-    assert ["limactl", "edit", "--yes", "--set", helper.OPENCODE_PROVISION_RULE,
-            "workspace1-sandbox"] in calls
+    edit = next(argv for argv in calls if argv[:2] == ["limactl", "edit"])
+    assert helper.OPENCODE_GUARD_MARKER in edit[-2]
+    assert json.dumps(legacy, separators=(",", ":")) in edit[-2]
     assert state["running"] is False
     assert "sudo" not in " ".join(part for call in calls for part in call)
+
+    calls.clear()
+    state.update(running=False, provision=[helper.OPENCODE_GUARD_PROVISION])
+
+    def present_execute(argv, **kwargs):
+        calls.append(argv)
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox",
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": state["provision"]}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[-1:] == [helper.OPENCODE_GUARD_PROBE]:
+            return "present"
+        return ""
+
+    helper.refresh_opencode_guard(values, values["workspaces"][0], execute=present_execute)
+    assert not any(argv[:2] == ["limactl", "edit"] for argv in calls)
+    assert state["running"] is False
+
+
+def test_retire_opencode_provision_waits_for_verified_guard(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    legacy = {"mode": "system", "script": helper.LEGACY_OPENCODE_PROVISION_MARKER + "\nold"}
+    state = {"running": False, "provision": [legacy, helper.OPENCODE_GUARD_PROVISION]}
+
+    def execute(argv, **kwargs):
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": workspace["instance"],
+                               "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": state["provision"]}})
+        if argv[:2] == ["limactl", "start"]:
+            state["running"] = True
+            return ""
+        if argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+            return ""
+        if argv[:2] == ["limactl", "edit"]:
+            state["provision"] = ([legacy, helper.OPENCODE_GUARD_PROVISION]
+                                  if json.dumps(legacy, separators=(",", ":")) in argv[-2]
+                                  else [helper.OPENCODE_GUARD_PROVISION])
+            return ""
+        if argv and argv[-1] == helper.OPENCODE_GUARD_PROBE:
+            return "present"
+        if argv[:2] == ["limactl", "shell"]:
+            if argv[-1].endswith("guest-verify"):
+                return json.dumps({"schema_version": 1, "status": "current",
+                                   "release": "1.18.29", "target_count": 1, "reason": "none"})
+            return "1.18.29" if argv[-1].endswith("--version") else ""
+        raise AssertionError(argv)
+
+    assert helper.retire_opencode_provision(values, workspace, "1.18.29", execute) == "updated"
+    assert state == {"running": False, "provision": [helper.OPENCODE_GUARD_PROVISION]}
+
+
+def test_guard_migration_never_restarts_running_guest(tmp_path: Path) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    calls = []
+    legacy = {"mode": "system", "script": helper.LEGACY_OPENCODE_PROVISION_MARKER + "\nold"}
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": workspace["instance"], "status": "Running",
+                               "config": {"provision": [legacy]}})
+        if argv and argv[-1] == helper.OPENCODE_GUARD_PROBE:
+            return "missing"
+        raise AssertionError(argv)
+
+    with pytest.raises(RuntimeError, match="requires a stopped guest"):
+        helper.refresh_opencode_guard(values, workspace, execute)
+    assert not any(argv[1] in {"start", "stop", "edit"} for argv in calls)
+
+
+def test_cli_dispatches_post_commit_opencode_retirement(tmp_path: Path, monkeypatch, capsys) -> None:
+    helper = load_helper()
+    values = config(tmp_path)
+    raw = json.dumps({"schema_version": 1, "release": "1.18.29"}).encode()
+    stream = io.TextIOWrapper(io.BytesIO(raw))
+    monkeypatch.setattr(helper.sys, "stdin", stream)
+    monkeypatch.setattr(helper, "load_config", lambda: values)
+    called = []
+    monkeypatch.setattr(helper, "retire_opencode_provision",
+                        lambda _config, workspace, release: called.append(
+                            (workspace["name"], release)) or "updated")
+
+    helper.main(["opencode-retire", "workspace1", "--request-json", "-"],
+                invocation="sandbox-vm")
+
+    assert called == [("workspace1", "1.18.29")]
+    assert json.loads(capsys.readouterr().out)["status"] == "updated"
 
 
 def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Path, monkeypatch) -> None:
     helper = load_helper()
     values = config(tmp_path)
     states = {"workspace1-sandbox": True, "workspace2-sandbox": False}
-    installed = []
     updated = []
+    guest_version = "1.18.29"
 
     def execute(argv, **kwargs):
         if argv == [helper.HOST_OPENCODE, "--version"]:
-            return helper.OPENCODE_VERSION
+            return guest_version
         if argv == [helper.HOST_CODEX, "--version"]:
             return f"codex-cli {helper.CODEX_VERSION}"
         if argv == ["limactl", "list", "--json"]:
@@ -495,14 +629,13 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
         if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
             states[argv[2]] = argv[1] == "start"
             return ""
+        if argv and argv[-1] == helper.OPENCODE_GUARD_PROBE:
+            return "present"
         if argv[:4] == ["limactl", "shell", argv[2], "--"] and "codex" in argv[-1]:
             return f"codex-cli {helper.CODEX_VERSION}"
         if argv[:4] == ["limactl", "shell", argv[2], "--"]:
-            return helper.OPENCODE_VERSION
+            return guest_version
         raise AssertionError(argv)
-
-    def installer(config, workspace, execute):
-        installed.append(workspace["name"])
 
     def updater(config, workspace, execute):
         assert states[workspace["instance"]]
@@ -518,15 +651,15 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
         assert token == workspace["name"]
 
     result = helper.update_all_workspaces(
-        values, execute=execute, installer=installer, updater=updater,
+        values, execute=execute, updater=updater,
         snapshotter=snapshotter, restorer=restorer, discarder=discarder)
 
-    assert installed == updated == ["workspace1", "workspace2"]
+    assert updated == ["workspace1", "workspace2"]
     assert states == {"workspace1-sandbox": True, "workspace2-sandbox": False}
     assert result == {
-        "host": helper.OPENCODE_VERSION,
-        "workspaces": {"workspace1": helper.OPENCODE_VERSION,
-                       "workspace2": helper.OPENCODE_VERSION},
+        "host": guest_version,
+        "workspaces": {"workspace1": guest_version,
+                       "workspace2": guest_version},
         "codex": {"host": helper.CODEX_VERSION,
                   "workspaces": {"workspace1": helper.CODEX_VERSION,
                                  "workspace2": helper.CODEX_VERSION}},
@@ -535,18 +668,16 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
     def stale_host(argv, **kwargs):
         return "1.18.21" if argv == [helper.HOST_OPENCODE, "--version"] else execute(argv, **kwargs)
 
-    with pytest.raises(RuntimeError, match="host OpenCode version mismatch"):
+    with pytest.raises(RuntimeError, match="OpenCode fleet version mismatch"):
         helper.update_all_workspaces(
-            values, execute=stale_host, installer=installer, updater=updater,
+            values, execute=stale_host, updater=updater,
             snapshotter=snapshotter, restorer=restorer, discarder=discarder)
 
-    installed.clear()
     updated.clear()
     monkeypatch.setattr(helper, "update_workspace", updater)
     helper.update_all_workspaces(
-        values, execute=execute, installer=installer, snapshotter=snapshotter,
+        values, execute=execute, snapshotter=snapshotter,
         restorer=restorer, discarder=discarder)
-    assert installed == ["workspace1", "workspace2"]
     assert updated == ["workspace1", "workspace2"]
 
 
@@ -559,7 +690,7 @@ def test_update_all_rolls_back_prior_guests_when_second_guest_fails(tmp_path: Pa
 
     def execute(argv, **kwargs):
         if argv == [helper.HOST_OPENCODE, "--version"]:
-            return helper.OPENCODE_VERSION
+            return "1.18.29"
         if argv == [helper.HOST_CODEX, "--version"]:
             return f"codex-cli {helper.CODEX_VERSION}"
         if argv == ["limactl", "list", "--json"]:
@@ -568,14 +699,13 @@ def test_update_all_rolls_back_prior_guests_when_second_guest_fails(tmp_path: Pa
         if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
             states[argv[2]] = argv[1] == "start"
             return ""
+        if argv and argv[-1] == helper.OPENCODE_GUARD_PROBE:
+            return "present"
         if argv[:4] == ["limactl", "shell", argv[2], "--"] and "codex" in argv[-1]:
             return f"codex-cli {helper.CODEX_VERSION}"
         if argv[:4] == ["limactl", "shell", argv[2], "--"]:
-            return helper.OPENCODE_VERSION
+            return "1.18.29"
         raise AssertionError(argv)
-
-    def installer(config, workspace, execute):
-        pass
 
     def updater(config, workspace, execute):
         if workspace["name"] == "workspace2":
@@ -592,7 +722,7 @@ def test_update_all_rolls_back_prior_guests_when_second_guest_fails(tmp_path: Pa
 
     with pytest.raises(RuntimeError, match="second guest failed"):
         helper.update_all_workspaces(
-            values, execute=execute, installer=installer, updater=updater,
+            values, execute=execute, updater=updater,
             snapshotter=snapshotter, restorer=restorer, discarder=discarder)
 
     assert restored == [("workspace2", "workspace2"), ("workspace1", "workspace1")]
@@ -605,12 +735,12 @@ def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path)
     values = config(tmp_path)
     workspace = values["workspaces"][0]
     running = False
-    guest = helper.OPENCODE_VERSION
+    guest = "1.18.29"
 
     def execute(argv, **_kwargs):
         nonlocal running
         if argv == [helper.HOST_OPENCODE, "--version"]:
-            return helper.OPENCODE_VERSION
+            return "1.18.29"
         if argv[:2] == ["limactl", "list"]:
             return json.dumps({"name": workspace["instance"], "status": "Running" if running else "Stopped"})
         if argv[:2] in (["limactl", "start"], ["limactl", "stop"]):
@@ -621,7 +751,7 @@ def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path)
         raise AssertionError(argv)
 
     assert helper.verify_opencode_parity(values, workspace, execute) == {
-        "host": helper.OPENCODE_VERSION, "guest": helper.OPENCODE_VERSION,
+        "host": "1.18.29", "guest": "1.18.29",
         "instance": workspace["instance"]}
     assert not running
     guest = "1.18.21"

@@ -97,7 +97,11 @@ if [[ -n ${HERDR_ENV:-} ]]; then
     {{ end -}}
 fi
 {{ if eq .chezmoi.os "linux" -}}
-exec "$HOME/.local/libexec/dotfiles-ai/opencode" "$@"
+exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"
 {{ else -}}
+package="$HOME/.local/state/dotfiles-ai/opencode-package"
+if [[ -d $package || -x $HOME/.local/libexec/dotfiles-ai/opencode ]]; then
+    exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"
+fi
 exec /opt/homebrew/bin/opencode "$@"
 {{ end -}}

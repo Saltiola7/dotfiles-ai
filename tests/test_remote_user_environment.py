@@ -48,6 +48,8 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     atuin = (ROOT / "run_onchange_after_install-atuin.sh.tmpl").read_text()
     codex = (ROOT / "dot_local/bin/executable_codex-update-all").read_text()
     opencode = (ROOT / "dot_local/bin/executable_opencode-install.tmpl").read_text()
+    assert "opencode-package/release-lock.json" in opencode
+    assert "managed OpenCode release lock is unsafe" in opencode
     herdr = (ROOT / "run_onchange_after_install-00-remote-herdr.sh.tmpl").read_text()
 
     assert "[dotfiles_ai.remote_user_environment]" in defaults
@@ -91,6 +93,53 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "install-01-remote-opencode.sh" in ignore
     wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
     assert '{{ if eq .chezmoi.os "darwin" -}}\n    if [[ $session == 1 ]]' in wrapper
+
+
+def test_opencode_bootstrap_preserves_locked_binary_and_rejects_unsafe_lock(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    binary = home / ".local/libexec/dotfiles-ai/opencode"
+    lock = home / ".local/state/dotfiles-ai/opencode-package/release-lock.json"
+    binary.parent.mkdir(parents=True)
+    lock.parent.mkdir(parents=True)
+    binary.write_text("managed")
+    script = tmp_path / "opencode-install"
+    script.write_text(_render("dot_local/bin/executable_opencode-install.tmpl"))
+    script.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    uname = fake_bin / "uname"
+    uname.write_text("#!/bin/sh\n[ \"$1\" = -m ] && echo x86_64 || echo Linux\n")
+    uname.chmod(0o755)
+    environment = {**os.environ, "HOME": str(home),
+                   "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+    lock.write_text("{}")
+
+    result = subprocess.run([script], text=True, capture_output=True,
+                            env=environment)
+    assert result.returncode == 0
+    assert binary.read_text() == "managed"
+
+    lock.unlink()
+    lock.symlink_to(tmp_path / "missing")
+    result = subprocess.run([script], text=True, capture_output=True,
+                            env=environment)
+    assert result.returncode == 1
+    assert "release lock is unsafe" in result.stderr
+    lock.unlink()
+    lock.mkdir()
+    result = subprocess.run([script], text=True, capture_output=True,
+                            env=environment)
+    assert result.returncode == 1
+    assert "release lock is unsafe" in result.stderr
+
+
+def test_remote_smoke_expects_both_always_run_updaters() -> None:
+    smoke = (ROOT / "tests/remote_user_environment_smoke.sh").read_text()
+    foundation = (ROOT / "dot_local/bin/executable_remote-user-foundation").read_text()
+    assert "R update-codex.sh\\n R update-opencode.sh" in smoke
+    assert 'sorted(status) != [" R update-codex.sh", " R update-opencode.sh"]' in foundation
+    assert 'binaries / "opencode"), "--version"' in foundation
+    assert 'data["opencode"]["version"]' not in foundation
 
 
 def test_remote_agent_wrappers_force_per_user_state_and_adc() -> None:
@@ -191,7 +240,8 @@ def _foundation(tmp_path: Path, *arguments: str, fail: bool = False) -> subproce
         "#!/bin/sh\n"
         "case \" $* \" in\n"
         "  *' managed '*) printf '%s\\n' '.bashrc' '.config/opencode/opencode.json' ;;\n"
-        "  *' status '*) test -f \"$HOME/.bashrc\" && test ! -L \"$HOME/.bashrc\" ;;\n"
+        "  *' status '*) test -f \"$HOME/.bashrc\" && test ! -L \"$HOME/.bashrc\" && "
+        "printf '%s\\n' ' R update-codex.sh' ' R update-opencode.sh' ;;\n"
         "  *' apply '*) test \"${FAIL_APPLY:-0}\" != 1 ;;\n"
         "  *) exit 2 ;;\n"
         "esac\n"
@@ -376,10 +426,10 @@ def test_foundation_refresh_auth_distinguishes_integrity_and_login_state(tmp_pat
     assert not marker.exists()
 
 
-def test_foundation_refresh_auth_rejects_wrong_runtime_version_before_probe(tmp_path: Path) -> None:
+def test_foundation_refresh_auth_rejects_malformed_runtime_version_before_probe(tmp_path: Path) -> None:
     home, state_path = _refreshable_foundation(tmp_path)
     marker = _install_foundation_targets(tmp_path)
-    (home / ".local/bin/opencode").write_text("#!/bin/sh\necho 0.0.0\n")
+    (home / ".local/bin/opencode").write_text("#!/bin/sh\necho invalid\n")
     (home / ".local/bin/opencode").chmod(0o755)
 
     result = _foundation(tmp_path, "refresh-auth")
