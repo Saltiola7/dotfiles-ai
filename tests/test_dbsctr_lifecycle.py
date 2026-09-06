@@ -459,12 +459,12 @@ def test_opencode_rolling_stable_slice_is_ready() -> None:
     speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
     refresh = next(item for item in speed["slices"]
                    if item["id"] == "history-projection-refresh-schedule")
-    assert refresh["state"] == "ready"
+    assert refresh["state"] == "delivered"
     assert refresh["depends_on"] == ["history-incident-query-core"]
     slices = {item["id"]: item for item in speed["slices"]}
     assert slices["history-incident-query-core"]["state"] == "delivered"
     assert slices["historical-reporting-repair"]["state"] == "delivered"
-    assert slices["history-projection-refresh-schedule"]["state"] == "ready"
+    assert slices["history-projection-refresh-schedule"]["state"] == "delivered"
     assert slices["history-projection-refresh-schedule"]["requirements"][-2:] == ["INT-050", "INT-051"]
     assert "900..3600" in schedule and "900..7200" not in schedule
     assert "explicit age" in " ".join(schedule.split())
@@ -881,3 +881,25 @@ def test_dbsctr_backlog_is_report_only_priority_queue():
     assert "This skill is report-only" in backlog
     for term in ("Do not reprioritize", "advance", "recover", "abandon", "launch", "merge"):
         assert term in backlog
+
+
+def test_dks_retirement_slices_preserve_non_dks_delivery():
+    manifest = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
+    slices = {item["id"]: item for item in manifest["slices"]}
+    assert slices["dks-routing-disable"]["state"] == "ready"
+    assert slices["dks-host-disable"]["depends_on"] == ["dks-routing-disable"]
+    assert slices["dks-state-retirement"]["depends_on"] == ["dks-host-disable"]
+    for name in ("dks-fast-fallback", "runtime-query-recovery",
+                 "knowledge-privacy-lock-isolation", "dks-routing-value-gate"):
+        assert slices[name]["state"] == "blocked"
+    assert slices["history-incident-runtime-recovery"]["depends_on"] == [
+        "history-incident-query-core", "history-projection-refresh-schedule"]
+    for path, phrase in (
+        ("docs/specs/opencode_control_plane/features/dks-disabled-routing.md",
+         "without attempting DKS"),
+        ("docs/specs/dotfiles_ai_distribution/features/dks-feature-retirement.md",
+         "enabled=true` before redesign"),
+        ("docs/specs/dbsctr_knowledge_store/features/dks-state-retirement.md",
+         "No archive or recovery copy"),
+    ):
+        assert phrase in text(path)

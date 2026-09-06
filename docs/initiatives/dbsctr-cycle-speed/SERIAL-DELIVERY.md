@@ -8,8 +8,8 @@ Discovery and implementation serially. No child sessions or subagents launch.
 Adjacent Codex and unrelated PRs receive ownership review only. Preserve existing
 dirty and unmerged work; prefer verified resumption to duplicate implementation.
 
-There are twelve sequenced delivery units. Historical reporting repair is
-delivered (PR #144), leaving eleven. This is not a promise that every unit is
+There are twelve sequenced delivery units. Historical reporting repair and the
+refresh scheduler are delivered, leaving ten. This is not a promise that every unit is
 ready. Discovery owns contracts and can split a unit only after material scope is
 reconciled. Concurrency implementation and activation are deferred until
 separately approved; its benchmark requirements remain unchanged.
@@ -19,11 +19,11 @@ separately approved; its benchmark requirements remain unchanged.
 | Order | Slice | Readiness work before launch |
 |---|---|---|
 | 1 | historical-reporting-repair | Delivered in PR #144, merge `3b79749a1e8c6eb0fc7c261a75bdcffa5a4cbecf` |
-| 2 | history-projection-refresh-schedule | Exact latest-summary status contract settled; fresh digest-bound approval required |
-| 3 | dks-fast-fallback | Reconcile existing PR #130, source, deployment, and contention evidence |
-| 4 | knowledge-privacy-lock-isolation | Verify complete privacy-writer inventory and canonical lock order |
-| 5 | runtime-query-recovery | Reconcile preserved implementation against delivered DKS/privacy behavior |
-| 6 | history-incident-runtime-recovery | Select numeric subprocess deadline; do not inherit DKS's five-second budget |
+| 2 | history-projection-refresh-schedule | Delivered in PR #148, merge `0773ed9f2d3525ca8106a5f9b7f02a2acac6f9e7` |
+| 3 | dks-routing-disable | Disable OpenCode tool exposure and routing under the master flag |
+| 4 | dks-host-disable | Converge the active host to zero DKS runtime surfaces and block re-enable |
+| 5 | dks-state-retirement | Irreversibly delete proven DKS state after fresh destructive confirmation |
+| 6 | history-incident-runtime-recovery | Select numeric subprocess deadline independent of deferred DKS work |
 | 7 | performance-audit-v2 | Bind fixed-source reducers, immutable cohorts, and report-only behavior |
 | 8 | opencode-runtime-adapter | Specify authoritative events, pauses, crashes, and duplicate-event handling |
 | 9 | federated-cycle-trends | Complete source bounds, capture/replay contracts, and availability handling |
@@ -37,6 +37,13 @@ Existing ready labels still require fresh receipt and source checks after any
 manifest revision; none authorizes launching all units as an unattended batch.
 The first scheduler Build receipt was retired empty after exact status fields and
 retention were found unresolved. No implementation change was preserved from it.
+The approved replacement cycle delivered the scheduler in PR #148. DKS PR #130
+was then reconciled onto current main and retained its tests and exact busy output,
+but live contention returned in 7.87 seconds because PostgreSQL session cleanup
+outlived the two-second lock budget. Its candidate deployment was rolled back and
+the PR closed with its branch and Cycle Record preserved. The operator chose full
+production retirement instead of remediation. DKS optimization, privacy,
+recovery, and value-gate slices remain blocked until controlled re-enable.
 
 ## Reporting Repair Boundary
 

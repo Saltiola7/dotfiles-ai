@@ -6,6 +6,14 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 # [data.dotfiles_ai.state]
 # root = "/Volumes/your-drive/state"
 
+[data.dotfiles_ai.history_projection]
+# A daily local History projection refresh. Keep disabled until the host lifecycle
+# source and state root have been validated.
+enabled = false
+refresh_hour = 4
+refresh_minute = 30
+refresh_timeout_seconds = 3600
+
 [data.dotfiles_ai.codex]
 channel = "stable"
 
