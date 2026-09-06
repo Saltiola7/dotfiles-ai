@@ -375,6 +375,31 @@ def test_codex_distribution_uses_rolling_stable_direct_binary() -> None:
         chezmoi("execute-template", codex_channel="beta", template=run_after)
 
 
+def test_opencode_distribution_uses_rolling_managed_binary() -> None:
+    updater = (ROOT / "dot_local/bin/executable_opencode-update-all").read_text()
+    wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
+    run_after = (ROOT / "run_after_update-opencode.sh.tmpl").read_text()
+    pm_configure = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
+    lima = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+
+    assert "api.github.com/repos/anomalyco/opencode/releases/latest" in updater
+    assert "opencode-darwin-arm64.zip" in updater
+    assert "opencode-linux-arm64.tar.gz" in updater
+    assert "release-lock.json" in updater
+    assert 'exec "$HOME/.local/bin/opencode-update-all"' in run_after
+    assert '"$HOME/.local/bin/opencode-update-all"' in pm_configure
+    assert "$HOME/.local/libexec/dotfiles-ai/opencode" in wrapper
+    assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed' in wrapper
+    assert "/opt/homebrew/bin/opencode" in wrapper
+    assert "/usr/local/libexec/opencode" in updater
+    assert "opencode-linux-arm64.tar.gz" not in lima
+    assert ".local/bin/opencode" in lima
+    assert ".local/bin/opencode-update-all" in chezmoi("managed").stdout.splitlines()
+    for template in (wrapper, run_after, pm_configure):
+        rendered = chezmoi("execute-template", template=template).stdout
+        subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
+
+
 @pytest.mark.parametrize("global_runtime,workspace_runtime", [
     ("invalid", ""),
     ("opencode", "invalid"),
@@ -826,6 +851,8 @@ def test_pm_postgres_configure_fails_when_service_does_not_recover(tmp_path) -> 
     local_bin = tmp_path / ".local/bin"
     local_bin.mkdir(parents=True)
     (local_bin / "op-session").write_text("op() { printf 'a-secure-password-with-24-chars'; }\n")
+    (local_bin / "opencode-update-all").write_text("#!/bin/sh\nexit 0\n")
+    (local_bin / "opencode-update-all").chmod(0o755)
     sandbox = local_bin / "sandbox-vm"
     sandbox.write_text("#!/bin/sh\ncase \"$*\" in *'sh -c'*) exit 1;; *) exit 0;; esac\n")
     sandbox.chmod(0o755)

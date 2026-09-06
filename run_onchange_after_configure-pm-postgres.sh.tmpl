@@ -16,6 +16,7 @@ if launchctl print "$domain/$label" >/dev/null 2>&1; then
     launchctl bootout "$domain/$label"
 fi
 {{ if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
+"$HOME/.local/bin/opencode-update-all"
 "$HOME/.local/bin/sandbox-vm" validate {{ .dotfiles_ai.pm_kernel.workspace | quote }}
 . "$HOME/.local/bin/op-session"
 op read {{ .dotfiles_ai.pm_kernel.postgres_password_ref | quote }} | \
