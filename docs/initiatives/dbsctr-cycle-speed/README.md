@@ -13,7 +13,7 @@ primary without child agents or sessions and defers concurrency activation.
 History core was delivered in PR #129, merge `5ae5f3888b74eaaa5d0bdd32ea49a7d2e04210b9`;
 daily scheduling is not included in that delivery. The separate primary-access
 bootstrap repair was delivered in PR #141, merge `8ca28ee121381b8986f79d5518d4d01fd7bb0b75`.
-The active Mac mini now retires DKS production use: the master flag converges
+The active managed host now retires DKS production use: the master flag converges
 routing and runtime to off, then a separately confirmed cycle irreversibly removes
 proven DKS state. DKS source and lifecycle history remain for a future controlled
 environment that requires new Discovery and approval.
@@ -160,7 +160,7 @@ remain local.
 ## DKS Retirement
 
 DKS recovery and optimization contracts remain source history but are blocked on
-the active Mac mini. The master feature flag first disables OpenCode routing and
+the active managed host. The master feature flag first disables OpenCode routing and
 host runtime. A dependent retirement then drops only the dedicated DKS database
 and role and deletes proven DKS private/model state and credentials without backup,
 while preserving PM Kernel, Graphify, ambiguous assets, Git, and Cycle Records.

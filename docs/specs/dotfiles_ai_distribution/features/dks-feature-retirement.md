@@ -4,8 +4,8 @@
 
 `dotfiles_ai_distribution` owns the master `knowledge_store.enabled` flag,
 host runtime convergence, managed DKS files, LaunchAgents, logs, and restart.
-Shared `personal-sandbox`, PostgreSQL, PM Kernel data, forwarding, and backups
-remain active and outside this retirement.
+The configured PM workspace VM, PostgreSQL, PM Kernel data, forwarding, and
+backups remain active and outside this retirement.
 
 | State | Runtime outcome |
 |---|---|
@@ -26,7 +26,7 @@ machine config, caches, and logs. It removes only DKS Keychain/API-key material;
 database, model, and private corpus deletion belongs to the dependent knowledge
 retirement slice. Ignored targets are actively removed rather than assumed gone.
 
-The current Mac mini machine-local config changes only
+The active host's machine-local config changes only
 `data.dotfiles_ai.knowledge_store.enabled` to false. Subordinate values may remain
 for source compatibility but cannot override the master flag. A fresh OpenCode
 process is required after tool removal.

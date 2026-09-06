@@ -27,7 +27,7 @@ evidence from hosted providers.
 ## Validation And Gates
 
 Rendered enabled/disabled fixtures prove no disabled tool permission or routing.
-Fresh-process debug output and tool inventory prove the disabled Mac mini cannot
+Fresh-process debug output and tool inventory prove the disabled managed host cannot
 invoke DKS. Existing Plan, provider, source-inspection, and privacy tests remain
 passing. Kernel, Review/Integrate, Deploy, Operate, and Maintain/Retire gates are
 required; Release is not applicable.
