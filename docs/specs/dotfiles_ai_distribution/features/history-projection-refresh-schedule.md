@@ -37,6 +37,14 @@ privacy, sidecar schema, activation, and status semantics.
 - Then launchd unloads and removes only the owned job
 - And the active projection remains readable until separately retired
 
+**Scenario: Surface silent refresh failure**
+
+- Given one or more scheduled runs failed while the prior snapshot still serves reads
+- When the owner requests scheduler status
+- Then the wrapper prints bounded machine-safe run state including the last
+  result class, consecutive-failure count, and run timestamps
+- And lifecycle snapshot status remains unchanged by scheduler failures
+
 ## Interface
 
 Public configuration adds:
@@ -54,13 +62,23 @@ host enables the feature explicitly; public defaults remain safe for machines
 without an OpenCode source. The installed artifacts are:
 
 - `~/Library/LaunchAgents/dev.dotfiles-ai.history-projection-refresh.plist`
-- one managed load/unload script
+- one managed wrapper script providing a launchd `run` mode and a `status` mode
 
 The job invokes only `dbsctrctl history-source-index-refresh`, uses an owner-private
 single-flight lock, has no network or provider dependency, and runs with background
-process type and low I/O priority. It records bounded timestamps, duration, state,
-captured age, final size, and machine-safe failure class. Logs contain no source
-path, IDs, bodies, commands, credentials, or raw database errors.
+process type and low I/O priority. The wrapper starts the refresh in its own
+process group and enforces the configured timeout itself: at the bound it sends
+SIGTERM to that group, records a `timeout` result, and exits nonzero. It records
+bounded timestamps, duration, state, captured age, final size, machine-safe
+failure class, and a consecutive-failure counter in one owner-private run-state
+file, and prints that state as bounded JSON for `status`. Logs and run state
+contain no source path, IDs, bodies, commands, credentials, or raw database
+errors. Lifecycle `history-source-index-status` semantics remain unchanged.
+
+The managed host enables the feature through machine-local configuration during
+this slice's Deploy and Operate validation; an always-on host simply fires daily
+at 04:30, and launchd's run-once-at-wake default stays the documented catch-up
+behavior for machines that sleep.
 
 04:30 local avoids the existing 03:00 maintenance window, Sunday 03:15 database
 backup, and 09:15 review work. The 15-minute DKS reconciler remains independent;
@@ -69,10 +87,10 @@ changing DKS authority or cadence.
 
 ## Recovery And Maintenance
 
-- A 60-minute timeout terminates only the refresh process group; lifecycle cleanup
-  removes preparation on the next run.
-- Three consecutive failures remain visible in status and logs but do not disable
-  the job or remove the prior snapshot.
+- The wrapper watchdog terminates only the refresh process group at the configured
+  bound; lifecycle cleanup removes preparation on the next run.
+- Three consecutive failures remain visible in scheduler status and logs but do
+  not disable the job or remove the prior snapshot.
 - A prior integrity- and privacy-valid snapshot remains readable with explicit
   age even after missed daily refreshes. Age alone does not expire it or trigger
   synchronous rebuilding; privacy invalidation remains immediate.
@@ -96,7 +114,7 @@ changing DKS authority or cadence.
 ```mermaid
 flowchart LR
     accTitle: Daily projection refresh ownership
-    accDescr: Launchd starts one low-priority lifecycle refresh at 04:30. The lifecycle helper reads an immutable source snapshot and either atomically activates a valid replacement or retains the prior snapshot. Distribution owns only schedule, process, logs, and disablement.
+    accDescr: Launchd starts one low-priority lifecycle refresh at 04:30. The lifecycle helper reads an immutable source snapshot and either atomically activates a valid replacement or retains the prior snapshot. Distribution owns only schedule, process, run state, logs, and disablement.
     L[launchd at 04:30] --> F[Single-flight wrapper]
     F --> R[Lifecycle snapshot refresh]
     R -->|valid| A[Atomic activation]
@@ -114,8 +132,9 @@ status and can unload only the owned schedule.
 
 - Rendered plist and TOML fixtures prove default-off behavior and exact 04:30
   calendar scheduling when enabled.
-- Process fixtures prove single-flight skip, 60-minute termination, bounded logs,
-  prior-snapshot retention, restart, disablement, and rollback.
+- Process fixtures prove single-flight skip, wrapper watchdog termination, bounded
+  run state and status output, prior-snapshot retention, restart, disablement,
+  and rollback.
 - A controlled live run proves load identity, low-priority execution, successful
   status, and no overlapping process.
 

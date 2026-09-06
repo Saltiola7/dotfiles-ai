@@ -459,13 +459,18 @@ def test_opencode_rolling_stable_slice_is_ready() -> None:
     speed = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
     refresh = next(item for item in speed["slices"]
                    if item["id"] == "history-projection-refresh-schedule")
-    assert refresh["state"] == "captured"
+    assert refresh["state"] == "ready"
     assert refresh["depends_on"] == ["history-incident-query-core"]
     slices = {item["id"]: item for item in speed["slices"]}
     assert slices["history-incident-query-core"]["state"] == "delivered"
-    assert slices["historical-reporting-repair"]["state"] == "ready"
+    assert slices["historical-reporting-repair"]["state"] == "delivered"
+    assert slices["history-projection-refresh-schedule"]["state"] == "ready"
+    assert slices["history-projection-refresh-schedule"]["requirements"][-1] == "INT-050"
     assert "900..3600" in schedule and "900..7200" not in schedule
     assert "explicit age" in " ".join(schedule.split())
+    for phrase in ("status` mode", "SIGTERM to that group", "consecutive-failure counter",
+                   "run-state\nfile"):
+        assert phrase in schedule
 
     probe = json.loads(text("docs/specs/codex_control_plane/identity-probe-result.json"))
 
