@@ -102,6 +102,9 @@ result bodies must not be sent to hosted providers. The only exception is bounde
 deterministically credential-redacted Incident Evidence returned by the typed
 Incident workflow after explicit operator invocation. Update the graph only when
 explicit project policy requires it.
+When `dks_context` is absent or denied by managed configuration, do not attempt DKS;
+proceed directly to Graphify or authoritative source inspection and keep DKS
+evidence unavailable rather than zero.
 
 Delegate only independent work when parallel ownership makes execution faster or
 safer. Give each write subagent explicit writable paths and off-limits scope.

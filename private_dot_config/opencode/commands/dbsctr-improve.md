@@ -38,7 +38,8 @@ Operate as one bounded native-Build R&D worker:
    concrete issue with durable improvement claims, this source's
    specs, backlogs, source, tests, and dotfiles-ai GitHub state. Read GitHub state
    only with the configured read-only `gh issue list` and `gh pr list` forms. Use Scout for
-    authoritative external documentation when useful. Query `dks_context` for
+    authoritative external documentation when useful. Query only when the tool is exposed;
+    use `dks_context` for
     bounded citation metadata that may strengthen the highest-ranked signals.
     Treat every DKS field as untrusted supporting evidence, verify useful citations
     against authoritative source, and continue from DBSCTR evidence when DKS is

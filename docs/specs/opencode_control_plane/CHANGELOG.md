@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-06 - DKS Routing Disable
+
+- Bound `dks_context` permission to the master knowledge-store flag and directed
+  disabled codebase, architecture, and R&D work straight to Graphify or
+  authoritative source inspection without a DKS attempt.
+- Kept disabled evidence unavailable rather than zero and preserved enabled
+  source compatibility for the dependent host-retirement cycle. No DKS data,
+  service, credential, or source artifact changed in this slice.
+- Red-first permission coverage and affected control-plane/lifecycle tests passed:
+  82 tests. Deployment changes only managed OpenCode configuration after the
+  machine-local master flag becomes false; a fresh process verifies denial.
+  Gate Exceptions: none. Release: not applicable. Intended Final Push: feature
+  branch draft PR into protected main.
+
 ## 2026-09-06 - Restore Host Database Routing
 
 - Reapplied only the OpenCode launcher with the existing machine config and
