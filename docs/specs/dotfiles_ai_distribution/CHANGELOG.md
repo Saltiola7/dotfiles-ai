@@ -1,5 +1,18 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-06 - OpenCode Validator Output Capture
+
+- Replaced pipe/selector capture in the rolling OpenCode semantic validator with
+  bounded temporary-file spooling. The validator now drains complete large JSON
+  on CentOS/QEMU while retaining the existing timeout and 20 MiB combined-output
+  rejection.
+- The integration defect was reproduced against the official candidate: a valid
+  42 KiB `debug config` response truncated at exactly 8192 bytes and failed JSON
+  parsing. Focused updater and remote-environment tests pass after repair.
+- No active OpenCode binary, managed configuration, provider, model, or runtime
+  state changes. Gate Exceptions: none. Release and Deploy: not applicable.
+  Intended Final Push: feature-branch draft PR into protected main.
+
 ## 2026-09-06 - OpenCode Rolling Stable Delivered
 
 - Added official digest-verified stable assets, private host/guest release locks,
