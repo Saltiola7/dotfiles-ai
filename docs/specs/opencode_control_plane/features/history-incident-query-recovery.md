@@ -51,8 +51,9 @@ configured output/page bounds remain enforced.
 ## Compatibility And Dependencies
 
 Detailed History and Incident modes remain unchanged. This slice depends on
-`history-incident-query-core` and reuses subprocess cleanup and availability
-conventions delivered by `runtime-query-recovery`. It adds no database access,
+`history-incident-query-core` and the delivered refresh schedule. It owns or
+reuses the existing bounded subprocess cleanup convention independently of the
+deferred DKS `runtime-query-recovery` slice. It adds no database access,
 hosted evidence route, service, dependency, or automatic retry.
 
 ## Visual Evidence

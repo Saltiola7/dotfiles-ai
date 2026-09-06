@@ -881,3 +881,25 @@ def test_dbsctr_backlog_is_report_only_priority_queue():
     assert "This skill is report-only" in backlog
     for term in ("Do not reprioritize", "advance", "recover", "abandon", "launch", "merge"):
         assert term in backlog
+
+
+def test_dks_retirement_slices_preserve_non_dks_delivery():
+    manifest = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
+    slices = {item["id"]: item for item in manifest["slices"]}
+    assert slices["dks-routing-disable"]["state"] == "ready"
+    assert slices["dks-host-disable"]["depends_on"] == ["dks-routing-disable"]
+    assert slices["dks-state-retirement"]["depends_on"] == ["dks-host-disable"]
+    for name in ("dks-fast-fallback", "runtime-query-recovery",
+                 "knowledge-privacy-lock-isolation", "dks-routing-value-gate"):
+        assert slices[name]["state"] == "blocked"
+    assert slices["history-incident-runtime-recovery"]["depends_on"] == [
+        "history-incident-query-core", "history-projection-refresh-schedule"]
+    for path, phrase in (
+        ("docs/specs/opencode_control_plane/features/dks-disabled-routing.md",
+         "without attempting DKS"),
+        ("docs/specs/dotfiles_ai_distribution/features/dks-feature-retirement.md",
+         "enabled=true` before redesign"),
+        ("docs/specs/dbsctr_knowledge_store/features/dks-state-retirement.md",
+         "No archive or recovery copy"),
+    ):
+        assert phrase in text(path)

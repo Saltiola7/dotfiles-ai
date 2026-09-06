@@ -13,6 +13,10 @@ primary without child agents or sessions and defers concurrency activation.
 History core was delivered in PR #129, merge `5ae5f3888b74eaaa5d0bdd32ea49a7d2e04210b9`;
 daily scheduling is not included in that delivery. The separate primary-access
 bootstrap repair was delivered in PR #141, merge `8ca28ee121381b8986f79d5518d4d01fd7bb0b75`.
+The active Mac mini now retires DKS production use: the master flag converges
+routing and runtime to off, then a separately confirmed cycle irreversibly removes
+proven DKS state. DKS source and lifecycle history remain for a future controlled
+environment that requires new Discovery and approval.
 
 ## Success
 
@@ -54,6 +58,9 @@ The user approved this complete context map on 2026-08-29.
 | `validation-evidence-reuse` | `build` | Exact unchanged validation is reused across applicable gates | `performance-audit-workflow` |
 | `agent-context-budget` | `build` | Conditional subagents, reviewer enforcement, and bounded context growth | `performance-audit-workflow` |
 | `historical-reporting-repair` | `build` | Valid historical records remain readable without live execution authority | None |
+| `dks-routing-disable` | `build` | Disabled OpenCode exposes no usable DKS route | None |
+| `dks-host-disable` | `build` | Master flag converges host runtime to zero DKS surfaces | `dks-routing-disable` |
+| `dks-state-retirement` | `build` | Proven DKS database, private state, models, and credentials are deleted without backup | `dks-host-disable` |
 
 Discovery owns normative specifications and slice scope. Build owns only the
 implementation paths declared by its approved slice. Late changes to metric
@@ -150,25 +157,20 @@ quality, and coverage. Equal-priority findings sort by reproduced frequency,
 confidence, lower quality risk, then lower effort. Private snapshot identities
 remain local.
 
-## DKS Recovery
+## DKS Retirement
 
-DKS replacement builds retain separate writer serialization while query-visible
-activation locks remain short. Queries continue against the prior policy-valid
-active projection until replacement activation, and an activation that invalidates
-quality policy restores baseline ranking atomically. OpenCode uses DKS only as an
-optional accelerator for broad questions in a configured project. Exact-path,
-fixed-commit, unconfigured-project, unavailable, or stale-revision work proceeds
-directly to authoritative source inspection. One attempt shares one five-second
-monotonic deadline across every internal stage; OpenCode maps exhausted or unsafe
-retrieval to bounded typed unavailability and never retries automatically, turns
-unavailable retrieval into citations, or exposes raw database, process, path, or
-error details.
+DKS recovery and optimization contracts remain source history but are blocked on
+the active Mac mini. The master feature flag first disables OpenCode routing and
+host runtime. A dependent retirement then drops only the dedicated DKS database
+and role and deletes proven DKS private/model state and credentials without backup,
+while preserving PM Kernel, Graphify, ambiguous assets, Git, and Cycle Records.
 
-The DKS CLI preserves successful query JSON. Exhausted activation contention has
-one machine boundary: exit `75`, empty stdout, and stderr exactly
-`projection_busy`. Lock acquisition and one optional policy repair share a
-two-second deadline. OpenCode, not DKS, owns the later model-visible availability
-envelope.
+Disabled means no DKS route, tool, job, process, runtime target, config, key,
+cache, or log remains active. Partial cleanup stays disabled and fails visibly;
+it never restarts DKS. `enabled=true` alone cannot reactivate production. A future
+controlled environment requires a separately approved receipt design and fresh
+state. Missing DKS evidence remains unavailable rather than zero, and all
+non-DKS codebase work proceeds directly to authoritative source inspection.
 
 ## History Materialized Projection
 
@@ -191,10 +193,6 @@ approaches the 1 GiB cap. Schema version 3 therefore replaces micro-maintenance
 with one transaction-bound full refresh and compact material-row storage. The
 delivered output schemas and latency boundary remain unchanged.
 
-DKS privacy guarding uses a dedicated lifecycle privacy lock. Unrelated review,
-History, Incident, and capture work cannot block a query, while forget and expiry
-mutations still cannot race cited result completion. Automatic routing remains
-active only after a paired fixed-source benchmark shows no correctness regression
-or added tool errors, p95 below five seconds, and at least ten percent lower median
-completion time than direct authoritative inspection. A failed value gate disables
-automatic routing without retiring the projection or manual CLI.
+DKS privacy isolation and routing-value activation remain deferred with the rest
+of DKS. History and Incident recovery no longer depend on DKS runtime recovery;
+they retain independent bounded subprocess and privacy contracts.
