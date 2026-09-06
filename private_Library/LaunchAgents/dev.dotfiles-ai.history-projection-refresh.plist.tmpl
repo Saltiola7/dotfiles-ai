@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>dev.dotfiles-ai.history-projection-refresh</string>
+<key>ProgramArguments</key><array>
+<string>{{ printf "%s/.local/bin/state-root-exec" .chezmoi.homeDir | html }}</string>
+<string>{{ printf "%s/.local/bin/history-projection-refresh" .chezmoi.homeDir | html }}</string>
+<string>run</string><string>{{ .dotfiles_ai.history_projection.refresh_timeout_seconds }}</string></array>
+<key>EnvironmentVariables</key><dict>
+<key>HOME</key><string>{{ .chezmoi.homeDir | html }}</string>
+<key>PATH</key><string>{{ printf "%s/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" .chezmoi.homeDir | html }}</string>
+<key>DOTFILES_AI_STATE_ROOT</key><string>{{ .dotfiles_ai.state.root | html }}</string></dict>
+<key>LimitLoadToSessionType</key><string>Aqua</string>
+<key>ProcessType</key><string>Background</string>
+<key>StartCalendarInterval</key><dict><key>Hour</key><integer>{{ .dotfiles_ai.history_projection.refresh_hour }}</integer><key>Minute</key><integer>{{ .dotfiles_ai.history_projection.refresh_minute }}</integer></dict>
+<key>StandardOutPath</key><string>{{ printf "%s/Library/Logs/history-projection-refresh.log" .chezmoi.homeDir | html }}</string>
+<key>StandardErrorPath</key><string>{{ printf "%s/Library/Logs/history-projection-refresh.err.log" .chezmoi.homeDir | html }}</string>
+</dict></plist>
