@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tarfile
 import zipfile
 
@@ -141,6 +142,17 @@ def test_semantic_validator_requires_managed_roles_and_permissions(tmp_path: Pat
     helper.run = lambda *_args, **_kwargs: b"\xff"
     with pytest.raises(helper.UpdateError, match="validation_failed"):
         helper.validate_binary(binary, "1.18.29")
+
+
+def test_bounded_runner_drains_large_output_and_rejects_overflow() -> None:
+    helper = load_updater()
+    payload = b'{"value":"' + b"x" * 40_000 + b'"}'
+    command = [sys.executable, "-c", f"import sys;sys.stdout.buffer.write({payload!r})"]
+    assert helper.run(command, maximum=len(payload)) == payload
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.run(command, maximum=len(payload) - 1)
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.run([sys.executable, "-c", "import time;time.sleep(1)"], timeout=.01)
 
 
 def test_stage_lock_binds_binary_and_activates(tmp_path: Path, monkeypatch) -> None:
