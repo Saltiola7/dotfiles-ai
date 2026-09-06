@@ -49,6 +49,10 @@ chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply
 The real TOML stays outside the checkout. Its `[data.dotfiles_ai]` values
 override public defaults without entering Git history. Restart OpenCode after an
 apply because it loads configuration only at startup.
+For external-state routing and recovery from missing session history, see
+[ADR 0001](docs/specs/opencode_control_plane/adr/0001-preserve-machine-state-routing.md).
+Always supply this machine config when deploying from another source worktree;
+changing `--source` alone does not supply its machine-local overrides.
 The first macOS apply installs the native OpenCode release from
 `anomalyco/tap/opencode`; later applies rerun Homebrew only when the Brewfile
 changes.
