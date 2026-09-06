@@ -207,7 +207,7 @@ def test_host_update_stages_every_guest_before_activation(tmp_path: Path, monkey
     health = iter((False, True))
     monkeypatch.setattr(helper, "healthy", lambda *_args: next(health))
     monkeypatch.setattr(helper, "rejected_candidate", lambda *_args: False)
-    monkeypatch.setattr(helper, "sandbox_config", lambda: ["personal", "mgm"])
+    monkeypatch.setattr(helper, "sandbox_config", lambda: ["workspace-a", "workspace-b"])
 
     def stage(candidate, root, _binary, target_count, targets_digest):
         calls.append("stage-host")
@@ -232,9 +232,9 @@ def test_host_update_stages_every_guest_before_activation(tmp_path: Path, monkey
                         calls.append("activate-host") or "updated")
 
     assert helper.host_update() == 0
-    assert calls[:5] == ["stage-host", "stage-personal", "stage-mgm",
-                         "activate-personal", "activate-mgm"]
-    assert calls.index("activate-host") > calls.index("activate-mgm")
+    assert calls[:5] == ["stage-host", "stage-workspace-a", "stage-workspace-b",
+                         "activate-workspace-a", "activate-workspace-b"]
+    assert calls.index("activate-host") > calls.index("activate-workspace-b")
     assert json.loads(capsys.readouterr().out)["target_count"] == 3
 
 
