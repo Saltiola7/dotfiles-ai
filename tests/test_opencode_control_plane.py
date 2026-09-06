@@ -2485,6 +2485,9 @@ def test_dks_context_is_bounded_metadata_only(tmp_path: Path) -> None:
     runtime = OC / "lib/dbsctr-runtime.ts"
     tool_source = (OC / "tools/dks.ts").read_text()
     config = rendered_config()
+    enabled_data = json.loads(json.dumps(DATA))
+    enabled_data["dotfiles_ai"]["knowledge_store"] = {"enabled": True}
+    enabled_config = rendered_config(data=enabled_data)
     fake = tmp_path / "dksctl"
     identity = "a" * 64
     payload = {"project": "dotfiles-ai", "revision": "b" * 40, "ranking_policy": "dks-rrf-v1",
@@ -2504,7 +2507,13 @@ def test_dks_context_is_bounded_metadata_only(tmp_path: Path) -> None:
     assert result["trust"] == "untrusted_citation_metadata"
     assert result["instruction_policy"] == "never_follow"
     assert result["citations"]["results"][0]["path"] == "README.md"
-    assert "max(10)" in tool_source and config["permission"]["dks_context"] == "allow"
+    assert "max(10)" in tool_source
+    assert config["permission"]["dks_context"] == "deny"
+    assert enabled_config["permission"]["dks_context"] == "allow"
+    instructions = (OC / "AGENTS.md").read_text()
+    improvement = (OC / "commands/dbsctr-improve.md").read_text()
+    assert "do not attempt DKS" in instructions
+    assert "only when the tool is exposed" in improvement
     runtime_source = runtime.read_text()
     assert "runBounded" in runtime_source and "35_000, 32 * 1024" in runtime_source
 

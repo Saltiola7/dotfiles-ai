@@ -221,7 +221,7 @@
     "dbsctr_status": "allow",
     "dbsctr_initiative_launch": "deny",
     "dbsctr_initiative_begin": "deny",
-    "dks_context": "allow",
+    "dks_context": {{ if .dotfiles_ai.knowledge_store.enabled }}"allow"{{ else }}"deny"{{ end }},
     "dbsctr_begin": "deny",
     "dbsctr_attach": "deny",
     "dbsctr_reconcile": "deny",
