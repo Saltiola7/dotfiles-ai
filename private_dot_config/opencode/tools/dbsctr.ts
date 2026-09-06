@@ -622,6 +622,8 @@ export const begin = tool({
     }).optional(),
   },
   async execute(args, context) {
+    if (args.launch === true)
+      throw new Error("Child launch requires the explicitly selected Discovery-Coordinator; ordinary Begin stays in this session")
     if (args.initiative !== undefined)
       return await launchInitiative({ ...args, ...args.initiative }, context, false)
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {

@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
@@ -153,8 +153,22 @@ function federatedManifestIdentity(filters: any, sources: any[]) {
   }) }
 }
 
+export async function resolveCommand(argv: string[], cwd: string) {
+  if (argv[0] !== "dbsctrctl" || Bun.which("dbsctrctl", { cwd }))
+    return { argv, env: process.env }
+  const bin = join(homedir(), ".local", "bin")
+  const helper = join(bin, "dbsctrctl")
+  if (!Bun.which(helper) || !(await stat(helper).catch(() => null))?.isFile())
+    throw new Error("managed dbsctrctl is unavailable; verify the user-local installation and launch PATH")
+  // Shell startup is not run by typed tools; repair only the fallback child's PATH.
+  const paths = [bin, ...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : []),
+    process.env.PATH || "/usr/bin:/bin"]
+  return { argv: [helper, ...argv.slice(1)], env: { ...process.env, PATH: paths.join(":") } }
+}
+
 export async function run(argv: string[], cwd: string) {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -249,7 +263,8 @@ async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaini
 
 async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000,
                           outputLimit = 64 * 1024, preserveOutput = false) {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdout: "pipe", stderr: "pipe", detached: true })
   const budget = { remaining: outputLimit }
   const killTree = () => {
     try {
@@ -283,7 +298,8 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number | null 
 }
 
 async function runBoundedInput(argv: string[], input: string, cwd: string, timeoutMs = 30_000) {
-  const child = Bun.spawn(argv, { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true })
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true })
   child.stdin.write(input)
   child.stdin.end()
   const budget = { remaining: 256 * 1024 }
