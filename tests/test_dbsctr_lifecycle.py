@@ -887,7 +887,8 @@ def test_dks_retirement_slices_preserve_non_dks_delivery():
     manifest = json.loads(text("docs/initiatives/dbsctr-cycle-speed/MANIFEST.json"))
     slices = {item["id"]: item for item in manifest["slices"]}
     assert slices["dks-routing-disable"]["state"] == "delivered"
-    assert slices["dks-host-disable"]["state"] == "ready"
+    assert slices["dks-host-disable"]["state"] == "delivered"
+    assert slices["dks-state-retirement"]["state"] == "ready"
     assert slices["dks-host-disable"]["depends_on"] == ["dks-routing-disable"]
     assert slices["dks-state-retirement"]["depends_on"] == ["dks-host-disable"]
     for name in ("dks-fast-fallback", "runtime-query-recovery",
