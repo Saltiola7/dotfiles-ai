@@ -16,9 +16,9 @@ recreates credentials or restarts a service.
 
 ## Retirement Contract
 
-- Drop only the `dbsctr_knowledge` database and dedicated DKS login/role from the
-  shared PostgreSQL cluster. Preserve `pm_kernel`, its role, container, forwarding,
-  verified backups, and VM.
+- Terminate only sessions connected to `dbsctr_knowledge`, drop that database,
+  then drop login `dks_dotfiles_ai` and no-login owner `dks_owner`. Preserve
+  `pm_kernel`, its role, container, forwarding, verified backups, and VM.
 - Permanently delete the DKS-owned knowledge state tree, private corpora,
   projections, receipts, benchmarks, API keys, caches, locks, and runtime artifacts.
 - Delete only model/runtime artifacts whose existing manifests prove DKS ownership.
@@ -34,6 +34,28 @@ recreates credentials or restarts a service.
   or private evidence.
 - No archive or recovery copy is created. Retirement is intentionally irreversible.
 
+The exact filesystem inventory is:
+
+- delete the complete configured DKS knowledge-state tree;
+- delete the complete `dbsctr` child beneath the configured embedding model root;
+- beneath the mixed quality-model `dbsctr` child, delete only
+  `llama.cpp-0e1d9185`, `nomic-embed-code`, `qwen3-reranker-4b`, and
+  `reranker-venv`;
+- preserve every `graphify-sql-*` child and any unlisted or identity-mismatched
+  model artifact;
+- delete the four DKS stdout/stderr log pairs, DKS bytecode cache, and dedicated
+  host Keychain service `dev.dotfiles-ai.dks-postgres`;
+- delete the dedicated 1Password item `DBSCTR Knowledge PostgreSQL` in the
+  Automation vault after database and role removal;
+- reduce private machine configuration to `knowledge_store.enabled=false`,
+  removing subordinate DKS project, model, port, quality, PostgreSQL, and
+  reconciliation values.
+
+Before deletion, source manifests and live identity/digest checks must prove each
+model child. A mismatch becomes retained ambiguity, not permission to delete.
+Write the sanitized receipt atomically with owner-only permissions beneath the
+configured distribution retirement-state directory, outside every deleted tree.
+
 ## Behavior And Validation
 
 Given proven ownership, retirement removes the exact object once and repeated
@@ -47,7 +69,8 @@ contract.
 Validation inventories before/after sizes and identities privately, tests a fake
 database/state hierarchy red-first, proves refusal of shared/ambiguous assets,
 verifies PM backup/restore and database health, confirms DKS database/login absence,
-and confirms no process, port, job, tool, config, key, log, or private DKS tree.
+confirms `dks_owner` absence, and confirms no process, port, job, tool, config,
+key, log, or private DKS tree.
 The destructive live step requires a fresh confirmation after all preconditions
 and non-destructive gates pass. Release is not applicable; every other gate is
 required.
