@@ -2076,6 +2076,142 @@ class DbsctrctlTest(unittest.TestCase):
         stable = module.worktree_id(Path(handoff["worktree"]))
         self.assertFalse((self.repo / ".git/dbsctr/worktrees" / stable / "active").exists())
 
+    def activation_fixture(self, *, nested=True):
+        home = Path(self.temp.name) / "activation-home"
+        data = Path(self.temp.name) / "redirected-data"
+        database = data / "opencode/opencode.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as connection:
+            connection.executescript("""
+                create table session (id text primary key, parent_id text, agent text);
+                create table message (id text primary key, session_id text, data text);
+                insert into session values ('vertex-session', null, 'build-claude');
+            """)
+            model = {"providerID": "google-vertex-anthropic", "modelID": "claude-opus-5@default"}
+            connection.execute("insert into message values (?, ?, ?)", (
+                "vertex-message", "vertex-session", json.dumps({"model": model} if nested else model)))
+        # A stale default-location database must not override the explicit XDG route.
+        decoy = home / ".local/share/opencode/opencode.db"
+        decoy.parent.mkdir(parents=True)
+        decoy.write_bytes(b"not a database")
+        activation = json.dumps({"schema_version": 1, "core_revision": "3.29", "overlays": {
+            "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
+            "build-claude": "anthropic-2026-07-26",
+        }})
+        env = {**isolated_env(), "HOME": str(home), "XDG_DATA_HOME": str(data)}
+        return database, activation, env
+
+    def assert_vertex_begin_round_trip(self, *, nested):
+        database, activation, env = self.activation_fixture(nested=nested)
+        database_before = database.read_bytes()
+        remote = Path(self.temp.name) / "remote.git"
+        registry = Path(self.temp.name) / "registry"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=self.repo,
+                       check=True, capture_output=True)
+        runtime = ("--opencode-session-id", "vertex-session",
+                   "--opencode-message-id", "vertex-message",
+                   "--harness-activation-json", activation,
+                   "--opencode-directory", str(self.repo), "--opencode-worktree", str(self.repo))
+        handoff = json.loads(run(
+            self.repo, "begin", "--cycle-id", "vertex-cycle", "--context", "test",
+            "--risk", "critical", "--delivery-intent", "local", "--plan", str(self.plan_path()),
+            "--worktree-root", str(registry), *runtime, env=env,
+        ).stdout)
+        cycle = Path(handoff["worktree"])
+        record_path = self.repo / ".git/dbsctr/cycles/vertex-cycle.json"
+        for _ in range(2):
+            attached = json.loads(run(cycle, "attach-runtime", *runtime, env=env).stdout)
+            self.assertFalse(attached["attached"])
+            self.assertIn("vertex-cycle active", run(cycle, "status", env=env).stdout)
+        record = json.loads(record_path.read_text())
+        expected = {"schema_version": 1, "provider_id": "google-vertex-anthropic",
+                    "model_id": "claude-opus-5@default", "agent_id": "build-claude",
+                    "core_revision": "3.29", "overlay_revision": "anthropic-2026-07-26"}
+        self.assertEqual(record["runtime"]["opencode"]["harness_activation"], expected)
+        self.assertEqual(record["runtime"]["adapters"]["opencode"]["activation"], expected)
+        self.assertEqual(database.read_bytes(), database_before)
+        before = record_path.read_bytes()
+        with sqlite3.connect(database) as connection:
+            connection.execute("update message set data=?", (json.dumps({"model": {
+                "providerID": "google-vertex-anthropic", "modelID": "claude-opus-5@changed"}}),))
+        refused = run(cycle, "attach-runtime", *runtime, env=env, ok=False)
+        self.assertIn("disagree on harness activation", refused.stderr)
+        self.assertEqual(record_path.read_bytes(), before)
+
+    def test_vertex_activation_nested_begin_round_trip(self):
+        self.assert_vertex_begin_round_trip(nested=True)
+
+    def test_vertex_activation_top_level_begin_round_trip(self):
+        self.assert_vertex_begin_round_trip(nested=False)
+
+    def test_vertex_activation_provider_boundaries(self):
+        database, activation, env = self.activation_fixture()
+        loader = importlib.machinery.SourceFileLoader("activation_providers", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        cases = (
+            ("build-claude", "google-vertex-anthropic", True),
+            ("build-claude", "amazon-bedrock", False),
+            ("build-claude", "openai", False),
+            ("build-gpt", "google-vertex-anthropic", False),
+            ("build-gpt", "openai", True),
+            ("build", "google-vertex-anthropic", True),
+        )
+        for agent, provider, allowed in cases:
+            with self.subTest(agent=agent, provider=provider):
+                with sqlite3.connect(database) as connection:
+                    connection.execute("update session set agent=?", (agent,))
+                    connection.execute("update message set data=?", (json.dumps({
+                        "providerID": provider, "modelID": "model-version"}),))
+                before = database.read_bytes()
+                with mock.patch.dict(os.environ, env, clear=True):
+                    if allowed:
+                        value = module.harness_activation_for_message(None, "vertex-message", activation)
+                        self.assertEqual((value["provider_id"], value["agent_id"]), (provider, agent))
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "provider does not match"):
+                            module.harness_activation_for_message(None, "vertex-message", activation)
+                self.assertEqual(database.read_bytes(), before)
+
+    def test_vertex_activation_model_grammar_live_and_stored(self):
+        database, activation, env = self.activation_fixture()
+        loader = importlib.machinery.SourceFileLoader("activation_grammar", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        cases = [("claude-opus-5@default", True), ("a" + "@" * 255, True),
+                 ("vendor/model.v1_2:revision-3@default", True), ("gpt-5.6-sol", True),
+                 ("a" + "@" * 256, False), ("@default", False), ("model name", False),
+                 ("model\n", False), ("model\x00", False), ("model\t", False),
+                 ("modèle", False), ("model;id", False), ("", False), (None, False), (42, False)]
+        for model_id, allowed in cases:
+            with self.subTest(model=model_id):
+                stored = {"schema_version": 1, "provider_id": "google-vertex-anthropic",
+                          "model_id": model_id, "agent_id": "build-claude",
+                          "core_revision": "3.29", "overlay_revision": "anthropic-2026-07-26"}
+                with sqlite3.connect(database) as connection:
+                    connection.execute("update message set data=?", (json.dumps({
+                        "providerID": stored["provider_id"], "modelID": model_id}),))
+                before = database.read_bytes()
+                with mock.patch.dict(os.environ, env, clear=True):
+                    if allowed:
+                        self.assertEqual(module.harness_activation_for_message(
+                            None, "vertex-message", activation), stored)
+                        self.assertEqual(module.validate_stored_harness_activation(stored), stored)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "exact provider/model identity"):
+                            module.harness_activation_for_message(None, "vertex-message", activation)
+                        with self.assertRaisesRegex(RuntimeError, "invalid harness activation"):
+                            module.validate_stored_harness_activation(stored)
+                self.assertEqual(database.read_bytes(), before)
+        historical = {"schema_version": 1, "provider_id": "amazon-bedrock",
+                      "model_id": "anthropic.claude-opus-5-v1:0", "agent_id": "build-claude",
+                      "core_revision": "3.29", "overlay_revision": "anthropic-2026-07-26"}
+        self.assertEqual(module.validate_stored_harness_activation(historical), historical)
+
     def test_attach_runtime_is_idempotent_for_cross_repository_primary(self):
         self.start()
         home = Path(self.temp.name) / "attach-home"
