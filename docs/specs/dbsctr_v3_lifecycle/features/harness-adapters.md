@@ -303,6 +303,23 @@ agree exactly before read or mutation. Otherwise both branches are absent, as in
 pre-attach or Codex-only records. Unknown fields, disagreement, or an adapter
 revision change rejects schema 5.
 
+### Activation field grammar
+
+A model ID is an ASCII alphanumeric followed by zero to 255 ASCII
+alphanumerics or `.`, `_`, `:`, `/`, `@`, `-`. Both message admission and stored
+activation validation use the same model-specific grammar. Provider, agent,
+revision, session and message grammars remain unchanged. Qualifiers are opaque;
+validation never strips `@default` or substitutes a configured model for the
+message's exact value. Both supported structured message layouts are retained.
+
+The current new-activation provider bindings are `build-gpt` to `openai` and
+`build-claude` to `google-vertex-anthropic`. This is validation of the
+control-plane-selected route, not provider fallback. No CLI or adapter
+signature, record schema, Method Revision, or permission changes are required.
+The existing Visual Evidence plan and diagrams remain valid: identity still
+crosses the same owning adapter boundary in the same order; this field grammar
+is expressed directly in prose rather than duplicating the boundary diagram.
+
 ## Generic Adapter Operations
 
 | Operation | Required outcome |
