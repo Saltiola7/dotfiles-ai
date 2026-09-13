@@ -19,6 +19,21 @@ must implement [`features/harness-adapters.md`](features/harness-adapters.md)
 before claiming lifecycle parity. Harnesses use the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
 
+### OpenCode Vertex activation compatibility
+
+The lifecycle helper owns validation of exact primary activation read from the
+OpenCode message database. The OpenCode control plane owns provider routing;
+its committed Claude route is `google-vertex-anthropic`, migrated from Bedrock
+in `e2c7b19`. Begin and attach must admit that route and preserve qualified model
+IDs such as `claude-opus-5@default` without normalization. The precise contract
+and regression scope are in [harness adapters](features/harness-adapters.md#vertex-activation-compatibility).
+
+This repair changes identity validation only. It does not select a provider,
+invoke a model, change permissions or worktree roots, migrate stored records,
+or infer runtime identity. History, federation, inference-cost and benchmark
+model-ID grammars are separate follow-up work; lifecycle acceptance does not
+claim those analytical consumers are qualified for Vertex identifiers.
+
 ### V3.40 Authority Boundary
 
 Discovery and DBSCTR use specifications, Initiative manifests when applicable,

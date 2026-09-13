@@ -79,6 +79,7 @@ RND_LENSES = (
 IMPROVEMENT_RESUMABLE_STATES = {"reviewing", "claimed", "discovery", "implementing", "draft_pr"}
 IMPROVEMENT_STATES = IMPROVEMENT_RESUMABLE_STATES | {"blocked", "merged", "closed", "abandoned"}
 OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+ACTIVATION_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}")
 RUNTIME_ADAPTER_REVISIONS = {
     "opencode": "opencode-adapter-1",
     "codex": "codex-adapter-1",
@@ -855,9 +856,9 @@ def harness_activation_for_message(database_value, message_id, raw):
         provider_id = model.get("providerID") if isinstance(model, dict) else body.get("providerID")
         model_id = model.get("modelID") if isinstance(model, dict) else body.get("modelID")
         if (not isinstance(provider_id, str) or not OPAQUE_ID.fullmatch(provider_id)
-                or not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model_id)):
+                or not isinstance(model_id, str) or not ACTIVATION_MODEL_ID.fullmatch(model_id)):
             fail("OpenCode message has no exact provider/model identity")
-        expected = {"build-gpt": "openai", "build-claude": "amazon-bedrock"}.get(row[0])
+        expected = {"build-gpt": "openai", "build-claude": "google-vertex-anthropic"}.get(row[0])
         if expected is not None and provider_id != expected:
             fail("OpenCode harness provider does not match its primary agent")
         return {"schema_version": HARNESS_ACTIVATION_SCHEMA, "provider_id": provider_id,
@@ -8164,7 +8165,7 @@ def validate_stored_harness_activation(value):
             or not all(isinstance(value.get(name), str) for name in (
                 "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"))
             or not OPAQUE_ID.fullmatch(value["provider_id"])
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", value["model_id"])
+            or not ACTIVATION_MODEL_ID.fullmatch(value["model_id"])
             or not all(OPAQUE_ID.fullmatch(value[name]) for name in (
                 "agent_id", "core_revision", "overlay_revision"))):
         fail("invalid harness activation")

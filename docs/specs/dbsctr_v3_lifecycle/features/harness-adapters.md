@@ -177,6 +177,20 @@ coexist only when duplicate values agree exactly.
 - Given only paths, timestamps, panes, process IDs, model names, or configuration
   suggest identity, then DBSCTR records unavailable rather than inferring it.
 
+### Vertex activation compatibility
+
+- Given the current `build-claude` primary has a structured Vertex Anthropic
+  message with a qualified model ID, when Begin or attach validates it, then
+  the exact provider/model identity is retained and the stored cycle reloads.
+- Given new `build-claude` identity names OpenAI or the retired Bedrock route,
+  or `build-gpt` names Vertex, when admission runs, then it refuses before
+  mutation. Native `build` retains its existing provider-neutral behavior.
+- Given a stored historical Bedrock activation, when its shape is validated,
+  then it remains readable without adopting the current routing policy.
+- Given malformed or oversized identity, a child session, a foreign message,
+  an unrelated worktree, or changed activation on reattachment, when the
+  boundary validates it, then existing fail-closed behavior remains intact.
+
 ### Mixed-version safety
 
 - Given an older helper reads schema 5, when it validates the record, then it
@@ -289,6 +303,23 @@ agree exactly before read or mutation. Otherwise both branches are absent, as in
 pre-attach or Codex-only records. Unknown fields, disagreement, or an adapter
 revision change rejects schema 5.
 
+### Activation field grammar
+
+A model ID is an ASCII alphanumeric followed by zero to 255 ASCII
+alphanumerics or `.`, `_`, `:`, `/`, `@`, `-`. Both message admission and stored
+activation validation use the same model-specific grammar. Provider, agent,
+revision, session and message grammars remain unchanged. Qualifiers are opaque;
+validation never strips `@default` or substitutes a configured model for the
+message's exact value. Both supported structured message layouts are retained.
+
+The current new-activation provider bindings are `build-gpt` to `openai` and
+`build-claude` to `google-vertex-anthropic`. This is validation of the
+control-plane-selected route, not provider fallback. No CLI or adapter
+signature, record schema, Method Revision, or permission changes are required.
+The existing Visual Evidence plan and diagrams remain valid: identity still
+crosses the same owning adapter boundary in the same order; this field grammar
+is expressed directly in prose rather than duplicating the boundary diagram.
+
 ## Generic Adapter Operations
 
 | Operation | Required outcome |
@@ -324,6 +355,26 @@ revision change rejects schema 5.
 - Native Codex installation, parsing, authentication, hooks, app-server methods,
   session correlation, resume, fork, and history remain owned by later slices.
 - No bulk migration or historical identity backfill occurs.
+
+### Activation compatibility validation and rollback
+
+Use disposable SQLite and Git fixtures for qualified-ID Begin, status reload,
+idempotent attach, changed-model refusal, and exact generic/legacy equality.
+Validate both nested and top-level messages, the 256/257-character boundary,
+invalid controls/whitespace/types, provider mismatch, historical Bedrock shape
+readability, and redirected XDG data precedence. Preserve the retained tests
+for child/foreign identity and invalid worktree rejection. Run affected helper,
+lifecycle, adapter and control-plane tests and Python compilation.
+
+Deployment applies only the reviewed managed lifecycle helper after affected
+validation and independent security review. Preserve the exact previous bytes;
+rollback restores that helper alone without rewriting private records. Once a
+qualified activation is persisted, the previous helper will refuse to read it:
+rollback is containment, not a claim of continued Vertex-cycle availability.
+Reinstall the compatible helper to resume such records; never remove qualifiers
+or rewrite activation to make an older helper accept them. A read-only live
+identity parse can confirm admission but cannot substitute for a future native
+OpenCode Begin/attach receipt. Analytics qualification remains separately open.
 
 ## Conformance
 
