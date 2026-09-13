@@ -356,6 +356,26 @@ is expressed directly in prose rather than duplicating the boundary diagram.
   session correlation, resume, fork, and history remain owned by later slices.
 - No bulk migration or historical identity backfill occurs.
 
+### Activation compatibility validation and rollback
+
+Use disposable SQLite and Git fixtures for qualified-ID Begin, status reload,
+idempotent attach, changed-model refusal, and exact generic/legacy equality.
+Validate both nested and top-level messages, the 256/257-character boundary,
+invalid controls/whitespace/types, provider mismatch, historical Bedrock shape
+readability, and redirected XDG data precedence. Preserve the retained tests
+for child/foreign identity and invalid worktree rejection. Run affected helper,
+lifecycle, adapter and control-plane tests and Python compilation.
+
+Deployment applies only the reviewed managed lifecycle helper after affected
+validation and independent security review. Preserve the exact previous bytes;
+rollback restores that helper alone without rewriting private records. Once a
+qualified activation is persisted, the previous helper will refuse to read it:
+rollback is containment, not a claim of continued Vertex-cycle availability.
+Reinstall the compatible helper to resume such records; never remove qualifiers
+or rewrite activation to make an older helper accept them. A read-only live
+identity parse can confirm admission but cannot substitute for a future native
+OpenCode Begin/attach receipt. Analytics qualification remains separately open.
+
 ## Conformance
 
 Every adapter runs the same fixtures for begin, attach, child rejection, identity
