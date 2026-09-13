@@ -177,6 +177,20 @@ coexist only when duplicate values agree exactly.
 - Given only paths, timestamps, panes, process IDs, model names, or configuration
   suggest identity, then DBSCTR records unavailable rather than inferring it.
 
+### Vertex activation compatibility
+
+- Given the current `build-claude` primary has a structured Vertex Anthropic
+  message with a qualified model ID, when Begin or attach validates it, then
+  the exact provider/model identity is retained and the stored cycle reloads.
+- Given new `build-claude` identity names OpenAI or the retired Bedrock route,
+  or `build-gpt` names Vertex, when admission runs, then it refuses before
+  mutation. Native `build` retains its existing provider-neutral behavior.
+- Given a stored historical Bedrock activation, when its shape is validated,
+  then it remains readable without adopting the current routing policy.
+- Given malformed or oversized identity, a child session, a foreign message,
+  an unrelated worktree, or changed activation on reattachment, when the
+  boundary validates it, then existing fail-closed behavior remains intact.
+
 ### Mixed-version safety
 
 - Given an older helper reads schema 5, when it validates the record, then it
