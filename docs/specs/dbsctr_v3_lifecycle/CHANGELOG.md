@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-13 - Vertex Runtime Identity Compatibility
+
+- Added one shared activation model-ID grammar supporting opaque `@` qualifiers
+  for live admission and stored-record validation. New `build-claude` admission
+  now matches the committed Vertex Anthropic route; historical Bedrock record
+  readability and strict OpenAI/provider mismatch checks are retained.
+- Regression evidence reproduced the qualifier and obsolete-provider failures.
+  The affected helper/lifecycle/control-plane suite passed (283 collected cases),
+  as did both tests deriving exact routes from committed agent and command files.
+  Python compilation passed. An independent reviewer found no blocking defect
+  and passed six additional CLI identity/refusal probes using disposable data.
+- Scope is Begin, attach and cycle reload, not analytics/federation/inference-cost
+  model-ID qualification. No provider invocation, permission change, record
+  migration or runtime identity backfill. Native Codex used the supported CLI
+  cycle route without claiming an OpenCode runtime attachment.
+- Managed deployment target is the lifecycle helper alone. Rollback retains the
+  exact old helper; it cannot read newly stored qualified IDs, so recovery must
+  reinstall the compatible helper without modifying those records. Release is
+  not applicable; no gate exception. Intended Final Push: feature-branch draft
+  PR into protected main; actual deployment and push results remain in the
+  Cycle Record.
+
 ## 2026-09-05 - Historical Reporting Repair
 
 - Separated explicit historical schema-5 validation from live source resolution
