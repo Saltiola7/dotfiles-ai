@@ -45,6 +45,15 @@ the PR closed with its branch and Cycle Record preserved. The operator chose ful
 production retirement instead of remediation. DKS optimization, privacy,
 recovery, and value-gate slices remain blocked until controlled re-enable.
 
+## Retirement Scope Correction
+
+State-retirement readiness was reopened after the PM baseline helper was found
+to store evidence under `knowledge/postgres`. The operator chose preservation in
+place, not relocation. Requirement `INT-058` excludes that subtree and its required
+parent from deletion. Earlier whole-tree approval is superseded; a fresh exact
+digest approval is required before the precondition cycle, and final destructive
+confirmation remains separate.
+
 ## Reporting Repair Boundary
 
 Given a retained record with a missing historical checkout, read-only reporting
