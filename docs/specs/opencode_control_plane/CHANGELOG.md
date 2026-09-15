@@ -1,5 +1,30 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-06 - Ordinary Session Foundation
+
+- Added one shared managed-helper fallback for all three runtime runners and the
+  Initiative plugin. Existing PATH wrappers remain preferred; fallback changes
+  only the child's dependency PATH and never retries a failed execution.
+- Ordinary Discovery retains the selected primary. Ordinary primaries deny Task,
+  typed Begin rejects child launch before side effects, and the explicitly
+  selected coordinator retains its scoped orchestration. Updated skills, routing
+  and the control-plane view without deleting coordinator or subagent definitions.
+- Red-first evidence: seven targeted failures and one compatibility pass. All 86
+  affected control-plane/lifecycle tests pass, including modifier replacement,
+  minimal PATH, plugin unavailability and current-primary checks. Dependabot
+  alerts are disabled; no dependency changed and no vulnerability clearance is
+  claimed from that unavailable advisory source.
+- Targeted deployment used the explicit AI machine config with scripts excluded.
+  Installed-target verification, real minimal-PATH helper smoke and fresh native
+  role/config resolution passed. Existing processes retain old loaded config
+  until an operator restart; no session history, database or worktree was moved.
+  Rollback reapplies only this cycle's prior managed targets with the same machine
+  config after drift review; unrelated configuration remains preserved.
+- Implementation Gate Commit: `8c94efa`. Gate Exceptions: none. Release is not
+  applicable. Intended Final Push: feature-branch PR into protected main, with
+  merge only after required CI passes. Cross-repository attachment, worktree
+  migration, automatic merge policy and all-target rollout remain later slices.
+
 ## 2026-09-06 - DKS Routing Disable
 
 - Bound `dks_context` permission to the master knowledge-store flag and directed
