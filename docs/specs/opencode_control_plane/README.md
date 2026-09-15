@@ -6,6 +6,27 @@
 
 ## Engineering Profile
 
+### Ordinary Session Foundation
+
+Ordinary `/discovery` and `/dbsctr` stay in the selected primary without Task or
+child sessions. Only the explicitly selected Discovery-Coordinator retains its
+configured child orchestration. Plan remains read-only and requests Build mode
+in the same conversation for writes. Model selection and skill loading do not
+grant another agent's authority.
+
+The three subprocess runners and Initiative plugin share `resolveCommand`.
+Existing PATH resolution of bare `dbsctrctl` is preserved; if missing, use the
+verified user-local executable with a child-only managed dependency PATH. Other
+commands and absolute paths are unchanged. An absent/non-executable helper gives
+an actionable error; execution errors never trigger a retry through another path.
+The plugin reports unavailable anchors without inventing readiness. No native
+cwd, session record, worktree registry or Cycle Record schema changes here.
+
+This slice does not repair cross-repository attachment, migrate worktrees, or
+enable automatic merge. The approved source contract is bound to the cycle's
+`same-session-cycle-execution` receipt. Validation covers minimal PATH, all runners,
+plugin failure, role retention, replaced Task allowlists and early child rejection.
+
 ### Defaults
 
 | Field | Value |
@@ -240,29 +261,27 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Thin commands select native, dedicated R&D, Discovery, or provider-affine primary agents. Plan remains read-only and hands approved scope to Build. Only the dedicated build-rnd primary may request a ledger-validated VM implementation handoff; ordinary Build and every other agent deny it. Discovery may investigate through unrestricted local Bash, writes durable artifacts through a docs-scoped edit tool, and uses Scout for privacy-safe public facts. An operator-confirmed incident fork uses typed adapters to retain bounded credential-redacted evidence in private local state. OpenAI routes read-only Explore to Luna, Scout and Builder to Terra, and explicit review to Sol. Build may use only same-provider bounded subagents, loads shared lifecycle skills and typed adapters, and asks permission before external or destructive effects. Host OpenCode may connect to the official 1Password desktop MCP for approved Environment operations without receiving secret values.
+    accDescr: Ordinary Discovery and DBSCTR retain the selected primary and execute directly without Task or child sessions. Plan requests Build mode in the same conversation for writes. Only explicit coordinator selection enables configured child orchestration. Shared typed adapters preserve lifecycle authorization and external-write boundaries independently of executable lookup.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
     P -->|Scheduled R&D only| BR[build-rnd primary]
     P -->|OpenAI entry| G[build-gpt]
     P -->|Bedrock entry| C[build-claude]
-    P -->|Discovery command or tab| D[Discovery Coordinator]
+    P -->|Explicit agent selection only| D[Discovery Coordinator]
     D -->|Interactive investigation| LCLI[Local CLI, APIs, and notebook kernels]
     D -->|Policy-gated, locally filtered queries| E
     D -->|Structured edits| Q[Durable docs artifacts]
     D -->|Privacy-safe public facts| R[Scout]
-    B -->|Generic bounded work| X[Inheriting subagents]
-    G -->|OpenAI only| O[Luna Explore, Terra Scout and Builder, Sol Reviewer]
-    C -->|Bedrock only| A[Bedrock subagents]
+    N -->|Serial Discovery, no Task| S
     B --> S[Shared DBSCTR, Discovery, and QA skills]
     BR -->|Ledger-validated VM handoff only| T
     G --> S
     C --> S
     D -->|Approved Initiative launch| T
-    B -->|Approved Initiative launch| T
-    G -->|Approved Initiative launch| T
-    C -->|Approved Initiative launch| T
+    B -->|Same-session Initiative Begin| T
+    G -->|Same-session Initiative Begin| T
+    C -->|Same-session Initiative Begin| T
     U -->|Confirm fork-defined incident| INC[Incident skill]
     INC -->|Bounded credential-redacted evidence| T
     S --> T[Typed local adapters]
@@ -271,9 +290,10 @@ flowchart TD
     B -->|Desktop approval required| M[Official 1Password Environment MCP]
 ```
 
-**Text Equivalent:** Thin commands select a native, Discovery, or provider-affine primary.
-Plan is read-only and hands bounded scope to Build. Native Build uses generic
-inheriting subagents. A separate `build-rnd` primary runs only managed
+**Text Equivalent:** Ordinary commands retain the selected primary; Discovery
+does not select the coordinator. Plan is read-only and requests Build mode in the
+same conversation. Ordinary primaries work directly without Task or children.
+A separate `build-rnd` primary runs only managed
 `/dbsctr-improve` sessions and alone may request the ledger-validated VM handoff;
 ordinary Build and every other agent deny that launcher. The Discovery Coordinator may investigate through unrestricted
 local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
@@ -281,12 +301,11 @@ through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy
 public facts. Governed private result bodies remain local; only locally filtered,
 privacy-safe metadata enters model context. Unrestricted Discovery Bash can reach
 the external boundary under prompt and standing policy rather than OpenCode command
-matching. `build-gpt` routes read-only Explore to Luna, Scout and
-Builder to Terra, and explicit review to Sol while remaining entirely within
-OpenAI; `build-claude` uses only Bedrock subagents. All primaries load shared
-lifecycle skills and typed local adapters. The Discovery Coordinator and primary
-Build agents may request an approved Initiative launch; Plan and all subagents
-must hand it off. Validated local effects may reach the worktree or private local
+matching. Provider-affine Build agents retain their selected providers and own
+implementation and review directly. All primaries load shared lifecycle skills
+and typed local adapters. Only the explicitly selected coordinator may request a
+child Initiative launch; Build uses same-session Begin. Plan and subagents must
+hand off denied mutations. Validated local effects may reach the worktree or private local
 state; external or destructive effects remain
 permission-gated for Build and confirmation-gated by policy for unrestricted
 Discovery Bash. An operator-confirmed Incident fork may send only bounded,
@@ -342,7 +361,7 @@ database. Any failed guest smoke check restores that backup.
 - Keep direct Bedrock Claude and raw LM Studio models.
 - Make workflow commands inherit the selected primary agent.
 - Allow local Build commands by default while gating external or destructive writes.
-- Give Builder subagents bounded write access without Git, deployment, or external paths.
+- Keep retained Builder definitions bounded, without making them available to ordinary primaries.
 - Install only OpenCode-compatible skills, once.
 - Preserve Graphify CLI, skill, graph, hooks, and health-gated query-first routing.
 - Remove Claude Code, Meridian, Headroom, OMO, and their runtime state completely.
@@ -385,7 +404,7 @@ database. Any failed guest smoke check restores that backup.
 ### Provider-neutral commands
 
 Given any selected primary, when `/dbsctr`, `/discovery`, or `/qa` runs, then
-the command uses that primary and does not force OpenAI.
+the command uses that primary without an agent or subtask override.
 
 ### Plan and Build permissions
 
@@ -434,15 +453,15 @@ change the active agent.
 
 ### Bounded Builder
 
-Given a provider-local Builder subagent, it may edit owned in-worktree files and
+Retained Builder definitions are not available through ordinary primaries' Task
+permissions. Given an explicitly authorized provider-local Builder, it may edit owned in-worktree files and
 run focused checks, but cannot use external directories, delegate, write Git
 state, deploy, publish, or perform external writes.
 
 ### Provider affinity
 
-Given an OpenAI primary, it delegates only to OpenAI optimized agents. Given
-`build-claude`, it delegates only to Bedrock optimized agents. No fallback
-crosses providers silently.
+Ordinary primaries do not delegate. An explicitly selected coordinator retains
+its configured provider-affine routes. No fallback crosses providers silently.
 
 ### Exact provider entry
 
@@ -455,12 +474,9 @@ primary.
 
 ### Provider-native review behavior
 
-Given GPT work is routine or elevated, when the primary validates it, then it
-uses executable evidence without a routine reviewer. Given GPT work is explicit
-review work or critical, `reviewer-openai` remains available with a bounded
-read-only brief. Given Claude Opus 5 work at any risk, the prompt relies on the
-model's native self-correction plus executable evidence and does not instruct a
-reviewer subagent or enforce human review.
+Ordinary primaries review directly with executable evidence, without reviewer
+subagents. A required independent review not available within this authority is
+a capability blocker, never permission to delegate or waive the gate silently.
 
 ### No cross-client fallback
 
@@ -779,10 +795,10 @@ commits, plan, risk, and arguments before creating local cycle state.
 
 Plan continues to deny `dbsctr_begin` and returns a Build Handoff. Direct
 destructive operations, external writes, deployment, DVC push, and non-DBSCTR
-Git push retain their existing permission boundaries. Optional Herdr launch
-remains explicit through `launch=true` and never becomes lifecycle authority.
+Git push retain their existing permission boundaries. Ordinary typed Begin rejects
+`launch=true` before side effects; the selected coordinator owns child launch.
 
-Given any ordinary or Initiative DBSCTR launch is invoked from a Herdr-managed
+Given an approved coordinator Initiative launch is invoked from a Herdr-managed
 OpenCode pane, when the shared launcher creates its Build tab, then it resolves
 the live caller pane and creates one new tab explicitly in that pane's workspace.
 Herdr UI focus never selects the destination. Missing or mismatched caller
@@ -966,8 +982,8 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
   medium. Opus 4.8 is retired rather than retained as fallback.
 - `/dbsctr-gpt` and `/dbsctr-claude` bind exact primary and model identities;
   `/dbsctr` remains provider-neutral.
-- `reviewer-openai` is available only to `build-gpt` for explicit or critical
-  review. `build-claude` has no reviewer permission and no human-review mandate.
+- Native Build, Plan, build-rnd and provider-affine Build primaries deny Task.
+  Review is primary-owned; retained subagent files do not grant delegation.
 - A failed optimized subagent may retry once on its active same-provider flagship;
   no failure, quota, credential, or model-access condition changes provider family.
 - Provider telemetry uses exact allowlisted runtime identity without provider
@@ -1053,8 +1069,9 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
 
 ### Initiative Discovery Orchestration
 
-`/discovery` routes to an interactive coordinator with unrestricted Bash and a
-`docs/**`-scoped structured edit tool. The coordinator prefers native CLI, API,
+`/discovery` runs serially in the current primary without an agent or subtask
+override. Only explicit agent selection activates the coordinator, which retains
+unrestricted Bash and a `docs/**`-scoped structured edit tool. The coordinator prefers native CLI, API,
 and notebook-kernel interfaces over browser automation, while user confirmation
 remains required for external, destructive, costly, irreversible, or materially
 expanded effects. It keeps governed private result bodies local and admits only

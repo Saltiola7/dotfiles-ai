@@ -1,5 +1,49 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-06 - Ordinary Session Successor Integration
+
+- Reapplied PR 160's reviewed `8c94efa` and `49f2f4c` patch on protected-base
+  `fe15a09`, preserving the newer DKS lifecycle expectation and Vertex identity
+  repair. No framework behavior beyond the original 14-path scope was added.
+- Replayed the original command-routing regression against the new base: it
+  failed before integration. Fresh affected validation passes all 86 tests.
+  The imported patch matches its pinned source except for the preserved upstream
+  lifecycle test expectation and this successor evidence entry.
+- Installed-target verification, real minimal-PATH helper execution and fresh
+  ordinary/coordinator role checks passed. Installed bytes already matched, so
+  no target rewrite, service restart or history/worktree migration was needed.
+- Original Cycle Record, commits, branch and PR 160 remain unchanged. The
+  successor creates its own Gate Commits and evidence; original commits are not
+  falsely claimed as ancestors. No gate exception. Release is not applicable.
+  Intended delivery: replacement feature PR and normal merge only after required
+  CI passes and the expected head remains current with main. Post-push base races
+  are not repaired by this slice and never authorize forced merge or stale gates.
+
+## 2026-09-06 - Ordinary Session Foundation
+
+- Added one shared managed-helper fallback for all three runtime runners and the
+  Initiative plugin. Existing PATH wrappers remain preferred; fallback changes
+  only the child's dependency PATH and never retries a failed execution.
+- Ordinary Discovery retains the selected primary. Ordinary primaries deny Task,
+  typed Begin rejects child launch before side effects, and the explicitly
+  selected coordinator retains its scoped orchestration. Updated skills, routing
+  and the control-plane view without deleting coordinator or subagent definitions.
+- Red-first evidence: seven targeted failures and one compatibility pass. All 86
+  affected control-plane/lifecycle tests pass, including modifier replacement,
+  minimal PATH, plugin unavailability and current-primary checks. Dependabot
+  alerts are disabled; no dependency changed and no vulnerability clearance is
+  claimed from that unavailable advisory source.
+- Targeted deployment used the explicit AI machine config with scripts excluded.
+  Installed-target verification, real minimal-PATH helper smoke and fresh native
+  role/config resolution passed. Existing processes retain old loaded config
+  until an operator restart; no session history, database or worktree was moved.
+  Rollback reapplies only this cycle's prior managed targets with the same machine
+  config after drift review; unrelated configuration remains preserved.
+- Implementation Gate Commit: `8c94efa`. Gate Exceptions: none. Release is not
+  applicable. Intended Final Push: feature-branch PR into protected main, with
+  merge only after required CI passes. Cross-repository attachment, worktree
+  migration, automatic merge policy and all-target rollout remain later slices.
+
 ## 2026-09-06 - DKS Routing Disable
 
 - Bound `dks_context` permission to the master knowledge-store flag and directed

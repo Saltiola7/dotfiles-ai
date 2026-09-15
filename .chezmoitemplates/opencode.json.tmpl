@@ -125,7 +125,8 @@
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
         "dbsctr_vm_handoff": "deny",
-        "1password_*": "ask"
+        "1password_*": "ask",
+        "task": "deny"
       }
     },
     "build-rnd": {
@@ -142,7 +143,8 @@
         "dbsctr_improvement_claim": "allow",
         "dbsctr_improvement_update": "allow",
         "dbsctr_provider_evaluation_save": "allow",
-        "dbsctr_vm_handoff": "ask"
+        "dbsctr_vm_handoff": "ask",
+        "task": "deny"
       }
     },
     "plan": {
@@ -205,11 +207,7 @@
         "dbsctr_incident_update": "deny",
         "dbsctr_incident_forget": "deny",
         "dbsctr_vm_handoff": "deny",
-        "task": {
-          "*": "deny",
-          "explore-openai": "allow",
-          "scout-openai": "allow"
-        }
+        "task": "deny"
       }
     }
   },
