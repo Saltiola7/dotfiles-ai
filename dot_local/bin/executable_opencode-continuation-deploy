@@ -177,7 +177,8 @@ def rollback(home, backup):
         identity = digest(current) if current is not None else None
         if (identity, mode) not in ((item["before"], item["mode"]), (item["after"], item["after_mode"])):
             raise RuntimeError("rollback_drift")
-    for name, item in reversed(list(receipt["targets"].items())):
+    for name in reversed([name for name in TARGETS if name in receipt["targets"]]):
+        item = receipt["targets"][name]
         target = home / name
         if item["before"] is None:
             if target.exists():
@@ -262,9 +263,14 @@ def main():
                             raise RuntimeError("target_drift")
                     result["state"] = "applied"
                     save_receipt(backup / "receipt.json", result)
-                except Exception:
+                except Exception as error:
                     if not touched:
                         raise
+                    reason = str(error).partition(":")[0]
+                    result["failure"] = {"target": name, "reason": reason if reason in {
+                        "source_dirty", "target_drift", "verification_failed", "command_failed", "unsafe_target"}
+                        else "apply_error"}
+                    save_receipt(backup / "receipt.json", result)
                     rollback(home, backup)
                     raise RuntimeError("apply_failed_rolled_back") from None
                 finally:
