@@ -1,7 +1,12 @@
 # Canonical Session Continuation
 
-Status: isolated core delivered; OpenCode adapter ready for isolated implementation;
-rollout remains pending.
+Status: core and OpenCode adapter delivered; targeted rollout ready.
+
+Adapter R2 delivered through `4ceb72d` and `8317afe`, merged as
+`1e10ef20ac26f2b267adc90b2100a009abc0a595`. Scoped validation passed 453 tests
+with one skipped and 42 subtests; native same-session/model-change resumption,
+canonical write isolation and reader write denial passed. Python 3.12/3.13/3.14
+CI and the CentOS smoke passed. This is source delivery, not live enrollment.
 
 Adapter readiness was reopened by a reproduced killed-writer/hot-journal failure.
 The operator approved bounded file-identity-bound SQLite storage recovery, followed
@@ -290,8 +295,8 @@ mutation rather than falling back to the conversation home.
 | Slice | Context | Dependency | State and ownership |
 |---|---|---|---|
 | `canonical-continuation-core` | Lifecycle | None from automatic delivery | Delivered to Git; not deployed or enrolled |
-| `canonical-continuation-opencode` | OpenCode | Continuation core | Native boundary qualified; isolated implementation ready |
-| `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Captured; host first, guests second |
+| `canonical-continuation-opencode` | OpenCode | Continuation core | Delivered to Git with native qualification |
+| `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Ready; host first, guests second |
 
 **Text Equivalent:** Core continuation is independent of automatic merge. The
 OpenCode adapter depends on core contracts; rollout depends on the qualified
@@ -345,7 +350,9 @@ It deliberately excludes live deployment/operation from that slice; the aggregat
 rollout gates above remain required. Before launch, validate the plan against the
 committed profile and copy its exact content into ignored `.dbsctr/plans/`.
 The adapter plan is `../../specs/opencode_control_plane/CANONICAL-CONTINUATION-OPENCODE.plan.json`.
-No rollout plan is issued before operational qualification and retention are ready.
+The rollout plan is `../../specs/dotfiles_ai_distribution/CANONICAL-CONTINUATION-ROLLOUT.plan.json`;
+its feature defines target order, private backup/rollback, retained history,
+future runtime qualification and the distinction between deployment and activation.
 
 ## Readiness And Recovery Risks
 
