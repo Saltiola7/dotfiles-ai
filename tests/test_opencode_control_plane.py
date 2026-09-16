@@ -144,11 +144,13 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
 
 
 def test_optional_local_repository_reference():
-    assert "references" not in rendered_config()
+    registry = rendered_config()["references"]["dbsctr-worktrees"]
+    assert registry["path"].endswith("/.local/state/dbsctr/worktrees")
     assert rendered_config()["permission"]["external_directory"] == "allow"
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
     assert rendered_config(data=centralized)["permission"]["external_directory"] == "allow"
+    assert rendered_config(data=centralized)["references"]["dbsctr-worktrees"]["path"] == "/Volumes/ext/state/dbsctr/worktrees"
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -160,6 +162,7 @@ def test_optional_local_repository_reference():
     }]
     rendered = rendered_config(data=configured)
     assert rendered["references"] == {
+        "dbsctr-worktrees": registry,
         "project-reference": {
             "path": "/workspace/reference/docs",
             "description": "Project reference.",
@@ -392,6 +395,11 @@ def test_primary_external_access_preserves_lifecycle_permissions():
         "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_continuation_enroll": "ask",
+        "dbsctr_continuation_provider": "ask",
+        "dbsctr_continuation_recover": "ask",
+        "dbsctr_continuation_storage_recover": "ask",
+        "dbsctr_continuation_handover": "ask",
         "dbsctr_reconcile": "allow",
         "dbsctr_phase_span": "allow",
         "dbsctr_execution_benchmark": "allow",
@@ -561,7 +569,10 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const status = tool({' in tools
     assert 'export const attach = tool({' in tools
     assert "worktree: tool.schema.string().optional()" in tools
-    assert "rememberCycleTarget(context.sessionID, target)" in tools
+    assert "continuationAttach(context, args.worktree, args.mode)" in tools
+    assert "rememberCycleTarget(context.sessionID, target)" in (OC / "lib/continuation.ts").read_text()
+    for name in ("preflight", "continuation_recover", "continuation_handover"):
+        assert f'export const {name} = tool({{' in tools
     assert tools.count("cycleTarget(context.sessionID, context.worktree)") >= 6
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools

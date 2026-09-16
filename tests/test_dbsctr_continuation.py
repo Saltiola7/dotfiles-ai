@@ -1,10 +1,12 @@
 """Continuation admission contracts use disposable Git and native identity."""
 
 import json
+import hashlib
 import runpy
 import os
 import sqlite3
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -374,3 +376,104 @@ def test_continuation_corrupt_writer_state_is_not_authority(cycle):
     with sqlite3.connect(cycle.continuation_path) as db:
         db.execute("UPDATE cycles SET writer=NULL")
     assert call(cycle, ok=False)["reason"] == "invalid_state"
+
+
+def test_continuation_no_selection_is_not_a_registry_error(cycle):
+    cycle.request.pop("worktree")
+    result = call(cycle)
+    assert result["reason"] == "not_enrolled"
+    assert result["cycle_id"] is None
+    assert result["next_action"] == "select_target"
+    assert not cycle.continuation_path.exists()
+
+
+def test_continuation_lost_idle_owner_can_be_explicitly_recovered(cycle):
+    enroll(cycle)
+    identity = {"session_id": "reader", "message_id": "reader-old"}
+    approval = approve(cycle, "recover", **identity)
+    result = call(cycle, "recover", generation=1, approval=approval, **identity)
+    assert result["generation"] == 2
+    assert result["state"] == "reader_only"
+    assert call(cycle, "attach", mode="writer", generation=2, **identity)["generation"] == 3
+
+
+def interrupt_storage(cycle):
+    with sqlite3.connect(cycle.continuation_path) as db:
+        db.execute("CREATE TABLE spill_fixture (value TEXT)")
+    script = """
+import sqlite3,sys,time
+db=sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA cache_size=1')
+db.execute('BEGIN IMMEDIATE')
+db.execute("UPDATE cycles SET writer=NULL,state='reader_only'")
+for _ in range(100):
+    db.execute('INSERT INTO spill_fixture VALUES (?)', ('x'*4096,))
+print('spilled',flush=True)
+time.sleep(60)
+"""
+    child = subprocess.Popen([sys.executable, "-c", script, str(cycle.continuation_path)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "spilled"
+    finally:
+        child.kill()
+        child.communicate(timeout=5)
+
+
+def test_continuation_interrupted_storage_does_not_strand_recovery(cycle):
+    enroll(cycle)
+    record_before = cycle.record_path().read_bytes()
+    interrupt_storage(cycle)
+    dirty_before = hashlib.sha256(cycle.continuation_path.read_bytes()).hexdigest()
+    assert call(cycle, ok=False)["reason"] == "invalid_state"
+    assert hashlib.sha256(cycle.continuation_path.read_bytes()).hexdigest() == dirty_before
+    snapshot = call(cycle, "storage-check")
+    approval = {"receipt_id": "storage-recovery", "binding": snapshot["binding"]}
+    recovered = call(cycle, "storage-recover", approval=approval)
+    assert recovered["recovered"] is True
+    assert call(cycle, "storage-recover", approval=approval) == recovered
+    check = call(cycle)
+    assert check["writer_relation"] == "self"
+    assert check["generation"] == 1
+    assert cycle.record_path().read_bytes() == record_before
+    assert call(cycle, "recover", generation=1, approval=approve(cycle, "recover"))["generation"] == 2
+
+
+def test_continuation_storage_recovery_rejects_stale_or_missing_approval(cycle):
+    enroll(cycle)
+    snapshot = call(cycle, "storage-check")
+    assert not (cycle.continuation_path.parent / "storage-recoveries").exists()
+    assert call(cycle, "storage-recover", ok=False)["reason"] == "approval_required"
+    with sqlite3.connect(cycle.continuation_path) as db:
+        db.execute("UPDATE cycles SET generation=generation+1")
+    approval = {"receipt_id": "stale-storage", "binding": snapshot["binding"]}
+    assert call(cycle, "storage-recover", approval=approval, ok=False)["reason"] == "approval_required"
+    assert not (cycle.continuation_path.parent / "storage-recoveries").exists()
+    assert call(cycle)["generation"] == 2
+
+
+def test_continuation_storage_recovery_rejects_unsafe_journal(cycle):
+    enroll(cycle)
+    outside = Path(cycle.temp.name) / "do-not-touch"
+    outside.write_text("fixture")
+    Path(str(cycle.continuation_path) + "-journal").symlink_to(outside)
+    assert call(cycle, "storage-check", ok=False)["reason"] == "invalid_state"
+    assert outside.read_text() == "fixture"
+
+
+def test_continuation_completed_cycle_releases_only_its_current_route(cycle):
+    enroll(cycle)
+    operation = call(cycle, "admit", generation=1, call_id="complete", operation_class="lifecycle")
+    record = json.loads(cycle.record_path().read_text())
+    record.update(state="completed", completed_at=record["created_at"])
+    cycle.record_path().write_text(json.dumps(record))
+    call(cycle, "finish", operation_id=operation["operation_id"], outcome="completed")
+    cycle.request.pop("worktree")
+    assert call(cycle)["next_action"] == "select_target"
+
+
+def test_continuation_missing_enrolled_database_is_not_empty_history(cycle):
+    enroll(cycle)
+    cycle.continuation_path.unlink()
+    assert call(cycle, ok=False)["reason"] == "invalid_state"
+    assert not cycle.continuation_path.exists()

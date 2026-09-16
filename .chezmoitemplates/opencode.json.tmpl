@@ -1,4 +1,7 @@
 {{- $references := dict -}}
+{{- $worktrees := printf "%s/.local/state/dbsctr/worktrees" .chezmoi.homeDir -}}
+{{- if .dotfiles_ai.state.root }}{{ $worktrees = printf "%s/dbsctr/worktrees" .dotfiles_ai.state.root }}{{ end -}}
+{{- $_ := set $references "dbsctr-worktrees" (dict "path" $worktrees "description" "Registered DBSCTR execution worktrees. Conversations remain in their canonical repositories; Plan is read-only and coordinated writes require attachment.") -}}
 {{- range .dotfiles_ai.sandbox.workspaces -}}
   {{- range .mounts -}}
     {{- if ne .reference_name "" -}}
@@ -117,6 +120,11 @@
         "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_continuation_enroll": "ask",
+        "dbsctr_continuation_provider": "ask",
+        "dbsctr_continuation_recover": "ask",
+        "dbsctr_continuation_storage_recover": "ask",
+        "dbsctr_continuation_handover": "ask",
         "dbsctr_reconcile": "allow",
         "dbsctr_phase_span": "allow",
         "dbsctr_execution_benchmark": "allow",
@@ -250,8 +258,15 @@
     "context7_*": "deny",
     "1password_*": "deny",
     "external_directory": "allow",
+    "dbsctr_preflight": "allow",
+    "dbsctr_continuation_enroll": "deny",
+    "dbsctr_continuation_provider": "deny",
+    "dbsctr_continuation_recover": "deny",
+    "dbsctr_continuation_storage_recover": "deny",
+    "dbsctr_continuation_handover": "deny",
     "bash": {
       "*": "allow",
+      "*dbsctrctl continuation-*": "deny",
       "rm *": "ask",
       "git commit *": "ask",
       "git push *": "ask",

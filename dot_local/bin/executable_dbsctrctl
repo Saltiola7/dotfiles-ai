@@ -5334,8 +5334,7 @@ def continuation_connection(root, *, write=False, create=False):
         if os.path.lexists(candidate):
             continuation_private(candidate)
     if not path.exists() and not create:
-        yield None
-        return
+        raise ContinuationError("invalid_state")
     # Serialize first creation without treating a half-created database as valid.
     lock = None
     connection = None
@@ -5439,18 +5438,27 @@ def continuation_native(request, read_only=False):
     except (RuntimeError, TypeError):
         if not read_only:
             raise ContinuationError("invalid_identity") from None
-        # Plan may inspect, but this branch grants no mutation or activation authority.
+        # Other primaries may inspect, but gain no mutation or activation authority.
         try:
             if session_for_message(None, message, require_primary=True) != session:
                 raise ContinuationError("invalid_identity")
             with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as db:
-                if db.execute("SELECT agent FROM session WHERE id=?", (session,)).fetchone() != ("plan",):
+                actor = db.execute("SELECT agent FROM session WHERE id=?", (session,)).fetchone()
+                if (not actor or not isinstance(actor[0], str) or not OPAQUE_ID.fullmatch(actor[0])
+                        or actor[0] in {"build", "build-gpt", "build-claude"}):
                     raise ContinuationError("invalid_identity")
             activation = None
         except (RuntimeError, TypeError, sqlite3.Error):
             raise ContinuationError("invalid_identity") from None
     boundary = hashlib.sha256(str(opencode_database().resolve()).encode()).hexdigest()
     return continuation_digest([boundary, session]), activation
+
+
+def continuation_compatible(activation):
+    if (activation["core_revision"] != "3.31" or activation["overlay_revision"] != {
+            "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
+            "build-claude": "anthropic-2026-07-26"}.get(activation["agent_id"])):
+        raise ContinuationError("revision_incompatible")
 
 
 def continuation_target(request, session_key, allow_terminal=False):
@@ -5467,7 +5475,9 @@ def continuation_target(request, session_key, allow_terminal=False):
             with continuation_connection(home) as db:
                 route = db.execute("SELECT c.locator_id FROM routes r JOIN cycles c USING(cycle_id) "
                                    "WHERE r.session_key=?", (session_key,)).fetchone() if db else None
-            target = worktree_for_id(home, route[0]) if route else invocation
+            if route is None:
+                raise ContinuationError("not_enrolled")
+            target = worktree_for_id(home, route[0])
         target = Path(target).resolve(strict=True)
         registry = worktree_registry_root().resolve(strict=True)
         if target == registry or registry not in target.parents:
@@ -5563,6 +5573,150 @@ def continuation_runtime(root, cycle_id):
         return {"session_ids": sessions if len(rows) <= 100 else [], "activation": single}
 
 
+def continuation_storage_binding(target, record_path, record, session_key, activation):
+    path = continuation_path(target)
+    continuation_private(path.parent, directory=True)
+    continuation_private(path)
+    files, total, deadline = [], 0, time.monotonic() + 5
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        name = Path(str(path) + suffix)
+        if not os.path.lexists(name):
+            files.append([suffix, None])
+            continue
+        continuation_private(name)
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            before = os.fstat(descriptor)
+            total += before.st_size
+            if total > 64 * 1024 * 1024:
+                raise ContinuationError("capacity_unavailable")
+            checksum, count = hashlib.sha256(), 0
+            while chunk := os.read(descriptor, 65536):
+                count += len(chunk)
+                if count > before.st_size or time.monotonic() >= deadline:
+                    raise ContinuationError("capacity_unavailable")
+                checksum.update(chunk)
+            after = os.fstat(descriptor)
+            current = name.lstat()
+            identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+            if count != before.st_size or identity(before) != identity(after) or identity(before) != identity(current):
+                raise ContinuationError("state_busy")
+            files.append([suffix, identity(before), checksum.hexdigest()])
+        finally:
+            os.close(descriptor)
+    return {"action": "storage-recover", "cycle_id": record["cycle_id"], "worktree_id": worktree_id(target),
+            "repository_digest": continuation_digest(str(common_git_dir(target).resolve())),
+            "actor_digest": session_key, "activation_digest": continuation_digest(activation),
+            "record_digest": hashlib.sha256(record_path.read_bytes()).hexdigest(),
+            "storage_digest": continuation_digest(files)}
+
+
+def command_continuation_storage(args):
+    response = {"schema_version": 1, "ok": False, "reason": "invalid_state", "binding": None, "recovered": False}
+    descriptor = None
+    db = None
+    recover = args.command == "continuation-storage-recover"
+    try:
+        if args.request_json != "-":
+            raise ContinuationError("invalid_state")
+        raw = sys.stdin.buffer.read(65537)
+        if len(raw) > 65536:
+            raise ContinuationError("capacity_unavailable")
+        request = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        fields = {"schema_version", "worktree", "session_id", "message_id", "runtime_worktree",
+                  "runtime_directory", "harness_activation"}
+        if (not isinstance(request, dict) or set(request) - fields - ({"approval"} if recover else set())
+                or type(request.get("schema_version")) is not int or request["schema_version"] != 1
+                or not isinstance(request.get("worktree"), str)):
+            raise ContinuationError("invalid_state")
+        session_key, activation = continuation_native(request, read_only=not recover)
+        if recover:
+            continuation_compatible(activation)
+        _, target, record_path, record = continuation_target(request, session_key)
+        path = continuation_path(target)
+        continuation_private(path.parent, directory=True)
+        lock_path = path.parent / "state.lock"
+        continuation_private(lock_path)
+        descriptor = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                fcntl.flock(descriptor, (fcntl.LOCK_EX if recover else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ContinuationError("state_busy")
+                time.sleep(0.01)
+        binding = continuation_storage_binding(target, record_path, record, session_key, activation)
+        response.update(ok=True, reason="ok", binding=binding)
+        if recover:
+            approval = request.get("approval")
+            if (not isinstance(approval, dict) or set(approval) != {"receipt_id", "binding"}
+                    or not isinstance(approval["receipt_id"], str) or not OPAQUE_ID.fullmatch(approval["receipt_id"])):
+                raise ContinuationError("approval_required")
+            request_digest = continuation_digest(request)
+            receipts = path.parent / "storage-recoveries"
+            if os.path.lexists(receipts):
+                continuation_private(receipts, directory=True)
+            receipt = receipts / f'{approval["receipt_id"]}.json'
+            if os.path.lexists(receipt):
+                continuation_private(receipt)
+                if receipt.stat().st_size > 8192:
+                    raise ContinuationError("invalid_state")
+                previous = json.loads(receipt.read_text(), object_pairs_hook=no_duplicate_keys)
+                if (not isinstance(previous, dict) or set(previous) != {
+                        "schema_version", "state", "request_digest", "binding", "response"}
+                        or previous["schema_version"] != 1 or previous["state"] not in {"prepared", "completed"}
+                        or previous["binding"] != approval["binding"]):
+                    raise ContinuationError("invalid_state")
+                if previous["request_digest"] != request_digest:
+                    raise ContinuationError("approval_required")
+                if previous.get("state") == "completed":
+                    saved = previous["response"]
+                    if (not isinstance(saved, dict) or set(saved) != set(response)
+                            or saved["schema_version"] != 1 or saved["ok"] is not True
+                            or saved["recovered"] is not True or saved["reason"] != "ok"
+                            or saved["binding"] != previous["binding"]):
+                        raise ContinuationError("invalid_state")
+                    print(json.dumps(previous["response"], sort_keys=True, separators=(",", ":")))
+                    return
+            continuation_approval(request, binding)
+            receipts.mkdir(mode=0o700, exist_ok=True)
+            marker = {"schema_version": 1, "state": "prepared", "request_digest": request_digest,
+                      "binding": binding, "response": None}
+            private_json(receipt, marker)
+            # Explicit consent authorizes only SQLite's physical recovery, not row edits.
+            db = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=0)
+            deadline = time.monotonic() + 3
+            db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+            db.execute("PRAGMA foreign_keys=ON")
+            if ([row[0] for row in db.execute("SELECT version FROM metadata")] != [1]
+                    or db.execute("PRAGMA integrity_check(1)").fetchone() != ("ok",)
+                    or db.execute("PRAGMA foreign_key_check").fetchone() is not None):
+                raise ContinuationError("recovery_incomplete")
+            db.close()
+            db = None
+            response["recovered"] = True
+            marker.update(state="completed", response=response)
+            private_json(receipt, marker)
+        print(json.dumps(response, sort_keys=True, separators=(",", ":")))
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, sqlite3.Error) as error:
+        reason = str(error) if isinstance(error, ContinuationError) else "invalid_state"
+        if isinstance(error, sqlite3.OperationalError) and "locked" in str(error):
+            reason = "state_busy"
+        if reason not in {"invalid_identity", "invalid_target", "invalid_state", "state_busy", "approval_required",
+                          "capacity_unavailable", "recovery_incomplete"}:
+            reason = "invalid_state"
+        response.update(ok=False, reason=reason, recovered=False)
+        print(json.dumps(response, sort_keys=True, separators=(",", ":")))
+        raise SystemExit(1)
+    finally:
+        if db is not None:
+            db.close()
+        if descriptor is not None:
+            os.close(descriptor)
+
+
 def command_continuation(args):
     response = continuation_response()
     command = args.command.removeprefix("continuation-")
@@ -5594,10 +5748,8 @@ def command_continuation(args):
         target_session = request.get("target_session_id")
         if target_session is not None and (not isinstance(target_session, str) or not OPAQUE_ID.fullmatch(target_session)):
             raise ContinuationError("invalid_identity")
-        if command != "check" and (activation["core_revision"] != "3.31" or activation["overlay_revision"] != {
-                "build": "neutral-2026-07-26", "build-gpt": "openai-2026-07-26",
-                "build-claude": "anthropic-2026-07-26"}.get(activation["agent_id"])):
-            raise ContinuationError("revision_incompatible")
+        if command != "check":
+            continuation_compatible(activation)
         if "approval" in request and (not isinstance(request["approval"], dict)
                                        or set(request["approval"]) != {"receipt_id", "binding"}):
             raise ContinuationError("approval_required")
@@ -5674,6 +5826,7 @@ def command_continuation(args):
                             "SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1",
                             (cycle_id,)).fetchone():
                         db.execute("UPDATE cycles SET state='closed',writer=NULL WHERE cycle_id=?", (cycle_id,))
+                        db.execute("DELETE FROM routes WHERE session_key=? AND cycle_id=?", (session_key, cycle_id))
                     response["operation_id"] = operation["operation_id"]
                 else:
                     generation = request.get("generation")
@@ -5768,7 +5921,7 @@ def command_continuation(args):
                                        "WHERE cycle_id=?", (new_owner, cycle_id))
                     elif command == "recover":
                         continuation_approval(request, binding)
-                        if not pending and cycle["state"] != "recovery_required":
+                        if cycle["state"] not in {"owned", "draining", "recovery_required"}:
                             raise ContinuationError("invalid_state")
                         db.execute("UPDATE operations SET state='completed',completion_class='operator_quiescence' "
                                    "WHERE cycle_id=? AND state!='completed'", (cycle_id,))
@@ -5785,6 +5938,10 @@ def command_continuation(args):
         print(json.dumps(response, sort_keys=True, separators=(",", ":")))
     except (ContinuationError, RuntimeError, OSError, ValueError, TypeError, KeyError, sqlite3.Error) as error:
         reason = str(error) if isinstance(error, ContinuationError) else "invalid_state"
+        if command == "check" and reason == "not_enrolled":
+            response.update(ok=True, reason=reason, next_action="select_target")
+            print(json.dumps(response, sort_keys=True, separators=(",", ":")))
+            return
         response.update(ok=False, reason=reason, operation_id=None, event_id=None)
         print(json.dumps(response, sort_keys=True, separators=(",", ":")))
         raise SystemExit(1)
@@ -5830,6 +5987,8 @@ def continuation_guard(args):
             if not db.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1",
                               (requested_cycle,)).fetchone():
                 return
+        if args.command in {"cleanup", "cycle-retire-worktree", "cycle-retire", "cycle-portabilize"}:
+            raise ContinuationError("operation_in_flight")
         operation_id = os.environ.get("DBSCTR_CONTINUATION_OPERATION", "")
         operation = db.execute("SELECT * FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
         if (not operation or operation["cycle_id"] != requested_cycle or operation["state"] != "running"
@@ -14654,6 +14813,10 @@ def parser():
         continuation = commands.add_parser("continuation-" + name)
         continuation.add_argument("--request-json", required=True)
         continuation.set_defaults(func=command_continuation)
+    for name in ("check", "recover"):
+        storage = commands.add_parser("continuation-storage-" + name)
+        storage.add_argument("--request-json", required=True)
+        storage.set_defaults(func=command_continuation_storage)
     return result
 
 
