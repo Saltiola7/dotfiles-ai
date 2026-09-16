@@ -1,5 +1,38 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-15 - Canonical Continuation Rollout
+
+- Installed and verified the eleven continuation targets on the host and both
+  configured managed guests, using scripts-excluded, source-bound deployment.
+  Guest-local provider/model settings and unrelated configuration were preserved
+  through a field-scoped continuation projection; machine TOML was not rewritten.
+- Promoted the existing native probe to a managed asset and advanced semantic
+  validation to revision 3. A managed continuation installation now requires
+  real native hook/attachment qualification before future OpenCode activation.
+  Prior release-lock revisions remain readable; no CLI version upgrade was needed.
+- Installed-layout probes passed on all three boundaries: native attach/write/
+  bash/preflight, exact-session resumption under a changed same-provider model,
+  untouched canonical fixture files and denied reader writes. Probe inference was
+  scripted loopback only; no production conversation or credential was copied.
+- Two initial host attempts restored exact prior files after the new asset's
+  missing parent directory blocked apply. A regression now covers creating only
+  missing parents. Guest preview refused unrelated full-template changes before
+  mutation; scoped projection preserved them. A cold guest probe timed out and
+  passed on retry; the failed evidence remains retained rather than called a pass.
+- Guest deployment used credential-free direct Lima commands and commit-marked
+  public archives. The initially running guest remains running and the initially
+  stopped guest is stopped. Local private target backups and failed worktrees are
+  retained for operator review. No broad apply or automatic OpenCode restart ran.
+- Active native processes still need an operator-controlled reload of the exact
+  conversation to expose the new tools. No real incident cycle was enrolled,
+  force-rebound, advanced or declared repaired from fixture evidence. Cross-repo
+  attachment remains excluded by the approved scope.
+- Kernel implementation: `c64d5f8`; deployment corrections: `d96bc26`, `29ae3d0`,
+  `55adf74`. Targeted pytest, byte/mode verification, idempotence, real rollback and
+  native qualification are the authorities. No new dependency, Gate Exception or
+  published release artifact. Final validation and delivery are recorded in the
+  Cycle Record; intended Final Push is the feature branch and draft PR into main.
+
 ## 2026-09-06 - OpenCode Validator Output Capture
 
 - Replaced pipe/selector capture in the rolling OpenCode semantic validator with
