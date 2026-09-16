@@ -2,6 +2,7 @@
 """Files-only continuation deployment; private backups never leave this boundary."""
 
 import argparse
+import copy
 import fcntl
 import hashlib
 import json
@@ -30,6 +31,10 @@ TARGETS = {
 CONFIG = ".config/opencode/opencode.json"
 PERMISSIONS = {"dbsctr_continuation_enroll", "dbsctr_continuation_provider", "dbsctr_continuation_recover",
                "dbsctr_continuation_storage_recover", "dbsctr_continuation_handover"}
+CONFIG_FIELDS = {("references", "dbsctr-worktrees"), ("permission", "dbsctr_preflight"),
+                 ("permission", "bash", "*dbsctrctl continuation-*")}
+CONFIG_FIELDS |= {("permission", name) for name in PERMISSIONS}
+CONFIG_FIELDS |= {("agent", "build", "permission", name) for name in PERMISSIONS}
 
 
 def digest(value):
@@ -78,10 +83,7 @@ def atomic_file(path, value, mode):
 
 
 def allowed_config_delta(old, new):
-    prefixes = {("references", "dbsctr-worktrees"), ("permission", "dbsctr_preflight"),
-                ("permission", "bash", "*dbsctrctl continuation-*")}
-    prefixes |= {("permission", name) for name in PERMISSIONS}
-    prefixes |= {("agent", "build", "permission", name) for name in PERMISSIONS}
+    prefixes = CONFIG_FIELDS
 
     def valid(before, after, path=()):
         if any(path[:len(prefix)] == prefix for prefix in prefixes):
@@ -93,6 +95,28 @@ def allowed_config_delta(old, new):
         return before == after
 
     return valid(old, new)
+
+
+def project_config(current, rendered):
+    before, desired = json.loads(current), json.loads(rendered)
+    projected = copy.deepcopy(before)
+    if not isinstance(projected, dict) or not isinstance(desired, dict):
+        raise RuntimeError("unrelated_config_change")
+    for path in sorted(CONFIG_FIELDS):
+        value = desired
+        for key in path:
+            if not isinstance(value, dict) or key not in value:
+                raise RuntimeError("managed_targets_missing")
+            value = value[key]
+        parent = projected
+        for key in path[:-1]:
+            parent = parent.setdefault(key, {})
+            if not isinstance(parent, dict):
+                raise RuntimeError("unrelated_config_change")
+        parent[path[-1]] = value
+    if not allowed_config_delta(before, projected):
+        raise RuntimeError("unrelated_config_change")
+    return (json.dumps(projected, indent=2, sort_keys=True) + "\n").encode()
 
 
 def source_identity(source):
@@ -136,8 +160,7 @@ def preview(source, config, home):
         before, mode = read_target(path)
         after = execute([*command, "cat", str(path)])
         if name == CONFIG and before is not None:
-            if not allowed_config_delta(json.loads(before), json.loads(after)):
-                raise RuntimeError("unrelated_config_change")
+            after = project_config(before, after)
         elif before is not None and before != after:
             blob = execute(["git", "hash-object", "--stdin"], input_data=before).decode().strip()
             if blob not in history[name]:
@@ -149,7 +172,8 @@ def preview(source, config, home):
         contents[name] = before
     if ".local/bin/dbsctrctl" not in targets or CONFIG not in targets:
         raise RuntimeError("managed_targets_missing")
-    return {"schema_version": 1, "source_commit": revision, "state": "preview", "targets": targets}, contents
+    return {"schema_version": 1, "source_commit": revision, "config_digest": digest(config.read_bytes()),
+            "state": "preview", "targets": targets}, contents
 
 
 def save_receipt(path, value):
@@ -249,13 +273,23 @@ def main():
                     for name, item in result["targets"].items():
                         if source_identity(source) != result["source_commit"]:
                             raise RuntimeError("source_dirty")
+                        if "config_digest" in result and digest(args.config.read_bytes()) != result["config_digest"]:
+                            raise RuntimeError("config_drift")
                         value, mode = read_target(home / name)
                         if (digest(value) if value is not None else None, mode) != (item["before"], item["mode"]):
                             raise RuntimeError("target_drift")
                         (home / name).parent.mkdir(parents=True, exist_ok=True,
                                                    mode=0o700 if name.startswith(".config/") else 0o755)
                         touched = True
-                        execute([*command, str(home / name)])
+                        if name == CONFIG and value is not None:
+                            rendered = execute(["chezmoi", "--config", str(args.config), "--source", str(source),
+                                                "cat", str(home / name)])
+                            projected = project_config(value, rendered)
+                            if digest(projected) != item["after"]:
+                                raise RuntimeError("config_drift")
+                            atomic_file(home / name, projected, item["after_mode"])
+                        else:
+                            execute([*command, str(home / name)])
                         value, mode = read_target(home / name)
                         if value is None or (digest(value), mode) != (item["after"], item["after_mode"]):
                             raise RuntimeError("verification_failed")
@@ -270,7 +304,7 @@ def main():
                         raise
                     reason = str(error).partition(":")[0]
                     result["failure"] = {"target": name, "reason": reason if reason in {
-                        "source_dirty", "target_drift", "verification_failed", "command_failed", "unsafe_target"}
+                        "source_dirty", "target_drift", "verification_failed", "command_failed", "unsafe_target", "config_drift"}
                         else "apply_error"}
                     save_receipt(backup / "receipt.json", result)
                     rollback(home, backup)
@@ -285,7 +319,7 @@ def main():
         if reason not in {"unsafe_target", "source_dirty", "invalid_source", "unrelated_config_change",
                           "unrecognized_local_edit", "managed_targets_missing", "unsafe_backup", "invalid_backup",
                           "rollback_drift", "backup_required", "source_required", "verification_failed",
-                          "target_drift", "apply_failed_rolled_back", "command_failed", "runtime_busy"}:
+                          "target_drift", "apply_failed_rolled_back", "command_failed", "runtime_busy", "config_drift"}:
             reason = "deployment_failed"
         result = {"schema_version": 1, "state": "blocked", "reason": reason}
         target = str(error).partition(":")[2]

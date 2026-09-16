@@ -109,9 +109,9 @@ def test_failed_apply_rolls_back_only_owned_targets(tmp_path, monkeypatch, capsy
 
     def execute(argv, **_kwargs):
         calls.append(argv)
-        assert "--exclude" in argv and "scripts" in argv
         if len(calls) == 2:
             raise RuntimeError("command_failed")
+        assert "--exclude" in argv and "scripts" in argv
         module.atomic_file(Path(argv[-1]), b"installed", 0o600)
         return b""
 
@@ -168,3 +168,22 @@ def test_apply_creates_missing_parent_without_reconciling_existing_dirs(tmp_path
     monkeypatch.setattr(sys, "argv", ["deploy", "apply", "--source", str(source)])
     module.main()
     assert json.loads(capsys.readouterr().out)["state"] == "applied"
+
+
+def test_field_projection_preserves_guest_drift_and_is_idempotent():
+    module = helper()
+    before = {"provider": {"local": {"value": "retain"}}, "permission": {"edit": "deny"},
+              "agent": {"build": {"permission": {"task": "ask"}}}}
+    desired = {"provider": {"local": {"value": "unrelated change"}}}
+    for path in module.CONFIG_FIELDS:
+        parent = desired
+        for key in path[:-1]:
+            parent = parent.setdefault(key, {})
+        parent[path[-1]] = {"path": "/fixture/worktrees"} if path[0] == "references" else "ask"
+    result = module.project_config(json.dumps(before).encode(), json.dumps(desired).encode())
+    value = json.loads(result)
+    assert value["provider"] == before["provider"]
+    assert value["permission"]["edit"] == "deny"
+    assert value["agent"]["build"]["permission"]["task"] == "ask"
+    assert module.allowed_config_delta(before, value)
+    assert module.project_config(result, json.dumps(desired).encode()) == result
