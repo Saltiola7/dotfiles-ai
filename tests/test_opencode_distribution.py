@@ -196,6 +196,14 @@ def test_continuation_requires_native_qualification_not_only_tool_loading(tmp_pa
         helper.validate_binary(tmp_path / "binary", "1.18.29")
 
 
+def test_native_probe_does_not_fetch_dependencies_in_fresh_homes():
+    probe = (ROOT / "dot_local/share/opencode-continuation/native_probe.py").read_text()
+    assert '"npm_config_offline": "true"' in probe
+    assert 'staged / "package-lock.json"' in probe
+    assert 'metadata["version"]' in probe or 'for key in ("version", "dependencies")' in probe
+    assert 'repo / ".opencode/tools"' not in probe
+
+
 def test_stage_lock_binds_binary_and_activates(tmp_path: Path, monkeypatch) -> None:
     helper = load_updater()
     root = tmp_path / "state/opencode-package"

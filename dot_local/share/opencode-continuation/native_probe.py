@@ -76,8 +76,6 @@ def main():
         helper = binaries / "dbsctrctl"
         helper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(helper_source))} \"$@\"\n")
         helper.chmod(0o700)
-        tools = repo / ".opencode/tools"
-        tools.mkdir(parents=True)
         staged = home / "config/opencode"
         for name in ("lib/dbsctr-runtime.ts", "lib/continuation.ts", "plugins/continuation.ts", "tools/dbsctr.ts"):
             destination = staged / name
@@ -89,9 +87,13 @@ def main():
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(args.sdk_modules / package, destination)
             version = json.loads((args.sdk_modules / "@opencode-ai/plugin/package.json").read_text())["version"]
-            (staged / "package.json").write_text(json.dumps({"private": True, "dependencies": {"@opencode-ai/plugin": version}}))
-        exports = staged / "tools/dbsctr.ts"
-        (tools / "dbsctr.ts").write_text(f"export {{attach,preflight,continuation_recover,continuation_handover}} from {json.dumps(str(exports))};\n")
+            dependencies = {"@opencode-ai/plugin": version}
+            (staged / "package.json").write_text(json.dumps({"private": True, "dependencies": dependencies}))
+            packages = {"": {"dependencies": dependencies}}
+            for package in ("@opencode-ai/plugin", "@opencode-ai/sdk", "zod"):
+                metadata = json.loads((staged / "node_modules" / package / "package.json").read_text())
+                packages["node_modules/" + package] = {key: metadata[key] for key in ("version", "dependencies") if key in metadata}
+            (staged / "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "requires": True, "packages": packages}))
         plan = root / "plan.json"
         gates = ("domain", "behavior", "spec", "contract", "test_driven_implementation", "refactor",
                  "review_integrate", "release", "deploy", "operate", "maintain_retire")
@@ -113,6 +115,7 @@ def main():
                "XDG_CONFIG_HOME": str(home / "config"), "XDG_DATA_HOME": str(home / "data"),
                "XDG_STATE_HOME": str(home / "state"), "XDG_CACHE_HOME": str(home / "cache"),
                "DBSCTR_WORKTREE_ROOT": str(registry), "OPENCODE_CONFIG_CONTENT": json.dumps(config),
+               "npm_config_offline": "true", "npm_config_audit": "false", "npm_config_fund": "false",
                "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
                "OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1"}
         if args.sdk_modules:

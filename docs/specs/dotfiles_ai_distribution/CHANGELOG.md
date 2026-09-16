@@ -7,7 +7,7 @@
   Guest-local provider/model settings and unrelated configuration were preserved
   through a field-scoped continuation projection; machine TOML was not rewritten.
 - Promoted the existing native probe to a managed asset and advanced semantic
-  validation to revision 3. A managed continuation installation now requires
+  validation to revision 4. A managed continuation installation now requires
   real native hook/attachment qualification before future OpenCode activation.
   Prior release-lock revisions remain readable; no CLI version upgrade was needed.
 - Installed-layout probes passed on all three boundaries: native attach/write/
@@ -19,6 +19,10 @@
   missing parents. Guest preview refused unrelated full-template changes before
   mutation; scoped projection preserved them. A cold guest probe timed out and
   passed on retry; the failed evidence remains retained rather than called a pass.
+  Repeated cold-start investigation found native background dependency installation
+  in fresh fixture homes. The probe now locks the actual copied SDK versions and
+  enforces npm offline mode, removing network dependence without weakening its
+  timeout or assertions. Validator revisions 1 through 3 remain readable.
 - Guest deployment used credential-free direct Lima commands and commit-marked
   public archives. The initially running guest remains running and the initially
   stopped guest is stopped. Local private target backups and failed worktrees are
