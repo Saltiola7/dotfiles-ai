@@ -1,6 +1,7 @@
 # Canonical Conversation Adapter
 
-Status: specified for isolated implementation after the continuation core.
+Status: delivered and qualified after the continuation core; existing native
+processes must reload before using the installed adapter.
 
 ## Profile And Boundary
 

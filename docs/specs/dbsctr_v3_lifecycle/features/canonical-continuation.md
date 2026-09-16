@@ -1,6 +1,6 @@
 # Canonical Continuation Core Contract
 
-Status: specified for isolated implementation, not delivered or enabled.
+Status: implemented and qualified; live cycle enrollment remains explicit and opt-in.
 
 ## Profile And Scope
 
@@ -338,8 +338,8 @@ Private State table is canonical for keys, nullability and values.
 ## Gates And Ownership
 
 The companion plan `../CANONICAL-CONTINUATION-CORE.plan.json` enumerates all gates.
-Kernel, Review/Integrate and Maintain/Retire are required; results are pending or
-not_run, with no exceptions. Release is not applicable without a published
+Kernel, Review/Integrate and Maintain/Retire are required and passed for core
+delivery; exact evidence remains in the Cycle Record, with no exceptions. Release is not applicable without a published
 versioned artifact. Deploy and Operate are not applicable to this isolated core
 slice: no installed helper, native runtime, active cycle, or environment changes.
 Dependent adapter/rollout slices require their own live gates; fixture success

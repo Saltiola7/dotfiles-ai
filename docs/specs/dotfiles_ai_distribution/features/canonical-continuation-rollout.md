@@ -1,6 +1,7 @@
 # Canonical Continuation Rollout
 
-Status: ready for implementation and explicitly requested targeted deployment.
+Status: delivered to the host and configured guests with installed-byte and native
+qualification; live conversation enrollment remains operator-controlled.
 
 ## Profile And Scope
 
@@ -42,6 +43,11 @@ preflight/continuation permission keys and continuation CLI denial. Refuse any
 other semantic change before deployment. Preserve providers, model selections,
 existing explicit denies and unrelated machine-local configuration. Do not print
 rendered configuration bodies or unknown private field names.
+
+The configuration projection selects only the continuation-owned fields from
+rendered source before planning; unrelated full-template differences are left
+untouched. Its resulting semantic delta still passes the independent allowlist.
+This is not a claim that unrelated pre-existing Chezmoi drift was reconciled.
 
 Before apply, retain exact prior target bytes/modes in an owner-private local
 backup with a source-bound receipt. Recheck target identities after preview and
