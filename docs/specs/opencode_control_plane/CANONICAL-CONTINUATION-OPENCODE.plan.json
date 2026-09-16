@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/opencode_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "The control-plane profile delivers managed source; this slice publishes no separately versioned artifact."},
+    "deploy": {"applicability": "not_applicable", "reason": "This source slice qualifies disposable runtimes only; dependent host-first rollout owns installation and live enrollment."},
+    "operate": {"applicability": "not_applicable", "reason": "No production runtime or active conversation is changed in this adapter slice; rollout must verify existing-conversation recovery."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

@@ -14,7 +14,7 @@ The operator also approved same-repository canonical-session continuation across
 the existing lifecycle, OpenCode and distribution contexts. Its decisions,
 source evidence, proposed contracts, acceptance and reopened readiness are in
 [`CANONICAL-CONTINUATION.md`](CANONICAL-CONTINUATION.md). This is not delivered
-behavior or an implementation approval. The continuation slices do not depend on
+behavior by itself or an implementation approval. The continuation slices do not depend on
 automatic merge. Native session identity remains unchanged; execution-target
 selection is separate from conversation home.
 
@@ -71,9 +71,9 @@ The user approved this complete context map and automatic-after-CI policy on
 | `verified-merge-core` | `build` | Disabled-by-default exact-head merge and post-merge cleanup primitives | None |
 | `chezmoi-delivery-policy` | `build` | Machine-local opt-in and exact administrator repository allowlist | `verified-merge-core` |
 | `base-session-handoff` | `build` | Return control to the stable base checkout after verified cleanup | `chezmoi-delivery-policy` |
-| `canonical-continuation-core` | `build` | Validated repository, activation and writer/recovery contracts; readiness validation pending | None |
-| `canonical-continuation-opencode` | `build` | Qualified same-conversation routing, admission, permissions and recovery | `canonical-continuation-core` |
-| `canonical-continuation-rollout` | `build` | Targeted host qualification, then configured guests | `canonical-continuation-opencode` |
+| `canonical-continuation-core` | `build` | Delivered isolated core; live enrollment remains off | None |
+| `canonical-continuation-opencode` | `build` | Delivered adapter and native same-conversation qualification | `canonical-continuation-core` |
+| `canonical-continuation-rollout` | `build` | Delivered to host and configured guests with native qualification | `canonical-continuation-opencode` |
 
 ## Safety Boundary
 

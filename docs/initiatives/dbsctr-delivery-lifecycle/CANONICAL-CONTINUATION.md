@@ -1,7 +1,48 @@
 # Canonical Session Continuation
 
-Status: Discovery; managed-coordination boundary selected, core contract drafted,
-adapter qualification and final readiness validation pending.
+Status: core, adapter and targeted rollout delivered and qualified. Existing
+native conversations still require operator-controlled reload and explicit
+enrollment/ownership consent; no live incident cycle is claimed repaired.
+
+Rollout merged as `da771f143bf90d0e81ab9b22c968f379ca9aff30`. All applicable gates,
+Python 3.12/3.13/3.14 CI and the CentOS smoke passed. Eleven targets were verified
+on the host and both configured guests. Native probes proved same-session
+resumption, changed same-provider model support, canonical write isolation and
+reader denial. Guest running/stopped states were preserved. SDK fixture staging
+is offline with truthful copied-version lockfiles; prior failed/cold-start
+evidence and private rollback receipts remain retained.
+
+The reported worktrees remain active and belong to repositories other than this
+delivery conversation's repository. That read-only finding does not authorize
+cross-repository attachment, source-path rebinding or work in those cycles.
+
+Adapter R2 delivered through `4ceb72d` and `8317afe`, merged as
+`1e10ef20ac26f2b267adc90b2100a009abc0a595`. Scoped validation passed 453 tests
+with one skipped and 42 subtests; native same-session/model-change resumption,
+canonical write isolation and reader write denial passed. Python 3.12/3.13/3.14
+CI and the CentOS smoke passed. This is source delivery, not live enrollment.
+
+Adapter readiness was reopened by a reproduced killed-writer/hot-journal failure.
+The operator approved bounded file-identity-bound SQLite storage recovery, followed
+by separate generation-bound ownership recovery. INT-032 and the linked contracts
+now cover that boundary. Preserve the original failed adapter worktree and use a
+fresh receipt/cycle for this revised scope; no live deployment is authorized by
+the former receipt.
+
+Core delivered through implementation commits `657f683` and `3205870`, merged as
+`efc99b86c000b758560c9d9f0327ac9424f48031`. Its required gates and Python
+3.12/3.13/3.14 CI passed; no live cycle was enrolled. Native loopback qualification
+on OpenCode 1.18.29 established real read/write/bash before/after behavior, actual
+write prevention and exact part-to-message correlation. The adapter contract
+records the failed-initializer boundary and does not promise an after finalizer.
+
+Core readiness evidence: all three committed diagrams rendered in GitHub's
+Mermaid frames at commit `78d18a45e06000c9c2cb697b758360b6944b641a` and were
+visually checked against their text equivalents. Initiative validation, artifact
+existence and the eleven-gate plan/profile check passed; seven focused Initiative
+validator tests passed. These are Discovery checks, not implementation evidence.
+The core uses Method Revision 3.29 and critical risk. No live cycle is enrolled
+by its isolated implementation or qualification fixtures.
 
 The operator approved the context map and outcomes below. This document preserves
 that approval, source evidence, proposed contracts and remaining decisions. It is
@@ -267,9 +308,9 @@ mutation rather than falling back to the conversation home.
 
 | Slice | Context | Dependency | State and ownership |
 |---|---|---|---|
-| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Specified; readiness validation pending before Build |
-| `canonical-continuation-opencode` | OpenCode | Continuation core | Blocked; Build implementation after runtime-boundary proof |
-| `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Captured; host first, guests second |
+| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Delivered to Git; not deployed or enrolled |
+| `canonical-continuation-opencode` | OpenCode | Continuation core | Delivered to Git with native qualification |
+| `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Delivered; host and guest native qualification passed |
 
 **Text Equivalent:** Core continuation is independent of automatic merge. The
 OpenCode adapter depends on core contracts; rollout depends on the qualified
@@ -305,24 +346,27 @@ scanner or dependency is prescribed; unavailable selected capabilities stay visi
 
 | Gate | Applicability | Result | Exception |
 |---|---|---|---|
-| Domain | required | pending | none |
-| Behavior | required | pending | none |
-| Spec | required | pending: core draft review and native adapter qualification | none |
-| Contract | required | pending | none |
-| Test-driven implementation | required | not_run | none |
-| Refactor | required | not_run | none |
-| Review/Integrate | required | not_run | none |
+| Domain | required | passed | none |
+| Behavior | required | passed | none |
+| Spec | required | passed | none |
+| Contract | required | passed | none |
+| Test-driven implementation | required | passed | none |
+| Refactor | required | passed | none |
+| Review/Integrate | required | passed | none |
 | Release | not_applicable: no separately published versioned artifact is selected | not_run | none |
-| Deploy | required for eventual qualified rollout; per-slice applicability must be explicit | not_run | none |
-| Operate | required for same-conversation recovery and host/guest evidence | not_run | none |
-| Maintain/Retire | required for legacy records, rollback, old-runtime exclusion and cleanup interaction | not_run | none |
+| Deploy | required for qualified rollout; per-slice applicability is explicit | passed | none |
+| Operate | required for native same-conversation recovery and host/guest qualification; live enrollment remains explicit | passed | none |
+| Maintain/Retire | required for legacy records, rollback, old-runtime exclusion and cleanup interaction | passed | none |
 
 The isolated core candidate plan is
 `../../specs/dbsctr_v3_lifecycle/CANONICAL-CONTINUATION-CORE.plan.json`.
 It deliberately excludes live deployment/operation from that slice; the aggregate
 rollout gates above remain required. Before launch, validate the plan against the
 committed profile and copy its exact content into ignored `.dbsctr/plans/`.
-No adapter or rollout plan is issued before its capability contract is ready.
+The adapter plan is `../../specs/opencode_control_plane/CANONICAL-CONTINUATION-OPENCODE.plan.json`.
+The rollout plan is `../../specs/dotfiles_ai_distribution/CANONICAL-CONTINUATION-ROLLOUT.plan.json`;
+its feature defines target order, private backup/rollback, retained history,
+future runtime qualification and the distinction between deployment and activation.
 
 ## Readiness And Recovery Risks
 
@@ -347,9 +391,14 @@ reactivate an incompatible old writer.
 
 ## Same-Conversation Handoff
 
-Continue Discovery in the current Build primary, without Task or new sessions.
-Validate the core contract and plan, then qualify adapter R2/R3 with bounded
-source/probe evidence. Validate the changed manifest after
-each material edit. Only committed clean artifacts can produce a fresh
-`initiative-receipt`; request approval for that exact digest-bound slice before
-using typed `dbsctr_begin` in Initiative mode. Ordinary Begin is not a substitute.
+After an operator-controlled reload, reopen the exact existing conversation in
+its own canonical repository. Use read-only `dbsctr_preflight` to inspect the
+explicit target, then `dbsctr_attach` with exact enrollment/provider consent.
+Quiesce prior writers before enrollment or recovery. Do not copy a handoff prompt,
+create a replacement conversation, infer missing identity, or cross repository
+boundaries. The original feature work and its remaining gates stay with that cycle.
+
+Further material changes reopen Discovery in the current primary without Task or
+child sessions. Validate the changed manifest, obtain a fresh committed receipt,
+and request exact digest-bound approval before Initiative Begin. The unrelated
+automatic-delivery slices remain unfinished and are not implied by this delivery.
