@@ -142,6 +142,11 @@ current generation, target session where applicable, and outstanding-state diges
 Recheck after approval. CLI environment variables alone are not authorization.
 The adapter must not expose a model-supplied approval boolean as proof of consent.
 
+A read-only check without an explicit target and without a stored session route
+returns `not_enrolled` with null cycle/target identities and `select_target`.
+It does not try to attach the canonical checkout. An existing invalid route never
+falls back to this no-selection response.
+
 Reasons are a closed set: `ok`, `not_enrolled`, `state_busy`, `invalid_identity`,
 `invalid_state`, `registry_mismatch`, `repository_mismatch`, `invalid_target`,
 `capability_unavailable`, `continuation_admission_required`, `generation_changed`,
@@ -177,6 +182,7 @@ target-bound operator approval and a currently compatible primary agent.
 | Draining | No running or uncertain operations; approved transfer | New owner/generation atomically |
 | Owned or Draining | Call failure, interrupted runtime or uncertain completion | Recovery-required; no automatic transfer |
 | Recovery-required | Exact approved operator quiescence assertion | Reader-only with new generation; old operations retain recovery evidence |
+| Owned or Draining | Lost owner, exact approved quiescence assertion, even with zero outstanding operations | Reader-only with new generation; never automatic expiry |
 | Any | Cycle completed/removed or identity changed | Refuse mutations and invalidate route eligibility; retain history |
 
 **Text Equivalent:** Enrollment creates no writer. Only a validated Build claim

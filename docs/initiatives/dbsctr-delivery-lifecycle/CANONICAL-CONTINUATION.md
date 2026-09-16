@@ -1,6 +1,14 @@
 # Canonical Session Continuation
 
-Status: isolated core ready; adapter qualification and rollout remain pending.
+Status: isolated core delivered; OpenCode adapter ready for isolated implementation;
+rollout remains pending.
+
+Core delivered through implementation commits `657f683` and `3205870`, merged as
+`efc99b86c000b758560c9d9f0327ac9424f48031`. Its required gates and Python
+3.12/3.13/3.14 CI passed; no live cycle was enrolled. Native loopback qualification
+on OpenCode 1.18.29 established real read/write/bash before/after behavior, actual
+write prevention and exact part-to-message correlation. The adapter contract
+records the failed-initializer boundary and does not promise an after finalizer.
 
 Core readiness evidence: all three committed diagrams rendered in GitHub's
 Mermaid frames at commit `78d18a45e06000c9c2cb697b758360b6944b641a` and were
@@ -274,8 +282,8 @@ mutation rather than falling back to the conversation home.
 
 | Slice | Context | Dependency | State and ownership |
 |---|---|---|---|
-| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Ready for isolated Build; exact receipt approval required |
-| `canonical-continuation-opencode` | OpenCode | Continuation core | Blocked; Build implementation after runtime-boundary proof |
+| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Delivered to Git; not deployed or enrolled |
+| `canonical-continuation-opencode` | OpenCode | Continuation core | Native boundary qualified; isolated implementation ready |
 | `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Captured; host first, guests second |
 
 **Text Equivalent:** Core continuation is independent of automatic merge. The
@@ -329,7 +337,8 @@ The isolated core candidate plan is
 It deliberately excludes live deployment/operation from that slice; the aggregate
 rollout gates above remain required. Before launch, validate the plan against the
 committed profile and copy its exact content into ignored `.dbsctr/plans/`.
-No adapter or rollout plan is issued before its capability contract is ready.
+The adapter plan is `../../specs/opencode_control_plane/CANONICAL-CONTINUATION-OPENCODE.plan.json`.
+No rollout plan is issued before operational qualification and retention are ready.
 
 ## Readiness And Recovery Risks
 
