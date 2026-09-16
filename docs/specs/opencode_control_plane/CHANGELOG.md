@@ -1,5 +1,35 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-15 - Canonical Continuation Adapter
+
+- Added role-aware preflight, explicit enrollment/provider/recovery/handover
+  approval, native-tool mediation and restored per-session execution routing.
+  Structured edits/patches and shell cwd target the cycle, not canonical main;
+  helper admission tokens remain per-call rather than process-global.
+- Preserved native conversation identity, primary Plan reads, child restrictions,
+  existing permission rules and operator provider choices. Registry references
+  derive from the configured state root. Unqualified mutation paths fail closed.
+- Native OpenCode 1.18.29 qualification used isolated homes/repositories and a
+  scripted loopback provider. Real attach/write/bash/preflight passed; a new
+  process resumed the exact same session with a different same-provider model.
+  Canonical files remained untouched, and a separate reader's write was denied.
+- Fault injection killed a cache-spilling SQLite writer. Read-only preflight
+  correctly refused the hot journal; exact file-bound storage consent restored
+  readability without changing ownership, followed by separate generation-bound
+  writer recovery. The initial failed adapter worktree remains preserved.
+- Added bounded storage recovery, lost-idle-owner recovery, explicit terminal
+  route release and refusal to treat a missing enrolled database as empty state.
+  No migration, history deletion, ownership timeout or OS-sandbox claim.
+- Affected pytest scope: 453 passed, one skipped, 42 subtests passed. Compilation,
+  configuration/reference rendering and native qualification passed. No dependency
+  added. Dependabot advisory inputs remain unavailable because repository alerts
+  are disabled; no vulnerability clearance is inferred. No Gate Exception.
+- Implementation Gate Commit: `4ceb72d`. This slice changes source only; Release,
+  Deploy and Operate are not applicable here. Managed host-then-guest installation,
+  runtime loading and real-cycle enrollment remain the rollout slice's obligations.
+  Intended Final Push: recorded feature branch and draft PR into protected main;
+  actual final-push outcome is retained in the Cycle Record.
+
 ## 2026-09-06 - Ordinary Session Successor Integration
 
 - Reapplied PR 160's reviewed `8c94efa` and `49f2f4c` patch on protected-base
