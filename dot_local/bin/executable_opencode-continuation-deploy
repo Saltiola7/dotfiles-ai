@@ -252,6 +252,8 @@ def main():
                         value, mode = read_target(home / name)
                         if (digest(value) if value is not None else None, mode) != (item["before"], item["mode"]):
                             raise RuntimeError("target_drift")
+                        (home / name).parent.mkdir(parents=True, exist_ok=True,
+                                                   mode=0o700 if name.startswith(".config/") else 0o755)
                         touched = True
                         execute([*command, str(home / name)])
                         value, mode = read_target(home / name)

@@ -141,3 +141,30 @@ def test_preview_refuses_unknown_static_target(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="unrecognized_local_edit"):
         module.preview(tmp_path, tmp_path / "config", home)
     assert (home / ".local/bin/dbsctrctl").read_bytes() == b"operator edit"
+
+
+def test_apply_creates_missing_parent_without_reconciling_existing_dirs(tmp_path, monkeypatch, capsys):
+    module = helper()
+    home, source = tmp_path / "home", tmp_path / "source"
+    home.mkdir()
+    source.mkdir()
+    name = ".local/share/opencode-continuation/native_probe.py"
+    target = {"before": None, "after": module.digest(b"new"), "mode": None, "after_mode": 0o644, "backup": "0"}
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(module, "source_identity", lambda _source: "a" * 40)
+    monkeypatch.setattr(module, "preview", lambda *_args: (
+        {"schema_version": 1, "source_commit": "a" * 40, "state": "preview", "targets": {name: target}},
+        {name: None}))
+
+    def execute(argv, **_kwargs):
+        destination = Path(argv[-1])
+        assert destination.parent.is_dir()
+        destination.write_bytes(b"new")
+        destination.chmod(0o644)
+        return b""
+
+    monkeypatch.setattr(module, "execute", execute)
+    monkeypatch.setattr(sys, "argv", ["deploy", "apply", "--source", str(source)])
+    module.main()
+    assert json.loads(capsys.readouterr().out)["state"] == "applied"
