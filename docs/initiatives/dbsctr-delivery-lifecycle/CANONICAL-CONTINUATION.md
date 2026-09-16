@@ -1,7 +1,14 @@
 # Canonical Session Continuation
 
-Status: Discovery; managed-coordination boundary selected, core contract drafted,
-adapter qualification and final readiness validation pending.
+Status: isolated core ready; adapter qualification and rollout remain pending.
+
+Core readiness evidence: all three committed diagrams rendered in GitHub's
+Mermaid frames at commit `78d18a45e06000c9c2cb697b758360b6944b641a` and were
+visually checked against their text equivalents. Initiative validation, artifact
+existence and the eleven-gate plan/profile check passed; seven focused Initiative
+validator tests passed. These are Discovery checks, not implementation evidence.
+The core uses Method Revision 3.29 and critical risk. No live cycle is enrolled
+by its isolated implementation or qualification fixtures.
 
 The operator approved the context map and outcomes below. This document preserves
 that approval, source evidence, proposed contracts and remaining decisions. It is
@@ -267,7 +274,7 @@ mutation rather than falling back to the conversation home.
 
 | Slice | Context | Dependency | State and ownership |
 |---|---|---|---|
-| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Specified; readiness validation pending before Build |
+| `canonical-continuation-core` | Lifecycle | None from automatic delivery | Ready for isolated Build; exact receipt approval required |
 | `canonical-continuation-opencode` | OpenCode | Continuation core | Blocked; Build implementation after runtime-boundary proof |
 | `canonical-continuation-rollout` | Distribution | Continuation OpenCode | Captured; host first, guests second |
 
