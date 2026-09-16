@@ -163,6 +163,59 @@ except explicit uncertain completion which intentionally records recovery state.
 
 ## Authority And State Transitions
 
+### Interrupted Storage Recovery
+
+Read-only preflight must remain read-only even when SQLite needs to recover a hot
+rollback journal. A killed writer can otherwise strand the operator before the
+generation-bound recovery approval can be generated. The operator approved this
+narrow additional boundary after a disposable-process fault injection reproduced
+the failure; no production state was used or changed.
+
+Add `continuation-storage-check` and `continuation-storage-recover`, both accepting
+the existing native identity envelope and an explicit registered active worktree
+through `--request-json -`. Storage check projects file identity only and does not
+open SQLite for writing. Storage recover additionally requires an exact approval
+receipt and supported Build identity. Neither command selects an owner, advances
+a generation, rewrites history, migrates schema or deletes a database.
+
+The version-1 storage response contains only `schema_version`, `ok`, `reason`,
+`binding` and `recovered`. Reasons are `ok`, `invalid_identity`, `invalid_target`,
+`invalid_state`, `state_busy`, `approval_required`, `capacity_unavailable` or
+`recovery_incomplete`. A binding contains action `storage-recover`, the cycle and
+worktree IDs, repository digest, native actor/activation digests, Cycle Record
+digest and storage-file-set digest; it does not guess an unavailable generation.
+The approval has the existing receipt ID plus exact binding shape. No raw paths,
+file content, credentials or SQLite error messages are returned.
+
+Validate owner-only directory/file custody, no symlinks or hard links, and exact
+same-repository target identity. Hash only the known database, journal, WAL and
+SHM files, their identities and sizes, with a 64 MiB combined bound and bounded
+read time. Take a shared lock on the existing state lock while checking, and an
+exclusive lock while repairing; acquisition shares a two-second deadline. Never
+create a missing database or lock as recovery. State/record drift after approval
+refuses before opening SQLite for writing.
+
+Under that lock and explicit consent, let SQLite perform its own rollback, then
+validate version, integrity and foreign keys. Do not issue logical cycle/route/
+operation/activation updates or manual journal manipulation. Preserve a private
+owner-only, per-receipt recovery marker under the continuation directory, with
+prepared/completed outcome and bounded identity digests. A completed identical
+receipt replays idempotently. An interrupted prepared receipt remains explicit;
+changed storage requires fresh consent, never a fabricated completion. No marker
+or historical state is automatically pruned. Missing/unsafe/corrupt or over-bound
+storage stays unavailable for a separately approved maintenance operation.
+
+The adapter must then rerun ordinary read-only preflight and obtain a separate
+generation/state-bound approval for writer recovery. Storage repair itself grants
+no writer authority. Fault tests cover killed cache-spilling writers, stale file
+bindings, unsafe paths, malformed approvals, denied consent, idempotence and
+unchanged legacy records. A read-side repair or deletion is not an alternative.
+
+**Text Equivalent:** Exact native and repository identity permits storage
+inspection. File-bound operator consent permits SQLite-only physical recovery.
+Only a subsequent logical preflight and separate generation-bound consent may
+recover ownership. Unknown or changed state blocks each step independently.
+
 Same-provider model/Build-agent changes retain exact new identity and require
 current admission authority. Initial compatible core/overlay revisions are the
 loaded revision set explicitly supported by the implementation's conformance

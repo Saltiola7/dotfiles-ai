@@ -118,6 +118,15 @@ operator provider/model choices and existing explicit deny rules.
 
 ## Recovery Completion
 
+If ordinary recovery preflight cannot read interrupted SQLite storage, use the
+shared storage-check protocol with an explicit target. Ask the separate
+`dbsctr_continuation_storage_recover` permission against that exact file binding;
+only then invoke storage recovery, rerun logical preflight and ask the existing
+generation-bound writer-recovery permission. A failed storage check or changed
+binding stops the operation. Never open the companion database for write in the
+adapter, guess a generation, repair during ordinary read/preflight, or use an old
+approval as an unconditional repair token.
+
 An idle writer whose process is lost still owns its generation. Exact approved
 quiescence recovery must also work for owned/draining state with zero outstanding
 operations; otherwise a stopped idle process is permanently irreplaceable.
@@ -144,6 +153,9 @@ old owner before returning to reader-only. Completed cycles cannot be revived.
 8. Concurrent operations carry separate helper environments; no global env leaks.
 9. Rendered permissions/references work for managed macOS/Linux defaults; source
    checks and fake tool contexts are not substitutes for the native probe.
+10. A killed cache-spilling SQLite writer does not force a replacement session:
+    read-only checks remain read-only, file-bound storage consent restores
+    readability, and independent generation-bound consent governs ownership.
 
 ## Visual Evidence
 
@@ -184,5 +196,5 @@ Python 3.12/3.13/3.14 compatibility. No new dependency or private session export
 
 Build owns the continuation adapter/plugin, typed tools, permissions/reference
 rendering, native metadata projection, the bounded no-selection and idle-owner
-core corrections and their tests. Discovery owns this feature, the core recovery
+core corrections, approved storage-recovery primitives and their tests. Discovery owns this feature, the core recovery
 clarification, plans and Initiative. Unrelated delivery/merge behavior is excluded.

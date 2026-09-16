@@ -3,6 +3,13 @@
 Status: isolated core delivered; OpenCode adapter ready for isolated implementation;
 rollout remains pending.
 
+Adapter readiness was reopened by a reproduced killed-writer/hot-journal failure.
+The operator approved bounded file-identity-bound SQLite storage recovery, followed
+by separate generation-bound ownership recovery. INT-032 and the linked contracts
+now cover that boundary. Preserve the original failed adapter worktree and use a
+fresh receipt/cycle for this revised scope; no live deployment is authorized by
+the former receipt.
+
 Core delivered through implementation commits `657f683` and `3205870`, merged as
 `efc99b86c000b758560c9d9f0327ac9424f48031`. Its required gates and Python
 3.12/3.13/3.14 CI passed; no live cycle was enrolled. Native loopback qualification
