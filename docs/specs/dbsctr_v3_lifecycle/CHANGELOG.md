@@ -1,5 +1,28 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-17 - Continuation Completion Repair
+
+- Final Push can remove its active pointer before the native completion hook.
+  Resolve completed records through exact stored operation/session authority,
+  preserving successful delivery output and releasing the completed selection.
+- A lost completion hook requires explicit bound quiescence recovery, closing
+  ownership without reviving the completed cycle. Existing finalizing cycles
+  retain fenced retry; missing active pointers never authorize recovery or
+  enrollment. Invalid-target guidance no longer defaults to enrollment.
+- Four red regressions reproduced the lifecycle and guidance failures. Core and
+  Bun adapter checks passed (67 tests), as did 41 affected legacy helper checks.
+  The real native probe now verifies completion/pointer removal/output retention
+  in addition to same-conversation restart, model change and reader denial.
+- Implementation Gate Commit: `a448bdf`. No new dependency or state migration;
+  no incident records, ownership, feature commits or external project delivery
+  were changed. Host helper/probe deployment and installed native qualification
+  remain explicit required gates, recorded in the Cycle Record before delivery.
+- Independent reviewer unavailable under primary-only permissions; primary
+  review and denial tests are not independent review. Dependabot advisory input
+  unavailable because repository alerts are disabled. No Gate Exception.
+- Intended delivery: feature-branch draft PR into protected main. Actual Final
+  Push, deployment and remaining gate results are retained in the Cycle Record.
+
 ## 2026-09-15 - Canonical Continuation Core
 
 - Added opt-in repository-private continuation state, bounded preflight, exact
