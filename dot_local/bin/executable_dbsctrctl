@@ -5461,7 +5461,7 @@ def continuation_compatible(activation):
         raise ContinuationError("revision_incompatible")
 
 
-def continuation_target(request, session_key, allow_terminal=False):
+def continuation_target(request, session_key, purpose="active"):
     try:
         home = Path(request["runtime_worktree"]).resolve(strict=True)
         directory = Path(request["runtime_directory"]).resolve(strict=True)
@@ -5471,10 +5471,23 @@ def continuation_target(request, session_key, allow_terminal=False):
         if common_git_dir(home).resolve() != common_git_dir(invocation).resolve():
             raise ContinuationError("repository_mismatch")
         target = request.get("worktree")
-        if target is None:
+        terminal = purpose in {"check", "finish", "recover"}
+        route = None
+        if target is None or terminal:
             with continuation_connection(home) as db:
-                route = db.execute("SELECT c.locator_id FROM routes r JOIN cycles c USING(cycle_id) "
-                                   "WHERE r.session_key=?", (session_key,)).fetchone() if db else None
+                if db and purpose == "finish":
+                    route = db.execute("SELECT c.locator_id,c.cycle_id FROM operations o JOIN cycles c USING(cycle_id) "
+                                       "WHERE o.operation_id=? AND o.session_key=?",
+                                       (request.get("operation_id"), session_key)).fetchone()
+                elif db:
+                    route = db.execute("SELECT c.locator_id,c.cycle_id FROM routes r JOIN cycles c USING(cycle_id) "
+                                       "WHERE r.session_key=?", (session_key,)).fetchone()
+                    if route is None and purpose == "recover" and isinstance(request.get("approval"), dict):
+                        route = db.execute("SELECT c.locator_id,c.cycle_id FROM approvals a JOIN cycles c USING(cycle_id) "
+                                           "WHERE a.receipt_id=? AND a.request_digest=?",
+                                           (request["approval"].get("receipt_id"),
+                                            continuation_digest([purpose, request]))).fetchone()
+        if target is None:
             if route is None:
                 raise ContinuationError("not_enrolled")
             target = worktree_for_id(home, route[0])
@@ -5491,8 +5504,27 @@ def continuation_target(request, session_key, allow_terminal=False):
                       if line.startswith("worktree ")}
         if not {home, target} <= registered:
             raise ContinuationError("invalid_target")
-        path, record = load(target)
-        if (record["state"] != "active" and not (allow_terminal and record["state"] in {"completed", "finalizing"})
+        if resolved_active_path(target).exists():
+            path, record = load(target)
+        else:
+            # Final Push removes the active pointer before the native after-hook.
+            # Only an authenticated stored route/operation may resolve its terminal record.
+            if not terminal or route is None or route[0] != worktree_id(target):
+                raise ContinuationError("invalid_target")
+            if not isinstance(route[1], str) or not OPAQUE_ID.fullmatch(route[1]):
+                raise ContinuationError("invalid_target")
+            path = cycle_dir(target) / "cycles" / f"{route[1]}.json"
+            if path.is_symlink():
+                raise ContinuationError("invalid_target")
+            record = read_cycle_record(target, path)
+            if record["state"] != "completed" or record["cycle_id"] != route[1]:
+                raise ContinuationError("invalid_target")
+        allowed = {"active"}
+        if purpose not in {"active", "enroll"}:
+            allowed.add("finalizing")
+        if terminal:
+            allowed.add("completed")
+        if (record["state"] not in allowed
                 or record_worktree(target, record) != target
                 or not record_worktree_matches(target, record, target)):
             raise ContinuationError("invalid_target")
@@ -5742,7 +5774,7 @@ def command_continuation(args):
         if action not in fields:
             raise ContinuationError("invalid_state")
         session_key, activation = continuation_native(request, command == "check")
-        home, target, record_path, record = continuation_target(request, session_key, command == "finish")
+        home, target, record_path, record = continuation_target(request, session_key, command)
         cycle_id = record["cycle_id"]
         response["cycle_id"] = cycle_id
         target_session = request.get("target_session_id")
@@ -5770,7 +5802,13 @@ def command_continuation(args):
             if cycle and cycle["worktree_id"] != record["worktree"]["id"]:
                 raise ContinuationError("invalid_target")
             if command == "check":
-                if activation is None:
+                if record["state"] == "completed":
+                    if not cycle or cycle["state"] == "closed":
+                        raise ContinuationError("invalid_target")
+                    response["next_action"] = "confirm_quiescence"
+                    if action != "recover":
+                        raise ContinuationError("recovery_required")
+                elif activation is None:
                     response["next_action"] = "switch_to_build"
                 elif cycle and cycle["state"] == "recovery_required":
                     response["next_action"] = "confirm_quiescence"
@@ -5925,8 +5963,11 @@ def command_continuation(args):
                             raise ContinuationError("invalid_state")
                         db.execute("UPDATE operations SET state='completed',completion_class='operator_quiescence' "
                                    "WHERE cycle_id=? AND state!='completed'", (cycle_id,))
-                        db.execute("UPDATE cycles SET writer=NULL,generation=generation+1,state='reader_only' "
-                                   "WHERE cycle_id=?", (cycle_id,))
+                        state = "closed" if record["state"] == "completed" else "reader_only"
+                        db.execute("UPDATE cycles SET writer=NULL,generation=generation+1,state=? "
+                                   "WHERE cycle_id=?", (state, cycle_id))
+                        if state == "closed":
+                            db.execute("DELETE FROM routes WHERE cycle_id=?", (cycle_id,))
                 current = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (cycle_id,)).fetchone()
                 updated = continuation_response(current, cycle_id, session_key)
                 response.update({key: updated[key] for key in (
@@ -5943,6 +5984,8 @@ def command_continuation(args):
             print(json.dumps(response, sort_keys=True, separators=(",", ":")))
             return
         response.update(ok=False, reason=reason, operation_id=None, event_id=None)
+        if reason in {"invalid_target", "invalid_identity", "repository_mismatch", "registry_mismatch", "invalid_state"}:
+            response.update(next_action="none", approval_binding=None)
         print(json.dumps(response, sort_keys=True, separators=(",", ":")))
         raise SystemExit(1)
 

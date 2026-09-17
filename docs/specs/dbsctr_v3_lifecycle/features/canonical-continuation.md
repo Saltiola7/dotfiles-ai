@@ -163,6 +163,43 @@ except explicit uncertain completion which intentionally records recovery state.
 
 ## Authority And State Transitions
 
+### Completion And Retry
+
+Final Push's durable record and the native completion hook are separate events.
+The helper removes the active pointer after recording completed delivery. This
+must not prevent the exact admitted operation from finishing, hide successful
+delivery output, or leave its conversation permanently selected on a dead target.
+
+Resolve a pointerless completed record only through an authenticated stored
+operation (finish) or session route (read-only check and approved recovery), with
+the existing repository, registry, worktree and Cycle Record validation. Never
+scan for a recent record, recreate an active pointer, infer an operation identity,
+or use terminal resolution to enroll, attach or admit writes to a completed cycle.
+An active or finalizing record with a missing pointer remains invalid.
+
+| Durable record and event | Required result |
+|---|---|
+| Completed, pointer removed, exact native operation finishes | Close that operation; close ownership when no work remains; release the caller's matching route; preserve delivered output and history |
+| Completed, native hook lost, recorded route remains | Read-only preflight reports recovery-required and the known generation/writer, not enrollment; no writes admitted |
+| Completed, explicit generation/state-bound quiescence recovery | Close outstanding operations with operator-quiescence attribution, fence the old generation, close ownership and release cycle routes; never return to writable reader-only state |
+| Finalizing with valid active pointer and existing enrollment | Retain check, attachment, admission and recovery fencing so a failed Final Push can be retried; no new enrollment |
+| Missing active pointer or invalid identity | Refuse with no approval binding and next action none; do not suggest enrollment from default response fields |
+
+**Text Equivalent:** Successful publication can precede callback cleanup. Exact
+operation identity permits ordinary completion; a lost callback instead requires
+explicit operator-confirmed quiescence. Neither case revives a completed cycle.
+Finalizing remains retryable only through existing admission authority. Unknown
+targets remain blocked rather than falling back to the conversation home.
+
+These transitions are owned by the lifecycle helper; the existing adapter consumes
+the unchanged version-1 response. Regression evidence must remove the active
+pointer, unlike a fixture that merely changes the record state. Validate repeated
+finish and recovery, read-only preflight, denied completed writes, and preservation
+of the native tool's successful delivery output. No live incident enrollment,
+pointer repair, automatic restart, cross-repository routing or database migration
+is authorized by this repair. Rollback retains records and companion history and
+must not invoke the old completion path on enrolled work.
+
 ### Interrupted Storage Recovery
 
 Read-only preflight must remain read-only even when SQLite needs to recover a hot
