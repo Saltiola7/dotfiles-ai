@@ -202,6 +202,31 @@ catch(error) {console.log(error.message)};
     assert "continuation_attachment_required" in result.stdout
 
 
+def test_adapter_completion_after_pointer_removal_preserves_output_and_releases_route(adapter):
+    core.enroll(adapter)
+    result = bun(adapter, '''
+import {readFile,writeFile,unlink} from "node:fs/promises";
+const input={tool:"bash",sessionID:"owner",callID:"call-owner"};
+const args={command:"fixture final push"};
+await hooks["tool.execute.before"](input,{args});
+const path=root+"/.git/dbsctr/cycles/cycle-1.json";
+const record=JSON.parse(await readFile(path,"utf8"));
+record.state="completed";record.completed_at=record.created_at;
+await writeFile(path,JSON.stringify(record));
+await unlink(root+"/.git/dbsctr/worktrees/"+record.worktree.id+"/active");
+const output={metadata:{},output:"draft_pr verified; pushed fixture commits",title:""};
+await hooks["tool.execute.after"]({...input,args},output);
+const check=await control.preflight(context);
+console.log(JSON.stringify({output:output.output,check,target:runtime.cycleTarget("owner","home")}));
+''')
+    assert result.returncode == 0, result.stderr
+    value = json.loads(result.stdout)
+    assert value["output"].startswith("draft_pr verified; pushed fixture commits")
+    assert "execution selection released" in value["output"]
+    assert value["check"]["next_action"] == "select_target"
+    assert value["target"] == "home"
+
+
 def test_adapter_storage_and_writer_recovery_have_distinct_approvals(adapter):
     core.enroll(adapter)
     core.interrupt_storage(adapter)

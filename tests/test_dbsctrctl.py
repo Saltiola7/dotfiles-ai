@@ -30,6 +30,7 @@ GATES = (
     "refactor", "review_integrate", "release", "deploy", "operate", "maintain_retire",
 )
 STATE_ENVIRONMENT = {
+    "DBSCTR_CONTINUATION_OPERATION",
     "DBSCTR_RND_RECEIPTS", "DBSCTR_RND_STATE", "DBSCTR_STATE_ROOT",
     "DBSCTR_WORKTREE_ROOT", "DOTFILES_AI_STATE_ROOT", "XDG_DATA_HOME", "XDG_STATE_HOME",
 }

@@ -123,9 +123,20 @@ def main():
         subprocess.run([str(helper), "start", "--cycle-id", "native-probe", "--context", "test",
                         "--risk", "critical", "--delivery-intent", "local", "--plan", str(plan)],
                        cwd=cycle, env=env, check=True, capture_output=True)
+        completion = root / "complete_fixture.py"
+        completion.write_text(
+            "import json\nfrom pathlib import Path\n"
+            f"common = Path({str(repo / '.git/dbsctr')!r})\n"
+            "path = common / 'cycles/native-probe.json'\n"
+            "record = json.loads(path.read_text())\n"
+            "record.update(state='completed', completed_at=record['created_at'])\n"
+            "path.write_text(json.dumps(record))\n"
+            "(common / 'worktrees' / record['worktree']['id'] / 'active').unlink()\n"
+            "print('fixture delivery completed')\n")
         session, total = None, 0
         try:
-            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("reader", "mock")):
+            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("reader", "mock"),
+                                 ("completion", "mock-two")):
                 server.phase, server.offset = phase, 0 if phase == "reader" else total
                 marker = f"{phase}.txt"
                 server.steps = [
@@ -136,6 +147,12 @@ def main():
                 ]
                 if phase == "reader":
                     server.steps.pop(2)
+                elif phase == "completion":
+                    server.steps = [
+                        ("bash", {"command": shlex.join([sys.executable, str(completion)]),
+                                  "description": "Complete disposable cycle and remove its active pointer"}),
+                        ("dbsctr_preflight", {}),
+                    ]
                 command = [str(binary), "run", "--print-logs", "--log-level", "DEBUG", "--model", f"probe/{model}", "--agent", "build", "--format", "json"]
                 if session and phase != "reader":
                     command += ["--session", session]
@@ -170,6 +187,11 @@ def main():
                     assert len(failures) == 1 and "continuation_writer_occupied" in failures[0], "native_reader_denial"
                     assert summary["canonical_untouched"] and not summary["cycle_written"], "native_reader_write"
                     assert summary["one_session"] and not summary["same_session"], "native_reader_identity"
+                elif phase == "completion":
+                    assert not failures and summary["same_session"], "native_completion_failure"
+                    output = parts[0]["state"]["output"]
+                    assert "fixture delivery completed" in output and "execution selection released" in output, "native_completion_output"
+                    assert json.loads(parts[1]["state"]["output"])["next_action"] == "select_target", "native_route_release"
                 else:
                     assert not failures, "native_tool_failure"
                     assert summary["canonical_untouched"] and summary["cycle_written"], "native_write_target"

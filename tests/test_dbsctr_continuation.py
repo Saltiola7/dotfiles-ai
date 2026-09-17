@@ -220,8 +220,65 @@ def test_continuation_finish_after_finalization_closes_ownership(cycle):
     record = json.loads(cycle.record_path().read_text())
     record.update(state="completed", completed_at=record["created_at"])
     cycle.record_path().write_text(json.dumps(record))
+    (cycle.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
     assert call(cycle, "finish", operation_id=operation["operation_id"], outcome="completed")["state"] == "closed"
+    assert call(cycle, "finish", operation_id=operation["operation_id"], outcome="completed")["state"] == "closed"
+    assert call(cycle, worktree=None)["next_action"] == "select_target"
     assert call(cycle, ok=False)["reason"] == "invalid_target"
+
+
+def test_continuation_completed_lost_hook_requires_quiescence_not_reenrollment(cycle):
+    enroll(cycle)
+    operation = call(cycle, "admit", generation=1, call_id="lost-finish", operation_class="shell")
+    record = json.loads(cycle.record_path().read_text())
+    record.update(state="completed", completed_at=record["created_at"])
+    cycle.record_path().write_text(json.dumps(record))
+    (cycle.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+    before = cycle.continuation_path.read_bytes()
+    check = call(cycle, ok=False)
+    assert check["reason"] == "recovery_required"
+    assert check["next_action"] == "confirm_quiescence"
+    assert check["cycle_id"] == "cycle-1"
+    assert check["writer_relation"] == "self"
+    assert check["generation"] == 1
+    assert cycle.continuation_path.read_bytes() == before
+    for command, changes in (("enroll", {}), ("attach", {"mode": "writer", "generation": 1}),
+                             ("admit", {"generation": 1, "call_id": "new", "operation_class": "shell"})):
+        assert call(cycle, command, ok=False, **changes)["reason"] == "invalid_target"
+    approval = approve(cycle, "recover")
+    recovered = call(cycle, "recover", generation=1, approval=approval)
+    assert recovered["state"] == "closed"
+    assert recovered["generation"] == 2
+    assert call(cycle, "recover", generation=1, approval=approval)["generation"] == 2
+    assert call(cycle, worktree=None)["next_action"] == "select_target"
+    assert call(cycle, "finish", operation_id=operation["operation_id"], outcome="completed",
+                ok=False)["reason"] == "generation_changed"
+
+
+def test_continuation_missing_active_pointer_never_authorizes_recovery(cycle):
+    enroll(cycle)
+    record = json.loads(cycle.record_path().read_text())
+    (cycle.repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active").unlink()
+    before = cycle.continuation_path.read_bytes()
+    for changes in ({}, {"action": "recover"}):
+        result = call(cycle, ok=False, **changes)
+        assert result["reason"] == "invalid_target"
+        assert result["next_action"] == "none"
+        assert result["approval_binding"] is None
+    assert cycle.continuation_path.read_bytes() == before
+
+
+def test_continuation_finalizing_keeps_existing_writer_retryable(cycle):
+    enroll(cycle)
+    record = json.loads(cycle.record_path().read_text())
+    record["state"] = "finalizing"
+    cycle.record_path().write_text(json.dumps(record))
+    assert call(cycle)["writer_relation"] == "self"
+    operation = call(cycle, "admit", generation=1, call_id="retry-push", operation_class="shell")
+    call(cycle, "finish", operation_id=operation["operation_id"], outcome="completed")
+    assert call(cycle, "enroll", ok=False)["reason"] == "invalid_target"
+    assert call(cycle, "admit", generation=1, call_id="other", operation_class="shell",
+                session_id="reader", message_id="reader-old", ok=False)["reason"] == "writer_occupied"
 
 
 def test_continuation_handover_rejects_nonprimary_target(cycle):
@@ -267,7 +324,10 @@ def test_continuation_stale_route_does_not_fall_back_to_home(cycle):
     cycle.record_path().write_text(json.dumps(record))
     request = cycle.request.pop("worktree")
     try:
-        assert call(cycle, ok=False)["reason"] == "invalid_target"
+        result = call(cycle, ok=False)
+        assert result["reason"] == "recovery_required"
+        assert result["next_action"] == "confirm_quiescence"
+        assert result["cycle_id"] == "cycle-1"
     finally:
         cycle.request["worktree"] = request
 
