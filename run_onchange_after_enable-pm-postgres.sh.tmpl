@@ -10,7 +10,7 @@ exit 0
 {{ end -}}
 set -eu
 {{ if and .dotfiles_ai.pm_kernel.enabled .dotfiles_ai.pm_kernel.postgres_enabled -}}
-{{ if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+{{ if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled -}}
 "$HOME/.local/bin/pm-postgres-image-build" >/dev/null
 {{ end -}}
 systemctl --user daemon-reload

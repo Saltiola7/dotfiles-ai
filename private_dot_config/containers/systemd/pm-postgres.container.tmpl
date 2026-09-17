@@ -2,7 +2,7 @@
 {{- if not (regexMatch "^docker\\.io/library/postgres:19beta3@sha256:[0-9a-f]{64}$" .dotfiles_ai.pm_kernel.postgres_image) -}}
 {{ fail "dotfiles_ai.pm_kernel.postgres_image must be an exact PostgreSQL 19 image digest" }}
 {{- end -}}
-{{- if and .dotfiles_ai.knowledge_store.postgres_enabled (ne .dotfiles_ai.pm_kernel.postgres_image "docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40") -}}
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled (ne .dotfiles_ai.pm_kernel.postgres_image "docker.io/library/postgres:19beta3@sha256:bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40") -}}
 {{ fail "knowledge PostgreSQL requires the approved PostgreSQL 19 Beta 3 base digest" }}
 {{- end -}}
 [Unit]
@@ -11,7 +11,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Container]
-{{- if .dotfiles_ai.knowledge_store.postgres_enabled }}
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled }}
 Image=localhost/dotfiles-ai/postgres-pgvector:19beta3-0.8.6
 {{- else }}
 Image={{ .dotfiles_ai.pm_kernel.postgres_image }}
@@ -33,7 +33,7 @@ HealthRetries=5
 [Service]
 Restart=on-failure
 TimeoutStartSec=120
-{{- if .dotfiles_ai.knowledge_store.postgres_enabled }}
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled }}
 ExecStartPre=%h/.local/bin/pm-postgres-image-verify
 {{- end }}
 ExecStartPost=%h/.local/bin/pm-postgres-migrate

@@ -24,10 +24,12 @@ def data(
     codex_version: str = "0.151.0",
     codex_channel: str = "stable",
     remote_user_environment: bool = False,
+    knowledge_postgres: bool = False,
 ) -> dict:
     return {
         "dotfiles_ai": {
             "distribution": {"repository": "https://github.com/example/dotfiles-ai.git"},
+            "knowledge_store": {"enabled": False, "postgres_enabled": knowledge_postgres},
             "state": {"root": state_root},
             "codex": {
                 "channel": codex_channel,
@@ -144,6 +146,7 @@ def chezmoi(
     codex_version: str = "0.151.0",
     codex_channel: str = "stable",
     remote_user_environment: bool = False,
+    knowledge_postgres: bool = False,
     template: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -153,7 +156,7 @@ def chezmoi(
             json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
                              pm_image, pm_backup_dir, state_root, rnd_runtime,
                              workspace_runtime, codex_version, codex_channel,
-                             remote_user_environment)),
+                             remote_user_environment, knowledge_postgres)),
             *args,
         ],
         input=template,
@@ -537,6 +540,7 @@ def test_local_data_renders_complete_configs() -> None:
         "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")
     ).stdout
     assert 'name = "nord"' in herdr
+    assert "allow_nested = true" in herdr
     assert "/.local/bin/herdr-launchagent-supervisor" in plist
     assert "/.local/bin/herdr-server-owner" in plist
     wrapper = chezmoi("cat", str(Path.home() / ".local/bin/herdr-server-owner")).stdout
@@ -791,6 +795,32 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
     with pytest.raises(subprocess.CalledProcessError):
         chezmoi("execute-template", onepassword=True, pm_image=image,
                 pm_backup_dir="/Volumes/ext/state/../outside", template=sandbox_template)
+
+
+@pytest.mark.parametrize("knowledge_postgres", [False, True])
+def test_disabled_dks_cannot_override_pm_or_delete_retained_credentials(knowledge_postgres) -> None:
+    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
+    options = {"onepassword": True, "pm_image": image, "knowledge_postgres": knowledge_postgres}
+    sandbox = json.loads(chezmoi("execute-template", **options, template=(
+        ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()).stdout)
+    assert sandbox["pm_kernel"]["postgres_enabled"] is True
+    assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
+    container = chezmoi("execute-template", **options, template=(
+        ROOT / "private_dot_config/containers/systemd/pm-postgres.container.tmpl").read_text()).stdout
+    assert f"Image={image}" in container
+    assert "pgvector" not in container
+    host = chezmoi("execute-template", **options, template=(
+        ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()).stdout
+    assert "dks-postgres-migrate" not in host
+    assert "delete-generic-password" not in host
+    assert "dks-postgres" not in host
+    assert "configure-pm-postgres" in host and "podman healthcheck run pm-postgres" in host
+    guest = chezmoi("execute-template", **options, template=(
+        ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()).stdout
+    assert "pm-postgres-image-build" not in guest
+    assert "systemctl --user start pm-postgres.service" in guest
+    for script in (host, guest):
+        subprocess.run(["sh", "-n"], input=script, text=True, check=True)
 
 
 def test_pm_postgres_backup_verifies_restore_retains_seven_and_preserves_collisions(tmp_path) -> None:
