@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-17 - DKS-Retired PM PostgreSQL Convergence
+
+- Made the retired DKS master flag govern every DKS PostgreSQL integration site:
+  sandbox validation and projection, shared container image selection and
+  verifier hook, and the PM configure/enable hooks. With the master flag false,
+  a leftover `knowledge_store.postgres_enabled` can no longer fail rendering,
+  select the pgvector image, or invoke the DKS migrator; PM PostgreSQL renders
+  and runs independently.
+- Removed credential deletion from the PM hooks: the PM-only path no longer
+  deletes the retained DKS Keychain item or installed references, matching the
+  delivered retirement contract that Keychain/API-key material, database, logs,
+  and caches remain intact until the separately approved state-retirement slice.
+- Adopted the operator's Herdr `allow_nested = true` experimental setting into
+  the managed template with its rendering test, replacing the uncommitted local
+  edit.
+- Red-first regressions cover both leftover-flag values: PM-only container
+  image, no pgvector build/verify, no DKS migrator or credential operations, and
+  shell syntax validation of both rendered hooks. All affected distribution,
+  knowledge-store, Lima, and lifecycle suites pass (191 + 1 tests); Git
+  whitespace validation is clean. Dependabot advisory input remains unavailable
+  because repository alerts are disabled.
+- Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
+  managed apply with service hooks on the host and both configured guests,
+  preserving PM PostgreSQL availability and prior VM power states — is recorded
+  in the Cycle Record before delivery. No database, credential, model, or private
+  state is deleted. No Gate Exception; Release is not applicable.
+
 ## 2026-09-15 - Canonical Continuation Rollout
 
 - Installed and verified the eleven continuation targets on the host and both
