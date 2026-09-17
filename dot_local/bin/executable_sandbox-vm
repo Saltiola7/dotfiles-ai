@@ -737,7 +737,7 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
         source = f"{home}/.local/share/chezmoi-dotfiles-ai"
         execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
         execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
-                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply", "--force"], timeout=300)
     if helper_only or rolling_helpers:
         return
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",

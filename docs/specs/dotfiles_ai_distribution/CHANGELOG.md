@@ -21,6 +21,12 @@
   knowledge-store, Lima, and lifecycle suites pass (191 + 1 tests); Git
   whitespace validation is clean. Dependabot advisory input remains unavailable
   because repository alerts are disabled.
+- Fixed unattended guest convergence: the clone-path guest `chezmoi apply`
+  inside `sandbox-vm update` now runs with `--force`, matching the
+  deployment-source path. A drifted managed guest file previously made the
+  non-interactive apply abort on a missing TTY and blocked the PM configure
+  hook; machine-local values remain preserved by the merge modifier, not the
+  interactive prompt. Red-first regression covers the guest apply arguments.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded

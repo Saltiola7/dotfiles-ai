@@ -310,7 +310,7 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
     assert calls[3][0][-2:] == ["pull", "--ff-only"]
-    assert calls[4][0][-1] == "apply"
+    assert calls[4][0][-2:] == ["apply", "--force"]
 
 
 def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> None:
