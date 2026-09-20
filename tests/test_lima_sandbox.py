@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import tomllib
@@ -311,6 +312,17 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
     assert calls[3][0][-2:] == ["pull", "--ff-only"]
     assert calls[4][0][-2:] == ["apply", "--force"]
+
+
+def test_command_failure_exposes_exit_and_script_not_private_output():
+    helper = load_helper()
+    with pytest.raises(RuntimeError) as caught:
+        helper.command([sys.executable, "-c", "import sys; "
+                        "sys.stderr.write('private credential sentinel\\nchezmoi: enable-pm-postgres.sh: exit status 1\\n'); "
+                        "sys.exit(7)"])
+    assert "exit 7" in str(caught.value)
+    assert "enable-pm-postgres.sh exited 1" in str(caught.value)
+    assert "private credential sentinel" not in str(caught.value)
 
 
 def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> None:

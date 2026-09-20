@@ -36,6 +36,31 @@ def load_archive():
     return module
 
 
+def test_managed_native_launch_keeps_link_until_child_exits(tmp_path, monkeypatch):
+    helper = load_projector()
+    executable = tmp_path / "codex"
+    executable.write_bytes(b"native fixture")
+    executable.chmod(0o700)
+    launch = tmp_path / f".codex-launch-{os.getpid()}"
+    monkeypatch.setattr(helper, "_resolve_managed", lambda *_: executable)
+
+    def spawn(path, arguments, environment):
+        assert path == launch and path.samefile(executable)
+        return 123
+
+    def wait(pid, options):
+        assert pid == 123
+        assert launch.exists(), "native loader still needs the launch path"
+        return pid, 0
+
+    monkeypatch.setattr(helper.os, "posix_spawn", spawn)
+    monkeypatch.setattr(helper.os, "waitpid", wait)
+    with pytest.raises(SystemExit) as stopped:
+        helper.exec_managed(tmp_path / "release-lock.json", executable, ["--version"])
+    assert stopped.value.code == 0
+    assert not launch.exists()
+
+
 def load_rollback():
     loader = importlib.machinery.SourceFileLoader("codex_rollback", str(ROLLBACK))
     spec = importlib.util.spec_from_loader(loader.name, loader)

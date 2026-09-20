@@ -27,6 +27,13 @@
   non-interactive apply abort on a missing TTY and blocked the PM configure
   hook; machine-local values remain preserved by the merge modifier, not the
   interactive prompt. Red-first regression covers the guest apply arguments.
+- Deployment investigation also reproduced premature removal of Codex's native
+  launch link. Retain it until child termination without holding the package lock
+  across the session; a deterministic red regression and twenty consecutive native
+  version invocations validate the repair without retries. VM command failures
+  now include their exit status and a bounded managed-script name, never raw
+  subprocess output. A successful manual guest apply after rollback does not
+  prove the managed update passed; deployment results require actual exit status.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded

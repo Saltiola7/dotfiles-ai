@@ -173,7 +173,9 @@ def command(argv, timeout=30, input_data=None, environment=None):
     stdout = b"".join(chunks[process.stdout]).decode(errors="replace").strip()
     stderr = b"".join(chunks[process.stderr]).decode(errors="replace").strip()
     if return_code:
-        raise RuntimeError(f"{argv[0]} failed")
+        script = re.search(r"chezmoi: ([a-z][a-z0-9-]{0,80}\.sh): exit status ([0-9]{1,3})(?:\n|$)", stderr)
+        detail = f", managed script {script[1]} exited {script[2]}" if script else ""
+        raise RuntimeError(f"{Path(argv[0]).name} failed (exit {return_code}{detail})")
     return stdout
 
 

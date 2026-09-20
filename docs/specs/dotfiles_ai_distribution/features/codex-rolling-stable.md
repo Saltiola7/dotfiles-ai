@@ -168,6 +168,14 @@ adapters register semantic validators; whole generated-schema digests are not a
 rolling compatibility boundary. Unknown required fields, missing stable methods,
 changed discriminator semantics, or a validator crash reject the candidate.
 
+The wrapper retains its per-launch hard link until the child exits, including
+native binaries: successful `posix_spawn` does not prove the native loader has
+finished resolving that path. Release the package lock before waiting so rolling
+activation remains independent of a long-lived session. Remove the launch link
+after normal or signalled child termination; never unlink it immediately after
+spawn or retry a failed user invocation. Validate link lifetime with a deterministic
+regression and repeated native version invocations on the deployed platform.
+
 The active executable remains the regular file
 `~/.local/libexec/dotfiles-ai/codex` on every platform. A process already running
 that inode continues uninterrupted; the next launch uses the newly renamed file.

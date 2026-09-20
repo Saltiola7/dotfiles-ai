@@ -45,8 +45,9 @@ derives its effective state from the master flag AND the subordinate flag
 together. With the master flag false, a leftover `postgres_enabled = true` renders
 the ordinary PM-only PostgreSQL service, never the pgvector image, the DKS
 migrator, or the DKS credential setup. The PM hooks never delete retained DKS
-credentials, installed references, or configuration; those stay intact until the
-separately approved state-retirement slice. A fresh OpenCode
+credentials; credential deletion belongs to separately approved state retirement.
+Owned runtime target removal remains the disablement hook's responsibility,
+not the shared PM hook's. A fresh OpenCode
 process is required after tool removal.
 
 Until controlled-environment Discovery delivers a receipt contract, any

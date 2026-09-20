@@ -350,12 +350,7 @@ def exec_managed(lock_path, executable, arguments):
         if os.path.lexists(launch):
             raise ValueError("unsafe Codex launch link")
         os.link(executable, launch, follow_symlinks=False)
-        with executable.open("rb") as stream:
-            script = stream.read(2) == b"#!"
         pid = os.posix_spawn(launch, [str(executable), *arguments], os.environ)
-        if not script:
-            launch.unlink()
-            fsync_directory(launch.parent)
     finally:
         os.close(lock)
         if pid is None:
@@ -363,9 +358,9 @@ def exec_managed(lock_path, executable, arguments):
     try:
         _, status = os.waitpid(pid, 0)
     finally:
-        if script:
-            launch.unlink(missing_ok=True)
-            fsync_directory(launch.parent)
+        # Native loaders may still resolve the launch path after posix_spawn returns.
+        launch.unlink(missing_ok=True)
+        fsync_directory(launch.parent)
     raise SystemExit(os.waitstatus_to_exitcode(status))
 
 
