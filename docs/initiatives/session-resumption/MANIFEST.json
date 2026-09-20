@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "session-resumption",
+  "title": "Durable resumption of existing managed sessions",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Repair shared tooling in dotfiles-ai and provide prompts for the operator to resume exact existing conversations without taking over their project work.","disposition":"ready","artifacts":["docs/initiatives/session-resumption/README.md"]},
+    {"id":"INT-002","kind":"requirement","text":"Support verified existing cycle worktrees in place outside the current allocation directory while preserving repository, Cycle Record, native identity and single-writer validation.","disposition":"ready","artifacts":["docs/initiatives/session-resumption/README.md","docs/specs/dbsctr_v3_lifecycle/features/canonical-continuation.md"]},
+    {"id":"INT-003","kind":"constraint","text":"Preserve pending merges, dirty files, provider affinity, session history and existing child-agent restrictions; never infer recovery approval or fabricate identities.","disposition":"ready","artifacts":["docs/initiatives/session-resumption/README.md"]},
+    {"id":"INT-004","kind":"requirement","text":"Provide a verified one-PR Discovery-to-Build path preserving committed authority, fresh exact launch approval, upstream reconciliation and unrelated local work.","disposition":"open","artifacts":["docs/initiatives/session-resumption/README.md"]},
+    {"id":"INT-005","kind":"requirement","text":"Assess DKS retirement validation without weakening manifest ownership, link safety or protected PM and Graphify boundaries; leave irreversible retirement to its original session after fresh inventory-bound no-backup approval.","disposition":"open","artifacts":["docs/initiatives/session-resumption/README.md","docs/specs/dbsctr_knowledge_store/features/dks-state-retirement.md"]},
+    {"id":"INT-006","kind":"constraint","text":"Qualify shared fixes before deployment and distinguish fixture success from operator-confirmed progress in the original sessions; never prescribe fresh conversations or permission bypasses as repairs.","disposition":"ready","artifacts":["docs/initiatives/session-resumption/README.md"]}
+  ],
+  "contexts": [
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"captured","depends_on":["dbsctr_v3_lifecycle"]},
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"captured","depends_on":["dbsctr_v3_lifecycle"]},
+    {"id":"dbsctr_knowledge_store","repository":"Saltiola7/dotfiles-ai","status":"captured","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"legacy-continuation-core","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-001","INT-002","INT-003","INT-006"],"depends_on":[],"artifacts":["docs/initiatives/session-resumption/README.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md","docs/specs/dbsctr_v3_lifecycle/CANONICAL-CONTINUATION-CORE.plan.json"],"release_group":"legacy-resumption"},
+    {"id":"legacy-adapter-qualification","context":"opencode_control_plane","state":"captured","execution_owner":"build","requirements":["INT-002","INT-003","INT-006"],"depends_on":["legacy-continuation-core"],"artifacts":[],"release_group":"legacy-resumption"},
+    {"id":"qualified-rollout","context":"dotfiles_ai_distribution","state":"captured","execution_owner":"build","requirements":["INT-001","INT-003","INT-006"],"depends_on":["legacy-adapter-qualification"],"artifacts":[],"release_group":"legacy-resumption"},
+    {"id":"one-pr-discovery-launch","context":"dbsctr_v3_lifecycle","state":"captured","execution_owner":"discovery","requirements":["INT-001","INT-003","INT-004","INT-006"],"depends_on":[],"artifacts":[],"release_group":"launch-readiness"},
+    {"id":"retirement-validator-assessment","context":"dbsctr_knowledge_store","state":"captured","execution_owner":"discovery","requirements":["INT-001","INT-003","INT-005","INT-006"],"depends_on":[],"artifacts":[],"release_group":"retirement-readiness"}
+  ],
+  "release_groups": [
+    {"id":"legacy-resumption","members":["legacy-continuation-core","legacy-adapter-qualification","qualified-rollout"],"state":"planning"},
+    {"id":"launch-readiness","members":["one-pr-discovery-launch"],"state":"planning"},
+    {"id":"retirement-readiness","members":["retirement-validator-assessment"],"state":"planning"}
+  ]
+}
