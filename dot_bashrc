@@ -14,8 +14,10 @@ if [ -t 0 ] && command -v starship >/dev/null; then
     eval "$(starship init bash)"
 fi
 
-# Lima's guest tools live outside Fedora's default user PATH.
+# Lima BEGIN
+# Make sure iptables and mount.fuse3 are available
 PATH="$PATH:/usr/sbin:/sbin"
 export PATH
+# Lima END
 
 [ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ] && source "$HOME/.local/share/bash-preexec/bash-preexec.sh"

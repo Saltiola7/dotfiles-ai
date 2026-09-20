@@ -162,6 +162,37 @@ def test_bounded_runner_drains_large_output_and_rejects_overflow() -> None:
         helper.run([sys.executable, "-c", "import time;time.sleep(1)"], timeout=.01)
 
 
+@pytest.mark.parametrize("still_running", [False, True])
+def test_bounded_runner_preserves_validation_error_when_group_signal_is_denied(monkeypatch, still_running):
+    helper = load_updater()
+
+    class Child:
+        pid = 123
+        polls = 0
+        killed = False
+
+        def poll(self):
+            self.polls += 1
+            return None if still_running or self.polls < 3 else 0
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self):
+            assert self.killed or not still_running
+
+    child = Child()
+    monkeypatch.setattr(helper.subprocess, "Popen", lambda *args, **kwargs: child)
+
+    def denied(*args):
+        raise PermissionError("process group exited during cleanup")
+
+    monkeypatch.setattr(helper.os, "killpg", denied)
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.run(["fixture"], timeout=0)
+    assert child.killed is still_running
+
+
 def test_continuation_requires_native_qualification_not_only_tool_loading(tmp_path, monkeypatch):
     helper = load_updater()
     plugin = Path.home() / ".config/opencode/plugins/continuation.ts"

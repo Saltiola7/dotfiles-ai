@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-20 - Final Shell And Validator Convergence
+
+- Preserved Lima's shell markers around the existing PATH block, preventing a
+  duplicate boot-added block without changing commands or PATH entries. This
+  incorporates the shell repair from PR #172 rather than merging its failed CI.
+- CI exposed an existing macOS process-group cleanup race: output overflow was
+  correctly rejected, but signalling an already-exited group could mask that
+  validation error with PermissionError. Recheck child status before signalling;
+  if group signalling is denied while the child remains alive, terminate the
+  owned child and reap it. Output bounds, timeouts and failed validation stay intact.
+- Deterministic red tests cover both exited and still-running cleanup paths and
+  the missing shell markers. Runtime delivery and post-merge boot verification
+  are recorded separately from the preserved failed CI run. Release is not
+  applicable; no exception or protection bypass. Intended delivery is a normal
+  feature-branch draft PR into main with fresh required CI.
+
 ## 2026-09-17 - DKS-Retired PM PostgreSQL Convergence
 
 - Made the retired DKS master flag govern every DKS PostgreSQL integration site:
