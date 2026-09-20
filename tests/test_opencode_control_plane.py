@@ -2036,9 +2036,10 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
     helper = bin_dir / "dbsctrctl"
     helper.write_text(
         '#!/bin/sh\nprintf "<%s>\\n" "$@" >> "$HELPER_CALLS"\n'
+        'case " $* " in *" --preflight "*) [ "$PREFLIGHT_FAIL" = 1 ] && { printf "launch infeasible\\n" >&2; exit 1; };; esac\n'
         f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
-        f'else [ -z "$BEGIN_CWDS" ] || pwd >> "$BEGIN_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps({"cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
+        f'else [ -z "$BEGIN_CWDS" ] || pwd >> "$BEGIN_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps({"schema_version": 1, "launch_digest": "d" * 64, "plan": {"base_head": "e" * 40, "artifacts": []}, "cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
@@ -2091,6 +2092,9 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "cycle_id": "cycle-a", "context": "ctx",
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "launch_digest": "d" * 64,
+        "base_commit": "e" * 40,
+        "discovery_paths": [],
         "base_branch": "main",
         "github_account": None, "github_repository": None,
     }
@@ -2111,6 +2115,17 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
     assert "<tab>\n<create>\n<--cwd>\n<" + str(cycle) + ">\n<--workspace>\n<w1>" in log
     assert "<--prompt>" not in log
     assert int(herdr_start_bytes.read_text()) < 1024
+
+    approval.unlink()
+    blocked = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HERDR_ENV": "1",
+             "HELPER_CALLS": str(calls), "HERDR_CALLS": str(herdr_calls),
+             "APPROVAL": str(approval), "SOURCE": str(source), "PREFLIGHT_FAIL": "1"},
+        text=True, capture_output=True,
+    )
+    assert blocked.returncode != 0 and "launch infeasible" in blocked.stderr
+    assert not approval.exists(), "Known launch failure must precede approval"
 
     herdr_calls.write_text("")
     pending = subprocess.run(

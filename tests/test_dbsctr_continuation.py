@@ -93,6 +93,15 @@ def test_continuation_read_only_and_model_resume_preserve_record(cycle):
     assert cycle.continuation_path.parent.stat().st_mode & 0o077 == 0
 
 
+def test_continuation_existing_cycle_outside_allocation_root(cycle):
+    cycle.continuation_env["DBSCTR_WORKTREE_ROOT"] = str(Path(cycle.temp.name) / "new-allocation")
+    before = cycle.record_path().read_bytes()
+    assert call(cycle)["reason"] == "not_enrolled"
+    assert enroll(cycle)["state"] == "owned"
+    assert call(cycle, worktree=None)["state"] == "owned"
+    assert cycle.record_path().read_bytes() == before
+
+
 def test_continuation_readers_do_not_steal_writer(cycle):
     enroll(cycle)
     read = call(cycle, "attach", mode="reader", generation=1,

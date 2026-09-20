@@ -35,6 +35,10 @@ Repository identity uses resolved Git common-directory equality, registered
 worktree membership and the Cycle Record's worktree identity. A remote URL,
 slug, path prefix, process ID, timestamp or model name cannot substitute for it.
 Reuse existing `record_worktree_matches` and registry validation where applicable.
+The configured worktree root controls allocation of new cycles, not eligibility
+of existing registered cycles. Legacy locations use the same common-directory,
+Git registration, active-record and recorded-worktree checks without relocation.
+This does not authorize unrelated repositories or override writer ownership.
 
 ## Private State
 
