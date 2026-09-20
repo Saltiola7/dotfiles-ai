@@ -3,7 +3,7 @@
 {{ fail "enabled PM PostgreSQL requires 1Password, workspace, password reference, and absolute backup directory" }}
 {{- end -}}
 {{- end -}}
-{{- if .dotfiles_ai.knowledge_store.postgres_enabled -}}
+{{- if and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled -}}
 {{- $project := index .dotfiles_ai.knowledge_store.projects "dotfiles_ai" -}}
 {{- if or (not .dotfiles_ai.knowledge_store.enabled) (not .dotfiles_ai.pm_kernel.enabled) (not .dotfiles_ai.pm_kernel.postgres_enabled) (not .dotfiles_ai.onepassword.enabled) (not $project.repository) (not (hasPrefix "https://" $project.remote)) (not (hasPrefix "op://" $project.postgres_password_ref)) -}}
 {{ fail "enabled knowledge PostgreSQL requires embedding, PM PostgreSQL, 1Password, and a configured dotfiles-ai project" }}
@@ -16,6 +16,9 @@
 {{ fail "rnd.runtime must be opencode or codex" }}
 {{- end -}}
 {{- range $workspace := .dotfiles_ai.sandbox.workspaces -}}
+{{- if and (hasKey $workspace "rnd_enabled") (not (kindIs "bool" (get $workspace "rnd_enabled"))) -}}
+{{ fail "workspace rnd_enabled must be a boolean" }}
+{{- end -}}
 {{- if and (hasKey $workspace "runtime") (not (kindIs "string" (get $workspace "runtime"))) -}}
 {{ fail "workspace runtime must be a string" }}
 {{- end -}}
@@ -36,7 +39,7 @@
     "workspace": {{ .dotfiles_ai.pm_kernel.workspace | toJson }},
     "postgres_enabled": {{ .dotfiles_ai.pm_kernel.postgres_enabled | toJson }},
     "postgres_image": {{ .dotfiles_ai.pm_kernel.postgres_image | toJson }},
-    "knowledge_postgres_enabled": {{ .dotfiles_ai.knowledge_store.postgres_enabled | toJson }}
+    "knowledge_postgres_enabled": {{ and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled | toJson }}
   },
   "state_root": {{ .dotfiles_ai.state.root | toJson }},
   "codex": {
@@ -78,6 +81,9 @@
       "shell_alias": {{ $workspace.shell_alias | default "" | toJson }},
       "federate": {{ $workspace.federate | toJson }},
       "runtime": {{ get $workspace "runtime" | default "" | toJson }},
+{{- if hasKey $workspace "rnd_enabled" }}
+      "rnd_enabled": {{ get $workspace "rnd_enabled" | toJson }},
+{{- end }}
       "hermes_projects": {{ get $workspace "hermes_projects" | default false | toJson }},
       "hermes_backlog_roots": {{ get $workspace "hermes_backlog_roots" | default list | toJson }},
       "mounts": {{ $workspace.mounts | toJson }}

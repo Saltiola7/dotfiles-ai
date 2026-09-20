@@ -36,6 +36,39 @@ def load_archive():
     return module
 
 
+def test_managed_native_launch_keeps_link_until_child_exits(tmp_path, monkeypatch):
+    helper = load_projector()
+    executable = tmp_path / "codex"
+    executable.write_bytes(b"native fixture")
+    executable.chmod(0o700)
+    launch = tmp_path / f".codex-launch-{os.getpid()}"
+    monkeypatch.setattr(helper, "_resolve_managed", lambda *_: executable)
+
+    def spawn(path, arguments, environment):
+        assert path == launch and path.samefile(executable)
+        return 123
+
+    def wait(pid, options):
+        assert pid == 123
+        assert launch.exists(), "native loader still needs the launch path"
+        return pid, 0
+
+    monkeypatch.setattr(helper.os, "posix_spawn", spawn)
+    monkeypatch.setattr(helper.os, "waitpid", wait)
+    with pytest.raises(SystemExit) as stopped:
+        helper.exec_managed(tmp_path / "release-lock.json", executable, ["--version"])
+    assert stopped.value.code == 0
+    assert not launch.exists()
+
+    def interrupted(pid, options):
+        raise InterruptedError("unknown child completion")
+
+    monkeypatch.setattr(helper.os, "waitpid", interrupted)
+    with pytest.raises(InterruptedError):
+        helper.exec_managed(tmp_path / "release-lock.json", executable, ["--version"])
+    assert launch.exists()
+
+
 def load_rollback():
     loader = importlib.machinery.SourceFileLoader("codex_rollback", str(ROLLBACK))
     spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -112,6 +145,33 @@ def test_projector_rejects_modified_owned_file(tmp_path: Path) -> None:
     (target / "config.toml").chmod(0o644)
     with pytest.raises(ValueError, match="unsafe managed target"):
         helper.project(source, target)
+
+
+def test_explicit_config_reconciliation_preserves_preferences_and_owned_hooks(tmp_path):
+    helper = load_projector()
+    source = managed_source(tmp_path)
+    hooks = '[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "codex-control-plane hook Stop"\n'
+    (source / "config.toml").write_text(hooks)
+    target = tmp_path / "state/codex"
+    helper.project(source, target)
+    local = 'model = "local-choice"\n[features]\nprivate_feature = true\n' + hooks
+    (target / "config.toml").write_text(local)
+    with pytest.raises(ValueError, match="managed target changed"):
+        helper.project(source, target)
+    (target / "AGENTS.md").write_text("unreviewed edit")
+    with pytest.raises(ValueError, match="managed target changed"):
+        helper.project(source, target, reconcile_config=True)
+    assert not (target / ".dotfiles-ai-config-backups").exists()
+    (target / "AGENTS.md").write_text("managed instructions\n")
+    helper.project(source, target, reconcile_config=True)
+    assert (target / "config.toml").read_text() == local
+    helper.project(source, target)
+    assert (target / "config.toml").read_text() == local
+    backups = list((target / ".dotfiles-ai-config-backups").glob("*/config.toml"))
+    assert len(backups) == 1 and backups[0].read_text() == local
+    (target / "config.toml").write_text(local.replace("hook Stop", "hook Other"))
+    with pytest.raises(ValueError, match="managed hooks differ"):
+        helper.project(source, target, reconcile_config=True)
 
 
 def test_projector_recovers_interrupted_transaction(tmp_path: Path, monkeypatch) -> None:

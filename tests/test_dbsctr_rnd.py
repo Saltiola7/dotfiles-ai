@@ -61,6 +61,11 @@ def test_rnd_schedule_is_machine_local_opt_in():
     }
     assert jobs <= enabled
     assert not jobs & disabled
+    hermes = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(values(backend="hermes")), "managed",
+    ], text=True, capture_output=True, check=True)
+    assert not jobs & set(hermes.stdout.splitlines())
     assert ".local/bin/dbsctr-rnd" in disabled
     assert not (ROOT / "dot_local/bin/executable_hermes-update").exists()
     assert not (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl").exists()

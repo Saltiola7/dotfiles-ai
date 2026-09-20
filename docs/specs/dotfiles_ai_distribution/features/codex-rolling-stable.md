@@ -36,6 +36,19 @@ downgrade, or per-workspace version selector.
   while a healthy active release exists; apply succeeds and keeps every target on
   the active release.
 
+## Local Configuration Reconciliation
+
+For hook-only managed `config.toml`, ordinary projection preserves local config
+bytes when all source-owned hook definitions still match. Local model, project,
+feature and other hook settings are not silently removed. The recorded whole-file
+digest still detects intervening edits. An operator-approved
+`codex-project --reconcile-config SOURCE CODEX_HOME` may rebaseline that one
+already-owned file only when those managed hooks match and every other managed
+file validates. It backs up the config and prior manifest privately before the
+existing journaled transaction. Unknown files, changed managed hooks, unsafe
+permissions and unrelated edits remain failures. This is not a general force
+option or an automatic ownership migration; no config body enters Git or output.
+
 ## Release Authority
 
 The updater requests at most 1 MiB from
@@ -167,6 +180,15 @@ schema capabilities used by managed hooks and identities. Later delivered
 adapters register semantic validators; whole generated-schema digests are not a
 rolling compatibility boundary. Unknown required fields, missing stable methods,
 changed discriminator semantics, or a validator crash reject the candidate.
+
+The wrapper retains its per-launch hard link until the child exits, including
+native binaries: successful `posix_spawn` does not prove the native loader has
+finished resolving that path. Release the package lock before waiting so rolling
+activation remains independent of a long-lived session. Remove the launch link
+after normal or signalled child termination; retain it when waiting is interrupted
+and termination is unknown. Never unlink it immediately after
+spawn or retry a failed user invocation. Validate link lifetime with a deterministic
+regression and repeated native version invocations on the deployed platform.
 
 The active executable remains the regular file
 `~/.local/libexec/dotfiles-ai/codex` on every platform. A process already running

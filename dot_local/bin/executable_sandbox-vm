@@ -173,7 +173,9 @@ def command(argv, timeout=30, input_data=None, environment=None):
     stdout = b"".join(chunks[process.stdout]).decode(errors="replace").strip()
     stderr = b"".join(chunks[process.stderr]).decode(errors="replace").strip()
     if return_code:
-        raise RuntimeError(f"{argv[0]} failed")
+        script = re.search(r"chezmoi: ([a-z][a-z0-9-]{0,80}\.sh): exit status ([0-9]{1,3})(?:\n|$)", stderr)
+        detail = f", managed script {script[1]} exited {script[2]}" if script else ""
+        raise RuntimeError(f"{Path(argv[0]).name} failed (exit {return_code}{detail})")
     return stdout
 
 
@@ -305,9 +307,10 @@ def validate_config(value):
             workspace.setdefault("hermes_projects", False)
             workspace.setdefault("hermes_backlog_roots", [])
             workspace.setdefault("runtime", "")
+            workspace.setdefault("rnd_enabled", guest["hermes_enabled"])
         if not isinstance(workspace, dict) or set(workspace) != {
                 "name", "instance", "shell_alias", "federate", "hermes_projects",
-                "hermes_backlog_roots", "runtime", "mounts"}:
+                "hermes_backlog_roots", "runtime", "mounts", "rnd_enabled"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
@@ -316,6 +319,7 @@ def validate_config(value):
             raise ValueError("invalid workspace name")
         if (not ID.fullmatch(instance) or instance in instances
                 or not isinstance(workspace["federate"], bool)
+                or not isinstance(workspace["rnd_enabled"], bool)
                 or not isinstance(workspace["hermes_projects"], bool)):
             raise ValueError(f"invalid {name} workspace")
         if workspace["runtime"] not in {"", "opencode", "codex"}:
@@ -582,7 +586,7 @@ def guest_config(config, workspace):
         f"project_profiles = {'true' if workspace.get('hermes_projects', False) else 'false'}",
         "",
         "[data.dotfiles_ai.rnd]",
-        f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
+        f"enabled = {'true' if guest['hermes_enabled'] and workspace.get('rnd_enabled', guest['hermes_enabled']) else 'false'}",
         f"backend = {quote(guest['rnd_backend'])}",
         f"runtime = {quote(guest['rnd_runtime'])}",
         f"review_workdir = {quote(next(mount['guest'] for mount in workspace['mounts'] if mount['writable']))}",
@@ -737,7 +741,7 @@ chezmoi -S "$tmp/source" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" apply \
         source = f"{home}/.local/share/chezmoi-dotfiles-ai"
         execute(["limactl", "shell", instance, "--", "git", "-C", source, "pull", "--ff-only"], timeout=300)
         execute(["limactl", "shell", instance, "--", "chezmoi", "-c",
-                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply"], timeout=300)
+                 f"{home}/.config/dotfiles-ai/chezmoi.toml", "apply", "--force"], timeout=300)
     if helper_only or rolling_helpers:
         return
     execute(["limactl", "shell", instance, "--", "sh", "-ceu",
@@ -826,6 +830,37 @@ def refresh_opencode_guard(config, workspace, execute=command):
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
     with _instance_lock(lock_root, instance):
         running, current = _instance_state(execute, instance)
+        provisions = list(current.get("config", {}).get("provision", []))
+        bootstrap = [(index, item) for index, item in enumerate(provisions)
+                     if isinstance(item, dict) and item.get("mode") == "user"
+                     and 'source="$HOME/.local/share/chezmoi-dotfiles-ai"' in item.get("script", "")]
+        if len(bootstrap) > 1:
+            raise RuntimeError("ambiguous guest bootstrap ownership")
+        if bootstrap:
+            index, item = bootstrap[0]
+            script = item["script"]
+            guard = 'if test ! -e "$HOME/.config/dotfiles-ai/chezmoi.toml"; then\n'
+            if guard not in script:
+                anchors = [entry for entry in (
+                    'sed "s|__GUEST_HOME__|$HOME|g" >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<\'EOF\'\n',
+                    'cat >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<EOF\n',
+                    'cat >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<\'EOF\'\n',
+                ) if entry in script]
+                if len(anchors) != 1 or script.count(anchors[0]) != 1:
+                    raise RuntimeError("unrecognized guest bootstrap config writer")
+                anchor = anchors[0]
+                if "\nEOF\n" not in script[script.index(anchor):]:
+                    raise RuntimeError("unrecognized guest bootstrap config writer")
+                if running:
+                    raise RuntimeError("guest bootstrap migration requires a stopped guest")
+                start = script.index(anchor)
+                end = script.index("\nEOF\n", start) + len("\nEOF\n")
+                protected = ('test ! -L "$HOME/.config/dotfiles-ai/chezmoi.toml"\n' + guard
+                             + script[start:end] + 'chmod 0600 "$HOME/.config/dotfiles-ai/chezmoi.toml"\nfi\n')
+                provisions[index] = {**item, "script": script[:start] + protected + script[end:]}
+                execute(["limactl", "edit", "--yes", "--set",
+                         ".provision = " + json.dumps(provisions, separators=(",", ":")), instance], timeout=120)
+                current["config"]["provision"] = provisions
         try:
             if not running:
                 execute(["limactl", "start", instance], timeout=120)

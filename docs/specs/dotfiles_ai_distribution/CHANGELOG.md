@@ -1,5 +1,71 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-17 - DKS-Retired PM PostgreSQL Convergence
+
+- Made the retired DKS master flag govern every DKS PostgreSQL integration site:
+  sandbox validation and projection, shared container image selection and
+  verifier hook, and the PM configure/enable hooks. With the master flag false,
+  a leftover `knowledge_store.postgres_enabled` can no longer fail rendering,
+  select the pgvector image, or invoke the DKS migrator; PM PostgreSQL renders
+  and runs independently.
+- Removed credential deletion from the PM hooks: the PM-only path no longer
+  deletes the retained DKS Keychain item or installed references, matching the
+  delivered retirement contract that Keychain/API-key material, database, logs,
+  and caches remain intact until the separately approved state-retirement slice.
+- Adopted the operator's Herdr `allow_nested = true` experimental setting into
+  the managed template with its rendering test, replacing the uncommitted local
+  edit.
+- Red-first regressions cover both leftover-flag values: PM-only container
+  image, no pgvector build/verify, no DKS migrator or credential operations, and
+  shell syntax validation of both rendered hooks. All affected distribution,
+  knowledge-store, Lima, and lifecycle suites pass (191 + 1 tests); Git
+  whitespace validation is clean. Dependabot advisory input remains unavailable
+  because repository alerts are disabled.
+- Fixed unattended guest convergence: the clone-path guest `chezmoi apply`
+  inside `sandbox-vm update` now runs with `--force`, matching the
+  deployment-source path. A drifted managed guest file previously made the
+  non-interactive apply abort on a missing TTY and blocked the PM configure
+  hook; machine-local values remain preserved by the merge modifier, not the
+  interactive prompt. Red-first regression covers the guest apply arguments.
+- Deployment investigation also reproduced premature removal of Codex's native
+  launch link. Retain it until child termination without holding the package lock
+  across the session; a deterministic red regression and twenty consecutive native
+  version invocations validate the repair without retries. VM command failures
+  now include their exit status and a bounded managed-script name, never raw
+  subprocess output. A successful manual guest apply after rollback does not
+  prove the managed update passed; deployment results require actual exit status.
+- Added a validated per-workspace `rnd_enabled` override after deployment exposed
+  that the host's enabled Hermes setting would enable previously disabled guest
+  automation. The operator selected disabled guest R&D while preserving host R&D,
+  interactive tools and PM PostgreSQL. Existing configs without an override retain
+  their prior inheritance; false overrides are not erased during guest refresh.
+- Added explicit, backed-up reconciliation of an already-owned Codex config
+  whose managed hooks still match source. Local preferences and unknown sections
+  remain byte-identical; changed managed hooks, unrelated drift and unsafe paths
+  stay blocked. Ordinary subsequent projection preserves those local settings.
+- Corrected guest boot provisioning that rewrote updated machine configuration
+  with its creation-time copy on every restart. That could undo PM enablement
+  after a successful update and make a subsequent apply disable the service.
+  Boot now creates missing config only; exact legacy writers migrate while the
+  guest is stopped, before its first boot, with ambiguity and running-guest denial
+  checks. Explicit updates still refresh managed settings. Restart regression
+  tests preserve PM settings and original VM power state.
+- Excluded native R&D LaunchAgents when Hermes is the selected backend, preventing
+  repeated apply from recreating files the Hermes cutover intentionally removed.
+- Verified candidate deployment and native completion on both guests, plus all
+  43 core continuation/recovery checks on each. Standalone Bun adapter tests are
+  unavailable on guests without the Bun CLI; host/CI adapter suites and actual
+  installed OpenCode probes remain separate authorities. Failed attempts were
+  retained, not relabelled as passes. PM restart now preserves its enabled config;
+  guest R&D remains disabled and private config backups remain boundary-local.
+- Interrupted launcher waits retain the launch link rather than assuming child
+  termination. The source fix and regression preserve the old running inode.
+- Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
+  managed apply with service hooks on the host and both configured guests,
+  preserving PM PostgreSQL availability and prior VM power states — is recorded
+  in the Cycle Record before delivery. No database, credential, model, or private
+  state is deleted. No Gate Exception; Release is not applicable.
+
 ## 2026-09-15 - Canonical Continuation Rollout
 
 - Installed and verified the eleven continuation targets on the host and both

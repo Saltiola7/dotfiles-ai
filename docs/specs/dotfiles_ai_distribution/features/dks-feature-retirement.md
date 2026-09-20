@@ -38,7 +38,16 @@ source file, or directory outside these exact targets is removed.
 
 The active host's machine-local config changes only
 `data.dotfiles_ai.knowledge_store.enabled` to false. Subordinate values may remain
-for source compatibility but cannot override the master flag. A fresh OpenCode
+for source compatibility but cannot override the master flag. Every DKS
+PostgreSQL integration site — sandbox validation and projection, the shared
+container image selection and verifier hook, and the PM configure/enable hooks —
+derives its effective state from the master flag AND the subordinate flag
+together. With the master flag false, a leftover `postgres_enabled = true` renders
+the ordinary PM-only PostgreSQL service, never the pgvector image, the DKS
+migrator, or the DKS credential setup. The PM hooks never delete retained DKS
+credentials; credential deletion belongs to separately approved state retirement.
+Owned runtime target removal remains the disablement hook's responsibility,
+not the shared PM hook's. A fresh OpenCode
 process is required after tool removal.
 
 Until controlled-environment Discovery delivers a receipt contract, any

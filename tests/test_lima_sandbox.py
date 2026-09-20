@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import tomllib
@@ -310,7 +311,32 @@ def test_update_refreshes_guest_config_before_apply(tmp_path: Path) -> None:
     assert rendered["data"]["dotfiles_ai"]["hermes"]["enabled"] is True
     assert rendered["data"]["dotfiles_ai"]["hermes"]["project_profiles"] is True
     assert calls[3][0][-2:] == ["pull", "--ff-only"]
-    assert calls[4][0][-1] == "apply"
+    assert calls[4][0][-2:] == ["apply", "--force"]
+
+
+def test_command_failure_exposes_exit_and_script_not_private_output():
+    helper = load_helper()
+    with pytest.raises(RuntimeError) as caught:
+        helper.command([sys.executable, "-c", "import sys; "
+                        "sys.stderr.write('private credential sentinel\\nchezmoi: enable-pm-postgres.sh: exit status 1\\n'); "
+                        "sys.exit(7)"])
+    assert "exit 7" in str(caught.value)
+    assert "enable-pm-postgres.sh exited 1" in str(caught.value)
+    assert "private credential sentinel" not in str(caught.value)
+
+
+def test_workspace_can_disable_rnd_without_disabling_tools(tmp_path):
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    workspace["rnd_enabled"] = False
+    helper.validate_config(values)
+    rendered = tomllib.loads(helper.guest_config(values, workspace))["data"]["dotfiles_ai"]
+    assert rendered["rnd"]["enabled"] is False
+    assert rendered["hermes"]["enabled"] is True
+    workspace["rnd_enabled"] = "false"
+    with pytest.raises(ValueError, match="workspace"):
+        helper.validate_config(values)
 
 
 def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> None:
@@ -569,6 +595,54 @@ def test_retire_opencode_provision_waits_for_verified_guard(tmp_path: Path) -> N
 
     assert helper.retire_opencode_provision(values, workspace, "1.18.29", execute) == "updated"
     assert state == {"running": False, "provision": [helper.OPENCODE_GUARD_PROVISION]}
+
+
+@pytest.mark.parametrize("running", [False, True])
+@pytest.mark.parametrize("legacy_cat", [False, True, "quoted"])
+def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, running, legacy_cat):
+    helper = load_helper()
+    values = config(tmp_path)
+    home = tmp_path / "guest"
+    config_file = home / ".config/dotfiles-ai/chezmoi.toml"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("pm_enabled = true\n")
+    script = ('set -eu\nsource="$HOME/.local/share/chezmoi-dotfiles-ai"\n'
+              'sed "s|__GUEST_HOME__|$HOME|g" >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<\'EOF\'\n'
+              'pm_enabled = false\nEOF\n')
+    if legacy_cat:
+        script = script.replace('sed "s|__GUEST_HOME__|$HOME|g"', 'cat').replace("<<'EOF'", "<<EOF")
+    if legacy_cat == "quoted":
+        script = script.replace("<<EOF", "<<'EOF'")
+    state = {"running": running, "provision": [{"mode": "user", "script": script}]}
+    mutations = []
+
+    def execute(argv, **kwargs):
+        if argv == ["limactl", "list", "--json"]:
+            return json.dumps({"name": "workspace1-sandbox", "status": "Running" if state["running"] else "Stopped",
+                               "config": {"provision": state["provision"]}})
+        if argv[:2] == ["limactl", "edit"]:
+            mutations.append("edit")
+            state["provision"] = json.loads(argv[-2].removeprefix(".provision = "))
+        elif argv[:2] == ["limactl", "start"]:
+            mutations.append("start")
+            state["running"] = True
+            subprocess.run(["sh", "-c", state["provision"][0]["script"]],
+                           env={**os.environ, "HOME": str(home)}, check=True)
+        elif argv[:2] == ["limactl", "stop"]:
+            state["running"] = False
+        elif argv[-1:] == [helper.OPENCODE_GUARD_PROBE]:
+            return "present"
+        return ""
+
+    if running:
+        with pytest.raises(RuntimeError, match="stopped guest"):
+            helper.refresh_opencode_guard(values, values["workspaces"][0], execute=execute)
+        assert mutations == []
+    else:
+        helper.refresh_opencode_guard(values, values["workspaces"][0], execute=execute)
+        assert mutations[:2] == ["edit", "start"]
+        assert state["running"] is False
+    assert config_file.read_text() == "pm_enabled = true\n"
 
 
 def test_guard_migration_never_restarts_running_guest(tmp_path: Path) -> None:
