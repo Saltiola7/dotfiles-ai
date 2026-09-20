@@ -50,6 +50,8 @@
   guest is stopped, before its first boot, with ambiguity and running-guest denial
   checks. Explicit updates still refresh managed settings. Restart regression
   tests preserve PM settings and original VM power state.
+- Excluded native R&D LaunchAgents when Hermes is the selected backend, preventing
+  repeated apply from recreating files the Hermes cutover intentionally removed.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded

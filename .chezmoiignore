@@ -121,7 +121,7 @@ build-herdr-host.sh
 {{ if not .dotfiles_ai.hermes.enabled }}
 .hermes/managed
 {{ end }}
-{{ if not .dotfiles_ai.rnd.enabled }}
+{{ if or (not .dotfiles_ai.rnd.enabled) (ne .dotfiles_ai.rnd.backend "native") }}
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
 Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
 {{ end }}
