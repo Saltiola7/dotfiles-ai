@@ -598,7 +598,7 @@ def test_retire_opencode_provision_waits_for_verified_guard(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("running", [False, True])
-@pytest.mark.parametrize("legacy_cat", [False, True])
+@pytest.mark.parametrize("legacy_cat", [False, True, "quoted"])
 def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, running, legacy_cat):
     helper = load_helper()
     values = config(tmp_path)
@@ -611,6 +611,8 @@ def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, r
               'pm_enabled = false\nEOF\n')
     if legacy_cat:
         script = script.replace('sed "s|__GUEST_HOME__|$HOME|g"', 'cat').replace("<<'EOF'", "<<EOF")
+    if legacy_cat == "quoted":
+        script = script.replace("<<EOF", "<<'EOF'")
     state = {"running": running, "provision": [{"mode": "user", "script": script}]}
     mutations = []
 
