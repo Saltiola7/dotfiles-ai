@@ -3769,7 +3769,7 @@ def completion_artifact_check(record):
 
 
 def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True, git_env=None, source_record=None):
+                portable=True, git_env=None, source_record=None, discovery_import=None, initiative=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -3791,6 +3791,11 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
     pre_cycle_ahead = ahead(root, current_upstream)
+    if discovery_import is not None:
+        verify_discovery_import(root, {"discovery_import": discovery_import})
+        if pre_cycle_ahead != [discovery_import["commit"]]:
+            fail("Discovery import is not the exact initial cycle commit")
+        pre_cycle_ahead = []
     protected_base_branch = args.base_branch
     if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
         fail("invalid protected base branch")
@@ -3811,6 +3816,8 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             delivery_url = github_remote_url(root, delivery_remote, repository)
             fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
+        if discovery_import is not None and base_head != discovery_import["base_head"]:
+            fail("protected base advanced during Discovery import; prepare a fresh launch")
         if git_env is None:
             published_head = git(
                 root, "ls-remote", "--heads", delivery_remote, f"refs/heads/{current_branch}"
@@ -3873,7 +3880,13 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
                              for name in ARTIFACTS},
         "runtime": {"adapters": {}},
         **({"source": source_record} if source_record is not None else {}),
+        **({"initiative": initiative} if initiative is not None else {}),
     }
+    if discovery_import is not None:
+        record["discovery_import"] = discovery_import
+        record["git"]["head"] = discovery_import["base_head"]
+        record["worktree"]["base_commit"] = discovery_import["base_head"]
+        record["commits"] = [{"id": discovery_import["commit"], "gates": []}]
     message_id = getattr(args, "opencode_message_id", None)
     session_id = (session_for_message(None, message_id) if message_id is not None
                   else getattr(args, "opencode_session_id", None))
@@ -3949,6 +3962,67 @@ def command_start(args):
     print(record["cycle_id"])
 
 
+def initiative_import_plan(source, authority, receipt, plan, target, args):
+    base = git(source, "rev-parse", target).stdout.strip()
+    result = {"base_head": base, "source_commit": receipt["manifest_commit"],
+              "receipt": receipt, "plan_digest": args.expected_plan_digest,
+              "repository": args.expected_repository, "base_branch": args.base_branch,
+              "cycle_id": args.cycle_id, "context": args.context, "risk": args.risk,
+              "delivery_intent": args.delivery_intent, "artifacts": []}
+    if common_git_dir(source).resolve() != common_git_dir(authority).resolve():
+        return result
+    commit = receipt["manifest_commit"]
+    ancestor = git(source, "merge-base", base, commit).stdout.strip()
+    allowed = set(receipt["artifacts"]) | {receipt["manifest_path"], plan["profile"]}
+    try:
+        plan_relative = Path(args.plan).resolve().relative_to(authority.resolve()).as_posix()
+        if not git(authority, "cat-file", "-e", f"{commit}:{plan_relative}", check=False).returncode:
+            allowed.add(plan_relative)
+    except ValueError:
+        pass
+    changed = set(filter(None, git(source, "diff", "--name-only", "-z", ancestor, commit).stdout.split("\0")))
+    if not changed <= allowed:
+        fail("Discovery contains changes outside receipt artifacts; isolate or declare them before launch")
+    for name in sorted(allowed):
+        before = git(source, "ls-tree", ancestor, "--", name).stdout
+        current = git(source, "ls-tree", base, "--", name).stdout
+        desired = git(authority, "ls-tree", commit, "--", name).stdout
+        if current == desired:
+            continue
+        if not name.startswith("docs/") or any(part in {"", ".", ".."} for part in name.split("/")):
+            fail("Discovery import is limited to declared documentation artifacts")
+        if current != before:
+            fail("Discovery artifact conflicts with the protected base; reconcile authority before approval")
+        fields = desired.split()
+        if len(fields) != 4 or fields[0] != "100644" or fields[1] != "blob" or fields[3] != name:
+            fail("Discovery import requires regular, non-deleted documentation files")
+        for parent in Path(name).parents:
+            if str(parent) == ".":
+                continue
+            entry = git(source, "ls-tree", base, "--", parent.as_posix()).stdout
+            if entry and not entry.startswith("040000 tree "):
+                fail("Discovery import parent is not a Git directory")
+        result["artifacts"].append({"path": name, "blob": fields[2], "mode": fields[0]})
+    return result
+
+
+def verify_discovery_import(root, record):
+    item = record.get("discovery_import")
+    if item is None:
+        return
+    commit, base = item["commit"], item["base_head"]
+    if git(root, "rev-list", "--parents", "-n", "1", commit).stdout.split() != [commit, base]:
+        fail("Discovery import parent changed")
+    actual = set(filter(None, git(root, "diff", "--name-only", "-z", base, commit).stdout.split("\0")))
+    if actual != {entry["path"] for entry in item["artifacts"]}:
+        fail("Discovery import path set changed")
+    for entry in item["artifacts"]:
+        for revision in (commit, item["source_commit"]):
+            tree = git(root, "ls-tree", revision, "--", entry["path"]).stdout.split()
+            if tree != [entry["mode"], "blob", entry["blob"], entry["path"]]:
+                fail("Discovery import blob identity changed")
+
+
 def command_begin(args):
     source = root_dir()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
@@ -3988,8 +4062,18 @@ def command_begin(args):
     if args.resume_existing and initiative is None:
         fail("resume-existing is limited to approved Initiative begin")
     plan = read_plan(args.plan, args.expected_plan_digest)
+    if initiative is not None:
+        profile_source = (initiative_source if common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()
+                          else source)
+        validate_plan(profile_source, args.context, args.delivery_intent, plan)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
+    if (initiative is not None and args.delivery_intent == "draft_pr"
+            and common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()):
+        if git(source, "check-ref-format", "--branch", args.base_branch, check=False).returncode:
+            fail("invalid protected base branch")
+        remote, remote_branch = "origin", args.base_branch
+        target = f"{remote}/{remote_branch}"
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
     normalize_begin_delivery(source, args, remote_branch)
@@ -4005,7 +4089,25 @@ def command_begin(args):
         fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
     else:
         git(source, "fetch", remote, remote_branch)
-    if ahead(source, target):
+    launch_plan = None
+    if initiative is not None:
+        launch_plan = initiative_import_plan(source, initiative_source, initiative, plan, target, args)
+        expected_branch = f"dbsctr/{args.context}/{args.cycle_id}"
+        existing_branch = git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{expected_branch}", check=False).returncode == 0
+        if existing_branch and not (args.resume_existing and (cycle_dir(source) / "cycles" / f"{args.cycle_id}.json").is_file()):
+            fail("cycle branch exists without a resumable record; inspect retained state before approval")
+        parent = Path(args.worktree_root).expanduser() if args.worktree_root else worktree_registry_root() / hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
+        if (parent / args.cycle_id).exists() and not existing_branch:
+            fail("cycle path already exists; inspect retained state before approval")
+        launch_digest = continuation_digest(launch_plan)
+        if getattr(args, "preflight", False):
+            print(json.dumps({"schema_version": 1, "launch_digest": launch_digest, "plan": launch_plan}, sort_keys=True))
+            return
+        if getattr(args, "expected_launch_digest", None) != launch_digest:
+            fail("Initiative launch plan changed or is missing; run preflight before approval")
+    elif getattr(args, "preflight", False):
+        fail("launch preflight requires an Initiative")
+    elif ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
     branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
     if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
@@ -4059,10 +4161,18 @@ def command_begin(args):
     if worktree.exists():
         fail(f"cycle worktree already exists: {worktree}")
     parent.mkdir(parents=True, exist_ok=True)
-    git(source, "worktree", "add", "-b", branch_name, str(worktree), target)
+    git(source, "worktree", "add", "-b", branch_name, str(worktree),
+        launch_plan["base_head"] if launch_plan else target)
     worktree = worktree.resolve()
     try:
         git(worktree, "branch", "--set-upstream-to", target, branch_name)
+        discovery_import = None
+        if launch_plan and launch_plan["artifacts"]:
+            paths = [entry["path"] for entry in launch_plan["artifacts"]]
+            git(worktree, "restore", "--source", launch_plan["source_commit"], "--staged", "--worktree", "--", *paths)
+            git(worktree, "commit", "-m", "docs(discovery): import approved slice authority")
+            discovery_import = {key: launch_plan[key] for key in ("base_head", "source_commit", "artifacts")}
+            discovery_import["commit"] = git(worktree, "rev-parse", "HEAD").stdout.strip()
         if (source / ".dvc").exists() or (source / "dvc.yaml").exists():
             cache_owner = primary_worktree(source)
             cache_result = subprocess.run(["dvc", "cache", "dir"], cwd=cache_owner,
@@ -4089,11 +4199,8 @@ def command_begin(args):
             "locator": {"root": "primary_worktree", "path": "."},
         })
         record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                             worktree_locator=locator, portable=portable, git_env=delivery_env,
-                             source_record=source_record)
-        if initiative is not None:
-            record["initiative"] = initiative
-        save(cycle_dir(worktree) / "cycles" / f"{args.cycle_id}.json", record)
+                              worktree_locator=locator, portable=portable, git_env=delivery_env,
+                              source_record=source_record, discovery_import=discovery_import, initiative=initiative)
     except Exception:
         git(source, "worktree", "remove", str(worktree), check=False)
         git(source, "branch", "-D", branch_name, check=False)
@@ -5492,9 +5599,6 @@ def continuation_target(request, session_key, purpose="active"):
                 raise ContinuationError("not_enrolled")
             target = worktree_for_id(home, route[0])
         target = Path(target).resolve(strict=True)
-        registry = worktree_registry_root().resolve(strict=True)
-        if target == registry or registry not in target.parents:
-            raise ContinuationError("registry_mismatch")
         if repo_root(target) != target:
             raise ContinuationError("invalid_target")
         if common_git_dir(target).resolve() != common_git_dir(home).resolve():
@@ -13637,6 +13741,7 @@ def finish_push(root, path, record):
         print(prefix + "pushed " + " ".join(entry["id"] for entry in record["commits"]))
         return
     require_pushable(record)
+    verify_discovery_import(root, record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
     if record.get("schema_version") in (3, 4, 5):
@@ -14395,6 +14500,8 @@ def parser():
     begin.add_argument("--initiative-source")
     begin.add_argument("--expected-plan-digest")
     begin.add_argument("--expected-repository")
+    begin.add_argument("--preflight", action="store_true")
+    begin.add_argument("--expected-launch-digest")
     begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")

@@ -140,6 +140,31 @@ session with the same digest-bound handoff.
 - Exact approval binds manifest commit/blob/digest, source and target repository
   identities, cycle arguments, and the applicability-plan content digest. Begin
   consumes those expected identities and rejects approval-time mutation.
+- Specification readiness is not launch feasibility. The native adapter first
+  runs Initiative `begin --preflight` with the real helper. It validates the plan,
+  fetches the target, checks known branch/path collisions, and returns a launch
+  digest before asking for execution approval. Fetch updates remote-tracking refs;
+  preflight does not create a cycle, branch, worktree or commit.
+- For same-repository Discovery, the protected `origin/<base>` is the implementation
+  baseline, independent of the Discovery branch's tracking configuration. A local
+  unpublished Discovery branch does not require a documentation PR first.
+- Carry only declared, committed regular documentation artifacts, the manifest,
+  and the applicable profile/committed plan. Unrelated committed changes, deleted
+  or symlinked import files, unsafe parents and overlapping upstream changes fail
+  before approval. Unrelated dirty files remain in the original checkout.
+- Approval includes `launch_digest`, binding exact source receipt, base commit,
+  imported paths/modes/blobs, plan, repository and cycle arguments. Begin recomputes
+  it before mutation; stale base or source requires a fresh preview and approval.
+- The isolated worktree receives a provenance-bound Discovery import commit when
+  needed. `discovery_import` records its exact parent, source commit and blob set;
+  it is a cycle-owned input with an empty gates list, never passing gate evidence.
+  The cycle baseline remains the protected base. Final Push verifies the import
+  and ordinary cycle lineage, so one PR includes Discovery and implementation
+  without publishing the original Discovery branch or waiving unknown commits.
+- Cycle creation stores Initiative authority atomically with the initial record.
+  A retry with a matching existing record uses the existing cycle. A branch/path
+  without a resumable record remains a visible interrupted-creation blocker; no
+  automatic force cleanup or guessed adoption is permitted.
 - Readiness receipts contain no transcript, prompt, secret, URL, machine path, or
   transient Herdr identity.
 - A later manifest digest invalidates every earlier readiness receipt for an

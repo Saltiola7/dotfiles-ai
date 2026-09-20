@@ -10,6 +10,18 @@ operator pastes tailored prompts. No original-session ownership transfer, projec
 implementation, merge resolution, dependency update or deletion is authorized here.
 General proceed approval does not replace the required digest-bound slice receipt.
 
+### Explicit Repair Bootstrap
+
+After the local Discovery commit itself reproduced the launch failure, the
+operator authorized a lighter repair-and-deploy workflow instead of repeated
+framework approval loops. This authorizes shared source repair and targeted
+deployment, not taking ownership of original cycles or deleting DKS data.
+The bootstrap must preserve failing regression evidence and qualify the repaired
+workflow through real Git begin, import, gate and Final Push fixtures. No failed
+gate is reclassified as passed. Future Initiative launches retain native exact
+approval, now after feasibility preflight rather than before known prerequisites.
+The old legacy-core receipt does not claim approval of the expanded repair.
+
 Use existing lifecycle, OpenCode control-plane, distribution and knowledge-store
 profiles. Do not create duplicate retirement authority: the cycle-speed Initiative
 and its existing retirement slice retain that work. This Initiative tracks shared
@@ -81,6 +93,12 @@ from a missing capability. Do not endorse ordinary begin plus ungoverned cherry-
 invent an upstream, carry unknown commits, or silently reuse stale approval. Define
 the exact source authority, protected base, carried artifacts and fresh receipt
 before promoting an implementation slice. Original dependency scope stays unchanged.
+
+The reproduced gap is addressed in the shared Initiative begin path: separate
+Discovery authority from the protected baseline, validate feasibility before
+approval, and import only exact declared documentation as a provenance-bound
+cycle input. Both this investigation and dependency remediation use that same
+path; publishing an extra Discovery PR is not the default workaround.
 
 The DKS lane must obtain permitted bounded evidence of manifest-owned internal
 links, model/venv identity and credential capabilities. Never replace fail-closed

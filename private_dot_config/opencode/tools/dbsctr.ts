@@ -579,6 +579,8 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
   const baseBranch = await gitDefaultBranch(target)
   await initiativeCycleCheck(args.cycleId, receipt, target)
   const planDigest = await fileDigest(args.planPath, target)
+  const prepared = await beginCycle({ ...args, baseBranch }, target, false, process.env,
+    undefined, receipt, source, { planDigest, targetRepository }, true)
   const approval = JSON.stringify({
     initiative_id: receipt.initiative_id,
     slice_id: receipt.slice_id,
@@ -595,6 +597,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     delivery_intent: args.deliveryIntent,
     plan_path: args.planPath,
     plan_digest: planDigest,
+    launch_digest: prepared.launch_digest,
     base_branch: baseBranch,
     github_account: args.githubAccount ?? null,
     github_repository: args.githubRepository ?? null,
@@ -621,7 +624,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     messageID: context.messageID,
     directory: context.directory,
     worktree: context.worktree,
-  }, receipt, source, { planDigest, targetRepository }))
+  }, receipt, source, { planDigest, targetRepository, launchDigest: prepared.launch_digest }))
 }
 
 export const begin = tool({

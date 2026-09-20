@@ -255,6 +255,12 @@ export async function childRead(context: RuntimeContext, tool: string, args: any
   const configured = process.env.DBSCTR_WORKTREE_ROOT ?? join(homedir(), ".local/state/dbsctr/worktrees")
   const registry = await realpath(configured).catch(() => resolve(configured))
   if (inside(registry, path)) throw Error("continuation_child_external_read")
+  const linked = await run(["git", "worktree", "list", "--porcelain"], own)
+  for (const line of linked.split("\n")) {
+    if (!line.startsWith("worktree ")) continue
+    const root = await realpath(line.slice("worktree ".length)).catch(() => undefined)
+    if (root && root !== own && inside(root, path)) throw Error("continuation_child_external_read")
+  }
 }
 
 export async function cyclePath(home: string, target: string, value: string, write = false) {

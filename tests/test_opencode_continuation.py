@@ -55,6 +55,21 @@ def test_adapter_preflight_does_not_enroll(adapter):
     assert not adapter.continuation_path.exists()
 
 
+def test_child_cannot_read_legacy_linked_worktree_outside_allocation_root(adapter):
+    linked = Path(adapter.temp.name) / "legacy-linked"
+    subprocess.run(["git", "worktree", "add", "-b", "legacy", str(linked)],
+                   cwd=adapter.repo, check=True, capture_output=True)
+    adapter.adapter_env["DBSCTR_WORKTREE_ROOT"] = str(Path(adapter.temp.name) / "new-allocation")
+    result = bun(adapter, f'''
+context.agentID="builder-openai";
+await control.childRead(context,"read",{{filePath:root+"/tracked.txt"}});
+try {{await control.childRead(context,"read",{{filePath:{json.dumps(str(linked / "tracked.txt"))}}})}}
+catch(error) {{console.log(error.message)}};
+''')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "continuation_child_external_read"
+
+
 def test_adapter_enrollment_asks_exact_permission_and_restores_route(adapter):
     result = bun(adapter, '''
 const approvals=[];

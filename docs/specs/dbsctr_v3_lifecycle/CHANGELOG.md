@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-20 - Local Discovery Launch And Legacy Resumption
+
+- Under explicit operator-authorized lighter repair workflow, reproduced the
+  unpublished-Discovery launch failure with real Git. Separate committed authority
+  from the protected baseline; preflight feasibility before native approval and
+  bind the exact launch digest. No preliminary Discovery publication is required.
+- Import only declared regular documentation as a separately identified cycle
+  input with no passed gates. Preserve original dirty files and retain strict
+  unknown-commit, conflict, identity, stale-approval and Final Push checks.
+- Existing cycle eligibility no longer depends on today's allocation directory.
+  Registered Git/common-directory and Cycle Record checks remain; child readers
+  cannot cross into registered legacy sibling worktrees.
+- Test coverage includes actual begin/import/gate/Final Push against a disposable
+  remote, exact retry, stale base and unknown input rejection, plus continuation
+  and adapter regressions. Live original-session resumption remains separately
+  operator-confirmed; no project cycle ownership or DKS deletion is implied.
+
 ## 2026-09-17 - Continuation Completion Repair
 
 - Final Push can remove its active pointer before the native completion hook.

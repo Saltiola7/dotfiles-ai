@@ -1755,15 +1755,18 @@ class DbsctrctlTest(unittest.TestCase):
             ok=False,
         )
         self.assertIn("plan changed after approval", stale.stderr)
-        handoff = json.loads(run(
-            self.repo, "begin", "--cycle-id", "initiative-1", "--context", "test",
+        arguments = (
+            "begin", "--cycle-id", "initiative-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(plan),
             "--worktree-root", str(worktrees),
             "--initiative-manifest", "docs/initiatives/test/MANIFEST.json",
             "--initiative-slice", "slice-a", "--initiative-digest", checked["manifest_digest"],
             "--expected-plan-digest", hashlib.sha256(plan.read_bytes()).hexdigest(),
             "--expected-repository", "example/test",
-        ).stdout)
+        )
+        preview = json.loads(run(self.repo, *arguments, "--preflight").stdout)
+        handoff = json.loads(run(self.repo, *arguments,
+                                "--expected-launch-digest", preview["launch_digest"]).stdout)
         record = json.loads((self.repo / ".git/dbsctr/cycles/initiative-1.json").read_text())
         self.assertEqual(record["initiative"], handoff["initiative"])
         self.assertEqual(record["initiative"]["manifest_digest"], checked["manifest_digest"])

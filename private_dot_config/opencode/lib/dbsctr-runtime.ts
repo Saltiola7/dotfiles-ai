@@ -1633,7 +1633,7 @@ export async function beginCycle(args: {
   artifacts: string[]
   release_group: string | null
   execution_owner: "build"
-}, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string }) {
+}, initiativeSourceCwd = cwd, approved?: { planDigest: string, targetRepository: string, launchDigest?: string }, preflight = false) {
   if (initiative !== undefined && approved === undefined)
     throw new Error("Initiative launch requires approved plan and repository identities")
   const commonDirectory = async (directory: string) => realpath(await run([
@@ -1664,12 +1664,18 @@ export async function beginCycle(args: {
       "--initiative-digest", initiative.manifest_digest,
       "--expected-plan-digest", approved!.planDigest,
       "--expected-repository", approved!.targetRepository,
+      ...(preflight ? ["--preflight"] : approved?.launchDigest ? ["--expected-launch-digest", approved.launchDigest] : []),
       "--resume-existing",
       ...(sameInitiativeCheckout ? [] : ["--initiative-source", initiativeSourceCwd]),
     ]),
     ...runtimeArgv,
   ], cwd)
   const handoff = JSON.parse(output)
+  if (preflight) {
+    if (handoff.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(handoff.launch_digest))
+      throw new Error("Initiative launch preflight returned an invalid receipt")
+    return handoff
+  }
   if (initiative !== undefined) {
     const canonical = (value: Record<string, unknown>) => JSON.stringify(
       Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))),
