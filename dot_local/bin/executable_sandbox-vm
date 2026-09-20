@@ -830,6 +830,30 @@ def refresh_opencode_guard(config, workspace, execute=command):
     lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
     with _instance_lock(lock_root, instance):
         running, current = _instance_state(execute, instance)
+        provisions = list(current.get("config", {}).get("provision", []))
+        bootstrap = [(index, item) for index, item in enumerate(provisions)
+                     if isinstance(item, dict) and item.get("mode") == "user"
+                     and 'source="$HOME/.local/share/chezmoi-dotfiles-ai"' in item.get("script", "")]
+        if len(bootstrap) > 1:
+            raise RuntimeError("ambiguous guest bootstrap ownership")
+        if bootstrap:
+            index, item = bootstrap[0]
+            script = item["script"]
+            guard = 'if test ! -e "$HOME/.config/dotfiles-ai/chezmoi.toml"; then\n'
+            if guard not in script:
+                anchor = 'sed "s|__GUEST_HOME__|$HOME|g" >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<\'EOF\'\n'
+                if script.count(anchor) != 1 or "\nEOF\n" not in script[script.index(anchor):]:
+                    raise RuntimeError("unrecognized guest bootstrap config writer")
+                if running:
+                    raise RuntimeError("guest bootstrap migration requires a stopped guest")
+                start = script.index(anchor)
+                end = script.index("\nEOF\n", start) + len("\nEOF\n")
+                protected = ('test ! -L "$HOME/.config/dotfiles-ai/chezmoi.toml"\n' + guard
+                             + script[start:end] + 'chmod 0600 "$HOME/.config/dotfiles-ai/chezmoi.toml"\nfi\n')
+                provisions[index] = {**item, "script": script[:start] + protected + script[end:]}
+                execute(["limactl", "edit", "--yes", "--set",
+                         ".provision = " + json.dumps(provisions, separators=(",", ":")), instance], timeout=120)
+                current["config"]["provision"] = provisions
         try:
             if not running:
                 execute(["limactl", "start", instance], timeout=120)

@@ -22,6 +22,14 @@ the host's guest Hermes setting; `true` cannot enable R&D when Hermes is disable
 An update does not require activating guest automation merely to converge tools
 or keep the selected PM PostgreSQL service running. Host R&D remains independent.
 
+Boot provisioning creates the guest machine config only when it is absent;
+restarting a VM must not restore the obsolete creation-time settings. Explicit
+`sandbox-vm update` owns subsequent refresh. Before starting an existing stopped
+guest, the updater guards the exactly identified legacy bootstrap config writer,
+preserving the rest of its provisioning script. A running guest needing this
+migration is refused without stop/edit/start side effects: schedule its stop
+first. Ambiguous or unrecognized writers fail closed rather than being replaced.
+
 Set `federate=false` to exclude a workspace from sanitized history review. Set
 `data.dotfiles_ai.sandbox.build_workspace` to the local workspace name that
 receives approved implementation handoffs. Enable sandbox management only after

@@ -43,6 +43,13 @@
   whose managed hooks still match source. Local preferences and unknown sections
   remain byte-identical; changed managed hooks, unrelated drift and unsafe paths
   stay blocked. Ordinary subsequent projection preserves those local settings.
+- Corrected guest boot provisioning that rewrote updated machine configuration
+  with its creation-time copy on every restart. That could undo PM enablement
+  after a successful update and make a subsequent apply disable the service.
+  Boot now creates missing config only; exact legacy writers migrate while the
+  guest is stopped, before its first boot, with ambiguity and running-guest denial
+  checks. Explicit updates still refresh managed settings. Restart regression
+  tests preserve PM settings and original VM power state.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded
