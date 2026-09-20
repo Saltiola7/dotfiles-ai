@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-20 - Lima Shell Marker Convergence
+
+- Adopted Lima's recognized marker comments around the existing guest-tool PATH
+  block. No shell command or PATH entry changed; restart no longer needs to append
+  an identical unmanaged block. Added a red-first marker/uniqueness regression.
+- Validation includes shell syntax, portable rendering, guest file checks and
+  post-merge restart verification. This is separate from the completed distribution
+  rollout; no runtime version, credential, private state or automation policy changes.
+  Applicable gate evidence and feature-branch delivery remain in the Cycle Record.
+
 ## 2026-09-17 - DKS-Retired PM PostgreSQL Convergence
 
 - Made the retired DKS master flag govern every DKS PostgreSQL integration site:

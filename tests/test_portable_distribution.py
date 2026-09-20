@@ -577,6 +577,9 @@ def test_tailscale_defaults_and_local_state_stay_out_of_git() -> None:
 
 
 def test_portable_terminal_config_is_guest_only() -> None:
+    bashrc = (ROOT / "dot_bashrc").read_text()
+    assert bashrc.count("# Lima BEGIN") == bashrc.count("# Lima END") == 1
+    assert bashrc.count('PATH="$PATH:/usr/sbin:/sbin"') == 1
     host = set(chezmoi("managed").stdout.splitlines())
     targets = {
         ".bashrc", ".bash_profile", ".common_profile", ".config/starship.toml",
