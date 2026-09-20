@@ -60,6 +60,14 @@ def test_managed_native_launch_keeps_link_until_child_exits(tmp_path, monkeypatc
     assert stopped.value.code == 0
     assert not launch.exists()
 
+    def interrupted(pid, options):
+        raise InterruptedError("unknown child completion")
+
+    monkeypatch.setattr(helper.os, "waitpid", interrupted)
+    with pytest.raises(InterruptedError):
+        helper.exec_managed(tmp_path / "release-lock.json", executable, ["--version"])
+    assert launch.exists()
+
 
 def load_rollback():
     loader = importlib.machinery.SourceFileLoader("codex_rollback", str(ROLLBACK))

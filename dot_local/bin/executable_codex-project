@@ -356,12 +356,10 @@ def exec_managed(lock_path, executable, arguments):
         os.close(lock)
         if pid is None:
             launch.unlink(missing_ok=True)
-    try:
-        _, status = os.waitpid(pid, 0)
-    finally:
-        # Native loaders may still resolve the launch path after posix_spawn returns.
-        launch.unlink(missing_ok=True)
-        fsync_directory(launch.parent)
+    _, status = os.waitpid(pid, 0)
+    # Keep the link if waiting is interrupted: child termination is then unknown.
+    launch.unlink(missing_ok=True)
+    fsync_directory(launch.parent)
     raise SystemExit(os.waitstatus_to_exitcode(status))
 
 

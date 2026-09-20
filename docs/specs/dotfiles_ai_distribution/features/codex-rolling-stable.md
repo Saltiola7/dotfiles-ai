@@ -185,7 +185,8 @@ The wrapper retains its per-launch hard link until the child exits, including
 native binaries: successful `posix_spawn` does not prove the native loader has
 finished resolving that path. Release the package lock before waiting so rolling
 activation remains independent of a long-lived session. Remove the launch link
-after normal or signalled child termination; never unlink it immediately after
+after normal or signalled child termination; retain it when waiting is interrupted
+and termination is unknown. Never unlink it immediately after
 spawn or retry a failed user invocation. Validate link lifetime with a deterministic
 regression and repeated native version invocations on the deployed platform.
 

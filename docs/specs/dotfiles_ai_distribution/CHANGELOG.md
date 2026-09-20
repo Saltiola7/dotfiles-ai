@@ -52,6 +52,14 @@
   tests preserve PM settings and original VM power state.
 - Excluded native R&D LaunchAgents when Hermes is the selected backend, preventing
   repeated apply from recreating files the Hermes cutover intentionally removed.
+- Verified candidate deployment and native completion on both guests, plus all
+  43 core continuation/recovery checks on each. Standalone Bun adapter tests are
+  unavailable on guests without the Bun CLI; host/CI adapter suites and actual
+  installed OpenCode probes remain separate authorities. Failed attempts were
+  retained, not relabelled as passes. PM restart now preserves its enabled config;
+  guest R&D remains disabled and private config backups remain boundary-local.
+- Interrupted launcher waits retain the launch link rather than assuming child
+  termination. The source fix and regression preserve the old running inode.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded
