@@ -385,9 +385,13 @@ def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT, combine=False):
                 raise UpdateError("validation_failed")
         except Exception:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                if process.poll() is None:
+                    process.kill()
             process.wait()
             raise
         stdout.seek(0)

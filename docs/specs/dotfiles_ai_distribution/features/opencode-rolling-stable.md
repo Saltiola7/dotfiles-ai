@@ -71,6 +71,12 @@ soft only when the current private fleet attestation matches configuration and
 all active binaries remain verified. Bootstrap, drift, rollback failure, and
 unknown state fail nonzero.
 
+Bounded subprocess validation retains its original failure on timeout or output
+overflow. Cleanup checks whether the owned child has already exited before
+signalling its process group. A denied group signal triggers a second liveness
+check and direct child termination only if still alive, followed by reaping.
+Cleanup races never turn rejected output into a pass or relax limits.
+
 ## Semantic Validator
 
 Before staging succeeds, the candidate must:

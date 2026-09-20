@@ -90,6 +90,9 @@ workspace1sh
 
 Every managed guest includes GNU Make and uses rootless Podman with
 checksum-pinned Docker Compose v2.
+The managed Bash rc retains Lima's `# Lima BEGIN` / `# Lima END` markers around
+its existing guest-tool PATH block so boot does not append a duplicate block and
+create managed-file drift. PATH entries and interactive initialization are unchanged.
 The guest-only `docker` command routes `docker compose` to that provider over the
 Podman engine, so existing project Make targets keep their normal interface.
 Verify after create or update:
