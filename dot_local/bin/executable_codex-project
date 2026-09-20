@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 
 MANIFEST = ".dotfiles-ai-managed.json"
@@ -364,7 +365,7 @@ def exec_managed(lock_path, executable, arguments):
     raise SystemExit(os.waitstatus_to_exitcode(status))
 
 
-def project(source, target):
+def project(source, target, reconcile_config=False):
     source = checked_path(source)
     target = checked_path(target, reject_git=True)
     if not source.is_dir() or source.is_symlink():
@@ -385,15 +386,49 @@ def project(source, target):
         if set(previous) - set(desired):
             raise ValueError("managed source removal requires explicit migration")
         entries = []
+        preserved_config = None
+        backup_config = False
         for name, new_digest in desired.items():
-            old_digest = validate_current(anchored, name, previous.get(name))
+            expected = previous.get(name)
+            if name == "config.toml" and expected is not None and (anchored / name).exists():
+                owned = tomllib.loads((source / name).read_text())
+                if set(owned) == {"hooks"} and isinstance(owned["hooks"], dict):
+                    recovery_digest(anchored / name)
+                    if (anchored / name).stat().st_size > MAX_FILE_SIZE:
+                        raise ValueError("local config exceeds bound")
+                    preserved_config = (anchored / name).read_bytes()
+                    local = tomllib.loads(preserved_config.decode())
+                    if not isinstance(local.get("hooks"), dict) or any(
+                            local["hooks"].get(event) != hooks for event, hooks in owned["hooks"].items()):
+                        raise ValueError("managed hooks differ; explicit hook migration required")
+                    new_digest = hashlib.sha256(preserved_config).hexdigest()
+                    desired[name] = new_digest
+                    if reconcile_config and expected != new_digest:
+                        expected = new_digest
+                        backup_config = True
+            old_digest = validate_current(anchored, name, expected)
             entries.append({"path": name, "old": old_digest or "absent", "new": new_digest})
+        if backup_config:
+            backups = anchored / ".dotfiles-ai-config-backups"
+            private_directory(backups)
+            backup = Path(tempfile.mkdtemp(prefix="reconcile-", dir=backups))
+            for name, content in (("config.toml", preserved_config), (MANIFEST, (anchored / MANIFEST).read_bytes())):
+                with (backup / name).open("xb") as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            fsync_directory(backup)
+            fsync_directory(backups)
         staging = anchored / STAGING
         private_directory(staging)
         for entry in entries:
             destination = staging / entry["path"]
             private_directory(destination.parent)
-            shutil.copyfile(source / entry["path"], destination, follow_symlinks=False)
+            if entry["path"] == "config.toml" and preserved_config is not None:
+                destination.write_bytes(preserved_config)
+            else:
+                shutil.copyfile(source / entry["path"], destination, follow_symlinks=False)
             destination.chmod(0o600)
             if digest(destination) != entry["new"]:
                 raise ValueError("managed staging digest mismatch")
@@ -423,6 +458,9 @@ def main(argv=None):
         return
     if argv[:1] == ["--exec-managed"] and len(argv) >= 3:
         exec_managed(Path(argv[1]), Path(argv[2]), argv[3:])
+        return
+    if argv[:1] == ["--reconcile-config"] and len(argv) == 3:
+        project(Path(argv[1]), Path(argv[2]), reconcile_config=True)
         return
     if len(argv) != 2:
         raise SystemExit("usage: codex-project SOURCE CODEX_HOME")

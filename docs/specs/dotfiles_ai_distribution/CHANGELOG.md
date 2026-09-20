@@ -39,6 +39,10 @@
   automation. The operator selected disabled guest R&D while preserving host R&D,
   interactive tools and PM PostgreSQL. Existing configs without an override retain
   their prior inheritance; false overrides are not erased during guest refresh.
+- Added explicit, backed-up reconciliation of an already-owned Codex config
+  whose managed hooks still match source. Local preferences and unknown sections
+  remain byte-identical; changed managed hooks, unrelated drift and unsafe paths
+  stay blocked. Ordinary subsequent projection preserves those local settings.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded

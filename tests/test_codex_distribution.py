@@ -139,6 +139,33 @@ def test_projector_rejects_modified_owned_file(tmp_path: Path) -> None:
         helper.project(source, target)
 
 
+def test_explicit_config_reconciliation_preserves_preferences_and_owned_hooks(tmp_path):
+    helper = load_projector()
+    source = managed_source(tmp_path)
+    hooks = '[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "codex-control-plane hook Stop"\n'
+    (source / "config.toml").write_text(hooks)
+    target = tmp_path / "state/codex"
+    helper.project(source, target)
+    local = 'model = "local-choice"\n[features]\nprivate_feature = true\n' + hooks
+    (target / "config.toml").write_text(local)
+    with pytest.raises(ValueError, match="managed target changed"):
+        helper.project(source, target)
+    (target / "AGENTS.md").write_text("unreviewed edit")
+    with pytest.raises(ValueError, match="managed target changed"):
+        helper.project(source, target, reconcile_config=True)
+    assert not (target / ".dotfiles-ai-config-backups").exists()
+    (target / "AGENTS.md").write_text("managed instructions\n")
+    helper.project(source, target, reconcile_config=True)
+    assert (target / "config.toml").read_text() == local
+    helper.project(source, target)
+    assert (target / "config.toml").read_text() == local
+    backups = list((target / ".dotfiles-ai-config-backups").glob("*/config.toml"))
+    assert len(backups) == 1 and backups[0].read_text() == local
+    (target / "config.toml").write_text(local.replace("hook Stop", "hook Other"))
+    with pytest.raises(ValueError, match="managed hooks differ"):
+        helper.project(source, target, reconcile_config=True)
+
+
 def test_projector_recovers_interrupted_transaction(tmp_path: Path, monkeypatch) -> None:
     helper = load_projector()
     source = managed_source(tmp_path)

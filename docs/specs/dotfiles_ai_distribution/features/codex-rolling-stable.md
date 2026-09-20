@@ -36,6 +36,19 @@ downgrade, or per-workspace version selector.
   while a healthy active release exists; apply succeeds and keeps every target on
   the active release.
 
+## Local Configuration Reconciliation
+
+For hook-only managed `config.toml`, ordinary projection preserves local config
+bytes when all source-owned hook definitions still match. Local model, project,
+feature and other hook settings are not silently removed. The recorded whole-file
+digest still detects intervening edits. An operator-approved
+`codex-project --reconcile-config SOURCE CODEX_HOME` may rebaseline that one
+already-owned file only when those managed hooks match and every other managed
+file validates. It backs up the config and prior manifest privately before the
+existing journaled transaction. Unknown files, changed managed hooks, unsafe
+permissions and unrelated edits remain failures. This is not a general force
+option or an automatic ownership migration; no config body enters Git or output.
+
 ## Release Authority
 
 The updater requests at most 1 MiB from
