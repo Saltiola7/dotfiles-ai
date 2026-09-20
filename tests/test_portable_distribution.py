@@ -89,6 +89,7 @@ def data(
                     {
                         "name": "workspace1", "instance": "workspace1-sandbox", "shell_alias": "workspace1sh", "federate": True,
                         "runtime": workspace_runtime,
+                        "rnd_enabled": False,
                         "mounts": [{
                             "host": "/workspace/projects", "guest": "/workspace/projects", "writable": True,
                             "protect_git_submodules": False, "reference_name": "", "reference_description": "", "reference_subpath": "",
@@ -554,6 +555,7 @@ def test_local_data_renders_complete_configs() -> None:
     assert sandbox["guest"]["rnd_backend"] == "native"
     assert sandbox["guest"]["rnd_runtime"] == "opencode"
     assert sandbox["workspaces"][0]["runtime"] == "codex"
+    assert sandbox["workspaces"][0]["rnd_enabled"] is False
     assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
 
 
