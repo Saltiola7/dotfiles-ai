@@ -564,7 +564,7 @@ type InitiativeToolContext = {
   ask: (request: { permission: string; patterns: string[]; always: string[] }) => Promise<unknown>
 }
 
-async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext, launch = true) {
+async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeToolContext, launch = true, preflightOnly = false) {
   const source = args.initiativeSourceRepository ?? context.worktree
   const receipt = await initiativeReceipt(args.manifestPath, args.sliceId, source)
   if (receipt.context !== args.context)
@@ -581,6 +581,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
   const planDigest = await fileDigest(args.planPath, target)
   const prepared = await beginCycle({ ...args, baseBranch }, target, false, process.env,
     undefined, receipt, source, { planDigest, targetRepository }, true)
+  if (preflightOnly) return JSON.stringify(prepared)
   const approval = JSON.stringify({
     initiative_id: receipt.initiative_id,
     slice_id: receipt.slice_id,
@@ -598,6 +599,8 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
     plan_path: args.planPath,
     plan_digest: planDigest,
     launch_digest: prepared.launch_digest,
+    base_commit: prepared.plan.base_head,
+    discovery_paths: prepared.plan.artifacts.map((item: {path: string}) => item.path),
     base_branch: baseBranch,
     github_account: args.githubAccount ?? null,
     github_repository: args.githubRepository ?? null,
@@ -628,7 +631,7 @@ async function launchInitiative(args: InitiativeLaunchArgs, context: InitiativeT
 }
 
 export const begin = tool({
-  description: "Create an isolated DBSCTR branch/worktree, or begin an exactly approved Initiative slice in the current Build session.",
+  description: "Preflight an Initiative before asking approval (preflight:true), or create its approved isolated cycle in the current Build session.",
   args: {
     cycleId: tool.schema.string(),
     context: tool.schema.string(),
@@ -639,6 +642,7 @@ export const begin = tool({
     githubRepository: tool.schema.string().optional(),
     baseBranch: tool.schema.string().optional(),
     launch: tool.schema.boolean().optional().default(false),
+    preflight: tool.schema.boolean().optional().default(false),
     initiative: tool.schema.object({
       manifestPath: tool.schema.string(),
       sliceId: tool.schema.string(),
@@ -650,8 +654,10 @@ export const begin = tool({
   async execute(args, context) {
     if (args.launch === true)
       throw new Error("Child launch requires the explicitly selected Discovery-Coordinator; ordinary Begin stays in this session")
+    if (args.preflight === true && args.initiative === undefined)
+      throw new Error("Launch preflight requires an Initiative")
     if (args.initiative !== undefined)
-      return await launchInitiative({ ...args, ...args.initiative }, context, false)
+      return await launchInitiative({ ...args, ...args.initiative }, context, false, args.preflight === true)
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {
       sessionID: context.sessionID,
       messageID: context.messageID,

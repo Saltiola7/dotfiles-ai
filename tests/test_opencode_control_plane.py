@@ -2039,7 +2039,7 @@ def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_p
         'case " $* " in *" --preflight "*) [ "$PREFLIGHT_FAIL" = 1 ] && { printf "launch infeasible\\n" >&2; exit 1; };; esac\n'
         f'if [ "$1" = initiative-receipt ]; then [ -z "$RECEIPT_CWDS" ] || pwd >> "$RECEIPT_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps(receipt))}; '
         'elif [ "$1" = initiative-cycle-check ]; then printf \'{"available":true}\\n\'; '
-        f'else [ -z "$BEGIN_CWDS" ] || pwd >> "$BEGIN_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps({"schema_version": 1, "launch_digest": "d" * 64, "cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
+        f'else [ -z "$BEGIN_CWDS" ] || pwd >> "$BEGIN_CWDS"; printf \'%s\\n\' {json.dumps(json.dumps({"schema_version": 1, "launch_digest": "d" * 64, "plan": {"base_head": "e" * 40, "artifacts": []}, "cycle_id": "cycle-a", "worktree": str(cycle), "initiative": bound}))}; fi\n'
     )
     herdr = bin_dir / "herdr"
     herdr.write_text(
@@ -2093,6 +2093,8 @@ cycleId:"cycle-a",context:"ctx",risk:"elevated",deliveryIntent:"local",planPath:
         "risk": "elevated", "delivery_intent": "local", "plan_path": str(plan),
         "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
         "launch_digest": "d" * 64,
+        "base_commit": "e" * 40,
+        "discovery_paths": [],
         "base_branch": "main",
         "github_account": None, "github_repository": None,
     }

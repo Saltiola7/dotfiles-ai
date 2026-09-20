@@ -1672,7 +1672,8 @@ export async function beginCycle(args: {
   ], cwd)
   const handoff = JSON.parse(output)
   if (preflight) {
-    if (handoff.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(handoff.launch_digest))
+    if (handoff.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(handoff.launch_digest)
+      || !/^[0-9a-f]{40,64}$/.test(handoff.plan?.base_head) || !Array.isArray(handoff.plan?.artifacts))
       throw new Error("Initiative launch preflight returned an invalid receipt")
     return handoff
   }

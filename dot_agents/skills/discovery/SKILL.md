@@ -41,7 +41,15 @@ Use `dbsctrctl initiative-check --manifest PATH --json` after every material
 manifest change. A slice is ready only when it has stable requirements,
 dependencies, and artifacts. Immediately before
 promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
-A changed manifest digest invalidates earlier readiness. Require exact user approval
+A changed manifest digest invalidates earlier readiness. Before asking the operator
+to approve launch, a Build primary uses typed `dbsctr_begin` in Initiative mode
+with `preflight: true`. This checks real launch feasibility without asking approval
+or creating a cycle. Specification readiness alone is not launch readiness. Resolve
+reported blockers first; never ask for a preliminary Discovery publication merely
+because its local branch has no upstream. Same-repository draft delivery carries
+approved documentation into one implementation PR. Plan reports launch feasibility
+as unverified until Build can perform this check; it does not probe denied tools.
+Require exact user approval
 for that digest-bound slice. The dedicated Discovery coordinator promotes through
 `dbsctr_initiative_launch`. A primary Build running `/discovery` uses typed
 `dbsctr_begin` only with its explicit Initiative mode, performs the same receipt

@@ -149,7 +149,10 @@ session with the same digest-bound handoff.
   baseline, independent of the Discovery branch's tracking configuration. A local
   unpublished Discovery branch does not require a documentation PR first.
 - Carry only declared, committed regular documentation artifacts, the manifest,
-  and the applicable profile/committed plan. Unrelated committed changes, deleted
+  the applicable profile/committed plan, and `.md`/`.json` documentation within
+  the owning context's spec directory or this Initiative's directory. Approval
+  displays the exact imported paths and base commit, not only an opaque digest.
+  Other committed changes, deleted
   or symlinked import files, unsafe parents and overlapping upstream changes fail
   before approval. Unrelated dirty files remain in the original checkout.
 - Approval includes `launch_digest`, binding exact source receipt, base commit,

@@ -30,7 +30,9 @@ def launch(tmp_path, monkeypatch):
     helper.git(repo, "push", "-u", "origin", "main")
     helper.git(repo, "switch", "-c", "discovery/local")
     manifest = fixture.write_initiative()
+    (repo / "docs/specs/test/BACKLOG.md").write_text("Discovery-owned bounded context backlog\n")
     helper.git(repo, "add", str(manifest))
+    helper.git(repo, "add", "docs/specs/test/BACKLOG.md")
     helper.git(repo, "commit", "-m", "Discovery authority")
     monkeypatch.setattr(helper, "root_dir", lambda: repo)
     monkeypatch.setattr(helper, "git_repository_slug", lambda _: "example/test")
@@ -74,6 +76,7 @@ def test_unpublished_discovery_launch_preserves_source_and_records_import(launch
     assert record["commits"][0]["gates"] == []
     assert record["discovery_import"]["source_commit"] == source_head
     assert (worktree / args.initiative_manifest).exists()
+    assert (worktree / "docs/specs/test/BACKLOG.md").read_text() == "Discovery-owned bounded context backlog\n"
     assert (worktree / "tracked.txt").read_text() == "base\n"
     assert (fixture.repo / "tracked.txt").read_text() == "unrelated dirty work\n"
     assert helper.git(fixture.repo, "rev-parse", "HEAD").stdout.strip() == source_head
@@ -214,12 +217,16 @@ fi
     script = f'''
 import {{begin}} from {json.dumps(str(tools))};
 const approvals=[];
-const result=await begin.execute({{
+const args={{
 cycleId:"native-local",context:"test",risk:"critical",deliveryIntent:"draft_pr",
 planPath:{json.dumps(args.plan)},githubAccount:"example",githubRepository:"example/test",
 initiative:{{manifestPath:{json.dumps(args.initiative_manifest)},sliceId:"slice-a",proceed:true}}
-}},{{worktree:process.cwd(),directory:process.cwd(),sessionID:"native-owner",messageID:"native-message",
-ask:async value=>approvals.push(value)}});
+}};
+const context={{worktree:process.cwd(),directory:process.cwd(),sessionID:"native-owner",messageID:"native-message",
+ask:async value=>approvals.push(value)}};
+const preview=JSON.parse(await begin.execute({{...args,preflight:true}},context));
+if(approvals.length!==0||!preview.launch_digest)throw Error("Preview requested approval");
+const result=await begin.execute(args,context);
 console.log(JSON.stringify({{result:JSON.parse(result),approvals}}));
 '''
     result = subprocess.run([shutil.which("bun"), "-e", script], cwd=repo,

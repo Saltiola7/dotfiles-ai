@@ -3981,6 +3981,9 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
     except ValueError:
         pass
     changed = set(filter(None, git(source, "diff", "--name-only", "-z", ancestor, commit).stdout.split("\0")))
+    namespaces = (str(Path(receipt["manifest_path"]).parent) + "/", f"docs/specs/{args.context}/")
+    allowed.update(name for name in changed if name.startswith(namespaces)
+                   and Path(name).suffix in {".md", ".json"})
     if not changed <= allowed:
         fail("Discovery contains changes outside receipt artifacts; isolate or declare them before launch")
     for name in sorted(allowed):

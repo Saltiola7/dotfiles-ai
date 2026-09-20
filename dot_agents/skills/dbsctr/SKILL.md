@@ -45,6 +45,13 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
 
 ## Progressive Modules
 
+For an Initiative, run typed `dbsctr_begin` with its Initiative arguments and
+`preflight: true` before requesting launch approval. This does not begin a cycle
+or request consent. A valid specification receipt alone does not prove launch
+feasibility. After approval, omit `preflight` or set it false; the adapter checks
+again and binds the actual launch plan. Local same-repository Discovery does not
+need its own published upstream or separate documentation PR for draft delivery.
+
 Load only matching modules before Domain. Multiple modules may apply.
 
 | Signal | Module |
