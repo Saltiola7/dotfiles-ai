@@ -598,7 +598,8 @@ def test_retire_opencode_provision_waits_for_verified_guard(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("running", [False, True])
-def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, running):
+@pytest.mark.parametrize("legacy_cat", [False, True])
+def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, running, legacy_cat):
     helper = load_helper()
     values = config(tmp_path)
     home = tmp_path / "guest"
@@ -608,6 +609,8 @@ def test_bootstrap_config_migration_preserves_post_creation_settings(tmp_path, r
     script = ('set -eu\nsource="$HOME/.local/share/chezmoi-dotfiles-ai"\n'
               'sed "s|__GUEST_HOME__|$HOME|g" >"$HOME/.config/dotfiles-ai/chezmoi.toml" <<\'EOF\'\n'
               'pm_enabled = false\nEOF\n')
+    if legacy_cat:
+        script = script.replace('sed "s|__GUEST_HOME__|$HOME|g"', 'cat').replace("<<'EOF'", "<<EOF")
     state = {"running": running, "provision": [{"mode": "user", "script": script}]}
     mutations = []
 
