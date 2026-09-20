@@ -892,6 +892,16 @@ def test_dks_retirement_slices_preserve_non_dks_delivery():
     assert slices["dks-state-retirement"]["state"] == "ready"
     assert slices["dks-host-disable"]["depends_on"] == ["dks-routing-disable"]
     assert slices["dks-state-retirement"]["depends_on"] == ["dks-host-disable"]
+    retirement = " ".join(text(
+        "docs/specs/dbsctr_knowledge_store/features/dks-state-retirement.md"
+    ).split())
+    assert "INT-058" in slices["dks-state-retirement"]["requirements"]
+    assert "Preserve `knowledge/postgres` recursively" in retirement
+    assert "never recursively delete the knowledge root" in retirement
+    assert "PM baselines are not residual DKS state" in retirement
+    assert "delete the complete configured DKS knowledge-state tree" not in retirement
+    baseline = text("dot_local/bin/executable_pm-postgres-baseline.tmpl")
+    assert 'output_dir="$state_root/dbsctr/knowledge/postgres"' in baseline
     for name in ("dks-fast-fallback", "runtime-query-recovery",
                  "knowledge-privacy-lock-isolation", "dks-routing-value-gate"):
         assert slices[name]["state"] == "blocked"
