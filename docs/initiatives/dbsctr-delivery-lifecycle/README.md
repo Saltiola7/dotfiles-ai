@@ -8,6 +8,37 @@ enables it.
 The coordinator repository is `Saltiola7/dotfiles-ai`. The canonical machine
 ledger is [`MANIFEST.json`](MANIFEST.json).
 
+## Canonical Continuation Discovery
+
+The operator also approved same-repository canonical-session continuation across
+the existing lifecycle, OpenCode and distribution contexts. Its decisions,
+source evidence, proposed contracts, acceptance and reopened readiness are in
+[`CANONICAL-CONTINUATION.md`](CANONICAL-CONTINUATION.md). This is not delivered
+behavior by itself or an implementation approval. The continuation slices do not depend on
+automatic merge. Native session identity remains unchanged; execution-target
+selection is separate from conversation home.
+
+The prior cycle-session retirement journey below remains the automatic-delivery
+scope. Reconcile `base-session-handoff` before promoting it so that it does not
+require replacing conversations already rooted in a canonical checkout.
+
+### Visual Evidence
+
+| Concern | Decision |
+|---|---|
+| Boundary | not_applicable: continuation authority is represented in the linked Discovery contract, not duplicated here |
+| Interaction | not_applicable: handover ordering is canonical in the linked Discovery contract |
+| State | not_applicable: the manifest and linked transition table own readiness and runtime states |
+| Data/trust | not_applicable: the linked contract owns private evidence and native-session boundaries |
+| Schema | not_applicable: this index defines no storage schema |
+| Dependency/deployment | required: delivery dependency tables below and in the linked Discovery contract |
+| Quantitative | not_applicable: no measured comparison is claimed |
+
+The Initiative owner updates these references when scope, ownership or dependency
+changes. **Text Equivalent:** Automatic merge, its configuration and legacy
+base-session handoff remain sequential. Canonical continuation follows a separate
+core-to-OpenCode-to-rollout dependency chain, with no automatic-merge prerequisite.
+
 ## Success
 
 - An enabled cycle creates a ready pull request and binds every merge action to
@@ -40,6 +71,9 @@ The user approved this complete context map and automatic-after-CI policy on
 | `verified-merge-core` | `build` | Disabled-by-default exact-head merge and post-merge cleanup primitives | None |
 | `chezmoi-delivery-policy` | `build` | Machine-local opt-in and exact administrator repository allowlist | `verified-merge-core` |
 | `base-session-handoff` | `build` | Return control to the stable base checkout after verified cleanup | `chezmoi-delivery-policy` |
+| `canonical-continuation-core` | `build` | Delivered isolated core; live enrollment remains off | None |
+| `canonical-continuation-opencode` | `build` | Delivered adapter and native same-conversation qualification | `canonical-continuation-core` |
+| `canonical-continuation-rollout` | `build` | Delivered to host and configured guests with native qualification | `canonical-continuation-opencode` |
 
 ## Safety Boundary
 

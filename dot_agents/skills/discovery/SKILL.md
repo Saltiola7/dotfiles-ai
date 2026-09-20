@@ -12,6 +12,10 @@ Reach implementation readiness for one bounded context or an Initiative delivery
 slice, then persist the authoritative specifications so DBSCTR can proceed
 without repeating discovery.
 
+Ordinary Discovery runs in the current primary without Task or child sessions.
+Only the explicitly selected Discovery-Coordinator may orchestrate children.
+Loading this skill never selects that agent or grants its permissions.
+
 Readiness means no unresolved question can materially change scope, behavior,
 interfaces, safety, delivery, or validation. Skip the interview when existing
 artifacts satisfy that test. Do not use for tiny unrelated changes.
@@ -44,7 +48,8 @@ for that digest-bound slice. The dedicated Discovery coordinator promotes throug
 and exact approval checks, and continues in its current same-repository session.
 Plan records a handoff and never implements. Ordinary begin, compressed prose,
 and Herdr state are never readiness authority. Discovery continues for unfinished
-slices while approved, ownership-disjoint slices build.
+slices serially in the ordinary primary; only the explicitly selected coordinator
+may overlap approved, ownership-disjoint child work.
 
 ## Retrieve
 
@@ -170,15 +175,17 @@ assumptions, non-goals, and open risks distinct. Active Cycle Records live under
 ## OpenCode Execution
 
 Use todos for current interview/artifact state and specs/Git for durable state.
-Delegate only independent research or ownership-disjoint Context Discovery.
-Explore handles local evidence. Scout or Context7 has standing approval only for
-bounded privacy-safe external facts and never receives governed private content.
-Log agent/model routes and trust sourced research unless uncertain,
-contradictory, or controlling a risky decision.
+Ordinary primaries research, define and review directly without Task or child
+sessions. The explicitly selected Discovery-Coordinator alone may delegate
+independent research or ownership-disjoint Context Discovery under its actual
+permissions. It uses Explore for local evidence and Scout for bounded privacy-safe
+external facts, never governed private content. Log those routes and preserve
+provider affinity. No skill invocation, model choice or tab label changes authority.
 
 Plan is read-only. When writes are unavailable, return artifact-ready decisions
 and a Build Handoff without claiming files changed. Build verifies freshness
-before persisting them.
+before persisting them. Request a Plan-to-Build mode change in the same conversation
+when needed; do not prescribe another checkout or session as a permission workaround.
 
 ## Handoff
 

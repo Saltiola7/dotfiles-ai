@@ -1,9 +1,10 @@
-import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { homedir } from "node:os"
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
-const harnessActivation = {
+export const harnessActivation = {
   schema_version: 1,
   core_revision: "3.31",
   overlays: { build: "neutral-2026-07-26", "build-gpt": "openai-2026-07-26", "build-claude": "anthropic-2026-07-26" },
@@ -14,6 +15,22 @@ const evaluationReceipts = new Map<string, any>()
 const lensPages = new Map<string, Map<number, any>>()
 const lensCaptureScopes = new Map<string, "only" | "exclude">()
 const cycleTargets = new Map<string, string>()
+const continuationCalls = new Map<string, string>()
+const continuationEnvironment = new AsyncLocalStorage<string | undefined>()
+
+export function continuationOperation(context: { sessionID: string, callID?: string }) {
+  return continuationCalls.get(`${context.sessionID}\0${context.callID}`)
+}
+
+export function rememberContinuationOperation(context: { sessionID: string, callID?: string }, operation?: string) {
+  const key = `${context.sessionID}\0${context.callID}`
+  if (operation === undefined) continuationCalls.delete(key)
+  else continuationCalls.set(key, operation)
+}
+
+export function withContinuationOperation<T>(context: { sessionID: string, callID?: string }, execute: () => T): T {
+  return continuationEnvironment.run(continuationOperation(context), execute)
+}
 
 function discardEvaluationReceipt(manifestDigest: string) {
   const receipt = evaluationReceipts.get(manifestDigest)
@@ -153,8 +170,25 @@ function federatedManifestIdentity(filters: any, sources: any[]) {
   }) }
 }
 
+export async function resolveCommand(argv: string[], cwd: string) {
+  const { DBSCTR_CONTINUATION_OPERATION: _inherited, ...base } = process.env
+  const operation = continuationEnvironment.getStore()
+  const env = operation ? { ...base, DBSCTR_CONTINUATION_OPERATION: operation } : base
+  if (argv[0] !== "dbsctrctl" || Bun.which("dbsctrctl", { cwd }))
+    return { argv, env }
+  const bin = join(homedir(), ".local", "bin")
+  const helper = join(bin, "dbsctrctl")
+  if (!Bun.which(helper) || !(await stat(helper).catch(() => null))?.isFile())
+    throw new Error("managed dbsctrctl is unavailable; verify the user-local installation and launch PATH")
+  // Shell startup is not run by typed tools; repair only the fallback child's PATH.
+  const paths = [bin, ...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : []),
+    process.env.PATH || "/usr/bin:/bin"]
+  return { argv: [helper, ...argv.slice(1)], env: { ...env, PATH: paths.join(":") } }
+}
+
 export async function run(argv: string[], cwd: string) {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" })
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdout: "pipe", stderr: "pipe" })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -249,7 +283,8 @@ async function boundedText(stream: ReadableStream<Uint8Array>, budget: { remaini
 
 async function runBounded(argv: string[], cwd: string, timeoutMs: number | null = 2000,
                           outputLimit = 64 * 1024, preserveOutput = false) {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", detached: true })
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdout: "pipe", stderr: "pipe", detached: true })
   const budget = { remaining: outputLimit }
   const killTree = () => {
     try {
@@ -282,8 +317,9 @@ async function runBounded(argv: string[], cwd: string, timeoutMs: number | null 
   }
 }
 
-async function runBoundedInput(argv: string[], input: string, cwd: string, timeoutMs = 30_000) {
-  const child = Bun.spawn(argv, { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true })
+async function runBoundedInput(argv: string[], input: string, cwd: string, timeoutMs = 30_000, acceptFailureOutput = false) {
+  const command = await resolveCommand(argv, cwd)
+  const child = Bun.spawn(command.argv, { cwd, env: command.env, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true })
   child.stdin.write(input)
   child.stdin.end()
   const budget = { remaining: 256 * 1024 }
@@ -294,7 +330,7 @@ async function runBoundedInput(argv: string[], input: string, cwd: string, timeo
     const [stdout, stderr, exitCode] = await Promise.all([
       boundedText(child.stdout, budget), boundedText(child.stderr, budget), child.exited,
     ])
-    if (exitCode !== 0) throw new Error(stderr || `${argv[0]} failed`)
+    if (exitCode !== 0 && !acceptFailureOutput) throw new Error(stderr || `${argv[0]} failed`)
     return stdout
   } finally {
     clearTimeout(timer)
@@ -305,12 +341,25 @@ export async function cycleStatus(cwd: string) {
   return await run(["dbsctrctl", "status", "--json"], cwd)
 }
 
+export async function continuationRequest(action: string, value: unknown, cwd: string) {
+  if (!["check", "enroll", "attach", "admit", "finish", "handover", "recover", "storage-check", "storage-recover"].includes(action))
+    throw new Error("continuation_invalid_action")
+  const input = JSON.stringify(value)
+  if (Buffer.byteLength(input) > 65536) throw new Error("continuation_input_too_large")
+  return await runBoundedInput(["dbsctrctl", `continuation-${action}`, "--request-json", "-"], input, cwd,
+    action.startsWith("storage-") ? 30_000 : 10_000, true)
+}
+
 export function cycleTarget(sessionID: string, cwd: string) {
   return cycleTargets.get(sessionID) ?? cwd
 }
 
 export function rememberCycleTarget(sessionID: string, worktree: string) {
   cycleTargets.set(sessionID, worktree)
+}
+
+export function forgetCycleTarget(sessionID: string) {
+  cycleTargets.delete(sessionID)
 }
 
 export async function boundedCycleWorktree(cwd: string, worktree?: string,

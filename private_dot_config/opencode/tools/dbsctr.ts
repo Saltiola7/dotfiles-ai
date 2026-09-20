@@ -1,5 +1,12 @@
-import { tool } from "@opencode-ai/plugin"
-import { attachRuntime, benchmarkResult, beginCycle, boundedCycleWorktree, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeCycleCheck, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, rememberCycleTarget, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
+import { tool as nativeTool } from "@opencode-ai/plugin"
+import { attach as continuationAttach, preflight as continuationPreflight, recover as continuationRecover } from "../lib/continuation"
+import { withContinuationOperation } from "../lib/dbsctr-runtime"
+import { benchmarkResult, beginCycle, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeCycleCheck, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
+
+const tool = Object.assign((definition: any) => nativeTool({
+  ...definition,
+  execute: (args: any, context: any) => withContinuationOperation(context, () => definition.execute(args, context)),
+}), {schema: nativeTool.schema})
 
 export const status = tool({
   description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
@@ -11,18 +18,34 @@ export const status = tool({
 
 export const attach = tool({
   description: "Attach the current validated Build runtime to an active DBSCTR cycle worktree without relaunching OpenCode.",
-  args: { worktree: tool.schema.string().optional() },
+  args: { worktree: tool.schema.string().optional(), mode: tool.schema.enum(["reader", "writer"]).optional().default("writer") },
   async execute(args, context) {
     await context.ask({ permission: "dbsctr_attach", patterns: ["*"], always: [] })
-    const target = await boundedCycleWorktree(context.worktree, args.worktree)
-    const result = await attachRuntime(target, {
-      sessionID: context.sessionID,
-      messageID: context.messageID,
-      directory: context.directory,
-      worktree: context.worktree,
-    })
-    rememberCycleTarget(context.sessionID, target)
-    return result
+    return JSON.stringify(await continuationAttach(context, args.worktree, args.mode))
+  },
+})
+
+export const preflight = tool({
+  description: "Inspect continuation eligibility and loaded adapter capability without attaching or changing state.",
+  args: {worktree: tool.schema.string().optional()},
+  async execute(args, context) {
+    return JSON.stringify(await continuationPreflight(context, args.worktree))
+  },
+})
+
+export const continuation_recover = tool({
+  description: "Recover a coordinated cycle only after exact operator confirmation that prior writers and operations are quiescent.",
+  args: {worktree: tool.schema.string().optional()},
+  async execute(args, context) {
+    return JSON.stringify(await continuationRecover(context, args.worktree))
+  },
+})
+
+export const continuation_handover = tool({
+  description: "Explicitly drain and transfer the current cycle writer to another primary session without moving either conversation.",
+  args: {worktree: tool.schema.string().optional(), targetSessionId: tool.schema.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)},
+  async execute(args, context) {
+    return JSON.stringify(await continuationRecover(context, args.worktree, args.targetSessionId))
   },
 })
 
@@ -622,6 +645,8 @@ export const begin = tool({
     }).optional(),
   },
   async execute(args, context) {
+    if (args.launch === true)
+      throw new Error("Child launch requires the explicitly selected Discovery-Coordinator; ordinary Begin stays in this session")
     if (args.initiative !== undefined)
       return await launchInitiative({ ...args, ...args.initiative }, context, false)
     return JSON.stringify(await beginCycle(args, context.worktree, args.launch, process.env, {

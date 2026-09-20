@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -112,6 +113,8 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     target.write_text(json.dumps({
         "provider": {"machine-local": {"options": {"endpoint": "local"}}},
         "references": {"machine-local": {"path": "/local", "description": "Local"}},
+        "agent": {name: {"permission": {"task": {"*": "allow", "builder-openai": "allow"}}}
+                  for name in ("build", "build-rnd", "plan")},
         "permission": {
             "external_directory": {"*": "deny", "/local": "allow"},
             "bash": {"machine-local *": "allow"},
@@ -128,6 +131,8 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     merged = json.loads(target.read_text())
     assert merged["provider"]["machine-local"]["options"]["endpoint"] == "local"
     assert merged["references"]["machine-local"]["path"] == "/local"
+    for name in ("build", "build-rnd", "plan"):
+        assert merged["agent"][name]["permission"]["task"] == "deny"
     assert merged["permission"]["external_directory"] == "allow"
     assert merged["permission"]["bash"]["machine-local *"] == "allow"
     assert merged["permission"]["bash"]["pmctl jira publish*"] == "ask"
@@ -139,11 +144,13 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
 
 
 def test_optional_local_repository_reference():
-    assert "references" not in rendered_config()
+    registry = rendered_config()["references"]["dbsctr-worktrees"]
+    assert registry["path"].endswith("/.local/state/dbsctr/worktrees")
     assert rendered_config()["permission"]["external_directory"] == "allow"
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
     assert rendered_config(data=centralized)["permission"]["external_directory"] == "allow"
+    assert rendered_config(data=centralized)["references"]["dbsctr-worktrees"]["path"] == "/Volumes/ext/state/dbsctr/worktrees"
     configured = json.loads(json.dumps(DATA))
     configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
         "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
@@ -155,6 +162,7 @@ def test_optional_local_repository_reference():
     }]
     rendered = rendered_config(data=configured)
     assert rendered["references"] == {
+        "dbsctr-worktrees": registry,
         "project-reference": {
             "path": "/workspace/reference/docs",
             "description": "Project reference.",
@@ -314,9 +322,10 @@ def test_oauth_incompatible_pro_agents_are_absent():
 
 
 def test_commands_inherit_current_agent():
-    for name in ("dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
-        assert "\nagent:" not in (OC / f"commands/{name}.md").read_text()
-    assert "\nagent: discovery-coordinator\n" in (OC / "commands/discovery.md").read_text()
+    for name in ("discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
+        body = (OC / f"commands/{name}.md").read_text()
+        assert "\nagent:" not in body
+        assert "\nsubtask:" not in body
     exact = {
         "dbsctr-gpt": ("build-gpt", "openai/gpt-5.6-sol-fast"),
         "dbsctr-claude": ("build-claude", "google-vertex-anthropic/claude-opus-5@default"),
@@ -328,16 +337,17 @@ def test_commands_inherit_current_agent():
 
 
 def test_provider_affine_task_permissions():
-    expected = {
-        "build-gpt.md": ("explore-openai", "scout-openai", "builder-openai"),
-        "build-claude.md": ("explore-vertex", "scout-vertex", "builder-vertex"),
-    }
-    for name, allowed in expected.items():
+    for name in ("build-gpt.md", "build-claude.md"):
         body = (OC / "agents" / name).read_text()
         assert "\nname:" not in body
-        assert '"*": deny' in body
-        for agent in allowed:
-            assert f"{agent}: allow" in body
+        assert "\n  task: deny\n" in body
+        assert not re.search(r"(?:explore|scout|builder|reviewer)-\w+: allow", body)
+    config = rendered_config()
+    for name in ("build", "plan", "build-rnd"):
+        assert config["agent"][name]["permission"]["task"] == "deny"
+    coordinator = (OC / "agents/discovery-coordinator.md").read_text()
+    assert "dbsctr_initiative_launch: ask" in coordinator
+    assert "explore-openai: allow" in coordinator
     claude = (OC / "agents/build-claude.md").read_text()
     assert "explore-openai: allow" not in claude
     assert "scout-openai: allow" not in claude
@@ -385,6 +395,11 @@ def test_primary_external_access_preserves_lifecycle_permissions():
         "dbsctr_initiative_begin": "ask",
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
+        "dbsctr_continuation_enroll": "ask",
+        "dbsctr_continuation_provider": "ask",
+        "dbsctr_continuation_recover": "ask",
+        "dbsctr_continuation_storage_recover": "ask",
+        "dbsctr_continuation_handover": "ask",
         "dbsctr_reconcile": "allow",
         "dbsctr_phase_span": "allow",
         "dbsctr_execution_benchmark": "allow",
@@ -394,6 +409,7 @@ def test_primary_external_access_preserves_lifecycle_permissions():
         "dbsctr_provider_evaluation_save": "allow",
         "dbsctr_vm_handoff": "deny",
         "1password_*": "ask",
+        "task": "deny",
     }
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
@@ -553,7 +569,10 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const status = tool({' in tools
     assert 'export const attach = tool({' in tools
     assert "worktree: tool.schema.string().optional()" in tools
-    assert "rememberCycleTarget(context.sessionID, target)" in tools
+    assert "continuationAttach(context, args.worktree, args.mode)" in tools
+    assert "rememberCycleTarget(context.sessionID, target)" in (OC / "lib/continuation.ts").read_text()
+    for name in ("preflight", "continuation_recover", "continuation_handover"):
+        assert f'export const {name} = tool({{' in tools
     assert tools.count("cycleTarget(context.sessionID, context.worktree)") >= 6
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
@@ -1872,6 +1891,111 @@ catch (error) {{ console.error(error.message); process.exit(1); }}'''
         "<--harness-activation-json>",
         '<{"schema_version":1,"core_revision":"3.31","overlays":{"build":"neutral-2026-07-26","build-gpt":"openai-2026-07-26","build-claude":"anthropic-2026-07-26"}}>',
     ]
+
+
+def test_ordinary_begin_rejects_child_before_any_side_effect():
+    script = f'''import {{ begin }} from {json.dumps(str(OC / "tools/dbsctr.ts"))};
+try {{ await begin.execute({{launch:true}}, {{worktree:"/nonexistent",ask:()=>{{throw Error("asked")}}}}); }}
+catch (error) {{ console.log(error.message); }}'''
+    result = subprocess.run([shutil.which("bun"), "-e", script], cwd=ROOT,
+                            text=True, capture_output=True, check=True)
+    assert "explicitly selected Discovery-Coordinator" in result.stdout
+
+
+def test_managed_helper_fallback_all_runners(tmp_path):
+    home = tmp_path / "home"
+    managed = home / ".local/bin"
+    managed.mkdir(parents=True)
+    helper = managed / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nif [ "$1" = stdin ]; then IFS= read -r value; '
+                      'printf "%s\\n" "$value"; else printf "%s\\n" "$1"; fi\n'
+                      'printf "%s\\n" "$PATH"\n')
+    helper.chmod(0o755)
+    # Exercise private runners without expanding the shipped module API.
+    module = tmp_path / "runtime.ts"
+    module.write_text((OC / "lib/dbsctr-runtime.ts").read_text()
+                      + "\nexport { runBounded, runBoundedInput };\n")
+    script = f'''import {{run,runBounded,runBoundedInput}} from {json.dumps(str(module))};
+const before=process.env.PATH;
+const outputs=[await run(["dbsctrctl","literal ; $value"],process.cwd()),
+await runBounded(["dbsctrctl","bounded"],process.cwd()),
+await runBoundedInput(["dbsctrctl","stdin"],"input ; $value\\n",process.cwd())];
+console.log(JSON.stringify({{outputs,before,after:process.env.PATH}}));'''
+    env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin"}
+    result = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                            env=env, text=True, capture_output=True, check=True)
+    value = json.loads(result.stdout)
+    assert value["before"] == value["after"] == "/usr/bin:/bin"
+    for output, expected in zip(value["outputs"], ("literal ; $value", "bounded", "input ; $value")):
+        argument, path = output.splitlines()
+        assert argument == expected
+        assert path.split(":")[0] == str(managed)
+    helper.chmod(0o644)
+    failed = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                            env=env, text=True, capture_output=True)
+    assert failed.returncode != 0
+    assert "managed dbsctrctl is unavailable" in failed.stderr
+    helper.unlink()
+    missing = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                             env=env, text=True, capture_output=True)
+    assert missing.returncode != 0
+    assert "managed dbsctrctl is unavailable" in missing.stderr
+
+
+def test_managed_helper_preserves_path_and_never_retries_execution_failure(tmp_path):
+    managed = tmp_path / ".local/bin"
+    managed.mkdir(parents=True)
+    fallback = managed / "dbsctrctl"
+    fallback.write_text('#!/bin/sh\nexit 99\n')
+    fallback.chmod(0o755)
+    preferred = tmp_path / "preferred"
+    preferred.mkdir()
+    helper = preferred / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf "%s\\n" "$PATH"\n')
+    helper.chmod(0o755)
+    env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{preferred}:/usr/bin:/bin"}
+    script = f'''import {{run}} from {json.dumps(str(OC / "lib/dbsctr-runtime.ts"))};
+try {{ console.log(await run(["dbsctrctl"],process.cwd())); }}
+catch (error) {{ console.error(error.message); process.exit(1); }}'''
+    result = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                            env=env, text=True, capture_output=True, check=True)
+    assert result.stdout.strip() == env["PATH"]
+    helper.write_text('#!/bin/sh\nprintf "original failure\\n" >&2\nexit 42\n')
+    failed = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                            env=env, text=True, capture_output=True)
+    assert failed.returncode != 0
+    assert failed.stderr.strip() == "original failure"
+
+
+def test_initiative_plugin_managed_fallback_and_missing_helper(tmp_path):
+    manifest = tmp_path / "docs/initiatives/test/MANIFEST.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    managed = tmp_path / ".local/bin"
+    managed.mkdir(parents=True)
+    helper = managed / "dbsctrctl"
+    helper.write_text('#!/bin/sh\nprintf \'{"initiative_id":"test","manifest_digest":"'
+                      + "a" * 64 + '\", "ready_slices":["test"]}\\n\'\n')
+    helper.chmod(0o755)
+    script = f'''import {{InitiativeContext}} from {json.dumps(str(OC / "plugins/initiative-context.ts"))};
+const hooks=await InitiativeContext({{worktree:process.cwd()}} as any);
+const normal={{system:[]}},compact={{context:[]}};
+await hooks["experimental.chat.system.transform"]({{}},normal);
+await hooks["experimental.session.compacting"]({{}},compact);
+console.log(JSON.stringify([normal.system,compact.context]));'''
+    env = {**os.environ, "HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    result = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                            env=env, text=True, capture_output=True, check=True)
+    normal, compact = json.loads(result.stdout)
+    assert normal == compact
+    assert "ready_slices: test" in normal[0]
+    helper.unlink()
+    missing = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path,
+                             env=env, text=True, capture_output=True, check=True)
+    normal, compact = json.loads(missing.stdout)
+    assert normal == compact
+    assert "unavailable" in normal[0] and "blocked" in normal[0]
+    assert str(tmp_path) not in normal[0]
 
 
 def test_initiative_launch_requires_exact_approval_and_digest_bound_prompt(tmp_path):

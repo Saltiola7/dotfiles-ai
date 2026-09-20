@@ -1,5 +1,53 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-17 - Continuation Completion Repair
+
+- Final Push can remove its active pointer before the native completion hook.
+  Resolve completed records through exact stored operation/session authority,
+  preserving successful delivery output and releasing the completed selection.
+- A lost completion hook requires explicit bound quiescence recovery, closing
+  ownership without reviving the completed cycle. Existing finalizing cycles
+  retain fenced retry; missing active pointers never authorize recovery or
+  enrollment. Invalid-target guidance no longer defaults to enrollment.
+- Four red regressions reproduced the lifecycle and guidance failures. Core and
+  Bun adapter checks passed (67 tests), as did 41 affected legacy helper checks.
+  The real native probe now verifies completion/pointer removal/output retention
+  in addition to same-conversation restart, model change and reader denial.
+- Implementation Gate Commit: `a448bdf`. No new dependency or state migration;
+  no incident records, ownership, feature commits or external project delivery
+  were changed. Host helper/probe deployment and installed native qualification
+  remain explicit required gates, recorded in the Cycle Record before delivery.
+- Independent reviewer unavailable under primary-only permissions; primary
+  review and denial tests are not independent review. Dependabot advisory input
+  unavailable because repository alerts are disabled. No Gate Exception.
+- Intended delivery: feature-branch draft PR into protected main. Actual Final
+  Push, deployment and remaining gate results are retained in the Cycle Record.
+
+## 2026-09-15 - Canonical Continuation Core
+
+- Added opt-in repository-private continuation state, bounded preflight, exact
+  approval bindings, activation events, single-writer generations, operation
+  admission, draining handover and explicit uncertain-operation recovery.
+- Same-repository linked checkouts and existing schema-3/4/5 cycles retain their
+  original records byte-for-byte. Model changes append evidence; mixed history
+  withholds singleton activation rather than attributing the cycle to one model.
+- Current helper mutation is fenced for enrolled cycles, including aggregate
+  cleanup/batch refusal while coordinated work remains active. Standalone old
+  runtimes still require explicit quiescence before enrollment; this is managed
+  coordination, not a same-user shell sandbox.
+- Red-first missing-command regression and 33 continuation cases cover ownership,
+  legacy routing, provider approval, malformed state, replay, stale calls, bounded
+  contention and completion recovery. Combined helper scope: 233 passed, one
+  skipped, 42 subtests passed. Source and tests compile; no dependency added.
+- Implementation Gate Commit: `657f683`. No live enrollment, installation,
+  provider invocation, restart or incident feature work. Release, Deploy and
+  Operate are not applicable to this isolated core slice; adapter qualification
+  and host-then-guest rollout remain separate required work. No Gate Exception.
+  Independent reviewer unavailable in the permitted primary-only runtime; primary
+  source review and runnable denial tests are not represented as independent review.
+- Intended Final Push is the recorded feature branch and draft PR into protected
+  main. Actual delivery and remaining gate evidence are in the Cycle Record.
+
 ## 2026-09-13 - Vertex Runtime Identity Compatibility
 
 - Added one shared activation model-ID grammar supporting opaque `@` qualifiers

@@ -22,10 +22,8 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
         body = text(COMMANDS / f"{command}.md")
         assert f"skill tool to load `{skill}`" in body
         assert "Do not answer from memory" in body
-        if command == "discovery":
-            assert "\nagent: discovery-coordinator\n" in body
-        else:
-            assert "\nagent:" not in body
+        assert "\nagent:" not in body
+        assert "\nsubtask:" not in body
 
     assert not (COMMANDS / "discovery2.md").exists()
     assert not (COMMANDS / "dbsctr2.md").exists()
@@ -41,6 +39,9 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "Gate Ledger" in discovery
     assert "V3.2 applicability plan" not in discovery
     assert "DBSCTR V3 applicability plan" in discovery
+    assert "explicitly selected Discovery-Coordinator" in discovery
+    assert "without Task or child sessions" in discovery
+    assert "without Task or child sessions" in dbsctr
     for term in ("Initiative", "MANIFEST.json", "PROFILE.md", "initiative-check",
                  "initiative-receipt", "exact user approval"):
         assert term in discovery

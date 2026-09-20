@@ -17,6 +17,13 @@ ROOT = Path(__file__).parents[1]
 UPDATER = ROOT / "dot_local/bin/executable_opencode-update-all"
 
 
+@pytest.fixture(autouse=True)
+def isolate_native_configuration(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+
 def load_updater():
     loader = importlib.machinery.SourceFileLoader("opencode_update", str(UPDATER))
     spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -153,6 +160,48 @@ def test_bounded_runner_drains_large_output_and_rejects_overflow() -> None:
         helper.run(command, maximum=len(payload) - 1)
     with pytest.raises(helper.UpdateError, match="validation_failed"):
         helper.run([sys.executable, "-c", "import time;time.sleep(1)"], timeout=.01)
+
+
+def test_continuation_requires_native_qualification_not_only_tool_loading(tmp_path, monkeypatch):
+    helper = load_updater()
+    plugin = Path.home() / ".config/opencode/plugins/continuation.ts"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("fixture")
+    probe = Path.home() / ".local/share/opencode-continuation/native_probe.py"
+    probe.parent.mkdir(parents=True)
+    probe.write_text("fixture")
+    calls = []
+
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        if argv[1:] == ["--version"]:
+            return b"1.18.29"
+        if argv[1:] == ["--help"]:
+            return b"help"
+        if argv[1:3] == ["session", "list"]:
+            return b"opencode session list"
+        if argv[1:] == ["debug", "config"]:
+            return json.dumps({"agent": {"build": {}, "plan": {}}, "permission": {"dbsctr_status": "allow"}}).encode()
+        if argv[1:] == ["debug", "agent", "build"]:
+            return json.dumps({"name": "build", "tools": {name: {} for name in (
+                "dbsctr_status", "dbsctr_preflight", "dbsctr_attach", "dbsctr_continuation_recover")}}).encode()
+        assert argv[:2] == [sys.executable, str(probe)]
+        return b"passed\n"
+
+    monkeypatch.setattr(helper, "run", execute)
+    helper.validate_binary(tmp_path / "binary", "1.18.29")
+    assert "--installed-root" in calls[-1]
+    probe.unlink()
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.validate_binary(tmp_path / "binary", "1.18.29")
+
+
+def test_native_probe_does_not_fetch_dependencies_in_fresh_homes():
+    probe = (ROOT / "dot_local/share/opencode-continuation/native_probe.py").read_text()
+    assert '"npm_config_offline": "true"' in probe
+    assert 'staged / "package-lock.json"' in probe
+    assert 'metadata["version"]' in probe or 'for key in ("version", "dependencies")' in probe
+    assert 'repo / ".opencode/tools"' not in probe
 
 
 def test_stage_lock_binds_binary_and_activates(tmp_path: Path, monkeypatch) -> None:

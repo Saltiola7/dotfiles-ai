@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""Files-only continuation deployment; private backups never leave this boundary."""
+
+import argparse
+import copy
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import tempfile
+import uuid
+
+
+TARGETS = {
+    ".local/bin/dbsctrctl": "dot_local/bin/executable_dbsctrctl",
+    ".local/bin/opencode-update-all": "dot_local/bin/executable_opencode-update-all",
+    ".local/bin/opencode-continuation-deploy": "dot_local/bin/executable_opencode-continuation-deploy",
+    ".local/share/opencode-continuation/native_probe.py": "dot_local/share/opencode-continuation/native_probe.py",
+    ".config/opencode/lib/dbsctr-runtime.ts": "private_dot_config/opencode/lib/dbsctr-runtime.ts",
+    ".config/opencode/lib/continuation.ts": "private_dot_config/opencode/lib/continuation.ts",
+    ".config/opencode/tools/dbsctr.ts": "private_dot_config/opencode/tools/dbsctr.ts",
+    ".config/opencode/agents/build-gpt.md": "private_dot_config/opencode/agents/build-gpt.md",
+    ".config/opencode/agents/build-claude.md": "private_dot_config/opencode/agents/build-claude.md",
+    ".config/opencode/plugins/continuation.ts": "private_dot_config/opencode/plugins/continuation.ts",
+    ".config/opencode/opencode.json": "private_dot_config/opencode/modify_private_opencode.json",
+}
+CONFIG = ".config/opencode/opencode.json"
+PERMISSIONS = {"dbsctr_continuation_enroll", "dbsctr_continuation_provider", "dbsctr_continuation_recover",
+               "dbsctr_continuation_storage_recover", "dbsctr_continuation_handover"}
+CONFIG_FIELDS = {("references", "dbsctr-worktrees"), ("permission", "dbsctr_preflight"),
+                 ("permission", "bash", "*dbsctrctl continuation-*")}
+CONFIG_FIELDS |= {("permission", name) for name in PERMISSIONS}
+CONFIG_FIELDS |= {("agent", "build", "permission", name) for name in PERMISSIONS}
+
+
+def digest(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def execute(argv, cwd=None, input_data=None):
+    result = subprocess.run(argv, cwd=cwd, input=input_data, capture_output=True, timeout=180)
+    if result.returncode:
+        raise RuntimeError("command_failed")
+    return result.stdout
+
+
+def read_target(path):
+    if not os.path.lexists(path):
+        return None, None
+    details = path.lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid() or details.st_nlink != 1:
+        raise RuntimeError("unsafe_target")
+    return path.read_bytes(), stat.S_IMODE(details.st_mode)
+
+
+def atomic_file(path, value, mode):
+    read_target(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".continuation-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def allowed_config_delta(old, new):
+    prefixes = CONFIG_FIELDS
+
+    def valid(before, after, path=()):
+        if any(path[:len(prefix)] == prefix for prefix in prefixes):
+            return True
+        if before is None and isinstance(after, dict) and any(prefix[:len(path)] == path for prefix in prefixes):
+            before = {}
+        if isinstance(before, dict) and isinstance(after, dict):
+            return all(valid(before.get(key), after.get(key), (*path, key)) for key in before.keys() | after.keys())
+        return before == after
+
+    return valid(old, new)
+
+
+def project_config(current, rendered):
+    before, desired = json.loads(current), json.loads(rendered)
+    projected = copy.deepcopy(before)
+    if not isinstance(projected, dict) or not isinstance(desired, dict):
+        raise RuntimeError("unrelated_config_change")
+    for path in sorted(CONFIG_FIELDS):
+        value = desired
+        for key in path:
+            if not isinstance(value, dict) or key not in value:
+                raise RuntimeError("managed_targets_missing")
+            value = value[key]
+        parent = projected
+        for key in path[:-1]:
+            parent = parent.setdefault(key, {})
+            if not isinstance(parent, dict):
+                raise RuntimeError("unrelated_config_change")
+        parent[path[-1]] = value
+    if not allowed_config_delta(before, projected):
+        raise RuntimeError("unrelated_config_change")
+    return (json.dumps(projected, indent=2, sort_keys=True) + "\n").encode()
+
+
+def source_identity(source):
+    marker = source / ".dotfiles-ai-deploy-commit"
+    if marker.is_file():
+        revision = marker.read_text().strip()
+    else:
+        if execute(["git", "status", "--porcelain=v1"], source).strip():
+            raise RuntimeError("source_dirty")
+        revision = execute(["git", "rev-parse", "HEAD"], source).decode().strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+        raise RuntimeError("invalid_source")
+    return revision
+
+
+def known_blobs(source):
+    manifest = source / ".continuation-known-blobs.json"
+    if manifest.is_file():
+        value = json.loads(manifest.read_text())
+        if (set(value) != set(TARGETS) or any(not isinstance(rows, list) or len(rows) > 4096
+                or any(not re.fullmatch(r"[0-9a-f]{40,64}", item) for item in rows) for rows in value.values())):
+            raise RuntimeError("invalid_source")
+        return value
+    result = {}
+    for target, path in TARGETS.items():
+        rows = execute(["git", "rev-list", "--objects", "HEAD", "--", path], source).decode().splitlines()
+        result[target] = [line.split(" ", 1)[0] for line in rows if " " in line and line.split(" ", 1)[1] == path]
+    return result
+
+
+def preview(source, config, home):
+    revision = source_identity(source)
+    command = ["chezmoi", "--config", str(config), "--source", str(source)]
+    managed = set(execute([*command, "managed", "--include", "files", "--path-style", "relative"]).decode().splitlines())
+    history = known_blobs(source)
+    targets, contents = {}, {}
+    for name in TARGETS:
+        if name not in managed:
+            continue
+        path = home / name
+        before, mode = read_target(path)
+        after = execute([*command, "cat", str(path)])
+        if name == CONFIG and before is not None:
+            after = project_config(before, after)
+        elif before is not None and before != after:
+            blob = execute(["git", "hash-object", "--stdin"], input_data=before).decode().strip()
+            if blob not in history[name]:
+                raise RuntimeError("unrecognized_local_edit:" + name)
+        targets[name] = {"before": digest(before) if before is not None else None,
+                         "after": digest(after), "mode": mode,
+                         "after_mode": 0o600 if name == CONFIG else 0o755 if name.startswith(".local/bin/") else 0o644,
+                         "backup": str(len(targets))}
+        contents[name] = before
+    if ".local/bin/dbsctrctl" not in targets or CONFIG not in targets:
+        raise RuntimeError("managed_targets_missing")
+    return {"schema_version": 1, "source_commit": revision, "config_digest": digest(config.read_bytes()),
+            "state": "preview", "targets": targets}, contents
+
+
+def save_receipt(path, value):
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    atomic_file(path, json.dumps({**value, "receipt_digest": digest(payload)}, sort_keys=True,
+                                separators=(",", ":")).encode(), 0o600)
+
+
+def rollback(home, backup):
+    if backup.is_symlink() or backup.stat().st_uid != os.getuid() or backup.stat().st_mode & 0o077:
+        raise RuntimeError("unsafe_backup")
+    raw, _ = read_target(backup / "receipt.json")
+    receipt = json.loads(raw)
+    checksum = receipt.pop("receipt_digest", None)
+    if checksum != digest(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()):
+        raise RuntimeError("invalid_backup")
+    if receipt.get("schema_version") != 1 or set(receipt.get("targets", {})) - set(TARGETS):
+        raise RuntimeError("invalid_backup")
+    for name, item in receipt["targets"].items():
+        if (set(item) != {"before", "after", "mode", "after_mode", "backup"}
+                or type(item["after_mode"]) is not int or not 0 <= item["after_mode"] <= 0o777
+                or item["mode"] is not None and (type(item["mode"]) is not int or not 0 <= item["mode"] <= 0o777)):
+            raise RuntimeError("invalid_backup")
+        current, mode = read_target(home / name)
+        identity = digest(current) if current is not None else None
+        if (identity, mode) not in ((item["before"], item["mode"]), (item["after"], item["after_mode"])):
+            raise RuntimeError("rollback_drift")
+    for name in reversed([name for name in TARGETS if name in receipt["targets"]]):
+        item = receipt["targets"][name]
+        target = home / name
+        if item["before"] is None:
+            if target.exists():
+                target.unlink()
+        else:
+            if not re.fullmatch(r"[0-9]+", item["backup"]):
+                raise RuntimeError("invalid_backup")
+            value, _ = read_target(backup / item["backup"])
+            if value is None or digest(value) != item["before"]:
+                raise RuntimeError("invalid_backup")
+            atomic_file(target, value, item["mode"])
+    receipt["state"] = "rolled_back"
+    save_receipt(backup / "receipt.json", receipt)
+    return receipt
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("preview", "apply", "verify", "rollback"))
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--config", type=Path, default=Path.home() / ".config/dotfiles-ai/chezmoi.toml")
+    parser.add_argument("--backup", type=Path)
+    args = parser.parse_args()
+    home = Path.home()
+    try:
+        if args.mode == "rollback":
+            if args.backup is None:
+                raise RuntimeError("backup_required")
+            result = rollback(home, args.backup)
+        else:
+            if args.source is None:
+                raise RuntimeError("source_required")
+            source = args.source.resolve()
+            result, contents = preview(source, args.config, home)
+            if args.mode == "verify":
+                if any(item["before"] != item["after"] or item["mode"] != item["after_mode"] for item in result["targets"].values()):
+                    raise RuntimeError("verification_failed")
+                result["state"] = "verified"
+            if args.mode == "apply":
+                state_root = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state"))
+                parent = state_root / "dotfiles-ai/continuation-deploy"
+                parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if parent.is_symlink() or parent.stat().st_uid != os.getuid() or parent.stat().st_mode & 0o077:
+                    raise RuntimeError("unsafe_backup")
+                backup = parent / uuid.uuid4().hex
+                backup.mkdir(mode=0o700)
+                sync_directory(parent)
+                for name, value in contents.items():
+                    if value is not None:
+                        atomic_file(backup / result["targets"][name]["backup"], value, 0o600)
+                result["state"] = "prepared"
+                save_receipt(backup / "receipt.json", result)
+                command = ["chezmoi", "--config", str(args.config), "--source", str(source),
+                           "apply", "--exclude", "scripts", "--force"]
+                package = Path(os.environ.get("DOTFILES_AI_OPENCODE_PACKAGE_ROOT",
+                                              home / ".local/state/dotfiles-ai/opencode-package"))
+                lock = None
+                touched = False
+                try:
+                    lock_path = package / ".lock"
+                    if os.path.lexists(lock_path):
+                        read_target(lock_path)
+                        lock = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+                        try:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            raise RuntimeError("runtime_busy") from None
+                    for name, item in result["targets"].items():
+                        if source_identity(source) != result["source_commit"]:
+                            raise RuntimeError("source_dirty")
+                        if "config_digest" in result and digest(args.config.read_bytes()) != result["config_digest"]:
+                            raise RuntimeError("config_drift")
+                        value, mode = read_target(home / name)
+                        if (digest(value) if value is not None else None, mode) != (item["before"], item["mode"]):
+                            raise RuntimeError("target_drift")
+                        (home / name).parent.mkdir(parents=True, exist_ok=True,
+                                                   mode=0o700 if name.startswith(".config/") else 0o755)
+                        touched = True
+                        if name == CONFIG and value is not None:
+                            rendered = execute(["chezmoi", "--config", str(args.config), "--source", str(source),
+                                                "cat", str(home / name)])
+                            projected = project_config(value, rendered)
+                            if digest(projected) != item["after"]:
+                                raise RuntimeError("config_drift")
+                            atomic_file(home / name, projected, item["after_mode"])
+                        else:
+                            execute([*command, str(home / name)])
+                        value, mode = read_target(home / name)
+                        if value is None or (digest(value), mode) != (item["after"], item["after_mode"]):
+                            raise RuntimeError("verification_failed")
+                    for name, item in result["targets"].items():
+                        value, mode = read_target(home / name)
+                        if value is None or (digest(value), mode) != (item["after"], item["after_mode"]):
+                            raise RuntimeError("target_drift")
+                    result["state"] = "applied"
+                    save_receipt(backup / "receipt.json", result)
+                except Exception as error:
+                    if not touched:
+                        raise
+                    reason = str(error).partition(":")[0]
+                    result["failure"] = {"target": name, "reason": reason if reason in {
+                        "source_dirty", "target_drift", "verification_failed", "command_failed", "unsafe_target", "config_drift"}
+                        else "apply_error"}
+                    save_receipt(backup / "receipt.json", result)
+                    rollback(home, backup)
+                    raise RuntimeError("apply_failed_rolled_back") from None
+                finally:
+                    if lock is not None:
+                        os.close(lock)
+                result = {**result, "backup": str(backup)}
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+        reason = str(error).partition(":")[0] if isinstance(error, RuntimeError) else "deployment_failed"
+        if reason not in {"unsafe_target", "source_dirty", "invalid_source", "unrelated_config_change",
+                          "unrecognized_local_edit", "managed_targets_missing", "unsafe_backup", "invalid_backup",
+                          "rollback_drift", "backup_required", "source_required", "verification_failed",
+                          "target_drift", "apply_failed_rolled_back", "command_failed", "runtime_busy", "config_drift"}:
+            reason = "deployment_failed"
+        result = {"schema_version": 1, "state": "blocked", "reason": reason}
+        target = str(error).partition(":")[2]
+        if target in TARGETS:
+            result["target"] = target
+        print(json.dumps(result))
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
