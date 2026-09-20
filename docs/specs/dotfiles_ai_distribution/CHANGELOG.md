@@ -34,6 +34,11 @@
   now include their exit status and a bounded managed-script name, never raw
   subprocess output. A successful manual guest apply after rollback does not
   prove the managed update passed; deployment results require actual exit status.
+- Added a validated per-workspace `rnd_enabled` override after deployment exposed
+  that the host's enabled Hermes setting would enable previously disabled guest
+  automation. The operator selected disabled guest R&D while preserving host R&D,
+  interactive tools and PM PostgreSQL. Existing configs without an override retain
+  their prior inheritance; false overrides are not erased during guest refresh.
 - Implementation Gate Commit: `a9d3ae6`. Deploy and Operate evidence — full
   managed apply with service hooks on the host and both configured guests,
   preserving PM PostgreSQL availability and prior VM power states — is recorded

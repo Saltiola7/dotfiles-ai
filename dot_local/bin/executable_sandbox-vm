@@ -307,9 +307,10 @@ def validate_config(value):
             workspace.setdefault("hermes_projects", False)
             workspace.setdefault("hermes_backlog_roots", [])
             workspace.setdefault("runtime", "")
+            workspace.setdefault("rnd_enabled", guest["hermes_enabled"])
         if not isinstance(workspace, dict) or set(workspace) != {
                 "name", "instance", "shell_alias", "federate", "hermes_projects",
-                "hermes_backlog_roots", "runtime", "mounts"}:
+                "hermes_backlog_roots", "runtime", "mounts", "rnd_enabled"}:
             raise ValueError("invalid workspace")
         name = workspace.get("name", "")
         instance = workspace.get("instance", "")
@@ -318,6 +319,7 @@ def validate_config(value):
             raise ValueError("invalid workspace name")
         if (not ID.fullmatch(instance) or instance in instances
                 or not isinstance(workspace["federate"], bool)
+                or not isinstance(workspace["rnd_enabled"], bool)
                 or not isinstance(workspace["hermes_projects"], bool)):
             raise ValueError(f"invalid {name} workspace")
         if workspace["runtime"] not in {"", "opencode", "codex"}:
@@ -584,7 +586,7 @@ def guest_config(config, workspace):
         f"project_profiles = {'true' if workspace.get('hermes_projects', False) else 'false'}",
         "",
         "[data.dotfiles_ai.rnd]",
-        f"enabled = {'true' if guest['hermes_enabled'] else 'false'}",
+        f"enabled = {'true' if guest['hermes_enabled'] and workspace.get('rnd_enabled', guest['hermes_enabled']) else 'false'}",
         f"backend = {quote(guest['rnd_backend'])}",
         f"runtime = {quote(guest['rnd_runtime'])}",
         f"review_workdir = {quote(next(mount['guest'] for mount in workspace['mounts'] if mount['writable']))}",

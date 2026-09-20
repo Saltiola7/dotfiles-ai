@@ -325,6 +325,20 @@ def test_command_failure_exposes_exit_and_script_not_private_output():
     assert "private credential sentinel" not in str(caught.value)
 
 
+def test_workspace_can_disable_rnd_without_disabling_tools(tmp_path):
+    helper = load_helper()
+    values = config(tmp_path)
+    workspace = values["workspaces"][0]
+    workspace["rnd_enabled"] = False
+    helper.validate_config(values)
+    rendered = tomllib.loads(helper.guest_config(values, workspace))["data"]["dotfiles_ai"]
+    assert rendered["rnd"]["enabled"] is False
+    assert rendered["hermes"]["enabled"] is True
+    workspace["rnd_enabled"] = "false"
+    with pytest.raises(ValueError, match="workspace"):
+        helper.validate_config(values)
+
+
 def test_update_rejects_rootful_podman_before_guest_mutation(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
