@@ -14,9 +14,16 @@ release, deployment, operations, maintenance, and retirement when those gates
 apply.
 
 The public OpenCode entry points are `/discovery`, `/dbsctr`, and `/qa`.
-OpenCode is the delivered first harness. Codex CLI is the first planned peer and
-must implement [`features/harness-adapters.md`](features/harness-adapters.md)
-before claiming lifecycle parity. Harnesses use the same artifacts and contracts.
+OpenCode is the delivered first harness. The bounded
+[Codex desktop continuation adapter](features/codex-continuation.md) supports
+development toward one selected cycle in an existing desktop task; native writer
+qualification and deployment remain required before use. This does not establish
+general Codex CLI or multi-host parity. The selected desktop adapter has an
+explicit operator-accepted collaboration-mode limitation: Plan prohibition is
+instruction/operator-enforced, not independently inferred from permission mode.
+The shared lifecycle remains harness-agnostic. Codex peers must implement
+[`features/harness-adapters.md`](features/harness-adapters.md) before claiming
+lifecycle parity. Harnesses use the same artifacts and contracts.
 The approved staged evolution through V3.10 is recorded in [`ROADMAP.md`](ROADMAP.md).
 
 ### OpenCode Vertex activation compatibility
