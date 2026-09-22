@@ -1,0 +1,1390 @@
+#!/usr/bin/env python3
+"""Codex native continuation primitives; identity alone never admits a writer."""
+
+import json
+import shlex
+import base64
+import io
+from types import SimpleNamespace
+import hashlib
+import contextlib
+import functools
+import fcntl
+import argparse
+import os
+import re
+import selectors
+import signal
+import sqlite3
+import stat
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+
+IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", re.ASCII)
+MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9.*:/@_-]{0,255}", re.ASCII)
+BUILD_PERMISSION_MODES = frozenset({"default", "acceptEdits", "dontAsk", "bypassPermissions"})
+RECEIPT_ID = re.compile(r"[0-9a-f]{32}", re.ASCII)
+DIGEST = re.compile(r"[0-9a-f]{64}", re.ASCII)
+
+MAX_DATABASE_BYTES = 8 * 1024 * 1024
+NATIVE_SCHEMA_SQL = """
+                    BEGIN IMMEDIATE;
+                    CREATE TABLE metadata(version INTEGER PRIMARY KEY CHECK(version=3));
+                    INSERT INTO metadata VALUES (3);
+                    CREATE TABLE receipts(
+                        receipt_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL, turn_id TEXT NOT NULL, call_id TEXT NOT NULL,
+                        identity_json TEXT NOT NULL, tool TEXT NOT NULL, argument_digest TEXT NOT NULL,
+                        deployment_digest TEXT NOT NULL,
+                        operation_id TEXT, state TEXT NOT NULL,
+                        execution_started INTEGER NOT NULL CHECK(execution_started IN (0,1)),
+                        execution_finished INTEGER NOT NULL CHECK(execution_finished IN (0,1)),
+                        UNIQUE(session_id,turn_id,call_id));
+                    CREATE TABLE operator_approvals(
+                        challenge TEXT PRIMARY KEY, binding_json TEXT NOT NULL,
+                        deployment_digest TEXT NOT NULL,
+                        state TEXT NOT NULL CHECK(state IN ('prepared','approved','consumed')));
+                    COMMIT;
+                """
+
+
+class NativeIdentityError(Exception):
+    """A sanitized refusal with no input data or exception objects retained."""
+
+
+def private_path(path: Path, *, directory: bool = False) -> None:
+    item = path.lstat()
+    expected = stat.S_IFDIR if directory else stat.S_IFREG
+    if (stat.S_IFMT(item.st_mode) != expected or item.st_uid != os.getuid()
+            or item.st_mode & 0o077 or not directory and item.st_nlink != 1):
+        raise NativeIdentityError("storage_invalid")
+
+
+def check_identity_record(identity: dict) -> None:
+    if (type(identity) is not dict
+            or set(identity) != {"session_id", "turn_id", "call_id", "model_id", "provider_id", "agent_id"}
+            or any(type(identity[k]) is not str or not IDENTIFIER.fullmatch(identity[k])
+                   for k in ("session_id", "turn_id", "call_id"))
+            or type(identity["model_id"]) is not str or not MODEL.fullmatch(identity["model_id"])
+            or identity["provider_id"] != "openai" or identity["agent_id"] != "build"):
+        raise NativeIdentityError("invalid_identity")
+
+
+def safe_store_call(function):
+    """Release inner error/traceback objects before raising a bounded refusal."""
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        reason = "storage_invalid"
+        try:
+            return function(*args, **kwargs)
+        except NativeIdentityError as error:
+            if error.args and error.args[0] in (
+                "invalid_identity", "storage_invalid", "storage_capacity", "receipt_state", "receipt_replayed", "approval_required"
+            ):
+                reason = error.args[0]
+        except (OSError, sqlite3.Error, ValueError, RecursionError):
+            pass
+        raise NativeIdentityError(reason)
+    return wrapped
+
+
+def checked_approval_binding(binding: dict, deployment_digest: str) -> str:
+    keys = {"action", "cycle_id", "worktree_id", "generation", "state_digest", "record_digest",
+            "session_key", "activation_digest", "target_session_id", "mode"}
+    if (type(binding) is not dict or set(binding) != keys
+            or type(binding["action"]) is not str or binding["action"] not in {"enroll", "attach", "recover"}
+            or any(type(binding[key]) is not str or not IDENTIFIER.fullmatch(binding[key])
+                   for key in ("cycle_id", "worktree_id"))
+            or type(binding["generation"]) is not int or not 0 <= binding["generation"] < 2**53
+            or any(type(binding[key]) is not str or not DIGEST.fullmatch(binding[key])
+                   for key in ("state_digest", "record_digest", "session_key", "activation_digest"))
+            or binding["target_session_id"] is not None
+            or (binding["mode"] not in ("reader", "writer") if binding["action"] == "attach"
+                else binding["mode"] is not None)
+            or type(deployment_digest) is not str or not DIGEST.fullmatch(deployment_digest)):
+        raise NativeIdentityError("approval_required")
+    return json.dumps(binding, sort_keys=True, separators=(",", ":"))
+
+
+class NativeReceiptStore:
+    """Private producer journal; never independently establishes writer authority.
+
+    Production construction must use the fixed, validated repository binding.
+    Production issuance follows synchronous hook and supported API validation.
+    This class does not expose a JSON-to-authority command or synthesize proof.
+    """
+
+    def __init__(self, directory: Path):
+        self.directory = directory
+        self.path = directory / "native.sqlite3"
+
+    @contextlib.contextmanager
+    def connection(self, *, write=False, create=False):
+        connection = None
+        failed = None
+        try:
+            if not self.directory.is_absolute() or self.directory.parent.resolve() != self.directory.parent:
+                raise NativeIdentityError("storage_invalid")
+            if not os.path.lexists(self.directory):
+                if not create:
+                    yield None
+                    return
+                self.directory.mkdir(mode=0o700)
+            private_path(self.directory, directory=True)
+            new = not os.path.lexists(self.path)
+            if new and not create:
+                raise NativeIdentityError("storage_invalid")
+            if new:
+                descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+                os.close(descriptor)
+            self.check_storage_budget()
+            before = self.path.stat()
+            connection = sqlite3.connect(
+                self.path.as_uri() + ("?mode=rw" if write else "?mode=ro"), uri=True, timeout=2
+            )
+            connection.row_factory = sqlite3.Row
+            if new:
+                connection.executescript(NATIVE_SCHEMA_SQL)
+            self.check_schema(connection)
+            page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+            maximum_pages = MAX_DATABASE_BYTES // page_size
+            if (maximum_pages < 1 or connection.execute("PRAGMA page_count").fetchone()[0] > maximum_pages
+                    or connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"):
+                raise NativeIdentityError("storage_invalid")
+            if write and connection.execute(f"PRAGMA max_page_count={maximum_pages}").fetchone()[0] != maximum_pages:
+                raise NativeIdentityError("storage_invalid")
+            if [r[0] for r in connection.execute("SELECT version FROM metadata")] != [3]:
+                raise NativeIdentityError("storage_invalid")
+            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+            yield connection
+            after = self.path.stat()
+            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                raise NativeIdentityError("storage_invalid")
+            private_path(self.path)
+            if write:
+                self.check_storage_budget()
+                connection.commit()
+        except (OSError, sqlite3.Error, ValueError, RecursionError):
+            failed = "storage_invalid"
+        finally:
+            if connection is not None:
+                connection.close()
+        if failed:
+            raise NativeIdentityError(failed)
+
+    def check_schema(self, connection):
+        expected = {}
+        for statement in NATIVE_SCHEMA_SQL.split(";"):
+            normalized = " ".join(statement.split())
+            if normalized.startswith("CREATE TABLE "):
+                name = normalized.removeprefix("CREATE TABLE ").split("(")[0].strip()
+                expected[name] = ("table", name, normalized)
+        for name, table in (("sqlite_autoindex_receipts_1", "receipts"),
+                            ("sqlite_autoindex_receipts_2", "receipts"),
+                            ("sqlite_autoindex_operator_approvals_1", "operator_approvals")):
+            expected[name] = ("index", table, None)
+        actual = {row[0]: (row[1], row[2], " ".join(row[3].split()) if row[3] else None)
+                  for row in connection.execute("SELECT name,type,tbl_name,sql FROM sqlite_master")}
+        if actual != expected:
+            raise NativeIdentityError("storage_invalid")
+
+    def check_storage_budget(self):
+        total = 0
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            path = Path(str(self.path) + suffix)
+            if os.path.lexists(path):
+                private_path(path)
+                if suffix in ("-wal", "-shm"):
+                    raise NativeIdentityError("storage_invalid")
+                total += path.stat().st_size
+                if total > 32 * 1024 * 1024:
+                    raise NativeIdentityError("storage_invalid")
+
+    @safe_store_call
+    def approval_details(self, challenge):
+        if type(challenge) is not str or not RECEIPT_ID.fullmatch(challenge):
+            raise NativeIdentityError("approval_required")
+        with self.connection() as connection:
+            if connection is None:
+                raise NativeIdentityError("approval_required")
+            row = connection.execute("SELECT * FROM operator_approvals WHERE challenge=?", (challenge,)).fetchone()
+            if row is None:
+                raise NativeIdentityError("approval_required")
+            if type(row["binding_json"]) is not str or len(row["binding_json"]) > 16384:
+                raise NativeIdentityError("storage_invalid")
+            binding = json.loads(row["binding_json"], object_pairs_hook=unique_object)
+            checked_approval_binding(binding, row["deployment_digest"])
+            if row["state"] not in ("prepared", "approved", "consumed"):
+                raise NativeIdentityError("storage_invalid")
+            return {"binding": binding, "deployment_digest": row["deployment_digest"], "state": row["state"]}
+
+    @safe_store_call
+    def latest_control(self, session, deployment_digest):
+        if (type(session) is not str or not IDENTIFIER.fullmatch(session)
+                or type(deployment_digest) is not str or not DIGEST.fullmatch(deployment_digest)):
+            raise NativeIdentityError("invalid_identity")
+        with self.connection() as connection:
+            if connection is None:
+                raise NativeIdentityError("approval_required")
+            row = connection.execute(
+                "SELECT * FROM receipts WHERE session_id=? AND deployment_digest=? AND tool='lifecycle' "
+                "ORDER BY rowid DESC LIMIT 1", (session, deployment_digest)).fetchone()
+            if row is None:
+                raise NativeIdentityError("approval_required")
+            return self.decode_row(row, row["receipt_id"])
+
+    @safe_store_call
+    def find_call(self, session, turn, call):
+        if any(type(value) is not str or not IDENTIFIER.fullmatch(value) for value in (session, turn, call)):
+            raise NativeIdentityError("invalid_identity")
+        with self.connection() as connection:
+            if connection is None:
+                return None
+            row = connection.execute("SELECT * FROM receipts WHERE session_id=? AND turn_id=? AND call_id=?",
+                                     (session, turn, call)).fetchone()
+            return self.decode_row(row, row["receipt_id"]) if row is not None else None
+
+    @safe_store_call
+    def prepare_approval(self, binding: dict, deployment_digest: str) -> str:
+        serialized = checked_approval_binding(binding, deployment_digest)
+        challenge = uuid.uuid4().hex
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("storage_invalid")
+            if connection.execute("SELECT count(*) FROM operator_approvals").fetchone()[0] >= 128:
+                raise NativeIdentityError("storage_capacity")
+            connection.execute("INSERT INTO operator_approvals VALUES (?,?,?,'prepared')",
+                               (challenge, serialized, deployment_digest))
+        return challenge
+
+    @safe_store_call
+    def approve(self, challenge: str, current_binding: dict, deployment_digest: str) -> None:
+        """Internal transition; only the confirming operator surface may call this."""
+        self.approval_transition(challenge, current_binding, deployment_digest, "prepared", "approved")
+
+    @safe_store_call
+    def consume_approval(self, challenge: str, current_binding: dict, deployment_digest: str) -> None:
+        self.approval_transition(challenge, current_binding, deployment_digest, "approved", "consumed")
+
+    @safe_store_call
+    def check_approval(self, challenge, current_binding, deployment_digest):
+        serialized = checked_approval_binding(current_binding, deployment_digest)
+        if type(challenge) is not str or not RECEIPT_ID.fullmatch(challenge):
+            raise NativeIdentityError("approval_required")
+        with self.connection() as connection:
+            if connection is None:
+                raise NativeIdentityError("approval_required")
+            row = connection.execute(
+                "SELECT 1 FROM operator_approvals WHERE challenge=? AND binding_json=? "
+                "AND deployment_digest=? AND state='approved'", (challenge, serialized, deployment_digest)
+            ).fetchone()
+            if row is None:
+                raise NativeIdentityError("approval_required")
+
+    def approval_transition(self, challenge, current_binding, deployment_digest, before, after):
+        serialized = checked_approval_binding(current_binding, deployment_digest)
+        if (type(challenge) is not str or not RECEIPT_ID.fullmatch(challenge)
+                or (before, after) not in {("prepared", "approved"), ("approved", "consumed")}):
+            raise NativeIdentityError("approval_required")
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("storage_invalid")
+            cursor = connection.execute(
+                "UPDATE operator_approvals SET state=? WHERE challenge=? AND state=? "
+                "AND binding_json=? AND deployment_digest=?",
+                (after, challenge, before, serialized, deployment_digest),
+            )
+            if cursor.rowcount != 1:
+                raise NativeIdentityError("approval_required")
+
+    @safe_store_call
+    def initialize(self) -> None:
+        with self.connection(write=True, create=True):
+            pass
+
+    @safe_store_call
+    def read(self, receipt: str) -> dict | None:
+        if type(receipt) is not str or not RECEIPT_ID.fullmatch(receipt):
+            raise NativeIdentityError("invalid_identity")
+        with self.connection() as connection:
+            if connection is None:
+                return None
+            row = connection.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt,)).fetchone()
+            if row is None:
+                return None
+            return self.decode_row(row, receipt)
+
+    def decode_row(self, row, receipt):
+        if type(row["identity_json"]) is not str or len(row["identity_json"].encode()) > 16384:
+            raise NativeIdentityError("storage_invalid")
+        identity = json.loads(row["identity_json"], object_pairs_hook=unique_object)
+        check_identity_record(identity)
+        if (any(row[k] != identity[k] for k in ("session_id", "turn_id", "call_id"))
+                or row["tool"] not in {"shell", "file", "lifecycle"}
+                or type(row["argument_digest"]) is not str or not DIGEST.fullmatch(row["argument_digest"])
+                or type(row["deployment_digest"]) is not str or not DIGEST.fullmatch(row["deployment_digest"])
+                or type(row["execution_started"]) is not int or row["execution_started"] not in (0, 1)
+                or type(row["execution_finished"]) is not int or row["execution_finished"] not in (0, 1)
+                or row["execution_finished"] > row["execution_started"]
+                or row["state"] == "issued" and row["execution_started"] != 0
+                or row["state"] not in {"issued", "active", "completed", "uncertain"}
+                or (row["state"] == "issued") != (row["operation_id"] is None)
+                or row["operation_id"] is not None and (
+                    type(row["operation_id"]) is not str or not IDENTIFIER.fullmatch(row["operation_id"]))):
+            raise NativeIdentityError("storage_invalid")
+        return {"receipt_id": receipt, "identity": identity, "tool": row["tool"],
+                "argument_digest": row["argument_digest"], "deployment_digest": row["deployment_digest"],
+                "operation_id": row["operation_id"],
+                "state": row["state"], "execution_started": bool(row["execution_started"]),
+                "execution_finished": bool(row["execution_finished"])}
+
+    @safe_store_call
+    def issue(self, identity: dict, tool: str, argument_digest: str, *, deployment_digest: str) -> str:
+        check_identity_record(identity)
+        if (tool not in ("shell", "file", "lifecycle") or type(argument_digest) is not str
+                or not DIGEST.fullmatch(argument_digest) or type(deployment_digest) is not str
+                or not DIGEST.fullmatch(deployment_digest)):
+            raise NativeIdentityError("invalid_identity")
+        receipt = uuid.uuid4().hex
+        collision = False
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("storage_invalid")
+            if connection.execute("SELECT count(*) FROM receipts").fetchone()[0] >= 10000:
+                raise NativeIdentityError("storage_capacity")
+            try:
+                connection.execute("INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (
+                    receipt, identity["session_id"], identity["turn_id"], identity["call_id"],
+                    json.dumps(identity, sort_keys=True), tool, argument_digest, deployment_digest, None, "issued", 0, 0,
+                ))
+            except sqlite3.IntegrityError:
+                collision = True
+        if collision:
+            raise NativeIdentityError("receipt_replayed")
+        return receipt
+
+    @safe_store_call
+    def claim_execution(self, receipt, operation, argument_digest, deployment_digest):
+        if (type(receipt) is not str or not RECEIPT_ID.fullmatch(receipt)
+                or type(operation) is not str or not IDENTIFIER.fullmatch(operation)
+                or any(type(value) is not str or not DIGEST.fullmatch(value)
+                       for value in (argument_digest, deployment_digest))):
+            raise NativeIdentityError("receipt_state")
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("storage_invalid")
+            row = connection.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt,)).fetchone()
+            if row is None:
+                raise NativeIdentityError("receipt_state")
+            value = self.decode_row(row, receipt)
+            if (value["state"] != "active" or value["execution_started"] or value["tool"] != "shell"
+                    or value["operation_id"] != operation or value["argument_digest"] != argument_digest
+                    or value["deployment_digest"] != deployment_digest):
+                raise NativeIdentityError("receipt_state")
+            connection.execute("UPDATE receipts SET execution_started=1 WHERE receipt_id=?", (receipt,))
+
+    @safe_store_call
+    def mark_execution_finished(self, receipt, operation):
+        if (type(receipt) is not str or not RECEIPT_ID.fullmatch(receipt)
+                or type(operation) is not str or not IDENTIFIER.fullmatch(operation)):
+            raise NativeIdentityError("receipt_state")
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("receipt_state")
+            row = connection.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt,)).fetchone()
+            if row is None:
+                raise NativeIdentityError("receipt_state")
+            value = self.decode_row(row, receipt)
+            if (value["state"] != "active" or not value["execution_started"] or value["execution_finished"]
+                    or value["operation_id"] != operation or value["tool"] != "shell"):
+                raise NativeIdentityError("receipt_state")
+            connection.execute("UPDATE receipts SET execution_finished=1 WHERE receipt_id=?", (receipt,))
+
+    @safe_store_call
+    def activate(self, receipt: str, operation: str) -> None:
+        self.transition(receipt, operation, "active")
+
+    @safe_store_call
+    def finish(self, receipt: str, operation: str, outcome: str) -> None:
+        if outcome not in ("completed", "uncertain"):
+            raise NativeIdentityError("receipt_state")
+        self.transition(receipt, operation, outcome)
+
+    @safe_store_call
+    def transition(self, receipt: str, operation: str, state: str) -> None:
+        if state not in ("active", "completed", "uncertain"):
+            raise NativeIdentityError("receipt_state")
+        if (type(receipt) is not str or not RECEIPT_ID.fullmatch(receipt)
+                or type(operation) is not str or not IDENTIFIER.fullmatch(operation)):
+            raise NativeIdentityError("invalid_identity")
+        with self.connection(write=True) as connection:
+            if connection is None:
+                raise NativeIdentityError("storage_invalid")
+            row = connection.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt,)).fetchone()
+            if row is None:
+                raise NativeIdentityError("receipt_state")
+            self.decode_row(row, receipt)
+            if state == "active":
+                cursor = connection.execute(
+                    "UPDATE receipts SET state='active',operation_id=? WHERE receipt_id=? "
+                    "AND state='issued' AND operation_id IS NULL", (operation, receipt),
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE receipts SET state=? WHERE receipt_id=? AND state='active' AND operation_id=?",
+                    (state, receipt, operation),
+                )
+            if cursor.rowcount != 1:
+                raise NativeIdentityError("receipt_state")
+
+
+
+def load_core(deployment):
+    source = pinned_file(deployment["core"], capture=True)
+    core = {"__name__": "codex_continuation_core", "__file__": deployment["core"]["path"]}
+    exec(compile(source, deployment["core"]["path"], "exec"), core)
+    return core
+
+
+def selection_closed(core, repository_basis, cycle_id):
+    """Read terminal evidence without relying on a removed active pointer."""
+    with contextlib.chdir(repository_basis):
+        with core["continuation_connection"](repository_basis) as connection:
+            if connection is None:
+                return False
+            cycle = connection.execute("SELECT * FROM cycles WHERE cycle_id=?", (cycle_id,)).fetchone()
+            if cycle is None or cycle["state"] != "closed":
+                return False
+            if (cycle["writer"] is not None
+                    or cycle["locator_id"] != core["worktree_id"](repository_basis)
+                    or connection.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1",
+                                          (cycle_id,)).fetchone() is not None):
+                raise NativeIdentityError("core_unavailable")
+            path = core["cycle_dir"](repository_basis) / "cycles" / (cycle_id + ".json")
+            if path.is_symlink():
+                raise NativeIdentityError("core_unavailable")
+            record = core["read_cycle_record"](repository_basis, path)
+            if (record.get("cycle_id") != cycle_id or record.get("state") != "completed"
+                    or not core["record_worktree_matches"](repository_basis, record, repository_basis)):
+                raise NativeIdentityError("core_unavailable")
+            return True
+
+
+class CoreBridge:
+    """Internal trusted-producer bridge, not a public identity-JSON interface.
+
+    The production factory must load the pinned deployment and corroborate an
+    actual synchronous hook before constructing this object. Fixtures are not
+    evidence of native admission. Shared core remains the state-transition owner.
+    """
+    def __init__(self, deployment, identity, receipt, store):
+        check_identity_record(identity)
+        if (identity["session_id"] != deployment["conversation_id"]
+                or type(receipt) is not str or not RECEIPT_ID.fullmatch(receipt)):
+            raise NativeIdentityError("invalid_identity")
+        self.core = load_core(deployment)
+        self.repository_basis = Path(deployment["target"]["worktree"])
+        self.cycle_id = deployment["target"]["cycle_id"]
+        self.identity = dict(identity)
+        self.session_id = identity["session_id"]
+        self.message_id = "codex-" + receipt
+        self.session_key = self.core["continuation_digest"](
+            ["codex-desktop-1", deployment["native_home"], self.session_id])
+        self.home_id = self.core["continuation_digest"](
+            ["codex-conversation-home", deployment["conversation_home"], self.session_id])
+        self.activation = {"schema_version": 1, "provider_id": identity["provider_id"],
+                           "model_id": identity["model_id"], "agent_id": identity["agent_id"],
+                           "core_revision": "3.31", "overlay_revision": "neutral-2026-07-26"}
+        self.deployment_digest = canonical_digest(deployment)
+        self.store = store
+
+    def verify_approval(self, request, binding, *, consume=True):
+        failed = False
+        try:
+            challenge = request["approval"]["receipt_id"]
+            operation = self.store.consume_approval if consume else self.store.check_approval
+            operation(challenge, binding, self.deployment_digest)
+        except (NativeIdentityError, KeyError, TypeError):
+            failed = True
+        if failed:
+            raise self.core["ContinuationError"]("approval_required")
+
+    def verify_operation(self, operation_id):
+        with contextlib.chdir(self.repository_basis):
+            request = {"worktree": str(self.repository_basis)}
+            _, target, _, record = self.core["continuation_target"](
+                request, self.session_key, repository_basis=self.repository_basis)
+            if record["cycle_id"] != self.cycle_id or target != self.repository_basis:
+                raise NativeIdentityError("receipt_state")
+            with self.core["continuation_connection"](target) as connection:
+                if connection is None:
+                    raise NativeIdentityError("receipt_state")
+                cycle = connection.execute("SELECT * FROM cycles WHERE cycle_id=?", (self.cycle_id,)).fetchone()
+                operation = connection.execute("SELECT * FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
+                if cycle is None:
+                    raise NativeIdentityError("receipt_state")
+                self.core["continuation_validate_operation"](cycle, operation, target, self.cycle_id)
+                if (operation["session_key"] != self.session_key or operation["message_id"] != self.message_id
+                        or operation["call_id"] != self.identity["call_id"]):
+                    raise NativeIdentityError("receipt_state")
+
+    def selection_closed(self):
+        return selection_closed(self.core, self.repository_basis, self.cycle_id)
+
+    def call(self, command, **fields):
+        if command not in ("check", "enroll", "attach", "admit", "finish", "recover"):
+            raise NativeIdentityError("core_unavailable")
+        request = {"schema_version": 1, "worktree": str(self.repository_basis), **fields}
+        raw = json.dumps(request, allow_nan=False).encode("utf-8")
+        if len(raw) > 65536:
+            raise NativeIdentityError("core_unavailable")
+        previous_directory, previous_stdin = Path.cwd(), sys.stdin
+        output = io.StringIO()
+        try:
+            os.chdir(self.repository_basis)
+            sys.stdin = SimpleNamespace(buffer=io.BytesIO(raw))
+            with contextlib.redirect_stdout(output):
+                try:
+                    self.core["command_continuation"](
+                        SimpleNamespace(command="continuation-" + command, request_json="-"), native_context=self)
+                except SystemExit as error:
+                    if error.code != 1:
+                        raise
+        finally:
+            sys.stdin = previous_stdin
+            os.chdir(previous_directory)
+        result = json.loads(output.getvalue(), object_pairs_hook=unique_object)
+        if type(result) is not dict or type(result.get("ok")) is not bool:
+            raise NativeIdentityError("core_unavailable")
+        return result
+
+
+def configured_deployment():
+    # Only the managed installation selects this path. No writer CLI override.
+    parent = (Path.home() / ".local/state/dbsctr/codex").resolve(strict=True)
+    path = parent / "selected.json"
+    deployment = load_deployment(path)
+    if Path(deployment["producer"]["path"]) != Path(__file__).resolve():
+        raise NativeIdentityError("deployment_invalid")
+    return path, deployment
+
+
+def configured_store(path):
+    # Installation initializes explicitly; runtime access never creates the journal.
+    return NativeReceiptStore(path.parent / "native")
+
+
+def verify_receipt_operation(root, operation, core_path):
+    """Additional native provenance check after the core's ordinary guard."""
+    path, deployment = configured_deployment()
+    if (Path(deployment["target"]["worktree"]) != Path(root)
+            or Path(deployment["core"]["path"]) != Path(core_path).resolve()
+            or type(operation["message_id"]) is not str
+            or not operation["message_id"].startswith("codex-")):
+        raise NativeIdentityError("invalid_identity")
+    receipt = operation["message_id"].removeprefix("codex-")
+    store = configured_store(path)
+    value = store.read(receipt)
+    if (value is None or value["state"] != "active" or value["tool"] != "shell"
+            or not value["execution_started"] or value["operation_id"] != operation["operation_id"]
+            or value["deployment_digest"] != canonical_digest(deployment)):
+        raise NativeIdentityError("receipt_state")
+    bridge = CoreBridge(deployment, value["identity"], receipt, store)
+    if (bridge.session_key != operation["session_key"] or bridge.message_id != operation["message_id"]
+            or value["identity"]["call_id"] != operation["call_id"]):
+        raise NativeIdentityError("invalid_identity")
+
+
+def canonical_path(value: str, *, directory: bool) -> Path:
+    if type(value) is not str or not value or len(value) > 4096:
+        raise ValueError("path_invalid")
+    path = Path(value)
+    if not path.is_absolute() or str(path) != value or path.resolve(strict=True) != path:
+        raise ValueError("path_invalid")
+    mode = path.lstat().st_mode
+    if not (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)):
+        raise ValueError("path_invalid")
+    return path
+
+
+def file_identity(item):
+    return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+
+
+def pinned_file(value: dict, *, capture=False):
+    if (type(value) is not dict or set(value) != {"path", "sha256"}
+            or type(value["sha256"]) is not str or not DIGEST.fullmatch(value["sha256"])):
+        raise ValueError("pin_invalid")
+    path = canonical_path(value["path"], directory=False)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(descriptor)
+        limit = 4 * 1024 * 1024 if capture else 512 * 1024 * 1024
+        if before.st_size > limit:
+            raise ValueError("pin_invalid")
+        digest, count, chunks = hashlib.sha256(), 0, []
+        while chunk := os.read(descriptor, 65536):
+            count += len(chunk)
+            if count > before.st_size:
+                raise ValueError("pin_invalid")
+            digest.update(chunk)
+            if capture:
+                chunks.append(chunk)
+        if (count != before.st_size or digest.hexdigest() != value["sha256"]
+                or file_identity(before) != file_identity(os.fstat(descriptor))
+                or file_identity(before) != file_identity(path.lstat())):
+            raise ValueError("pin_invalid")
+        return b"".join(chunks) if capture else None
+    finally:
+        os.close(descriptor)
+
+
+def load_deployment(path: Path) -> dict:
+    """Validate a fixed installation descriptor, never confer a writer lease.
+
+    The installed native hook supplies this path. There is intentionally no CLI
+    accepting a caller-selected descriptor as identity or lifecycle authority.
+    """
+    result = None
+    try:
+        path = canonical_path(str(path), directory=False)
+        private_path(path.parent, directory=True)
+        private_path(path)
+        with path.open("rb") as source:
+            before = os.fstat(source.fileno())
+            raw = source.read(16385)
+        if len(raw) > 16384:
+            raise ValueError("descriptor_bound")
+        value = json.loads(raw, object_pairs_hook=unique_object)
+        if (type(value) is not dict or set(value) != {
+                "schema_version", "revision", "conversation_id", "conversation_home",
+                "native_home", "native_executable", "producer", "core", "target"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                or value["revision"] != "codex-desktop-1"
+                or type(value["conversation_id"]) is not str
+                or not IDENTIFIER.fullmatch(value["conversation_id"])):
+            raise ValueError("descriptor_invalid")
+        canonical_path(value["conversation_home"], directory=True)
+        canonical_path(value["native_home"], directory=True)
+        pinned_file(value["native_executable"])
+        pinned_file(value["producer"])
+        pinned_file(value["core"])
+        target = value["target"]
+        if (type(target) is not dict or set(target) != {"worktree", "common_git_dir", "cycle_id"}
+                or type(target["cycle_id"]) is not str or not IDENTIFIER.fullmatch(target["cycle_id"])):
+            raise ValueError("target_invalid")
+        worktree = canonical_path(target["worktree"], directory=True)
+        common = canonical_path(target["common_git_dir"], directory=True)
+        deadline = time.monotonic() + 5
+        environment = {key: item for key, item in os.environ.items() if not key.startswith("GIT_")}
+        def git_read(*args):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("git_deadline")
+            process = subprocess.run(
+                ["git", "-C", str(worktree), *args], env=environment,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=remaining,
+                check=True,
+            )
+            if len(process.stdout) > 1048576:
+                raise ValueError("git_bound")
+            return process.stdout.decode("utf-8", errors="strict")
+        if (git_read("rev-parse", "--show-toplevel").rstrip("\n") != str(worktree)
+                or git_read("rev-parse", "--path-format=absolute", "--git-common-dir").rstrip("\n") != str(common)):
+            raise ValueError("repository_mismatch")
+        registered = git_read("worktree", "list", "--porcelain", "-z").split("\0")
+        if "worktree " + str(worktree) not in registered:
+            raise ValueError("target_unregistered")
+        if file_identity(before) != file_identity(path.lstat()):
+            raise ValueError("descriptor_changed")
+        private_path(path)
+        result = value
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, subprocess.SubprocessError,
+            NativeIdentityError):
+        pass
+    if result is None:
+        raise NativeIdentityError("deployment_invalid")
+    return result
+
+
+def unique_object(pairs: list) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate_key")
+        result[key] = value
+    return result
+
+
+def read_native_metadata(
+    executable: Path, codex_home: Path, session: str, *, timeout: float = 3
+) -> tuple[dict, dict]:
+    """Read bounded supported metadata without loading or resuming a thread.
+
+    The deployment layer must pin and validate executable and home. Each request
+    starts only a short-lived metadata server, never a model turn or daemon.
+    Neither transcript bodies nor native diagnostic output are returned/stored.
+    """
+    if type(session) is not str or not IDENTIFIER.fullmatch(session):
+        raise NativeIdentityError("invalid_identity")
+    if type(timeout) not in (int, float) or not 0 < timeout <= 5:
+        raise NativeIdentityError("invalid_identity")
+    process = None
+    selector = selectors.DefaultSelector()
+    result = None
+    deadline = time.monotonic() + timeout
+    buffer = b""
+    received = 0
+    try:
+        process = subprocess.Popen(
+            [str(executable), "app-server", "--stdio"],
+            env={**os.environ, "CODEX_HOME": str(codex_home)},
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        selector.register(process.stdout, selectors.EVENT_READ)
+
+        def send(value: dict) -> None:
+            process.stdin.write((json.dumps(value) + "\n").encode())
+            process.stdin.flush()
+
+        def receive(identifier: int) -> dict:
+            nonlocal buffer, received
+            while time.monotonic() < deadline:
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    value = json.loads(line, object_pairs_hook=unique_object)
+                    if type(value) is not dict:
+                        raise ValueError("invalid_response")
+                    if type(value.get("id")) is int and value["id"] == identifier:
+                        if "error" in value or type(value.get("result")) is not dict:
+                            raise ValueError("invalid_response")
+                        return value["result"]
+                if not selector.select(max(0, deadline - time.monotonic())):
+                    break
+                chunk = os.read(process.stdout.fileno(), 65536)
+                received += len(chunk)
+                if not chunk or received > 2 * 1024 * 1024:
+                    raise ValueError("response_bound")
+                buffer += chunk
+            raise ValueError("response_deadline")
+
+        send({"id": 1, "method": "initialize", "params": {
+            "clientInfo": {"name": "dbsctr_codex_continuation", "version": "1"},
+            "capabilities": {"experimentalApi": True},
+        }})
+        receive(1)
+        send({"method": "initialized"})
+        send({"id": 2, "method": "thread/read", "params": {
+            "threadId": session, "includeTurns": False,
+        }})
+        thread = receive(2)["thread"]
+        if type(thread) is not dict or thread.get("turns") != []:
+            raise ValueError("unexpected_thread_body")
+        send({"id": 3, "method": "thread/turns/list", "params": {
+            "threadId": session, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded",
+        }})
+        turns = receive(3)["data"]
+        if (type(turns) is not list or len(turns) != 1 or type(turns[0]) is not dict
+                or turns[0].get("items") != [] or turns[0].get("itemsView") != "notLoaded"):
+            raise ValueError("unexpected_turn_body")
+        result = (
+            {key: thread[key] for key in ("id", "sessionId", "parentThreadId", "model", "modelProvider")},
+            {"id": turns[0]["id"]},
+        )
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        result = None
+    finally:
+        selector.close()
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=1)
+            process.stdin.close()
+            process.stdout.close()
+    if result is None:
+        raise NativeIdentityError("native_unavailable")
+    return result
+
+
+def validate_native_identity(hook: dict, thread: dict, latest_turn: dict) -> dict[str, str]:
+    """Corroborate a native pre-call against root-thread metadata, not a lease.
+
+    Production integration must supply a real synchronous native hook and bounded
+    supported API results. This pure validator cannot establish their provenance.
+    Stored execution status is deliberately not interpreted as current liveness.
+    """
+    if any(type(value) is not dict for value in (hook, thread, latest_turn)):
+        raise NativeIdentityError("invalid_identity")
+    session, turn, call, model = (
+        hook.get("session_id"), hook.get("turn_id"), hook.get("tool_use_id"), hook.get("model")
+    )
+    if (
+        any(type(value) is not str or not IDENTIFIER.fullmatch(value)
+            for value in (session, turn, call))
+        or type(model) is not str or not MODEL.fullmatch(model)
+        or hook.get("hook_event_name") != "PreToolUse"
+        or type(hook.get("permission_mode")) is not str
+        or hook["permission_mode"] not in BUILD_PERMISSION_MODES
+        or thread.get("id") != session
+        or thread.get("sessionId") != session
+        or "parentThreadId" not in thread or thread["parentThreadId"] is not None
+        or thread.get("model") != model
+        or thread.get("modelProvider") != "openai"
+        or latest_turn.get("id") != turn
+    ):
+        raise NativeIdentityError("invalid_identity")
+    return {
+        "session_id": session, "turn_id": turn, "call_id": call,
+        "model_id": model, "provider_id": "openai", "agent_id": "build",
+    }
+
+
+def canonical_digest(value) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False, allow_nan=False).encode("utf-8")
+    if len(encoded) > 65536:
+        raise ValueError("input_bound")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_native_call(hook: dict, deployment: dict, thread: dict, latest_turn: dict) -> dict:
+    """Validate a pre-call envelope; only the native hook may issue it in production."""
+    result = None
+    try:
+        identity = validate_native_identity(hook, thread, latest_turn)
+        payload = hook.get("tool_input")
+        if (identity["session_id"] != deployment["conversation_id"]
+                or hook.get("cwd") != deployment["conversation_home"]
+                or hook.get("tool_name") != "Bash" or type(payload) is not dict
+                or set(payload) - {"command", "description", "timeout", "run_in_background"}
+                or type(payload.get("command")) is not str
+                or not 0 < len(payload["command"]) <= 65536
+                or "\x00" in payload["command"]
+                or "description" in payload and (type(payload["description"]) is not str
+                                                   or len(payload["description"]) > 4096)
+                or "timeout" in payload and (type(payload["timeout"]) is not int
+                                               or not 0 < payload["timeout"] <= 2**31 - 1)
+                or payload.get("run_in_background", False) is not False):
+            raise ValueError("transport_invalid")
+        result = {"identity": identity, "deployment_digest": canonical_digest(deployment),
+                  "tool": "shell", "argument_digest": canonical_digest(payload)}
+    except (NativeIdentityError, ValueError, TypeError, KeyError, RecursionError):
+        pass
+    if result is None:
+        raise NativeIdentityError("native_call_invalid")
+    return result
+
+
+def canary_response(raw: bytes, nonce: str) -> dict:
+    """A harmless native transport qualification, never continuation admission."""
+    deny = {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+        "permissionDecisionReason": "codex_continuation_qualification_denied",
+    }}
+    if type(nonce) is not str or not RECEIPT_ID.fullmatch(nonce) or len(raw) > 1048576:
+        return deny
+    try:
+        payload = json.loads(raw, object_pairs_hook=unique_object)
+        if (type(payload) is not dict or payload.get("hook_event_name") != "PreToolUse"
+                or payload.get("tool_name") != "Bash" or type(payload.get("tool_input")) is not dict
+                or type(payload["tool_input"].get("command")) is not str):
+            return deny
+        command = payload["tool_input"]["command"]
+    except (ValueError, UnicodeError, RecursionError):
+        return deny
+    if command == f"codex-continuation-deny-{nonce}":
+        return deny
+    if command == f"printf 'codex-continuation-original-{nonce}\\n'":
+        return {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "allow",
+            "updatedInput": {"command": f"printf 'codex-continuation-rewritten-{nonce}\\n'"},
+        }}
+    return {}
+
+
+def native_observation(hook, deployment, thread, latest_turn):
+    """Return only a closed field-shape/result projection, never raw input."""
+    payload = hook.get("tool_input")
+    allowed = {"command", "description", "timeout", "run_in_background"}
+    types = {key: type(value).__name__ for key, value in payload.items() if key in allowed} if type(payload) is dict else {}
+    result = "native_call_invalid"
+    try:
+        validate_native_call(hook, deployment, thread, latest_turn)
+        result = "qualified"
+    except NativeIdentityError:
+        pass
+    return {
+        "event": "PreToolUse", "tool": "shell" if hook.get("tool_name") == "Bash" else "other",
+        "call_digest": canonical_digest([hook.get("session_id"), hook.get("turn_id"), hook.get("tool_use_id")]),
+        "cwd_matches_home": hook.get("cwd") == deployment["conversation_home"],
+        "input_types": types, "unknown_input_fields": len(set(payload) - allowed) if type(payload) is dict else 0,
+        "permission_mode": hook.get("permission_mode") if hook.get("permission_mode") in
+            ("default", "acceptEdits", "plan", "dontAsk", "bypassPermissions") else "unknown",
+        "result": result,
+    }
+
+
+def store_observation(parent, value):
+    failure = False
+    lock = None
+    try:
+        expected = {"event", "tool", "call_digest", "cwd_matches_home", "input_types",
+                    "unknown_input_fields", "permission_mode", "result"}
+        if (type(value) is not dict or set(value) != expected
+                or value["event"] != "PreToolUse" or value["tool"] not in ("shell", "other")
+                or type(value["call_digest"]) is not str or not DIGEST.fullmatch(value["call_digest"])
+                or type(value["cwd_matches_home"]) is not bool
+                or type(value["input_types"]) is not dict
+                or set(value["input_types"]) - {"command", "description", "timeout", "run_in_background"}
+                or any(kind not in ("str", "int", "float", "bool", "list", "dict", "NoneType")
+                       for kind in value["input_types"].values())
+                or type(value["unknown_input_fields"]) is not int or not 0 <= value["unknown_input_fields"] <= 10000
+                or value["permission_mode"] not in ("default", "acceptEdits", "plan", "dontAsk", "bypassPermissions", "unknown")
+                or value["result"] not in ("qualified", "native_call_invalid", "native_unavailable")):
+            raise ValueError("observation_invalid")
+        parent = canonical_path(str(parent), directory=True)
+        private_path(parent, directory=True)
+        directory = parent / "observations"
+        if not os.path.lexists(directory):
+            directory.mkdir(mode=0o700)
+        private_path(directory, directory=True)
+        lock_path = directory / ".lock"
+        lock = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        private_path(lock_path)
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ValueError("observation_busy")
+                time.sleep(0.01)
+        count = 0
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.name != ".lock":
+                    count += 1
+                    if count >= 128:
+                        raise ValueError("observation_capacity")
+        path = directory / (value["call_digest"] + ".json")
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            target.write(json.dumps(value, sort_keys=True) + "\n")
+    except (OSError, ValueError, TypeError, KeyError, NativeIdentityError):
+        failure = True
+    finally:
+        if lock is not None:
+            os.close(lock)
+    if failure:
+        raise NativeIdentityError("observation_unavailable")
+
+
+def inspect_response(raw, descriptor_path, nonce):
+    """Non-authorizing native qualification; never issue a receipt or call core."""
+    deny = {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+        "permissionDecisionReason": "codex_continuation_inspection_refused",
+    }}
+    is_canary = False
+    try:
+        if not RECEIPT_ID.fullmatch(nonce) or len(raw) > 1048576:
+            return {}
+        hook = json.loads(raw, object_pairs_hook=unique_object)
+        if type(hook) is not dict or hook.get("hook_event_name") != "PreToolUse":
+            return {}
+        payload = hook.get("tool_input")
+        is_canary = type(payload) is dict and payload.get("command") == "codex-continuation-inspect-" + nonce
+        deployment = load_deployment(descriptor_path)
+        if hook.get("session_id") != deployment["conversation_id"]:
+            return {}
+        try:
+            thread, turn = read_native_metadata(Path(deployment["native_executable"]["path"]),
+                                               Path(deployment["native_home"]), deployment["conversation_id"])
+            observation = native_observation(hook, deployment, thread, turn)
+        except NativeIdentityError:
+            observation = native_observation(hook, deployment, {}, {})
+            observation["result"] = "native_unavailable"
+        store_observation(descriptor_path.parent, observation)
+        payload = hook.get("tool_input")
+        if type(payload) is dict and payload.get("command") == "codex-continuation-inspect-" + nonce:
+            if observation["result"] != "qualified":
+                return deny
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                    "updatedInput": {"command": "printf 'codex-continuation-inspected-" + nonce + "\\n'"}}}
+        return {}
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, NativeIdentityError):
+        return deny if is_canary else {}
+
+
+def parse_control(command):
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if len(words) >= 2 and words[:2] == ["codex-continuation", "approve"]:
+        return ("operator_only", None)
+    if words[:2] != ["codex-continuation", "control"]:
+        return None
+    rest = words[2:]
+    if rest in (["check"], ["attach"]):
+        return (rest[0], None)
+    if len(rest) == 2 and rest[0] == "prepare" and rest[1] in ("enroll", "attach", "recover"):
+        return ("prepare", rest[1])
+    if len(rest) == 2 and rest[0] == "apply" and RECEIPT_ID.fullmatch(rest[1]):
+        return ("apply", rest[1])
+    return None
+
+
+@contextlib.contextmanager
+def producer_lock(store):
+    private_path(store.directory, directory=True)
+    path = store.directory / "producer.lock"
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        private_path(path)
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise NativeIdentityError("producer_busy")
+                time.sleep(0.01)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def control_result(bridge, control):
+    action, value = control
+    if action == "check":
+        return bridge.call("check")
+    if action == "attach":
+        state = bridge.call("check", action="attach", mode="writer")
+        return bridge.call("attach", mode="writer", generation=state["generation"]) if state["ok"] else state
+    if action == "prepare":
+        fields = {"mode": "writer"} if value == "attach" else {}
+        state = bridge.call("check", action=value, **fields)
+        if not state["ok"] or state["approval_binding"] is None:
+            return state
+        challenge = bridge.store.prepare_approval(state["approval_binding"], bridge.deployment_digest)
+        return {**state, "operator_challenge": challenge}
+    if action == "apply":
+        details = bridge.store.approval_details(value)
+        if details["deployment_digest"] != bridge.deployment_digest or details["state"] != "approved":
+            raise NativeIdentityError("approval_required")
+        binding = details["binding"]
+        fields = {"approval": {"receipt_id": value, "binding": binding}}
+        if binding["action"] != "enroll":
+            fields["generation"] = binding["generation"]
+        if binding["action"] == "attach":
+            fields["mode"] = binding["mode"]
+        return bridge.call(binding["action"], **fields)
+    raise NativeIdentityError("native_call_invalid")
+
+
+class OperatorSnapshot(CoreBridge):
+    """Read-only core view using a retained real control callback, not a new event."""
+    def call(self, command, **fields):
+        if command != "check":
+            raise NativeIdentityError("operator_only")
+        return super().call(command, **fields)
+
+
+def operator_approve(challenge, incoming, outgoing):
+    # Interactive confirmation is the cooperative operator boundary, not an OS
+    # attestation. Agent environments are refused as additional defence only.
+    if (not incoming.isatty() or not outgoing.isatty()
+            or any(os.environ.get(name) for name in
+                   ("CODEX_THREAD_ID", "OPENCODE_PID", "OPENCODE_SESSION_ID"))):
+        raise NativeIdentityError("operator_only")
+    path, deployment = configured_deployment()
+    store = configured_store(path)
+    details = store.approval_details(challenge)
+    digest = canonical_digest(deployment)
+    if details["state"] != "prepared" or details["deployment_digest"] != digest:
+        raise NativeIdentityError("approval_required")
+    retained = store.latest_control(deployment["conversation_id"], digest)
+    bridge = OperatorSnapshot(deployment, retained["identity"], retained["receipt_id"], store)
+    binding = details["binding"]
+    fields = {"action": binding["action"]}
+    if binding["mode"] is not None:
+        fields["mode"] = binding["mode"]
+
+    def snapshot():
+        current_path, current_deployment = configured_deployment()
+        if current_path != path or canonical_digest(current_deployment) != digest:
+            raise NativeIdentityError("approval_required")
+        result = bridge.call("check", **fields)
+        if not result["ok"] or result["approval_binding"] != binding:
+            raise NativeIdentityError("approval_required")
+        return result
+
+    state = snapshot()
+    outgoing.write(json.dumps({"cycle": deployment["target"]["cycle_id"],
+                               "worktree": deployment["target"]["worktree"],
+                               "action": binding["action"], "generation": binding["generation"],
+                               "activation_changes": state["activation_changes"],
+                               "approval_summary": state["approval_summary"]}, sort_keys=True) + "\n")
+    outgoing.write("Confirm the old writer and its child processes are quiescent. "
+                   "This approves only the displayed exact state and provider transition.\n"
+                   "Type approve " + challenge + " to confirm: ")
+    outgoing.flush()
+    if incoming.readline(128).rstrip("\r\n") != "approve " + challenge:
+        raise NativeIdentityError("approval_required")
+    snapshot()
+    store.approve(challenge, binding, digest)
+    outgoing.write("Approved exact state; a native control apply must recheck it before changing ownership.\n")
+
+
+def result_rewrite(value):
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if len(encoded.encode()) > 65536:
+        raise NativeIdentityError("core_unavailable")
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+            "updatedInput": {"command": "printf '%s\\n' " + shlex.quote(encoded)}}}
+
+
+def native_hook_response(raw, conversation):
+    deny = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": "native_continuation_refused"}}
+    post = False
+    try:
+        if len(raw) > 1048576 or type(conversation) is not str or not IDENTIFIER.fullmatch(conversation):
+            return deny
+        hook = json.loads(raw, object_pairs_hook=unique_object)
+        if type(hook) is not dict:
+            return deny
+        if hook.get("session_id") != conversation:
+            return {}
+        event = hook.get("hook_event_name")
+        if event not in ("PreToolUse", "PostToolUse"):
+            return {}
+        post = event == "PostToolUse"
+        path, deployment = configured_deployment()
+        if deployment["conversation_id"] != conversation:
+            raise NativeIdentityError("invalid_identity")
+        store = configured_store(path)
+        if post:
+            value = store.find_call(hook.get("session_id"), hook.get("turn_id"), hook.get("tool_use_id"))
+            if value is None or value["tool"] != "shell":
+                return {}  # A control callback has no admitted shell to close.
+            if (value["deployment_digest"] != canonical_digest(deployment)
+                    or hook.get("tool_name") != "Bash" or hook.get("model") != value["identity"]["model_id"]):
+                raise NativeIdentityError("invalid_identity")
+            if value["state"] == "completed":
+                return {}
+            bridge = CoreBridge(deployment, value["identity"], value["receipt_id"], store)
+            outcome = "completed" if value["execution_finished"] and value["state"] == "active" else "uncertain"
+            result = bridge.call("finish", operation_id=value["operation_id"], outcome=outcome)
+            if not result["ok"]:
+                raise NativeIdentityError("core_unavailable")
+            if value["state"] == "active":
+                store.finish(value["receipt_id"], value["operation_id"], outcome)
+            return {}
+        if selection_closed(load_core(deployment), Path(deployment["target"]["worktree"]),
+                            deployment["target"]["cycle_id"]):
+            return {}  # Terminal release grants no new cycle or writer authority.
+        thread, turn = read_native_metadata(Path(deployment["native_executable"]["path"]),
+                                           Path(deployment["native_home"]), conversation)
+        identity = validate_native_identity(hook, thread, turn)
+        reference = canonical_digest([conversation, hook["turn_id"], hook["tool_use_id"]])[:32]
+        bridge = CoreBridge(deployment, identity, reference, store)
+        with producer_lock(store):
+            envelope = validate_native_call(hook, deployment, thread, turn)
+            control = parse_control(hook["tool_input"]["command"])
+            if control and control[0] == "operator_only":
+                return deny
+            if control:
+                receipt = store.issue(envelope["identity"], "lifecycle", envelope["argument_digest"],
+                                      deployment_digest=envelope["deployment_digest"])
+                bridge = CoreBridge(deployment, envelope["identity"], receipt, store)
+                return result_rewrite(control_result(bridge, control))
+            # Check before issuance; denied calls do not consume receipt capacity.
+            state = bridge.call("check")
+            if (not state["ok"] or state["state"] != "owned" or state["writer_relation"] != "self"
+                    or state["next_action"] != "none"):
+                return deny
+            receipt = store.issue(envelope["identity"], "shell", envelope["argument_digest"],
+                                  deployment_digest=envelope["deployment_digest"])
+            bridge = CoreBridge(deployment, envelope["identity"], receipt, store)
+            admitted = bridge.call("admit", generation=state["generation"],
+                                   call_id=hook["tool_use_id"], operation_class="shell")
+            if not admitted["ok"]:
+                return deny
+            try:
+                store.activate(receipt, admitted["operation_id"])
+            except NativeIdentityError:
+                bridge.call("finish", operation_id=admitted["operation_id"], outcome="uncertain")
+                return deny
+            payload = base64.b64encode(json.dumps(
+                hook["tool_input"], allow_nan=False, ensure_ascii=False,
+                sort_keys=True, separators=(",", ":")).encode("utf-8")).decode("ascii")
+            command = shlex.join([sys.executable, deployment["producer"]["path"], "dispatch",
+                                  "--receipt", receipt, "--input", payload])
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                    "updatedInput": {"command": command}}}
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, NativeIdentityError):
+        if post:
+            return {"systemMessage": "Codex continuation completion unavailable; inspect recovery state."}
+        return deny
+
+
+def terminate_owned_group(process):
+    """Bounded cleanup of our own session; never claim escaped-child containment."""
+    for signum, allowance in ((signal.SIGTERM, 0.3), (signal.SIGKILL, 1.0)):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            process.poll()
+            return
+        deadline = time.monotonic() + allowance
+        while time.monotonic() < deadline:
+            process.poll()  # Reap the direct child even when other members remain.
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.02)
+    process.poll()
+
+
+def dispatch_shell(receipt, encoded):
+    process = None
+    bridge = store = value = None
+    claimed = finished = False
+    spawning = cancelled = False
+    handlers = {}
+
+    def interrupt(signum, frame):
+        nonlocal cancelled
+        cancelled = True
+        if not spawning:
+            raise NativeIdentityError("dispatch_interrupted")
+
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, interrupt)
+        if type(encoded) is not str or len(encoded) > 90000:
+            raise NativeIdentityError("receipt_state")
+        payload = json.loads(base64.b64decode(encoded, validate=True), object_pairs_hook=unique_object)
+        if type(payload) is not dict or type(payload.get("command")) is not str:
+            raise NativeIdentityError("receipt_state")
+        path, deployment = configured_deployment()
+        store = configured_store(path)
+        value = store.read(receipt)
+        if (value is None or value["deployment_digest"] != canonical_digest(deployment)
+                or value["argument_digest"] != canonical_digest(payload)):
+            raise NativeIdentityError("receipt_state")
+        bridge = CoreBridge(deployment, value["identity"], receipt, store)
+        bridge.verify_operation(value["operation_id"])
+        store.claim_execution(receipt, value["operation_id"], canonical_digest(payload), bridge.deployment_digest)
+        claimed = True
+        environment = {**os.environ, "DBSCTR_CONTINUATION_OPERATION": value["operation_id"]}
+        # Cancellation must not discard the handle between spawn and assignment.
+        spawning = True
+        try:
+            process = subprocess.Popen(["/bin/bash", "--noprofile", "--norc", "-c", payload["command"]],
+                                       cwd=bridge.repository_basis, env=environment, start_new_session=True)
+        finally:
+            spawning = False
+        if cancelled:
+            raise NativeIdentityError("dispatch_interrupted")
+        code = process.wait()
+        # Remaining members of our own group are unsupported background execution.
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            store.mark_execution_finished(receipt, value["operation_id"])
+            finished = True
+            return code if code >= 0 else 128 - code
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, NativeIdentityError):
+        pass
+    finally:
+        try:
+            # A repeated termination signal must not interrupt bounded cleanup.
+            for signum in handlers:
+                signal.signal(signum, signal.SIG_IGN)
+            if not finished:
+                if process is not None:
+                    try:
+                        terminate_owned_group(process)
+                    except OSError:
+                        pass  # Failed cleanup must still record uncertainty below.
+                if claimed:
+                    result = bridge.call("finish", operation_id=value["operation_id"], outcome="uncertain")
+                    if result["ok"]:
+                        store.finish(receipt, value["operation_id"], "uncertain")
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError, NativeIdentityError):
+            pass  # Missing completion stays pending and requires exact-state recovery.
+        finally:
+            for signum, previous in handlers.items():
+                signal.signal(signum, previous)
+    raise NativeIdentityError("dispatch_refused")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    canary = commands.add_parser("qualify")
+    canary.add_argument("--nonce", required=True)
+    inspect = commands.add_parser("inspect")
+    inspect.add_argument("--deployment", type=Path, required=True)
+    inspect.add_argument("--nonce", required=True)
+    hook = commands.add_parser("hook")
+    hook.add_argument("--conversation", required=True)
+    dispatch = commands.add_parser("dispatch")
+    dispatch.add_argument("--receipt", required=True)
+    dispatch.add_argument("--input", required=True)
+    control = commands.add_parser("control")
+    control.add_argument("arguments", nargs=argparse.REMAINDER)
+    approve = commands.add_parser("approve")
+    approve.add_argument("challenge")
+    args = parser.parse_args()
+    if args.command == "qualify":
+        print(json.dumps(canary_response(sys.stdin.buffer.read(1048577), args.nonce)))
+        return 0
+    if args.command == "inspect":
+        print(json.dumps(inspect_response(sys.stdin.buffer.read(1048577), args.deployment, args.nonce)))
+        return 0
+    if args.command == "hook":
+        print(json.dumps(native_hook_response(sys.stdin.buffer.read(1048577), args.conversation)))
+        return 0
+    if args.command == "dispatch":
+        try:
+            return dispatch_shell(args.receipt, args.input)
+        except NativeIdentityError:
+            print("codex-continuation: dispatch_refused", file=sys.stderr)
+            return 1
+    if args.command == "control":
+        print("codex-continuation: native_hook_required", file=sys.stderr)
+        return 1
+    if args.command == "approve":
+        try:
+            operator_approve(args.challenge, sys.stdin, sys.stdout)
+            return 0
+        except (NativeIdentityError, OSError, ValueError, TypeError, KeyError, RuntimeError):
+            print("codex-continuation: approval_refused", file=sys.stderr)
+            return 1
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
