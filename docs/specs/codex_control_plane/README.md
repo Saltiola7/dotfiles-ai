@@ -30,6 +30,16 @@ credential. Readiness proves exact version, isolated home, managed configuration
 and authenticated command availability without retaining account, token, thread,
 prompt, response, path, or runtime identity.
 
+## Desktop continuation capability probe
+
+The operator-approved [native continuation probe](features/continuation-native-probe.md)
+adds passive, bounded observations for an existing desktop conversation. This is
+an explicit diagnostic exception to the CLI-only scope above, not desktop state
+migration or delivery of a mutation adapter. The hook stores identifier digests
+and closed metadata categories, never command bodies or transcripts. Native trust
+review remains mandatory. Write admission and cross-runtime ownership transfer
+remain unavailable until separately qualified.
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a

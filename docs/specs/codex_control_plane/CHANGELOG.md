@@ -1,5 +1,20 @@
 # Codex Control Plane Changelog
 
+## 2026-09-21 - Passive Desktop Continuation Probe
+
+- Added a bounded, content-free hook probe and 17 regression tests; 50 affected
+  tests pass with the existing control-plane suite.
+- Qualified native desktop pre/post observations for shell, patch, shell polling
+  and an MCP read after operator trust and desktop restart. A supported thread
+  read separately confirmed exact conversation, parent absence and provider.
+- Retained the distinction between synthetic checks, native observations and
+  write authority. No lifecycle admission, ownership recovery or helper guard
+  change is delivered. The adapter remains pending.
+- Candidate probe deployment preserves existing hooks and private rollback
+  evidence. No private identities or machine paths are included in this entry.
+- Gate commit e5d20eb records the initial tested candidate; final delivery is a
+  feature-branch draft PR targeting main, with actual push recorded by the cycle.
+
 ## 2026-09-04 - Rolling Release Reprobe Required
 
 - Reopened the history adapter after Homebrew advanced Codex beyond the frozen

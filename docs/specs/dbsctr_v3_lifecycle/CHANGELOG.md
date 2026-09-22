@@ -1,5 +1,35 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-22 - Selected Desktop Codex Continuation
+
+- Added an opt-in native Codex adapter over the shared continuation engine:
+  corroborated primary identity, exact selected repository, single-use receipts,
+  writer generations, matched completion and manual exact-state recovery.
+  Existing OpenCode JSON and recorded provenance remain unchanged.
+- Added bounded operator approval, coupled producer/core pins, foreground-only
+  execution, interruption cleanup and terminal selection release. No new runtime
+  dependency; Python >=3.12. Other hosts and guests remain deferred.
+- Qualified 525 affected tests with one existing filesystem-dependent skip and
+  42 subtests; 17 incoming passive-probe tests passed during reconciliation.
+  Independent source review accepted the selected desktop scope. Actual native
+  enrollment, child/tool denial, completion, recovery and terminal release passed;
+  terminal record completion was explicitly simulated, not an actual Final Push.
+- Actual Plan-mode denial failed. The operator accepted only this limitation:
+  Plan prohibition remains instruction/operator enforced. Review before another
+  host/guest deployment or supported native collaboration-mode metadata arrives.
+  This exception does not waive identity, writer, approval or other failed gates.
+- Default-sandbox fixture dispatch refused; scoped execution succeeded. The
+  original underlying exception was not captured. Do not claim unrestricted
+  sandbox portability. Installation must provide authorized access to the
+  selected worktree and private journals; uncertainty requires explicit recovery.
+- Gate Commits: `d870433` and `ebb7c05`. Native qualification used immutable staged
+  copies; the installed helper and production cycles were unchanged at that
+  checkpoint. Main delivery and subsequent coupled deployment are recorded in
+  the Cycle Record, not inferred from fixture results.
+- Intended Final Push: feature-branch draft PR into protected main. Preserve
+  retained journals and unrelated hook configuration on rollback; never undo an
+  enrolled cycle by deleting its state. No SEO ledger item or paid win claimed.
+
 ## 2026-09-20 - Local Discovery Launch And Legacy Resumption
 
 - Under explicit operator-authorized lighter repair workflow, reproduced the
