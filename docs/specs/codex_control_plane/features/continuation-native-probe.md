@@ -79,7 +79,7 @@ observations. Test records are disposable and cannot be imported as native
 identity. Review source and tests before configuring the live probe. No rollout
 to other desktops, guests or CLI homes is implied.
 
-## Visual evidence
+## Visual Evidence
 
 | Concern | Decision | Owner and change trigger |
 |---|---|---|
