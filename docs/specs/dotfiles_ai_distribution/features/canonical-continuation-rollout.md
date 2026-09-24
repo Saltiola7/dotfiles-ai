@@ -3,6 +3,16 @@
 Status: delivered to the host and configured guests with installed-byte and native
 qualification; live conversation enrollment remains operator-controlled.
 
+## Pending Checkout-Independent Correction
+
+[Corrective Discovery](../../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
+defines the approved host-scoped follow-up: deploy a qualified compatible
+helper/adapter set and prove live exact-conversation release to Discovery and
+reattachment. The new rollout slice remains captured pending its corrective
+dependencies. Reuse the targeted deployment and rollback machinery below;
+existing host/guest delivery evidence does not establish corrective activation,
+and this follow-up does not expand guest deployment or authorize relocation.
+
 ## Profile And Scope
 
 Use `../PROFILE.md` and `../PRODUCT.md`. Risk: critical; modules Python, Security

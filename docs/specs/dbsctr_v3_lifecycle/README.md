@@ -6,6 +6,11 @@
 
 ## Overview
 
+Checkout-independent continuation and explicit unfinished-cycle release have
+[approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
+Its exact identity/protocol contract and approved repair-first ordering settle
+core specification readiness; fresh launch feasibility and approval remain required.
+
 DBSCTR V3 is a language-neutral software-engineering lifecycle with one shared
 kernel and conforming runtime harness adapters.
 It retains Domain, Behavior, Spec, Contract, Test-driven implementation, and

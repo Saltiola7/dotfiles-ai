@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "The lifecycle profile delivers helper source through a feature-branch draft PR; no separately versioned artifact is published by this slice."},
+    "deploy": {"applicability": "not_applicable", "reason": "This core slice changes source and disposable fixtures only; the dependent distribution slice owns installed helper and adapter compatibility and live recovery."},
+    "operate": {"applicability": "not_applicable", "reason": "No live cycle is rebound or released by core fixture qualification; dependent rollout requires real conversation recovery evidence."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

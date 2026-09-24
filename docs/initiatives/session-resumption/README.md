@@ -27,6 +27,15 @@ profiles. Do not create duplicate retirement authority: the cycle-speed Initiati
 and its existing retirement slice retain that work. This Initiative tracks shared
 resumption repairs and the evidence needed to write truthful continuation prompts.
 
+Checkout identity, source-independent validation and unfinished-cycle release are
+now coordinated by the approved
+[delivery-lifecycle correction](../dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
+Reference that contract and its serialized core/adapter/host-rollout slices rather
+than start a duplicate repair here. The operator approved repair-first serialization:
+preserve and pause the relocation draft, deliver corrective recovery, then reconcile
+relocation authority through its restored route before resumption. No original-session
+recovery or feature completion is claimed by persisting this reference.
+
 ## Verified Diagnosis
 
 - Continuation target resolution currently rejects any target outside the current

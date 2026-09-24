@@ -4,6 +4,14 @@ Status: core, adapter and targeted rollout delivered and qualified. Existing
 native conversations still require operator-controlled reload and explicit
 enrollment/ownership consent; no live incident cycle is claimed repaired.
 
+Checkout-switch and unfinished-cycle release findings reopen corrective Discovery
+in [CHECKOUT-INDEPENDENT-CONTINUATION.md](CHECKOUT-INDEPENDENT-CONTINUATION.md).
+Its approved scope adds three new slices; existing delivery evidence below is
+retained. The correction separates provenance from execution authority and adds
+explicit route release without cycle completion. Its exact core contract and
+approved repair-first serialization settle specification readiness; fresh launch
+feasibility and approval remain required. Original receipts do not cover it.
+
 Rollout merged as `da771f143bf90d0e81ab9b22c968f379ca9aff30`. All applicable gates,
 Python 3.12/3.13/3.14 CI and the CentOS smoke passed. Eleven targets were verified
 on the host and both configured guests. Native probes proved same-session

@@ -4,6 +4,10 @@
 
 ## Engineering Profile
 
+The [checkout-independent continuation correction](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
+owns pending compatible host deployment and live release/reattach recovery.
+Its rollout slice is captured; prior deployment does not qualify the correction.
+
 | Field | Value |
 |---|---|
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration |
