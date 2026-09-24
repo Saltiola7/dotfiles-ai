@@ -1,5 +1,33 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-24 - Checkout-Independent Continuation Core
+
+- Separated schema-5 record structure from historical source availability; added
+  explicit repository-local registration bindings and version-2 continuation
+  controls without rewriting Cycle Records or changing version-1 response shapes.
+- Added generation-fenced release, replay-safe route versions, and the explicitly
+  approved INT-049 route-only quiescence recovery for invalid legacy targets.
+  Recovery grants no target-write authority; native identity, exact consent,
+  retained operation evidence and live attachment validation remain required.
+- Kernel Gate Commit: `ce4dfd3`. Final recorded continuation/Codex scope passed
+  119 tests. The affected legacy helper suite passed 200 tests with one skip and
+  42 subtests; existing OpenCode adapter regression scope passed 25 tests. Python
+  compilation and diff checks passed. A discovered physical-journal recovery
+  regression was repaired and its interrupted-storage test passed.
+- Operator explicitly deferred independent review until before adapter rollout
+  or any live v2 activation, with the operator as review owner, and authorized
+  core merge after all remaining automated gates and GitHub checks pass. This is
+  the only approved review exception; tests, CI and later live-recovery gates
+  remain mandatory. It does not claim an independent review occurred.
+- Source-only delivery: no installed helper/adapter change, automatic restart,
+  original-conversation recovery, relocation, or incident feature completion.
+  Preserve legacy state and rollback evidence; never resume incompatible writers.
+  Dependent adapter and host-rollout slices must qualify loaded controls and the
+  exact original conversation after an operator-controlled process restart.
+- Intended Final Push: feature branch and draft PR into protected main, followed
+  by the separately requested verified merge. The Cycle Record records actual
+  publication and gates; merging source is not evidence of deployment.
+
 ## 2026-09-22 - Selected Desktop Codex Continuation
 
 - Added an opt-in native Codex adapter over the shared continuation engine:
