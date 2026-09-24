@@ -1467,8 +1467,7 @@ class DbsctrctlTest(unittest.TestCase):
                 record["state"] = state
                 path.write_text(json.dumps(record))
                 self.assertEqual(module.read_cycle_record(self.repo, path, historical=True), record)
-                with self.assertRaisesRegex(RuntimeError, "invalid schema 5 runtime"):
-                    module.read_cycle_record(self.repo, path)
+                self.assertEqual(module.read_cycle_record(self.repo, path), record)
                 for locator in ({"root": "primary_worktree", "path": "../escape"},
                                 {"root": "primary_worktree", "path": "/absolute"},
                                 {"root": "unknown", "path": "."}):

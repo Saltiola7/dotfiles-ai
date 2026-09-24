@@ -9,7 +9,7 @@ not a digest-bound implementation launch receipt or an assertion of quiescence.
 No implementation, installation or live recovery is claimed by this document.
 
 Home: `Saltiola7/dotfiles-ai`; machine authority: [MANIFEST.json](MANIFEST.json),
-INT-035 through INT-048. This corrective release group extends
+INT-035 through INT-049. This corrective release group extends
 [canonical continuation](CANONICAL-CONTINUATION.md), retaining delivered-slice
 history. It is independent of automatic merge. Proposed behavior below governs
 the new slices once readiness is closed; it does not describe currently installed
@@ -91,6 +91,13 @@ migration. Identical remote URLs never authorize unrelated clones. Stable IDs do
 not excuse registration replacement, unsafe links, branch drift or stale writers.
 
 ## Release And Recovery Contract
+
+After launch, the operator approved INT-049 to close the invalid-target plus
+uncertain-operation deadlock: exact native/repository/store/route authority may
+prepare separately approved quiescence recovery for unbound legacy and bound
+cycles without live target eligibility. Preserve original launch and failure
+evidence. The exact amendment is in the core contract; it grants no target writes,
+does not infer quiescence, and leaves release as an explicit subsequent action.
 
 The operator selected one explicit action for an idle current writer; no extra
 confirmation solely because the cycle is unfinished. Native actor and generation

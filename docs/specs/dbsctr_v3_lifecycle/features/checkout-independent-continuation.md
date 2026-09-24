@@ -2,7 +2,7 @@
 
 Status: specification ready; implementation and native qualification pending.
 Authority: [corrective Discovery](../../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
-and INT-035 through INT-048. Profile: `../PROFILE.md`; critical risk. Owner:
+and INT-035 through INT-049. Profile: `../PROFILE.md`; critical risk. Owner:
 dotfiles operator. Python, Security and ML/AI modules apply. Source-only core
 delivery is a feature-branch draft PR; adapter and host rollout are dependent
 slices. No Cycle Record rewrite, live binding or relocation occurs during core.
@@ -52,11 +52,11 @@ implementing that move belongs to relocation, not this slice.
 
 Retain companion metadata version 1 and existing cycles, routes, operations,
 activations and approvals. Add the following tables only in an explicit successful
-v2 enroll/bind/release transaction under the existing state lock and `BEGIN IMMEDIATE`.
+v2 enroll/bind/recover/release transaction under the existing state lock and `BEGIN IMMEDIATE`.
 Missing tables mean legacy-only capability, not corruption; read-only commands
 never create them. A partial/incorrect present table set is invalid state.
 Existing table rows are not bulk rewritten. Foreign keys are enforced.
-Legacy route-only release may create the complete empty binding table set together
+Legacy route-only recovery/release may create the complete empty binding table set together
 with its route version and receipt; this does not activate or bind any cycle.
 
 | Table | Key / relationship | Exact additional columns |
@@ -144,7 +144,7 @@ evidence, not typed model arguments. Existing native-context validation applies.
 | `admit` | `expected`, `call_id`, `operation_class` | Exact owned-cycle admission; existing class allowlist and call replay rules |
 | `finish` | `operation_id`, `outcome` | Exact admitted operation completion or uncertainty; bind through stored operation, not current source or route |
 | `handover` | `request_id`, `expected`, `target_session_id`, `approval` | Existing explicit drain/transfer with generation fencing |
-| `recover` | optional `worktree`; `request_id`, `expected`, `approval` | Existing exact-state quiescence recovery; no automatic writer claim |
+| `recover` | optional `worktree`; `request_id`, `expected`, `approval` | Exact-state quiescence recovery; invalid targets require the caller's stored route, never guessed target identity; no automatic writer claim |
 | `release` | `request_id`, `expected` | Release only current actor's snapshotted route and eligible ownership |
 | `resolve` | `expected` | Return private local target only after full execution-target validation; never expose that payload as a typed tool result |
 
@@ -187,19 +187,47 @@ informative source failure remains in checks.source rather than masking eligibil
 route_version, state_digest, record_digest, registration_digest, session_key,
 activation_digest, mode, target_session_id}`. Digests are 64 hex; mode and target
 session are null unless relevant. Record/registration digests may be null only
-for route-only release inspection when those resources are unavailable. A missing
-binding ID is permitted only before enroll/bind or for legacy route-only release.
+for route-only recovery/release inspection when those resources are unavailable. A missing
+binding ID is permitted only before enroll/bind or for legacy route-only recovery/release.
 All other action-required authority must be available. Snapshot hashing uses
 canonical JSON and binds the selected route, current writer, pending operations,
 activation and requested action. Legacy route inspection includes its exact stored
 cycle/locator identity in state_digest without accepting an unknown live target.
 
-Apart from explicit enroll/bind, `release` is the only v2 mutation permitted on
-an unbound legacy cycle; this allows
+Apart from explicit enroll/bind, route-only `recover` and `release` are the only
+v2 mutations permitted on an unbound legacy cycle; this allows
 escape from an invalid old selection without guessing or upgrading target identity.
 It uses exact native/repository/store/route authority, never live target authority.
 Storage repair retains the separately approved existing physical-recovery protocol;
 unreadable or unsafe storage cannot issue a logical release or recovery binding.
+
+### Approved Route-Only Recovery Amendment
+
+INT-049 records the operator-approved correction after the original core launch.
+Preserve the original receipt, failed regression and reopened-readiness evidence;
+this amendment neither rewrites launch history nor asserts live quiescence.
+
+If target validation fails, recovery may use only the caller's authenticated stored
+route in a verified same-repository private store. An explicit worktree must not
+select an alternative cycle: refuse if it cannot be corroborated with that route.
+Bind native actor/activation, exact cycle row, generation, route version, complete
+outstanding-operation set and available record/registration evidence. Recheck under
+the mutation lock after separate exact operator confirmation that prior writers
+and outstanding work are quiescent. Never derive approval from this design consent.
+
+Approved recovery retains every operation with operator-quiescence attribution,
+clears writer and advances generation atomically. It preserves selection for an
+explicit subsequent release. A validated terminal record or already-closed state
+remains closed. Otherwise reader_only means no writer, not a valid active target;
+attachment/admission still require full live record, registration and branch
+validation. Missing target evidence is never repaired or inferred by recovery.
+If record state becomes available as terminal, reconcile to closed before any
+attachment; never revive completed work. No target file or Cycle Record changes.
+
+Cover unbound legacy and bound targets, missing active pointer/registration/record,
+stale approval, denied consent, another writer, unsafe storage and operation races.
+Show that recovery followed by release restores control without admitting target
+writes; old-generation operation completion remains fenced.
 
 ## Atomic Release And Replay
 
