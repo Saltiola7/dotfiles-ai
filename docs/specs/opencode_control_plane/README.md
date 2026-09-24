@@ -318,11 +318,12 @@ delegation, loaded skills, adapters, permissions, or provider boundaries change.
 ```mermaid
 flowchart LR
     accTitle: Optional centralized durable state
-    accDescr: An empty state-root setting keeps native OpenCode, DBSCTR, and Herdr locations. A configured root scopes XDG data and state paths to OpenCode and lifecycle workers, while Herdr receives only explicit component roots and its worktree location. Configuration and credentials remain local.
+    accDescr: An empty state-root setting keeps native OpenCode, DBSCTR, and Herdr locations. A configured root scopes XDG data and state paths to OpenCode and lifecycle workers, while Herdr receives only explicit component roots and its worktree location. An explicitly supplied non-empty DBSCTR worktree root overrides the wrapper's centralized default. Configuration and credentials remain local.
     C[Machine-local chezmoi data] -->|root empty| N[Native platform defaults]
     C -->|root configured| R[Central durable state root]
     R -->|XDG data and state| O[OpenCode durable state]
     R -->|DBSCTR root and registry| D[DBSCTR durable state]
+    E[Explicit non-empty DBSCTR worktree root] -->|Overrides wrapper default| D
     R -->|worktree directory| H[Herdr worktrees]
     L[Local machine] -->|remain local| K[Config, credentials, caches, sockets, locks, and temporary files]
 ```
@@ -330,7 +331,9 @@ flowchart LR
 **Text Equivalent:** With no configured root, every component keeps its native
 location. With a root, OpenCode and lifecycle workers receive XDG and DBSCTR
 locations. Herdr receives explicit component roots and its worktree directory,
-but not generic XDG paths that would redirect unrelated pane tools. Filesystem
+but not generic XDG paths that would redirect unrelated pane tools. A non-empty
+explicit `DBSCTR_WORKTREE_ROOT` overrides only the OpenCode wrapper's centralized
+worktree default. Filesystem
 permission is independent of state-root configuration. Configuration, credentials, caches,
 sockets, locks, and temporary files remain local. This repository change does not
 move live data or restart a running OpenCode process.
@@ -432,6 +435,14 @@ variables but no generic XDG data or state home. When the managed OpenCode wrapp
 or a lifecycle worker starts, it still receives the configured XDG paths. An
 active Herdr server remains undisturbed and adopts the corrected environment at
 its next natural start.
+
+Given an explicit non-empty `DBSCTR_WORKTREE_ROOT` at OpenCode launch, the wrapper
+passes it as one literal value, even with spaces or shell metacharacters. Given an
+absent or empty value and centralized state, it supplies the configured worktree
+default. Without centralized state it preserves native routing. XDG data, DBSCTR
+state, identity, startup guards, managed executable selection and arguments are
+unchanged. Render with chezmoi and execute against an inert capture endpoint to
+verify these boundaries before a targeted apply; never deploy from stale source.
 
 ### Bounded Jira reads
 

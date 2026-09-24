@@ -1,5 +1,20 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-23 - Explicit launcher worktree root
+
+- The centralized OpenCode wrapper honors a non-empty incoming
+  `DBSCTR_WORKTREE_ROOT`, falling back to the machine-configured root only when
+  absent or empty. Native routing, data/state roots, startup guards, managed
+  dispatch and arguments remain unchanged.
+- Executable chezmoi-rendered capture regression failed before the fix and passed
+  afterward; scoped launcher, remote-user, control-plane and portability tests,
+  rendered Bash syntax and targeted deployment diff were reviewed. One unrelated
+  Herdr owner timing assertion failed in the full suite; the remaining launcher
+  suite passed. Deployment uses only a reviewed targeted wrapper apply after merge.
+- Risk: elevated; Release not applicable. Intended Final Push: feature branch
+  and draft PR into protected main. Cycle Record retains gate, merge, deployment
+  and operation evidence; no FNBH item credit is claimed.
+
 ## 2026-09-15 - Canonical Continuation Adapter
 
 - Added role-aware preflight, explicit enrollment/provider/recovery/handover
