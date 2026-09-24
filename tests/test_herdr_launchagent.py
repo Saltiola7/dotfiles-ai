@@ -1105,10 +1105,50 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
         text=True, capture_output=True, check=True,
     ).stdout
     assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
-    assert 'export DBSCTR_WORKTREE_ROOT="/Volumes/ext/state/dbsctr/worktrees"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
     assert "exec /opt/homebrew/bin/opencode" in rendered
     assert ".dotfiles-ai-state" in rendered
+
+
+def test_opencode_wrapper_preserves_explicit_worktree_root(tmp_path) -> None:
+    state = tmp_path / "central state"
+    state.mkdir()
+    (state / ".dotfiles-ai-state").touch()
+    home = tmp_path / "home"
+    home.mkdir()
+    capture = tmp_path / "capture"
+    capture.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "print(json.dumps({'root': os.getenv('DBSCTR_WORKTREE_ROOT'), "
+        "'state': os.getenv('DBSCTR_STATE_ROOT'), "
+        "'data': os.getenv('XDG_DATA_HOME'), 'argv': sys.argv[1:]}))\n"
+    )
+    capture.chmod(0o755)
+    arguments = ["session", "literal ; $(touch bad) *", "two words"]
+    explicit = "other root; $(touch bad) *"
+    for centralized in (False, True):
+        values = {"dotfiles_ai": {"state": {"root": str(state)}}} if centralized else {}
+        wrapper = tmp_path / ("central" if centralized else "native")
+        wrapper.write_text(_render_herdr_script(".local/bin/opencode", values).replace(
+            "/opt/homebrew/bin/opencode", str(capture)
+        ))
+        wrapper.chmod(0o755)
+        for incoming in (None, "", str(tmp_path / "explicit root"), explicit):
+            env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "XDG_DATA_HOME": "incoming-data",
+                   "DBSCTR_STATE_ROOT": "incoming-state"}
+            if incoming is not None:
+                env["DBSCTR_WORKTREE_ROOT"] = incoming
+            result = subprocess.run([wrapper, *arguments], env=env, text=True,
+                                    capture_output=True, check=True, cwd=tmp_path)
+            actual = json.loads(result.stdout)
+            assert actual == {
+                "root": (incoming or str(state / "dbsctr/worktrees")) if centralized else incoming,
+                "state": str(state / "dbsctr") if centralized else "incoming-state",
+                "data": str(state / "xdg/data") if centralized else "incoming-data",
+                "argv": arguments,
+            }
+            assert not (tmp_path / "bad").exists()
 
 
 def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
@@ -1124,22 +1164,23 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(rendered)
     wrapper.chmod(0o755)
+    environment = {**os.environ, "HOME": str(tmp_path / "home")}
 
     plain = subprocess.run(
         [wrapper, "plain"], text=True, capture_output=True, check=True,
-        env={key: value for key, value in os.environ.items() if key != "HERDR_ENV"},
+        env={key: value for key, value in environment.items() if key != "HERDR_ENV"},
     )
     herdr = subprocess.run(
         [wrapper, "herdr"], text=True, capture_output=True, check=True,
-        env={**os.environ, "HERDR_ENV": "1"},
+        env={**environment, "HERDR_ENV": "1"},
     )
     explicit = subprocess.run(
         [wrapper, "--auto"], text=True, capture_output=True, check=True,
-        env={**os.environ, "HERDR_ENV": "1"},
+        env={**environment, "HERDR_ENV": "1"},
     )
     administrative = subprocess.run(
         [wrapper, "session", "list"], text=True, capture_output=True, check=True,
-        env={**os.environ, "HERDR_ENV": "1"},
+        env={**environment, "HERDR_ENV": "1"},
     )
 
     assert plain.stdout.splitlines() == ["plain"]
@@ -1154,13 +1195,13 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     started = time.monotonic()
     subprocess.run(
         [wrapper, "--session", "ses_first"], capture_output=True, check=True,
-        env={**os.environ, "HERDR_ENV": "1"},
+        env={**environment, "HERDR_ENV": "1"},
     )
     assert time.monotonic() - started < 2
     started = time.monotonic()
     resumed = subprocess.run(
         [wrapper, "--session", "ses_second"], text=True, capture_output=True, check=True,
-        env={**os.environ, "HERDR_ENV": "1"},
+        env={**environment, "HERDR_ENV": "1"},
     )
 
     assert time.monotonic() - started >= 5
