@@ -2,6 +2,17 @@
 
 Status: implemented and qualified; live cycle enrollment remains explicit and opt-in.
 
+## Pending Checkout-Independent Correction
+
+Discovery owns the approved corrective scope in
+[Checkout-Independent Continuation](../../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
+It separates structural record validation and provenance availability from live
+execution checks, replaces branch-derived identity assumptions, and adds explicit
+unfinished-cycle release. Its [exact corrective contract](checkout-independent-continuation.md)
+and approved repair-first ordering settle core specification readiness. The
+current implementation contract below remains delivered behavior, not proof of
+the proposed correction; new scope requires a fresh receipt before Build.
+
 ## Profile And Scope
 
 Use `../PROFILE.md`. Owner: dotfiles owner. Risk: critical, because this changes

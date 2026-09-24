@@ -18,6 +18,17 @@ behavior by itself or an implementation approval. The continuation slices do not
 automatic merge. Native session identity remains unchanged; execution-target
 selection is separate from conversation home.
 
+### Checkout-Independent Continuation Correction
+
+The operator approved the three-context corrective scope in
+[CHECKOUT-INDEPENDENT-CONTINUATION.md](CHECKOUT-INDEPENDENT-CONTINUATION.md):
+source-independent record validation, stable worktree identity, explicit release
+of unfinished-cycle selection, reachable diagnostics, and qualified host/live
+recovery. The exact core contract and operator-approved repair-first ordering
+resolve specification blockers; downstream slices remain captured pending delivered
+dependencies. Core launch still needs fresh feasibility and exact approval. This is
+persisted Discovery, not an implementation receipt or delivered behavior.
+
 The prior cycle-session retirement journey below remains the automatic-delivery
 scope. Reconcile `base-session-handoff` before promoting it so that it does not
 require replacing conversations already rooted in a canonical checkout.
@@ -74,6 +85,9 @@ The user approved this complete context map and automatic-after-CI policy on
 | `canonical-continuation-core` | `build` | Delivered isolated core; live enrollment remains off | None |
 | `canonical-continuation-opencode` | `build` | Delivered adapter and native same-conversation qualification | `canonical-continuation-core` |
 | `canonical-continuation-rollout` | `build` | Delivered to host and configured guests with native qualification | `canonical-continuation-opencode` |
+| `checkout-independent-continuation-core` | `build` | Stable identity, resource-specific validation and atomic release; specification ready | `canonical-continuation-core` |
+| `checkout-independent-continuation-opencode` | `build` | Typed release/diagnostics and qualified same-session routing | `checkout-independent-continuation-core` |
+| `checkout-independent-continuation-rollout` | `build` | Compatible targeted host deployment and live release/reattach recovery | `checkout-independent-continuation-opencode` |
 
 ## Safety Boundary
 

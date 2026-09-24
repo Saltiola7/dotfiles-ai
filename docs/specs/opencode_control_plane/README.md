@@ -6,6 +6,10 @@
 
 ## Engineering Profile
 
+The [checkout-independent continuation correction](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
+owns pending typed release, reachable diagnostics and authoritative routing work.
+Its adapter slice is captured, not qualified by existing context readiness.
+
 ### Ordinary Session Foundation
 
 Ordinary `/discovery` and `/dbsctr` stay in the selected primary without Task or
