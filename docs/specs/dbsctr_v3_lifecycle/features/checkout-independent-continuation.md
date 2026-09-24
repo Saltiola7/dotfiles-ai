@@ -287,7 +287,7 @@ must all validate bound physical identity and expected branch where needed. Sour
 sync remains a separately validated best-effort step under its existing contract.
 No global change to historical IDs or pointer names is authorized.
 
-## Acceptance, Gates And Visual Evidence
+## Acceptance And Gates
 
 CI-01 through CI-11 in corrective Discovery apply, plus:
 
@@ -314,6 +314,8 @@ review, native and live evidence is pending. The future relocation contract must
 explicitly preserve/update this binding under its approved move, not reinterpret
 branch aliases as physical identity. Build reports readiness_reopened for a
 material contradiction rather than adjusting these normative rules itself.
+
+## Visual Evidence
 
 | Concern | Decision | Owner / change trigger |
 |---|---|---|
