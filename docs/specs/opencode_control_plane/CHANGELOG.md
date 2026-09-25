@@ -1,5 +1,33 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-25 - Checkout-Safe Continuation Adapter
+
+- Added explicit v2 bind/recovery/release, paired-helper capability reporting,
+  versioned selection caching and target-independent inspect/audit/status.
+  Plan retains read/status access without writer authority or consent prompts.
+- Kernel adapter commit: `80b4e5d`. Qualified 181 initial scoped checks, then 331
+  combined adapter/core/deployment checks after approved compatibility completion.
+  The real OpenCode 1.18.31 loopback probe passed twelve phases, including legacy
+  and bound file-error completion, invalid-target recovery, explicit release to
+  Discovery, same-conversation restart/reattachment, Plan denial and branch drift.
+  These are isolated fixtures, not proof of recovery of a production conversation.
+- Restored the installed `native_error` interface using inspected `70831d0`
+  behavior and shared persisted file-terminal proof for v1/v2. Kept explicit finish
+  permission at ask. Native testing reproduced a short-reader/commit race;
+  admission and commit now share the existing deadline without transaction replay.
+- The operator explicitly authorized bounded lighter completion, tested merge and
+  targeted backed-up host deployment. Independent review is an accepted risk for
+  this rollout only, owned by the operator and due before the next continuation
+  upgrade. CI, identity, fencing, preservation and rollback checks are not waived.
+- Deployment accepts only exact known committed target blobs, optionally including
+  the explicitly named reviewed compatibility baseline. Configuration projection
+  remains limited to continuation-owned fields. Active processes are not restarted
+  automatically; the operator must reload the original conversation in Build.
+- Intended publication is a feature-branch PR followed by the explicitly requested
+  checked merge. Actual merge, installed-byte verification and private backup
+  receipt are reported separately; FNBH movement and feature-ledger credit are not
+  authorized by this recovery work.
+
 ## 2026-09-23 - Explicit launcher worktree root
 
 - The centralized OpenCode wrapper honors a non-empty incoming

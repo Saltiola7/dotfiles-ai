@@ -5530,7 +5530,7 @@ def continuation_connection(root, *, write=False, create=False):
             raise ContinuationError("invalid_state")
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise ContinuationError("invalid_state")
-        # Only admission waits; never replay a transaction body after contention.
+        # Admission and commit share a deadline; never replay a transaction body.
         while True:
             try:
                 connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
@@ -5541,6 +5541,7 @@ def continuation_connection(root, *, write=False, create=False):
                 time.sleep(min(0.01, max(0, deadline - time.monotonic())))
         yield connection
         if write:
+            connection.execute(f"PRAGMA busy_timeout={max(0, int((deadline - time.monotonic()) * 1000))}")
             connection.commit()
     except sqlite3.OperationalError as error:
         raise ContinuationError("state_busy" if "locked" in str(error) else "invalid_state") from None
@@ -5900,6 +5901,31 @@ def command_continuation_storage(args):
             os.close(descriptor)
 
 
+def continuation_finish_outcome(request, cycle, operation, session_key):
+    outcome = request.get("outcome")
+    completion = "native_completion" if outcome == "completed" else "unknown_completion"
+    if outcome == "native_error":
+        if operation["operation_class"] != "file" or cycle["writer"] != session_key:
+            raise ContinuationError("invalid_identity")
+        # An event is a hint; persisted native evidence must prove synchronous file termination.
+        with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as native:
+            rows = native.execute(
+                "SELECT json_extract(data,'$.tool'),json_extract(data,'$.state.status'),"
+                "json_extract(data,'$.state.time.start'),json_extract(data,'$.state.time.end'),"
+                "json_type(data,'$.state.time.start'),json_type(data,'$.state.time.end') "
+                "FROM part WHERE session_id=? AND message_id=? "
+                "AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.callID')=? LIMIT 2",
+                (request["session_id"], operation["message_id"], operation["call_id"])).fetchall()
+        if (len(rows) != 1 or rows[0][0] not in {"apply_patch", "edit", "write"}
+                or rows[0][1] != "error" or rows[0][4] not in {"integer", "real"}
+                or rows[0][5] not in {"integer", "real"} or not 0 <= rows[0][2] <= rows[0][3] < 2**53):
+            raise ContinuationError("invalid_state")
+        outcome, completion = "completed", "native_error"
+    if outcome not in {"completed", "uncertain"}:
+        raise ContinuationError("invalid_state")
+    return outcome, "native_error" if operation["completion_class"] == "native_error" else completion
+
+
 def command_continuation(args, *, native_context=None):
     response = continuation_response()
     command = args.command.removeprefix("continuation-")
@@ -6036,13 +6062,11 @@ def command_continuation(args, *, native_context=None):
                         raise ContinuationError("invalid_identity")
                     if operation["generation"] != cycle["generation"]:
                         raise ContinuationError("generation_changed")
-                    outcome = request.get("outcome")
-                    if outcome not in {"completed", "uncertain"}:
-                        raise ContinuationError("invalid_state")
+                    outcome, completion = continuation_finish_outcome(request, cycle, operation, session_key)
                     if operation["state"] != "running" and operation["state"] != outcome:
                         raise ContinuationError("invalid_state")
                     db.execute("UPDATE operations SET state=?,completion_class=? WHERE operation_id=?",
-                               (outcome, "native_completion" if outcome == "completed" else "unknown_completion",
+                               (outcome, completion,
                                 operation["operation_id"]))
                     if outcome == "uncertain":
                         db.execute("UPDATE cycles SET state='recovery_required' WHERE cycle_id=?", (cycle_id,))
@@ -6367,7 +6391,7 @@ def continuation_v2_request(request):
         "bind": ({"worktree", "request_id", "expected", "approval"}, set()),
         "attach": ({"request_id", "expected", "mode"}, {"worktree", "approval"}),
         "admit": ({"expected", "call_id", "operation_class"}, set()),
-        "finish": ({"operation_id", "outcome"}, set()),
+        "finish": ({"operation_id", "outcome"}, {"worktree"}),
         "handover": ({"request_id", "expected", "target_session_id", "approval"}, set()),
         "recover": ({"request_id", "expected", "approval"}, {"worktree"}),
         "release": ({"request_id", "expected"}, set()),
@@ -6382,6 +6406,8 @@ def continuation_v2_request(request):
             or request.keys() - common - set(required) - optional):
         raise ContinuationError("invalid_state")
     purpose = request.get("for_action", "check") if action == "check" else action
+    if action == "finish" and "worktree" in request and request.get("outcome") != "native_error":
+        raise ContinuationError("invalid_state")
     if purpose not in fields or purpose == "finish" and action == "check":
         raise ContinuationError("invalid_state")
     for field in ("request_id", "call_id", "target_session_id"):
@@ -6549,10 +6575,11 @@ def continuation_v2_snapshot(db, home, request, actor, activation, purpose):
         except (RuntimeError, OSError, ValueError):
             response["checks"]["source"] = {"status": "unavailable", "reason": "source_unavailable"}
     route_only = purpose in {"release", "recover"} and route and route["cycle_id"] == cycle_id
-    finishing = request["action"] == "finish" and binding is not None
+    native_error = request["action"] == "finish" and request.get("outcome") == "native_error"
+    finishing = request["action"] == "finish" and (binding is not None or native_error)
     if target_error and not route_only and not finishing and purpose != "check":
         raise ContinuationError(target_error)
-    if not binding and purpose not in {"check", "enroll", "bind", "release", "recover"}:
+    if not binding and not native_error and purpose not in {"check", "enroll", "bind", "release", "recover"}:
         raise ContinuationError("binding_required")
     if purpose in {"release", "recover"} and target_error and not route_only:
         raise ContinuationError("invalid_target")
@@ -6699,11 +6726,11 @@ def continuation_v2_mutate(db, home, request, actor, activation, response, detai
             raise ContinuationError("invalid_identity")
         if op["generation"] != cycle["generation"]:
             raise ContinuationError("generation_changed")
-        outcome = request["outcome"]
-        if outcome not in {"completed", "uncertain"} or op["state"] not in {"running", outcome}:
+        outcome, completion = continuation_finish_outcome(request, cycle, op, actor)
+        if op["state"] not in {"running", outcome}:
             raise ContinuationError("invalid_state")
         db.execute("UPDATE operations SET state=?,completion_class=? WHERE operation_id=?", (
-            outcome, "native_completion" if outcome == "completed" else "unknown_completion", op["operation_id"]))
+            outcome, completion, op["operation_id"]))
         if outcome == "uncertain":
             db.execute("UPDATE cycles SET state='recovery_required' WHERE cycle_id=?", (cycle_id,))
         elif terminal and not db.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1",

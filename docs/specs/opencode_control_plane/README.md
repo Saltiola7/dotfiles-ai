@@ -8,7 +8,9 @@
 
 The [checkout-independent continuation correction](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
 owns pending typed release, reachable diagnostics and authoritative routing work.
-Its adapter slice is captured, not qualified by existing context readiness.
+The [adapter specification](features/checkout-independent-continuation.md) is ready
+against the merged core. Implementation, native qualification and installed rollout
+remain separate; a restart cannot expose controls that have not been deployed.
 
 ### Ordinary Session Foundation
 

@@ -99,6 +99,38 @@ relationships change.
 
 ## Explicit Compatibility Activation
 
+### Operator-Approved Completion Compatibility
+
+The operator authorized bounded lighter completion to preserve the installed
+failed-file-completion interface, merge tested source, and perform one targeted
+backed-up host deployment. Independent review is explicitly accepted as an
+outstanding risk for this host rollout only; the operator owns review before the
+next continuation upgrade. This supersedes the earlier review-before-rollout hold
+for this named completion, without waiving automated/native/CI checks, identity,
+fencing, compatibility preservation or rollback. No automatic process restart.
+
+The installed adapter exposed `native_error` while the merged/installed baseline
+core did not implement it. Reuse the inspected implementation from `70831d0` at
+one shared core boundary for v1 and v2. `finish` accepts `native_error` only for
+the current writer's exact same-generation synchronous `file` operation. Read
+only the matching native session/message/call's tool name, terminal state and
+numeric start/end times; require exactly one persisted `edit`, `write` or
+`apply_patch` error with ordered times below 2^53. Events alone are not proof.
+Shell, unknown, pending, duplicate, foreign and stale-generation evidence refuses.
+Native qualification reproduced a short diagnostic reader blocking the error
+completion commit. SQLite admission and commit therefore share the existing
+two-second deadline; commit may wait for that reader, but the transaction body
+and approval checks are never replayed. Exhausted contention still fails closed.
+Retain operation history with completion class `native_error`; a late ordinary
+finish cannot erase the failure. Do not alter native failure history or gates.
+
+For compatibility, v2 `finish` may process this exact proof for unbound legacy
+operations and accepts an optional worktree only with `native_error`; an explicit
+target must match the exact operation's cycle. This does not bind a cycle, recover
+ownership or advance its generation. Preserve the installed explicit finish tool
+and its Build `ask` permission, plus automatic file-error event handling only
+after the same persisted proof. Missing proof retains pending state.
+
 New v2 enrollment atomically performs existing approved enrollment plus binding.
 For already-enrolled cycles, v2 `bind` requires exact current state approval,
 no outstanding operations and no writer. Use separately approved legacy ownership

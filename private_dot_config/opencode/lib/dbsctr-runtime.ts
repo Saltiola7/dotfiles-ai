@@ -14,7 +14,8 @@ const evaluationPages = new Map<string, { source_id: string, capture_id: string,
 const evaluationReceipts = new Map<string, any>()
 const lensPages = new Map<string, Map<number, any>>()
 const lensCaptureScopes = new Map<string, "only" | "exclude">()
-const cycleTargets = new Map<string, string>()
+export type CycleSelection = { cycleID: string, routeVersion: number }
+const cycleTargets = new Map<string, { worktree: string, selection?: CycleSelection }>()
 const continuationCalls = new Map<string, string>()
 const continuationEnvironment = new AsyncLocalStorage<string | undefined>()
 
@@ -342,7 +343,7 @@ export async function cycleStatus(cwd: string) {
 }
 
 export async function continuationRequest(action: string, value: unknown, cwd: string) {
-  if (!["check", "enroll", "attach", "admit", "finish", "handover", "recover", "storage-check", "storage-recover"].includes(action))
+  if (!["v2", "check", "enroll", "attach", "admit", "finish", "handover", "recover", "storage-check", "storage-recover"].includes(action))
     throw new Error("continuation_invalid_action")
   const input = JSON.stringify(value)
   if (Buffer.byteLength(input) > 65536) throw new Error("continuation_input_too_large")
@@ -351,15 +352,19 @@ export async function continuationRequest(action: string, value: unknown, cwd: s
 }
 
 export function cycleTarget(sessionID: string, cwd: string) {
-  return cycleTargets.get(sessionID) ?? cwd
+  return cycleTargets.get(sessionID)?.worktree ?? cwd
 }
 
-export function rememberCycleTarget(sessionID: string, worktree: string) {
-  cycleTargets.set(sessionID, worktree)
+export function rememberCycleTarget(sessionID: string, worktree: string, selection?: CycleSelection) {
+  cycleTargets.set(sessionID, {worktree, selection})
 }
 
-export function forgetCycleTarget(sessionID: string) {
+export function forgetCycleTarget(sessionID: string, selection?: CycleSelection) {
+  const current = cycleTargets.get(sessionID)?.selection
+  if (selection && (!current || current.cycleID !== selection.cycleID || current.routeVersion !== selection.routeVersion))
+    return false
   cycleTargets.delete(sessionID)
+  return true
 }
 
 export async function boundedCycleWorktree(cwd: string, worktree?: string,

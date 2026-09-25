@@ -1,6 +1,7 @@
 """Qualify real native tools against a scripted loopback provider, never a model."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import re
 import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,7 @@ class Provider(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         names = {item["function"]["name"] for item in request.get("tools", [])}
+        self.server.forbidden_exposed.update(names & self.server.forbidden)
         completed = sum(item.get("role") == "tool" for item in request.get("messages", []))
         index = completed - self.server.offset
         if names and 0 <= index < len(self.server.steps):
@@ -73,6 +76,8 @@ def main():
                         "commit", "-qm", "fixture"], cwd=repo, check=True)
         cycle = registry / "cycle"
         subprocess.run(["git", "worktree", "add", "-qb", "dbsctr/test/probe", str(cycle)], cwd=repo, check=True)
+        source_checkout = registry / "source"
+        subprocess.run(["git", "worktree", "add", "-qb", "discovery/test/probe", str(source_checkout)], cwd=repo, check=True)
         helper = binaries / "dbsctrctl"
         helper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(helper_source))} \"$@\"\n")
         helper.chmod(0o700)
@@ -101,10 +106,14 @@ def main():
             gate: {"applicability": "required"} for gate in gates}}))
         server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
         server.missing = set()
+        server.forbidden, server.forbidden_exposed = set(), set()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         config = {
             "$schema": "https://opencode.ai/config.json", "model": "probe/mock", "small_model": "probe/mock",
             "enabled_providers": ["probe"], "permission": "allow",
+            "agent": {"plan": {"permission": {name: "deny" for name in (
+                "dbsctr_attach", "dbsctr_continuation_bind", "dbsctr_continuation_release",
+                "dbsctr_continuation_recover", "dbsctr_continuation_handover", "dbsctr_continuation_finish")}}},
             "plugin": [(staged / "plugins/continuation.ts").as_uri()],
             "provider": {"probe": {"npm": "@ai-sdk/openai-compatible", "name": "Loopback fixture",
                 "options": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "fixture"},
@@ -122,7 +131,16 @@ def main():
             env["NODE_PATH"] = str(args.sdk_modules.resolve())
         subprocess.run([str(helper), "start", "--cycle-id", "native-probe", "--context", "test",
                         "--risk", "critical", "--delivery-intent", "local", "--plan", str(plan)],
-                       cwd=cycle, env=env, check=True, capture_output=True)
+                        cwd=cycle, env=env, check=True, capture_output=True)
+        record_path = repo / ".git/dbsctr/cycles/native-probe.json"
+        record = json.loads(record_path.read_text())
+        initial = subprocess.check_output(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=repo, text=True).strip()
+        record["source"] = {"id": hashlib.sha256(f"{initial}\0discovery/test/probe".encode()).hexdigest()[:16],
+                            "branch": "discovery/test/probe", "locator": {"root": "primary_worktree", "path": "."}}
+        record_path.write_text(json.dumps(record))
+        original_record = record_path.read_bytes()
+        active_pointer = repo / ".git/dbsctr/worktrees" / record["worktree"]["id"] / "active"
+        store = repo / ".git/dbsctr/continuation/continuation.sqlite3"
         completion = root / "complete_fixture.py"
         completion.write_text(
             "import json\nfrom pathlib import Path\n"
@@ -135,10 +153,34 @@ def main():
             "print('fixture delivery completed')\n")
         session, total = None, 0
         try:
-            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("reader", "mock"),
+            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("legacy_error", "mock-two"), ("reader", "mock"),
+                                 ("recover_release", "mock-two"), ("bound_resume", "mock-two"),
+                                 ("bound_error", "mock-two"), ("plan", "mock-two"), ("bound_release", "mock-two"),
+                                 ("bound_reattach", "mock-two"), ("branch_drift", "mock-two"),
                                  ("completion", "mock-two")):
                 server.phase, server.offset = phase, 0 if phase == "reader" else total
+                server.forbidden_exposed = set()
+                server.forbidden = set(config["agent"]["plan"]["permission"]) if phase == "plan" else set()
                 marker = f"{phase}.txt"
+                if phase == "resume":
+                    subprocess.run(["git", "switch", "-qc", "ordinary/source-work"], cwd=source_checkout, check=True)
+                elif phase == "reader":
+                    subprocess.run(["git", "worktree", "remove", str(source_checkout)], cwd=repo, check=True)
+                elif phase == "recover_release":
+                    # Inject only disposable uncertainty; no production writer or process is simulated as stopped.
+                    with sqlite3.connect(store) as db:
+                        generation, writer = db.execute("SELECT generation,writer FROM cycles WHERE cycle_id='native-probe'").fetchone()
+                        db.execute("INSERT INTO operations VALUES (?,?,?,?,?,?,?,'uncertain','unknown_completion')",
+                                   ("f" * 32, "native-probe", generation, writer, "fixture-injected",
+                                    "fixture-uncertain", "file"))
+                        db.execute("UPDATE cycles SET state='recovery_required' WHERE cycle_id='native-probe'")
+                    active_pointer.unlink()
+                elif phase == "bound_resume":
+                    active_pointer.write_text("native-probe\n")
+                elif phase == "branch_drift":
+                    subprocess.run(["git", "switch", "-qc", "fixture/branch-drift"], cwd=cycle, check=True)
+                elif phase == "completion":
+                    subprocess.run(["git", "switch", "-q", "dbsctr/test/probe"], cwd=cycle, check=True)
                 server.steps = [
                     ("dbsctr_attach", {"worktree": str(cycle), "mode": "reader" if phase == "reader" else "writer"}),
                     ("write", {"filePath": str(repo / marker), "content": "fixture\n"}),
@@ -147,19 +189,59 @@ def main():
                 ]
                 if phase == "reader":
                     server.steps.pop(2)
+                elif phase in {"legacy_error", "bound_error"}:
+                    error_file = "resume.txt" if phase == "legacy_error" else "bound_resume.txt"
+                    server.steps = [
+                        ("read", {"filePath": str(repo / error_file)}),
+                        ("edit", {"filePath": str(repo / error_file), "oldString": "missing fixture text",
+                                  "newString": "must not be written"}),
+                        ("dbsctr_preflight", {}),
+                    ]
+                elif phase == "recover_release":
+                    server.steps = [
+                        ("dbsctr_preflight", {}),
+                        ("dbsctr_inspect", {"action": "read", "commit": "HEAD", "path": "docs/specs/test/README.md"}),
+                        ("dbsctr_status", {}),
+                        ("dbsctr_continuation_recover", {}),
+                        ("dbsctr_continuation_release", {}),
+                        ("dbsctr_preflight", {}),
+                        ("write", {"filePath": str(repo / marker), "content": "Discovery fixture\n"}),
+                    ]
+                elif phase == "bound_resume":
+                    server.steps.insert(0, ("dbsctr_continuation_bind", {"worktree": str(cycle)}))
+                elif phase == "plan":
+                    server.steps = [
+                        ("dbsctr_preflight", {"worktree": str(cycle)}),
+                        ("dbsctr_inspect", {"action": "read", "commit": "HEAD", "path": "docs/specs/test/README.md"}),
+                        ("dbsctr_status", {}),
+                        ("read", {"filePath": str(cycle / "bound_resume.txt")}),
+                    ]
+                elif phase == "bound_release":
+                    server.steps = [
+                        ("dbsctr_continuation_release", {}), ("dbsctr_preflight", {}),
+                        ("write", {"filePath": str(repo / marker), "content": "Discovery fixture\n"}),
+                    ]
+                elif phase == "branch_drift":
+                    server.steps = [
+                        ("write", {"filePath": str(repo / marker), "content": "must not write\n"}),
+                        ("dbsctr_inspect", {"action": "read", "commit": "HEAD", "path": "docs/specs/test/README.md"}),
+                        ("dbsctr_continuation_release", {}), ("dbsctr_preflight", {}),
+                    ]
                 elif phase == "completion":
                     server.steps = [
+                        ("dbsctr_attach", {"worktree": str(cycle), "mode": "writer"}),
                         ("bash", {"command": shlex.join([sys.executable, str(completion)]),
                                   "description": "Complete disposable cycle and remove its active pointer"}),
                         ("dbsctr_preflight", {}),
                     ]
-                command = [str(binary), "run", "--print-logs", "--log-level", "DEBUG", "--model", f"probe/{model}", "--agent", "build", "--format", "json"]
+                command = [str(binary), "run", "--print-logs", "--log-level", "DEBUG", "--model", f"probe/{model}",
+                           "--agent", "plan" if phase == "plan" else "build", "--format", "json"]
                 if session and phase != "reader":
                     command += ["--session", session]
                 process = subprocess.Popen([*command, "Run the synthetic qualification."], cwd=repo, env=env,
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
                 try:
-                    stdout, stderr = process.communicate(timeout=120)
+                    stdout, stderr = process.communicate(timeout=180)
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
                     process.communicate()
@@ -178,7 +260,9 @@ def main():
                            "tool_failures": failures, "missing_tools": sorted(server.missing),
                            "canonical_untouched": not (repo / marker).exists(),
                            "cycle_written": (cycle / marker).exists(), "one_session": len(identifiers) == 1,
-                           "same_session": session is None or identifiers == {session}}
+                           "same_session": session is None or identifiers == {session},
+                           "event_deferrals": sorted(set(re.findall(r"continuation_native_error_deferred:continuation_[a-z_]+", stderr))),
+                           "forbidden_tools_exposed": sorted(server.forbidden_exposed)}
                 print(json.dumps(summary), flush=True)
                 if process.returncode != 0:
                     print("native_initialization_failed", flush=True)
@@ -189,13 +273,46 @@ def main():
                     assert summary["one_session"] and not summary["same_session"], "native_reader_identity"
                 elif phase == "completion":
                     assert not failures and summary["same_session"], "native_completion_failure"
-                    output = parts[0]["state"]["output"]
+                    output = parts[1]["state"]["output"]
                     assert "fixture delivery completed" in output and "execution selection released" in output, "native_completion_output"
-                    assert json.loads(parts[1]["state"]["output"])["next_action"] == "select_target", "native_route_release"
+                    assert json.loads(parts[2]["state"]["output"])["next_action"] == "select_target", "native_route_release"
+                elif phase in {"legacy_error", "bound_error"}:
+                    assert len(failures) == 1 and parts[1]["state"]["status"] == "error", "native_file_error_missing"
+                    assert (cycle / error_file).read_text() == "fixture\n", "native_failed_file_changed"
+                    assert summary["same_session"], "native_failed_file_identity"
+                    with sqlite3.connect(store) as db:
+                        assert db.execute("SELECT state,completion_class FROM operations WHERE call_id=?",
+                                          (parts[1]["callID"],)).fetchone() == ("completed", "native_error"), "native_failure_class"
+                elif phase in {"recover_release", "bound_release"}:
+                    assert not failures and summary["same_session"], "native_explicit_release"
+                    assert (repo / marker).exists() and not (cycle / marker).exists(), "native_discovery_routing"
+                    check_index = 5 if phase == "recover_release" else 1
+                    assert json.loads(parts[check_index]["state"]["output"])["next_action"] == "select_target", "native_release_selection"
+                    if phase == "recover_release":
+                        check = json.loads(parts[0]["state"]["output"])
+                        assert check["checks"]["target"]["status"] == "unavailable", "native_invalid_target_diagnostics"
+                        with sqlite3.connect(store) as db:
+                            assert db.execute("SELECT completion_class FROM operations WHERE operation_id=?",
+                                              ("f" * 32,)).fetchone() == ("operator_quiescence",), "native_quiescence_evidence"
+                elif phase == "plan":
+                    assert not failures and summary["same_session"] and not server.forbidden_exposed, "native_plan_boundary"
+                    check = json.loads(parts[0]["state"]["output"])
+                    assert check["next_action"] == "switch_to_build", "native_plan_identity"
+                    status = json.loads(parts[2]["state"]["output"])
+                    assert status["cycle_id"] == "native-probe" and status["next_action"] == "switch_to_build", "native_plan_status"
+                elif phase == "branch_drift":
+                    assert len(failures) == 1 and "continuation_branch_mismatch" in failures[0], "native_branch_denial"
+                    assert summary["canonical_untouched"] and not summary["cycle_written"], "native_branch_write"
+                    assert json.loads(parts[-1]["state"]["output"])["next_action"] == "select_target", "native_drift_release"
                 else:
                     assert not failures, "native_tool_failure"
                     assert summary["canonical_untouched"] and summary["cycle_written"], "native_write_target"
                     assert summary["one_session"] and summary["same_session"], "native_session_identity"
+                    check = json.loads(parts[-1]["state"]["output"])
+                    assert check["capabilities"]["protocol"] == 2 and check["capabilities"]["release"], "native_v2_capabilities"
+                if phase != "completion":
+                    assert record_path.read_bytes() == original_record, "native_record_preservation"
+                if phase != "reader":
                     session = next(iter(identifiers))
                     total += len(parts)
             print("passed")

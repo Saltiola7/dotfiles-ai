@@ -8,8 +8,9 @@ processes must reload before using the installed adapter.
 The approved
 [corrective Discovery](../../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
 adds typed unfinished-cycle release, diagnostics independent of execution
-eligibility and core-authoritative identity resolution. Its adapter slice remains
-captured pending delivery of the corrective core. The exact protocol contract is
+eligibility and core-authoritative identity resolution. The corrective core is
+merged; the [adapter specification](checkout-independent-continuation.md) is ready
+for its own exact launch approval and native qualification. The core protocol is
 [checkout-independent continuation](../../dbsctr_v3_lifecycle/features/checkout-independent-continuation.md).
 Version-1 fields/reasons remain strict until a qualified compatible interface is
 delivered. Existing native evidence below does not prove the new release path.

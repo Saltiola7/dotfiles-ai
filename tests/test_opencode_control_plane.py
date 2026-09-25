@@ -385,6 +385,8 @@ def test_primary_external_access_preserves_lifecycle_permissions():
     local_config = "~/.config/dotfiles-ai/**"
     assert config["permission"]["dbsctr_begin"] == "deny"
     assert config["permission"]["dbsctr_attach"] == "deny"
+    assert config["permission"]["dbsctr_continuation_bind"] == "deny"
+    assert config["permission"]["dbsctr_continuation_release"] == "deny"
     assert config["permission"]["dbsctr_reconcile"] == "deny"
     assert config["permission"]["dbsctr_phase_span"] == "deny"
     assert config["permission"]["dbsctr_execution_benchmark"] == "deny"
@@ -396,6 +398,9 @@ def test_primary_external_access_preserves_lifecycle_permissions():
         "dbsctr_begin": "allow",
         "dbsctr_attach": "allow",
         "dbsctr_continuation_enroll": "ask",
+        "dbsctr_continuation_bind": "ask",
+        "dbsctr_continuation_release": "allow",
+        "dbsctr_continuation_finish": "ask",
         "dbsctr_continuation_provider": "ask",
         "dbsctr_continuation_recover": "ask",
         "dbsctr_continuation_storage_recover": "ask",
@@ -425,6 +430,8 @@ def test_primary_external_access_preserves_lifecycle_permissions():
             assert "mode: primary" in body
             assert "dbsctr_begin: allow" in body
             assert "dbsctr_attach: allow" in body
+            assert "dbsctr_continuation_bind: ask" in body
+            assert "dbsctr_continuation_release: allow" in body
             assert "dbsctr_reconcile: allow" in body
             assert "dbsctr_phase_span: allow" in body
             assert "dbsctr_execution_benchmark: allow" in body
@@ -570,10 +577,13 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert 'export const attach = tool({' in tools
     assert "worktree: tool.schema.string().optional()" in tools
     assert "continuationAttach(context, args.worktree, args.mode)" in tools
-    assert "rememberCycleTarget(context.sessionID, target)" in (OC / "lib/continuation.ts").read_text()
-    for name in ("preflight", "continuation_recover", "continuation_handover"):
+    assert "rememberCycleTarget(context.sessionID, target, selection(resolved))" in (OC / "lib/continuation.ts").read_text()
+    for name in ("preflight", "continuation_recover", "continuation_handover", "continuation_bind", "continuation_release"):
         assert f'export const {name} = tool({{' in tools
-    assert tools.count("cycleTarget(context.sessionID, context.worktree)") >= 6
+    assert tools.count("cycleTarget(context.sessionID, context.worktree)") >= 4
+    assert "fixedCommitInspect(args, await diagnosticRoot(context))" in tools
+    assert "lifecycleAudit(await diagnosticRoot(context), args.commit)" in tools
+    assert "diagnosticStatus(context)" in tools
     assert 'export const runtime_health = tool({' in tools
     assert 'export const begin = tool({' in tools
     assert 'export const initiative_launch = tool({' in tools
