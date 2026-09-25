@@ -30,7 +30,8 @@ TARGETS = {
 }
 CONFIG = ".config/opencode/opencode.json"
 PERMISSIONS = {"dbsctr_continuation_enroll", "dbsctr_continuation_provider", "dbsctr_continuation_recover",
-               "dbsctr_continuation_storage_recover", "dbsctr_continuation_handover"}
+               "dbsctr_continuation_storage_recover", "dbsctr_continuation_handover",
+               "dbsctr_continuation_bind", "dbsctr_continuation_release", "dbsctr_continuation_finish"}
 CONFIG_FIELDS = {("references", "dbsctr-worktrees"), ("permission", "dbsctr_preflight"),
                  ("permission", "bash", "*dbsctrctl continuation-*")}
 CONFIG_FIELDS |= {("permission", name) for name in PERMISSIONS}
@@ -132,7 +133,11 @@ def source_identity(source):
     return revision
 
 
-def known_blobs(source):
+def known_blobs(source, baseline_commits=()):
+    for revision in baseline_commits:
+        if (not re.fullmatch(r"[0-9a-f]{40,64}", revision)
+                or execute(["git", "rev-parse", "--verify", revision + "^{commit}"], source).decode().strip() != revision):
+            raise RuntimeError("invalid_source")
     manifest = source / ".continuation-known-blobs.json"
     if manifest.is_file():
         value = json.loads(manifest.read_text())
@@ -142,16 +147,16 @@ def known_blobs(source):
         return value
     result = {}
     for target, path in TARGETS.items():
-        rows = execute(["git", "rev-list", "--objects", "HEAD", "--", path], source).decode().splitlines()
+        rows = execute(["git", "rev-list", "--objects", "HEAD", *baseline_commits, "--", path], source).decode().splitlines()
         result[target] = [line.split(" ", 1)[0] for line in rows if " " in line and line.split(" ", 1)[1] == path]
     return result
 
 
-def preview(source, config, home):
+def preview(source, config, home, baseline_commits=()):
     revision = source_identity(source)
     command = ["chezmoi", "--config", str(config), "--source", str(source)]
     managed = set(execute([*command, "managed", "--include", "files", "--path-style", "relative"]).decode().splitlines())
-    history = known_blobs(source)
+    history = known_blobs(source, baseline_commits) if baseline_commits else known_blobs(source)
     targets, contents = {}, {}
     for name in TARGETS:
         if name not in managed:
@@ -173,6 +178,7 @@ def preview(source, config, home):
     if ".local/bin/dbsctrctl" not in targets or CONFIG not in targets:
         raise RuntimeError("managed_targets_missing")
     return {"schema_version": 1, "source_commit": revision, "config_digest": digest(config.read_bytes()),
+            **({"baseline_commits": list(baseline_commits)} if baseline_commits else {}),
             "state": "preview", "targets": targets}, contents
 
 
@@ -225,6 +231,8 @@ def main():
     parser.add_argument("--source", type=Path)
     parser.add_argument("--config", type=Path, default=Path.home() / ".config/dotfiles-ai/chezmoi.toml")
     parser.add_argument("--backup", type=Path)
+    parser.add_argument("--baseline-commit", action="append", default=[],
+                        help="explicit reviewed Git commit containing an installed compatibility baseline")
     args = parser.parse_args()
     home = Path.home()
     try:
@@ -236,7 +244,8 @@ def main():
             if args.source is None:
                 raise RuntimeError("source_required")
             source = args.source.resolve()
-            result, contents = preview(source, args.config, home)
+            result, contents = (preview(source, args.config, home, args.baseline_commit) if args.baseline_commit
+                                else preview(source, args.config, home))
             if args.mode == "verify":
                 if any(item["before"] != item["after"] or item["mode"] != item["after_mode"] for item in result["targets"].values()):
                     raise RuntimeError("verification_failed")

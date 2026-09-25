@@ -303,10 +303,21 @@ export async function admit(context: RuntimeContext, state: any, target: string,
   }))
 }
 
-export async function finish(context: RuntimeContext, protocol: number, target: string, operation: string) {
+export async function finish(context: RuntimeContext, protocol: number, target: string, operation: string,
+                             outcome: "completed" | "native_error" = "completed") {
   return requireSuccess(protocol === 2
-    ? await requestV2(context, "finish", {operation_id: operation, outcome: "completed"})
-    : await request(context, "finish", target, {operation_id: operation, outcome: "completed"}))
+    ? await requestV2(context, "finish", {operation_id: operation, outcome})
+    : await request(context, "finish", target, {operation_id: operation, outcome}))
+}
+
+export async function finishFailedFile(context: RuntimeContext, operationId: string, worktree?: string) {
+  requireAdapter(context)
+  if (!matches(identifier, operationId)) throw Error("continuation_invalid_identity")
+  const result = requireSuccess(await requestV2(context, "finish", {
+    operation_id: operationId, outcome: "native_error", ...(worktree === undefined ? {} : {worktree}),
+  }))
+  if (result.state === "closed") forgetCycleTarget(context.sessionID, selection(result))
+  return {...publicResult(result), completion_class: "native_error"}
 }
 
 export async function preflight(context: RuntimeContext, worktree?: string) {

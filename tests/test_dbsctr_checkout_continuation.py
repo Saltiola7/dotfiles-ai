@@ -2,6 +2,8 @@
 import json
 import sqlite3
 import uuid
+import threading
+import time
 import subprocess
 from pathlib import Path
 
@@ -401,3 +403,70 @@ def test_v2_release_closes_terminal_record_restored_after_recovery(cycle):
     path.write_text(json.dumps(record))
     result = v2(cycle, 'release', **v2_request(cycle, 'release'))
     assert result['state'] == 'closed' and result['writer_relation'] == 'none'
+
+
+@pytest.mark.parametrize('bound', [False, True])
+@pytest.mark.parametrize('tool,status,end,kind,valid', [
+    ('apply_patch', 'error', 20, 'file', True), ('edit', 'error', 20, 'file', True),
+    ('write', 'error', 20, 'file', True), ('write', 'running', 20, 'file', False),
+    ('write', 'error', None, 'file', False), ('write', 'error', 5, 'file', False),
+    ('write', 'error', True, 'file', False), ('bash', 'error', 20, 'shell', False),
+])
+def test_native_file_error_proof_is_fenced_and_preserved(cycle, bound, tool, status, end, kind, valid):
+    if bound:
+        bound_writer(cycle)
+        op = v2(cycle, 'admit', expected=v2(cycle, for_action='admit')['expected'],
+                call_id='failed-file', operation_class=kind)
+    else:
+        legacy.enroll(cycle)
+        op = legacy.call(cycle, 'admit', generation=1, call_id='failed-file', operation_class=kind)
+    with sqlite3.connect(cycle.native_database) as db:
+        db.execute('CREATE TABLE part(id TEXT PRIMARY KEY,session_id TEXT,message_id TEXT,data TEXT)')
+        db.execute("INSERT INTO part VALUES ('part','owner','owner-old',?)", (json.dumps({
+            'type': 'tool', 'callID': 'failed-file', 'tool': tool,
+            'state': {'status': status, 'time': {'start': 10, 'end': end}}}),))
+    before = cycle.record_path().read_bytes()
+    if valid:
+        for actor in ('reader', 'plan', 'child'):
+            assert v2(cycle, 'finish', operation_id=op['operation_id'], outcome='native_error',
+                      session_id=actor, message_id=f'{actor}-old', ok=False)['reason'] == 'invalid_identity'
+    call = v2 if bound else legacy.call
+    result = call(cycle, 'finish', operation_id=op['operation_id'], outcome='native_error', ok=valid)
+    assert cycle.record_path().read_bytes() == before
+    with sqlite3.connect(cycle.continuation_path) as db:
+        assert db.execute('SELECT state,completion_class FROM operations WHERE operation_id=?',
+                          (op['operation_id'],)).fetchone() == (('completed', 'native_error') if valid else ('running', None))
+    if valid:
+        assert result['generation'] == 1 and result['state'] == 'owned'
+        call(cycle, 'finish', operation_id=op['operation_id'], outcome='completed')
+        with sqlite3.connect(cycle.continuation_path) as db:
+            assert db.execute('SELECT completion_class FROM operations WHERE operation_id=?',
+                              (op['operation_id'],)).fetchone() == ('native_error',)
+
+
+def test_commit_waits_for_short_reader_without_replaying_body(cycle):
+    legacy.enroll(cycle)
+    module = legacy.runpy.run_path(str(legacy.fixtures.SCRIPT))
+    reader = sqlite3.connect(cycle.continuation_path)
+    reader.execute('BEGIN')
+    reader.execute('SELECT * FROM cycles').fetchall()
+    ready, results, executions = threading.Event(), [], []
+    def writer():
+        try:
+            with module['continuation_connection'](cycle.repo, write=True) as db:
+                executions.append(1)
+                db.execute('UPDATE cycles SET record_digest=?', ('b' * 64,))
+                ready.set()
+            results.append('committed')
+        except RuntimeError as error:
+            results.append(str(error))
+    worker = threading.Thread(target=writer)
+    worker.start()
+    try:
+        assert ready.wait(2)
+        time.sleep(0.05)
+    finally:
+        reader.close()
+        worker.join(3)
+    assert results == ['committed']
+    assert executions == [1]

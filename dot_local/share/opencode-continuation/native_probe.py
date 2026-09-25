@@ -113,7 +113,7 @@ def main():
             "enabled_providers": ["probe"], "permission": "allow",
             "agent": {"plan": {"permission": {name: "deny" for name in (
                 "dbsctr_attach", "dbsctr_continuation_bind", "dbsctr_continuation_release",
-                "dbsctr_continuation_recover", "dbsctr_continuation_handover")}}},
+                "dbsctr_continuation_recover", "dbsctr_continuation_handover", "dbsctr_continuation_finish")}}},
             "plugin": [(staged / "plugins/continuation.ts").as_uri()],
             "provider": {"probe": {"npm": "@ai-sdk/openai-compatible", "name": "Loopback fixture",
                 "options": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "fixture"},
@@ -153,9 +153,9 @@ def main():
             "print('fixture delivery completed')\n")
         session, total = None, 0
         try:
-            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("reader", "mock"),
+            for phase, model in (("initial", "mock"), ("resume", "mock-two"), ("legacy_error", "mock-two"), ("reader", "mock"),
                                  ("recover_release", "mock-two"), ("bound_resume", "mock-two"),
-                                 ("plan", "mock-two"), ("bound_release", "mock-two"),
+                                 ("bound_error", "mock-two"), ("plan", "mock-two"), ("bound_release", "mock-two"),
                                  ("bound_reattach", "mock-two"), ("branch_drift", "mock-two"),
                                  ("completion", "mock-two")):
                 server.phase, server.offset = phase, 0 if phase == "reader" else total
@@ -189,6 +189,14 @@ def main():
                 ]
                 if phase == "reader":
                     server.steps.pop(2)
+                elif phase in {"legacy_error", "bound_error"}:
+                    error_file = "resume.txt" if phase == "legacy_error" else "bound_resume.txt"
+                    server.steps = [
+                        ("read", {"filePath": str(repo / error_file)}),
+                        ("edit", {"filePath": str(repo / error_file), "oldString": "missing fixture text",
+                                  "newString": "must not be written"}),
+                        ("dbsctr_preflight", {}),
+                    ]
                 elif phase == "recover_release":
                     server.steps = [
                         ("dbsctr_preflight", {}),
@@ -253,6 +261,7 @@ def main():
                            "canonical_untouched": not (repo / marker).exists(),
                            "cycle_written": (cycle / marker).exists(), "one_session": len(identifiers) == 1,
                            "same_session": session is None or identifiers == {session},
+                           "event_deferrals": sorted(set(re.findall(r"continuation_native_error_deferred:continuation_[a-z_]+", stderr))),
                            "forbidden_tools_exposed": sorted(server.forbidden_exposed)}
                 print(json.dumps(summary), flush=True)
                 if process.returncode != 0:
@@ -267,6 +276,13 @@ def main():
                     output = parts[1]["state"]["output"]
                     assert "fixture delivery completed" in output and "execution selection released" in output, "native_completion_output"
                     assert json.loads(parts[2]["state"]["output"])["next_action"] == "select_target", "native_route_release"
+                elif phase in {"legacy_error", "bound_error"}:
+                    assert len(failures) == 1 and parts[1]["state"]["status"] == "error", "native_file_error_missing"
+                    assert (cycle / error_file).read_text() == "fixture\n", "native_failed_file_changed"
+                    assert summary["same_session"], "native_failed_file_identity"
+                    with sqlite3.connect(store) as db:
+                        assert db.execute("SELECT state,completion_class FROM operations WHERE call_id=?",
+                                          (parts[1]["callID"],)).fetchone() == ("completed", "native_error"), "native_failure_class"
                 elif phase in {"recover_release", "bound_release"}:
                     assert not failures and summary["same_session"], "native_explicit_release"
                     assert (repo / marker).exists() and not (cycle / marker).exists(), "native_discovery_routing"

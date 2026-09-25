@@ -2,6 +2,7 @@ import importlib.machinery
 import importlib.util
 import json
 import sys
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -187,3 +188,35 @@ def test_field_projection_preserves_guest_drift_and_is_idempotent():
     assert value["agent"]["build"]["permission"]["task"] == "ask"
     assert module.allowed_config_delta(before, value)
     assert module.project_config(result, json.dumps(desired).encode()) == result
+
+
+def test_explicit_baseline_adopts_only_known_git_blobs(tmp_path):
+    module = helper()
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=tmp_path, text=True).strip()
+    git('init', '-q')
+    path = tmp_path / module.TARGETS['.local/bin/dbsctrctl']
+    path.parent.mkdir(parents=True)
+    path.write_text('base')
+    git('add', '.')
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
+    base = git('branch', '--show-current')
+    git('switch', '-qc', 'compatibility')
+    path.write_text('known compatibility')
+    git('add', '.')
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'compatibility')
+    revision = git('rev-parse', 'HEAD')
+    blob = git('rev-parse', f'HEAD:{path.relative_to(tmp_path)}')
+    git('switch', '-q', base)
+    assert blob not in module.known_blobs(tmp_path)['.local/bin/dbsctrctl']
+    assert blob in module.known_blobs(tmp_path, [revision])['.local/bin/dbsctrctl']
+    with pytest.raises(RuntimeError, match='invalid_source'):
+        module.known_blobs(tmp_path, ['compatibility'])
+
+
+def test_v2_permission_projection_remains_narrow():
+    module = helper()
+    for name in ('bind', 'release', 'finish'):
+        key = 'dbsctr_continuation_' + name
+        assert module.allowed_config_delta({}, {'agent': {'build': {'permission': {key: 'allow'}}}})
+    assert not module.allowed_config_delta({}, {'agent': {'plan': {'permission': {'edit': 'allow'}}}})

@@ -17,6 +17,14 @@ capabilities or waive the delivered runtime's checks.
 
 ### Core Delivery And Adapter Readiness
 
+Completion override: the operator subsequently explicitly authorized bounded
+lighter completion, narrow `native_error` compatibility reconciliation, tested
+merge and a backed-up targeted host deployment. Independent review is accepted as
+an outstanding risk for this rollout only, with operator ownership and review
+before the next continuation upgrade. This supersedes the earlier pre-rollout
+review hold below; no automated/native/CI, identity, fencing, preservation or
+rollback check is waived, and no active process is restarted automatically.
+
 Core merged as `24ff69a256808c3b9f0d85bcca63dadb703c10e9` in PR #178 after all
 three required Python CI jobs passed. The recorded operator-owned independent
 review deferral expires before adapter rollout or any live v2 activation. Source

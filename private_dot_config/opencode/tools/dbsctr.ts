@@ -1,5 +1,5 @@
 import { tool as nativeTool } from "@opencode-ai/plugin"
-import { attach as continuationAttach, bind as continuationBind, diagnosticRoot, diagnosticStatus, preflight as continuationPreflight, recover as continuationRecover, release as continuationRelease } from "../lib/continuation"
+import { attach as continuationAttach, bind as continuationBind, diagnosticRoot, diagnosticStatus, finishFailedFile, preflight as continuationPreflight, recover as continuationRecover, release as continuationRelease } from "../lib/continuation"
 import { withContinuationOperation } from "../lib/dbsctr-runtime"
 import { benchmarkResult, beginCycle, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeCycleCheck, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
@@ -38,6 +38,15 @@ export const continuation_recover = tool({
   args: {worktree: tool.schema.string().optional()},
   async execute(args, context) {
     return JSON.stringify(await continuationRecover(context, args.worktree))
+  },
+})
+
+export const continuation_finish = tool({
+  description: "Complete this session's exact failed file operation using persisted native terminal evidence; preserves failure and writer generation. Not ownership recovery.",
+  args: {operationId: tool.schema.string().regex(/^[0-9a-f]{32}$/), worktree: tool.schema.string().optional()},
+  async execute(args, context) {
+    await context.ask({permission: "dbsctr_continuation_finish", patterns: [args.operationId], always: []})
+    return JSON.stringify(await finishFailedFile(context, args.operationId, args.worktree))
   },
 })
 

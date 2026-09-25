@@ -3,7 +3,7 @@ import { admit, childRead, cyclePath, executionState, executionTarget, explicitC
 import { continuationOperation, forgetCycleTarget, rememberContinuationOperation } from "../lib/dbsctr-runtime"
 import type { CycleSelection } from "../lib/dbsctr-runtime"
 
-const controls = new Set(["dbsctr_begin", "dbsctr_attach", "dbsctr_preflight", "dbsctr_continuation_recover", "dbsctr_continuation_handover", "dbsctr_continuation_bind", "dbsctr_continuation_release"])
+const controls = new Set(["dbsctr_begin", "dbsctr_attach", "dbsctr_preflight", "dbsctr_continuation_finish", "dbsctr_continuation_recover", "dbsctr_continuation_handover", "dbsctr_continuation_bind", "dbsctr_continuation_release"])
 const diagnostics = new Set(["dbsctr_inspect", "dbsctr_audit", "dbsctr_status"])
 const readers = new Set(["read", "glob", "grep", "list", "skill", "question", "todowrite", "webfetch", "websearch",
   "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "dbsctr_status", "dbsctr_audit", "dbsctr_inspect",
@@ -23,6 +23,25 @@ export const Continuation: Plugin = async ({worktree, directory}) => {
     protocol: number, selection: CycleSelection}>()
   const key = (input: {sessionID: string, callID: string}) => `${input.sessionID}\0${input.callID}`
   return {
+    event: async ({event}) => {
+      if (!["message.part.updated", "message.part.updated.1"].includes(event.type)) return
+      const part = (event as any).properties?.part
+      if (part?.type !== "tool" || !files.has(part.tool) || part.state?.status !== "error") return
+      const callKey = key({sessionID: part.sessionID, callID: part.callID})
+      const call = calls.get(callKey)
+      if (!call) return
+      try {
+        const completed = await finish(call.context, call.protocol, call.target, call.operation, "native_error")
+        if (completed.state === "closed") forgetCycleTarget(call.context.sessionID, call.selection)
+      } catch (error: any) {
+        // Keep uncertainty if persisted native proof is not yet available.
+        const reason = /^continuation_[a-z_]+$/.test(error?.message ?? "") ? error.message : "continuation_capability_unavailable"
+        console.error(`continuation_native_error_deferred:${reason}`)
+        return
+      }
+      calls.delete(callKey)
+      rememberContinuationOperation(call.context)
+    },
     "tool.execute.before": async (input, output) => {
       if (controls.has(input.tool)) return
       const context = nativeContext(home, input)

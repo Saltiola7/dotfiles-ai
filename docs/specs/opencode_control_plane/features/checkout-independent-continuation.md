@@ -112,6 +112,27 @@ pointer, perform Git repair, or edit a Cycle Record to obtain that snapshot.
 
 ## Permissions, Modes And Reload
 
+### Approved Bounded Completion
+
+After native qualification, the operator explicitly authorized a lighter completion
+workflow encompassing the narrow core/adapter `native_error` reconciliation,
+automated and native checks, merge and backed-up targeted host deployment.
+Independent review may remain outstanding for this one rollout, owned by the
+operator and due before the next continuation upgrade. Other checks and rollback
+are not waived; active processes are never restarted automatically. This specific
+approval supersedes the prior pre-rollout review hold, not general future policy.
+
+Preserve `dbsctr_continuation_finish` and Build `ask` permission. Native file-error
+events may request exact completion, but only the core's persisted same-actor,
+same-generation synchronous-file proof permits closure. Explicit completion also
+survives adapter restart. No shell failure or missing terminal proof is completed
+automatically. The shared core compatibility contract owns the checks.
+
+Deployment may explicitly name inspected compatibility commit `70831d0` as an
+additional known Git baseline. It must still match every existing target against
+known committed blobs, record the baseline in its private receipt, recheck drift,
+preserve unrelated config and maintain exact backups. No blanket force adoption.
+
 Add `dbsctr_continuation_bind: ask` and `dbsctr_continuation_release: allow` only to
 validated Build primaries, including the existing provider-affine Build profiles.
 Default both to deny; Plan and children keep mutation denied. Preserve existing

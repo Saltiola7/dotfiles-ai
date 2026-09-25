@@ -220,3 +220,36 @@ console.log(JSON.stringify({state,args}));
     assert value['state']['cycle_id'] == 'cycle-1'
     assert value['state']['next_action'] == 'switch_to_build'
     assert adapter.continuation_path.read_bytes() == before
+
+
+@pytest.mark.parametrize('bound', [False, True])
+def test_failed_file_event_preserves_native_error_without_writer_recovery(adapter, bound):
+    if bound:
+        v2core.bound_writer(adapter)
+    else:
+        legacy.core.enroll(adapter)
+    value = run(adapter, '''
+await hooks["tool.execute.before"]({tool:"write",sessionID:"owner",callID:"call-owner"},
+  {args:{filePath:root+"/tracked.txt"}});
+const part={type:"tool",tool:"write",sessionID:"owner",callID:"call-owner",
+  state:{status:"error",time:{start:10,end:20}}};
+const {Database}=await import("bun:sqlite");
+const db=new Database(process.env.HOME+"/.local/share/opencode/opencode.db");
+db.query("UPDATE part SET data=? WHERE id='call-owner'").run(JSON.stringify(part));db.close();
+await hooks.event({event:{type:"message.part.updated",properties:{part}}});
+console.log(JSON.stringify(await control.preflight(context)));
+''')
+    assert value['state'] == 'owned' and value['generation'] == 1
+    with sqlite3.connect(adapter.continuation_path) as db:
+        assert db.execute('SELECT state,completion_class FROM operations').fetchall() == [('completed', 'native_error')]
+
+
+def test_failed_file_manual_finish_survives_restart_for_legacy_cycle(adapter):
+    legacy.core.enroll(adapter)
+    op = legacy.core.call(adapter, 'admit', generation=1, call_id='call-owner', operation_class='file')
+    with sqlite3.connect(adapter.native_database) as db:
+        db.execute("UPDATE part SET data=? WHERE id='call-owner'", (json.dumps({
+            'type': 'tool', 'tool': 'write', 'callID': 'call-owner',
+            'state': {'status': 'error', 'time': {'start': 10, 'end': 20}}}),))
+    value = run(adapter, f'console.log(JSON.stringify(await control.finishFailedFile(context,{json.dumps(op["operation_id"])})));')
+    assert value['completion_class'] == 'native_error' and value['generation'] == 1
