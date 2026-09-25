@@ -1,5 +1,5 @@
 import { tool as nativeTool } from "@opencode-ai/plugin"
-import { attach as continuationAttach, preflight as continuationPreflight, recover as continuationRecover } from "../lib/continuation"
+import { attach as continuationAttach, bind as continuationBind, diagnosticRoot, diagnosticStatus, preflight as continuationPreflight, recover as continuationRecover, release as continuationRelease } from "../lib/continuation"
 import { withContinuationOperation } from "../lib/dbsctr-runtime"
 import { benchmarkResult, beginCycle, cycleStatus, cycleTarget, fileDigest, fixedCommitInspect, gitDefaultBranch, gitRepositorySlug, historyCapture, historyTelemetry, improvementClaim, improvementStatus, improvementUpdate, incidentForget, incidentRegister, incidentScan, incidentUpdate, initiativeCycleCheck, initiativeReceipt, lifecycleAudit, phaseSpan, providerEvaluation, providerEvaluationSave, reconcileTarget, recordExecutionBenchmark, reviewComplete, reviewFederated, reviewFederatedSummary, reviewHistory, reviewHistorySave, reviewScan, runtimeHealth, validateExecutionDag, validateVmHandoffRequest, verifyVmHandoffParity, vmHandoff, vmHandoffInstance, vmHandoffTarget } from "../lib/dbsctr-runtime"
 
@@ -9,10 +9,10 @@ const tool = Object.assign((definition: any) => nativeTool({
 }), {schema: nativeTool.schema})
 
 export const status = tool({
-  description: "Read authoritative DBSCTR cycle status for the current or attached worktree.",
+  description: "Read authoritative cycle status or bounded diagnostic availability when execution selection cannot resolve.",
   args: {},
   async execute(_args, context) {
-    return await cycleStatus(cycleTarget(context.sessionID, context.worktree))
+    return await diagnosticStatus(context)
   },
 })
 
@@ -26,7 +26,7 @@ export const attach = tool({
 })
 
 export const preflight = tool({
-  description: "Inspect continuation eligibility and loaded adapter capability without attaching or changing state.",
+  description: "Inspect continuation eligibility and loaded adapter/helper capabilities without changing state or claiming deployment qualification.",
   args: {worktree: tool.schema.string().optional()},
   async execute(args, context) {
     return JSON.stringify(await continuationPreflight(context, args.worktree))
@@ -38,6 +38,22 @@ export const continuation_recover = tool({
   args: {worktree: tool.schema.string().optional()},
   async execute(args, context) {
     return JSON.stringify(await continuationRecover(context, args.worktree))
+  },
+})
+
+export const continuation_bind = tool({
+  description: "Explicitly enable v2 continuation for an exact target after native enrollment or binding consent; never claim a writer or infer quiescence.",
+  args: {worktree: tool.schema.string()},
+  async execute(args, context) {
+    return JSON.stringify(await continuationBind(context, args.worktree))
+  },
+})
+
+export const continuation_release = tool({
+  description: "Explicitly release this conversation's selected cycle, relinquishing an idle owned writer; uncertain work requires separate exact-state recovery.",
+  args: {},
+  async execute(_args, context) {
+    return JSON.stringify(await continuationRelease(context))
   },
 })
 
@@ -118,7 +134,7 @@ export const audit = tool({
   description: "Inventory DBSCTR lifecycle artifacts at a fixed Git commit without changing files.",
   args: { commit: tool.schema.string().optional().default("HEAD") },
   async execute(args, context) {
-    return await lifecycleAudit(cycleTarget(context.sessionID, context.worktree), args.commit)
+    return await lifecycleAudit(await diagnosticRoot(context), args.commit)
   },
 })
 
@@ -135,7 +151,7 @@ export const inspect = tool({
     excerpt: tool.schema.number().int().optional(),
   },
   async execute(args, context) {
-    return await fixedCommitInspect(args, cycleTarget(context.sessionID, context.worktree))
+    return await fixedCommitInspect(args, await diagnosticRoot(context))
   },
 })
 

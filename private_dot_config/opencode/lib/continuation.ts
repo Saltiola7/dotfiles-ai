@@ -3,7 +3,8 @@ import { createHash, randomUUID } from "node:crypto"
 import { access, lstat, realpath } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import { continuationRequest, harnessActivation, rememberCycleTarget, run } from "./dbsctr-runtime"
+import { continuationRequest, cycleStatus, forgetCycleTarget, harnessActivation, rememberCycleTarget, run } from "./dbsctr-runtime"
+import type { CycleSelection } from "./dbsctr-runtime"
 
 export type RuntimeContext = {
   sessionID: string, messageID: string, callID?: string, directory: string, worktree: string,
@@ -144,15 +145,205 @@ export function requireSuccess(value: any) {
   return value
 }
 
+const adapterRevision = "checkout-continuation-opencode-2"
+const v2Reasons = new Set([...reasons, "source_unavailable", "branch_mismatch", "registration_missing",
+  "registration_changed", "binding_required", "route_changed", "protocol_unavailable", "capacity_unavailable"])
+const v2Actions = new Set([...actions, "bind", "release", "restore_target"])
+const v2Fields = ["schema_version", "ok", "reason", "cycle_id", "state", "generation", "writer_relation", "binding_id",
+  "route_version", "activation_changes", "checks", "next_action", "expected", "operation_id", "event_id", "request_id",
+  "replayed", "local_target"]
+const expectedFields = ["action", "cycle_id", "binding_id", "generation", "route_version", "state_digest", "record_digest",
+  "registration_digest", "session_key", "activation_digest", "mode", "target_session_id"]
+const operationActions = new Set(["check", "enroll", "bind", "attach", "admit", "finish", "handover", "recover", "release", "resolve"])
+const activationFields = new Set(["schema_version", "provider_id", "model_id", "agent_id", "core_revision", "overlay_revision"])
+const exact = (value: any, keys: string[]) => value !== null && typeof value === "object" && !Array.isArray(value)
+  && Object.keys(value).sort().join(",") === [...keys].sort().join(",")
+const counter = (value: any) => Number.isSafeInteger(value) && value >= 0
+const matches = (pattern: RegExp, value: any) => typeof value === "string" && pattern.test(value)
+const identifier = /^[0-9a-f]{32}$/
+
+export function validateV2(value: any, action: string) {
+  if (!exact(value, v2Fields) || value.schema_version !== 2 || typeof value.ok !== "boolean"
+      || !v2Reasons.has(value.reason) || !v2Actions.has(value.next_action) || typeof value.replayed !== "boolean"
+      || value.cycle_id !== null && !matches(opaque, value.cycle_id)
+      || value.state !== null && !states.has(value.state)
+      || value.generation !== null && !counter(value.generation)
+      || value.route_version !== null && !counter(value.route_version)
+      || ![null, "self", "other", "none"].includes(value.writer_relation)
+      || value.binding_id !== null && !matches(identifier, value.binding_id)
+      || value.operation_id !== null && !matches(identifier, value.operation_id)
+      || value.event_id !== null && (!counter(value.event_id) || value.event_id === 0)
+      || value.request_id !== null && !matches(opaque, value.request_id)
+      || !Array.isArray(value.activation_changes) || value.activation_changes.some((key: any) => !activationFields.has(key))
+      || !exact(value.checks, ["source", "target", "ownership", "storage"])) throw Error("continuation_invalid_response")
+  for (const item of Object.values(value.checks) as any[]) {
+    if (!exact(item, ["status", "reason"]) || !["available", "unavailable", "not_requested"].includes(item.status)
+        || (item.status === "unavailable" ? !v2Reasons.has(item.reason) || item.reason === "ok" : item.reason !== null))
+      throw Error("continuation_invalid_response")
+  }
+  const expected = value.expected
+  if (expected !== null) {
+    if (!exact(expected, expectedFields) || !operationActions.has(expected.action)
+        || expected.cycle_id !== value.cycle_id || expected.binding_id !== value.binding_id
+        || !counter(expected.generation) || expected.generation !== value.generation
+        || !counter(expected.route_version) || expected.route_version !== value.route_version
+        || ![null, "reader", "writer"].includes(expected.mode)
+        || expected.target_session_id !== null && !matches(opaque, expected.target_session_id))
+      throw Error("continuation_invalid_response")
+    for (const key of ["state_digest", "record_digest", "registration_digest", "session_key", "activation_digest"]) {
+      if (expected[key] === null && ["record_digest", "registration_digest"].includes(key)
+          && ["release", "recover"].includes(expected.action)) continue
+      if (!matches(digest, expected[key])) throw Error("continuation_invalid_response")
+    }
+  }
+  if (!value.ok && (expected !== null || value.operation_id !== null || value.event_id !== null || value.local_target !== null))
+    throw Error("continuation_invalid_response")
+  if (value.local_target !== null && (action !== "resolve" || !value.ok
+      || !exact(value.local_target, ["path", "binding_id", "registration_digest"])
+      || typeof value.local_target.path !== "string" || !isAbsolute(value.local_target.path)
+      || /[\x00-\x1f\x7f]/.test(value.local_target.path)
+      || !matches(identifier, value.local_target.binding_id) || value.local_target.binding_id !== value.binding_id
+      || !matches(digest, value.local_target.registration_digest)
+      || value.local_target.registration_digest !== expected?.registration_digest)) throw Error("continuation_invalid_response")
+  return value
+}
+
+export async function requestV2(context: RuntimeContext, action: string, extra: object = {}) {
+  if (!operationActions.has(action)) throw Error("continuation_invalid_action")
+  let raw: string
+  try {
+    raw = await continuationRequest("v2", envelope(context, undefined, {schema_version: 2, action, ...extra}), context.worktree)
+  } catch { throw Error("continuation_helper_unavailable") }
+  if (Buffer.byteLength(raw) > 65536) throw Error("continuation_invalid_response")
+  let value: any
+  try { value = JSON.parse(raw) } catch { throw Error("continuation_protocol_unavailable") }
+  return validateV2(value, action)
+}
+
+function publicResult(value: any) {
+  const {local_target: _privateTarget, ...result} = value
+  return result
+}
+
+function expectedFor(value: any, action: string) {
+  requireSuccess(value)
+  if (value.next_action === "switch_to_build") throw Error("continuation_switch_to_build")
+  if (!value.expected || value.expected.action !== action) throw Error("continuation_approval_required")
+  return value.expected
+}
+
+function requestID(context: RuntimeContext, action: string) {
+  if (!context.callID || !opaque.test(context.callID)) throw Error("continuation_invalid_identity")
+  return createHash("sha256").update(`${context.sessionID}\0${context.messageID}\0${context.callID}\0${action}`).digest("hex")
+}
+
+// Retain bounded exact call bodies for transport retries; the core owns durable replay authority.
+const controlBodies = new Map<string, {signature: string, body: Promise<any>, active: number}>()
+async function mutate(context: RuntimeContext, action: string, parameters: object,
+                      prepare: () => Promise<object>) {
+  const id = requestID(context, action)
+  const signature = JSON.stringify(parameters)
+  let entry = controlBodies.get(id)
+  if (entry && entry.signature !== signature) throw Error("continuation_invalid_identity")
+  if (!entry) {
+    if (controlBodies.size >= 100) {
+      const oldest = [...controlBodies].find(([, value]) => value.active === 0)
+      if (!oldest) throw Error("continuation_state_busy")
+      controlBodies.delete(oldest[0])
+    }
+    entry = {signature, active: 0, body: prepare().then(fields => ({...fields, request_id: id}))}
+    controlBodies.set(id, entry)
+    entry.body.catch(() => { if (controlBodies.get(id) === entry) controlBodies.delete(id) })
+  }
+  entry.active++
+  try { return requireSuccess(await requestV2(context, action, await entry.body)) }
+  finally { entry.active-- }
+}
+
+export function selection(value: any): CycleSelection {
+  if (!matches(opaque, value.cycle_id) || !counter(value.route_version)) throw Error("continuation_invalid_response")
+  return {cycleID: value.cycle_id, routeVersion: value.route_version}
+}
+
+export async function executionState(context: RuntimeContext) {
+  const paired = requireSuccess(await requestV2(context, "check"))
+  if (paired.cycle_id === null || paired.binding_id !== null) return {...paired, protocol: 2}
+  if (paired.checks.target.status !== "available") throw Error(`continuation_${paired.checks.target.reason}`)
+  return {...requireSuccess(await request(context, "check")), protocol: 1, route_version: paired.route_version}
+}
+
+export async function executionTarget(context: RuntimeContext, state: any) {
+  if (state.protocol === 1) return targetPath(context, state.target_worktree_id, selection(state))
+  const prepared = await requestV2(context, "check", {for_action: "resolve"})
+  const expected = expectedFor(prepared, "resolve")
+  if (prepared.cycle_id !== state.cycle_id || prepared.route_version !== state.route_version
+      || prepared.generation !== state.generation || prepared.binding_id !== state.binding_id)
+    throw Error("continuation_route_changed")
+  const resolved = requireSuccess(await requestV2(context, "resolve", {expected}))
+  if (!resolved.local_target) throw Error("continuation_invalid_response")
+  const target = await realpath(resolved.local_target.path)
+  if (target !== resolved.local_target.path) throw Error("continuation_invalid_target")
+  state.resolvedRegistration = resolved.local_target.registration_digest
+  rememberCycleTarget(context.sessionID, target, selection(resolved))
+  return target
+}
+
+export async function admit(context: RuntimeContext, state: any, target: string, kind: string) {
+  if (state.protocol === 1) return requireSuccess(await request(context, "admit", target, {
+    generation: state.generation, call_id: context.callID, operation_class: kind,
+  }))
+  const prepared = await requestV2(context, "check", {for_action: "admit"})
+  const expected = expectedFor(prepared, "admit")
+  if (prepared.cycle_id !== state.cycle_id || prepared.route_version !== state.route_version
+      || prepared.generation !== state.generation || prepared.binding_id !== state.binding_id
+      || expected.registration_digest !== state.resolvedRegistration)
+    throw Error("continuation_route_changed")
+  return requireSuccess(await requestV2(context, "admit", {
+    expected, call_id: context.callID, operation_class: kind,
+  }))
+}
+
+export async function finish(context: RuntimeContext, protocol: number, target: string, operation: string) {
+  return requireSuccess(protocol === 2
+    ? await requestV2(context, "finish", {operation_id: operation, outcome: "completed"})
+    : await request(context, "finish", target, {operation_id: operation, outcome: "completed"}))
+}
+
 export async function preflight(context: RuntimeContext, worktree?: string) {
   const adapter_available = registered.has(resolve(context.worktree))
   try {
-    return {...await request(context, "check", worktree), adapter_available}
+    const value = await requestV2(context, "check", worktree === undefined ? {} : {worktree})
+    return {...publicResult(value), adapter_available, adapter_revision: adapterRevision,
+      capabilities: {protocol: 2, bind: adapter_available, recover: adapter_available, release: adapter_available}}
   } catch {
-    return {schema_version: 1, ok: false, reason: "capability_unavailable", cycle_id: null, state: null,
-      generation: 0, writer_relation: "none", activation_changes: [], next_action: "qualify_runtime",
-      approval_binding: null, operation_id: null, event_id: null, target_worktree_id: null, adapter_available}
+    return {schema_version: 2, ok: false, reason: "capability_unavailable", cycle_id: null, state: null,
+      generation: null, writer_relation: null, activation_changes: [], next_action: "qualify_runtime",
+      expected: null, operation_id: null, event_id: null, binding_id: null, route_version: null,
+      request_id: null, replayed: false, checks: {source: {status: "not_requested", reason: null},
+        target: {status: "unavailable", reason: "capability_unavailable"},
+        ownership: {status: "unavailable", reason: "capability_unavailable"},
+        storage: {status: "unavailable", reason: "capability_unavailable"}},
+      adapter_available, adapter_revision: adapterRevision,
+      capabilities: {protocol: null, bind: false, recover: false, release: false}}
   }
+}
+
+export async function diagnosticRoot(context: RuntimeContext) {
+  const state = await preflight(context)
+  if (!state.ok || state.cycle_id === null || state.checks.target.status !== "available") return context.worktree
+  try { return await executionTarget(context, await executionState(context)) }
+  catch { return context.worktree }
+}
+
+export async function diagnosticStatus(context: RuntimeContext) {
+  const state = await preflight(context)
+  if (!state.ok || state.cycle_id !== null && (state.checks.target.status !== "available"
+      || state.next_action === "switch_to_build")) return JSON.stringify(state)
+  try {
+    const target = state.cycle_id === null ? context.worktree : await executionTarget(context, await executionState(context))
+    const record = await cycleStatus(target)
+    return state.cycle_id !== null && record.trim() === "null" ? JSON.stringify(await preflight(context)) : record
+  } catch { return JSON.stringify(await preflight(context)) }
 }
 
 async function storageRequest(context: RuntimeContext, action: string, worktree: string, extra: object = {}) {
@@ -175,7 +366,7 @@ async function storageRequest(context: RuntimeContext, action: string, worktree:
   return requireSuccess(value)
 }
 
-export async function targetPath(context: RuntimeContext, id: string) {
+export async function targetPath(context: RuntimeContext, id: string, selected?: CycleSelection) {
   const [initial, listing] = await Promise.all([
     run(["git", "rev-list", "--max-parents=0", "HEAD"], context.worktree),
     run(["git", "worktree", "list", "--porcelain"], context.worktree),
@@ -190,14 +381,14 @@ export async function targetPath(context: RuntimeContext, id: string) {
   })
   if (matches.length !== 1) throw Error("continuation_invalid_target")
   const target = await realpath(matches[0])
-  rememberCycleTarget(context.sessionID, target)
+  rememberCycleTarget(context.sessionID, target, selected)
   return target
 }
 
 async function approval(context: RuntimeContext, permission: string, binding: any) {
   if (!binding || !context.ask) throw Error("continuation_approval_required")
   await context.ask({permission, patterns: [JSON.stringify(binding)], always: [], metadata: {
-    action: binding.action, quiescenceRequired: ["enroll", "recover", "handover", "storage-recover"].includes(binding.action),
+    action: binding.action, quiescenceRequired: ["enroll", "bind", "recover", "handover", "storage-recover"].includes(binding.action),
   }})
   return {receipt_id: randomUUID(), binding}
 }
@@ -208,6 +399,20 @@ function requireAdapter(context: RuntimeContext) {
 
 export async function attach(context: RuntimeContext, worktree?: string, mode = "writer") {
   requireAdapter(context)
+  const paired = requireSuccess(await requestV2(context, "check", worktree === undefined ? {} : {worktree}))
+  if (paired.next_action === "switch_to_build") throw Error("continuation_switch_to_build")
+  if (paired.binding_id !== null) {
+    const extra = {mode, ...(worktree === undefined ? {} : {worktree})}
+    const attached = await mutate(context, "attach", extra, async () => {
+      const prepared = await requestV2(context, "check", {for_action: "attach", ...extra})
+      const expected = expectedFor(prepared, "attach")
+      const consent = prepared.activation_changes.includes("provider_id")
+        ? await approval(context, "dbsctr_continuation_provider", expected) : undefined
+      return {...extra, expected, ...(consent ? {approval: consent} : {})}
+    })
+    await executionTarget(context, {...attached, protocol: 2})
+    return publicResult(attached)
+  }
   let state = requireSuccess(await request(context, "check", worktree, {action: "enroll"}))
   if (state.cycle_id === null) throw Error("continuation_select_target")
   if (state.reason === "not_enrolled") {
@@ -221,25 +426,56 @@ export async function attach(context: RuntimeContext, worktree?: string, mode = 
   const attached = requireSuccess(await request(context, "attach", worktree, {
     mode, generation: state.generation, ...(consent ? {approval: consent} : {}),
   }))
-  await targetPath(context, attached.target_worktree_id)
+  const selected = requireSuccess(await requestV2(context, "check"))
+  await targetPath(context, attached.target_worktree_id, selection(selected))
   return attached
+}
+
+export async function bind(context: RuntimeContext, worktree: string) {
+  requireAdapter(context)
+  const state = requireSuccess(await requestV2(context, "check", {worktree}))
+  if (state.next_action === "switch_to_build") throw Error("continuation_switch_to_build")
+  if (state.binding_id !== null) return publicResult(state)
+  if (state.writer_relation !== "none" || state.next_action === "confirm_quiescence"
+      || ["owned", "draining", "recovery_required"].includes(state.state)) throw Error("continuation_recovery_required")
+  const action = state.state === null ? "enroll" : "bind"
+  const prepared = await requestV2(context, "check", {worktree, for_action: action})
+  const expected = expectedFor(prepared, action)
+  const consent = await approval(context, `dbsctr_continuation_${action}`, expected)
+  return publicResult(requireSuccess(await requestV2(context, action, {
+    worktree, expected, request_id: requestID(context, action), approval: consent,
+  })))
+}
+
+export async function release(context: RuntimeContext) {
+  requireAdapter(context)
+  const released = await mutate(context, "release", {}, async () => {
+    const prepared = await requestV2(context, "check", {for_action: "release"})
+    return {expected: expectedFor(prepared, "release")}
+  })
+  forgetCycleTarget(context.sessionID, selection(released))
+  return publicResult(released)
 }
 
 export async function recover(context: RuntimeContext, worktree?: string, targetSessionId?: string) {
   requireAdapter(context)
   const action = targetSessionId === undefined ? "recover" : "handover"
   const fields = targetSessionId === undefined ? {} : {target_session_id: targetSessionId}
-  let state = await request(context, "check", worktree, {action, ...fields})
-  if (!state.ok && state.reason === "invalid_state" && action === "recover") {
-    if (!worktree) throw Error("continuation_select_target_for_storage_recovery")
-    const snapshot = await storageRequest(context, "storage-check", worktree)
-    const consent = await approval(context, "dbsctr_continuation_storage_recover", snapshot.binding)
-    await storageRequest(context, "storage-recover", worktree, {approval: consent})
-    state = await request(context, "check", worktree, {action, ...fields})
-  }
-  requireSuccess(state)
-  const consent = await approval(context, `dbsctr_continuation_${action}`, state.approval_binding)
-  return requireSuccess(await request(context, action, worktree, {...fields, generation: state.generation, approval: consent}))
+  const target = worktree === undefined ? {} : {worktree}
+  const result = await mutate(context, action, {...target, ...fields}, async () => {
+    let state = await requestV2(context, "check", {for_action: action, ...target, ...fields})
+    if (!state.ok && state.reason === "invalid_state" && action === "recover") {
+      if (!worktree) throw Error("continuation_select_target_for_storage_recovery")
+      const snapshot = await storageRequest(context, "storage-check", worktree)
+      const consent = await approval(context, "dbsctr_continuation_storage_recover", snapshot.binding)
+      await storageRequest(context, "storage-recover", worktree, {approval: consent})
+      state = await requestV2(context, "check", {for_action: action, ...target, ...fields})
+    }
+    const expected = expectedFor(state, action)
+    const consent = await approval(context, `dbsctr_continuation_${action}`, expected)
+    return {...(action === "recover" ? target : {}), ...fields, expected, approval: consent}
+  })
+  return publicResult(result)
 }
 
 function inside(root: string, path: string) {

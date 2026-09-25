@@ -10,6 +10,8 @@ permission:
   dbsctr_begin: allow
   dbsctr_attach: allow
   dbsctr_continuation_enroll: ask
+  dbsctr_continuation_bind: ask
+  dbsctr_continuation_release: allow
   dbsctr_continuation_provider: ask
   dbsctr_continuation_recover: ask
   dbsctr_continuation_storage_recover: ask

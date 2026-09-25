@@ -1,8 +1,10 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { childRead, cyclePath, explicitCycleMutation, nativeContext, registerAdapter, request, requireSuccess, storeExists, targetPath } from "../lib/continuation"
+import { admit, childRead, cyclePath, executionState, executionTarget, explicitCycleMutation, finish, nativeContext, registerAdapter, selection, storeExists } from "../lib/continuation"
 import { continuationOperation, forgetCycleTarget, rememberContinuationOperation } from "../lib/dbsctr-runtime"
+import type { CycleSelection } from "../lib/dbsctr-runtime"
 
-const controls = new Set(["dbsctr_begin", "dbsctr_attach", "dbsctr_preflight", "dbsctr_continuation_recover", "dbsctr_continuation_handover"])
+const controls = new Set(["dbsctr_begin", "dbsctr_attach", "dbsctr_preflight", "dbsctr_continuation_recover", "dbsctr_continuation_handover", "dbsctr_continuation_bind", "dbsctr_continuation_release"])
+const diagnostics = new Set(["dbsctr_inspect", "dbsctr_audit", "dbsctr_status"])
 const readers = new Set(["read", "glob", "grep", "list", "skill", "question", "todowrite", "webfetch", "websearch",
   "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "dbsctr_status", "dbsctr_audit", "dbsctr_inspect",
   "dbsctr_runtime_health", "dbsctr_review", "dbsctr_review_history", "dbsctr_history_telemetry", "dbsctr_history_capture",
@@ -17,7 +19,8 @@ export const Continuation: Plugin = async ({worktree, directory}) => {
   // No optional SDK/network call may prevent hooks from being registered.
   registerAdapter(worktree)
   const home = {worktree, directory}
-  const calls = new Map<string, {context: ReturnType<typeof nativeContext>, target: string, operation: string}>()
+  const calls = new Map<string, {context: ReturnType<typeof nativeContext>, target: string, operation: string,
+    protocol: number, selection: CycleSelection}>()
   const key = (input: {sessionID: string, callID: string}) => `${input.sessionID}\0${input.callID}`
   return {
     "tool.execute.before": async (input, output) => {
@@ -28,16 +31,22 @@ export const Continuation: Plugin = async ({worktree, directory}) => {
         await childRead(context, input.tool, output.args)
         return
       }
+      if (diagnostics.has(input.tool)) return
       if (!await storeExists(worktree)) return
-      const state = await request(context, "check")
-      if (!state.ok && ["invalid_state", "invalid_target"].includes(state.reason)
-          && readers.has(input.tool) && !input.tool.startsWith("dbsctr_")) return
-      requireSuccess(state)
+      let state: any
+      try { state = await executionState(context) }
+      catch (error) {
+        if (readers.has(input.tool) && !input.tool.startsWith("dbsctr_")) return
+        throw error
+      }
       if (state.reason === "not_enrolled" && state.cycle_id === null) {
+        forgetCycleTarget(context.sessionID)
         if (await explicitCycleMutation(directory, input.tool, output.args)) throw Error("continuation_attachment_required")
         return
       }
-      const target = await targetPath(context, state.target_worktree_id)
+      if (state.protocol === 2 && (state.checks.target.status !== "available" || state.next_action === "switch_to_build")
+          && readers.has(input.tool) && !input.tool.startsWith("dbsctr_")) return
+      const target = await executionTarget(context, state)
       const args = output.args
       if (readers.has(input.tool)) {
         if (input.tool === "read") args.filePath = await cyclePath(directory, target, args.filePath)
@@ -65,10 +74,9 @@ export const Continuation: Plugin = async ({worktree, directory}) => {
         } else args.filePath = await cyclePath(directory, target, args.filePath, true)
       }
       if (kind === "shell") args.workdir = await cyclePath(directory, target, args.workdir ?? ".", true)
-      const admitted = requireSuccess(await request(context, "admit", target, {
-        generation: state.generation, call_id: input.callID, operation_class: kind,
-      }))
-      calls.set(key(input), {context, target, operation: admitted.operation_id})
+      const admitted = await admit(context, state, target, kind)
+      calls.set(key(input), {context, target, operation: admitted.operation_id, protocol: state.protocol,
+        selection: selection(state)})
       rememberContinuationOperation(context, admitted.operation_id)
     },
     "shell.env": async (input, output) => {
@@ -81,15 +89,15 @@ export const Continuation: Plugin = async ({worktree, directory}) => {
         return
       }
       const context = nativeContext(home, {sessionID: input.sessionID, callID: input.callID})
-      const state = requireSuccess(await request(context, "check"))
+      const state = await executionState(context)
       if (state.cycle_id !== null) throw Error("continuation_unmediated_shell")
     },
     "tool.execute.after": async (input, output) => {
       const call = calls.get(key(input))
       if (!call) return
-      const finished = requireSuccess(await request(call.context, "finish", call.target, {operation_id: call.operation, outcome: "completed"}))
+      const finished = await finish(call.context, call.protocol, call.target, call.operation)
       if (finished.state === "closed") {
-        forgetCycleTarget(call.context.sessionID)
+        forgetCycleTarget(call.context.sessionID, call.selection)
         output.output += "\nDBSCTR cycle completed; execution selection released. This conversation remains in its canonical checkout."
       }
       calls.delete(key(input))

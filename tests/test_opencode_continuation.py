@@ -51,7 +51,9 @@ const hooks=await Continuation({{worktree:root,directory:root}});
 def test_adapter_preflight_does_not_enroll(adapter):
     result = bun(adapter, 'console.log(JSON.stringify(await control.preflight(context,root)));')
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["reason"] == "not_enrolled"
+    value = json.loads(result.stdout)
+    assert value["schema_version"] == 2
+    assert value["state"] is None and value["next_action"] == "enroll"
     assert not adapter.continuation_path.exists()
 
 
