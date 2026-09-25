@@ -6,14 +6,33 @@ Discovery persisted 2026-09-24. Operator approved the existing three-context map
 qualified host deployment plus recovery of the nominated blocked conversation,
 and one explicit release action for an idle current writer. Scope approval is
 not a digest-bound implementation launch receipt or an assertion of quiescence.
-No implementation, installation or live recovery is claimed by this document.
+Core source delivery is recorded below; no installation or live recovery is claimed.
 
 Home: `Saltiola7/dotfiles-ai`; machine authority: [MANIFEST.json](MANIFEST.json),
-INT-035 through INT-049. This corrective release group extends
+INT-035 through INT-053. This corrective release group extends
 [canonical continuation](CANONICAL-CONTINUATION.md), retaining delivered-slice
 history. It is independent of automatic merge. Proposed behavior below governs
 the new slices once readiness is closed; it does not describe currently installed
 capabilities or waive the delivered runtime's checks.
+
+### Core Delivery And Adapter Readiness
+
+Core merged as `24ff69a256808c3b9f0d85bcca63dadb703c10e9` in PR #178 after all
+three required Python CI jobs passed. The recorded operator-owned independent
+review deferral expires before adapter rollout or any live v2 activation. Source
+merge is not deployment; no independent review was recorded on that PR at this
+readiness check.
+
+The original conversation was restarted before an adapter/deployment existed and
+correctly reported old controls, invalid target and unavailable release. Its Plan
+mode did not grant recovery authority. This is a missing delivery dependency, not
+evidence that another checkout experiment or another restart is needed now.
+
+The [OpenCode adapter specification](../../specs/opencode_control_plane/features/checkout-independent-continuation.md)
+defines the next ready source slice: explicit bind/recover/release controls,
+target-independent diagnostics, paired protocol validation, versioned route cache
+handling and real native qualification. Rollout remains captured and requires
+completed independent review before installation or live activation.
 
 ## Problem And Evidence
 
@@ -234,7 +253,11 @@ Three companion `CHECKOUT-INDEPENDENT-CONTINUATION-*.plan.json` files live under
 their owning context specifications. Build uses the committed profile identities
 and materializes the execution plan through the supported lifecycle boundary.
 
-| Gate | Core / adapter | Rollout | Result | Exception |
+The following is the original planning ledger. Core actual delivery and its review
+deferral are recorded above and in its Cycle Record; adapter/rollout results remain
+pending until their own cycles supply evidence.
+
+| Gate | Core / adapter | Rollout | Initial result | Initial exception |
 |---|---|---|---|---|
 | Domain | required | required | pending | none |
 | Behavior | required | required | pending | none |
@@ -264,10 +287,10 @@ Specification readiness closure:
 4. Qualify critical-risk independent review through available authorized review;
    an unavailable reviewer is a gate gap, never self-approved risk acceptance.
 
-Core specification is ready; downstream slices remain captured pending delivered
-dependencies. Launch feasibility and exact digest-bound launch approval are
-separate. Do not mark older delivered slices undelivered or reuse their receipts.
-No implementation or live deployment gate has passed here.
+Core is delivered and the adapter specification is ready against that merged
+dependency; rollout remains captured. Adapter launch feasibility and exact
+digest-bound approval are separate from specification readiness. Do not reuse the
+core receipt or claim adapter/native/deployment evidence from core test results.
 
 Initial persistence validation: `initiative-check` accepted 47 statements, three contexts,
 nine slices and four release groups. Read-only validation confirmed all referenced
