@@ -6898,6 +6898,15 @@ def continuation_codex_operation_identity(root, operation):
     try:
         parent = (Path.home() / ".local/state/dbsctr/codex").resolve(strict=True)
         descriptor = parent / "selected.json"
+        current_core = Path(__file__).resolve()
+        qualification = parent / "qualification"
+        if os.path.lexists(qualification):
+            qualification = qualification.resolve(strict=True)
+            continuation_private(qualification, directory=True)
+            if current_core == qualification / "executable_dbsctrctl":
+                descriptor = qualification / "selected.json"
+            elif not (qualification / "restored.json").exists():
+                raise ValueError("qualification_active")
         continuation_private(parent, directory=True)
         continuation_private(descriptor)
         with descriptor.open("rb") as stream:
@@ -6905,7 +6914,6 @@ def continuation_codex_operation_identity(root, operation):
         if len(raw) > 16384:
             raise ValueError("descriptor_bound")
         deployment = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-        current_core = Path(__file__).resolve()
         filename = "executable_codex-continuation" if current_core.name == "executable_dbsctrctl" else "codex-continuation"
         source = current_core.with_name(filename)
         if deployment["producer"]["path"] != str(source):

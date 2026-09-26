@@ -567,10 +567,69 @@ def configured_deployment():
     # Only the managed installation selects this path. No writer CLI override.
     parent = (Path.home() / ".local/state/dbsctr/codex").resolve(strict=True)
     path = parent / "selected.json"
+    qualification = parent / "qualification"
+    if os.path.lexists(qualification):
+        qualification = qualification.resolve(strict=True)
+        private_path(qualification, directory=True)
+        if Path(__file__).resolve() == qualification / "executable_codex-continuation":
+            path = qualification / "selected.json"
+            deployment = load_deployment(path)
+            try:
+                check_qualification_route(parent, qualification, deployment)
+            except (OSError, ValueError, TypeError, KeyError, RecursionError):
+                raise NativeIdentityError("qualification_invalid") from None
+            return path, deployment
+        if not (qualification / "restored.json").exists():
+            raise NativeIdentityError("qualification_active")
     deployment = load_deployment(path)
     if Path(deployment["producer"]["path"]) != Path(__file__).resolve():
         raise NativeIdentityError("deployment_invalid")
     return path, deployment
+
+
+def qualification_bytes(path, maximum=1048576, *, hook_config=False):
+    """Bounded owner-only route data; no authority from an environment or CLI path."""
+    canonical_path(str(path), directory=False)
+    if hook_config:
+        item = path.lstat()
+        if item.st_uid != os.getuid() or item.st_nlink != 1 or item.st_mode & 0o022:
+            raise NativeIdentityError("qualification_invalid")
+    else:
+        private_path(path)
+    with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        raw = stream.read(maximum + 1)
+    if len(raw) > maximum or file_identity(before) != file_identity(path.lstat()):
+        raise NativeIdentityError("qualification_invalid")
+    return raw
+
+
+def check_qualification_route(parent, qualification, deployment):
+    if (qualification / "restored.json").exists():
+        raise NativeIdentityError("qualification_closed")
+    route = json.loads(qualification_bytes(qualification / "route.json"), object_pairs_hook=unique_object)
+    installed = json.loads(qualification_bytes(qualification / "install.complete.json"), object_pairs_hook=unique_object)
+    production_raw = qualification_bytes(parent / "selected.json", 16384)
+    production = json.loads(production_raw, object_pairs_hook=unique_object)
+    hooks = Path(production["native_home"]) / "hooks.json"
+    if (route.get("schema_version") != 1
+            or route["production_sha256"] != hashlib.sha256(production_raw).hexdigest()
+            or route["deployment_digest"] != canonical_digest(deployment)
+            or installed.get("after_sha256") != route["hooks_after_sha256"]
+            or hashlib.sha256(qualification_bytes(hooks, hook_config=True)).hexdigest() != route["hooks_after_sha256"]
+            or deployment["conversation_id"] != production["conversation_id"]
+            or deployment["conversation_home"] != production["conversation_home"]
+            or deployment["native_home"] != production["native_home"]
+            or deployment["native_executable"]["path"] != production["native_executable"]["path"]
+            or deployment["native_executable"]["sha256"] == production["native_executable"]["sha256"]
+            or deployment["target"]["common_git_dir"] == production["target"]["common_git_dir"]
+            or deployment["producer"]["path"] != str(qualification / "executable_codex-continuation")
+            or deployment["core"]["path"] != str(qualification / "executable_dbsctrctl")):
+        raise NativeIdentityError("qualification_invalid")
+    # Old loaded production hooks remain fail-closed on the changed native pin.
+    # Qualification never modifies that descriptor or its journal.
+    pinned_file(production["producer"])
+    pinned_file(production["core"])
 
 
 def configured_store(path):
@@ -1199,7 +1258,9 @@ def native_hook_response(raw, conversation):
                 store.finish(value["receipt_id"], value["operation_id"], outcome)
             return {}
         if selection_closed(load_core(deployment), Path(deployment["target"]["worktree"]),
-                            deployment["target"]["cycle_id"]):
+                             deployment["target"]["cycle_id"]):
+            if path.parent == (Path.home() / ".local/state/dbsctr/codex/qualification").resolve():
+                raise NativeIdentityError("qualification_closed")
             return {}  # Terminal release grants no new cycle or writer authority.
         thread, turn = read_native_metadata(Path(deployment["native_executable"]["path"]),
                                            Path(deployment["native_home"]), conversation)

@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""Operator-managed native qualification lane. Never refresh a production pin.
+
+Stage is preparation, not native trust, enrollment, quiescence or qualification.
+Hook transactions retain both files using atomic exchange, including racing edits.
+"""
+import argparse
+import contextlib
+import ctypes
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import runpy
+import shlex
+import stat
+import subprocess
+import sys
+import uuid
+
+
+def digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def read(path, maximum=1048576):
+    item = path.lstat()
+    if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+            or item.st_nlink != 1 or item.st_mode & 0o022):
+        raise ValueError("unsafe_file")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        raw = stream.read(maximum + 1)
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if len(raw) > maximum or identity(before) != identity(path.stat()):
+        raise ValueError("file_drift")
+    return raw
+
+
+def write_new(path, raw, mode=0o600):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+    sync_directory(path.parent)
+
+
+def json_new(path, value):
+    write_new(path, (json.dumps(value, sort_keys=True, indent=2) + "\n").encode())
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def exchange_files(left, right):
+    """No destructive rename fallback: retain the displaced inode even on a race."""
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        function, directory = library.renameatx_np, -2
+    elif sys.platform.startswith("linux"):
+        function, directory = library.renameat2, -100
+    else:
+        raise ValueError("atomic_exchange_unavailable")
+    function.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    function.restype = ctypes.c_int
+    if function(directory, os.fsencode(left), directory, os.fsencode(right), 2):
+        raise OSError(ctypes.get_errno(), "atomic_exchange_failed")
+
+
+def replace_hooks(path, before, after, evidence, action):
+    # No overwrite/force option. An interrupted intent requires explicit recovery.
+    if read(path) != before:
+        raise ValueError("hook_drift")
+    exchange = path.with_name(".codex-requalify-" + uuid.uuid4().hex + ".exchange")
+    write_new(exchange, after, stat.S_IMODE(path.stat().st_mode))
+    intent = {"schema_version": 1, "hook": str(path), "exchange": str(exchange),
+              "before_sha256": digest(before), "after_sha256": digest(after)}
+    json_new(evidence / (action + ".intent.json"), intent)
+    if read(path) != before:
+        raise ValueError("hook_drift")
+    exchange_files(exchange, path)
+    sync_directory(path.parent)
+    if read(exchange) != before or read(path) != after:
+        # Both versions survive. Never guess which concurrent edit to restore.
+        raise ValueError("hook_drift_retained_at_exchange")
+    json_new(evidence / (action + ".complete.json"), intent)
+
+
+def fixture_hooks(raw, production, producer):
+    value = json.loads(raw)
+    counts = {"PreToolUse": 0, "PostToolUse": 0}
+    matchers = {"PreToolUse": "^(Bash|apply_patch|Edit|Write|mcp__.*)$", "PostToolUse": "^Bash$"}
+    for event, groups in value["hooks"].items():
+        for group in groups:
+            for hook in group["hooks"]:
+                words = shlex.split(hook.get("command", ""))
+                expected = [production["producer"]["path"], "hook", "--conversation", production["conversation_id"]]
+                if len(words) == 5 and words[1:] == expected:
+                    if (event not in counts or group.get("matcher") != matchers[event]
+                            or hook.get("type") != "command"):
+                        raise ValueError("unsupported_hook_mapping")
+                    counts[event] += 1
+                    hook["command"] = shlex.join([sys.executable, str(producer), *words[2:]])
+                elif production["producer"]["path"] in hook.get("command", ""):
+                    raise ValueError("ambiguous_hook_mapping")
+    if counts != {"PreToolUse": 1, "PostToolUse": 1}:
+        raise ValueError("ambiguous_hook_mapping")
+    return (json.dumps(value, indent=2) + "\n").encode()
+
+
+def paths():
+    parent = (Path.home() / ".local/state/dbsctr/codex").resolve(strict=True)
+    item = parent.stat()
+    if item.st_uid != os.getuid() or item.st_mode & 0o077:
+        raise ValueError("unsafe_directory")
+    return parent, parent / "qualification"
+
+
+@contextlib.contextmanager
+def management_lock(parent):
+    fd = os.open(parent / "qualification.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        item = os.fstat(fd)
+        if item.st_uid != os.getuid() or item.st_mode & 0o077 or item.st_nlink != 1:
+            raise ValueError("unsafe_lock")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
+
+
+def load_api(directory):
+    return runpy.run_path(str(directory / source_name("executable_codex-continuation")), run_name="qualification_manager")
+
+
+def source_name(name):
+    return name if Path(__file__).name.startswith("executable_") else name.removeprefix("executable_")
+
+
+def stage(args, parent, selected):
+    if os.path.lexists(selected):
+        raise ValueError("qualification_already_exists")
+    directory = args.directory
+    if (not directory.is_absolute() or directory.exists()
+            or directory.parent.resolve(strict=True) != directory.parent
+            or directory.parent.stat().st_dev == Path.home().stat().st_dev):
+        raise ValueError("new_external_directory_required")
+    api = load_api(Path(__file__).resolve().parent)
+    production_raw = read(parent / "selected.json", 16384)
+    production = json.loads(production_raw, object_pairs_hook=api["unique_object"])
+    native = production["native_executable"]["path"]
+    candidate_native = {"path": native, "sha256": args.native_sha256}
+    api["pinned_file"](candidate_native)
+    if args.native_sha256 == production["native_executable"]["sha256"]:
+        raise ValueError("production_must_remain_pin_blocked")
+    for name in ("producer", "core"):
+        api["pinned_file"](production[name])
+    fixture = args.fixture.resolve(strict=True)
+    if fixture.stat().st_dev == Path.home().stat().st_dev:
+        raise ValueError("external_fixture_required")
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    common = subprocess.check_output(["git", "-C", str(fixture), "rev-parse", "--path-format=absolute",
+                                      "--git-common-dir"], env=env, text=True).strip()
+    if common == production["target"]["common_git_dir"]:
+        raise ValueError("production_repository_forbidden")
+    if not api["IDENTIFIER"].fullmatch(args.cycle):
+        raise ValueError("invalid_cycle")
+    core = runpy.run_path(str(Path(__file__).resolve().with_name(source_name("executable_dbsctrctl"))),
+                          run_name="qualification_fixture_validation")
+    _, record = core["load"](fixture)
+    if record["cycle_id"] != args.cycle or record["state"] != "active":
+        raise ValueError("fixture_cycle_mismatch")
+    hooks = Path(production["native_home"]) / "hooks.json"
+    hooks_raw = read(hooks)
+    directory.mkdir(mode=0o700)
+    for source in ("executable_codex-continuation", "executable_dbsctrctl"):
+        write_new(directory / source, read(Path(__file__).resolve().with_name(source_name(source)), 4 * 1024 * 1024), 0o700)
+    deployment = {**production, "native_executable": candidate_native,
+                  "target": {"worktree": str(fixture), "common_git_dir": common, "cycle_id": args.cycle}}
+    for name, source in (("producer", "executable_codex-continuation"), ("core", "executable_dbsctrctl")):
+        deployment[name] = {"path": str(directory / source), "sha256": digest(read(directory / source, 4 * 1024 * 1024))}
+    json_new(directory / "selected.json", deployment)
+    if api["load_deployment"](directory / "selected.json") != deployment:
+        raise ValueError("fixture_descriptor_invalid")
+    hooks_after = fixture_hooks(hooks_raw, production, directory / "executable_codex-continuation")
+    write_new(directory / "production.before.json", production_raw)
+    write_new(directory / "hooks.before.json", hooks_raw)
+    write_new(directory / "hooks.fixture.json", hooks_after)
+    json_new(directory / "route.json", {"schema_version": 1,
+             "production_sha256": digest(production_raw), "deployment_digest": api["canonical_digest"](deployment),
+             "hooks_before_sha256": digest(hooks_raw), "hooks_after_sha256": digest(hooks_after)})
+    api["NativeReceiptStore"](directory / "native").initialize()
+    if read(parent / "selected.json") != production_raw or read(hooks) != hooks_raw:
+        raise ValueError("production_drift")
+    selected.symlink_to(directory, target_is_directory=True)
+    sync_directory(parent)
+    print("Staged only. Native hooks unchanged; trust and fixture enrollment not granted.")
+
+
+def change_route(action, parent, selected):
+    directory = selected.resolve(strict=True)
+    api = load_api(Path(__file__).resolve().parent)
+    api["private_path"](directory, directory=True)
+    production_raw = read(parent / "selected.json", 16384)
+    if production_raw != read(directory / "production.before.json", 16384):
+        raise ValueError("production_drift")
+    production = json.loads(production_raw)
+    hooks = Path(production["native_home"]) / "hooks.json"
+    before, after = read(directory / "hooks.before.json"), read(directory / "hooks.fixture.json")
+    route = json.loads(read(directory / "route.json"))
+    if (digest(before) != route["hooks_before_sha256"] or digest(after) != route["hooks_after_sha256"]
+            or digest(production_raw) != route["production_sha256"]):
+        raise ValueError("evidence_drift")
+    if (directory / "restored.json").exists():
+        raise ValueError("qualification_closed")
+    if action == "install":
+        deployment = api["load_deployment"](directory / "selected.json")
+        if api["canonical_digest"](deployment) != route["deployment_digest"]:
+            raise ValueError("candidate_drift")
+        replace_hooks(hooks, before, after, directory, "install")
+    elif action == "restore":
+        # Retain uncertainty; restoration never marks fixture operations completed.
+        replace_hooks(hooks, after, before, directory, "restore")
+        json_new(directory / "restored.json", {"hooks_sha256": digest(before), "production_sha256": digest(production_raw)})
+    elif action == "recover":
+        # Only reconcile an exchange whose exact two byte images are still present.
+        for name in ("restore", "install"):
+            intent_path = directory / (name + ".intent.json")
+            complete = directory / (name + ".complete.json")
+            if not intent_path.exists() or complete.exists():
+                continue
+            intent = json.loads(read(intent_path))
+            expected_before, expected_after = (before, after) if name == "install" else (after, before)
+            exchange = Path(intent["exchange"])
+            if (intent["hook"] != str(hooks) or exchange.parent != hooks.parent
+                    or not exchange.name.startswith(".codex-requalify-")
+                    or digest(expected_before) != intent["before_sha256"]
+                    or digest(expected_after) != intent["after_sha256"]):
+                raise ValueError("intent_invalid")
+            live, retained = read(hooks), read(exchange)
+            if live == expected_before and retained == expected_after:
+                exchange_files(exchange, hooks)
+                sync_directory(hooks.parent)
+            if read(hooks) != expected_after or read(exchange) != expected_before:
+                raise ValueError("drift_preserved_manual_reconciliation_required")
+            json_new(complete, intent)
+        if (directory / "restore.complete.json").exists() and read(hooks) == before:
+            json_new(directory / "restored.json", {"hooks_sha256": digest(before), "production_sha256": digest(production_raw)})
+    if read(parent / "selected.json") != production_raw:
+        raise ValueError("production_drift")
+    print("Route transaction recorded. This is not native trust or qualification evidence.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    prepare = commands.add_parser("stage")
+    prepare.add_argument("--directory", type=Path, required=True)
+    prepare.add_argument("--fixture", type=Path, required=True)
+    prepare.add_argument("--cycle", required=True)
+    prepare.add_argument("--native-sha256", required=True)
+    for action in ("install", "restore", "recover"):
+        commands.add_parser(action)
+    args = parser.parse_args()
+    os.umask(0o077)
+    try:
+        parent, selected = paths()
+        with management_lock(parent):
+            if args.command == "stage":
+                stage(args, parent, selected)
+            else:
+                change_route(args.command, parent, selected)
+    except Exception:
+        # Includes content-free producer errors without exposing descriptor content.
+        print("codex-requalify: refused; preserve route evidence and inspect recovery procedure", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
