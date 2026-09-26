@@ -145,9 +145,121 @@ def source_name(name):
     return name if Path(__file__).name.startswith("executable_") else name.removeprefix("executable_")
 
 
+def verify_native_candidate(api, pin, version):
+    if (type(version) is not str or not 1 <= len(version) <= 64
+            or any(char not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-+" for char in version)):
+        raise ValueError("native_version_invalid")
+    api["pinned_file"](pin)
+    subprocess.run(["codesign", "--verify", "--strict",
+                    '-R=anchor apple generic and certificate leaf[subject.OU] = "2DC432GLL2"', pin["path"]],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    result = subprocess.run([pin["path"], "--version"], check=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, timeout=10)
+    if result.stdout.strip() != ("codex-cli " + version).encode("ascii"):
+        raise ValueError("native_version_mismatch")
+    api["pinned_file"](pin)
+
+
+def restored_lane(parent, selected, production_raw, hooks_raw, api, core):
+    """Narrow transition: only a restored, never-enrolled fixture with no approvals."""
+    previous = selected.resolve(strict=True)
+    api["private_path"](previous, directory=True)
+    route = json.loads(read(previous / "route.json"))
+    restored = json.loads(read(previous / "restored.json"))
+    completed = json.loads(read(previous / "restore.complete.json"))
+    deployment = json.loads(read(previous / "selected.json", 16384))
+    if (read(previous / "production.before.json", 16384) != production_raw
+            or read(previous / "hooks.before.json") != hooks_raw
+            or route["production_sha256"] != digest(production_raw)
+            or restored != {"production_sha256": digest(production_raw), "hooks_sha256": digest(hooks_raw)}
+            or completed["after_sha256"] != digest(hooks_raw)
+            or route["hooks_before_sha256"] != digest(hooks_raw)
+            or route["deployment_digest"] != api["canonical_digest"](deployment)):
+        raise ValueError("restored_lane_drift")
+    for name in ("producer", "core"):
+        api["pinned_file"](deployment[name])
+    with api["NativeReceiptStore"](previous / "native").connection() as db:
+        blocked = (db is None or db.execute("SELECT 1 FROM receipts WHERE tool!='lifecycle' OR state!='issued' LIMIT 1").fetchone()
+                   or db.execute("SELECT 1 FROM operator_approvals LIMIT 1").fetchone())
+    if blocked:
+        raise ValueError("fixture_approval_or_operation_requires_recovery")
+    target = api["canonical_path"](deployment["target"]["worktree"], directory=True)
+    if str(core["common_git_dir"](target).resolve()) != deployment["target"]["common_git_dir"]:
+        raise ValueError("fixture_repository_drift")
+    with core["continuation_connection"](target) as db:
+        enrolled = db is not None and db.execute("SELECT 1 FROM cycles LIMIT 1").fetchone()
+    if enrolled:
+        raise ValueError("enrolled_fixture_requires_recovery")
+    return previous
+
+
+def select_replacement(selected, previous, directory):
+    if not selected.is_symlink() or os.readlink(selected) != str(previous):
+        raise ValueError("qualification_link_drift")
+    exchange = selected.with_name(".qualification-" + uuid.uuid4().hex + ".exchange")
+    exchange.symlink_to(directory, target_is_directory=True)
+    sync_directory(selected.parent)
+    intent = {"schema_version": 1, "selected": str(selected), "exchange": str(exchange),
+              "previous": str(previous), "candidate": str(directory)}
+    json_new(directory / "switch.intent.json", intent)
+    if not selected.is_symlink() or os.readlink(selected) != str(previous):
+        raise ValueError("qualification_link_drift")
+    exchange_files(exchange, selected)
+    sync_directory(selected.parent)
+    if (not selected.is_symlink() or not exchange.is_symlink()
+            or os.readlink(selected) != str(directory) or os.readlink(exchange) != str(previous)):
+        raise ValueError("qualification_link_drift_retained")
+    json_new(directory / "switch.complete.json", intent)
+
+
+def recover_switch(directory, parent, selected):
+    api = load_api(Path(__file__).resolve().parent)
+    api["canonical_path"](str(directory), directory=True)
+    api["private_path"](directory, directory=True)
+    intent = json.loads(read(directory / "switch.intent.json"))
+    previous, exchange = Path(intent["previous"]), Path(intent["exchange"])
+    if (intent["selected"] != str(selected) or intent["candidate"] != str(directory)
+            or exchange.parent != parent or not exchange.name.startswith(".qualification-")
+            or not exchange.name.endswith(".exchange") or exchange == selected):
+        raise ValueError("switch_intent_invalid")
+    production_raw = read(parent / "selected.json", 16384)
+    production = json.loads(production_raw)
+    hooks_raw = read(Path(production["native_home"]) / "hooks.json")
+    route = json.loads(read(directory / "route.json"))
+    if (route["previous_lane"] != str(previous) or route["production_sha256"] != digest(production_raw)
+            or route["hooks_before_sha256"] != digest(hooks_raw)):
+        raise ValueError("switch_preimage_drift")
+    deployment = api["load_deployment"](directory / "selected.json")
+    if route["deployment_digest"] != api["canonical_digest"](deployment):
+        raise ValueError("candidate_drift")
+    api["check_requalification_native"](production["native_executable"], deployment["native_executable"])
+    core = runpy.run_path(str(Path(__file__).resolve().with_name(source_name("executable_dbsctrctl"))),
+                          run_name="qualification_switch_recovery")
+    if restored_lane(parent, previous, production_raw, hooks_raw, api, core) != previous:
+        raise ValueError("previous_lane_drift")
+    if not selected.is_symlink() or not exchange.is_symlink():
+        raise ValueError("switch_link_drift")
+    pair = os.readlink(selected), os.readlink(exchange)
+    if pair == (str(previous), str(directory)):
+        exchange_files(exchange, selected)
+        sync_directory(parent)
+    if os.readlink(selected) != str(directory) or os.readlink(exchange) != str(previous):
+        raise ValueError("switch_link_drift_retained")
+    complete = directory / "switch.complete.json"
+    if complete.exists():
+        if json.loads(read(complete)) != intent:
+            raise ValueError("switch_receipt_drift")
+    else:
+        json_new(complete, intent)
+    print("Fixed lane switch recovered; hooks unchanged and native qualification still pending.")
+
+
 def stage(args, parent, selected):
-    if os.path.lexists(selected):
+    previous = None
+    if os.path.lexists(selected) and not args.replace_restored:
         raise ValueError("qualification_already_exists")
+    if args.replace_restored and not os.path.lexists(selected):
+        raise ValueError("previous_lane_required")
     directory = args.directory
     if (not directory.is_absolute() or directory.exists()
             or directory.parent.resolve(strict=True) != directory.parent
@@ -156,11 +268,10 @@ def stage(args, parent, selected):
     api = load_api(Path(__file__).resolve().parent)
     production_raw = read(parent / "selected.json", 16384)
     production = json.loads(production_raw, object_pairs_hook=api["unique_object"])
-    native = production["native_executable"]["path"]
+    native = str(args.native_executable) if args.native_executable else production["native_executable"]["path"]
     candidate_native = {"path": native, "sha256": args.native_sha256}
-    api["pinned_file"](candidate_native)
-    if args.native_sha256 == production["native_executable"]["sha256"]:
-        raise ValueError("production_must_remain_pin_blocked")
+    api["check_requalification_native"](production["native_executable"], candidate_native)
+    verify_native_candidate(api, candidate_native, args.native_version)
     for name in ("producer", "core"):
         api["pinned_file"](production[name])
     fixture = args.fixture.resolve(strict=True)
@@ -180,6 +291,11 @@ def stage(args, parent, selected):
         raise ValueError("fixture_cycle_mismatch")
     hooks = Path(production["native_home"]) / "hooks.json"
     hooks_raw = read(hooks)
+    if args.replace_restored:
+        previous = restored_lane(parent, selected, production_raw, hooks_raw, api, core)
+        old = json.loads(read(previous / "selected.json", 16384))
+        if common == old["target"]["common_git_dir"]:
+            raise ValueError("new_fixture_repository_required")
     directory.mkdir(mode=0o700)
     for source in ("executable_codex-continuation", "executable_dbsctrctl"):
         write_new(directory / source, read(Path(__file__).resolve().with_name(source_name(source)), 4 * 1024 * 1024), 0o700)
@@ -196,12 +312,20 @@ def stage(args, parent, selected):
     write_new(directory / "hooks.fixture.json", hooks_after)
     json_new(directory / "route.json", {"schema_version": 1,
              "production_sha256": digest(production_raw), "deployment_digest": api["canonical_digest"](deployment),
-             "hooks_before_sha256": digest(hooks_raw), "hooks_after_sha256": digest(hooks_after)})
+             "hooks_before_sha256": digest(hooks_raw), "hooks_after_sha256": digest(hooks_after),
+             "previous_lane": str(previous) if previous else None})
+    json_new(directory / "native-identity.json", {"pin": candidate_native, "version": args.native_version,
+             "publisher_team": "2DC432GLL2", "signature": "verified", "native_callbacks": "not_run"})
     api["NativeReceiptStore"](directory / "native").initialize()
     if read(parent / "selected.json") != production_raw or read(hooks) != hooks_raw:
         raise ValueError("production_drift")
-    selected.symlink_to(directory, target_is_directory=True)
-    sync_directory(parent)
+    if previous:
+        if restored_lane(parent, selected, production_raw, hooks_raw, api, core) != previous:
+            raise ValueError("previous_lane_drift")
+        select_replacement(selected, previous, directory)
+    else:
+        selected.symlink_to(directory, target_is_directory=True)
+        sync_directory(parent)
     print("Staged only. Native hooks unchanged; trust and fixture enrollment not granted.")
 
 
@@ -222,9 +346,16 @@ def change_route(action, parent, selected):
     if (directory / "restored.json").exists():
         raise ValueError("qualification_closed")
     if action == "install":
+        if route.get("previous_lane"):
+            intent = json.loads(read(directory / "switch.intent.json"))
+            if (json.loads(read(directory / "switch.complete.json")) != intent
+                    or intent["candidate"] != str(directory) or intent["previous"] != route["previous_lane"]
+                    or intent["selected"] != str(selected)):
+                raise ValueError("incomplete_lane_switch")
         deployment = api["load_deployment"](directory / "selected.json")
         if api["canonical_digest"](deployment) != route["deployment_digest"]:
             raise ValueError("candidate_drift")
+        api["check_requalification_native"](production["native_executable"], deployment["native_executable"])
         replace_hooks(hooks, before, after, directory, "install")
     elif action == "restore":
         # Retain uncertainty; restoration never marks fixture operations completed.
@@ -267,6 +398,11 @@ def main():
     prepare.add_argument("--fixture", type=Path, required=True)
     prepare.add_argument("--cycle", required=True)
     prepare.add_argument("--native-sha256", required=True)
+    prepare.add_argument("--native-version", required=True)
+    prepare.add_argument("--native-executable", type=Path)
+    prepare.add_argument("--replace-restored", action="store_true")
+    recover = commands.add_parser("recover-switch")
+    recover.add_argument("--directory", type=Path, required=True)
     for action in ("install", "restore", "recover"):
         commands.add_parser(action)
     args = parser.parse_args()
@@ -276,6 +412,8 @@ def main():
         with management_lock(parent):
             if args.command == "stage":
                 stage(args, parent, selected)
+            elif args.command == "recover-switch":
+                recover_switch(args.directory, parent, selected)
             else:
                 change_route(args.command, parent, selected)
     except Exception:

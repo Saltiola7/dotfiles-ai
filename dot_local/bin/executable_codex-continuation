@@ -604,14 +604,35 @@ def qualification_bytes(path, maximum=1048576, *, hook_config=False):
     return raw
 
 
+def check_requalification_native(previous, candidate):
+    """Only same-path drift or the signed nested layout of the SAME application."""
+    if candidate["sha256"] == previous["sha256"]:
+        raise NativeIdentityError("qualification_invalid")
+    if candidate["path"] == previous["path"]:
+        return
+    old = Path(previous["path"])
+    nested = old.parent / "codex-cli/CodexCLI.app/Contents/MacOS/codex"
+    if (old.name != "codex" or old.parent.name != "Resources"
+            or old.parent.parent.name != "Contents" or old.parent.parent.parent.suffix != ".app"
+            or candidate["path"] != str(nested) or os.path.lexists(old)):
+        raise NativeIdentityError("qualification_invalid")
+
+
 def check_qualification_route(parent, qualification, deployment):
     if (qualification / "restored.json").exists():
         raise NativeIdentityError("qualification_closed")
     route = json.loads(qualification_bytes(qualification / "route.json"), object_pairs_hook=unique_object)
+    if route.get("previous_lane"):
+        switch = json.loads(qualification_bytes(qualification / "switch.complete.json"), object_pairs_hook=unique_object)
+        intent = json.loads(qualification_bytes(qualification / "switch.intent.json"), object_pairs_hook=unique_object)
+        if (switch != intent or switch["candidate"] != str(qualification)
+                or switch["previous"] != route["previous_lane"] or switch["selected"] != str(parent / "qualification")):
+            raise NativeIdentityError("qualification_invalid")
     installed = json.loads(qualification_bytes(qualification / "install.complete.json"), object_pairs_hook=unique_object)
     production_raw = qualification_bytes(parent / "selected.json", 16384)
     production = json.loads(production_raw, object_pairs_hook=unique_object)
     hooks = Path(production["native_home"]) / "hooks.json"
+    check_requalification_native(production["native_executable"], deployment["native_executable"])
     if (route.get("schema_version") != 1
             or route["production_sha256"] != hashlib.sha256(production_raw).hexdigest()
             or route["deployment_digest"] != canonical_digest(deployment)
@@ -620,8 +641,6 @@ def check_qualification_route(parent, qualification, deployment):
             or deployment["conversation_id"] != production["conversation_id"]
             or deployment["conversation_home"] != production["conversation_home"]
             or deployment["native_home"] != production["native_home"]
-            or deployment["native_executable"]["path"] != production["native_executable"]["path"]
-            or deployment["native_executable"]["sha256"] == production["native_executable"]["sha256"]
             or deployment["target"]["common_git_dir"] == production["target"]["common_git_dir"]
             or deployment["producer"]["path"] != str(qualification / "executable_codex-continuation")
             or deployment["core"]["path"] != str(qualification / "executable_dbsctrctl")):
