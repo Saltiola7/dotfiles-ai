@@ -1,5 +1,27 @@
 # Codex Control Plane Changelog
 
+## 2026-09-26 - Selected Desktop Requalification
+
+- Added a fixed, isolated active-deployment qualification route, signed nested
+  executable-layout validation, retained-lane transition, and receipt-bound
+  production refresh/rollback. Preserve the selected conversation, production
+  target, writer generation, journals, business files and concurrent edits.
+- Qualified actual native control, enrollment, denial, attachment, admission and
+  matched completion on the operator-confirmed desktop runtime. Also exercised
+  polling, concurrent-call denial, direct patch refusal, exact/changed-input
+  dispatch replay, interruption, separate human recovery, generation fencing and
+  idle fixture writer relinquishment. Retain the failed earlier attempts and the
+  uncertain native receipt; operator quiescence is not relabelled normal success.
+- Python/Security scoped validation and native evidence are recorded by
+  `CODEX-REQUALIFICATION-001`; no dependency, guest or fleet rollout. The existing
+  operator/instruction collaboration-mode boundary remains explicit, with no new
+  independent Plan-mode enforcement claim.
+- Gate Commits `d01e5ae` and `a08e871` establish the natively exercised pair; the
+  delivery increment adds refresh safeguards without changing those pair bytes.
+  Intended delivery is a feature-branch draft PR into main, exact-head CI/merge,
+  then qualified targeted refresh. Actual push, merge, deployment and final native
+  production-check receipts remain private delivery evidence, not fixture claims.
+
 ## 2026-09-21 - Passive Desktop Continuation Probe
 
 - Added a bounded, content-free hook probe and 17 regression tests; 50 affected

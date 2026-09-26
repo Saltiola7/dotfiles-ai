@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import sqlite3
 import copy
 import contextlib
 from types import SimpleNamespace
@@ -374,3 +375,201 @@ def test_switch_recovery_requires_exact_links_and_restored_previous_lane(manager
     assert (parent / "qualification").resolve() == new
     assert (new / "switch.complete.json").exists()
     assert store.path.read_bytes() == before
+
+
+def test_refresh_preserves_selection_and_moves_only_reviewed_pins(manager):
+    production = {"conversation_id": "root", "conversation_home": "/home", "native_home": "/native-home",
+                  "target": {"cycle_id": "production", "worktree": "/production", "common_git_dir": "/production/.git"},
+                  "native_executable": {"path": "/old", "sha256": "a" * 64},
+                  "producer": {"path": "/old-producer", "sha256": "b" * 64},
+                  "core": {"path": "/old-core", "sha256": "c" * 64}}
+    qualified = copy.deepcopy(production)
+    qualified["target"] = {"cycle_id": "fixture", "worktree": "/fixture", "common_git_dir": "/fixture/.git"}
+    qualified["native_executable"] = {"path": "/new", "sha256": "d" * 64}
+    qualified["producer"]["sha256"] = "e" * 64
+    qualified["core"]["sha256"] = "f" * 64
+    refreshed = manager["refresh_descriptor"](production, qualified, Path("/permanent"))
+    assert refreshed["target"] == production["target"]
+    assert refreshed["native_executable"] == qualified["native_executable"]
+    assert refreshed["producer"] == {"path": "/permanent/executable_codex-continuation", "sha256": "e" * 64}
+    assert refreshed["core"] == {"path": "/permanent/executable_dbsctrctl", "sha256": "f" * 64}
+    qualified["conversation_id"] = "other"
+    with pytest.raises(ValueError):
+        manager["refresh_descriptor"](production, qualified, Path("/permanent"))
+
+
+def test_refresh_transaction_rolls_back_exact_preimages_only(manager, tmp_path):
+    selected, hooks = tmp_path / "selected.json", tmp_path / "hooks.json"
+    selected.write_bytes(b"old selection")
+    hooks.write_bytes(b"old hooks")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir(mode=0o700)
+    files = [(selected, b"old selection", b"new selection", "selection"),
+             (hooks, b"old hooks", b"new hooks", "hooks")]
+    snapshot = lambda: {"production_journal": "unchanged"}
+    manager["refresh_files"](files, evidence, snapshot, snapshot())
+    assert selected.read_bytes() == b"new selection" and hooks.read_bytes() == b"new hooks"
+    hooks.write_bytes(b"concurrent edit")
+    with pytest.raises(ValueError, match="drift"):
+        manager["rollback_refresh_files"](files, evidence, snapshot, snapshot())
+    assert hooks.read_bytes() == b"concurrent edit" and selected.read_bytes() == b"new selection"
+    hooks.write_bytes(b"new hooks")
+    manager["rollback_refresh_files"](files, evidence, snapshot, snapshot())
+    assert hooks.read_bytes() == b"old hooks" and selected.read_bytes() == b"old selection"
+
+
+def test_refresh_stops_between_files_when_production_state_changes(manager, tmp_path):
+    selected, hooks = tmp_path / "selected.json", tmp_path / "hooks.json"
+    selected.write_bytes(b"old selection")
+    hooks.write_bytes(b"old hooks")
+    files = [(selected, b"old selection", b"new selection", "selection"),
+             (hooks, b"old hooks", b"new hooks", "hooks")]
+    def snapshot():
+        return "before" if selected.read_bytes() == b"old selection" else "changed journal"
+    with pytest.raises(ValueError, match="state_drift"):
+        manager["refresh_files"](files, tmp_path, snapshot, "before")
+    assert selected.read_bytes() == b"new selection" and hooks.read_bytes() == b"old hooks"
+    with pytest.raises(ValueError, match="state_drift"):
+        manager["rollback_refresh_files"](files, tmp_path, snapshot, "before")
+
+
+def test_refresh_refuses_selection_drift_before_touching_hooks(manager, tmp_path):
+    selected, hooks = tmp_path / "selected.json", tmp_path / "hooks.json"
+    selected.write_bytes(b"old selection")
+    hooks.write_bytes(b"old hooks")
+    files = [(selected, b"old selection", b"new selection", "selection"),
+             (hooks, b"old hooks", b"new hooks", "hooks")]
+    def snapshot():
+        if selected.read_bytes() == b"new selection":
+            selected.write_bytes(b"concurrent selection")
+        return "same journal"
+    with pytest.raises(ValueError, match="file_drift"):
+        manager["refresh_files"](files, tmp_path, snapshot, "same journal")
+    assert selected.read_bytes() == b"concurrent selection" and hooks.read_bytes() == b"old hooks"
+
+
+@pytest.mark.parametrize("interruption", ["before_exchange", "after_exchange"])
+def test_refresh_rollback_recovers_its_exact_interrupted_exchange(manager, tmp_path, monkeypatch, interruption):
+    selected, hooks = tmp_path / "selected.json", tmp_path / "hooks.json"
+    selected.write_bytes(b"new selection")
+    hooks.write_bytes(b"new hooks")
+    files = [(selected, b"old selection", b"new selection", "selection"),
+             (hooks, b"old hooks", b"new hooks", "hooks")]
+    namespace = manager["rollback_refresh_files"].__globals__
+    key = "exchange_files" if interruption == "before_exchange" else "json_new"
+    original = namespace[key]
+    def interrupt(*args):
+        if interruption == "before_exchange" or args[0].name == "rollback-hooks.complete.json":
+            raise InterruptedError("test interruption")
+        return original(*args)
+    monkeypatch.setitem(namespace, key, interrupt)
+    with pytest.raises(InterruptedError):
+        manager["rollback_refresh_files"](files, tmp_path, lambda: "same", "same")
+    monkeypatch.setitem(namespace, key, original)
+    manager["rollback_refresh_files"](files, tmp_path, lambda: "same", "same")
+    assert selected.read_bytes() == b"old selection" and hooks.read_bytes() == b"old hooks"
+
+
+@pytest.fixture
+def synthetic_qualification(manager, tmp_path):
+    # Isolated in-memory journal conformance, never installed or called native evidence.
+    lane = tmp_path / "lane"
+    lane.mkdir(mode=0o700)
+    deployment = {"conversation_id": "synthetic-root", "native_home": "/synthetic/home",
+                  "target": {"cycle_id": "fixture", "worktree": str(tmp_path)}}
+    canonical = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    deployment_digest = canonical(deployment)
+    receipts = {}
+    approvals = {}
+    report = {"schema_version": 1, "deployment_digest": deployment_digest, "receipts": {}, "approvals": [], "reviewed_observations": {}}
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript("CREATE TABLE cycles(cycle_id, state, generation, writer);"
+                     "INSERT INTO cycles VALUES('fixture','reader_only',4,NULL);"
+                     "CREATE TABLE operations(operation_id,cycle_id,state,generation,message_id,call_id,completion_class,session_key,operation_class);")
+    for label in ("first", "polling", "replay", "interruption", "resumed"):
+        report["receipts"][label] = label
+        uncertain = label == "interruption"
+        receipts[label] = {"receipt_id": label, "operation_id": "op-" + label, "tool": "shell",
+                           "state": "uncertain" if uncertain else "completed", "execution_started": True,
+                           "execution_finished": not uncertain, "deployment_digest": deployment_digest,
+                           "identity": {"session_id": "synthetic-root", "call_id": "call-" + label}}
+        db.execute("INSERT INTO operations VALUES (?,?,?,?,?,?,?,?,?)", ("op-" + label, "fixture", "completed",
+                   3 if label == "resumed" else 1, "codex-" + label, "call-" + label,
+                   "operator_quiescence" if uncertain else "native",
+                   canonical(["codex-desktop-1", "/synthetic/home", "synthetic-root"]), "shell"))
+    for action, generation in (("enroll", 0), ("recover", 1), ("recover", 3)):
+        challenge = "approval-" + str(generation)
+        report["approvals"].append(challenge)
+        approvals[challenge] = {"state": "consumed", "deployment_digest": deployment_digest,
+                               "binding": {"action": action, "generation": generation, "cycle_id": "fixture"}}
+    for label in (*report["receipts"], "denial", "recovery", "retirement"):
+        name = label + ".json"
+        (tmp_path / name).write_bytes(b'{"synthetic_test_only":true}')
+        report["reviewed_observations"][label] = {"file": name, "sha256": hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()}
+    manager["json_new"](lane / "native-qualification-review.json", report)
+    store = SimpleNamespace(read=lambda key: receipts.get(key), approval_details=lambda key: approvals[key])
+    api = {"canonical_digest": canonical, "unique_object": dict, "NativeReceiptStore": lambda _: store}
+    core = {"continuation_connection": lambda _: contextlib.nullcontext(db), "continuation_digest": canonical}
+    yield lane, api, deployment, core, receipts, approvals, db
+    db.close()
+
+
+def test_refresh_reconciles_native_and_core_evidence(manager, synthetic_qualification):
+    lane, api, deployment, core, receipts, approvals, db = synthetic_qualification
+    assert manager["qualified_fixture"](lane, api, deployment, core) == hashlib.sha256((lane / "native-qualification-review.json").read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("fault", ["missing_receipt", "native_state", "session", "unfinished", "writer", "generation", "pending", "false_completion", "approval", "review_hash", "core_actor", "core_class"])
+def test_refresh_refuses_unqualified_or_changed_evidence(manager, synthetic_qualification, fault):
+    lane, api, deployment, core, receipts, approvals, db = synthetic_qualification
+    if fault == "missing_receipt":
+        del receipts["first"]
+    elif fault == "native_state":
+        receipts["interruption"]["state"] = "completed"
+    elif fault == "session":
+        receipts["first"]["identity"]["session_id"] = "other"
+    elif fault == "unfinished":
+        receipts["first"]["execution_finished"] = False
+    elif fault == "writer":
+        db.execute("UPDATE cycles SET writer='still-owned'")
+    elif fault == "generation":
+        db.execute("UPDATE operations SET generation=99 WHERE operation_id='op-first'")
+    elif fault == "pending":
+        db.execute("UPDATE operations SET state='running' WHERE operation_id='op-first'")
+    elif fault == "false_completion":
+        db.execute("UPDATE operations SET completion_class='native' WHERE operation_id='op-interruption'")
+    elif fault == "approval":
+        approvals["approval-3"]["state"] = "prepared"
+    elif fault == "core_actor":
+        db.execute("UPDATE operations SET session_key='other' WHERE operation_id='op-first'")
+    elif fault == "core_class":
+        db.execute("UPDATE operations SET operation_class='file' WHERE operation_id='op-first'")
+    else:
+        (lane.parent / "first.json").write_bytes(b'changed review')
+    with pytest.raises(ValueError):
+        manager["qualified_fixture"](lane, api, deployment, core)
+
+
+@pytest.mark.parametrize("fault", [None, "dirty", "main_changed", "manager_unmerged", "pair_changed"])
+def test_refresh_requires_exact_merged_source_pair(manager, tmp_path, monkeypatch, fault):
+    commit = "a" * 40
+    for name in ("executable_codex-continuation", "executable_dbsctrctl"):
+        (tmp_path / name).write_bytes(name.encode())
+    def git(root, *args):
+        if args[0] == "status":
+            return b" M changed" if fault == "dirty" else b""
+        if args[0] == "ls-remote":
+            return (("b" * 40 if fault == "main_changed" else commit) + "\trefs/heads/main\n").encode()
+        if args[0] == "merge-base":
+            assert args == ("merge-base", "--is-ancestor", "HEAD", commit)
+            return b""
+        if args[1].endswith("executable_codex-requalify"):
+            return b"unmerged" if fault == "manager_unmerged" else (BIN / "executable_codex-requalify").read_bytes()
+        return b"changed" if fault == "pair_changed" else args[1].split("/")[-1].encode()
+    monkeypatch.setitem(manager["merged_source"].__globals__, "git_read", git)
+    if fault:
+        with pytest.raises(ValueError):
+            manager["merged_source"](commit, tmp_path)
+    else:
+        manager["merged_source"](commit, tmp_path)

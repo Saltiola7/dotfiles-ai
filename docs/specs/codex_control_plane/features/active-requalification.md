@@ -134,6 +134,83 @@ bytes, preserve all fixture receipts and exchange files, and reload the **same**
 conversation if the native runtime requires it. No automatic restart or deletion.
 The operator owns retention and future retirement; failed evidence has no expiry.
 
+## Qualified production refresh
+
+After native qualification, relinquish the fixture writer using the existing
+native exact-state recovery approval and apply. This is fixture retirement, not
+production recovery. Preserve the uncertain native receipt and the core's
+`operator_quiescence` classification. The retired fixture remains readable;
+do not fabricate a completed lifecycle or delete its active pointer.
+
+The source-controlled management command is:
+
+```
+codex-requalify refresh --directory NEW_PERMANENT_EXTERNAL_DIRECTORY --commit VERIFIED_MERGED_MAIN_COMMIT
+```
+
+Before invoking it, delivery must verify configured hosted checks at the exact PR
+head, merge that head without force or unchecked bypass, and verify the resulting
+main commit. The manager independently requires clean committed source, live
+remote main equality, current-source ancestry, its own merged bytes, and exact
+merged producer/core equality with the pair exercised natively. A later pair
+change requires new qualification; a successful older native test cannot bless it.
+The manager does not replace the separate GitHub check-review authority.
+
+The private `native-qualification-review.json` binds the fixture descriptor,
+five distinct shell receipts (initial admission, polling, guarded replay,
+interruption, and post-recovery admission), three consumed exact-state approvals,
+and hashes of the eight reviewed observation reports. Observation paths are bounded
+JSON basenames beside the lane. The manager reconciles receipt identities, input
+deployment, execution flags, operation/call relationships, generations and core
+completion classes against the existing journals. The fixture must be reader-only
+at generation 4, with no writer or pending operation. Review labels alone do not
+confer identity; this is a cooperating-session evidence boundary, not a signed
+attestation by the desktop. No callback is constructed or replayed for promotion.
+
+The production descriptor must still equal its captured preimage and its original
+hooks must already be restored. The production cycle must be idle, with its
+existing selected native writer or no writer, no outstanding core operation,
+active native receipt or unconsumed approval. Historical uncertainty is allowed
+only when the corresponding core operation retains operator-quiescence closure.
+Check these facts; never infer them from a timeout or reset the shared database.
+
+Only three descriptor fields change: native executable and the coupled
+producer/core pins. The exact target, native home and original conversation stay
+unchanged. Install the same qualified pair into a new owner-private external
+directory **outside Git**, so ordinary worktree cleanup cannot remove the active
+pair. No generic CLI, global core, native trust record, production Cycle Record,
+business file, writer, generation, receipt or journal is updated by the manager.
+
+Retain before/after descriptor and hook bytes, qualification identity, merged
+source and preservation snapshots before mutation. Exchange the descriptor first,
+then the two exact hook commands. Old loaded hooks reject the new descriptor's
+producer identity until the new definitions are trusted and loaded. Compare core
+and native journal hashes, the cycle metadata/record, worktree HEAD and status
+before each exchange and afterward. Concurrent shared-journal changes stop the
+transaction; they are not overwritten or attributed to this cycle by assumption.
+The actual original coordinator's native production check remains mandatory.
+
+For a failed/interrupted refresh, use:
+
+```
+codex-requalify rollback-refresh --directory RECEIPT_DIRECTORY
+```
+
+This restores only this transaction's exact descriptor/hook preimages, hooks
+first. Changed journal/ownership/worktree state or a third file image refuses and
+requires explicit reconciliation. An interrupted rollback can finish only its
+receipt-listed exact exchange. All files, receipts and both exchanged images stay
+retained. Rollback restores the original stale pin and therefore does **not** claim
+to restore native availability. Never extract a backup over live state, clear a
+journal, undo a writer generation or force a drifted file.
+
+Maintenance owner: dotfiles operator. Retain the fixture lane and its worktree
+even after restoration while the fixed qualification link references them;
+the production guard deliberately refuses a broken qualification link. This
+cycle performs no worktree cleanup. Archiving that evidence or retiring the fixed
+link is a separately reviewed action. Permanent production-pair storage does not
+authorize deletion of the qualification history or its referenced directory.
+
 ## Validation and native handoff
 
 Selected authorities: affected pytest route/transaction, native adapter and
@@ -179,6 +256,8 @@ authority. Synthetic and metadata results cannot promote a candidate.
 | Installed, native trust pending | Actual trust/reload and native fixture checks | Never infer trust or enrollment |
 | Native qualified | Exact-preimage restore, retain evidence | Production still blocked on original pin |
 | Restored | Separately qualified production refresh | Fixture hooks refuse; final native check still required |
+| Qualified, fixture writer relinquished, exact head merged | Receipt-bound production descriptor/hook refresh | Ownership and journals unchanged; native trust/check pending |
+| Refresh interrupted or drifted | Exact-preimage rollback or explicit reconciliation | No guessed completion, state reset or force overwrite |
 | Restored, never enrolled, no approvals/operations | Explicit new fixture staging and fixed-link exchange | Old evidence retained; new native qualification starts again |
 | Fixed-link exchange incomplete | Exact-link recover-switch or manual drift reconciliation | New fixture admission blocked |
 
@@ -187,5 +266,7 @@ exchange fails closed. Native trust and approvals remain separate. Restoration
 closes only the fixture route; promotion and final production verification follow.
 A narrowly eligible restored lane may be retained while a new fixture is selected;
 an interrupted link switch blocks admission until exact-state recovery.
+Production refresh consumes reviewed native evidence and the exact merged pair,
+changes only pins and hook routing, and never grants a writer or restores state.
 Source: coordinator-approved repair boundaries and implementation in this cycle.
 Owner: dotfiles operator; refresh when routing, transaction or approval changes.

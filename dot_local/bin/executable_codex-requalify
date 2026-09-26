@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator-managed native qualification lane. Never refresh a production pin.
+"""Operator-managed qualification and reviewed refresh; never change cycle ownership.
 
 Stage is preparation, not native trust, enrollment, quiescence or qualification.
 Hook transactions retain both files using atomic exchange, including racing edits.
@@ -390,6 +390,262 @@ def change_route(action, parent, selected):
     print("Route transaction recorded. This is not native trust or qualification evidence.")
 
 
+def refresh_descriptor(production, qualified, directory):
+    for key in ("conversation_id", "conversation_home", "native_home"):
+        if production[key] != qualified[key]:
+            raise ValueError("conversation_changed")
+    if production["target"]["common_git_dir"] == qualified["target"]["common_git_dir"]:
+        raise ValueError("fixture_required")
+    value = {**production, "native_executable": dict(qualified["native_executable"])}
+    for key, filename in (("producer", "executable_codex-continuation"), ("core", "executable_dbsctrctl")):
+        value[key] = {"path": str(directory / filename), "sha256": qualified[key]["sha256"]}
+    return value
+
+
+def qualified_fixture(lane, api, deployment, core):
+    """Review hashes are not identity: reconcile the referenced real journals too."""
+    # ponytail: one bounded five-call sequence; version the review schema if it changes.
+    report = json.loads(read(lane / "native-qualification-review.json"), object_pairs_hook=api["unique_object"])
+    expected = {"first": (1, "completed"), "polling": (1, "completed"), "replay": (1, "completed"),
+                "interruption": (1, "uncertain"), "resumed": (3, "completed")}
+    if (report["schema_version"] != 1 or report["deployment_digest"] != api["canonical_digest"](deployment)
+            or set(report["receipts"]) != set(expected) or len(set(report["receipts"].values())) != 5
+            or len(report["approvals"]) != 3 or len(set(report["approvals"])) != 3):
+        raise ValueError("qualification_incomplete")
+    reports = {*expected, "denial", "recovery", "retirement"}
+    if set(report["reviewed_observations"]) != reports:
+        raise ValueError("qualification_incomplete")
+    for observation in report["reviewed_observations"].values():
+        name = observation["file"]
+        if (type(name) is not str or Path(name).name != name or not name.endswith(".json") or len(name) > 128
+                or digest(read(lane.parent / name)) != observation["sha256"]):
+            raise ValueError("qualification_evidence_drift")
+    store = api["NativeReceiptStore"](lane / "native")
+    target = Path(deployment["target"]["worktree"])
+    actor = core["continuation_digest"](["codex-desktop-1", deployment["native_home"], deployment["conversation_id"]])
+    with contextlib.chdir(target), core["continuation_connection"](target) as db:
+        cycle = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (deployment["target"]["cycle_id"],)).fetchone() if db else None
+        if not cycle or cycle["state"] != "reader_only" or cycle["generation"] != 4 or cycle["writer"] is not None:
+            raise ValueError("fixture_writer_not_relinquished")
+        if db.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1", (cycle["cycle_id"],)).fetchone():
+            raise ValueError("fixture_operation_pending")
+        for label, (generation, native_state) in expected.items():
+            receipt = store.read(report["receipts"][label])
+            if (not receipt or receipt["tool"] != "shell" or receipt["state"] != native_state
+                    or not receipt["execution_started"] or receipt["execution_finished"] != (native_state == "completed")
+                    or receipt["deployment_digest"] != report["deployment_digest"]
+                    or receipt["identity"]["session_id"] != deployment["conversation_id"]):
+                raise ValueError("native_qualification_mismatch")
+            operation = db.execute("SELECT * FROM operations WHERE operation_id=?", (receipt["operation_id"],)).fetchone()
+            if (not operation or operation["cycle_id"] != cycle["cycle_id"] or operation["state"] != "completed"
+                    or operation["session_key"] != actor or operation["operation_class"] != "shell"
+                    or operation["generation"] != generation or operation["message_id"] != "codex-" + receipt["receipt_id"]
+                    or operation["call_id"] != receipt["identity"]["call_id"]
+                    or (operation["completion_class"] == "operator_quiescence") != (native_state == "uncertain")):
+                raise ValueError("core_qualification_mismatch")
+    for challenge, (action, generation) in zip(report["approvals"], (("enroll", 0), ("recover", 1), ("recover", 3))):
+        approval = store.approval_details(challenge)
+        if (approval["state"] != "consumed" or approval["deployment_digest"] != report["deployment_digest"]
+                or approval["binding"]["action"] != action or approval["binding"]["generation"] != generation
+                or approval["binding"]["cycle_id"] != deployment["target"]["cycle_id"]):
+            raise ValueError("native_approval_mismatch")
+    return digest(read(lane / "native-qualification-review.json"))
+
+
+def git_read(root, *arguments):
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return subprocess.check_output(["git", "--no-optional-locks", "-C", str(root), *arguments],
+                                   env=env, stderr=subprocess.DEVNULL, timeout=30)
+
+
+def merged_source(commit, lane):
+    if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
+        raise ValueError("commit_invalid")
+    root = Path(__file__).resolve().parents[2]
+    if git_read(root, "status", "--porcelain=v1").strip():
+        raise ValueError("source_dirty")
+    if git_read(root, "ls-remote", "origin", "refs/heads/main").decode().split() != [commit, "refs/heads/main"]:
+        raise ValueError("merged_main_changed")
+    git_read(root, "merge-base", "--is-ancestor", "HEAD", commit)
+    if git_read(root, "show", commit + ":dot_local/bin/executable_codex-requalify") != read(Path(__file__).resolve()):
+        raise ValueError("manager_not_merged")
+    for name in ("executable_codex-continuation", "executable_dbsctrctl"):
+        if git_read(root, "show", commit + ":dot_local/bin/" + name) != read(lane / name, 4 * 1024 * 1024):
+            raise ValueError("merged_pair_not_qualified")
+
+
+def production_snapshot(parent, production, api, core):
+    target = Path(production["target"]["worktree"])
+    cycle_id = production["target"]["cycle_id"]
+    if (not api["IDENTIFIER"].fullmatch(cycle_id) or api["canonical_path"](str(target), directory=True) != target
+            or str(core["common_git_dir"](target).resolve()) != production["target"]["common_git_dir"]):
+        raise ValueError("production_target_invalid")
+    actor = core["continuation_digest"](["codex-desktop-1", production["native_home"], production["conversation_id"]])
+    with contextlib.chdir(target), core["continuation_connection"](target) as db:
+        cycle = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (cycle_id,)).fetchone() if db else None
+        if (not cycle or cycle["state"] not in ("owned", "reader_only") or cycle["writer"] not in (None, actor)
+                or db.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1", (cycle_id,)).fetchone()):
+            raise ValueError("production_not_idle")
+        store = api["NativeReceiptStore"](parent / "native")
+        with store.connection() as native:
+            if native is None:
+                raise ValueError("production_journal_missing")
+            deployment_digest = api["canonical_digest"](production)
+            if native.execute("SELECT 1 FROM operator_approvals WHERE deployment_digest=? AND state!='consumed' LIMIT 1",
+                              (deployment_digest,)).fetchone():
+                raise ValueError("production_approval_pending")
+            for receipt in native.execute("SELECT operation_id,state FROM receipts WHERE deployment_digest=? AND state IN ('active','uncertain')",
+                                          (deployment_digest,)):
+                old = db.execute("SELECT * FROM operations WHERE operation_id=?", (receipt["operation_id"],)).fetchone()
+                if (receipt["state"] == "active" or not old or old["cycle_id"] != cycle_id
+                        or old["state"] != "completed" or old["completion_class"] != "operator_quiescence"):
+                    raise ValueError("production_native_operation_pending")
+        cycle_digest = api["canonical_digest"](dict(cycle))
+    return {"cycle_digest": cycle_digest,
+            "core_journal": digest(read(core["continuation_path"](target), 64 * 1024 * 1024)),
+            "native_journal": digest(read(parent / "native/native.sqlite3", 32 * 1024 * 1024)),
+            "record": digest(read(core["cycle_dir"](target) / "cycles" / (cycle_id + ".json"))),
+            "head": git_read(target, "rev-parse", "HEAD").decode().strip(),
+            "status": digest(git_read(target, "status", "--porcelain=v1", "-z"))}
+
+
+def refresh_files(files, evidence, snapshot, baseline):
+    applied = []
+    for path, before, after, action in files:
+        if snapshot() != baseline:
+            raise ValueError("production_state_drift")
+        if any(read(previous) != expected for previous, expected in applied):
+            raise ValueError("refresh_file_drift")
+        replace_hooks(path, before, after, evidence, action)
+        applied.append((path, after))
+    if snapshot() != baseline:
+        raise ValueError("production_state_drift")
+    if any(read(path) != expected for path, expected in applied):
+        raise ValueError("refresh_file_drift")
+
+
+def recover_exchange(path, before, after, evidence, action):
+    intent = json.loads(read(evidence / (action + ".intent.json")))
+    exchange = Path(intent["exchange"])
+    if (intent["hook"] != str(path) or exchange.parent != path.parent
+            or not exchange.name.startswith(".codex-requalify-") or not exchange.name.endswith(".exchange")
+            or intent["before_sha256"] != digest(before) or intent["after_sha256"] != digest(after)):
+        raise ValueError("exchange_intent_invalid")
+    if read(path) == before and read(exchange) == after:
+        exchange_files(exchange, path)
+        sync_directory(path.parent)
+    if read(path) != after or read(exchange) != before:
+        raise ValueError("exchange_drift_retained")
+    complete = evidence / (action + ".complete.json")
+    if not complete.exists():
+        json_new(complete, intent)
+    elif json.loads(read(complete)) != intent:
+        raise ValueError("exchange_receipt_drift")
+
+
+def rollback_refresh_files(files, evidence, snapshot, baseline):
+    if snapshot() != baseline:
+        raise ValueError("production_state_drift")
+    if any(read(path) not in (before, after) for path, before, after, _ in files):
+        raise ValueError("refresh_file_drift")
+    for path, before, after, action in reversed(files):
+        if snapshot() != baseline:
+            raise ValueError("production_state_drift")
+        rollback = "rollback-" + action
+        if (evidence / (rollback + ".intent.json")).exists():
+            recover_exchange(path, after, before, evidence, rollback)
+        elif read(path) == after:
+            replace_hooks(path, after, before, evidence, rollback)
+    if snapshot() != baseline or any(read(path) != before for path, before, _, _ in files):
+        raise ValueError("production_state_drift")
+
+
+def refresh(args, parent, selected):
+    lane = selected.resolve(strict=True)
+    api = load_api(Path(__file__).resolve().parent)
+    api["private_path"](lane, directory=True)
+    qualified = api["load_deployment"](lane / "selected.json")
+    core = api["load_core"](qualified)
+    qualification_hash = qualified_fixture(lane, api, qualified, core)
+    before = read(parent / "selected.json", 16384)
+    production = json.loads(before, object_pairs_hook=api["unique_object"])
+    hooks = Path(production["native_home"]) / "hooks.json"
+    hook_before = read(hooks)
+    restored = json.loads(read(lane / "restored.json"))
+    if (before != read(lane / "production.before.json", 16384) or hook_before != read(lane / "hooks.before.json")
+            or restored != {"production_sha256": digest(before), "hooks_sha256": digest(hook_before)}):
+        raise ValueError("production_routing_not_restored")
+    merged_source(args.commit, lane)
+    identity = json.loads(read(lane / "native-identity.json"))
+    verify_native_candidate(api, qualified["native_executable"], identity["version"])
+    api["check_requalification_native"](production["native_executable"], qualified["native_executable"])
+    directory = args.directory
+    if (not directory.is_absolute() or os.path.lexists(directory)
+            or directory.parent.resolve(strict=True) != directory.parent
+            or directory.parent.stat().st_dev == Path.home().stat().st_dev):
+        raise ValueError("new_external_directory_required")
+    try:
+        git_read(directory.parent, "rev-parse", "--absolute-git-dir")
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise ValueError("permanent_deployment_must_be_outside_git")
+    snapshot = lambda: production_snapshot(parent, production, api, core)
+    baseline = snapshot()
+    directory.mkdir(mode=0o700)
+    for name in ("executable_codex-continuation", "executable_dbsctrctl"):
+        write_new(directory / name, read(lane / name, 4 * 1024 * 1024), 0o500)
+    proposed = refresh_descriptor(production, qualified, directory)
+    write_new(directory / "selection.before.json", before)
+    json_new(directory / "selection.after.json", proposed)
+    if api["load_deployment"](directory / "selection.after.json") != proposed:
+        raise ValueError("production_descriptor_invalid")
+    after = read(directory / "selection.after.json", 16384)
+    hook_after = fixture_hooks(hook_before, production, directory / "executable_codex-continuation")
+    write_new(directory / "hooks.before.json", hook_before)
+    write_new(directory / "hooks.after.json", hook_after)
+    plan = {"schema_version": 1, "lane": str(lane), "source_commit": args.commit,
+            "qualification_sha256": qualification_hash, "snapshot": baseline,
+            "hashes": {"selection.before.json": digest(before), "selection.after.json": digest(after),
+                       "hooks.before.json": digest(hook_before), "hooks.after.json": digest(hook_after)}}
+    json_new(directory / "refresh.plan.json", plan)
+    files = [(parent / "selected.json", before, after, "selection"), (hooks, hook_before, hook_after, "hooks")]
+    refresh_files(files, directory, snapshot, baseline)
+    if api["load_deployment"](parent / "selected.json") != proposed:
+        raise ValueError("installed_descriptor_invalid")
+    json_new(directory / "refresh.complete.json", plan)
+    print("Qualified merged pair refreshed; production state preserved. Native trust and final control check still required.")
+
+
+def rollback_refresh(directory, parent, selected):
+    api = load_api(Path(__file__).resolve().parent)
+    api["canonical_path"](str(directory), directory=True)
+    api["private_path"](directory, directory=True)
+    plan = json.loads(read(directory / "refresh.plan.json"))
+    lane = selected.resolve(strict=True)
+    if plan["schema_version"] != 1 or plan["lane"] != str(lane):
+        raise ValueError("refresh_plan_mismatch")
+    raw = {name: read(directory / name) for name in ("selection.before.json", "selection.after.json", "hooks.before.json", "hooks.after.json")}
+    if any(digest(value) != plan["hashes"][name] for name, value in raw.items()):
+        raise ValueError("refresh_evidence_drift")
+    if raw["selection.before.json"] != read(lane / "production.before.json", 16384):
+        raise ValueError("production_preimage_mismatch")
+    production = json.loads(raw["selection.before.json"])
+    qualified = json.loads(read(lane / "selected.json", 16384))
+    api["pinned_file"](qualified["producer"])
+    core = api["load_core"](qualified)
+    if json.loads(raw["selection.after.json"]) != refresh_descriptor(production, qualified, directory):
+        raise ValueError("refresh_target_mismatch")
+    hooks = Path(production["native_home"]) / "hooks.json"
+    files = [(parent / "selected.json", raw["selection.before.json"], raw["selection.after.json"], "selection"),
+             (hooks, raw["hooks.before.json"], raw["hooks.after.json"], "hooks")]
+    rollback_refresh_files(files, directory, lambda: production_snapshot(parent, production, api, core), plan["snapshot"])
+    if not (directory / "rollback.complete.json").exists():
+        json_new(directory / "rollback.complete.json", {"restored_preimages": True, "production_state_preserved": True})
+    print("Refresh preimages restored; journals and evidence retained. Original stale native pin remains blocked.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -403,6 +659,11 @@ def main():
     prepare.add_argument("--replace-restored", action="store_true")
     recover = commands.add_parser("recover-switch")
     recover.add_argument("--directory", type=Path, required=True)
+    promote = commands.add_parser("refresh")
+    promote.add_argument("--directory", type=Path, required=True)
+    promote.add_argument("--commit", required=True)
+    rollback = commands.add_parser("rollback-refresh")
+    rollback.add_argument("--directory", type=Path, required=True)
     for action in ("install", "restore", "recover"):
         commands.add_parser(action)
     args = parser.parse_args()
@@ -414,6 +675,10 @@ def main():
                 stage(args, parent, selected)
             elif args.command == "recover-switch":
                 recover_switch(args.directory, parent, selected)
+            elif args.command == "refresh":
+                refresh(args, parent, selected)
+            elif args.command == "rollback-refresh":
+                rollback_refresh(args.directory, parent, selected)
             else:
                 change_route(args.command, parent, selected)
     except Exception:
