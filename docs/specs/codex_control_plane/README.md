@@ -40,6 +40,12 @@ and closed metadata categories, never command bodies or transcripts. Native trus
 review remains mandatory. Write admission and cross-runtime ownership transfer
 remain unavailable until separately qualified.
 
+For an existing selected deployment whose native executable pin has drifted,
+[active requalification](features/active-requalification.md) defines the isolated
+fixture route. It preserves production selection and journals and requires actual
+native qualification before any production refresh; staging is not deployment
+acceptance or writer authority.
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a
