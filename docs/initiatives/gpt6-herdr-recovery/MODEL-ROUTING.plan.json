@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/opencode_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "The control-plane profile delivers managed source by PR, not a separately published artifact."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only routing qualification; the distribution rollout owns targeted installed configuration changes."},
+    "operate": {"applicability": "not_applicable", "reason": "No running process or profile is changed; operator-held rollout owns live runtime qualification."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
