@@ -1,5 +1,29 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-09-27 — HOST-RUNTIME-ROLLOUT
+
+- Applied the approved Astra/Sol/Luna and Vertex Opus 5.5 routes, machine model
+  overrides and qualified recovery helper/wrapper from merged source. Kept
+  provider accounts, permissions, continuation adapters and central state intact.
+- Verified the private full SQLite backup and preserved original Herdr state.
+  A supervisor-controlled restart installed checksum-pinned Herdr 0.9.1/protocol
+  22 without bypassing the old sender's handoff limit. Restored all 71 original
+  in-Herdr conversations to matching panes/directories; retained 73 terminals and
+  the same external maintenance conversation without duplication. Every restored
+  OpenCode process held the central database, not the legacy store.
+- Reinstated the existing managed Hermes service guard after native start
+  regenerated its plist and caused EX_CONFIG. Verified the actual running gateway,
+  Astra default, unchanged non-model profile data and healthy external state.
+- Homebrew maintenance updated 79 formulae and eight casks, including the
+  separate OpenCode/Codex copies; pkgconf's OS mismatch cleared. AnyDesk remains
+  pending local administrator authorization. VM operations and coupled managed
+  runtime updates remain explicitly deferred.
+- Required scoped host checks passed. Private controller/preflight, negative
+  drift refusal, atomic rollback, installed-byte and post-restart evidence are
+  recorded by the cycle; raw inventories and backups remain private. Gate
+  Exceptions: none. Intended Final Push is a normal feature branch and draft PR
+  into main; actual push/merge results belong to the Cycle Record and delivery report.
+
 ## 2026-09-20 - Final Shell And Validator Convergence
 
 - Preserved Lima's shell markers around the existing PATH block, preventing a
