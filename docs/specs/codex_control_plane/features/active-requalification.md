@@ -28,8 +28,8 @@ Thus already-loaded old production hooks continue to refuse even before native
 reload. Staging verifies the exact requested version and Apple signature anchored
 to OpenAI team `2DC432GLL2`, with pin verification before and after execution.
 The unsigned `bin/codex` launcher, arbitrary alternate paths and another
-application's executable are not accepted. Same-pin pair upgrades require another
-design; do not waive this guard.
+application's executable are not accepted. Same-pin pair upgrades are refused by this fixture-staging command. The separately
+authorized compatibility path below is limited to four reconciliation functions.
 This remains cooperative-session enforcement, not confinement of arbitrary
 same-user shell commands or an OS sandbox.
 
@@ -270,3 +270,42 @@ Production refresh consumes reviewed native evidence and the exact merged pair,
 changes only pins and hook routing, and never grants a writer or restores state.
 Source: coordinator-approved repair boundaries and implementation in this cycle.
 Owner: dotfiles operator; refresh when routing, transaction or approval changes.
+
+## Reconciliation-only compatibility refresh
+
+The operator approved reuse of retained native qualification only when native
+control semantics remain unchanged. `refresh-compatible-core --commit SHA
+--directory EXTERNAL --expected-selection-sha256 SHA` verifies the live selection
+preimage, unchanged pinned producer and native executable, genuine retained
+fixture qualification, and exact clean merged source at remote main.
+
+Only `safe_paths`, `command_reconcile_target`, `verified_upstream_template` and
+`validate_reconciliation_paths` may differ in the core. Their signatures remain
+fixed; decorators, defaults, annotations, duplicate definitions and all other
+module AST changes refuse. This is a structural compatibility determination,
+not new native execution evidence. The two added functions have explicit plain
+signatures. The manager records old/new hashes and retained qualification identity.
+
+The production snapshot must be idle and unchanged across atomic selection/hook
+exchanges. Existing writer, generation, journals, record, HEAD and status remain
+unchanged. Deployment therefore runs outside an admitted coordinator operation.
+The operator reviews changed hook commands; the coordinator verifies restored
+native control afterwards. No new enrollment or ownership approval is implied.
+`rollback-compatible-core --directory EXTERNAL` restores only exact retained
+preimages while the recorded production snapshot remains unchanged. Drift refuses
+and retains exchange evidence. Neither command edits the retained qualification.
+
+Compatibility decision table (additional state/trust visual evidence):
+
+| Input | Result |
+|---|---|
+| Unchanged native pair/binary qualification plus four-function-only core diff | Eligible for idle-state refresh |
+| Any other source, header, native component or selected preimage drift | Refuse before production writes |
+| Outstanding production operation | Refuse; do not assert quiescence |
+| Exact postimages and unchanged snapshot | Eligible for rollback |
+| Changed postimages or journal | Preserve and refuse rollback |
+
+Text equivalent: compatibility, provenance and idle-state checks precede updates;
+rollback requires exact postimages and unchanged state. Owner: Codex control plane.
+Update triggers: command, AST allowance, or snapshot predicate changes. No schema
+or deployment topology changes beyond a new immutable external pair directory.

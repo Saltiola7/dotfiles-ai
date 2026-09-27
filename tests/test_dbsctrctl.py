@@ -3412,6 +3412,77 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertTrue((self.repo / ".git/MERGE_HEAD").exists())
         self.assertEqual(json.loads(self.record_path().read_text()), before)
 
+    def test_reconcile_large_inventory_and_upstream_template(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        names = [f"incoming-{i:04}.txt" for i in range(513)] + [".env.template"]
+        for name in names:
+            (other / name).write_text("PLACEHOLDER=\n" if name == ".env.template" else "upstream\n")
+        subprocess.run(["git", "add", "--", *names], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "advance"], cwd=other, check=True, capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+        result = json.loads(run(self.repo, "reconcile-target", "--mode", "prepare", "--json").stdout)
+        self.assertEqual(result["staged_paths"], sorted(names))
+        self.assertEqual(result["conflict_paths"], [])
+        self.record_gate("behavior", paths=(".env.template",))
+        (self.repo / ".env.template").write_text("CHANGED=\n")
+        result = run(self.repo, "record-evidence", "spec", "--authority", "template",
+                     "--path", ".env.template", "--", sys.executable, "-c", "pass", ok=False)
+        self.assertIn("refusing possible secret path", result.stderr)
+
+    def test_template_provenance_refuses_index_symlink_and_other_secret_names(self):
+        other = self.start_remote_cycle()
+        (other / ".env.template").write_text("PLACEHOLDER=\n")
+        subprocess.run(["git", "add", ".env.template"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "template"], cwd=other, check=True, capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+        subprocess.run(["git", "fetch"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "checkout", "@{upstream}", "--", ".env.template"], cwd=self.repo, check=True)
+        loader = importlib.machinery.SourceFileLoader("template_provenance_test", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        self.assertTrue(module.verified_upstream_template(self.repo, ".env.template"))
+        template = self.repo / ".env.template"
+        template.write_text("CHANGED=\n")
+        subprocess.run(["git", "add", ".env.template"], cwd=self.repo, check=True)
+        template.write_text("PLACEHOLDER=\n")
+        self.assertFalse(module.verified_upstream_template(self.repo, ".env.template"))
+        subprocess.run(["git", "checkout", "@{upstream}", "--", ".env.template"], cwd=self.repo, check=True)
+        template.unlink()
+        template.symlink_to("tracked.txt")
+        self.assertFalse(module.verified_upstream_template(self.repo, ".env.template"))
+        for name in (".env", ".env.production", ".env.example", "private.key", "nested/.env.template"):
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, "refusing possible secret path"):
+                module.safe_paths(self.repo, [name])
+        template.unlink()
+        subprocess.run(["git", "checkout", "@{upstream}", "--", ".env.template"], cwd=self.repo, check=True)
+        (self.repo / ".git/MERGE_HEAD").write_bytes(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo))
+        self.assertFalse(module.verified_upstream_template(self.repo, ".env.template"))
+
+    def test_reconcile_excessive_inventory_refuses_before_merge(self):
+        other = self.start_remote_cycle()
+        (self.repo / "tracked.txt").write_text("cycle\n")
+        self.record_gate("domain", paths=("tracked.txt",))
+        run(self.repo, "gate-commit", "--message", "cycle", "--gates", "domain",
+            "--paths", "tracked.txt")
+        folder = other / "many"
+        folder.mkdir()
+        for index in range(8193):
+            (folder / str(index)).write_text("x")
+        subprocess.run(["git", "add", "many"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-m", "many"], cwd=other, check=True, capture_output=True)
+        subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+        before = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo)
+        result = run(self.repo, "reconcile-target", "--mode", "prepare", "--json", ok=False)
+        self.assertIn("path output exceeded bounds", result.stderr)
+        self.assertFalse((self.repo / ".git/MERGE_HEAD").exists())
+        self.assertEqual(before, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo))
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.repo), b"")
+
     def test_reconcile_target_preserves_conflicts_for_primary_resolution(self):
         other = self.start_remote_cycle()
         (self.repo / "tracked.txt").write_text("cycle\n")
