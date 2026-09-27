@@ -1,16 +1,117 @@
 #!/usr/bin/env python3
+import contextlib
 import fcntl
 import json
 import os
 import re
 import shlex
+import signal
 import sqlite3
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 HERDR = os.environ.get("HERDR_BIN", "herdr")
+
+
+def safe_regular(path: Path) -> None:
+    details = path.lstat()
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or details.st_mode & 0o022):
+        raise ValueError("unsafe state file")
+
+
+def safe_directory(path: Path) -> None:
+    details = path.lstat()
+    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+            or details.st_mode & 0o022):
+        raise ValueError("unsafe state directory")
+
+
+def read_state(path: Path) -> str:
+    safe_regular(path)
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as handle:
+        value = handle.read(1024 * 1024 + 1)
+    if len(value) > 1024 * 1024:
+        raise ValueError("oversized state file")
+    return value
+
+
+def atomic_state(path: Path, value: str) -> None:
+    safe_directory(path.parent)
+    if path.exists() or path.is_symlink():
+        safe_regular(path)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(name, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(name)
+
+
+def pace_start(command: list[str]) -> int:
+    if not command:
+        raise ValueError("paced start requires a command")
+    root = Path(os.environ.get("DOTFILES_AI_STATE_ROOT") or os.environ.get("TMPDIR", "/tmp")) / "herdr"
+    owned = False
+    lock = root / "opencode-startup.lock"
+    timestamp = root / "opencode-startup.timestamp"
+    for number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, lambda signum, _: sys.exit(128 + signum))
+    try:
+        root.mkdir(exist_ok=True)
+        safe_directory(root)
+        if not os.access(root, os.W_OK | os.X_OK):
+            raise OSError("pacing directory unavailable")
+        started = progress = time.monotonic()
+        last_seen = None
+        while True:
+            if lock.exists() or lock.is_symlink():
+                with contextlib.suppress(FileNotFoundError):
+                    safe_regular(lock)
+            stamp = read_state(timestamp) if timestamp.exists() or timestamp.is_symlink() else "0"
+            if stamp != last_seen:
+                progress, last_seen = time.monotonic(), stamp
+            result = subprocess.run(["/usr/bin/shlock", "-p", str(os.getpid()), "-f", str(lock)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            if result.returncode == 0:
+                owned = True
+                break
+            now = time.monotonic()
+            if now - progress >= 20 or now - started >= 300:
+                print("OpenCode start blocked: pacing queue stalled or exceeded five minutes; "
+                      "retry after pending starts settle", file=sys.stderr)
+                return 75
+            time.sleep(0.1)
+        stamp = read_state(timestamp) if timestamp.exists() or timestamp.is_symlink() else "0"
+        last = int(stamp.strip()) if re.fullmatch(r"[0-9]{1,12}\s*", stamp) else 0
+        now = int(time.time())
+        if last <= now:
+            time.sleep(max(0, 6 - now + last))
+        atomic_state(timestamp, str(int(time.time())) + "\n")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        print("OpenCode start blocked: pacing state is unsafe or unavailable; run herdr-host doctor",
+              file=sys.stderr)
+        return 75
+    finally:
+        if owned:
+            # Keep the shared shlock identity for compatibility with older wrappers.
+            try:
+                if read_state(lock).strip() != str(os.getpid()):
+                    raise ValueError("pacing lock owner changed")
+                lock.unlink()
+            except (OSError, ValueError):
+                print("OpenCode start blocked: pacing lock cannot be safely released", file=sys.stderr)
+                raise SystemExit(75)
+    os.execvp(command[0], command)
+    return 0
 
 
 class HostPreflightError(RuntimeError):
@@ -87,32 +188,109 @@ def pane_session(pane: str) -> str | None:
     return pane_state(pane)[0]
 
 
-def capture(manifest: Path) -> int:
+def validate_entries(document: dict) -> list[dict]:
+    if (not isinstance(document, dict) or set(document) != {"schema_version", "sessions"}
+            or type(document["schema_version"]) is not int or document["schema_version"] not in (1, 2)
+            or not isinstance(document["sessions"], list)):
+        raise ValueError("invalid OpenCode recovery manifest")
+    entries = document["sessions"]
+    required = {"pane_id", "directory", "session_id"}
+    if document["schema_version"] == 2:
+        required.add("recovery_state")
+    if any(not isinstance(item, dict) or set(item) != required
+           or not all(isinstance(item[key], str) and item[key] for key in required) for item in entries):
+        raise ValueError("invalid OpenCode recovery entry")
+    if any(not re.fullmatch(r"ses_[A-Za-z0-9]+", item["session_id"])
+           or not re.fullmatch(r"[A-Za-z0-9]+:[A-Za-z0-9]+", item["pane_id"])
+           or not Path(item["directory"]).is_absolute()
+           or item.get("recovery_state", "pending") not in ("pending", "observed") for item in entries):
+        raise ValueError("unsafe OpenCode recovery entry")
+    if (len({item["pane_id"] for item in entries}) != len(entries)
+            or len({item["session_id"] for item in entries}) != len(entries)):
+        raise ValueError("conflicting OpenCode recovery entries")
+    return [{**item, "recovery_state": item.get("recovery_state", "pending")} for item in entries]
+
+
+def load_manifest(manifest: Path) -> list[dict]:
+    try:
+        return validate_entries(json.loads(read_state(manifest)))
+    except FileNotFoundError:
+        if manifest.is_symlink():
+            raise ValueError("unsafe recovery manifest")
+        return []
+
+
+def save_manifest(manifest: Path, entries: list[dict]) -> None:
+    document = {"schema_version": 2, "sessions": entries}
+    validate_entries(document)
+    atomic_state(manifest, json.dumps(document, indent=2) + "\n")
+
+
+@contextlib.contextmanager
+def recovery_lock(manifest: Path):
+    safe_directory(manifest.parent)
+    lock = manifest.parent / "opencode-restore.lock"
+    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "r+") as handle:
+        safe_regular(lock)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("recovery state busy")
+                time.sleep(0.1)
+        yield
+
+
+def running_sessions() -> list[dict]:
     sessions = []
     panes = run("pane", "list")["result"]["panes"]
+    if not isinstance(panes, list):
+        raise ValueError("invalid pane inventory")
     for pane in panes:
         pane_id = pane.get("pane_id")
         if not isinstance(pane_id, str):
-            continue
+            raise ValueError("invalid pane inventory")
         process = run("pane", "process-info", "--pane", pane_id)["result"]["process_info"]
-        for foreground in process["foreground_processes"]:
+        processes = process["foreground_processes"]
+        if not isinstance(processes, list):
+            raise ValueError("invalid process inventory")
+        for foreground in processes:
             argv, directory = foreground.get("argv", []), foreground.get("cwd")
-            if (argv and Path(argv[0]).name == "opencode"
-                    and (session := session_argument(argv)) and isinstance(directory, str)):
-                sessions.append({"pane_id": pane_id, "directory": directory, "session_id": session})
+            if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
+                raise ValueError("incomplete process inventory")
+            if Path(argv[0]).name == "opencode":
+                session = session_argument(argv)
+                if not session:
+                    raise ValueError("OpenCode identity unavailable")
+                sessions.append({"pane_id": pane_id, "directory": directory, "session_id": session,
+                                 "recovery_state": "observed"})
                 break
-    temporary = manifest.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"schema_version": 1, "sessions": sessions}, indent=2) + "\n")
-    temporary.replace(manifest)
+    return validate_entries({"schema_version": 2, "sessions": sessions})
+
+
+def capture(manifest: Path) -> int:
+    with recovery_lock(manifest):
+        previous = load_manifest(manifest)
+        observed = running_sessions()
+        running = {item["session_id"] for item in observed}
+        pending = [item for item in previous if item["recovery_state"] == "pending"
+                   and item["session_id"] not in running]
+        save_manifest(manifest, pending + observed)
     return 0
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["--pace-start"]:
+        return pace_start(sys.argv[2:])
     check = sys.argv[1:] == ["--check"]
     capturing = sys.argv[1:] == ["--capture"]
     watching = sys.argv[1:] == ["--watch"]
     if sys.argv[1:] not in ([], ["--check"], ["--capture"], ["--watch"]):
-        raise ValueError("usage: herdr-opencode-restore [--check|--capture|--watch]")
+        raise ValueError("usage: herdr-opencode-restore [--check|--capture|--watch|--pace-start COMMAND...]")
     root_value = os.environ.get("DOTFILES_AI_STATE_ROOT")
     if not root_value:
         if os.environ.get("HERDR_HOST_ACTIVE") == "1":
@@ -154,27 +332,20 @@ def main() -> int:
         return error.status
     database = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode/opencode.db"
     opencode = Path.home() / ".local/bin/opencode"
-    if not root or not manifest.is_file() or not database.is_file() or not opencode.is_file():
+    if not manifest.exists() and not manifest.is_symlink():
         return 0
 
-    restore_lock = (root / "herdr/opencode-restore.lock").open("w")
-    fcntl.flock(restore_lock, fcntl.LOCK_EX)
+    with recovery_lock(manifest):
+        entries = load_manifest(manifest)
+        if not check:
+            entries = [{**item, "recovery_state": "pending"} for item in entries]
+            save_manifest(manifest, entries)
+        if not database.is_file() or not opencode.is_file():
+            raise RuntimeError("recovery database or wrapper unavailable")
+        return restore(manifest, entries, database, opencode, check)
 
-    document = json.loads(manifest.read_text())
-    if document.get("schema_version") != 1 or not isinstance(document.get("sessions"), list):
-        raise ValueError("invalid OpenCode recovery manifest")
 
-    entries = document["sessions"]
-    required = {"pane_id", "directory", "session_id"}
-    if any(set(entry) != required or not all(isinstance(entry[key], str) and entry[key] for key in required)
-           for entry in entries):
-        raise ValueError("invalid OpenCode recovery entry")
-    if any(not re.fullmatch(r"ses_[A-Za-z0-9]+", entry["session_id"])
-           or not re.fullmatch(r"[A-Za-z0-9]+:[A-Za-z0-9]+", entry["pane_id"]) for entry in entries):
-        raise ValueError("unsafe OpenCode recovery entry")
-    if len({entry["pane_id"] for entry in entries}) != len(entries) or len({entry["session_id"] for entry in entries}) != len(entries):
-        raise ValueError("duplicate OpenCode recovery entry")
-
+def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path, check: bool) -> int:
     with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
         known = {row[0] for row in connection.execute(
             f"SELECT id FROM session WHERE id IN ({','.join('?' for _ in entries)})",
@@ -192,11 +363,17 @@ def main() -> int:
             current = run("pane", "get", pane)["result"]["pane"]
             active_session, occupied = pane_state(pane)
             if active_session == session:
+                if not check:
+                    entry["recovery_state"] = "observed"
+                    save_manifest(manifest, entries)
                 continue
             if session in running:
                 raise RuntimeError("session is running in another pane")
             if current.get("agent") or occupied:
                 raise RuntimeError("pane is occupied")
+            pane_directory = current.get("foreground_cwd") or current.get("cwd")
+            if not isinstance(pane_directory, str) or Path(pane_directory).resolve() != directory.resolve():
+                raise RuntimeError("pane directory mismatch")
             if check:
                 continue
             command = "exec " + shlex.join([str(opencode), "--session", session, "--auto"])
@@ -210,6 +387,8 @@ def main() -> int:
                 time.sleep(0.1)
             else:
                 raise RuntimeError("restored session identity mismatch")
+            entry["recovery_state"] = "observed"
+            save_manifest(manifest, entries)
         except subprocess.CalledProcessError as error:
             failures.append("Herdr command failed")
         except Exception as error:

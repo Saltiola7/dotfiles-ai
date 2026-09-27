@@ -1,5 +1,29 @@
 # Herdr External-Volume Operation
 
+## Qualified Source Repair: Operator Hold
+
+HERDR-SESSION-RECOVERY source qualification covers the wrapper and
+`herdr-opencode-restore` as one deployment unit. Its internal `--pace-start
+COMMAND...` mode shares the existing startup lock/timestamp, uses a twenty-second
+no-progress deadline and five-minute total deadline, and execs the original
+command after paced admission. A stalled-queue diagnostic does not establish
+external-volume failure; Herdr Host doctor remains volume/host health evidence.
+
+Recovery schema 2 retains pending entries until the exact session is observed.
+An observed session absent from a later complete inventory may be removed as
+closed. Conflicting pending mappings fail closed and preserve prior intent.
+`--check` validates without migrating or changing recovery intent.
+
+The current operator hold prohibits restart, live capture/restore, and recovery
+manifest mutation. Do not deploy by broad chezmoi apply. Once rollout is separately
+approved, preview and back up the exact wrapper/helper and private manifest,
+verify no old watcher can overwrite schema 2, install the compatible pair, and
+perform the operator-approved exact-session recovery check. Existing running
+watchers do not reload Python source automatically. If rolling back, retain the
+schema-2 evidence and coordinate restoration of the private pre-migration manifest;
+never let an old writer silently overwrite pending entries. No live recovery
+success is claimed by disposable tests.
+
 This runbook governs Herdr and OpenCode when their managed state and projects
 remain on an external macOS volume. It covers the currently deployed legacy
 supervisor and the durable `Herdr Host.app` design selected by AUTH-016. The

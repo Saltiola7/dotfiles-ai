@@ -1,5 +1,17 @@
 # Shell Auth Startup
 
+## Session Recovery Repair Evidence
+
+HERDR-SESSION-RECOVERY implements the
+[approved paced-start and pending-entry contract](../../initiatives/gpt6-herdr-recovery/recovery.md).
+The wrapper delegates paced launches through the existing Python recovery helper,
+retaining the shared native shlock identity and exec argument boundaries. The
+helper uses monotonic queue deadlines and schema-2 pending/observed recovery
+entries under one capture/restore lock. This supersedes the older fixed-budget
+startup and schema-1 capture behavior described in historical cycle sections.
+Source/fixture qualification does not constitute installed or live restart proof.
+The operator's no-restart hold remains in effect.
+
 **Status:** AUTH-016 probe-only host is signed, installed, registered, FDA-approved,
 and healthy; AUTH-014 remains deployed and authoritative. Activation and restart
 have not been performed.
