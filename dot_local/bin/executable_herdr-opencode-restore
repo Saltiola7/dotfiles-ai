@@ -85,8 +85,8 @@ def pace_start(command: list[str]) -> int:
                 owned = True
                 break
             now = time.monotonic()
-            if now - progress >= 20 or now - started >= 300:
-                print("OpenCode start blocked: pacing queue stalled or exceeded five minutes; "
+            if now - progress >= 20 or now - started >= 600:
+                print("OpenCode start blocked: pacing queue stalled or exceeded ten minutes; "
                       "retry after pending starts settle", file=sys.stderr)
                 return 75
             time.sleep(0.1)
@@ -175,11 +175,35 @@ def session_argument(argv: list[str]) -> str | None:
     return None
 
 
+def opencode_session(argv: list[str], pane: dict) -> str | None:
+    if not argv or Path(argv[0]).name != "opencode":
+        return None
+    explicit = session_argument(argv)
+    native = pane.get("agent_session")
+    identity = None
+    if native is not None:
+        if (not isinstance(native, dict) or pane.get("agent") != "opencode"
+                or native.get("agent") != "opencode" or native.get("kind") != "id"
+                or native.get("source") != "herdr:opencode"):
+            raise ValueError("invalid native OpenCode identity")
+        identity = native.get("value")
+        if not isinstance(identity, str) or not re.fullmatch(r"ses_[A-Za-z0-9]+", identity):
+            raise ValueError("invalid native OpenCode identity")
+    if explicit is not None and not re.fullmatch(r"ses_[A-Za-z0-9]+", explicit):
+        raise ValueError("invalid explicit OpenCode identity")
+    if identity and explicit and identity != explicit:
+        raise ValueError("conflicting OpenCode identity")
+    if not (identity or explicit):
+        raise ValueError("OpenCode identity unavailable")
+    return identity or explicit
+
+
 def pane_state(pane: str) -> tuple[str | None, bool]:
+    current = run("pane", "get", pane)["result"]["pane"]
     processes = run("pane", "process-info", "--pane", pane)["result"]["process_info"]["foreground_processes"]
     for process in processes:
         argv = process.get("argv", [])
-        if argv and Path(argv[0]).name == "opencode" and (session := session_argument(argv)):
+        if session := opencode_session(argv, current):
             return session, True
     return None, bool(processes)
 
@@ -258,17 +282,19 @@ def running_sessions() -> list[dict]:
         processes = process["foreground_processes"]
         if not isinstance(processes, list):
             raise ValueError("invalid process inventory")
+        incomplete = False
         for foreground in processes:
             argv, directory = foreground.get("argv", []), foreground.get("cwd")
             if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
-                raise ValueError("incomplete process inventory")
-            if Path(argv[0]).name == "opencode":
-                session = session_argument(argv)
-                if not session:
-                    raise ValueError("OpenCode identity unavailable")
+                incomplete = True
+                continue
+            if session := opencode_session(argv, pane):
                 sessions.append({"pane_id": pane_id, "directory": directory, "session_id": session,
                                  "recovery_state": "observed"})
                 break
+        else:
+            if incomplete:
+                raise ValueError("incomplete process inventory")
     return validate_entries({"schema_version": 2, "sessions": sessions})
 
 

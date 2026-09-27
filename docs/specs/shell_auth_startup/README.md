@@ -1,5 +1,17 @@
 # Shell Auth Startup
 
+## macOS Upgrade Maintenance Evidence
+
+MACOS27-RUNTIME-MAINTENANCE implements the
+[approved native-identity and workload correction](../../initiatives/gpt6-herdr-recovery/maintenance.md).
+Capture and restoration observation share native/argv identity validation; a
+verified OpenCode process remains recognizable when companion processes have
+unavailable argv. A wholly incomplete inventory still preserves existing intent.
+The eighty-session qualification supersedes the earlier thirty-session target,
+and total paced admission is now ten minutes while stalled admission remains
+twenty seconds. Managed Herdr source pins select 0.9.1/protocol 22; installation
+and exact live restoration remain separate operation evidence.
+
 ## Session Recovery Repair Evidence
 
 HERDR-SESSION-RECOVERY implements the
