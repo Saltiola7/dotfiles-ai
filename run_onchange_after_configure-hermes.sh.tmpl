@@ -137,9 +137,9 @@ install -m 700 "$managed_home/scripts/dbsctr-maintain.py" "$profile_home/scripts
 install -m 700 "$managed_home/scripts/dbsctr-catalog.py" "$profile_home/scripts/dbsctr-catalog.py"
 "$HERMES" -p "$PROFILE" config set terminal.home_mode profile
 "$HERMES" -p "$PROFILE" config set model.provider {{ .dotfiles_ai.hermes.provider | quote }}
-"$HERMES" -p "$PROFILE" config set model.default openai-codex/gpt-5.6-sol
+"$HERMES" -p "$PROFILE" config set model.default openai-codex/gpt-6-astra
 [[ $("$HERMES" -p "$PROFILE" config get model.provider) == {{ .dotfiles_ai.hermes.provider | quote }} ]]
-[[ $("$HERMES" -p "$PROFILE" config get model.default) == openai-codex/gpt-5.6-sol ]]
+[[ $("$HERMES" -p "$PROFILE" config get model.default) == openai-codex/gpt-6-astra ]]
 "$HERMES" -p "$PROFILE" gateway stop >/dev/null 2>&1 || true
 
 replace_job() {

@@ -1,7 +1,7 @@
 ---
-description: Claude Opus primary for serial implementation in the current session.
+description: Claude Opus 5.5 primary for serial implementation in the current session.
 mode: primary
-model: google-vertex-anthropic/claude-opus-5@default
+model: google-vertex-anthropic/claude-opus-5-5@default
 variant: high
 permission:
   dbsctr_vm_handoff: deny

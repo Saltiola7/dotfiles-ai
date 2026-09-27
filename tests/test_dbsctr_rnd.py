@@ -170,7 +170,8 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert 'managed_home="$HERMES_HOME/managed"' in configure
     assert '$HOME/.hermes/managed' not in configure
     assert "terminal.home_mode profile" in configure
-    assert "config set model.default openai-codex/gpt-5.6-sol" in configure
+    assert "config set model.default openai-codex/gpt-6-astra" in configure
+    assert '"model.default", "openai-codex/gpt-6-astra"' in catalog
     assert "config get model.provider" in configure
     assert "config get model.default" in configure
     assert "gateway install --force" in configure
