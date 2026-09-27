@@ -5,6 +5,7 @@ Stage is preparation, not native trust, enrollment, quiescence or qualification.
 Hook transactions retain both files using atomic exchange, including racing edits.
 """
 import argparse
+import ast
 import contextlib
 import ctypes
 import fcntl
@@ -646,6 +647,134 @@ def rollback_refresh(directory, parent, selected):
     print("Refresh preimages restored; journals and evidence retained. Original stale native pin remains blocked.")
 
 
+def compatible_core(before, after):
+    """Exact AST parity outside four reviewed CLI-only functions, including headers."""
+    signatures = {
+        "safe_paths": "root, paths", "command_reconcile_target": "args",
+        "verified_upstream_template": "root, name", "validate_reconciliation_paths": "paths",
+    }
+    trees = [ast.parse(before), ast.parse(after)]
+    stripped = []
+    for index, tree in enumerate(trees):
+        seen, retained = set(), []
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in signatures:
+                expected = ast.parse(f"def {node.name}({signatures[node.name]}): pass").body[0]
+                if (node.name in seen or node.decorator_list or node.returns is not None
+                        or node.type_comment or getattr(node, "type_params", [])
+                        or ast.dump(node.args) != ast.dump(expected.args)):
+                    raise ValueError("compatibility_header_changed")
+                seen.add(node.name)
+            else:
+                retained.append(node)
+        if (not {"safe_paths", "command_reconcile_target"} <= seen
+                or index == 1 and seen != set(signatures)):
+            raise ValueError("compatibility_functions_missing")
+        stripped.append(ast.dump(ast.Module(body=retained, type_ignores=[]), include_attributes=False))
+    if stripped[0] != stripped[1]:
+        raise ValueError("compatibility_boundary_changed")
+    return sorted(signatures)
+
+
+def compatible_source(commit, production):
+    if len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
+        raise ValueError("commit_invalid")
+    root = Path(__file__).resolve().parents[2]
+    if git_read(root, "status", "--porcelain=v1").strip():
+        raise ValueError("source_dirty")
+    if git_read(root, "ls-remote", "origin", "refs/heads/main").decode().split() != [commit, "refs/heads/main"]:
+        raise ValueError("merged_main_changed")
+    git_read(root, "merge-base", "--is-ancestor", "HEAD", commit)
+    contents = {}
+    for name in ("executable_codex-requalify", "executable_codex-continuation", "executable_dbsctrctl"):
+        raw = read(root / "dot_local/bin" / name, 4 * 1024 * 1024)
+        if git_read(root, "show", commit + ":dot_local/bin/" + name) != raw:
+            raise ValueError("compatible_source_not_merged")
+        contents[name] = raw
+    if contents["executable_codex-continuation"] != read(Path(production["producer"]["path"]), 4 * 1024 * 1024):
+        raise ValueError("compatible_producer_changed")
+    compatible_core(read(Path(production["core"]["path"]), 4 * 1024 * 1024), contents["executable_dbsctrctl"])
+    return contents
+
+
+def refresh_compatible_core(args, parent, selected):
+    before = read(parent / "selected.json", 16384)
+    if digest(before) != args.expected_selection_sha256:
+        raise ValueError("selection_preimage_changed")
+    api = load_api(Path(__file__).resolve().parent)
+    production = api["load_deployment"](parent / "selected.json")
+    lane = selected.resolve(strict=True)
+    qualified = api["load_deployment"](lane / "selected.json")
+    old_core = api["load_core"](qualified)
+    qualification_hash = qualified_fixture(lane, api, qualified, old_core)
+    for key in ("producer", "core", "native_executable"):
+        if production[key]["sha256"] != qualified[key]["sha256"]:
+            raise ValueError("retained_qualification_pair_changed")
+    contents = compatible_source(args.commit, production)
+    directory = args.directory
+    if (not directory.is_absolute() or os.path.lexists(directory)
+            or directory.parent.resolve(strict=True) != directory.parent
+            or directory.parent.stat().st_dev == Path.home().stat().st_dev):
+        raise ValueError("new_external_directory_required")
+    try:
+        git_read(directory.parent, "rev-parse", "--absolute-git-dir")
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise ValueError("permanent_deployment_must_be_outside_git")
+    hooks = Path(production["native_home"]) / "hooks.json"
+    hook_before = read(hooks)
+    # Exact hook parsing occurs before any production transaction.
+    hook_after = fixture_hooks(hook_before, production, directory / "executable_codex-continuation")
+    snapshot = lambda: production_snapshot(parent, production, api, old_core)
+    baseline = snapshot()
+    directory.mkdir(mode=0o700)
+    for name in ("executable_codex-continuation", "executable_dbsctrctl"):
+        write_new(directory / name, contents[name], 0o500)
+    candidate = {**qualified, "core": {**qualified["core"], "sha256": digest(contents["executable_dbsctrctl"])}}
+    proposed = refresh_descriptor(production, candidate, directory)
+    write_new(directory / "selection.before.json", before)
+    json_new(directory / "selection.after.json", proposed)
+    if api["load_deployment"](directory / "selection.after.json") != proposed:
+        raise ValueError("production_descriptor_invalid")
+    after = read(directory / "selection.after.json", 16384)
+    write_new(directory / "hooks.before.json", hook_before)
+    write_new(directory / "hooks.after.json", hook_after)
+    plan = {"schema_version": 1, "kind": "reconciliation_compatibility", "source_commit": args.commit,
+            "qualification_sha256": qualification_hash, "snapshot": baseline,
+            "hashes": {name: digest(raw) for name, raw in {
+                "selection.before.json": before, "selection.after.json": after,
+                "hooks.before.json": hook_before, "hooks.after.json": hook_after}.items()}}
+    json_new(directory / "compatibility.plan.json", plan)
+    refresh_files([(parent / "selected.json", before, after, "selection"),
+                   (hooks, hook_before, hook_after, "hooks")], directory, snapshot, baseline)
+    if api["load_deployment"](parent / "selected.json") != proposed:
+        raise ValueError("installed_descriptor_invalid")
+    json_new(directory / "compatibility.complete.json", plan)
+    print("Compatible merged core refreshed; retained native evidence reused. Trust updated hooks and run native control check.")
+
+
+def rollback_compatible_core(directory, parent):
+    plan = json.loads(read(directory / "compatibility.plan.json"))
+    if plan.get("kind") != "reconciliation_compatibility" or plan.get("schema_version") != 1:
+        raise ValueError("compatibility_plan_invalid")
+    names = ("selection.before.json", "selection.after.json", "hooks.before.json", "hooks.after.json")
+    raw = {name: read(directory / name) for name in names}
+    if {name: digest(value) for name, value in raw.items()} != plan["hashes"]:
+        raise ValueError("compatibility_evidence_drift")
+    production = json.loads(raw["selection.before.json"])
+    api = load_api(Path(__file__).resolve().parent)
+    api["pinned_file"](production["producer"])
+    api["pinned_file"](production["native_executable"])
+    core = api["load_core"](production)
+    hooks = Path(production["native_home"]) / "hooks.json"
+    files = [(parent / "selected.json", raw["selection.before.json"], raw["selection.after.json"], "selection"),
+             (hooks, raw["hooks.before.json"], raw["hooks.after.json"], "hooks")]
+    rollback_refresh_files(files, directory,
+                           lambda: production_snapshot(parent, production, api, core), plan["snapshot"])
+    print("Exact compatibility-refresh preimages restored; state and evidence preserved.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -662,6 +791,12 @@ def main():
     promote = commands.add_parser("refresh")
     promote.add_argument("--directory", type=Path, required=True)
     promote.add_argument("--commit", required=True)
+    compatible = commands.add_parser("refresh-compatible-core")
+    compatible.add_argument("--directory", type=Path, required=True)
+    compatible.add_argument("--commit", required=True)
+    compatible.add_argument("--expected-selection-sha256", required=True)
+    undo_compatible = commands.add_parser("rollback-compatible-core")
+    undo_compatible.add_argument("--directory", type=Path, required=True)
     rollback = commands.add_parser("rollback-refresh")
     rollback.add_argument("--directory", type=Path, required=True)
     for action in ("install", "restore", "recover"):
@@ -677,6 +812,10 @@ def main():
                 recover_switch(args.directory, parent, selected)
             elif args.command == "refresh":
                 refresh(args, parent, selected)
+            elif args.command == "refresh-compatible-core":
+                refresh_compatible_core(args, parent, selected)
+            elif args.command == "rollback-compatible-core":
+                rollback_compatible_core(args.directory, parent)
             elif args.command == "rollback-refresh":
                 rollback_refresh(args.directory, parent, selected)
             else:
