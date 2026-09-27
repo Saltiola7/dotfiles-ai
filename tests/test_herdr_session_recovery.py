@@ -186,12 +186,14 @@ def test_restore_failure_marks_intent_pending_before_capture(monkeypatch, tmp_pa
 
 
 @pytest.mark.parametrize("fault", [None, "occupied", "directory", "unknown"])
-def test_check_is_read_only_and_refuses_wrong_targets(monkeypatch, tmp_path, fault):
+@pytest.mark.parametrize("central_default", [False, True])
+def test_check_is_read_only_and_refuses_wrong_targets(monkeypatch, tmp_path, fault, central_default):
     parent = tmp_path / "state/herdr"
     parent.mkdir(parents=True)
     manifest = seed(parent)
     before = manifest.read_bytes()
-    database = tmp_path / "data/opencode/opencode.db"
+    data_home = tmp_path / ("state/xdg/data" if central_default else "data")
+    database = data_home / "opencode/opencode.db"
     database.parent.mkdir(parents=True)
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
@@ -203,7 +205,14 @@ def test_check_is_read_only_and_refuses_wrong_targets(monkeypatch, tmp_path, fau
     script = runpy.run_path(str(SCRIPT))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path / "state"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    if central_default:
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        legacy = tmp_path / "home/.local/share/opencode/opencode.db"
+        legacy.parent.mkdir(parents=True)
+        with sqlite3.connect(legacy) as connection:
+            connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
+    else:
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--check"])
     monkeypatch.setitem(script["main"].__globals__, "preflight_host", lambda **_: None)
     def run(*args):

@@ -356,7 +356,7 @@ def main() -> int:
     except HostPreflightError as error:
         print(error, file=sys.stderr)
         return error.status
-    database = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode/opencode.db"
+    database = Path(os.environ.get("XDG_DATA_HOME", root / "xdg/data")) / "opencode/opencode.db"
     opencode = Path.home() / ".local/bin/opencode"
     if not manifest.exists() and not manifest.is_symlink():
         return 0
