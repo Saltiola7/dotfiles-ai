@@ -61,6 +61,59 @@ def test_pending_survives_capture_restart_and_manual_reopen(monkeypatch, tmp_pat
     assert manifest.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.parametrize("explicit", [False, True])
+def test_native_identity_covers_capture_and_restore_observation(monkeypatch, tmp_path, explicit):
+    script = runpy.run_path(str(SCRIPT))
+    pane = {"pane_id": "w1:p1", "agent": "opencode", "agent_session": {
+        "agent": "opencode", "kind": "id", "source": "herdr:opencode", "value": "ses_saved",
+    }}
+    def run(*args):
+        if args == ("pane", "list"):
+            return {"result": {"panes": [pane]}}
+        if args[:2] == ("pane", "get"):
+            return {"result": {"pane": pane}}
+        return {"result": {"process_info": {"foreground_processes": [{"argv": []}, {
+            "argv": ["opencode"] + (["--session", "ses_saved"] if explicit else []),
+            "cwd": str(tmp_path),
+        }]}}}
+    monkeypatch.setitem(script["capture"].__globals__, "run", run)
+    manifest = seed(tmp_path, "pending")
+    script["capture"](manifest)
+    assert json.loads(manifest.read_text())["sessions"] == [entry(tmp_path, "observed")]
+    assert script["pane_state"]("w1:p1") == ("ses_saved", True)
+
+
+@pytest.mark.parametrize("fault", ["conflict", "invalid", "kind", "source", "agent", "unrelated"])
+def test_native_identity_never_overrides_conflicting_or_unrelated_processes(monkeypatch, tmp_path, fault):
+    script = runpy.run_path(str(SCRIPT))
+    native = {"agent": "opencode", "kind": "id", "source": "herdr:opencode", "value": "ses_saved"}
+    if fault in ("invalid", "conflict"):
+        native["value"] = "bad id" if fault == "invalid" else "ses_other"
+    if fault in ("kind", "source", "agent"):
+        native[fault] = "wrong"
+    pane = {"pane_id": "w1:p1", "agent": "opencode", "agent_session": native}
+    def run(*args):
+        if args == ("pane", "list"):
+            return {"result": {"panes": [pane]}}
+        if args[:2] == ("pane", "get"):
+            return {"result": {"pane": pane}}
+        return {"result": {"process_info": {"foreground_processes": [{
+            "argv": ["vim"] if fault == "unrelated" else ["opencode", "--session", "ses_saved"],
+            "cwd": str(tmp_path),
+        }]}}}
+    monkeypatch.setitem(script["capture"].__globals__, "run", run)
+    manifest = seed(tmp_path, "pending")
+    before = manifest.read_bytes()
+    if fault == "unrelated":
+        script["capture"](manifest)
+        assert script["pane_state"]("w1:p1") == (None, True)
+        assert json.loads(manifest.read_text())["sessions"] == [entry(tmp_path, "pending")]
+    else:
+        with pytest.raises(ValueError):
+            script["capture"](manifest)
+        assert manifest.read_bytes() == before
+
+
 def test_pending_collision_preserves_previous_manifest(monkeypatch, tmp_path):
     manifest = seed(tmp_path, "pending")
     before = manifest.read_bytes()
@@ -205,8 +258,8 @@ def test_progress_does_not_remove_total_admission_deadline(monkeypatch, tmp_path
     ))
     monkeypatch.setattr(subprocess, "run", lambda *_, **__: SimpleNamespace(returncode=1))
     assert script["pace_start"](["never-launch"]) == 75
-    assert clock[0] == 300
-    assert "five minutes" in capsys.readouterr().err
+    assert clock[0] == 600
+    assert "ten minutes" in capsys.readouterr().err
     assert lock.read_text() == f"{os.getpid()}\n"
 
 
@@ -231,16 +284,16 @@ def wrapper_fixture(tmp_path):
     return wrapper, state / "herdr", env
 
 
-def test_thirty_concurrent_resumes_drain_with_spacing(tmp_path):
+def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
     wrapper, _, env = wrapper_fixture(tmp_path)
     processes = [subprocess.Popen([wrapper, "--session", f"ses_{index}"], env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                 for index in range(30)]
+                 for index in range(80)]
     try:
-        results = [(process.communicate(timeout=240), process.returncode) for process in processes]
+        results = [(process.communicate(timeout=600), process.returncode) for process in processes]
         assert all(code == 0 for _, code in results), results
         starts = sorted(json.loads(output[0]) for output, _ in results)
-        assert {row[0][1] for row in starts} == {f"ses_{index}" for index in range(30)}
+        assert {row[0][1] for row in starts} == {f"ses_{index}" for index in range(80)}
         assert all(row[0][-1] == "--auto" for row in starts)
         times = sorted(row[1] for row in starts)
         assert all(right - left >= 4.8 for left, right in zip(times, times[1:]))

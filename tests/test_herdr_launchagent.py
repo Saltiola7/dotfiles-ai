@@ -805,9 +805,9 @@ def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
     installer = (ROOT / "run_onchange_before_install-herdr.sh.tmpl").read_text()
 
     assert 'executable = "~/.local/bin/herdr"' in defaults
-    assert 'version = "0.8.2"' in defaults
-    assert "protocol = 20" in defaults
-    assert "a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574" in defaults
+    assert 'version = "0.9.1"' in defaults
+    assert "protocol = 22" in defaults
+    assert "5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de" in defaults
     assert "server live-handoff" in installer
     assert "server stop" not in installer
 
@@ -1217,7 +1217,7 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
 def test_session_detection_ignores_unrelated_processes(monkeypatch) -> None:
     script = runpy.run_path(str(ROOT / "dot_local/bin/executable_herdr-opencode-restore"))
     monkeypatch.setitem(script["pane_state"].__globals__, "run", lambda *_: {
-        "result": {"process_info": {"foreground_processes": [
+        "result": {"pane": {}, "process_info": {"foreground_processes": [
             {"argv": ["other", "--session", "ses_wrong"]},
             {"argv": ["/tmp/opencode", "--session=ses_right", "--auto"]},
         ]}}

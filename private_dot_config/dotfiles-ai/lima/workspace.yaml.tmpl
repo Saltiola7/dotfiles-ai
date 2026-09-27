@@ -56,8 +56,8 @@ provision:
       /usr/local/libexec/opencode-protected-paths >/etc/opencode-sandbox/protected.json
       chmod 0444 /etc/opencode-sandbox/workspace.json /etc/opencode-sandbox/protected.json
       tmp="$(mktemp)"
-      curl -fsSL https://github.com/ogulcancelik/herdr/releases/download/v0.7.5/herdr-linux-aarch64 -o "$tmp"
-      printf '%s  %s\n' 32e763a1499a6b694b1d708e4f062b743be1da9f34fcfa4d212d6db6fe09a8b9 "$tmp" | sha256sum -c -
+      curl -fsSL https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-linux-aarch64 -o "$tmp"
+      printf '%s  %s\n' f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e "$tmp" | sha256sum -c -
       install -m 0755 "$tmp" /usr/local/bin/herdr
       curl -fsSL https://github.com/twpayne/chezmoi/releases/download/v2.69.4/chezmoi-2.69.4-aarch64.rpm -o "$tmp"
       printf '%s  %s\n' f9879c21933225a5adb86fafaf904ac06e4395cae915d4f838c9ccffd9cd4847 "$tmp" | sha256sum -c -

@@ -1,5 +1,23 @@
 # Shell Auth Startup Changelog
 
+## 2026-09-27 — MACOS27-RUNTIME-MAINTENANCE
+
+- Added shared exact native/argv identity resolution for implicit sessions,
+  rejecting conflicts and malformed native metadata. Read-only live inventory
+  recognized all 72 unique OpenCode conversations, including the current implicit
+  session; unidentified companion processes no longer hide a verified OpenCode
+  foreground process. No live manifest was modified during this probe.
+- Extended total paced admission to ten minutes and the real-process regression
+  workload to eighty resumes; twenty-second stall detection and spacing remain.
+- Updated macOS and Linux Herdr pins to 0.9.1, wire protocol 22, with upstream
+  SHA-256 assets. An isolated named native server passed version, checksum,
+  protocol and pane-API qualification; old-server handoff guards remain intact.
+- Source-only delivery precedes host installation. Homebrew maintenance occurred
+  separately under operator approval; VM operations were subsequently deferred.
+  No administrator password is collected and no raw VM-control denial is bypassed.
+  Gate Exceptions: none. Actual validation IDs, commits and PR delivery are in
+  the Cycle Record; live restart success is not inferred from source tests.
+
 ## 2026-09-26 — HERDR-SESSION-RECOVERY
 
 - Reproduced premature startup admission failure and erased failed-recovery

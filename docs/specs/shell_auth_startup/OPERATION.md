@@ -1,5 +1,25 @@
 # Herdr External-Volume Operation
 
+## Current Maintenance Correction
+
+The [maintenance contract](../../initiatives/gpt6-herdr-recovery/maintenance.md)
+supersedes the five-minute total bound and blanket restart hold below. The
+operator now authorizes a controlled host restart only after complete inventory,
+private backups and the larger workload qualify. The helper accepts verified
+Herdr-native IDs for implicit OpenCode launches and retains malformed/conflicting
+identity as failure. Capture and observation use the same rule.
+
+Herdr 0.9.1 is checksum-pinned with protocol 22, but an old 0.8.2 sender retains
+its sixty-four-pane handoff limit. Preserve that guard and use the approved cold
+restart procedure for a larger server. `tests/probe_herdr_release.py BINARY`
+qualifies a downloaded asset using isolated HOME/XDG state and a short named
+socket namespace; it never targets the operator's Herdr server.
+
+The operator subsequently deferred VM operations after a direct VM-control
+permission denial. Do not run the fleet updater under a fabricated host-only
+environment or silently edit its registered targets. Managed fleet convergence
+remains pending that separate permission decision; Homebrew copies are distinct.
+
 ## Qualified Source Repair: Operator Hold
 
 HERDR-SESSION-RECOVERY source qualification covers the wrapper and
