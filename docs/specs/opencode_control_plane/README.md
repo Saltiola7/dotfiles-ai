@@ -1,5 +1,11 @@
 # OpenCode Control Plane
 
+**GPT6-MODEL-ROUTING implementation evidence:** Managed source implements the
+[approved GPT-6/Opus 5.5 routing table](../../initiatives/gpt6-herdr-recovery/model-routing.md).
+That table supersedes the older model selections retained in the historical
+cycle sections below. Source regression checks pass; installed rollout and
+running-session restart remain held by the operator.
+
 **Status:** OCP-30 delivered to Git without live apply; OCP-27/OCP-28 provider-native harness deployed
 **Discovery readiness:** Complete
 **Provider-native harness:** Delivered; GPT activation passed and unavailable Opus 5 invocation remains a provider-local follow-up

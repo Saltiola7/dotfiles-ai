@@ -1,5 +1,21 @@
 # OpenCode Control Plane Changelog
 
+## 2026-09-26 — GPT6-MODEL-ROUTING
+
+- Replaced active GPT-5.6 routes with Astra for default/Plan/Build/reviewer and
+  Hermes profiles, Sol for Builder/Scout, and Luna for Explore/small-model work.
+  Claude Build and its command select Vertex Opus 5.5. Provider affinity,
+  reasoning levels, permissions and historical accounting identities remain intact.
+- Red regression: six route/default assertions failed against old source.
+  Green validation: 130 affected control-plane, portable-distribution and Hermes
+  tests passed. Installed OpenCode and managed Codex catalogs list the selected
+  models; catalog presence does not prove provider entitlement or inference quality.
+- Source-only delivery; no apply, process restart, or recovery-state mutation.
+  Later targeted rollout must verify local overrides and loaded configuration.
+  Dependabot input unavailable because alerts are disabled; dependencies unchanged.
+  Gate Exceptions: none. Intended Final Push: feature branch and draft PR to main;
+  actual commit/push/merge evidence belongs to the Cycle Record.
+
 ## 2026-09-25 - Checkout-Safe Continuation Adapter
 
 - Added explicit v2 bind/recovery/release, paired-helper capability reporting,
