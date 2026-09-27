@@ -1,5 +1,17 @@
 # Shell Auth Startup Changelog
 
+## 2026-09-27 — HERDR-STATE-ROOT-RECOVERY
+
+- Corrected standalone recovery's missing-XDG fallback to the configured central
+  data root. The supervisor supplies that root; an unrelated legacy internal
+  database must not determine whether the expected conversations exist.
+- The central fixture first failed against the old fallback with an empty legacy
+  store. Explicit-XDG, central-default, occupied/mismatched/unknown target and
+  read-only intent checks cover the correction. No data or live session moved.
+- Deployment remains held until checked source delivery. Gate Exceptions: none.
+  Intended delivery is a normal feature PR to main; actual gate evidence and
+  commits are recorded in the Cycle Record.
+
 ## 2026-09-27 — MACOS27-RUNTIME-MAINTENANCE
 
 - Added shared exact native/argv identity resolution for implicit sessions,

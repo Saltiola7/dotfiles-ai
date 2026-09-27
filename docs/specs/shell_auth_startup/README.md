@@ -1,5 +1,11 @@
 # Shell Auth Startup
 
+**Standalone routing correction:** HERDR-STATE-ROOT-RECOVERY implements the
+[central-state fallback contract](../../initiatives/gpt6-herdr-recovery/state-root-recovery.md).
+Recovery invoked by a supervisor without XDG_DATA_HOME selects the configured
+central database. Explicit overrides remain supported; no legacy fallback or
+data migration is introduced. Live deployment remains separately verified.
+
 ## macOS Upgrade Maintenance Evidence
 
 MACOS27-RUNTIME-MAINTENANCE implements the
