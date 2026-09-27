@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/shell_auth_startup/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "The startup profile delivers managed source through PR; upstream signed/pinned runtime assets are consumed, not republished."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source correction and disposable qualification only; the separate approved maintenance rollout owns installation."},
+    "operate": {"applicability": "not_applicable", "reason": "Disposable fixture results are not live session-recovery evidence; rollout owns controlled restart and exact inventory verification."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

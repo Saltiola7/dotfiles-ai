@@ -1,5 +1,16 @@
 # GPT-6 Routing And Durable Herdr Recovery
 
+## Current Maintenance Authority
+
+The [post-macOS upgrade maintenance contract](maintenance.md) supersedes the
+original restart hold conditionally and reopens readiness for native implicit
+session capture and the larger restoration workload. Original source slices
+were merged through PRs 182 and 183; live deployment was intentionally held.
+The operator now approves all eligible Homebrew updates, host/registered-workspace
+runtime updates, and a controlled restart only after complete coverage, backups
+and workload qualification. The historical source-only boundaries below remain
+evidence of the earlier delivery, not a claim that rollout already occurred.
+
 ## Scope And Authority
 
 The operator approved upgrading active GPT-5.6 routes, selecting Opus 5.5 for
