@@ -1,7 +1,7 @@
 ---
-description: Run DBSCTR with Claude Opus 5
+description: Run DBSCTR with Claude Opus 5.5
 agent: build-claude
-model: google-vertex-anthropic/claude-opus-5@default
+model: google-vertex-anthropic/claude-opus-5-5@default
 ---
 
 Use the skill tool to load `dbsctr`, then execute it against the arguments below.

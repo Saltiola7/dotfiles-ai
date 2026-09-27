@@ -1,7 +1,7 @@
 ---
-description: GPT-5.6 Sol Fast primary for serial implementation in the current session.
+description: GPT-6 Astra primary for serial implementation in the current session.
 mode: primary
-model: openai/gpt-5.6-sol-fast
+model: openai/gpt-6-astra
 variant: medium
 permission:
   dbsctr_vm_handoff: deny
