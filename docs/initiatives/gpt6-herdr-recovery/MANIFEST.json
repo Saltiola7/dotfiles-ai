@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "gpt6-herdr-recovery",
+  "title": "GPT-6 model routing and durable Herdr session recovery",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Use GPT-6 Astra for the OpenCode default, Plan, GPT Build, GPT command and OpenAI reviewer routes.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/model-routing.md"]},
+    {"id":"INT-002","kind":"requirement","text":"Use Opus 5.5 for Claude Build and its command while preserving the configured Vertex provider boundary.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/model-routing.md"]},
+    {"id":"INT-003","kind":"requirement","text":"Remove GPT-5.6 from active managed model routing, including smaller OpenAI helpers and Hermes; preserve historical evidence and accounting identities.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/model-routing.md"]},
+    {"id":"INT-004","kind":"decision","text":"Use catalog-supported GPT-6 Sol for Builder and Scout and GPT-6 Luna for Explore and small-model work; do not invent an unavailable GPT-6 Terra route.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/model-routing.md"]},
+    {"id":"INT-005","kind":"requirement","text":"Repair paced startup so a supported concurrent restoration burst is not rejected as unavailable storage merely because other sessions are progressing.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/recovery.md"]},
+    {"id":"INT-006","kind":"requirement","text":"Preserve unresolved exact-session restoration entries across capture and restart without overwriting occupied panes, duplicating sessions, or resurrecting intentionally closed sessions.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/recovery.md"]},
+    {"id":"INT-007","kind":"constraint","text":"Do not restart or signal Herdr or existing agent sessions; the operator is manually reopening sessions and live recovery state must remain untouched during implementation.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md"]},
+    {"id":"INT-008","kind":"constraint","text":"Deliver only this session's changes through pull requests into main after required checks; preserve unrelated Discovery commits and untracked relocation work outside delivery.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md"]},
+    {"id":"INT-009","kind":"risk","text":"A startup timeout does not prove lost conversation history; current health and surviving session metadata cannot establish the exact incident-time lock failure.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/recovery.md"]},
+    {"id":"INT-010","kind":"constraint","text":"Separate source and fixture qualification from deployment and live restart qualification; release of the operator's no-restart hold is required before live recovery testing.","disposition":"ready","artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md"]}
+  ],
+  "contexts": [
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"shell_auth_startup","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["opencode_control_plane","shell_auth_startup"]}
+  ],
+  "slices": [
+    {"id":"model-routing","context":"opencode_control_plane","state":"ready","execution_owner":"build","requirements":["INT-001","INT-002","INT-003","INT-004","INT-007","INT-008","INT-010"],"depends_on":[],"artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md","docs/initiatives/gpt6-herdr-recovery/model-routing.md","docs/initiatives/gpt6-herdr-recovery/MODEL-ROUTING.plan.json","docs/specs/opencode_control_plane/PROFILE.md","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md"],"release_group":"source-repairs"},
+    {"id":"session-recovery","context":"shell_auth_startup","state":"ready","execution_owner":"build","requirements":["INT-005","INT-006","INT-007","INT-008","INT-009","INT-010"],"depends_on":[],"artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md","docs/initiatives/gpt6-herdr-recovery/recovery.md","docs/initiatives/gpt6-herdr-recovery/SESSION-RECOVERY.plan.json","docs/specs/shell_auth_startup/PROFILE.md"],"release_group":"source-repairs"},
+    {"id":"targeted-rollout","context":"dotfiles_ai_distribution","state":"captured","execution_owner":"discovery","requirements":["INT-003","INT-007","INT-008","INT-010"],"depends_on":["model-routing","session-recovery"],"artifacts":["docs/initiatives/gpt6-herdr-recovery/README.md"],"release_group":"operator-held-rollout"}
+  ],
+  "release_groups": [
+    {"id":"source-repairs","members":["model-routing","session-recovery"],"state":"planning"},
+    {"id":"operator-held-rollout","members":["targeted-rollout"],"state":"planning"}
+  ]
+}
