@@ -1,8 +1,8 @@
 # Qualified Host Recovery Rollout
 
-**Readiness reopened:** the [standalone state-root correction](state-root-recovery.md)
-must merge before this rollout can launch. The verified backup and prior native
-qualification remain valid evidence; no live restart has occurred.
+**Readiness renewed:** the [standalone state-root correction](state-root-recovery.md)
+is merged through PR 185 after the configured checks. The verified backup and
+prior native qualification remain valid evidence; no live restart has occurred.
 
 ## Scope And Authority
 
@@ -34,7 +34,8 @@ wrapper/helper preimages. Retain failure evidence from incomplete native exports
 the complete verified SQLite snapshot is the backup authority.
 
 Install only the qualified wrapper/recovery helper pair, requested OpenCode model
-configuration/role/command targets, machine-local model overrides, the verified
+configuration/role/command targets, machine-local model overrides, the configured
+managed Hermes base profile's model default, the verified
 Herdr executable and release-matched skill. Preview exact rendered deltas with
 the real machine config and scripts excluded. Refuse unrelated drift instead of
 overwriting it. Keep the central data/state root, provider accounts, permissions,
@@ -52,6 +53,11 @@ It records exact source/artifact identities, stages, preimages and same-conversa
 resumption instructions before mutation. Qualify its syntax and preflight checks
 before arming; an invocation that only prepares or checks cannot stop a process.
 The current writer must have no outstanding governed operations before restart.
+Pause the configured system Hermes gateway only after its execution registry has
+no active jobs, so it cannot launch new work during inventory freeze. Preserve
+its provider, schedules, credentials and job records; change only the model default
+to the approved Astra route. Resume it after verification only if it was running
+before maintenance. Do not change unmanaged or disabled project profiles.
 
 Freeze the old capture watcher before schema-2 intent becomes live. Reconcile all
 expected native IDs with the qualified helper, preserving pending entries and
