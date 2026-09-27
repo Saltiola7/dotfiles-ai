@@ -1106,7 +1106,8 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     ).stdout
     assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
-    assert "exec /opt/homebrew/bin/opencode" in rendered
+    assert "start_opencode /opt/homebrew/bin/opencode" in rendered
+    assert 'exec "$@"' in rendered
     assert ".dotfiles-ai-state" in rendered
 
 
@@ -1165,6 +1166,11 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     wrapper.write_text(rendered)
     wrapper.chmod(0o755)
     environment = {**os.environ, "HOME": str(tmp_path / "home")}
+    helper = tmp_path / "home/.local/bin/herdr-opencode-restore"
+    helper.parent.mkdir(parents=True)
+    helper.write_text((ROOT / "dot_local/bin/executable_herdr-opencode-restore").read_text().replace(
+        "#!/usr/bin/env python3", f"#!{sys.executable}", 1))
+    helper.chmod(0o755)
 
     plain = subprocess.run(
         [wrapper, "plain"], text=True, capture_output=True, check=True,
@@ -1461,7 +1467,7 @@ def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> 
         'printf "%s\\n" "$*" >> "$CALLS"\n'
         'case "$1 $2" in\n'
         '  "agent list") printf \'{"result":{"agents":[{"agent_session":{"value":"ses_running"}}]}}\\n\' ;;\n'
-        '  "pane get") printf \'{"result":{"pane":{}}}\\n\' ;;\n'
+        f'  "pane get") printf \'{{"result":{{"pane":{{"cwd":"{directory}"}}}}}}\\n\' ;;\n'
         '  "pane run") sleep 0.2; touch "$STARTED" ;;\n'
         '  "pane process-info") if [ "$4" = w1:p1 ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_running","--auto"]}]}}}\\n\'; elif [ -f "$STARTED" ]; then printf \'{"result":{"process_info":{"foreground_processes":[{"argv":["opencode","--session","ses_restore","--auto"]}]}}}\\n\'; else printf \'{"result":{"process_info":{"foreground_processes":[]}}}\\n\'; fi ;;\n'
         'esac\n'

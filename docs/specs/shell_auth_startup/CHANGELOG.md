@@ -1,5 +1,22 @@
 # Shell Auth Startup Changelog
 
+## 2026-09-26 — HERDR-SESSION-RECOVERY
+
+- Reproduced premature startup admission failure and erased failed-recovery
+  intent against the old source. Preserved native shlock interoperability while
+  moving pacing to the existing Python helper for monotonic progress/stall and
+  total-admission deadlines; the wrapper execs the helper and final runtime.
+- Added atomic schema-2 pending/observed intent with legacy reads, shared
+  capture/restore locking, manual-reopen reconciliation, intentional closure,
+  and fail-closed collision, symlink, identity and directory checks.
+- A thirty-process disposable resume burst passed with spacing; affected tests
+  cover stalled admission, stale owners, cancellation, pending retention,
+  helper restart, occupied targets, read-only checks and atomic-write failure.
+- No live manifest, configuration or process changed. Deployment and live
+  qualification remain operator-held; wrapper/helper rollout must be coordinated.
+  Gate Exceptions: none. Intended delivery: feature branch and draft PR to main;
+  actual evidence IDs, commits and delivery result belong to the Cycle Record.
+
 ## 2026-09-01 - Remote Authentication Readiness
 
 - Kept remote shell startup credential-free while adding an explicit content-free
