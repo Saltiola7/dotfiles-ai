@@ -1,5 +1,24 @@
 # dotfiles-ai Distribution
 
+## Qualified Host Runtime Rollout Evidence
+
+HOST-RUNTIME-ROLLOUT deployed the qualified recovery pair and model settings,
+then replaced Herdr through the existing supervisor with verified 0.9.1 bytes.
+The operator continued the same maintenance conversation externally; it was
+excluded from automatic reopening. All 71 other original conversations were
+observed in their original panes and directories, all 73 terminals remained,
+and OS file-descriptor evidence confirmed the central database for every restored
+OpenCode process with no legacy-store users. The running Herdr image matched the
+installed inode and checksum; host health was healthy.
+
+The Hermes model default is Astra and its gateway is running. Native gateway
+start regenerated an unguarded launchd definition; reapplying the existing
+managed wrapper restored its state-root guard without changing non-model profile
+data. Full source-local backup and private rollback preimages are retained.
+Managed fleet updates remain deferred with VM operations; the separate Homebrew
+OpenCode/Codex copies were updated. AnyDesk still requires interactive administrator
+authorization. These pending tasks are not claimed as delivered by this host slice.
+
 **Status:** DAI-021 continuous per-lens R&D delivered; DAI-004-F1 and DAI-012-F1 pending
 
 ## Engineering Profile
