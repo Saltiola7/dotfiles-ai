@@ -3325,3 +3325,48 @@ DBSCTR V3 remains the working name. `MethodWeave` and `RigorWeave` are candidate
 future umbrella brands: MethodWeave emphasizes a connected engineering method;
 RigorWeave emphasizes risk-scaled evidence and assurance. No command or artifact
 depends on either candidate.
+
+## Bounded reconciliation path admission
+
+The lifecycle core owns reconciliation inventories and evidence-path admission.
+An upstream template is provenance, not an assertion that its contents are safe.
+This change permits no new secret-bearing file, content edit, or credential output.
+
+Given a divergent recorded upstream with more than 512 changed paths, preparing
+a merge returns every staged and conflicted path without truncation. Before Git
+mutation, the union of both sides' changed paths is bounded to 8192 paths and
+4096 UTF-8 bytes per path. An excessive inventory fails before starting the merge.
+Inventories use NUL-delimited Git output, including unusual legal filenames.
+
+Only the exact root `.env.template` may pass the existing secret-name guard, and
+only when an active cycle's unchanged recorded upstream and remote identify an
+accepted regular-file blob identical to both the index and working file. The
+upstream must descend from the cycle baseline. If a merge is pending, its sole
+parent must equal that upstream commit. A changed, untracked, symlinked, foreign,
+or unverifiable template remains refused. All other secret-name refusals remain.
+
+Validation covers a 513-file real merge, excessive inventory refusal before
+mutation, exact template admission through evidence capture, altered index and
+working bytes, missing provenance, symlink and other secret-name refusals.
+No identity, writer lease, receipt, hook, or deployment pin semantics change.
+Deployment must use reviewed merged bytes and the existing supported refresh
+procedure; retained FnB merge state and historical evidence must survive.
+
+### Reconciliation visual evidence
+
+The following decision table is the state evidence for this bounded change.
+Boundary, interaction and data/trust concerns are fully represented by its
+ordered predicates; no additional diagram is required. Schema, deployment
+topology and quantitative charts are not applicable to these path guards.
+
+| Decision | Allowed result | Refusal result |
+|---|---|---|
+| Pre-merge union fits inventory bounds | Prepare merge and report all paths | Refuse before merge |
+| Exact root template has recorded upstream provenance | Compare regular blob, index and working bytes | Keep secret-path refusal |
+| All template bytes and pending parent match | Admit path to ordinary evidence binding | Keep secret-path refusal |
+| Any other secret filename | None | Keep existing refusal |
+
+Text equivalent: inventory validation precedes mutation; template provenance
+and byte equality precede ordinary evidence admission. No admission grants
+identity or writer authority. Source and owner: lifecycle core path helpers;
+update this table whenever their predicates change.
