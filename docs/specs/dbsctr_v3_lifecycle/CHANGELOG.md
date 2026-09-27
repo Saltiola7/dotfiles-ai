@@ -1485,3 +1485,28 @@ delivery requires a feature branch and verified draft pull request into protecte
 - Exceptions: none. Deployment: local chezmoi targets applied. Final Push target:
   recorded `origin/main`; actual result is reported after push.
 - Gate Commit: `c9827e0`.
+
+## Reconciliation path repair
+
+Prepared merge inventories now retain more than 512 paths, with conservative
+8192-path/4096-byte-per-path validation before merge mutation. Evidence admission
+permits only an unchanged regular root `.env.template` from the recorded remote
+upstream; all other secret-name guards remain. A real 514-path regression failed
+on the original report bound, then on the template guard, before passing.
+Lifecycle and native compatibility tests: 382 passed, 47 subtests passed, one
+platform-dependent filename test skipped. Production deployment and hosted
+qualification are pending; no FnB delivery credit or native qualification claimed.
+
+The operator additionally approved a reconciliation-only compatibility refresh.
+It verifies unchanged native boundary code, fixed function headers, the retained
+native qualification and exact merged repair bytes. Disposable transaction tests
+exercise real file exchanges and exact rollback; they are not new native evidence.
+Production refresh requires an idle operator invocation and subsequent native
+control check. No production selection or journal has been changed in this cycle.
+
+The operator additionally approved a reconciliation-only compatibility refresh.
+It verifies unchanged native boundary code, fixed function headers, the retained
+native qualification and exact merged repair bytes. Disposable transaction tests
+exercise real file exchanges and exact rollback; they are not new native evidence.
+Production refresh requires an idle operator invocation and subsequent native
+control check. No production selection or journal has been changed in this cycle.

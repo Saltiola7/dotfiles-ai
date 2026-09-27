@@ -13852,6 +13852,45 @@ def command_record_dvc_push(args):
     save(path, record)
 
 
+def verified_upstream_template(root, name):
+    """Admit only unchanged regular template bytes from the cycle's recorded target."""
+    if name != ".env.template":
+        return False
+    try:
+        _, record = load(root)
+        require_active(record)
+        baseline = record["git"]
+        target_ref = baseline["upstream"]
+        if (not target_ref or upstream(root) != target_ref
+                or baseline.get("remote") != remote_destination(root, target_ref)):
+            return False
+        remote, remote_branch = remote_for_upstream(root, target_ref)
+        if not remote or not remote_branch:
+            return False
+        target = git(root, "rev-parse", "--verify", target_ref + "^{commit}").stdout.strip()
+        if git(root, "merge-base", "--is-ancestor", baseline["head"], target, check=False).returncode:
+            return False
+        pending = git(root, "rev-parse", "--verify", "-q", "MERGE_HEAD", check=False)
+        if pending.returncode == 0 and pending.stdout.strip() != target:
+            return False
+        entry = git(root, "ls-tree", "-z", target, "--", name).stdout
+        fields = entry.rstrip("\0").split("\t")
+        if len(fields) != 2 or fields[1] != name:
+            return False
+        mode, kind, blob = fields[0].split()
+        if mode not in ("100644", "100755") or kind != "blob":
+            return False
+        index = git(root, "ls-files", "--stage", "-z", "--", name).stdout
+        if index != f"{mode} {blob} 0\t{name}\0":
+            return False
+        path = root / name
+        if path.is_symlink() or not path.is_file():
+            return False
+        return git(root, "hash-object", "--no-filters", "--", name).stdout.strip() == blob
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+        return False
+
+
 def safe_paths(root, paths):
     if not paths:
         fail("at least one path is required")
@@ -13862,7 +13901,8 @@ def safe_paths(root, paths):
             fail(f"path must be repo-relative: {name}")
         basename = pure.name.lower()
         if basename == ".env" or basename.startswith(".env.") or basename in SECRET_NAMES or pure.suffix.lower() in (".key", ".pem"):
-            fail(f"refusing possible secret path: {name}")
+            if not verified_upstream_template(root, name):
+                fail(f"refusing possible secret path: {name}")
         tracked = git(root, "ls-files", "--error-unmatch", "--", name, check=False).returncode == 0
         if not (root / pure).is_file() and not tracked:
             fail(f"path does not exist: {name}")
@@ -14732,6 +14772,11 @@ def command_final_push(args):
         finish_push(root, path, record)
 
 
+def validate_reconciliation_paths(paths):
+    if len(paths) > 8192 or any(len(name.encode("utf-8")) > 4096 for name in paths):
+        fail("target reconciliation path output exceeded bounds")
+
+
 def command_reconcile_target(args):
     root = root_dir()
     _, record = load(root)
@@ -14777,16 +14822,21 @@ def command_reconcile_target(args):
         elif args.mode == "preview":
             result = {"status": "diverged", "staged_paths": [], "conflict_paths": []}
         else:
+            merge_base = git(root, "merge-base", "HEAD", target).stdout.strip()
+            anticipated = set()
+            for side in ("HEAD", target):
+                anticipated.update(filter(None, git(
+                    root, "diff", "--no-renames", "--name-only", "-z", merge_base, side
+                ).stdout.split("\0")))
+            validate_reconciliation_paths(anticipated)
             merged = git(root, "merge", "--no-commit", "--no-ff", target, check=False)
             conflicts = sorted(set(git(
-                root, "diff", "--name-only", "--diff-filter=U"
-            ).stdout.splitlines()))
-            staged = sorted(set(git(root, "diff", "--cached", "--name-only").stdout.splitlines()))
+                root, "diff", "--name-only", "-z", "--diff-filter=U"
+            ).stdout.split("\0")) - {""})
+            staged = sorted(set(git(root, "diff", "--cached", "--name-only", "-z").stdout.split("\0")) - {""})
             if merged.returncode and not conflicts:
                 fail(merged.stderr.strip() or "target merge failed without conflicts")
-            if len(staged) > 512 or len(conflicts) > 512 or any(
-                    len(name.encode()) > 512 for name in staged + conflicts):
-                fail("target reconciliation path output exceeded bounds")
+            validate_reconciliation_paths(set(staged) | set(conflicts))
             result = {
                 "status": "conflicts" if conflicts else "prepared",
                 "staged_paths": staged,

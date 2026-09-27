@@ -573,3 +573,107 @@ def test_refresh_requires_exact_merged_source_pair(manager, tmp_path, monkeypatc
             manager["merged_source"](commit, tmp_path)
     else:
         manager["merged_source"](commit, tmp_path)
+
+
+def test_compatible_core_exact_boundary(manager):
+    old = b"def safe_paths(root, paths):\n    return paths\ndef command_reconcile_target(args):\n    return args\ndef native_control():\n    return 7\n"
+    new = old.replace(b"return paths", b"return list(paths)") + b"def verified_upstream_template(root, name):\n    return False\ndef validate_reconciliation_paths(paths):\n    return None\n"
+    assert manager["compatible_core"](old, new) == ["command_reconcile_target", "safe_paths", "validate_reconciliation_paths", "verified_upstream_template"]
+    for bad in (new.replace(b"return 7", b"return 8"),
+                new + b"surprise = True\n",
+                new.replace(b"safe_paths(root, paths)", b"safe_paths(root, paths=print('side effect'))"),
+                new.replace(b"def safe_paths", b"@print\ndef safe_paths"),
+                new + b"def safe_paths(root, paths):\n    return []\n"):
+        with pytest.raises(ValueError, match="compatibility"):
+            manager["compatible_core"](old, bad)
+
+
+@pytest.mark.parametrize("fault", [None, "native", "producer", "core", "preimage", "busy"])
+def test_compatible_refresh_preserves_state_and_exact_rollback(manager, tmp_path, monkeypatch, fault):
+    # Synthetic transaction test, never native qualification evidence.
+    parent = tmp_path / "parent"
+    parent.mkdir(mode=0o700)
+    lane = tmp_path / "lane"
+    lane.mkdir(mode=0o700)
+    old = {"conversation_id": "same", "conversation_home": "/conversation", "native_home": str(parent),
+           "target": {"common_git_dir": "/production", "cycle_id": "test"},
+           "producer": {"path": "/old/producer", "sha256": "a" * 64},
+           "core": {"path": "/old/core", "sha256": "b" * 64},
+           "native_executable": {"path": "/native", "sha256": "c" * 64}}
+    qualified = copy.deepcopy(old)
+    qualified["target"]["common_git_dir"] = "/fixture"
+    if fault in ("producer", "core", "native"):
+        qualified["native_executable" if fault == "native" else fault]["sha256"] = "d" * 64
+    for path, value in ((parent / "selected.json", old), (lane / "selected.json", qualified)):
+        manager["json_new"](path, value)
+    before = (parent / "selected.json").read_bytes()
+    hooks = parent / "hooks.json"
+    manager["write_new"](hooks, b"original hooks")
+    api = {"load_deployment": lambda path: json.loads(path.read_bytes()),
+           "load_core": lambda deployment: {}, "pinned_file": lambda pin: None}
+    namespace = manager["refresh_compatible_core"].__globals__
+    monkeypatch.setitem(namespace, "load_api", lambda directory: api)
+    monkeypatch.setitem(namespace, "qualified_fixture", lambda *args: "retained qualification")
+    monkeypatch.setitem(namespace, "compatible_source", lambda *args: {
+        "executable_codex-continuation": b"same producer", "executable_dbsctrctl": b"new core"})
+    monkeypatch.setitem(namespace, "fixture_hooks", lambda *args: b"new hooks")
+    def snapshot(*args):
+        if fault == "busy":
+            raise ValueError("production_not_idle")
+        return {"unchanged": True}
+    monkeypatch.setitem(namespace, "production_snapshot", snapshot)
+    monkeypatch.setitem(namespace, "git_read", lambda *args: (_ for _ in ()).throw(__import__("subprocess").CalledProcessError(128, "git")))
+    monkeypatch.setattr(Path, "home", lambda: SimpleNamespace(stat=lambda: SimpleNamespace(st_dev=-1)))
+    directory = tmp_path / "deployed"
+    args = SimpleNamespace(directory=directory, commit="e" * 40,
+                           expected_selection_sha256="wrong" if fault == "preimage" else hashlib.sha256(before).hexdigest())
+    if fault:
+        with pytest.raises(ValueError):
+            manager["refresh_compatible_core"](args, parent, lane)
+        assert not directory.exists()
+    else:
+        manager["refresh_compatible_core"](args, parent, lane)
+        after = json.loads((parent / "selected.json").read_bytes())
+        assert after["target"] == old["target"]
+        assert after["native_executable"] == old["native_executable"]
+        assert after["core"]["sha256"] == hashlib.sha256(b"new core").hexdigest()
+        assert hooks.read_bytes() == b"new hooks"
+        manager["rollback_compatible_core"](directory, parent)
+    assert (parent / "selected.json").read_bytes() == before
+    assert hooks.read_bytes() == b"original hooks"
+
+
+@pytest.mark.parametrize("fault", [None, "dirty", "remote", "manager", "producer", "native_boundary"])
+def test_compatible_source_requires_merged_bytes(manager, tmp_path, monkeypatch, fault):
+    old = b"def safe_paths(root, paths):\n    return paths\ndef command_reconcile_target(args):\n    return args\ndef native():\n    return 1\n"
+    new = old + b"def verified_upstream_template(root, name):\n    return False\ndef validate_reconciliation_paths(paths):\n    return None\n"
+    if fault == "native_boundary":
+        new = new.replace(b"return 1", b"return 2")
+    core = tmp_path / "old-core"
+    core.write_bytes(old)
+    producer = tmp_path / "old-producer"
+    producer.write_bytes(b"old producer" if fault == "producer" else (BIN / "executable_codex-continuation").read_bytes())
+    commit = "e" * 40
+    def git(root, *args):
+        if args[0] == "status":
+            return b"dirty" if fault == "dirty" else b""
+        if args[0] == "ls-remote":
+            return (("f" * 40 if fault == "remote" else commit) + " refs/heads/main").encode()
+        if args[0] == "merge-base":
+            return b""
+        name = args[1].split("/")[-1]
+        if name == "executable_codex-requalify" and fault == "manager":
+            return b"unmerged"
+        return new if name == "executable_dbsctrctl" else (BIN / name).read_bytes()
+    original_read = manager["read"]
+    def reader(path, *args):
+        return new if path == BIN / "executable_dbsctrctl" else original_read(path, *args)
+    namespace = manager["compatible_source"].__globals__
+    monkeypatch.setitem(namespace, "git_read", git)
+    monkeypatch.setitem(namespace, "read", reader)
+    deployment = {"producer": {"path": str(producer)}, "core": {"path": str(core)}}
+    if fault:
+        with pytest.raises(ValueError):
+            manager["compatible_source"](commit, deployment)
+    else:
+        assert manager["compatible_source"](commit, deployment)["executable_dbsctrctl"] == new
