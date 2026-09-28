@@ -309,3 +309,52 @@ Text equivalent: compatibility, provenance and idle-state checks precede updates
 rollback requires exact postimages and unchanged state. Owner: Codex control plane.
 Update triggers: command, AST allowance, or snapshot predicate changes. No schema
 or deployment topology changes beyond a new immutable external pair directory.
+
+
+## Repeat qualification after completed deployment
+
+An explicit `stage --replace-deployed` transition may retain and supersede a
+previously qualified, retired fixture. It is mutually exclusive with
+`--replace-restored`; the never-enrolled transition keeps its existing rules.
+
+Eligibility requires all of the following:
+- The fixed qualification link identifies the retained previous lane.
+- The current production descriptor and hooks equal the exact postimages of
+  that lane's completed production refresh.
+- The refresh intent and completion records agree, their retained file hashes
+  match, and their lane and qualification identity match the previous lane.
+- The retained pre-refresh descriptor, hook restoration receipts and route
+  agree with the refresh preimages.
+- The production descriptor is exactly the result of applying the existing
+  refresh_descriptor transformation to those historical inputs.
+- The retained producer/core files still match their pins. The actual historical
+  native executable need not remain installed: its identity is historical
+  evidence, never current execution authority.
+- qualified_fixture revalidates the actual retained native/core journals:
+  generation 4, reader-only, no writer or pending operation, consumed approvals,
+  and preserved operator-quiescence classification for the interrupted call.
+
+A missing receipt, altered component, changed descriptor/hooks, qualification
+mismatch, unconsumed approval, writer or pending operation refuses replacement.
+Compatibility-only refresh chains are outside this initial bounded transition.
+
+The new candidate still requires the existing signed-native verification,
+distinct external fixture repository, fresh journal, native qualification and
+separate production refresh. Old callbacks never qualify the new executable.
+
+A replacement route records previous_lane_kind = "deployed". Legacy routes with
+no kind retain the existing restored-never-enrolled interpretation. Unknown
+kinds refuse. Stage's final pre-exchange check and recover-switch must use the
+same eligibility determination. Interrupted switching preserves both links and
+all evidence; recovery never edits production hooks or lifecycle ownership.
+
+| Previous state | Replacement |
+|---|---|
+| Never enrolled, restored exact preimages | Existing --replace-restored |
+| Qualified, retired, exact completed-refresh postimages | Explicit --replace-deployed |
+| Drift, pending work, missing proof, unsupported refresh chain | Refuse and retain |
+| Interrupted deployed-lane link exchange | Revalidate the same proof and exact links |
+
+Text equivalent: the new path recognizes a completed prior deployment without
+relaxing the old path or inferring quiescence. Owner: Codex control plane.
+Validation: synthetic transaction regressions are not native qualification.
