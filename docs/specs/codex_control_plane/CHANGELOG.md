@@ -1,5 +1,23 @@
 # Codex Control Plane Changelog
 
+## 2026-09-28 - Repeat Selected Desktop Qualification
+
+- Added explicit replacement of a previously deployed, restored and retired
+  qualification lane. Validate deployment receipts, retained native/core proof,
+  exact production preimages and consumed approvals; preserve prior evidence.
+- Preserve the never-enrolled replacement contract and revalidate the selected
+  replacement kind during interrupted link-switch recovery.
+- Validation: 271 affected tests passed, Python compilation and Python 3.12
+  grammar checks passed. Genuine native qualification exercised admission,
+  polling, denial, replay, interruption, recovery and generation fencing.
+- Implementation commit: `974f7d6`. Intended delivery: feature-branch draft PR
+  into main, exact-head hosted checks and merge, then qualified production refresh.
+- Production readiness remains failed with operator-approved deferred exceptions
+  for Deploy, Operate and Maintain/Retire. Close these after production refresh
+  and the original coordinator's native check, before PPC work resumes.
+- Retain qualification lanes, journals and uncertain interruption evidence.
+  No production deployment, PPC delivery or new Plan-mode enforcement is claimed.
+
 ## 2026-09-26 - Selected Desktop Requalification
 
 - Added a fixed, isolated active-deployment qualification route, signed nested
