@@ -1,5 +1,19 @@
 # Codex Control Plane Changelog
 
+## 2026-09-29 - Exact-State Recovery Refresh
+
+- Add prepare, human approval, apply and exact-preimage rollback commands for
+  one selected never-started admission that blocks ordinary idle refresh.
+- Reuse genuine retired qualification and the merged producer/core pair; retain
+  all journals, execution flags, operations, ownership, generation and target.
+  Historical receipts require truthful core closure before they are excluded
+  from current unresolved admissions. No callback or quiescence is inferred.
+- Bind approval to target, pins, retained proof and production snapshot; consume
+  it once before atomic exchanges. Drift refuses and preserves exchange evidence.
+- Source delivery does not activate production. Terminal approval, native hook
+  trust, original-coordinator check and separate native recovery remain required.
+
+
 ## 2026-09-28 - Repeat Selected Desktop Qualification
 
 - Added explicit replacement of a previously deployed, restored and retired

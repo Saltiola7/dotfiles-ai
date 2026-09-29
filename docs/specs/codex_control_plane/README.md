@@ -46,6 +46,13 @@ fixture route. It preserves production selection and journals and requires actua
 native qualification before any production refresh; staging is not deployment
 acceptance or writer authority.
 
+A separately approved recovery refresh can restore native controls while retaining
+one exact never-started admission. It requires genuine retired qualification,
+merged component identity, a terminal-only exact-state refresh approval, and
+unchanged production snapshots. Lifecycle recovery remains a later native action;
+no operation is settled by deployment. See the recovery-refresh contract in
+[active requalification](features/active-requalification.md#recovery-refresh-for-one-never-started-admission).
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a

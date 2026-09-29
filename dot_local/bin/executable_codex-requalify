@@ -884,6 +884,251 @@ def rollback_compatible_core(directory, parent):
     print("Exact compatibility-refresh preimages restored; state and evidence preserved.")
 
 
+def recovery_admission(production, cycle, operations, receipts, approvals, canonical):
+    """Eligibility only; never settle a receipt or infer process quiescence."""
+    actor = canonical(["codex-desktop-1", production["native_home"], production["conversation_id"]])
+    if (not cycle or cycle["cycle_id"] != production["target"]["cycle_id"]
+            or cycle["state"] != "owned" or cycle["writer"] != actor
+            or len(operations) != 1 or len(receipts) != 1 or approvals):
+        raise ValueError("recovery_admission_ineligible")
+    operation, receipt = operations[0], receipts[0]
+    identity = json.loads(receipt["identity_json"])
+    if (operation["cycle_id"] != cycle["cycle_id"] or operation["state"] != "running"
+            or operation["generation"] != cycle["generation"] or operation["session_key"] != actor
+            or operation["operation_class"] != "shell" or operation["completion_class"] is not None
+            or receipt["operation_id"] != operation["operation_id"] or receipt["state"] != "active"
+            or receipt["tool"] != "shell" or receipt["execution_started"] != 0
+            or receipt["execution_finished"] != 0
+            or receipt["session_id"] != production["conversation_id"]
+            or receipt["deployment_digest"] != canonical(production)
+            or operation["message_id"] != "codex-" + receipt["receipt_id"]
+            or operation["call_id"] != receipt["call_id"]
+            or identity["session_id"] != receipt["session_id"] or identity["call_id"] != receipt["call_id"]):
+        raise ValueError("recovery_admission_mismatch")
+    return {"cycle_id": cycle["cycle_id"], "generation": cycle["generation"],
+            "operation_id": operation["operation_id"], "receipt_id": receipt["receipt_id"]}
+
+
+def recovery_snapshot(parent, production, api, core):
+    target = Path(production["target"]["worktree"])
+    cycle_id = production["target"]["cycle_id"]
+    if (not api["IDENTIFIER"].fullmatch(cycle_id) or api["canonical_path"](str(target), directory=True) != target
+            or str(core["common_git_dir"](target).resolve()) != production["target"]["common_git_dir"]):
+        raise ValueError("production_target_invalid")
+    record = read(core["cycle_dir"](target) / "cycles" / (cycle_id + ".json"))
+    with contextlib.chdir(target), core["continuation_connection"](target) as db:
+        cycle = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (cycle_id,)).fetchone() if db else None
+        current_record = json.loads(record, object_pairs_hook=api["unique_object"])
+        # The stored enrollment digest is historical; gate updates change the record.
+        # Bind current bytes in the snapshot, matching native target identity rules.
+        if (not cycle or current_record["cycle_id"] != cycle_id or current_record["state"] != "active"
+                or cycle["worktree_id"] != current_record["worktree"]["id"]
+                or cycle["locator_id"] != core["worktree_id"](target)):
+            raise ValueError("production_record_drift")
+        operations = [dict(row) for row in db.execute(
+            "SELECT * FROM operations WHERE cycle_id=? AND state!='completed'", (cycle_id,))]
+        with api["NativeReceiptStore"](parent / "native").connection() as native:
+            if native is None:
+                raise ValueError("production_journal_missing")
+            receipts = []
+            for row in native.execute("SELECT * FROM receipts WHERE deployment_digest=? AND state IN ('active','uncertain')",
+                                      (api["canonical_digest"](production),)):
+                receipt = dict(row)
+                old = db.execute("SELECT * FROM operations WHERE operation_id=?", (receipt["operation_id"],)).fetchone()
+                if old and old["state"] == "completed":
+                    # Recovery never rewrites historical native execution flags.
+                    if (old["cycle_id"] != cycle_id or old["completion_class"] != "operator_quiescence"
+                            or old["session_key"] != cycle["writer"] or old["operation_class"] != "shell"
+                            or receipt["tool"] != "shell" or receipt["session_id"] != production["conversation_id"]
+                            or old["generation"] >= cycle["generation"]
+                            or old["message_id"] != "codex-" + receipt["receipt_id"]
+                            or old["call_id"] != receipt["call_id"]):
+                        raise ValueError("production_uncertainty_unresolved")
+                else:
+                    receipts.append(receipt)
+            approvals = list(native.execute("SELECT 1 FROM operator_approvals WHERE state!='consumed'"))
+            admission = recovery_admission(production, dict(cycle), operations, receipts, approvals,
+                                           api["canonical_digest"])
+        cycle_digest = api["canonical_digest"](dict(cycle))
+    return {"admission": admission, "cycle_digest": cycle_digest,
+            "core_journal": digest(read(core["continuation_path"](target), 64 * 1024 * 1024)),
+            "native_journal": digest(read(parent / "native/native.sqlite3", 32 * 1024 * 1024)),
+            "record": digest(record), "head": git_read(target, "rev-parse", "HEAD").decode().strip(),
+            "status": digest(git_read(target, "status", "--porcelain=v1", "-z"))}
+
+
+def recovery_components(parent, selected, production, commit=None):
+    api = load_api(Path(__file__).resolve().parent)
+    lane = selected.resolve(strict=True)
+    api["private_path"](lane, directory=True)
+    qualified = api["load_deployment"](lane / "selected.json")
+    core = api["load_core"](qualified)
+    qualification_hash = qualified_fixture(lane, api, qualified, core)
+    for key in ("producer", "core"):
+        api["pinned_file"](production[key])
+    if production["producer"]["sha256"] != qualified["producer"]["sha256"]:
+        raise ValueError("recovery_producer_changed")
+    old = read(Path(production["core"]["path"]), 4 * 1024 * 1024)
+    new = read(Path(qualified["core"]["path"]), 4 * 1024 * 1024)
+    if old != new:
+        compatible_core(old, new)
+    if commit is not None:
+        merged_source(commit, lane)
+    verify_native_candidate(api, qualified["native_executable"],
+                            json.loads(read(lane / "native-identity.json"))["version"])
+    api["check_requalification_native"](production["native_executable"], qualified["native_executable"])
+    return api, lane, qualified, core, qualification_hash
+
+
+def prepare_recovery_refresh(args, parent, selected):
+    before = read(parent / "selected.json", 16384)
+    production = json.loads(before)
+    api, lane, qualified, core, qualification_hash = recovery_components(parent, selected, production, args.commit)
+    hooks = Path(production["native_home"]) / "hooks.json"
+    hook_before = read(hooks)
+    if (before != read(lane / "production.before.json", 16384)
+            or hook_before != read(lane / "hooks.before.json")
+            or json.loads(read(lane / "restored.json")) != {
+                "production_sha256": digest(before), "hooks_sha256": digest(hook_before)}
+            or json.loads(read(lane / "restore.complete.json"))["after_sha256"] != digest(hook_before)):
+        raise ValueError("production_routing_not_restored")
+    directory = args.directory
+    if (not directory.is_absolute() or os.path.lexists(directory)
+            or directory.parent.resolve(strict=True) != directory.parent
+            or directory.parent.stat().st_dev == Path.home().stat().st_dev):
+        raise ValueError("new_external_directory_required")
+    try:
+        git_read(directory.parent, "rev-parse", "--absolute-git-dir")
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise ValueError("permanent_deployment_must_be_outside_git")
+    baseline = recovery_snapshot(parent, production, api, core)
+    directory.mkdir(mode=0o700)
+    for name in ("executable_codex-continuation", "executable_dbsctrctl"):
+        write_new(directory / name, read(lane / name, 4 * 1024 * 1024), 0o500)
+    proposed = refresh_descriptor(production, qualified, directory)
+    write_new(directory / "selection.before.json", before)
+    json_new(directory / "selection.after.json", proposed)
+    if api["load_deployment"](directory / "selection.after.json") != proposed:
+        raise ValueError("production_descriptor_invalid")
+    after = read(directory / "selection.after.json", 16384)
+    hook_after = fixture_hooks(hook_before, production, directory / "executable_codex-continuation")
+    write_new(directory / "hooks.before.json", hook_before)
+    write_new(directory / "hooks.after.json", hook_after)
+    plan = {"schema_version": 1, "kind": "never_started_recovery_refresh", "challenge": uuid.uuid4().hex,
+            "lane": str(lane), "directory": str(directory), "source_commit": args.commit,
+            "qualification_sha256": qualification_hash, "snapshot": baseline,
+            "hashes": {name: digest(raw) for name, raw in {
+                "selection.before.json": before, "selection.after.json": after,
+                "hooks.before.json": hook_before, "hooks.after.json": hook_after}.items()}}
+    json_new(directory / "recovery.plan.json", plan)
+    validate_recovery_refresh(directory, parent, selected)
+    print("Prepared only; live route and journals unchanged. Human exact-state refresh approval required.")
+
+
+def recovery_plan_context(directory, parent, selected, *, rollback=False):
+    api = load_api(Path(__file__).resolve().parent)
+    api["canonical_path"](str(directory), directory=True)
+    api["private_path"](directory, directory=True)
+    raw_plan = read(directory / "recovery.plan.json")
+    plan = json.loads(raw_plan, object_pairs_hook=api["unique_object"])
+    if (set(plan) != {"schema_version", "kind", "challenge", "lane", "directory", "source_commit",
+                      "qualification_sha256", "snapshot", "hashes"}
+            or plan["schema_version"] != 1 or plan["kind"] != "never_started_recovery_refresh"
+            or plan["directory"] != str(directory) or plan["lane"] != str(selected.resolve(strict=True))
+            or not api["RECEIPT_ID"].fullmatch(plan["challenge"])):
+        raise ValueError("recovery_plan_invalid")
+    names = ("selection.before.json", "selection.after.json", "hooks.before.json", "hooks.after.json")
+    raw = {name: read(directory / name) for name in names}
+    if plan["hashes"] != {name: digest(value) for name, value in raw.items()}:
+        raise ValueError("recovery_evidence_drift")
+    production = json.loads(raw["selection.before.json"], object_pairs_hook=api["unique_object"])
+    api, lane, qualified, core, qualification_hash = recovery_components(
+        parent, selected, production, None if rollback else plan["source_commit"])
+    if (qualification_hash != plan["qualification_sha256"]
+            or raw["selection.before.json"] != read(lane / "production.before.json", 16384)
+            or raw["hooks.before.json"] != read(lane / "hooks.before.json")
+            or json.loads(read(lane / "restored.json")) != {
+                "production_sha256": digest(raw["selection.before.json"]),
+                "hooks_sha256": digest(raw["hooks.before.json"])}
+            or json.loads(read(lane / "restore.complete.json"))["after_sha256"] != digest(raw["hooks.before.json"])
+            or api["load_deployment"](directory / "selection.after.json") != refresh_descriptor(production, qualified, directory)
+            or raw["hooks.after.json"] != fixture_hooks(raw["hooks.before.json"], production,
+                                                       directory / "executable_codex-continuation")):
+        raise ValueError("recovery_target_drift")
+    hooks = Path(production["native_home"]) / "hooks.json"
+    files = [(parent / "selected.json", raw[names[0]], raw[names[1]], "selection"),
+             (hooks, raw[names[2]], raw[names[3]], "hooks")]
+    if any(read(path) not in ((before, after) if rollback else (before,)) for path, before, after, _ in files):
+        raise ValueError("recovery_preimage_drift")
+    def snapshot():
+        if read(directory / "recovery.plan.json") != raw_plan or any(read(directory / name) != value for name, value in raw.items()):
+            raise ValueError("recovery_evidence_drift")
+        if (api["load_deployment"](directory / "selection.after.json") != refresh_descriptor(production, qualified, directory)
+                or qualified_fixture(lane, api, qualified, core) != plan["qualification_sha256"]):
+            raise ValueError("recovery_target_drift")
+        return recovery_snapshot(parent, production, api, core)
+    if snapshot() != plan["snapshot"]:
+        raise ValueError("production_state_drift")
+    return plan, raw_plan, api, files, snapshot
+
+
+def validate_recovery_refresh(directory, parent, selected):
+    plan, raw, _, _, _ = recovery_plan_context(directory, parent, selected)
+    if (directory / "recovery.consumed.json").exists():
+        raise ValueError("recovery_approval_consumed")
+    return plan, raw
+
+
+def approve_recovery_refresh(directory, parent, selected, incoming, outgoing):
+    if (not incoming.isatty() or not outgoing.isatty()
+            or any(os.environ.get(name) for name in ("CODEX_THREAD_ID", "OPENCODE_PID", "OPENCODE_SESSION_ID"))):
+        raise ValueError("operator_only")
+    plan, raw = validate_recovery_refresh(directory, parent, selected)
+    candidate = json.loads(read(directory / "selection.after.json"))
+    outgoing.write(json.dumps({"action": "refresh_only", "admission": plan["snapshot"]["admission"],
+                               "target": candidate["target"],
+                               "proposed_pins": {key: candidate[key] for key in ("producer", "core", "native_executable")},
+                               "source_commit": plan["source_commit"], "file_hashes": plan["hashes"],
+                               "plan_sha256": digest(raw)}, sort_keys=True) + "\n")
+    outgoing.write("Confirm original writer and child processes are quiescent. This approves only this exact "
+                   "qualified pin/hook refresh, not lifecycle recovery or operation completion.\n"
+                   "Type approve " + plan["challenge"] + " to confirm: ")
+    outgoing.flush()
+    if incoming.readline(128).rstrip("\r\n") != "approve " + plan["challenge"]:
+        raise ValueError("approval_required")
+    if validate_recovery_refresh(directory, parent, selected) != (plan, raw):
+        raise ValueError("approval_state_drift")
+    json_new(directory / "recovery.approved.json", {"plan_sha256": digest(raw), "challenge": plan["challenge"]})
+    outgoing.write("Exact refresh approved; native recovery still requires separate approval.\n")
+
+
+def apply_recovery_refresh(directory, parent, selected):
+    plan, raw, api, files, snapshot = recovery_plan_context(directory, parent, selected)
+    approval = {"plan_sha256": digest(raw), "challenge": plan["challenge"]}
+    if json.loads(read(directory / "recovery.approved.json")) != approval:
+        raise ValueError("approval_required")
+    with api["producer_lock"](api["NativeReceiptStore"](parent / "native")):
+        validate_recovery_refresh(directory, parent, selected)
+        json_new(directory / "recovery.consumed.json", approval)
+        refresh_files(files, directory, snapshot, plan["snapshot"])
+        json_new(directory / "recovery.complete.json", plan)
+    print("Qualified recovery refresh applied; pending operation and ownership preserved. "
+          "Trust hooks; original coordinator must use native recovery before shell admission.")
+
+
+def rollback_recovery_refresh(directory, parent, selected):
+    plan, raw, api, files, snapshot = recovery_plan_context(directory, parent, selected, rollback=True)
+    if json.loads(read(directory / "recovery.consumed.json")) != {
+            "plan_sha256": digest(raw), "challenge": plan["challenge"]}:
+        raise ValueError("recovery_not_applied")
+    with api["producer_lock"](api["NativeReceiptStore"](parent / "native")):
+        rollback_refresh_files(files, directory, snapshot, plan["snapshot"])
+        json_new(directory / "recovery.rollback.complete.json", {"plan_sha256": digest(raw)})
+    print("Exact recovery-refresh preimages restored; journals preserved and stale native pin remains blocked.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -911,12 +1156,26 @@ def main():
     rollback.add_argument("--directory", type=Path, required=True)
     for action in ("install", "restore", "recover"):
         commands.add_parser(action)
+    recovery_prepare = commands.add_parser("prepare-recovery-refresh")
+    recovery_prepare.add_argument("--directory", type=Path, required=True)
+    recovery_prepare.add_argument("--commit", required=True)
+    for action in ("approve-recovery-refresh", "apply-recovery-refresh", "rollback-recovery-refresh"):
+        item = commands.add_parser(action)
+        item.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
     try:
         parent, selected = paths()
         with management_lock(parent):
-            if args.command == "stage":
+            if args.command == "prepare-recovery-refresh":
+                prepare_recovery_refresh(args, parent, selected)
+            elif args.command == "approve-recovery-refresh":
+                approve_recovery_refresh(args.directory, parent, selected, sys.stdin, sys.stdout)
+            elif args.command == "apply-recovery-refresh":
+                apply_recovery_refresh(args.directory, parent, selected)
+            elif args.command == "rollback-recovery-refresh":
+                rollback_recovery_refresh(args.directory, parent, selected)
+            elif args.command == "stage":
                 stage(args, parent, selected)
             elif args.command == "recover-switch":
                 recover_switch(args.directory, parent, selected)

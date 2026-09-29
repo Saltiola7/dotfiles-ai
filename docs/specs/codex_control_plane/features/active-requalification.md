@@ -358,3 +358,74 @@ all evidence; recovery never edits production hooks or lifecycle ownership.
 Text equivalent: the new path recognizes a completed prior deployment without
 relaxing the old path or inferring quiescence. Owner: Codex control plane.
 Validation: synthetic transaction regressions are not native qualification.
+
+## Recovery refresh for one never-started admission
+
+An explicitly authorized recovery refresh may restore native control availability
+when ordinary idle refresh refuses one retained admission. It does not recover a
+writer, settle an operation, assert quiescence, or qualify new component bytes.
+The source-delivery cycle and the later operator activation are separate records.
+
+Preconditions: the retired fixture still passes full retained qualification;
+production producer bytes are identical; any core difference passes the existing
+four-function reconciliation compatibility check; the candidate pair matches
+accepted main exactly; the signed candidate native executable remains pinned;
+and fixture hooks have been exactly restored. The original production target,
+conversation and homes remain fixed. All production approvals must be consumed.
+
+Exactly one production shell operation may remain running, owned by the selected
+native actor at the current generation. Its matching active native receipt must
+bind the current production deployment, session, call and operation, with both
+execution flags false. No additional unsettled receipt in the current deployment, pending operation,
+foreign writer or started pending execution is eligible. Historical active or
+uncertain receipts may remain unchanged only with matching lower-generation core
+closure classified as operator quiescence. Receipts from other deployment digests
+cannot dispatch under this selection and remain retained in the journal snapshot.
+Never-started bookkeeping is not evidence of quiescence.
+
+`prepare-recovery-refresh --directory NEW_EXTERNAL_DIRECTORY --commit SHA`
+prepares immutable pins, preimages and a plan bound to the full production
+snapshot and retained qualification. It changes no live route or journal.
+`approve-recovery-refresh --directory DIRECTORY` requires a human terminal,
+refuses agent identity environments, displays the target, generation, operation,
+component hashes and plan digest, and requires an exact confirmation. It approves
+only this pin/hook refresh; native recovery requires its own subsequent approval.
+`apply-recovery-refresh --directory DIRECTORY` revalidates the plan and source,
+consumes that approval once before mutation, then uses existing atomic exchanges.
+It changes only qualified pins and the two hook commands. Producer serialization
+and unchanged snapshots before/between/after exchanges detect competing activity.
+
+`rollback-recovery-refresh --directory DIRECTORY` restores only receipt-listed
+exact preimages while the original production snapshot is unchanged. Concurrent
+edits or native activity refuse rollback; journals are never reverted. Interrupted
+application cannot be retried with a consumed approval: inspect retained exchange
+receipts, perform exact-state rollback, and prepare a fresh transaction. Rollback
+restores the stale native pin and does not claim runtime availability.
+
+After refresh, trust/reload remains native. The original coordinator must first
+run native control check and prepare recovery. Ordinary admission remains blocked
+by the retained operation. Only separately approved native recovery can fence its
+generation; neither old receipt nor operation is relabelled execution success.
+Old dispatch receipts cannot execute under the new deployment digest. Do not
+reattach the retired fixture or synthesize native callback evidence.
+
+### Recovery refresh visual evidence
+
+Boundary, interaction, state, trust and deployment concerns use this transition
+table. Schema uses immutable private plan/approval/consumption JSON files; native
+and core schemas are unchanged. Quantitative evidence is not applicable.
+
+| State / actor | Allowed transition | Preserved / refused |
+|---|---|---|
+| Agent prepares exact merged candidate | Private plan and copies only | Live selection, hooks, journals and ownership unchanged |
+| Human reviews exact plan and quiescence | Terminal-only approval | No lifecycle approval or operation settlement |
+| Agent applies unchanged approved plan | Qualified pins and exact hook commands | Pending admission, writer and generation unchanged; drift refuses |
+| Original native coordinator | Check, then separately approved native recovery | No shell admission while pending; old receipt remains historical |
+| Failed exchange, unchanged production | Exact-preimage rollback | Preserve all exchange evidence; any third image or activity refuses |
+
+**Text Equivalent:** Preparation grants nothing. A human approves one exact
+refresh, which restores native controls while retaining the unresolved admission.
+Only original native controls can later recover ownership with separate approval.
+Rollback restores exact files without rewriting history. Source: management
+commands and their regression tests. Owner: dotfiles operator. Update when any
+eligibility, approval, transaction or recovery condition changes.
