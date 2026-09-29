@@ -640,6 +640,39 @@ def test_runner_derives_scheduler_paths_from_centralized_state_root(tmp_path, mo
     assert explicit["RECEIPTS"] == explicit_receipts
 
 
+def test_scheduler_initialization_holds_write_lock_before_version_read(tmp_path, monkeypatch):
+    runner, state = load_runner(tmp_path, monkeypatch, "initialization-lock")
+    connect = sqlite3.connect
+    observations = []
+
+    class CheckedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if sql == "SELECT value FROM scheduler_meta WHERE key='schema_version'":
+                competitor = connect(state, timeout=0)
+                try:
+                    try:
+                        competitor.execute("BEGIN IMMEDIATE")
+                    except sqlite3.OperationalError as error:
+                        assert "locked" in str(error)
+                        observations.append("writer excluded")
+                    else:
+                        competitor.rollback()
+                        raise AssertionError("schema version read permits a competing initializer")
+                finally:
+                    competitor.close()
+            return super().execute(sql, parameters)
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connect(
+        *args, **kwargs, factory=CheckedConnection))
+    connection = runner["state_connection"]()
+    connection.close()
+    assert observations == ["writer excluded"]
+    with connect(state) as check:
+        assert check.execute("SELECT value FROM scheduler_meta").fetchall() == [("8",)]
+        assert check.execute("SELECT COUNT(*) FROM scheduler_state").fetchone() == (1,)
+        assert check.execute("SELECT COUNT(*) FROM lens_state").fetchone() == (1,)
+
+
 def test_scheduler_caps_workers_halts_and_requires_reset(tmp_path, monkeypatch, capsys):
     runner, state = load_runner(tmp_path, monkeypatch, "safety")
     workers = [{"worker_id": f"worker-{index}", "state": "reviewing"} for index in range(2)]

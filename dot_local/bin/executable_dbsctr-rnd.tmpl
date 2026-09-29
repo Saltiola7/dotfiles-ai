@@ -378,6 +378,9 @@ def state_connection():
             last_release_at INTEGER NOT NULL CHECK (last_release_at>=0),
             last_release_reason TEXT NOT NULL
         )""")
+    if not migrating:
+        # Serialize the version read and seed writes, not just later reservations.
+        connection.execute("BEGIN IMMEDIATE")
     version = existing_version if migrating else connection.execute(
         "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:

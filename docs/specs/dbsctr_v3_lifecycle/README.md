@@ -3370,3 +3370,13 @@ Text equivalent: inventory validation precedes mutation; template provenance
 and byte equality precede ordinary evidence admission. No admission grants
 identity or writer authority. Source and owner: lifecycle core path helpers;
 update this table whenever their predicates change.
+
+### Scheduler first-open serialization
+
+Concurrent scheduler callers must acquire a SQLite write reservation before the
+post-schema version read and initial metadata/singleton inserts. A second opener
+waits and reads committed initialization instead of racing to insert the same key.
+Existing schema migrations, malformed-state refusal, worker caps and reservation
+cadence remain unchanged. The regression uses a competing database connection to
+prove writer exclusion at the initial version read; the concurrent reservation
+test continues to require exactly one reservation when only one slot remains.
