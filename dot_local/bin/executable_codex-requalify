@@ -194,6 +194,109 @@ def restored_lane(parent, selected, production_raw, hooks_raw, api, core):
     return previous
 
 
+
+def deployed_lane(parent, selected, production_raw, hooks_raw, api, core):
+    """Validate a retired lane against its completed production refresh.
+
+    Historical native identity is evidence, not permission to execute an old
+    binary. Candidate execution remains subject to stage's native verification.
+    """
+    previous = selected.resolve(strict=True)
+    api["private_path"](previous, directory=True)
+    if read(parent / "selected.json", 16384) != production_raw:
+        raise ValueError("deployed_selection_drift")
+    decode = lambda raw: json.loads(raw, object_pairs_hook=api["unique_object"])
+    production = decode(production_raw)
+    directory = Path(production["producer"]["path"]).parent
+    if (not directory.is_absolute()
+            or directory.resolve(strict=True) != directory):
+        raise ValueError("deployed_directory_invalid")
+    api["private_path"](directory, directory=True)
+    for key, filename in (
+        ("producer", "executable_codex-continuation"),
+        ("core", "executable_dbsctrctl"),
+    ):
+        if production[key]["path"] != str(directory / filename):
+            raise ValueError("deployed_pair_location_mismatch")
+        api["pinned_file"](production[key])
+
+    plan = decode(read(directory / "refresh.plan.json"))
+    completed = decode(read(directory / "refresh.complete.json"))
+    expected_keys = {
+        "schema_version", "lane", "source_commit", "qualification_sha256",
+        "snapshot", "hashes",
+    }
+    if (type(plan) is not dict or set(plan) != expected_keys
+            or type(plan["schema_version"]) is not int
+            or plan["schema_version"] != 1 or completed != plan
+            or plan["lane"] != str(previous)):
+        raise ValueError("deployed_refresh_receipt_invalid")
+    commit = plan["source_commit"]
+    if (type(commit) is not str or len(commit) != 40
+            or any(char not in "0123456789abcdef" for char in commit)):
+        raise ValueError("deployed_refresh_commit_invalid")
+
+    names = (
+        "selection.before.json", "selection.after.json",
+        "hooks.before.json", "hooks.after.json",
+    )
+    images = {name: read(directory / name) for name in names}
+    if (plan["hashes"] != {name: digest(raw) for name, raw in images.items()}
+            or images["selection.after.json"] != production_raw
+            or images["hooks.after.json"] != hooks_raw):
+        raise ValueError("deployed_refresh_image_drift")
+
+    before_raw = images["selection.before.json"]
+    before_hooks = images["hooks.before.json"]
+    before = decode(before_raw)
+    qualified = decode(read(previous / "selected.json", 16384))
+    route = decode(read(previous / "route.json"))
+    restored = decode(read(previous / "restored.json"))
+    restore_complete = decode(read(previous / "restore.complete.json"))
+    if (read(previous / "production.before.json", 16384) != before_raw
+            or read(previous / "hooks.before.json") != before_hooks
+            or route["production_sha256"] != digest(before_raw)
+            or route["hooks_before_sha256"] != digest(before_hooks)
+            or route["deployment_digest"] != api["canonical_digest"](qualified)
+            or restored != {
+                "production_sha256": digest(before_raw),
+                "hooks_sha256": digest(before_hooks),
+            }
+            or restore_complete["after_sha256"] != digest(before_hooks)):
+        raise ValueError("deployed_restoration_drift")
+
+    for key in ("producer", "core"):
+        api["pinned_file"](qualified[key])
+    if refresh_descriptor(before, qualified, directory) != production:
+        raise ValueError("deployed_descriptor_mismatch")
+
+    # Use the retained, pinned core for its journal semantics. Do not validate or
+    # execute the superseded native executable to inspect historical evidence.
+    retained_core = api["load_core"](qualified)
+    store = api["NativeReceiptStore"](previous / "native")
+    with store.connection() as native_db:
+        if native_db is None:
+            raise ValueError("deployed_native_store_unavailable")
+        if native_db.execute(
+            "SELECT 1 FROM operator_approvals WHERE state!='consumed' LIMIT 1"
+        ).fetchone():
+            raise ValueError("deployed_approval_pending")
+    qualification = qualified_fixture(previous, api, qualified, retained_core)
+    if qualification != plan["qualification_sha256"]:
+        raise ValueError("deployed_qualification_drift")
+    return previous
+
+
+
+def replacement_lane(kind, parent, selected, production_raw, hooks_raw, api, core):
+    """Use the same prior-lane determination for staging and switch recovery."""
+    if kind == "restored":
+        return restored_lane(parent, selected, production_raw, hooks_raw, api, core)
+    if kind == "deployed":
+        return deployed_lane(parent, selected, production_raw, hooks_raw, api, core)
+    raise ValueError("replacement_kind_invalid")
+
+
 def select_replacement(selected, previous, directory):
     if not selected.is_symlink() or os.readlink(selected) != str(previous):
         raise ValueError("qualification_link_drift")
@@ -236,7 +339,7 @@ def recover_switch(directory, parent, selected):
     api["check_requalification_native"](production["native_executable"], deployment["native_executable"])
     core = runpy.run_path(str(Path(__file__).resolve().with_name(source_name("executable_dbsctrctl"))),
                           run_name="qualification_switch_recovery")
-    if restored_lane(parent, previous, production_raw, hooks_raw, api, core) != previous:
+    if replacement_lane(route.get("previous_lane_kind", "restored"), parent, previous, production_raw, hooks_raw, api, core) != previous:
         raise ValueError("previous_lane_drift")
     if not selected.is_symlink() or not exchange.is_symlink():
         raise ValueError("switch_link_drift")
@@ -257,9 +360,14 @@ def recover_switch(directory, parent, selected):
 
 def stage(args, parent, selected):
     previous = None
-    if os.path.lexists(selected) and not args.replace_restored:
+    deployed = getattr(args, "replace_deployed", False)
+    if args.replace_restored and deployed:
+        raise ValueError("replacement_modes_conflict")
+    replacement_kind = "deployed" if deployed else "restored"
+    replacing = args.replace_restored or deployed
+    if os.path.lexists(selected) and not replacing:
         raise ValueError("qualification_already_exists")
-    if args.replace_restored and not os.path.lexists(selected):
+    if replacing and not os.path.lexists(selected):
         raise ValueError("previous_lane_required")
     directory = args.directory
     if (not directory.is_absolute() or directory.exists()
@@ -292,8 +400,8 @@ def stage(args, parent, selected):
         raise ValueError("fixture_cycle_mismatch")
     hooks = Path(production["native_home"]) / "hooks.json"
     hooks_raw = read(hooks)
-    if args.replace_restored:
-        previous = restored_lane(parent, selected, production_raw, hooks_raw, api, core)
+    if replacing:
+        previous = replacement_lane(replacement_kind, parent, selected, production_raw, hooks_raw, api, core)
         old = json.loads(read(previous / "selected.json", 16384))
         if common == old["target"]["common_git_dir"]:
             raise ValueError("new_fixture_repository_required")
@@ -314,14 +422,15 @@ def stage(args, parent, selected):
     json_new(directory / "route.json", {"schema_version": 1,
              "production_sha256": digest(production_raw), "deployment_digest": api["canonical_digest"](deployment),
              "hooks_before_sha256": digest(hooks_raw), "hooks_after_sha256": digest(hooks_after),
-             "previous_lane": str(previous) if previous else None})
+             "previous_lane": str(previous) if previous else None,
+            **({"previous_lane_kind": "deployed"} if deployed else {})})
     json_new(directory / "native-identity.json", {"pin": candidate_native, "version": args.native_version,
              "publisher_team": "2DC432GLL2", "signature": "verified", "native_callbacks": "not_run"})
     api["NativeReceiptStore"](directory / "native").initialize()
     if read(parent / "selected.json") != production_raw or read(hooks) != hooks_raw:
         raise ValueError("production_drift")
     if previous:
-        if restored_lane(parent, selected, production_raw, hooks_raw, api, core) != previous:
+        if replacement_lane(replacement_kind, parent, selected, production_raw, hooks_raw, api, core) != previous:
             raise ValueError("previous_lane_drift")
         select_replacement(selected, previous, directory)
     else:
@@ -786,6 +895,7 @@ def main():
     prepare.add_argument("--native-version", required=True)
     prepare.add_argument("--native-executable", type=Path)
     prepare.add_argument("--replace-restored", action="store_true")
+    prepare.add_argument("--replace-deployed", action="store_true")
     recover = commands.add_parser("recover-switch")
     recover.add_argument("--directory", type=Path, required=True)
     promote = commands.add_parser("refresh")

@@ -79,10 +79,15 @@ def pace_start(command: list[str]) -> int:
             stamp = read_state(timestamp) if timestamp.exists() or timestamp.is_symlink() else "0"
             if stamp != last_seen:
                 progress, last_seen = time.monotonic(), stamp
-            result = subprocess.run(["/usr/bin/shlock", "-p", str(os.getpid()), "-f", str(lock)],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-            if result.returncode == 0:
-                owned = True
+            # A signal must not discard ownership after shlock creates the file.
+            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+            try:
+                result = subprocess.run(["/usr/bin/shlock", "-p", str(os.getpid()), "-f", str(lock)],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                owned = result.returncode == 0
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            if owned:
                 break
             now = time.monotonic()
             if now - progress >= 20 or now - started >= 600:

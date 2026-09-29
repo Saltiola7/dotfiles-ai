@@ -677,3 +677,328 @@ def test_compatible_source_requires_merged_bytes(manager, tmp_path, monkeypatch,
             manager["compatible_source"](commit, deployment)
     else:
         assert manager["compatible_source"](commit, deployment)["executable_dbsctrctl"] == new
+
+
+@pytest.fixture
+def completed_repeat_deployment(manager, synthetic_qualification):
+    """Synthetic historical deployment; never native qualification evidence."""
+    lane, api, deployment, core, receipts, approvals, db = synthetic_qualification
+    parent = lane.parent / "management"
+    installed = lane.parent / "installed"
+    parent.mkdir(mode=0o700)
+    installed.mkdir(mode=0o700)
+    native_home = lane.parent / "native-home"
+    native_home.mkdir(mode=0o700)
+    deployment["native_home"] = str(native_home)
+    actor = api["canonical_digest"]([
+        "codex-desktop-1", deployment["native_home"], deployment["conversation_id"]
+    ])
+    db.execute("UPDATE operations SET session_key=?", (actor,))
+
+    deployment.update({
+        "schema_version": 1,
+        "revision": "codex-desktop-1",
+        "conversation_home": "/synthetic/conversation",
+        "native_executable": {
+            "path": "/synthetic/no-longer-installed/codex",
+            "sha256": "1" * 64,
+        },
+    })
+    deployment["target"]["common_git_dir"] = "/synthetic/fixture.git"
+    for key, name in (
+        ("producer", "executable_codex-continuation"),
+        ("core", "executable_dbsctrctl"),
+    ):
+        raw = ("synthetic-component-" + key).encode()
+        (lane / name).write_bytes(raw)
+        (installed / name).write_bytes(raw)
+        deployment[key] = {
+            "path": str(lane / name),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+
+    report_path = lane / "native-qualification-review.json"
+    report = json.loads(report_path.read_text())
+    binding = api["canonical_digest"](deployment)
+    report["deployment_digest"] = binding
+    for receipt in receipts.values():
+        receipt["deployment_digest"] = binding
+    for approval in approvals.values():
+        approval["deployment_digest"] = binding
+    report_path.write_text(json.dumps(report))
+
+    before = {
+        **deployment,
+        "native_executable": {
+            **deployment["native_executable"], "sha256": "0" * 64
+        },
+        "target": {
+            "cycle_id": "business-cycle",
+            "worktree": "/synthetic/business",
+            "common_git_dir": "/synthetic/business.git",
+        },
+    }
+    production = manager["refresh_descriptor"](before, deployment, installed)
+    encode = lambda value: (json.dumps(value, sort_keys=True) + "\n").encode()
+    sha = lambda raw: hashlib.sha256(raw).hexdigest()
+    before_raw, production_raw = encode(before), encode(production)
+    hooks_before = b'{"synthetic_before":true}\n'
+    hooks_after = b'{"synthetic_after":true}\n'
+
+    (lane / "selected.json").write_bytes(encode(deployment))
+    (lane / "production.before.json").write_bytes(before_raw)
+    (lane / "hooks.before.json").write_bytes(hooks_before)
+    (lane / "route.json").write_bytes(encode({
+        "schema_version": 1,
+        "production_sha256": sha(before_raw),
+        "deployment_digest": binding,
+        "hooks_before_sha256": sha(hooks_before),
+        "hooks_after_sha256": sha(b"synthetic fixture hooks"),
+        "previous_lane": None,
+    }))
+    (lane / "restored.json").write_bytes(encode({
+        "production_sha256": sha(before_raw),
+        "hooks_sha256": sha(hooks_before),
+    }))
+    (lane / "restore.complete.json").write_bytes(encode({
+        "after_sha256": sha(hooks_before),
+    }))
+
+    images = {
+        "selection.before.json": before_raw,
+        "selection.after.json": production_raw,
+        "hooks.before.json": hooks_before,
+        "hooks.after.json": hooks_after,
+    }
+    for name, raw in images.items():
+        (installed / name).write_bytes(raw)
+    plan = {
+        "schema_version": 1,
+        "lane": str(lane),
+        "source_commit": "a" * 40,
+        "qualification_sha256": sha(report_path.read_bytes()),
+        "snapshot": {"synthetic_test_only": True},
+        "hashes": {name: sha(raw) for name, raw in images.items()},
+    }
+    for name in ("refresh.plan.json", "refresh.complete.json"):
+        (installed / name).write_bytes(encode(plan))
+    (parent / "selected.json").write_bytes(production_raw)
+    (native_home / "hooks.json").write_bytes(hooks_after)
+    (parent / "qualification").symlink_to(lane, target_is_directory=True)
+
+    def pinned_file(pin):
+        if sha(Path(pin["path"]).read_bytes()) != pin["sha256"]:
+            raise ValueError("pin_invalid")
+
+    # Filesystem custody is covered by the existing route tests. Here the real
+    # qualified_fixture validator still reads the synthetic native/core journals.
+    api.update({
+        "private_path": lambda *args, **kwargs: None,
+        "pinned_file": pinned_file,
+        "load_core": lambda descriptor: core,
+    })
+    native_store = api["NativeReceiptStore"](lane / "native")
+    native_db = sqlite3.connect(":memory:")
+    native_db.execute(
+        "CREATE TABLE operator_approvals("
+        "challenge TEXT PRIMARY KEY, binding_json TEXT NOT NULL,"
+        "deployment_digest TEXT NOT NULL,"
+        "state TEXT NOT NULL CHECK(state IN ('prepared','approved','consumed')))"
+    )
+    for challenge, approval in approvals.items():
+        native_db.execute(
+            "INSERT INTO operator_approvals VALUES (?,?,?,?)",
+            (challenge, json.dumps(approval["binding"]),
+             approval["deployment_digest"], approval["state"]),
+        )
+    native_store.connection = lambda: contextlib.nullcontext(native_db)
+    try:
+        yield (
+            parent, lane, installed, production_raw, hooks_after,
+            api, core, db, approvals,
+        )
+    finally:
+        native_db.close()
+
+
+@pytest.mark.parametrize("fault", [
+    None, "writer", "pending", "approval", "hooks", "selection",
+    "completion_missing", "receipt_hash", "qualification",
+    "restoration_missing", "component",
+])
+def test_deployed_lane_requires_completed_retired_proof(
+    manager, completed_repeat_deployment, fault
+):
+    parent, lane, installed, production, hooks, api, core, db, approvals = (
+        completed_repeat_deployment
+    )
+    if fault == "writer":
+        db.execute("UPDATE cycles SET writer='still-owned'")
+    elif fault == "pending":
+        db.execute("UPDATE operations SET state='running' WHERE operation_id='op-first'")
+    elif fault == "approval":
+        approvals["approval-3"]["state"] = "prepared"
+    elif fault == "hooks":
+        hooks = b"changed hooks"
+    elif fault == "selection":
+        production = b"changed selection"
+    elif fault == "completion_missing":
+        (installed / "refresh.complete.json").unlink()
+    elif fault == "receipt_hash":
+        (installed / "hooks.before.json").write_bytes(b"changed preimage")
+    elif fault == "qualification":
+        (lane / "native-qualification-review.json").write_bytes(b"{}")
+    elif fault == "restoration_missing":
+        (lane / "restored.json").unlink()
+    elif fault == "component":
+        (installed / "executable_dbsctrctl").write_bytes(b"changed component")
+
+    # Resolve outside raises: an absent API must fail, never count as a refusal.
+    validate = manager["deployed_lane"]
+    arguments = (
+        parent, parent / "qualification", production, hooks, api, core
+    )
+    if fault is None:
+        assert validate(*arguments) == lane
+    else:
+        with pytest.raises((ValueError, OSError, KeyError)):
+            validate(*arguments)
+
+
+def test_replacement_lane_accepts_completed_deployment(
+    manager, completed_repeat_deployment
+):
+    parent, previous, installed, production, hooks, api, core, db, approvals = (
+        completed_repeat_deployment
+    )
+    assert manager["replacement_lane"](
+        "deployed", parent, parent / "qualification",
+        production, hooks, api, core
+    ) == previous
+
+
+def test_replacement_lane_preserves_never_enrolled_contract(manager, closed_lane):
+    api, core, parent, previous, candidate, hooks, store = closed_lane
+    assert manager["replacement_lane"](
+        "restored", parent, parent / "qualification",
+        (parent / "selected.json").read_bytes(), hooks.read_bytes(), api, core
+    ) == previous
+
+
+@pytest.mark.parametrize("kind", ["unknown", "", None])
+def test_replacement_lane_refuses_unknown_kind(manager, kind):
+    validate = manager["replacement_lane"]
+    with pytest.raises(ValueError, match="replacement_kind_invalid"):
+        validate(kind, None, None, None, None, None, None)
+
+
+def test_stage_refuses_conflicting_replacement_modes(manager, tmp_path):
+    args = SimpleNamespace(replace_restored=True, replace_deployed=True)
+    with pytest.raises(ValueError, match="replacement_modes_conflict"):
+        manager["stage"](args, tmp_path, tmp_path / "qualification")
+
+
+@pytest.mark.parametrize("swapped", [False, True])
+@pytest.mark.parametrize("writer_present", [False, True])
+def test_recover_switch_revalidates_deployed_lane(
+    manager, completed_repeat_deployment, monkeypatch, swapped, writer_present
+):
+    parent, previous, installed, production, hooks, api, core, db, approvals = (
+        completed_repeat_deployment
+    )
+    selected = parent / "qualification"
+    candidate = parent / "candidate"
+    candidate.mkdir(mode=0o700)
+    deployment = json.loads((previous / "selected.json").read_text())
+    deployment["target"] = {
+        "cycle_id": "new-fixture",
+        "worktree": str(candidate),
+        "common_git_dir": str(candidate / ".git"),
+    }
+    (candidate / "selected.json").write_text(json.dumps(deployment))
+    route = {
+        "previous_lane": str(previous),
+        "previous_lane_kind": "deployed",
+        "production_sha256": hashlib.sha256(production).hexdigest(),
+        "hooks_before_sha256": hashlib.sha256(hooks).hexdigest(),
+        "deployment_digest": api["canonical_digest"](deployment),
+    }
+    (candidate / "route.json").write_text(json.dumps(route))
+    exchange = parent / ".qualification-test.exchange"
+    if swapped:
+        selected.unlink()
+        selected.symlink_to(candidate, target_is_directory=True)
+        exchange.symlink_to(previous, target_is_directory=True)
+    else:
+        exchange.symlink_to(candidate, target_is_directory=True)
+    intent = {
+        "schema_version": 1, "selected": str(selected),
+        "exchange": str(exchange), "previous": str(previous),
+        "candidate": str(candidate),
+    }
+    (candidate / "switch.intent.json").write_text(json.dumps(intent))
+
+    # These seams isolate switch routing; existing tests own descriptor/native
+    # validation. The real deployed_lane and journal qualification still run.
+    api["canonical_path"] = lambda value, **kwargs: Path(value).resolve(strict=True)
+    api["load_deployment"] = lambda path: json.loads(path.read_text())
+    api["check_requalification_native"] = lambda before, after: None
+    namespace = manager["recover_switch"].__globals__
+    monkeypatch.setitem(namespace, "load_api", lambda path: api)
+    monkeypatch.setattr(namespace["runpy"], "run_path", lambda *a, **k: core)
+    original = manager["deployed_lane"]
+    calls = []
+
+    def observed(*args):
+        calls.append(True)
+        return original(*args)
+
+    monkeypatch.setitem(namespace, "deployed_lane", observed)
+    if writer_present:
+        db.execute("UPDATE cycles SET writer='still-owned'")
+    old_links = (selected.readlink(), exchange.readlink())
+    old_journal = db.serialize()
+    old_selection = (parent / "selected.json").read_bytes()
+
+    if writer_present:
+        with pytest.raises(ValueError):
+            manager["recover_switch"](candidate, parent, selected)
+        assert (selected.readlink(), exchange.readlink()) == old_links
+        assert not (candidate / "switch.complete.json").exists()
+    else:
+        manager["recover_switch"](candidate, parent, selected)
+        assert selected.readlink() == candidate
+        assert exchange.readlink() == previous
+        assert json.loads((candidate / "switch.complete.json").read_text()) == intent
+    assert calls == [True]
+    assert db.serialize() == old_journal
+    assert (parent / "selected.json").read_bytes() == old_selection
+
+
+@pytest.mark.parametrize("state", ["prepared", "approved", "consumed", "unavailable"])
+def test_deployed_lane_checks_approvals_outside_qualification_report(
+    manager, completed_repeat_deployment, state
+):
+    parent, previous, installed, production, hooks, api, core, db, approvals = (
+        completed_repeat_deployment
+    )
+    store = api["NativeReceiptStore"](previous / "native")
+    if state == "unavailable":
+        store.connection = lambda: contextlib.nullcontext(None)
+    else:
+        with store.connection() as native_db:
+            native_db.execute(
+                "INSERT INTO operator_approvals VALUES (?,?,?,?)",
+                ("extra-not-in-report", "{}", "synthetic-binding", state),
+            )
+    arguments = (
+        parent, parent / "qualification", production, hooks, api, core
+    )
+    if state == "consumed":
+        assert manager["deployed_lane"](*arguments) == previous
+    else:
+        with pytest.raises(
+            ValueError,
+            match="deployed_approval_pending|deployed_native_store_unavailable",
+        ):
+            manager["deployed_lane"](*arguments)

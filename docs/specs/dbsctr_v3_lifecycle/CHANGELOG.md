@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-09-29 - Scheduler First-Open Race
+
+- Serialize the initial schema-version read and seed inserts with a SQLite write
+  reservation, preventing concurrent first callers from duplicating metadata.
+- Preserve existing migration, corruption refusal, worker-cap and cadence rules.
+- Add a deterministic competing-connection regression for the hosted CI failure
+  in PR #188. No scheduler deployment or continuation-pair change is included.
+
 ## 2026-09-24 - Checkout-Independent Continuation Core
 
 - Separated schema-5 record structure from historical source availability; added
