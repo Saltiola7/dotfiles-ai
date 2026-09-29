@@ -18,6 +18,16 @@ and total paced admission is now ten minutes while stalled admission remains
 twenty seconds. Managed Herdr source pins select 0.9.1/protocol 22; installation
 and exact live restoration remain separate operation evidence.
 
+## Pacing cancellation contract
+
+Given a paced launch acquiring the shared native `shlock`, when SIGINT or
+SIGTERM arrives after lock creation but before acquisition returns, cancellation
+is deferred until the helper records whether it owns the lock. The existing
+owner-checked cleanup must release its own lock before returning the signal exit
+status; another owner's lock must remain intact. The acquisition timeout, queue
+deadlines, timestamp spacing, and exec argument boundary remain unchanged.
+This source repair does not activate the helper or restart existing sessions.
+
 ## Session Recovery Repair Evidence
 
 HERDR-SESSION-RECOVERY implements the

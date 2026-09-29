@@ -1,5 +1,15 @@
 # Shell Auth Startup Changelog
 
+## 2026-09-29 - Pacing Cancellation Ownership
+
+- Defer SIGINT/SIGTERM across native lock acquisition until ownership is recorded;
+  cancellation then uses existing owner-checked cleanup before exiting.
+- Preserve other owners, lock identity, bounded acquisition, spacing and queue
+  deadlines. Add deterministic interruption tests for acquisition success/failure.
+- Source-only repair for PR #188 CI; no live helper activation or session restart.
+  Hosted checks remain required before merge; Codex deployment is separate.
+
+
 ## 2026-09-27 — HERDR-STATE-ROOT-RECOVERY
 
 - Corrected standalone recovery's missing-XDG fallback to the configured central
