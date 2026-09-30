@@ -1,5 +1,21 @@
 # Codex Control Plane Changelog
 
+## 2026-09-29 - Signed Desktop Updates
+
+- Added an opt-in OpenAI-signature policy for the selected desktop executable.
+  Its installation hash remains provenance; signed updates retain native control
+  access and require a short rewritten foreground smoke before business writes.
+- Bind admission, dispatch and matching normal post-hook completion to the actual
+  executable digest. Reject wrong publishers/paths, incompatible metadata, raced
+  binaries and uncertain or quiescence-only smoke completion.
+- Preserve exact adapter pins, writer/generation rules, journal history and retired
+  qualification. Add merged-source policy deployment and exact-image rollback.
+- Scoped Python/Security validation and real native activation evidence remain
+  separate authorities. Source delivery is a draft PR into main, followed by
+  reviewed merge, targeted policy installation and original-coordinator smoke.
+- Full qualification remains available for failed compatibility or adapter-contract
+  changes. No automatic ownership transition, business-file change or fleet update.
+
 ## 2026-09-29 - Exact-State Recovery Refresh
 
 - Add prepare, human approval, apply and exact-preimage rollback commands for
