@@ -429,3 +429,82 @@ Only original native controls can later recover ownership with separate approval
 Rollback restores exact files without rewriting history. Source: management
 commands and their regression tests. Owner: dotfiles operator. Update when any
 eligibility, approval, transaction or recovery condition changes.
+
+## Signed desktop updates
+
+The operator replaces exact upstream executable admission pins with explicit
+`verification: openai-signed-v1` on the native-executable value. Its retained
+SHA-256 is installation provenance, not an update authorization token. Legacy
+values without this field still enforce the exact hash. Producer and core pins,
+conversation identity, writer authority and recovery approvals stay exact.
+
+Only the canonical ChatGPT application's original or nested Codex executable
+is eligible. Every validation checks an Apple-anchored OpenAI team signature,
+bounded version output, actual SHA-256 and stable file identity. Metadata reads
+retain the existing body-free supported response validation and reject executable
+replacement during the read. Missing, unsigned, wrong-publisher, redirected or
+incompatible executables refuse; control availability is not writer authority.
+
+A new actual executable digest has no business-shell permission until one real
+native foreground smoke completes. The exact command is:
+
+```
+printf 'codex-native-smoke: unwrapped\n'
+```
+
+The hook rewrites only this command to `printf 'codex-native-smoke: complete\n'`,
+then uses ordinary shell admission, dispatch and post-hook completion. It writes
+no business file. It requires an idle owned cycle and the existing primary's
+native identity. Arbitrary commands, appended commands and background requests
+cannot use this exemption. All unsupported direct-file tools remain denied.
+
+Owner-private runtime sidecars bind each shell admission to its actual executable
+digest and deployment, without storing command bodies. A smoke proof names its
+real completed native receipt and matching normally completed core operation;
+uncertain, fabricated, mismatched or operator-quiescence closure never qualifies.
+Dispatch and completion require the same executable digest as admission. Updating
+while an operation is running therefore refuses and retains recovery evidence.
+Do updates when the coordinator is idle; an update never clears pending work.
+
+Given a signed app update with compatible metadata, native controls remain usable,
+ordinary shell calls refuse, and the exact smoke may run. Given its matching normal
+completion, subsequent calls on that digest resume. Given another update, the smoke
+must run again. A failed smoke or changed adapter contract requires investigation
+and full qualification where compatibility cannot be established. No old fixture
+is reopened or relabelled as evidence for the new executable.
+
+`codex-requalify deploy-signed-runtime --directory NEW_EXTERNAL_DIRECTORY --commit
+MERGED_MAIN_SHA` performs the separately authorized one-time policy deployment.
+It requires exact clean merged source, unchanged core bytes, intact old adapter
+pins, a genuinely retired historical fixture and idle production. It preserves
+its descriptor/hook preimages and full journal/record/HEAD/status snapshot using
+the existing atomic exchanges. It creates a new private runtime-evidence directory;
+it grants no smoke proof, writer or quiescence assertion. Native trust and the
+original coordinator's smoke remain deployment prerequisites. Retained fixture
+proof is verified historically without requiring the obsolete upstream binary to
+remain installed. `rollback-signed-runtime --directory RECEIPT_DIRECTORY` restores
+only exact preimages with the same unchanged production snapshot; it does not
+restore the obsolete executable or erase runtime evidence.
+
+Homebrew's `codex` cask and `chatgpt` app are separate installations. The selected
+desktop uses the app's bundled executable. Normal Homebrew/app updates remain
+supported; no blanket cask pin, updater disablement or independent binary copy is
+introduced. After an idle app update, the coordinator runs native control check and
+the one foreground smoke. Version/hash are retained for diagnostics. A publisher
+signature establishes provenance, not proof of unchanged callback semantics.
+
+| State / input | Permitted action | Business admission |
+|---|---|---|
+| Signed runtime, no proof for its actual digest | Native controls and exact rewritten smoke | Refused |
+| Real smoke receipt and core operation normally completed on same digest | Ordinary owned-cycle shell calls | Existing ownership rules |
+| App binary changes during dispatch/completion | Preserve pending/uncertain evidence and investigate recovery | Refused |
+| Wrong publisher, path, signature or metadata shape | Repair runtime/compatibility | Refused |
+| Adapter code changes | Required scoped validation and qualification decision | No inherited runtime proof |
+
+**Text Equivalent:** Signed upstream updates enter a control-accessible smoke gate.
+Only real ordinary admission and normal completion qualify that executable digest.
+Adapter integrity and lifecycle authority remain separate. Updating an active
+operation cannot settle it. Source: signed-runtime policy and implementation;
+owner: dotfiles operator; refresh when runtime validation or smoke accounting changes.
+This table supplies boundary, interaction, state, data/trust and deployment evidence;
+no new journal schema or quantitative claim is introduced.

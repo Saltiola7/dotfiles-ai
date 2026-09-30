@@ -721,6 +721,113 @@ def pinned_file(value: dict, *, capture=False):
         os.close(descriptor)
 
 
+RUNTIME_SMOKE_COMMAND = "printf 'codex-native-smoke: unwrapped\\n'"
+RUNTIME_SMOKE_PAYLOAD = "printf 'codex-native-smoke: complete\\n'"
+
+
+def validate_native_executable(value):
+    """Legacy hashes remain exact; explicit signed policy records upstream identity."""
+    if type(value) is dict and set(value) == {"path", "sha256"}:
+        pinned_file(value)
+        return None
+    if (type(value) is not dict or set(value) != {"path", "sha256", "verification"}
+            or value["verification"] != "openai-signed-v1"
+            or type(value["sha256"]) is not str or not DIGEST.fullmatch(value["sha256"])
+            or value["path"] not in {
+                "/Applications/ChatGPT.app/Contents/Resources/codex",
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"}):
+        raise ValueError("native_policy_invalid")
+    path = canonical_path(value["path"], directory=False)
+    before = file_identity(path.lstat())
+    subprocess.run(["/usr/bin/codesign", "--verify", "--strict",
+                    '-R=anchor apple generic and certificate leaf[subject.OU] = "2DC432GLL2"', str(path)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+    result = subprocess.run([str(path), "--version"], check=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, timeout=5)
+    if len(result.stdout) > 128 or not re.fullmatch(rb"codex-cli [0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*\n?", result.stdout):
+        raise ValueError("native_version_invalid")
+    hasher = hashlib.sha256()
+    count = 0
+    with path.open("rb") as stream:
+        opened = file_identity(os.fstat(stream.fileno()))
+        if opened != before or before[2] > 512 * 1024 * 1024:
+            raise ValueError("native_changed")
+        while chunk := stream.read(65536):
+            count += len(chunk)
+            if count > before[2]:
+                raise ValueError("native_changed")
+            hasher.update(chunk)
+        if count != before[2] or file_identity(os.fstat(stream.fileno())) != before:
+            raise ValueError("native_changed")
+    observed = {"path": str(path), "sha256": hasher.hexdigest(),
+                "version": result.stdout.strip().decode("ascii").removeprefix("codex-cli ")}
+    if before != file_identity(path.lstat()):
+        raise ValueError("native_changed")
+    return observed
+
+
+def is_runtime_smoke(payload):
+    return (type(payload) is dict and payload.get("command") == RUNTIME_SMOKE_COMMAND
+            and not set(payload) - {"command", "description", "timeout", "run_in_background"}
+            and payload.get("run_in_background", False) is False)
+
+
+def runtime_json(path):
+    return json.loads(qualification_bytes(path, 4096), object_pairs_hook=unique_object)
+
+
+def runtime_write(path, value):
+    private_path(path.parent, directory=True)
+    raw = (json.dumps(value, sort_keys=True) + "\n").encode()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb", closefd=False) as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def runtime_admission(path, deployment, value, runtime):
+    if not RECEIPT_ID.fullmatch(value["receipt_id"]):
+        raise NativeIdentityError("runtime_smoke_required")
+    admission = runtime_json(path.parent / "runtime" / (value["receipt_id"] + ".json"))
+    if (set(admission) != {"deployment_digest", "sha256", "version", "receipt_id", "smoke"}
+            or admission["deployment_digest"] != canonical_digest(deployment)
+            or admission["receipt_id"] != value["receipt_id"]
+            or admission["sha256"] != runtime["sha256"]
+            or admission["version"] != runtime["version"] or type(admission["smoke"]) is not bool):
+        raise NativeIdentityError("runtime_changed")
+    return admission
+
+
+def runtime_smoke_ready(path, deployment, store, bridge, runtime):
+    proof_path = path.parent / "runtime" / (runtime["sha256"] + ".proof.json")
+    if not proof_path.exists():
+        return False
+    proof = runtime_json(proof_path)
+    if set(proof) != {"receipt_id"} or not RECEIPT_ID.fullmatch(proof["receipt_id"]):
+        raise NativeIdentityError("runtime_smoke_required")
+    value = store.read(proof["receipt_id"])
+    if (not value or value["tool"] != "shell" or value["state"] != "completed"
+            or not value["execution_started"] or not value["execution_finished"]
+            or value["deployment_digest"] != canonical_digest(deployment)
+            or value["identity"]["session_id"] != deployment["conversation_id"]):
+        raise NativeIdentityError("runtime_smoke_required")
+    if not runtime_admission(path, deployment, value, runtime)["smoke"]:
+        raise NativeIdentityError("runtime_smoke_required")
+    with contextlib.chdir(bridge.repository_basis), bridge.core["continuation_connection"](bridge.repository_basis) as db:
+        operation = db.execute("SELECT * FROM operations WHERE operation_id=?", (value["operation_id"],)).fetchone() if db else None
+        if (not operation or operation["cycle_id"] != bridge.cycle_id or operation["state"] != "completed"
+                or operation["completion_class"] != "native_completion"
+                or operation["operation_class"] != "shell" or operation["session_key"] != bridge.session_key
+                or operation["message_id"] != "codex-" + value["receipt_id"]
+                or operation["call_id"] != value["identity"]["call_id"]):
+            raise NativeIdentityError("runtime_smoke_required")
+    return True
+
+
 def load_deployment(path: Path) -> dict:
     """Validate a fixed installation descriptor, never confer a writer lease.
 
@@ -748,7 +855,7 @@ def load_deployment(path: Path) -> dict:
             raise ValueError("descriptor_invalid")
         canonical_path(value["conversation_home"], directory=True)
         canonical_path(value["native_home"], directory=True)
-        pinned_file(value["native_executable"])
+        validate_native_executable(value["native_executable"])
         pinned_file(value["producer"])
         pinned_file(value["core"])
         target = value["target"]
@@ -814,6 +921,7 @@ def read_native_metadata(
     process = None
     selector = selectors.DefaultSelector()
     result = None
+    executable_before = file_identity(executable.lstat())
     deadline = time.monotonic() + timeout
     buffer = b""
     received = 0
@@ -893,7 +1001,7 @@ def read_native_metadata(
                 process.wait(timeout=1)
             process.stdin.close()
             process.stdout.close()
-    if result is None:
+    if result is None or file_identity(executable.lstat()) != executable_before:
         raise NativeIdentityError("native_unavailable")
     return result
 
@@ -1259,6 +1367,7 @@ def native_hook_response(raw, conversation):
         if deployment["conversation_id"] != conversation:
             raise NativeIdentityError("invalid_identity")
         store = configured_store(path)
+        runtime = validate_native_executable(deployment["native_executable"])
         if post:
             value = store.find_call(hook.get("session_id"), hook.get("turn_id"), hook.get("tool_use_id"))
             if value is None or value["tool"] != "shell":
@@ -1268,6 +1377,7 @@ def native_hook_response(raw, conversation):
                 raise NativeIdentityError("invalid_identity")
             if value["state"] == "completed":
                 return {}
+            admission = runtime_admission(path, deployment, value, runtime) if runtime else None
             bridge = CoreBridge(deployment, value["identity"], value["receipt_id"], store)
             outcome = "completed" if value["execution_finished"] and value["state"] == "active" else "uncertain"
             result = bridge.call("finish", operation_id=value["operation_id"], outcome=outcome)
@@ -1275,6 +1385,11 @@ def native_hook_response(raw, conversation):
                 raise NativeIdentityError("core_unavailable")
             if value["state"] == "active":
                 store.finish(value["receipt_id"], value["operation_id"], outcome)
+            if admission and admission["smoke"] and outcome == "completed":
+                proof = path.parent / "runtime" / (runtime["sha256"] + ".proof.json")
+                if not proof.exists():
+                    runtime_write(proof, {"receipt_id": value["receipt_id"]})
+                runtime_smoke_ready(path, deployment, store, bridge, runtime)
             return {}
         if selection_closed(load_core(deployment), Path(deployment["target"]["worktree"]),
                              deployment["target"]["cycle_id"]):
@@ -1283,6 +1398,8 @@ def native_hook_response(raw, conversation):
             return {}  # Terminal release grants no new cycle or writer authority.
         thread, turn = read_native_metadata(Path(deployment["native_executable"]["path"]),
                                            Path(deployment["native_home"]), conversation)
+        if runtime and validate_native_executable(deployment["native_executable"]) != runtime:
+            raise NativeIdentityError("runtime_changed")
         identity = validate_native_identity(hook, thread, turn)
         reference = canonical_digest([conversation, hook["turn_id"], hook["tool_use_id"]])[:32]
         bridge = CoreBridge(deployment, identity, reference, store)
@@ -1295,7 +1412,23 @@ def native_hook_response(raw, conversation):
                 receipt = store.issue(envelope["identity"], "lifecycle", envelope["argument_digest"],
                                       deployment_digest=envelope["deployment_digest"])
                 bridge = CoreBridge(deployment, envelope["identity"], receipt, store)
-                return result_rewrite(control_result(bridge, control))
+                result = control_result(bridge, control)
+                if runtime and control[0] == "check":
+                    try:
+                        ready = runtime_smoke_ready(path, deployment, store, bridge, runtime)
+                        status = "verified" if ready else "smoke_required"
+                    except (OSError, ValueError, KeyError, TypeError, NativeIdentityError):
+                        status = "evidence_invalid"
+                    result["runtime_compatibility"] = {"state": status, **runtime,
+                                                       "smoke_command": RUNTIME_SMOKE_COMMAND}
+                return result_rewrite(result)
+            smoke = bool(runtime and is_runtime_smoke(hook["tool_input"]))
+            if runtime and not smoke and not runtime_smoke_ready(path, deployment, store, bridge, runtime):
+                return deny
+            payload_input = dict(hook["tool_input"])
+            if smoke:
+                payload_input["command"] = RUNTIME_SMOKE_PAYLOAD
+                envelope["argument_digest"] = canonical_digest(payload_input)
             # Check before issuance; denied calls do not consume receipt capacity.
             state = bridge.call("check")
             if (not state["ok"] or state["state"] != "owned" or state["writer_relation"] != "self"
@@ -1310,17 +1443,21 @@ def native_hook_response(raw, conversation):
                 return deny
             try:
                 store.activate(receipt, admitted["operation_id"])
+                if runtime:
+                    runtime_write(path.parent / "runtime" / (receipt + ".json"), {
+                        "deployment_digest": canonical_digest(deployment), "sha256": runtime["sha256"],
+                        "version": runtime["version"], "receipt_id": receipt, "smoke": smoke})
             except NativeIdentityError:
                 bridge.call("finish", operation_id=admitted["operation_id"], outcome="uncertain")
                 return deny
             payload = base64.b64encode(json.dumps(
-                hook["tool_input"], allow_nan=False, ensure_ascii=False,
+                payload_input, allow_nan=False, ensure_ascii=False,
                 sort_keys=True, separators=(",", ":")).encode("utf-8")).decode("ascii")
             command = shlex.join([sys.executable, deployment["producer"]["path"], "dispatch",
                                   "--receipt", receipt, "--input", payload])
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
                     "updatedInput": {"command": command}}}
-    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, NativeIdentityError):
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, subprocess.SubprocessError, NativeIdentityError):
         if post:
             return {"systemMessage": "Codex continuation completion unavailable; inspect recovery state."}
         return deny
@@ -1373,6 +1510,9 @@ def dispatch_shell(receipt, encoded):
         if (value is None or value["deployment_digest"] != canonical_digest(deployment)
                 or value["argument_digest"] != canonical_digest(payload)):
             raise NativeIdentityError("receipt_state")
+        runtime = validate_native_executable(deployment["native_executable"])
+        if runtime:
+            runtime_admission(path, deployment, value, runtime)
         bridge = CoreBridge(deployment, value["identity"], receipt, store)
         bridge.verify_operation(value["operation_id"])
         store.claim_execution(receipt, value["operation_id"], canonical_digest(payload), bridge.deployment_digest)
@@ -1395,7 +1535,7 @@ def dispatch_shell(receipt, encoded):
             store.mark_execution_finished(receipt, value["operation_id"])
             finished = True
             return code if code >= 0 else 128 - code
-    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, NativeIdentityError):
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, RuntimeError, subprocess.SubprocessError, NativeIdentityError):
         pass
     finally:
         try:

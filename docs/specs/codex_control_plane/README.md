@@ -53,6 +53,16 @@ unchanged production snapshots. Lifecycle recovery remains a later native action
 no operation is settled by deployment. See the recovery-refresh contract in
 [active requalification](features/active-requalification.md#recovery-refresh-for-one-never-started-admission).
 
+## Desktop updates
+
+Selected deployments may opt into the [signed desktop update policy](features/active-requalification.md#signed-desktop-updates).
+Signed upstream executable changes retain control access and require one rewritten
+native foreground smoke before business-shell admission. Exact producer/core
+integrity and lifecycle accounting remain enforced. Native `control check` reports
+runtime compatibility and the smoke command. Legacy deployments retain exact
+upstream pins until explicitly migrated. Update idle coordinators; an update never
+settles an outstanding operation.
+
 ## Overview
 
 The Codex control plane owns managed Codex CLI behavior while OpenCode remains a

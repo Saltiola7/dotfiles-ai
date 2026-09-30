@@ -1129,6 +1129,114 @@ def rollback_recovery_refresh(directory, parent, selected):
     print("Exact recovery-refresh preimages restored; journals preserved and stale native pin remains blocked.")
 
 
+def signed_runtime_source(commit, production):
+    """Policy migration requires exact accepted source and unchanged shared core."""
+    root = Path(__file__).resolve().parents[2]
+    merged_source(commit, root / "dot_local/bin")
+    if read(root / "dot_local/bin/executable_dbsctrctl", 4 * 1024 * 1024) != read(Path(production["core"]["path"]), 4 * 1024 * 1024):
+        raise ValueError("signed_runtime_core_changed")
+    return root
+
+
+def deploy_signed_runtime(args, parent, selected):
+    api = load_api(Path(__file__).resolve().parent)
+    before = read(parent / "selected.json", 16384)
+    production = json.loads(before, object_pairs_hook=api["unique_object"])
+    for key in ("producer", "core"):
+        api["pinned_file"](production[key])
+    root = signed_runtime_source(args.commit, production)
+    lane = selected.resolve(strict=True)
+    api["private_path"](lane, directory=True)
+    if not (lane / "restored.json").exists() or not (lane / "restore.complete.json").exists():
+        raise ValueError("fixture_route_not_restored")
+    historical = json.loads(read(lane / "selected.json", 16384), object_pairs_hook=api["unique_object"])
+    api["pinned_file"](historical["producer"])
+    historical_core = api["load_core"](historical)
+    proof = qualified_fixture(lane, api, historical, historical_core)
+    if (historical["conversation_id"] != production["conversation_id"]
+            or historical["native_home"] != production["native_home"]
+            or historical["producer"]["sha256"] != production["producer"]["sha256"]
+            or historical["core"]["sha256"] != production["core"]["sha256"]):
+        raise ValueError("historical_adapter_changed")
+    native = {**production["native_executable"], "verification": "openai-signed-v1"}
+    observed = api["validate_native_executable"](native)
+    # Retain installation identity as provenance; future signed versions need smoke proof.
+    native["sha256"] = observed["sha256"]
+    core = api["load_core"](production)
+    snapshot = lambda: production_snapshot(parent, production, api, core)
+    baseline = snapshot()
+    directory = args.directory
+    if (not directory.is_absolute() or os.path.lexists(directory)
+            or directory.parent.resolve(strict=True) != directory.parent
+            or directory.parent.stat().st_dev == Path.home().stat().st_dev):
+        raise ValueError("new_external_directory_required")
+    try:
+        git_read(directory.parent, "rev-parse", "--absolute-git-dir")
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise ValueError("permanent_deployment_must_be_outside_git")
+    hooks = Path(production["native_home"]) / "hooks.json"
+    hook_before = read(hooks)
+    hook_after = fixture_hooks(hook_before, production, directory / "executable_codex-continuation")
+    directory.mkdir(mode=0o700)
+    proposed = {**production, "native_executable": native}
+    for key, name in (("producer", "executable_codex-continuation"), ("core", "executable_dbsctrctl")):
+        raw = read(root / "dot_local/bin" / name, 4 * 1024 * 1024)
+        write_new(directory / name, raw, 0o500)
+        proposed[key] = {"path": str(directory / name), "sha256": digest(raw)}
+    write_new(directory / "selection.before.json", before)
+    json_new(directory / "selection.after.json", proposed)
+    after = read(directory / "selection.after.json", 16384)
+    if api["load_deployment"](directory / "selection.after.json") != proposed:
+        raise ValueError("signed_runtime_descriptor_invalid")
+    write_new(directory / "hooks.before.json", hook_before)
+    write_new(directory / "hooks.after.json", hook_after)
+    runtime = parent / "runtime"
+    if not runtime.exists():
+        runtime.mkdir(mode=0o700)
+    api["private_path"](runtime, directory=True)
+    plan = {"schema_version": 1, "kind": "signed_runtime_policy", "source_commit": args.commit,
+            "qualification_sha256": proof, "snapshot": baseline, "native_observation": observed,
+            "hashes": {name: digest(raw) for name, raw in {
+                "selection.before.json": before, "selection.after.json": after,
+                "hooks.before.json": hook_before, "hooks.after.json": hook_after}.items()}}
+    json_new(directory / "signed-runtime.plan.json", plan)
+    files = [(parent / "selected.json", before, after, "selection"), (hooks, hook_before, hook_after, "hooks")]
+    def stable_snapshot():
+        if api["validate_native_executable"](native) != observed:
+            raise ValueError("native_changed")
+        if qualified_fixture(lane, api, historical, historical_core) != proof:
+            raise ValueError("historical_proof_changed")
+        for key in ("producer", "core"):
+            api["pinned_file"](proposed[key])
+        return snapshot()
+    with api["producer_lock"](api["NativeReceiptStore"](parent / "native")):
+        refresh_files(files, directory, stable_snapshot, baseline)
+        json_new(directory / "signed-runtime.complete.json", plan)
+    print("Signed runtime policy installed; journals and ownership preserved. Trust hooks, then native check and smoke required.")
+
+
+def rollback_signed_runtime(directory, parent):
+    plan = json.loads(read(directory / "signed-runtime.plan.json"))
+    if plan.get("kind") != "signed_runtime_policy" or plan.get("schema_version") != 1:
+        raise ValueError("signed_runtime_plan_invalid")
+    names = ("selection.before.json", "selection.after.json", "hooks.before.json", "hooks.after.json")
+    raw = {name: read(directory / name) for name in names}
+    if {name: digest(value) for name, value in raw.items()} != plan["hashes"]:
+        raise ValueError("signed_runtime_evidence_drift")
+    production = json.loads(raw["selection.before.json"])
+    api = load_api(Path(__file__).resolve().parent)
+    api["pinned_file"](production["producer"])
+    core = api["load_core"](production)
+    hooks = Path(production["native_home"]) / "hooks.json"
+    files = [(parent / "selected.json", raw["selection.before.json"], raw["selection.after.json"], "selection"),
+             (hooks, raw["hooks.before.json"], raw["hooks.after.json"], "hooks")]
+    with api["producer_lock"](api["NativeReceiptStore"](parent / "native")):
+        rollback_refresh_files(files, directory, lambda: production_snapshot(parent, production, api, core), plan["snapshot"])
+    print("Exact policy preimages restored; upstream binary and runtime evidence retained.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1162,12 +1270,21 @@ def main():
     for action in ("approve-recovery-refresh", "apply-recovery-refresh", "rollback-recovery-refresh"):
         item = commands.add_parser(action)
         item.add_argument("--directory", type=Path, required=True)
+    signed = commands.add_parser("deploy-signed-runtime")
+    signed.add_argument("--directory", type=Path, required=True)
+    signed.add_argument("--commit", required=True)
+    signed_rollback = commands.add_parser("rollback-signed-runtime")
+    signed_rollback.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
     try:
         parent, selected = paths()
         with management_lock(parent):
-            if args.command == "prepare-recovery-refresh":
+            if args.command == "deploy-signed-runtime":
+                deploy_signed_runtime(args, parent, selected)
+            elif args.command == "rollback-signed-runtime":
+                rollback_signed_runtime(args.directory, parent)
+            elif args.command == "prepare-recovery-refresh":
                 prepare_recovery_refresh(args, parent, selected)
             elif args.command == "approve-recovery-refresh":
                 approve_recovery_refresh(args.directory, parent, selected, sys.stdin, sys.stdout)
