@@ -1,5 +1,22 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-01 — OPENCODE-V2-QUALIFICATION
+
+- Added a tests-only V2 CLI surface probe with checksum/identity binding,
+  isolated environment and working roots, bounded subprocesses, anchored cleanup
+  and sanitized partial-capability evidence. No new dependency or managed apply.
+- Red evidence: missing probe module; a later FIFO regression reproduced blocking
+  input validation and passed after nonblocking candidate opening.
+- Passed 17 scoped tests on Python 3.12.14 and 3.14.7. The checksum-verified macOS
+  OpenCode 2.0.21 candidate passed all seven identity/CLI/path checks. Other native
+  platforms, continuation, history migration and deployment remain unqualified.
+- The probe is not an activation validator. Requalify changed candidate bytes or
+  CLI contracts; later slices own complete native compatibility and migration.
+- Dependabot input unavailable because repository alerts are disabled; dependency
+  metadata is unchanged. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft PR into main; exact Gate Commit and push evidence belong to
+  the Cycle Record. No installation, conversation restart or live data migration.
+
 ## 2026-09-26 — GPT6-MODEL-ROUTING
 
 - Replaced active GPT-5.6 routes with Astra for default/Plan/Build/reviewer and

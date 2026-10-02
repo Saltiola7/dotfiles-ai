@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/opencode_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Tests-only qualification utility; no separately published artifact."},
+    "deploy": {"applicability": "not_applicable", "reason": "Only isolated test execution; no managed configuration, installation or live state is changed."},
+    "operate": {"applicability": "not_applicable", "reason": "No persistent service is introduced or operated; candidate commands are bounded test subprocesses."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

@@ -419,12 +419,20 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         assert phrase in normalized_adapter
 
 
-def test_opencode_rolling_stable_slice_is_ready() -> None:
+def test_opencode_rolling_stable_preserves_v1_and_gates_v2() -> None:
     manifest = json.loads(text("docs/initiatives/opencode-rolling-stable/MANIFEST.json"))
-    assert [item["id"] for item in manifest["slices"] if item["state"] == "ready"] == [
-        "opencode-rolling-stable"
-    ]
-    slice_ = manifest["slices"][0]
+    slices = {item["id"]: item for item in manifest["slices"]}
+    slice_ = slices["opencode-rolling-stable"]
+    assert slice_["state"] in {"blocked", "delivered"}
+    surface = slices["v2-cli-surface-probe"]
+    assert surface["execution_owner"] == "build"
+    assert surface["context"] == "opencode_control_plane"
+    assert surface["state"] in {"ready", "delivered"}
+    qualification = slices["v2-qualification"]
+    assert qualification["execution_owner"] == "discovery"
+    assert "v2-qualification" in slices["v2-lifecycle-compatibility"]["depends_on"]
+    if qualification["state"] != "delivered":
+        assert slices["v2-lifecycle-compatibility"]["state"] not in {"ready", "delivered"}
     assert slice_["execution_owner"] == "build"
     assert slice_["context"] == "dotfiles_ai_distribution"
     assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 10)}
