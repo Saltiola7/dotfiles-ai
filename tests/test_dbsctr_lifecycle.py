@@ -430,9 +430,13 @@ def test_opencode_rolling_stable_preserves_v1_and_gates_v2() -> None:
     assert surface["state"] in {"ready", "delivered"}
     qualification = slices["v2-qualification"]
     assert qualification["execution_owner"] == "discovery"
-    assert "v2-qualification" in slices["v2-lifecycle-compatibility"]["depends_on"]
+    native = slices["v2-lifecycle-compatibility"]
+    assert "v2-cli-surface-probe" in native["depends_on"]
+    assert "docs/specs/dbsctr_v3_lifecycle/features/opencode-v2-native-authority.md" in native["artifacts"]
     if qualification["state"] != "delivered":
-        assert slices["v2-lifecycle-compatibility"]["state"] not in {"ready", "delivered"}
+        assert slices["v2-fleet-cutover-retirement"]["state"] not in {"ready", "delivered"}
+    native_plan = json.loads(text("docs/specs/dbsctr_v3_lifecycle/OPENCODE-V2-NATIVE-AUTHORITY.plan.json"))
+    assert native_plan["gates"]["deploy"]["applicability"] == "not_applicable"
     assert slice_["execution_owner"] == "build"
     assert slice_["context"] == "dotfiles_ai_distribution"
     assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 10)}
