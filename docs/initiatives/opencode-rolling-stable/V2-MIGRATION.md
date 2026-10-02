@@ -1,7 +1,8 @@
 # OpenCode V2 Migration
 
-Status: migration scope approved; full qualification incomplete. The isolated
-CLI surface-probe specification is ready; native integration and rollout are not.
+Status: migration scope approved; CLI surface probe delivered. Native schema
+evidence supports source-only lifecycle compatibility implementation. Full native
+integration and rollout remain unqualified.
 
 ## Outcome and boundaries
 
@@ -39,6 +40,10 @@ reconcile authoritative source before implementation rather than replacing
 unrelated local work. V1 receipt readiness must not be reused for V2.
 
 ## Qualification findings
+
+See [native findings](V2-NATIVE-FINDINGS.md) for bounded, synthetic runtime
+evidence and remaining qualification work. Those findings do not establish fleet
+or live-history readiness.
 
 The investigated candidate is 2.0.21, with publisher-recorded source commit
 `f46fa72a9285a0e8479e25d400f7026bfd8fe5c8`. This is an investigation baseline,
@@ -119,7 +124,7 @@ maintenance operation is separately approved and bounded.
 |---|---|---|---|
 | v2-cli-surface-probe | opencode_control_plane | none | build |
 | v2-qualification | opencode_control_plane | v2-cli-surface-probe | discovery |
-| v2-lifecycle-compatibility | dbsctr_v3_lifecycle | v2-qualification | build |
+| v2-lifecycle-compatibility | dbsctr_v3_lifecycle | v2-cli-surface-probe and recorded native schema evidence | build |
 | v2-control-plane | opencode_control_plane | v2-lifecycle-compatibility | build |
 | v2-distribution-recovery | dotfiles_ai_distribution | v2-control-plane | build |
 | v2-fleet-cutover-retirement | dotfiles_ai_distribution | v2-distribution-recovery | build |
@@ -130,6 +135,14 @@ release trust/digest sources, safe gap dispositions, target inventory and
 ownership conflicts before dependent specifications become implementation-ready.
 It may inspect public source and run isolated probes; it does not mutate live
 state, invoke models with private history or implement production adapters.
+
+The lifecycle slice is now bounded by the native-authority feature specification:
+source-only identity decoding and persisted terminal proof, with V1/Codex
+regressions. Its dependency is the delivered surface probe plus recorded native
+schema evidence; waiting for an installed adapter before implementing its helper
+would be circular. This is a dependency refinement, not completion of the broad
+qualification slice. Native integration, consent, background operations, Desktop,
+guest and live-history gates still block activation in downstream slices.
 
 The small first Build slice makes the temporary surface experiment repeatable
 under the contract in the OpenCode control-plane V2 qualification feature.

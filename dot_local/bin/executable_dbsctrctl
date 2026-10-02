@@ -791,6 +791,88 @@ def excluded_review_family(connection, session, session_id):
     """, (session_id,))} or {session_id}
 
 
+def native_v2(connection):
+    """Select one native schema; retained V1 rows never override V2 authority."""
+    deadline = time.monotonic() + 2
+    connection.execute("PRAGMA busy_timeout=2000")
+    connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+    if not connection.in_transaction:
+        connection.execute("BEGIN")
+    objects = {name.lower(): kind for name, kind in connection.execute("SELECT name,type FROM sqlite_master")}
+    if "session_v2" not in objects:
+        return False
+    required = {"session_v2": {"id", "parent_id", "agent"},
+                "session_message": {"id", "session_id", "type", "seq", "data"}}
+    for table, columns in required.items():
+        if (objects.get(table) != "table" or not columns <= {
+                row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}):
+            fail("OpenCode native schema unavailable")
+    if "session" in objects:
+        if objects.get("kv") != "table":
+            fail("OpenCode native conversion incomplete")
+        row = connection.execute("SELECT substr(value,1,4097) FROM kv WHERE key='migration.v1-v2'").fetchone()
+        try:
+            value = json.loads(row[0], object_pairs_hook=no_duplicate_keys) if row and len(row[0]) <= 4096 else None
+        except (ValueError, TypeError):
+            value = None
+        if not isinstance(value, dict) or value != {"phase": "completed"}:
+            fail("OpenCode native conversion incomplete")
+    return True
+
+
+def native_v2_message(connection, message_id, *, assistant=False, primary=False):
+    """Read scalar authority only; JSON bodies and tool output stay in SQLite."""
+    if not isinstance(message_id, str) or not OPAQUE_ID.fullmatch(message_id):
+        fail("OpenCode native identity unavailable")
+    valid = connection.execute("SELECT json_valid(data) FROM session_message WHERE id=?", (message_id,)).fetchall()
+    if valid != [(1,)]:
+        fail("OpenCode native identity unavailable")
+    duplicate = connection.execute(
+        "SELECT 1 FROM session_message m,json_tree(m.data) j WHERE m.id=? AND typeof(j.key)='text' "
+        "GROUP BY j.parent,j.key HAVING count(*)>1 LIMIT 1", (message_id,)).fetchone()
+    if duplicate:
+        fail("OpenCode native identity unavailable")
+    rows = connection.execute(
+        "SELECT s.id,s.parent_id,s.agent,m.type,json_extract(m.data,'$.agent'),"
+        "json_extract(m.data,'$.model.providerID'),json_extract(m.data,'$.model.id') "
+        "FROM session_message m JOIN session_v2 s ON s.id=m.session_id WHERE m.id=? LIMIT 2",
+        (message_id,)).fetchall()
+    if len(rows) != 1:
+        fail("OpenCode native identity unavailable")
+    session, parent, selected_agent, kind, actor, provider, model = rows[0]
+    if (not isinstance(session, str) or not OPAQUE_ID.fullmatch(session)
+            or parent is not None and (not isinstance(parent, str) or not OPAQUE_ID.fullmatch(parent))
+            or primary and parent is not None):
+        fail("OpenCode native identity unavailable")
+    if assistant and (kind != "assistant" or not isinstance(actor, str) or not OPAQUE_ID.fullmatch(actor)
+                      or selected_agent is not None and selected_agent != actor):
+        fail("OpenCode native actor unavailable")
+    return session, parent, actor, provider, model
+
+
+def native_session_actor(database_value, session_id, message_id=None):
+    connection = None
+    try:
+        connection = sqlite3.connect(opencode_database(database_value).as_uri() + "?mode=ro", uri=True)
+        if not native_v2(connection):
+            return connection.execute("SELECT parent_id,agent FROM session WHERE id=?", (session_id,)).fetchone()
+        if message_id is None:
+            row = connection.execute("SELECT id FROM session_message WHERE session_id=? AND type='assistant' "
+                                     "ORDER BY seq DESC,id DESC LIMIT 1", (session_id,)).fetchone()
+            if not row:
+                fail("OpenCode native actor unavailable")
+            message_id = row[0]
+        session, parent, actor, _, _ = native_v2_message(connection, message_id, assistant=True)
+        if session != session_id:
+            fail("OpenCode native identity unavailable")
+        return parent, actor
+    except sqlite3.Error:
+        fail("OpenCode native actor unavailable")
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def session_for_message(database_value, message_id, require_primary=False):
     if not OPAQUE_ID.fullmatch(message_id):
         fail("invalid excluded message ID")
@@ -799,6 +881,8 @@ def session_for_message(database_value, message_id, require_primary=False):
         fail("OpenCode database is missing")
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        if native_v2(connection):
+            return native_v2_message(connection, message_id, primary=require_primary)[0]
         tables = {row[0].lower(): row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "message" not in tables:
             fail("OpenCode database lacks required message table")
@@ -821,7 +905,7 @@ def session_for_message(database_value, message_id, require_primary=False):
                 fail("runtime attachment requires a primary OpenCode session")
         return session_id
     except sqlite3.Error as error:
-        fail(f"cannot read OpenCode database: {error}")
+        fail("cannot read OpenCode native identity")
     finally:
         if 'connection' in locals():
             connection.close()
@@ -842,6 +926,19 @@ def harness_activation_for_message(database_value, message_id, raw):
     database = opencode_database(database_value)
     try:
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        if native_v2(connection):
+            _, _, actor, provider_id, model_id = native_v2_message(
+                connection, message_id, assistant=True, primary=True)
+            if (actor not in supplied["overlays"] or not isinstance(provider_id, str)
+                    or not OPAQUE_ID.fullmatch(provider_id) or not isinstance(model_id, str)
+                    or not ACTIVATION_MODEL_ID.fullmatch(model_id)):
+                fail("OpenCode message has no exact V2 activation")
+            expected = {"build-gpt": "openai", "build-claude": "google-vertex"}.get(actor)
+            if expected is not None and provider_id != expected:
+                fail("OpenCode harness provider does not match its primary agent")
+            return {"schema_version": HARNESS_ACTIVATION_SCHEMA, "provider_id": provider_id,
+                    "model_id": model_id, "agent_id": actor, "core_revision": supplied["core_revision"],
+                    "overlay_revision": supplied["overlays"][actor]}
         tables = {row[0].lower(): row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"session", "message"} <= set(tables):
@@ -871,7 +968,7 @@ def harness_activation_for_message(database_value, message_id, raw):
                 "model_id": model_id, "agent_id": row[0], "core_revision": supplied["core_revision"],
                 "overlay_revision": supplied["overlays"][row[0]]}
     except (sqlite3.Error, json.JSONDecodeError) as error:
-        fail(f"cannot read harness activation: {error}")
+        fail("cannot read harness activation")
     finally:
         if 'connection' in locals():
             connection.close()
@@ -5571,11 +5668,10 @@ def continuation_native(request, read_only=False):
         try:
             if session_for_message(None, message, require_primary=True) != session:
                 raise ContinuationError("invalid_identity")
-            with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as db:
-                actor = db.execute("SELECT agent FROM session WHERE id=?", (session,)).fetchone()
-                if (not actor or not isinstance(actor[0], str) or not OPAQUE_ID.fullmatch(actor[0])
-                        or actor[0] in {"build", "build-gpt", "build-claude"}):
-                    raise ContinuationError("invalid_identity")
+            owner = native_session_actor(None, session, message)
+            if (not owner or not isinstance(owner[1], str) or not OPAQUE_ID.fullmatch(owner[1])
+                    or owner[1] in {"build", "build-gpt", "build-claude"}):
+                raise ContinuationError("invalid_identity")
             activation = None
         except (RuntimeError, TypeError, sqlite3.Error):
             raise ContinuationError("invalid_identity") from None
@@ -5901,9 +5997,61 @@ def command_continuation_storage(args):
             os.close(descriptor)
 
 
-def continuation_finish_outcome(request, cycle, operation, session_key):
+def native_v2_finish(native, request, operation):
+    session, _, actor, _, _ = native_v2_message(native, operation["message_id"], assistant=True, primary=True)
+    if session != request["session_id"] or actor not in {"build", "build-gpt", "build-claude"}:
+        raise ContinuationError("invalid_identity")
+    if native.execute("SELECT json_type(data,'$.content') FROM session_message WHERE id=?",
+                      (operation["message_id"],)).fetchone() != ("array",):
+        raise ContinuationError("invalid_state")
+    rows = native.execute(
+        "SELECT json_extract(j.value,'$.id'),json_extract(j.value,'$.name'),"
+        "json_extract(j.value,'$.state.status'),json_extract(j.value,'$.time.created'),"
+        "json_extract(j.value,'$.time.completed'),json_type(j.value,'$.time.created'),"
+        "json_type(j.value,'$.time.completed'),json_extract(j.value,'$.state.metadata.status') "
+        "FROM session_message m,json_each(m.data,'$.content') j WHERE m.id=? "
+        "AND json_extract(j.value,'$.type')='tool' LIMIT 101", (operation["message_id"],)).fetchall()
+    if len(rows) > 100:
+        raise ContinuationError("invalid_state")
+    matches = [row for row in rows if isinstance(row[0], str) and len(row[0]) <= 1024
+               and "v2_" + hashlib.sha256(f'{operation["message_id"]}\0{row[0]}'.encode()).hexdigest()
+               == operation["call_id"]]
+    if len(matches) != 1:
+        raise ContinuationError("invalid_identity")
+    _, tool, status, start, end, start_type, end_type, shell_status = matches[0]
+    if (start_type not in {"integer", "real"} or end_type not in {"integer", "real"}
+            or not 0 <= start <= end < 2**53):
+        raise ContinuationError("invalid_state")
+    kind, outcome = operation["operation_class"], request["outcome"]
+    valid_tool = (kind == "file" and tool in {"write", "edit", "patch"}
+                  or kind == "shell" and tool == "shell" and shell_status == "completed"
+                  or kind == "lifecycle" and isinstance(tool, str) and tool.startswith("dbsctr_"))
+    if not valid_tool or status != ("error" if outcome == "native_error" else "completed"):
+        raise ContinuationError("invalid_state")
+
+
+def continuation_finish_outcome(request, cycle, operation, session_key, *, opencode=True):
     outcome = request.get("outcome")
     completion = "native_completion" if outcome == "completed" else "unknown_completion"
+    native = None
+    try:
+        # Codex has its own native_context and does not use this V2 storage path.
+        database = opencode_database() if opencode else None
+        if database is not None and database.is_file() and outcome in {"completed", "native_error"}:
+            native = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+            if native_v2(native):
+                if cycle["writer"] != session_key or outcome == "native_error" and operation["operation_class"] != "file":
+                    raise ContinuationError("invalid_identity")
+                native_v2_finish(native, request, operation)
+                failed = outcome == "native_error" or operation["completion_class"] == "native_error"
+                return "completed", "native_error" if failed else "native_completion"
+    except (sqlite3.Error, RuntimeError) as error:
+        if isinstance(error, ContinuationError):
+            raise
+        raise ContinuationError("invalid_state") from None
+    finally:
+        if native is not None:
+            native.close()
     if outcome == "native_error":
         if operation["operation_class"] != "file" or cycle["writer"] != session_key:
             raise ContinuationError("invalid_identity")
@@ -6062,7 +6210,8 @@ def command_continuation(args, *, native_context=None):
                         raise ContinuationError("invalid_identity")
                     if operation["generation"] != cycle["generation"]:
                         raise ContinuationError("generation_changed")
-                    outcome, completion = continuation_finish_outcome(request, cycle, operation, session_key)
+                    outcome, completion = continuation_finish_outcome(
+                        request, cycle, operation, session_key, opencode=native_context is None)
                     if operation["state"] != "running" and operation["state"] != outcome:
                         raise ContinuationError("invalid_state")
                     db.execute("UPDATE operations SET state=?,completion_class=? WHERE operation_id=?",
@@ -6156,9 +6305,7 @@ def command_continuation(args, *, native_context=None):
                         continuation_approval(request, binding, native_context)
                         if not target_session or cycle["writer"] != session_key:
                             raise ContinuationError("invalid_identity")
-                        with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as native:
-                            owner = native.execute("SELECT parent_id,agent FROM session WHERE id=?",
-                                                   (target_session,)).fetchone()
+                        owner = native_session_actor(None, target_session)
                         if not owner or owner[0] is not None or owner[1] not in {"build", "build-gpt", "build-claude"}:
                             raise ContinuationError("invalid_identity")
                         if cycle["state"] == "recovery_required":
@@ -6745,9 +6892,7 @@ def continuation_v2_mutate(db, home, request, actor, activation, response, detai
             raise ContinuationError("invalid_identity")
         if cycle["state"] == "recovery_required":
             raise ContinuationError("recovery_required")
-        with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as native:
-            owner = native.execute("SELECT parent_id,agent FROM session WHERE id=?",
-                                   (request["target_session_id"],)).fetchone()
+        owner = native_session_actor(None, request["target_session_id"])
         if not owner or owner[0] is not None or owner[1] not in {"build", "build-gpt", "build-claude"}:
             raise ContinuationError("invalid_identity")
         if pending:
@@ -6887,9 +7032,8 @@ def continuation_legacy_operation_identity(operation):
     boundary = hashlib.sha256(str(opencode_database().resolve()).encode()).hexdigest()
     if continuation_digest([boundary, session]) != operation["session_key"]:
         raise ContinuationError("invalid_identity")
-    with sqlite3.connect(opencode_database().as_uri() + "?mode=ro", uri=True) as native:
-        actor = native.execute("SELECT agent FROM session WHERE id=?", (session,)).fetchone()
-    if not actor or actor[0] not in {"build", "build-gpt", "build-claude"}:
+    owner = native_session_actor(None, session, operation["message_id"])
+    if not owner or owner[1] not in {"build", "build-gpt", "build-claude"}:
         raise ContinuationError("invalid_identity")
 
 
