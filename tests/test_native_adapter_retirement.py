@@ -18,6 +18,10 @@ and transparent routing protocol. CLI refusal is now test_dbsctr_continuation;
 retained native V1/V2 evidence reads remain in test_opencode_v2_authority.
 Historical source loss has a native-checkout regression in
 test_native_checkout_identity instead of a writer-binding recovery test.
+The retired test_continuation_deploy suite targeted the removed deployer;
+owned-target refusal and machine-local configuration preservation are covered by
+test_opencode_distribution and test_opencode_control_plane. Live cutover remains
+separate qualification, not an assertion that the old deployer still exists.
 """
 from pathlib import Path
 
