@@ -35,8 +35,8 @@ DOWNLOAD_HOSTS = {"github.com", "release-assets.githubusercontent.com"}
 MAX_METADATA = 1024 * 1024
 MAX_ASSET = 256 * 1024 * 1024
 MAX_OUTPUT = 20 * 1024 * 1024
-VALIDATOR_REVISION = "opencode-release-validator-4"
-COMPATIBLE_VALIDATOR_REVISIONS = {"opencode-release-validator-1", "opencode-release-validator-2", "opencode-release-validator-3", VALIDATOR_REVISION}
+VALIDATOR_REVISION = "opencode-release-validator-5"
+COMPATIBLE_VALIDATOR_REVISIONS = {"opencode-release-validator-1", "opencode-release-validator-2", "opencode-release-validator-3", "opencode-release-validator-4", VALIDATOR_REVISION}
 LEGACY_RELEASE = "1.18.25"
 LEGACY_ROOT = "/usr/local/libexec/opencode"
 LEGACY_LINUX_AARCH64_BINARY_SHA256 = "896c9c9b1942d4d74576868af24bbcbfa3f267d7eeb17aa6b8dff70810800084"
@@ -422,25 +422,23 @@ def validate_binary(binary, release):
     agents = config.get("agent") if isinstance(config, dict) else None
     permissions = config.get("permission") if isinstance(config, dict) else None
     if (not isinstance(agents, dict) or not {"build", "plan"} <= set(agents)
-            or not isinstance(permissions, dict) or "dbsctr_status" not in permissions):
+            or not isinstance(permissions, dict) or "bash" not in permissions
+            or any(name.startswith("dbsctr_") for name in permissions)):
         raise UpdateError("validation_failed")
     tools = agent.get("tools") if isinstance(agent, dict) else None
     if (not isinstance(agent, dict) or agent.get("name") != "build"
-            or not isinstance(tools, dict) or "dbsctr_status" not in tools):
+            or not isinstance(tools, dict) or not tools.get("bash")
+            or any(name.startswith("dbsctr_") for name in tools)):
         raise UpdateError("validation_failed")
-    continuation = Path.home() / ".config/opencode/plugins/continuation.ts"
-    if "dbsctr_preflight" in permissions or os.path.lexists(continuation):
-        probe = Path.home() / ".local/share/opencode-continuation/native_probe.py"
-        if not {"dbsctr_preflight", "dbsctr_attach", "dbsctr_continuation_recover"} <= set(tools) or not probe.is_file():
+    for retired in ("plugins/continuation.ts", "lib/continuation.ts", "tools/dbsctr.ts"):
+        if os.path.lexists(Path.home() / ".config/opencode" / retired):
             raise UpdateError("validation_failed")
-        read_regular(continuation, 512 * 1024, mode=0o644)
-        read_regular(probe, 512 * 1024, mode=0o644)
-        with tempfile.TemporaryDirectory(prefix="opencode-continuation-validation-") as scratch:
-            output = run([sys.executable, str(probe), "--binary", str(binary), "--installed-root", str(Path.home()),
-                          "--scratch", scratch, "--sdk-modules", str(Path.home() / ".config/opencode/node_modules")],
-                         timeout=420, environment=environment, maximum=128 * 1024)
-        if not output.rstrip().endswith(b"passed"):
-            raise UpdateError("validation_failed")
+    helper = Path.home() / ".local/bin/dbsctrctl"
+    help_text = run([str(helper), "--help"], environment=environment)
+    if not all(name in help_text for name in (b"workspace-adopt", b"workspace-remove-check", b"record-evidence", b"final-push")):
+        raise UpdateError("validation_failed")
+    if not run(["wt", "--version"], environment=environment).startswith(b"wt v"):
+        raise UpdateError("validation_failed")
 
 
 def lock_generation(value, require_platform=True):

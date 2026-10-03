@@ -22,6 +22,16 @@ def isolate_native_configuration(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    bin_dir = home / ".local/bin"
+    bin_dir.mkdir(parents=True)
+    for name, output in {
+        "dbsctrctl": "workspace-adopt workspace-remove-check record-evidence final-push",
+        "wt": "wt v0.80.0",
+    }.items():
+        executable = bin_dir / name
+        executable.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+        executable.chmod(0o700)
+    monkeypatch.setenv("PATH", str(bin_dir) + ":" + os.environ.get("PATH", "/usr/bin:/bin"))
 
 
 def load_updater():
@@ -52,13 +62,8 @@ def release_payload(version="1.18.29"):
 
 def fake_binary(path: Path, version="1.18.29", valid=True, tool_valid=True, minimal=False):
     config = ({"agent": {"build": {}, "plan": {}} if minimal else {"build": {}, "build-rnd": {}, "plan": {}},
-               "permission": {"dbsctr_status": "allow", "dbsctr_begin": "deny",
-                              "dks_context": "allow", "dbsctr_attach": "deny",
-                              "dbsctr_reconcile": "deny", "dbsctr_phase_span": "deny",
-                              "dbsctr_execution_benchmark": "deny", "dbsctr_execution_dag": "deny",
-                               "dbsctr_improvement_claim": "allow",
-                               "dbsctr_improvement_update": "allow"}} if valid else {})
-    tool = {} if not tool_valid else {"dbsctr_status": {}}
+               "permission": {"bash": "ask", "dks_context": "allow"}} if valid else {})
+    tool = {} if not tool_valid else {"bash": True}
     path.write_text(
         "#!/bin/sh\n"
         f"case \"$1\" in --version) printf '{version}\\n';; --help) printf 'help\\n' >&2;; "
@@ -193,46 +198,29 @@ def test_bounded_runner_preserves_validation_error_when_group_signal_is_denied(m
     assert child.killed is still_running
 
 
-def test_continuation_requires_native_qualification_not_only_tool_loading(tmp_path, monkeypatch):
+@pytest.mark.parametrize("retired", ["plugins/continuation.ts", "lib/continuation.ts", "tools/dbsctr.ts"])
+def test_native_validator_refuses_stale_deployed_adapters_without_removing_them(tmp_path, retired):
     helper = load_updater()
-    plugin = Path.home() / ".config/opencode/plugins/continuation.ts"
+    plugin = Path.home() / ".config/opencode" / retired
     plugin.parent.mkdir(parents=True)
     plugin.write_text("fixture")
-    probe = Path.home() / ".local/share/opencode-continuation/native_probe.py"
-    probe.parent.mkdir(parents=True)
-    probe.write_text("fixture")
-    calls = []
-
-    def execute(argv, **kwargs):
-        calls.append(argv)
-        if argv[1:] == ["--version"]:
-            return b"1.18.29"
-        if argv[1:] == ["--help"]:
-            return b"help"
-        if argv[1:3] == ["session", "list"]:
-            return b"opencode session list"
-        if argv[1:] == ["debug", "config"]:
-            return json.dumps({"agent": {"build": {}, "plan": {}}, "permission": {"dbsctr_status": "allow"}}).encode()
-        if argv[1:] == ["debug", "agent", "build"]:
-            return json.dumps({"name": "build", "tools": {name: {} for name in (
-                "dbsctr_status", "dbsctr_preflight", "dbsctr_attach", "dbsctr_continuation_recover")}}).encode()
-        assert argv[:2] == [sys.executable, str(probe)]
-        return b"passed\n"
-
-    monkeypatch.setattr(helper, "run", execute)
-    helper.validate_binary(tmp_path / "binary", "1.18.29")
-    assert "--installed-root" in calls[-1]
-    probe.unlink()
+    binary = tmp_path / "binary"
+    fake_binary(binary)
     with pytest.raises(helper.UpdateError, match="validation_failed"):
-        helper.validate_binary(tmp_path / "binary", "1.18.29")
+        helper.validate_binary(binary, "1.18.29")
+    assert plugin.read_text() == "fixture"
+    plugin.unlink()
+    helper.validate_binary(binary, "1.18.29")
 
 
-def test_native_probe_does_not_fetch_dependencies_in_fresh_homes():
-    probe = (ROOT / "dot_local/share/opencode-continuation/native_probe.py").read_text()
-    assert '"npm_config_offline": "true"' in probe
-    assert 'staged / "package-lock.json"' in probe
-    assert 'metadata["version"]' in probe or 'for key in ("version", "dependencies")' in probe
-    assert 'repo / ".opencode/tools"' not in probe
+def test_native_validator_requires_the_lifecycle_cli_surface(tmp_path):
+    helper = load_updater()
+    binary = tmp_path / "binary"
+    fake_binary(binary)
+    (Path.home() / ".local/bin/dbsctrctl").write_text("#!/bin/sh\nprintf 'legacy help\\n'\n")
+    with pytest.raises(helper.UpdateError, match="validation_failed"):
+        helper.validate_binary(binary, "1.18.29")
+    assert not (ROOT / "dot_local/share/opencode-continuation/native_probe.py").exists()
 
 
 def test_stage_lock_binds_binary_and_activates(tmp_path: Path, monkeypatch) -> None:

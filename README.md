@@ -13,6 +13,7 @@ replace the DBSCTR specifications as lifecycle authority.
 |---|---|
 | Install on a new workstation | [Safe Quickstart](#safe-quickstart) |
 | Transfer files from another chezmoi source | [Existing Chezmoi Migration](#existing-chezmoi-migration) |
+| Start isolated native task work | [Native Task Workspaces](#native-task-workspaces) |
 | Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
 | Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
 | Configure a standalone CentOS user | [CentOS Remote User Foundation](#centos-remote-user-foundation) |
@@ -25,6 +26,7 @@ replace the DBSCTR specifications as lifecycle authority.
 - [chezmoi](https://www.chezmoi.io/)
 - [Herdr](https://herdr.dev/)
 - Python 3.12+ and `uv` for repository validation
+- Worktrunk for task checkout management; `lsof` for removal checks (`xz` also required on Linux)
 - Optional: 1Password CLI for `op-session`
 - Optional: Lima for managed Fedora workspaces
 - Optional: Hermes for autonomous R&D; enabled installations manage it through
@@ -72,29 +74,64 @@ changes.
 When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode keep
 their ordinary environment-based authentication.
 
+## Native Task Workspaces
+
+Worktrunk owns task checkout creation, navigation and removal. Task paths use
+`<primary>.worktrees/<sanitized-branch>`; primary checkout paths and branches stay
+stable. Start a native OpenCode or Codex session in the selected checkout. A shell
+directory change does not retarget an existing conversation.
+
+For example, an operator can prepare a task against the repository's protected
+upstream base and launch Build there:
+
+```sh
+wt switch --create topic --base origin/main
+git branch --set-upstream-to=origin/main topic
+wt switch topic -x agent-worktree -- -- opencode --agent build
+```
+
+Use the actual configured base instead of assuming `origin/main`. Worktrunk does
+not set tracking for differently named new branches; lifecycle registration
+requires that base association. Codex uses the same launch helper with its native
+arguments. The helper coordinates foreground launches only; direct launches,
+in-UI session switches and background jobs remain outside its busy check.
+
+Use `dbsctrctl` in that checkout for registration, gates and reviewed draft-PR
+delivery. Initiative registration requires fresh preflight and the operator's
+interactive `BEGIN CYCLE_ID LAUNCH_DIGEST` confirmation. Existing cycles require
+explicit, in-place adoption with retained preimages and uncertainty.
+
+DVC checkouts start code-only. Select the repository-scoped external cache with
+`worktree-dvc-setup --cache PATH`; materialize requested targets using native DVC
+and reflink-only configuration. Cache/configuration conflicts require explicit
+data-preserving migration. Removal requires operator approval and the blocking
+managed Worktrunk preservation hook; cache garbage collection is separate.
+
+The [native-workspace contract](docs/specs/dbsctr_v3_lifecycle/features/worktrunk-native-workspaces.md)
+defines the source transition. Existing installations need separately qualified,
+operator-approved cutover and restart; source tests do not qualify live adoption,
+large-history conversion, Desktop or guest rollout.
+
 ## Optional Autonomous R&D
 
-> [!WARNING]
-> Enable R&D only after `gh` is authenticated for the configured repository and
-> the writable source path is verified. Hermes may schedule and refine work, but
-> it cannot answer unresolved Discovery questions, publish a batch without
-> exact operator confirmation, mark a pull request ready, or merge it.
+Identity-dependent worker registration, claiming, recovery and dispatch currently
+report `native_automation_identity_unavailable`. Federated provider-evaluation
+saving reports `native_capture_authority_unavailable`. The retired custom tools
+cannot be replaced by caller-supplied session IDs or receipt digests.
 
-Hermes owns scheduling, profile-local Kanban state, and OpenCode dispatch. The
-DBSCTR private ledger remains lifecycle authority. Six independent lenses scan
-all federated history; only the governance lens reviews prior R&D sessions.
-Evidence-ready noncritical P1-P3 claims may proceed autonomously, while P0 and
-material uncertainty wait for the operator. Delivery pushes only a feature
-branch and creates a draft pull request into protected `main`.
-
-See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for configuration, continuous use,
-promotion, batch integration, health, recovery, history retention, and rollback.
+Existing workers, reports, history and uncertain operations remain retained.
+Bounded local review and explicit operator maintenance remain separate from
+autonomous execution. See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for transition
+status and historical recovery reference. Project maintainers must qualify the
+native identity, complete capture and permission routes before re-enabling dispatch.
 
 ## CentOS Remote User Foundation
 
 The default-off remote user role supports a standalone CentOS Stream 10 x86_64
 home without changing the Fedora Lima profile. Host bootstrap supplies system
 packages; this source owns pinned user-local `chezmoi`, tools, and configuration.
+System prerequisites include `lsof` and `xz`; foundation readiness also verifies
+the pinned Worktrunk runtime before running authentication probes.
 
 ```sh
 git clone https://github.com/Saltiola7/dotfiles-ai.git \

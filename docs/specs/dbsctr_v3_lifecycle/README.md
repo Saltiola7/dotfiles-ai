@@ -1,5 +1,14 @@
 # DBSCTR V3 Lifecycle
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The shared CLI now implements
+the [approved native-workspace contract](features/worktrunk-native-workspaces.md):
+explicit-checkout registration, interactive Initiative confirmation, in-place
+adoption, retained evidence and Worktrunk removal eligibility. Custom allocation,
+transparent continuation and typed task controls are retired. The earlier protocol
+sections below remain historical reference under that contract's supersession
+boundary. Native identity-dependent automation is unavailable where its replacement
+has not been qualified. This source implementation does not qualify live cutover.
+
 **Status:** V3.40 ticket-blind lifecycle in progress; source-local cycle performance implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11

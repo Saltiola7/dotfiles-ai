@@ -5,6 +5,10 @@ fi
 
 [[ $- != *i* ]] && return
 
+if command -v wt >/dev/null; then
+    eval "$(wt config shell init bash)"
+fi
+
 if [ -t 0 ] && command -v atuin >/dev/null; then
     eval "$(atuin init bash)"
 fi

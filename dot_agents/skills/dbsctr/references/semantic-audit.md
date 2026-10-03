@@ -1,6 +1,6 @@
 # Semantic Reconciliation Audit Protocol
 
-Use only after `dbsctr_audit` pins one commit and inventories lifecycle artifacts.
+Use only after `dbsctrctl audit` pins one commit and inventories lifecycle artifacts.
 This protocol produces a report; it never changes files, lifecycle state, gates,
 evidence, branches, worktrees, external systems, or delivery targets.
 
@@ -35,7 +35,7 @@ For each material lifecycle claim:
 
 1. Assign a stable report-local `claim_id`.
 2. Cite the claim artifact and exact committed path/location.
-3. Use `dbsctr_inspect` against the already resolved commit for bounded
+3. Use `dbsctrctl inspect` against the already resolved commit for bounded
    `read`, `tree`, `search`, and `object` evidence.
 4. Record supporting, contradicting, missing, or unavailable evidence with exact
    committed locations and authority level.

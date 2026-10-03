@@ -1,5 +1,5 @@
 #!/bin/sh
-# compose: 2.40.3; op: 2.39.0; gcloud: 580.0.0
+# compose: 2.40.3; op: 2.39.0; gcloud: 580.0.0; worktrunk: 0.80.0
 set -eu
 
 {{ if .dotfiles_ai.remote_user_environment.enabled -}}
@@ -11,6 +11,8 @@ op_url=https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_amd64_v2.39.
 op_sha256=6fba7f376b6c6dec49f41b06408930a43ad064cce103c6a2ce5b3d0413a86434
 gcloud_url=https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-x86_64.tar.gz
 gcloud_sha256=e580c04b45dfa2e537b8dc0cf7c828e46a65bc77ef61de69161e1f3a124d7480
+worktrunk_target=x86_64-unknown-linux-musl
+worktrunk_sha256=532ce3ed5eecb1be274c925b5887f61671e2434a4ca2561b9a8ac9379dbba199
 {{ else -}}
 test "$(uname -s)" = Linux
 test "$(uname -m)" = aarch64
@@ -20,7 +22,13 @@ op_url=https://cache.agilebits.com/dist/1P/op2/pkg/v2.39.0/op_linux_arm64_v2.39.
 op_sha256=829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0
 gcloud_url=https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-580.0.0-linux-arm.tar.gz
 gcloud_sha256=a02b7c478f94c070d7cb1ec1c595d3a0c9ae84601c17d93946b89a33d3155d71
+worktrunk_target=aarch64-unknown-linux-musl
+worktrunk_sha256=347b260c1b044a53a7720b33181d7c66dcde945efbd605d784e5b6a5616c17e9
 {{ end -}}
+
+# Missing process visibility must not be mistaken for quiescence.
+command -v lsof >/dev/null || { printf '%s\n' 'Install the OS lsof package before enabling native task workspaces.' >&2; exit 1; }
+command -v xz >/dev/null || { printf '%s\n' 'Install the OS xz package before installing Worktrunk.' >&2; exit 1; }
 
 if test -n "${DOTFILES_AI_SYSTEMCTL:-}"; then
   "$DOTFILES_AI_SYSTEMCTL" --user enable --now podman.socket
@@ -47,6 +55,15 @@ python3 -m zipfile -e "$tmpdir/op.zip" "$tmpdir/op"
 install -d -m 0755 "$HOME/.local/bin"
 install -m 0755 "$tmpdir/op/op" "$HOME/.local/bin/.op.new"
 mv -f "$HOME/.local/bin/.op.new" "$HOME/.local/bin/op"
+
+curl -fsSL --retry 3 --retry-all-errors \
+  "https://github.com/max-sixty/worktrunk/releases/download/v0.80.0/worktrunk-$worktrunk_target.tar.xz" \
+  -o "$tmpdir/worktrunk.tar.xz"
+printf '%s  %s\n' "$worktrunk_sha256" "$tmpdir/worktrunk.tar.xz" | sha256sum -c -
+tar -xJf "$tmpdir/worktrunk.tar.xz" -C "$tmpdir"
+test "$("$tmpdir/worktrunk-$worktrunk_target/wt" --version)" = 'wt v0.80.0'
+install -m 0755 "$tmpdir/worktrunk-$worktrunk_target/wt" "$HOME/.local/bin/.wt.new"
+mv -f "$HOME/.local/bin/.wt.new" "$HOME/.local/bin/wt"
 
 curl -fsSL --retry 3 --retry-all-errors \
   "$gcloud_url" \

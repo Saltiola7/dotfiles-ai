@@ -21,6 +21,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: brew install chezmoi
+      - run: brew install chezmoi worktrunk
       - run: bun install --global opencode-ai@1.18.9
       - run: uv run --group test pytest

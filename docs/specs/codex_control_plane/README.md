@@ -1,5 +1,13 @@
 # Codex Control Plane
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
+[approved native-workspace delta](features/native-workspaces.md) retires the task
+receipt/admission producer, probe and requalifier. Native sandbox/approval modes,
+managed-home/release checks and independent history hooks remain. Stale task hooks
+refuse startup pending explicit migration. Native 0.155.1 sandbox checks cover
+allowed reads/task writes and denied read-only/sibling writes. Earlier continuation
+sections below retain historical evidence; live adoption and rollout remain separate.
+
 **Status:** Exact 0.151 identity delivered; rolling release and history adapter reprobe pending
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30

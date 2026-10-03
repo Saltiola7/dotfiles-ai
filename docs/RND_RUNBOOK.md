@@ -1,5 +1,23 @@
 # OpenCode R&D Loop Runbook
 
+## Native-workspace transition status
+
+Autonomous launch/recovery and native worker registration/claim/update currently
+refuse with `native_automation_identity_unavailable`. The removed custom catalog
+also carried federated capture authority; provider-evaluation saving remains
+unavailable until its native route is qualified. Do not substitute environment
+session claims, old receipts or a shell/SSH implementation of the retired handoff.
+
+Preserve existing reservations, workers, claims, reports, private histories and
+uncertain operation evidence. Use the current `dbsctr-review` metadata workflow
+for an explicitly requested local report; it must disclose missing global coverage.
+Ordinary approved implementation follows Worktrunk and the shared lifecycle CLI.
+
+Owner: project maintainers. Re-enable dispatch only after separately qualifying
+native identity, complete immutable captures, role permissions and operator handoff.
+The sections below describe the **historical operating model for recovery reference**;
+they are not instructions to activate an unqualified native replacement.
+
 ## Operating Model
 
 Hermes runs isolated opt-in profiles on the host and enabled Lima workspaces:

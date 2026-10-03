@@ -4,12 +4,6 @@ mode: subagent
 model: openai/gpt-6-luna
 variant: low
 permission:
-  dbsctr_vm_handoff: deny
-  dbsctr_initiative_launch: deny
-  dbsctr_review_history_save: deny
-  dbsctr_incident_register: deny
-  dbsctr_incident_update: deny
-  dbsctr_incident_forget: deny
   edit: deny
   bash: deny
   task: deny
