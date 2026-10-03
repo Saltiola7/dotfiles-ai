@@ -26,6 +26,19 @@ The [shared lifecycle contract](../../specs/dbsctr_v3_lifecycle/features/worktru
 owns these interfaces and the operator handoff. Source readiness is separate from
 host/Desktop/guest qualification and controlled rollout approval.
 
+The [latest V2 transition record](V2-TRANSITION-READINESS.md) captures the current
+one-time migration scope, staged candidate evidence and remaining qualification.
+Periodic OpenCode/Codex updates and rolling-update policy changes are deferred;
+they are not prerequisites for this transition.
+
+PR 193 delivered the native-workspace source. The next bounded source contract is
+[V2 control-plane transition](../../specs/opencode_control_plane/features/opencode-v2-transition.md),
+with its profile-bound OPENCODE-V2-TRANSITION.plan.json. The
+[distribution/recovery contract](../../specs/dotfiles_ai_distribution/features/opencode-v2-recovery.md)
+retains the downstream implementation and live-admission requirements. Fresh
+committed authority and a successful launch preflight are still required before
+asking for exact implementation approval.
+
 ## Visual Evidence
 
 Boundary, interaction, state, data/trust, schema, and deployment concerns are

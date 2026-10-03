@@ -37,6 +37,7 @@ ROOT = Path(__file__).parents[1]
     ("dot_local/bin/executable_codex-requalify", ".local/bin/codex-requalify"),
     ("private_dot_config/opencode/tools/dbsctr.ts", ".config/opencode/tools/dbsctr.ts"),
     ("private_dot_config/opencode/plugins/continuation.ts", ".config/opencode/plugins/continuation.ts"),
+    ("private_dot_config/opencode/plugins/initiative-context.ts", ".config/opencode/plugins/initiative-context.ts"),
     ("private_dot_config/opencode/lib/continuation.ts", ".config/opencode/lib/continuation.ts"),
     ("dot_local/bin/executable_opencode-continuation-deploy", ".local/bin/opencode-continuation-deploy"),
     ("dot_local/share/opencode-continuation/native_probe.py", ".local/share/opencode-continuation/native_probe.py"),

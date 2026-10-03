@@ -4,6 +4,13 @@ Status: migration scope approved; CLI surface probe delivered. Native schema
 evidence supports source-only lifecycle compatibility implementation. Full native
 integration and rollout remain unqualified.
 
+Current operator scope is the one-time transition to the latest official stable
+V2 selected at staging. See V2-TRANSITION-READINESS.md for 2.0.22 candidate,
+real-history rehearsal, accepted transformation and retained-recovery evidence.
+Hourly OpenCode/Codex updates and recurring update-policy changes are deferred
+and do not block this transition. The source-only control-plane applicability
+plan does not waive the deployment/operations gates below.
+
 ## Outcome and boundaries
 
 Migrate the host, every registered managed guest, CLI and Desktop, and supported

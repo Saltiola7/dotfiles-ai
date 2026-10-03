@@ -20,6 +20,7 @@ Brewfile
 .config/opencode/bun.lock
 .config/opencode/.gitignore
 .config/opencode/plugins/*
+# Keep retired owned paths visible to .chezmoiremove.
 !.config/opencode/plugins/initiative-context.ts
 !.config/opencode/plugins/continuation.ts
 .config/opencode/skills

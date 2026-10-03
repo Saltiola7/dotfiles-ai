@@ -1,5 +1,31 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-03 — OPENCODE-V2-CONTROL-PLANE
+
+- Fixed a permission regression: the old JSON projection sorted last-match-wins
+  maps, changing a force-removal denial into ask. The ordered stdlib modifier
+  preserves managed rule order and unrelated local values, rejects malformed
+  input without replacement, and keeps the existing private file mode.
+- Added native cli.json theme projection, pinned V2-capable Ponytail 4.10.3,
+  and retired the unsupported Initiative hook in favor of native instructions
+  plus independently enforced CLI receipt/interactive-confirmation checks.
+- Passed 121 affected control-plane, native policy, CLI registration, distribution
+  and portable-rendering tests. Focused checks were refreshed after tightening
+  the native role-readiness deadline. Exact 2.0.22 qualification covers 14 managed
+  roles, declared provider routes, plugin prompt/skill/command loading, Plan/Build
+  mutation boundaries, compound shell denial and synthetic MCP allow/deny/ask
+  cancellation through native Code Mode. Services stopped after each attempt.
+- Ponytail archive SHA-512 SRI verified before isolated extraction; no install
+  hooks executed. Native tests used its verified package entrypoint through a
+  local fixture, not a production npm install. Dependabot input is unavailable
+  because repository alerts are disabled (403); no scanner-clean claim is made.
+- Implementation Gate Commit: `64cc0cc`. No Gate Exceptions. Intended Final Push:
+  cycle feature branch and draft PR into main; exact final delivery is recorded in
+  the Cycle Record. No production apply, restart, history conversion or activation.
+  Live provider/MCP connectivity, UI appearance/approval, enabled DKS transport,
+  Desktop/guest qualification and coherent recovery remain downstream obligations.
+  Requalify changed candidate/dependency bytes and actual machine-local overrides.
+
 ## 2026-10-03 — Native workspace source transition
 
 - Retired the custom DBSCTR catalog and continuation modules. Native shell roles

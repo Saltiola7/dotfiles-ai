@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/opencode_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Managed control-plane source; no separately published package or artifact."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only draft delivery. Production apply, service activation and data conversion belong to the subsequent qualified distribution/cutover slices."},
+    "operate": {"applicability": "not_applicable", "reason": "Only isolated native qualification services are exercised; no production service is introduced or restarted by this slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

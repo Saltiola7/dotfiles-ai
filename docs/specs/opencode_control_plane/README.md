@@ -1,5 +1,32 @@
 # OpenCode Control Plane
 
+**OPENCODE-V2-CONTROL-PLANE source evidence:** The
+[one-time transition contract](features/opencode-v2-transition.md) is implemented
+in source. The configuration modifier preserves ordered managed permission maps
+and unrelated local fields; malformed input leaves the original untouched. Native
+`cli.json` receives the configured theme with dark mode, retaining unrelated
+preferences and native keybindings. Legacy `tui.json` remains for the transition.
+
+Ponytail is pinned to the V2-capable 4.10.3 release. Its package entrypoint,
+instructions, skills and commands were exercised with the checksum-bound 2.0.22
+binary. The unsupported Initiative injection hook is retired; native global
+instructions require fresh Git authority after compaction and immediately before
+launch, while the CLI independently enforces receipt and operator confirmation.
+The retained citation helper has bounded projection tests; an enabled native DKS
+transport is not qualified by this slice. Managed-disabled DKS remains disabled.
+
+Exact-candidate tests use isolated roots, a loopback synthetic provider and local
+MCP stand-ins. They cover all managed role identities and declared provider routes,
+Plan/Build write and shell boundaries, compound shell denial, force-removal denial,
+Scout-only Context7 and cancelled Build 1Password approval through native Code Mode.
+This establishes control-plane source behavior, not real-provider entitlement,
+human approval UI, visual theme acceptance, Desktop/guest qualification or rollout.
+Use `OPENCODE_V2_BINARY` and `OPENCODE_PONYTAIL_PACKAGE` to select the separately
+verified application artifacts for `tests/test_opencode_v2_control_plane.py`;
+the suite never installs packages. `OPENCODE_NATIVE_CORE` retains the earlier
+2.0.21 policy/scanner regression against both raw and actually projected config.
+Missing native selections are explicit skips, not qualification evidence.
+
 **WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
 [approved native-workspace delta](features/native-workspaces.md) is implemented
 through native role permissions and the shared lifecycle CLI. The custom DBSCTR
