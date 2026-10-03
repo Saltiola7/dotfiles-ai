@@ -1,5 +1,36 @@
 # dotfiles-ai Distribution
 
+**OPENCODE-V2-DISTRIBUTION source implementation:** The
+[one-time distribution source contract](features/opencode-v2-distribution-source.md)
+is implemented in `opencode-update-all`. Explicit `stage-v2`, `activate-v2` and
+`admit-v2` modes accept bounded JSON requests on stdin. Ordinary updates retain
+an admitted V2 generation with `updates_held`; they do not contact the V1 feed or
+run V1 rollback. The managed launcher preserves native arguments and refuses
+unadmitted, tampered or interrupted generations. Existing external-state guards
+remain in the wrapper.
+
+Implementation evidence: registry identity and SHA-512 SRI verification,
+bounded archive decompression/member validation, hook-free isolated native
+version/help staging, retained binary/lock preimages, exact activation preimages
+and admission-manifest integrity. V2's observed version output is
+`opencode v2.0.22`, distinct from V1's bare version. An interrupted maintenance
+journal blocks normal launch and requires qualified recovery; it never restores
+an old database automatically.
+
+Private admission evidence is retained under the managed package root in
+`v2-evidence/<sha256>.json` and `v2-admissions/<sha256>.json`, with owner-only
+directories and read-only owner files. The manifest binds the candidate digest
+and configuration, service, data, recovery and reconciliation evidence digests.
+Those records are integrity-bound operator workflow evidence, not authenticated
+native actor identity or proof that an unperformed live check happened.
+Actual evidence generation and live admission remain owned by the cutover slice.
+
+75 affected tests passed, including official 2.0.22 macOS artifact acquisition and
+isolated staging. Select that network/native check explicitly with
+`OPENCODE_V2_STAGING_SMOKE=1`; ordinary CI skips it rather than claiming native
+qualification. Platform identity support does not prove Linux runtime readiness.
+No production binary, configuration, service or history was changed by this cycle.
+
 **WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
 [approved distribution delta](features/native-workspaces.md) is implemented in
 the Worktrunk package/configuration, shell integration, pinned Linux installer,

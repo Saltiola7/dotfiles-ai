@@ -1,7 +1,7 @@
 # Latest V2 transition — Discovery working record
 
-Status: control-plane source contract ready; launch preflight and live deployment
-qualification remain pending.
+Status: control-plane source merged; distribution source contract prepared for
+launch preflight. Live deployment qualification remains pending.
 Authority: INT-033 and V2-MIGRATION.md. Risk: critical. Existing approved context
 homes, Engineering Profiles and distribution Product Intent remain authoritative.
 
@@ -24,6 +24,31 @@ results are surfaced. Operator-assisted TUI/Desktop checks are available after
 isolated staging. Maintenance activation follows successful qualification.
 
 ## Source and candidate evidence
+
+### Source completion and next delivery
+
+PR 194 merged at `8124f163840c58e163df0cca0da9d2adfd00af5a`. Its exact 2.0.22
+checks covered 14 managed roles, provider routing, native permission boundaries,
+Ponytail 4.10.3 loading and synthetic MCP Code Mode allow/deny/ask cancellation.
+121 affected tests and final focused checks passed; hosted Python 3.12/3.13/3.14
+and CentOS smoke checks passed before merge. Actual provider connectivity, UI
+acceptance and fleet deployment remain separate. The old running session's
+continuation binding was recovered and released with explicit quiescence consent.
+
+The Codex native-workspace source dependency was already implemented in PR 193;
+a fresh run on merged source passed 99 Codex control-plane/distribution/retirement
+tests, including native 0.155.1 sandbox reads, task writes and denied sibling writes.
+This closes the source dependency without inventing another implementation cycle.
+
+The distribution source delta is specified in
+`docs/specs/dotfiles_ai_distribution/features/opencode-v2-distribution-source.md`.
+It covers verified staging, truthful V2 generation locks, held recurring updates,
+safe launch and interrupted maintenance. Desktop/service/data admission and live
+fleet retirement remain in the downstream cutover slice. The current primary's
+VM command permission denies even inventory; this is unavailable evidence, not
+an empty fleet or permission to bypass the boundary.
+
+The earlier evidence below remains the chronological rehearsal record.
 
 PR 193 merged at `2f83545f0dd7a8ed65600042eaf6b656116b7aa7`, delivering the
 native-workspace source replacement. It did not deploy or adopt live worktrees.

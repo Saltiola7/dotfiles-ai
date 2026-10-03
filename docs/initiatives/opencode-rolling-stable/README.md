@@ -31,13 +31,23 @@ one-time migration scope, staged candidate evidence and remaining qualification.
 Periodic OpenCode/Codex updates and rolling-update policy changes are deferred;
 they are not prerequisites for this transition.
 
-PR 193 delivered the native-workspace source. The next bounded source contract is
-[V2 control-plane transition](../../specs/opencode_control_plane/features/opencode-v2-transition.md),
-with its profile-bound OPENCODE-V2-TRANSITION.plan.json. The
+PR 193 delivered the native-workspace source for both harnesses. Codex source
+readiness was refreshed against native 0.155.1 with 99 affected tests passing.
+PR 194 delivered the V2 control plane at merge `8124f163840c58e163df0cca0da9d2adfd00af5a`;
+Python 3.12/3.13/3.14 CI and the CentOS smoke passed. These are source results,
+not live deployment. The next bounded source contract is
+[V2 distribution source](../../specs/dotfiles_ai_distribution/features/opencode-v2-distribution-source.md),
+with its profile-bound OPENCODE-V2-DISTRIBUTION.plan.json. The
 [distribution/recovery contract](../../specs/dotfiles_ai_distribution/features/opencode-v2-recovery.md)
 retains the downstream implementation and live-admission requirements. Fresh
 committed authority and a successful launch preflight are still required before
 asking for exact implementation approval.
+
+The operator requested continued delivery through live completion and explicitly
+authorized merging passing transition PRs rather than stopping at draft delivery.
+This does not replace exact digest-bound launch consent or writer-quiescence
+evidence. Guest inventory is currently unavailable to the running primary because
+its VM command permission is denied; resolve that before live fleet qualification.
 
 ## Visual Evidence
 

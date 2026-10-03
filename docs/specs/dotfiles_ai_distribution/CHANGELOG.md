@@ -1,5 +1,25 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-03 — OPENCODE-V2-DISTRIBUTION
+
+- Added explicit one-time V2 staging, maintenance activation and admission to the
+  existing helper. Verified registry package identity, archive SHA-512 SRI and
+  derived hashes without package hooks; bounded decompression and member parsing.
+- Added real V2 generation locks, retained activation preimages and immutable
+  admission-evidence references. Startup preserves native arguments and blocks
+  tampering, missing admission and incomplete maintenance. V1 update/rollback
+  paths hold or refuse V2 instead of rewriting or downgrading it.
+- Passed 75 scoped distribution/rendering tests, including a real download and
+  isolated stage of official macOS 2.0.22. Negative checks cover bad schemas,
+  unsafe archives, stale activation preimages, interruption, missing/tampered
+  evidence and binary changes. Existing V1 regression tests remain passing.
+- Source Gate Commit: `c10abdc`. Gate Exceptions: none. Intended delivery is the
+  cycle feature branch and reviewed PR into main, followed by the operator-approved
+  merge when checks pass. The Cycle Record owns actual delivery evidence.
+- No live installation, restart or conversion. Desktop, guest runtime checks,
+  coherent recovery, exact conversation resume and live admission remain required.
+  Registry signatures were not verified; no scanner-clean claim is made.
+
 ## 2026-10-03 — Native workspace source transition
 
 - Declared Worktrunk, native Bash integration and the blocking managed-user removal
