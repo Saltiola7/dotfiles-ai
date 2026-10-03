@@ -2,6 +2,14 @@
 
 Informative evidence, not deployment approval. Full qualification remains open.
 
+Current transition evidence is in [V2-TRANSITION-READINESS.md](V2-TRANSITION-READINESS.md):
+the selected one-time candidate is 2.0.22, native-workspace source merged through
+PR 193, and the critical control-plane source contract is specified separately.
+The older custom-transport investigation below remains historical evidence; its
+ask/identity limitations are handled by retiring that lifecycle transport, using
+native built-in permissions and CLI validation, and retaining explicit unavailable
+capabilities. This does not qualify deployment or authorize a new custom bridge.
+
 ## Candidate and method
 
 Investigated OpenCode 2.0.21 on macOS aarch64. Published archive SHA-256:
