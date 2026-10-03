@@ -1,5 +1,19 @@
 # Codex Control Plane Changelog
 
+## 2026-10-03 — Native workspace source transition
+
+- Retired the task continuation producer/probe/requalifier, including its selected
+  desktop receipt-smoke policy. Independent CLI updater/release-lock checks,
+  managed-home guards and control-plane history hooks remain supported.
+- Both native hook formats refuse stale task-hook commands without rewriting
+  credentials, history or hook files. Shared CLI registration requires no native
+  receipt and reports missing current attribution honestly.
+- Passing evidence includes distribution/history regressions, adoption/preservation
+  checks and native 0.155.1 sandbox reads/task writes versus denied read-only and
+  sibling writes. Gate Commit `b14db1e`; shared lifecycle evidence owns delivery.
+- No Gate Exceptions, Desktop management, live adoption or fleet rollout. Future
+  cutover must qualify native sessions, approvals and existing boundary-local state.
+
 ## 2026-09-29 - Signed Desktop Updates
 
 - Added an opt-in OpenAI-signature policy for the selected desktop executable.
