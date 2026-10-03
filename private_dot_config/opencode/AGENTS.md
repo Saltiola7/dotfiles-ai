@@ -15,7 +15,15 @@ Discovery auto-triages broad multi-context, multi-repository, independently
 deliverable, or release-grouped intent into a durable Initiative under
 `docs/initiatives/<slug>/`. Git material-statement coverage, context homes,
 specifications and fresh readiness receipts are authoritative across
-compaction; Herdr and OpenCode identities are advisory only. Ordinary Discovery
+compaction; Herdr and OpenCode identities are advisory only.
+Re-read and validate the current `docs/initiatives/<slug>/MANIFEST.json` and its
+referenced Git artifacts before planning, editing, readiness or launch, including
+after compaction. Do not rely on a compressed summary or an injected digest.
+Run `dbsctrctl initiative-check --manifest PATH --json` and issue a fresh
+`dbsctrctl initiative-receipt --manifest PATH --slice ID --json` immediately before
+launch. Missing, invalid or stale authority blocks readiness and registration.
+Native global instructions and enforced CLI validation replace the retired
+automatic Initiative context-injection plugin. Ordinary Discovery
 and DBSCTR run in the current primary without Task or child sessions. Only the
 explicitly selected Discovery-Coordinator may orchestrate children, with disjoint
 ownership and satisfied dependencies. Loading Discovery never selects that agent.

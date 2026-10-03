@@ -1,4 +1,4 @@
-"""Managed native roles and retained Initiative/citation adapters.
+"""Managed native roles, Initiative instructions and retained citation adapter.
 
 Retired custom catalog, routing, VM handoff and federated-wrapper tests are
 replaced by the CLI, adoption and retirement suites listed in
@@ -309,44 +309,12 @@ def test_dbsctr_tools_and_herdr_config_are_managed():
     assert ".dotfiles_ai.herdr.theme" in herdr
 
 
-def test_initiative_context_plugin_revalidates_normal_and_compaction_context(tmp_path):
-    manifest = tmp_path / "docs/initiatives/test/MANIFEST.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"private":"statement text"}\n')
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    helper = bin_dir / "dbsctrctl"
-    helper.write_text('#!/bin/sh\nprintf \'{"initiative_id":"test","manifest_digest":"' + "a" * 64
-                      + '","ready_slices":["slice-a"],"schema_version":1,"state":"discovering"}\\n\'\n')
-    helper.chmod(0o755)
-    script = f'''import {{ InitiativeContext }} from {json.dumps(str(OC / "plugins/initiative-context.ts"))};
-const hooks=await InitiativeContext({{worktree:process.cwd()}} as any);
-const normal={{system:[]}}; await hooks["experimental.chat.system.transform"]({{}},normal);
-const compact={{context:[]}}; await hooks["experimental.session.compacting"]({{}},compact);
-console.log(JSON.stringify({{normal:normal.system,compact:compact.context}}));'''
-    result = subprocess.run(["bun", "-e", script], cwd=tmp_path,
-                            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
-                            text=True, capture_output=True, check=True)
-    value = json.loads(result.stdout)
-    assert value["normal"] == value["compact"]
-    context = value["normal"][0]
-    for expected in ("docs/initiatives/test/MANIFEST.json", "initiative-receipt", "ready_slices: slice-a"):
-        assert expected in context
-    assert str(tmp_path) not in context and "statement text" not in context
-
-
-def test_initiative_context_plugin_fails_closed_above_bounded_manifest_limit(tmp_path):
-    for index in range(17):
-        manifest = tmp_path / f"docs/initiatives/test-{index}/MANIFEST.json"
-        manifest.parent.mkdir(parents=True)
-        manifest.write_text("{}\n")
-    script = f'''import {{ InitiativeContext }} from {json.dumps(str(OC / "plugins/initiative-context.ts"))};
-const hooks=await InitiativeContext({{worktree:process.cwd()}} as any);
-const output={{system:[]}}; await hooks["experimental.chat.system.transform"]({{}},output);
-console.log(JSON.stringify(output.system));'''
-    result = subprocess.run(["bun", "-e", script], cwd=tmp_path, text=True, capture_output=True, check=True)
-    context = json.loads(result.stdout)[0]
-    assert "Found 17 Initiative manifests" in context and "Readiness and launch are blocked" in context
+def test_native_instructions_replace_unsupported_initiative_hook():
+    assert not (OC / "plugins/initiative-context.ts").exists()
+    body = (OC / "AGENTS.md").read_text()
+    for required in ("Re-read and validate", "after compaction", "initiative-check --manifest",
+                     "initiative-receipt --manifest", "stale authority blocks", "interactively"):
+        assert required in body
 
 
 def test_managed_helper_fallback_preserves_argv_path_and_drops_retired_context(tmp_path):
@@ -391,35 +359,6 @@ console.log(JSON.stringify({{argv:result.argv,path:result.env.PATH}}));'''
     assert json.loads(result.stdout) == {"argv": ["dbsctrctl", "status"], "path": env["PATH"]}
 
 
-def test_initiative_plugin_managed_fallback_and_missing_helper(tmp_path):
-    manifest = tmp_path / "docs/initiatives/test/MANIFEST.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text("{}")
-    managed = tmp_path / ".local/bin"
-    managed.mkdir(parents=True)
-    helper = managed / "dbsctrctl"
-    helper.write_text('#!/bin/sh\nprintf \'{"initiative_id":"test","manifest_digest":"' + "a" * 64
-                      + '\", "ready_slices":["test"]}\\n\'\n')
-    helper.chmod(0o755)
-    script = f'''import {{InitiativeContext}} from {json.dumps(str(OC / "plugins/initiative-context.ts"))};
-const hooks=await InitiativeContext({{worktree:process.cwd()}} as any);
-const normal={{system:[]}},compact={{context:[]}};
-await hooks["experimental.chat.system.transform"]({{}},normal);
-await hooks["experimental.session.compacting"]({{}},compact);
-console.log(JSON.stringify([normal.system,compact.context]));'''
-    env = {**os.environ, "HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
-    result = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path, env=env,
-                            text=True, capture_output=True, check=True)
-    normal, compact = json.loads(result.stdout)
-    assert normal == compact and "ready_slices: test" in normal[0]
-    helper.unlink()
-    missing = subprocess.run([shutil.which("bun"), "-e", script], cwd=tmp_path, env=env,
-                             text=True, capture_output=True, check=True)
-    normal, compact = json.loads(missing.stdout)
-    assert normal == compact and "unavailable" in normal[0] and "blocked" in normal[0]
-    assert str(tmp_path) not in normal[0]
-
-
 def test_autonomous_review_reports_missing_native_authority_without_fallback():
     body = (OC / "commands/dbsctr-improve.md").read_text()
     assert "native_automation_identity_unavailable" in body
@@ -440,7 +379,7 @@ def test_removed_managed_integrations_are_absent():
         "Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist", ".local/bin/opencode-vm",
         ".config/opencode/agents/explore-bedrock.md", ".config/opencode/agents/scout-bedrock.md",
         ".config/opencode/agents/builder-bedrock.md", ".config/opencode/tools/dbsctr.ts",
-        ".config/opencode/plugins/continuation.ts", ".config/opencode/lib/continuation.ts",
+        ".config/opencode/plugins/continuation.ts", ".config/opencode/plugins/initiative-context.ts", ".config/opencode/lib/continuation.ts",
         ".local/bin/opencode-continuation-deploy", ".local/share/opencode-continuation/native_probe.py",
         ".local/bin/codex-continuation", ".local/bin/codex-continuation-probe", ".local/bin/codex-requalify"}
 

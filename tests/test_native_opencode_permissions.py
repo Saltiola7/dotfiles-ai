@@ -11,11 +11,12 @@ import shutil
 import subprocess
 
 import pytest
-from test_opencode_control_plane import OC, rendered_config
+from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 
 
 @pytest.mark.skipif(not os.environ.get("OPENCODE_NATIVE_CORE"), reason="native OpenCode core authority not selected")
-def test_stock_permission_engine_respects_native_role_boundaries(tmp_path):
+@pytest.mark.parametrize("projected", [False, True])
+def test_stock_permission_engine_respects_native_role_boundaries(tmp_path, projected):
     package = Path(os.environ["OPENCODE_NATIVE_CORE"]).resolve(strict=True)
     assert json.loads((package / "package.json").read_text())["version"] == "2.0.21"
     modules = {name: str(package / "dist" / path) for name, path in {
@@ -49,7 +50,19 @@ def test_stock_permission_engine_respects_native_role_boundaries(tmp_path):
         ["reviewer-openai", "dbsctrctl status", ["deny"]],
         ["plan", "dbsctrctl status --json; dbsctrctl start --cycle-id fixture", ["allow", "deny"]],
     ]
-    payload = {"config": rendered_config(), "cases": cases,
+    config = rendered_config()
+    if projected:
+        target = tmp_path / ".config/opencode/opencode.json"
+        target.parent.mkdir(parents=True)
+        target.write_text("{}\n")
+        applied = subprocess.run(["chezmoi", "-S", str(ROOT), "-D", str(tmp_path),
+                        "--config", "/dev/null", "--config-format", "toml",
+                        "--override-data", json.dumps(DATA), "--cache", str(tmp_path / "cache"),
+                        "--persistent-state", str(tmp_path / "state"), "apply", str(target)],
+                       capture_output=True, text=True, timeout=30)
+        assert applied.returncode == 0, applied.stderr
+        config = json.loads(target.read_text())
+    payload = {"config": config, "cases": cases,
                "agents": {path.stem: path.read_text() for path in (OC / "agents").glob("*.md")}}
     script = f'''
 import {{ConfigMigrateV1}} from {json.dumps(modules['migration'])};
