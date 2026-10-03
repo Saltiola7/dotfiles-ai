@@ -4,12 +4,6 @@ mode: subagent
 model: google-vertex-anthropic/claude-sonnet-5@default
 variant: medium
 permission:
-  dbsctr_vm_handoff: deny
-  dbsctr_initiative_launch: deny
-  dbsctr_review_history_save: deny
-  dbsctr_incident_register: deny
-  dbsctr_incident_update: deny
-  dbsctr_incident_forget: deny
   edit: deny
   bash: deny
   task: deny

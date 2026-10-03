@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
+[approved distribution delta](features/native-workspaces.md) is implemented in
+the Worktrunk package/configuration, shell integration, pinned Linux installer,
+native lifecycle helpers and deployed-file retirement list. Removal preserves
+Git/DVC/process evidence, and private ledgers/archives are not removal targets.
+Remote foundation checks include Worktrunk; Linux prerequisites include lsof/xz.
+Source verification does not authorize applying this transition to active
+installations or changing the separate V2 fleet-cutover plan.
+
 ## Qualified Host Runtime Rollout Evidence
 
 HOST-RUNTIME-ROLLOUT deployed the qualified recovery pair and model settings,

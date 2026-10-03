@@ -8,6 +8,10 @@ on:
       - ".chezmoiignore"
       - "config.remote-user.example.toml"
       - "dot_local/bin/executable_codex-install.tmpl"
+      - "dot_local/bin/executable_agent-worktree"
+      - "dot_local/bin/executable_worktree-dvc-setup"
+      - "dot_local/bin/executable_dbsctrctl"
+      - "private_dot_config/worktrunk/**"
       - "dot_local/bin/executable_opencode*"
       - "dot_local/bin/executable_remote-agent-readiness.tmpl"
       - "dot_local/bin/executable_remote-user-bootstrap"
@@ -15,6 +19,7 @@ on:
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"
       - "tests/remote_user_environment_smoke.sh"
+      - ".github/workflows/centos-remote-user.yml"
 
 jobs:
   smoke:
@@ -22,7 +27,7 @@ jobs:
     container: quay.io/centos/centos:stream10
     steps:
       - uses: actions/checkout@v4
-      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils
+      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils lsof xz
       - name: Run smoke
         run: |
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE

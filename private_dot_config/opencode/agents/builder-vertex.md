@@ -4,21 +4,15 @@ mode: subagent
 model: google-vertex-anthropic/claude-sonnet-5@default
 variant: medium
 permission:
-  dbsctr_vm_handoff: deny
-  dbsctr_initiative_launch: deny
-  dbsctr_begin: deny
-  dbsctr_attach: deny
-  dbsctr_review_complete: deny
-  dbsctr_review_history_save: deny
-  dbsctr_incident_register: deny
-  dbsctr_incident_update: deny
-  dbsctr_incident_forget: deny
-  dbsctr_improvement_claim: deny
-  dbsctr_improvement_update: deny
   task: deny
   external_directory: deny
   bash:
     "*": allow
+    "*dbsctrctl*": deny
+    "*dbsctr-rnd*": deny
+    "*dksctl *": deny
+    "*wt *": deny
+    "*agent-worktree*": deny
     "git *": deny
     "gh *": deny
     "chezmoi apply*": deny

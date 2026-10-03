@@ -1,5 +1,14 @@
 # OpenCode Control Plane
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
+[approved native-workspace delta](features/native-workspaces.md) is implemented
+through native role permissions and the shared lifecycle CLI. The custom DBSCTR
+catalog/continuation modules and their deployment probe are retired; Initiative
+context injection and citation-only retrieval remain independently tested.
+Earlier typed-routing sections below are historical reference. Stock 2.0.21
+migration/scanner/permission primitives have bounded positive and negative tests;
+this does not qualify deployed V2 configuration, approval UI or fleet rollout.
+
 **GPT6-MODEL-ROUTING implementation evidence:** Managed source implements the
 [approved GPT-6/Opus 5.5 routing table](../../initiatives/gpt6-herdr-recovery/model-routing.md).
 That table supersedes the older model selections retained in the historical

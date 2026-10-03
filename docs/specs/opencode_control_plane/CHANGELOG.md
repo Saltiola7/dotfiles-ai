@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-03 — Native workspace source transition
+
+- Retired the custom DBSCTR catalog and continuation modules. Native shell roles
+  invoke the shared CLI; Plan/builders retain mutation restrictions and Worktrunk
+  overrides cannot bypass removal rules through global-option ordering.
+- Retained Initiative context injection and citation-only retrieval. The chezmoi merge
+  removes known obsolete managed permission keys while preserving unfamiliar local
+  rules for operator review. Deployed stale adapters remain explicit retirement targets.
+- Passing evidence includes rendering/role regressions, stock 2.0.21 migration,
+  shell scanning and 24 native permission cases. Gate Commit `b14db1e`; shared
+  lifecycle Cycle Record holds gates and draft-delivery evidence. No Gate Exceptions.
+- Source delivery does not qualify V2 config loading, approval UI, history migration,
+  cached running plugins or fleet rollout. Restart follows separately approved apply.
+
 ## 2026-10-01 — OPENCODE-V2-QUALIFICATION
 
 - Added a tests-only V2 CLI surface probe with checksum/identity binding,

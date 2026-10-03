@@ -4,9 +4,11 @@
 import argparse
 from bisect import insort
 import concurrent.futures
+import configparser
 import contextlib
 import fcntl
 import hashlib
+import io
 import json
 import math
 import os
@@ -295,6 +297,14 @@ def active_pointer_id(root, path):
 
 
 def resolved_active_path(root, *, bindings=True):
+    if bindings:
+        local = resolved_active_path(root, bindings=False)
+        if local.exists():
+            identifier = active_pointer_id(root, local)
+            record_path = cycle_dir(root) / "cycles" / f"{identifier}.json"
+            if record_path.is_file() and native_workspace_execution(
+                    read_cycle_record(root, record_path, historical=True)):
+                return local
     bound = continuation_binding_for_root(root) if bindings else None
     if bound:
         path = cycle_dir(root) / "worktrees" / bound["legacy_worktree_id"] / "active"
@@ -3005,6 +3015,53 @@ def validate_schema5_runtime(root, record, allow_synthetic_codex=False, *, histo
     return runtime
 
 
+def native_workspace_execution(record):
+    """Validate optional execution metadata; historical runtime identity is not authority."""
+    if "execution" not in record:
+        return False
+    value = record["execution"]
+    if (not isinstance(value, dict)
+            or set(value) != {"schema_version", "mode", "origin", "attribution", "adoption"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["mode"] != "native_workspace"
+            or value["attribution"] != {"status": "unavailable", "reason": "native_identity_not_collected"}):
+        fail("invalid native workspace execution metadata")
+    if value["origin"] == "registered":
+        if type(record.get("schema_version")) is not int or record["schema_version"] != 5 or value["adoption"] is not None:
+            fail("invalid native workspace execution registration")
+    elif value["origin"] == "adopted":
+        adoption = value["adoption"]
+        cycle_id = record.get("cycle_id")
+        if (type(record.get("schema_version")) is not int or record["schema_version"] not in (3, 4, 5)
+                or not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id)
+                or not isinstance(adoption, dict)
+                or set(adoption) != {"before_sha256", "state_digest", "record_backup"}
+                or any(not isinstance(adoption[key], str) or not re.fullmatch(r"[0-9a-f]{64}", adoption[key])
+                       for key in ("before_sha256", "state_digest"))
+                or adoption["record_backup"] != f"dbsctr/migrations/{cycle_id}.{adoption['before_sha256']}.native-before.json"):
+            fail("invalid native workspace execution adoption")
+    else:
+        fail("invalid native workspace execution origin")
+    return True
+
+
+def validate_initiative_approval(value):
+    if (not isinstance(value, dict)
+            or set(value) != {"schema_version", "method", "launch_digest", "confirmed_at"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["method"] != "interactive_cli"
+            or not isinstance(value["launch_digest"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", value["launch_digest"])
+            or not isinstance(value["confirmed_at"], str)):
+        fail("invalid Initiative confirmation provenance")
+    try:
+        confirmed = datetime.fromisoformat(value["confirmed_at"].replace("Z", "+00:00"))
+    except ValueError:
+        fail("invalid Initiative confirmation timestamp")
+    if confirmed.utcoffset() != timedelta(0):
+        fail("invalid Initiative confirmation timestamp")
+
+
 def read_cycle_record(root, path, label="Cycle Record", *, historical=False):
     try:
         record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
@@ -3016,8 +3073,11 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False):
         schema_version = record["schema_version"]
         if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5):
             fail(f"unsupported Cycle Record schema: {schema_version}")
-        if schema_version == 5:
-            validate_schema5_runtime(root, record, historical=historical)
+    native = native_workspace_execution(record)
+    if "initiative_approval" in record:
+        validate_initiative_approval(record["initiative_approval"])
+    if record.get("schema_version") == 5:
+        validate_schema5_runtime(root, record, historical=historical or native)
     return record
 
 
@@ -3053,7 +3113,47 @@ def sync_schema5_opencode(record):
         adapters["opencode"] = schema5_opencode_adapter(opencode)
 
 
+def git_worktrees(root):
+    entries = git(root, "worktree", "list", "--porcelain", "-z").stdout.split("\0\0")
+    return [dict(part.split(" ", 1) for part in entry.split("\0") if " " in part)
+            for entry in entries if entry]
+
+
+def native_git_directory(root, record):
+    """Use Git's existing per-worktree metadata, never a branch-name routing index."""
+    details = record.get("worktree")
+    if record.get("schema_version") in (4, 5):
+        locator_path(details.get("locator") if isinstance(details, dict) else None,
+                     {"cycle_worktree": None, "dbsctr_worktrees": None}, "cycle worktree", validate_only=True)
+    value = details.get("git_dir") if isinstance(details, dict) else None
+    if not isinstance(value, str) or not value:
+        fail("native worktree administrative binding is missing")
+    common = common_git_dir(root).resolve()
+    if record.get("schema_version") == 3 and Path(value).is_absolute():
+        candidate = Path(value)
+    else:
+        relative = PurePosixPath(value)
+        if (relative.is_absolute() or len(relative.parts) != 2 or relative.parts[0] != "worktrees"
+                or relative.parts[1] in (".", "..") or "\\" in value):
+            fail("native worktree administrative binding is invalid")
+        candidate = common / relative
+    if candidate.is_symlink() or candidate.parent.is_symlink() or candidate.resolve().parent != common / "worktrees":
+        fail("native worktree administrative binding is unsafe")
+    return candidate.resolve()
+
+
 def record_worktree(root, record, *, bindings=True):
+    if native_workspace_execution(record):
+        expected = native_git_directory(root, record)
+        for fields in git_worktrees(root):
+            if fields.get("branch") != "refs/heads/" + record["worktree"]["branch"]:
+                continue
+            candidate = Path(fields["worktree"]).resolve()
+            if git_dir(candidate).resolve() == expected:
+                return candidate
+        if record.get("state") in {"completed", "retired"}:
+            return cycle_dir(root) / "removed-worktrees" / str(record["worktree"]["id"])
+        fail("native worktree is missing or its branch changed")
     bound = None
     if bindings:
         with continuation_connection(root) as db:
@@ -3110,6 +3210,11 @@ def record_source_worktree(root, record):
 
 
 def record_worktree_matches(root, record, worktree, *, bindings=True):
+    if native_workspace_execution(record):
+        return (common_git_dir(worktree).resolve() == common_git_dir(root).resolve()
+                and git_dir(worktree).resolve() == native_git_directory(root, record)
+                and branch(worktree) == record["worktree"]["branch"]
+                and record_worktree(root, record, bindings=False) == worktree.resolve())
     bound = None
     if bindings:
         with continuation_connection(root) as db:
@@ -3152,6 +3257,10 @@ def load(root, *, bindings=True):
     if not cycle_id or not path.is_file():
         fail("active DBSCTR record is missing")
     record = read_cycle_record(root, path)
+    if native_workspace_execution(record):
+        verify_native_workspace_backup(root, record)
+        if not record_worktree_matches(root, record, root):
+            fail("native workspace checkout identity changed")
     record_worktree(root, record, bindings=bindings)
     return path, record
 
@@ -3190,11 +3299,25 @@ def target_lock(root, record):
 
 
 @contextlib.contextmanager
-def evidence_lock(root, cycle_id):
+def evidence_lock(root, cycle_id, *, timeout=None):
+    if not isinstance(cycle_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cycle_id):
+        fail("invalid cycle ID for evidence lock")
     path = cycle_dir(root) / "locks" / f"evidence-{cycle_id}.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+    managed_directory(root, path.parent, create=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
+        details = os.fstat(handle.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid() or details.st_nlink != 1 or details.st_mode & 0o022:
+            fail("unsafe evidence lock")
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | (fcntl.LOCK_NB if deadline is not None else 0))
+                break
+            except BlockingIOError:
+                if deadline is None or time.monotonic() >= deadline:
+                    fail("cycle evidence is busy")
+                time.sleep(0.01)
         yield
 
 
@@ -3573,18 +3696,31 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
                             object_pairs_hook=no_duplicate_keys)
     except (OSError, ValueError, json.JSONDecodeError):
         fail(f"Initiative cycle record is invalid: {cycle_id}")
+    if not isinstance(record, dict):
+        fail(f"Initiative cycle record identity mismatch: {cycle_id}")
+    native = native_workspace_execution(record)
+    if native:
+        required_record.discard("source")
+    mappings = ("applicability_plan", "delivery", "engineering_profile", "evidence", "gates",
+                "git", "metrics", "worktree") + (("source",) if "source" in record or not native else ())
     if (not isinstance(record, dict) or not required_record.issubset(record)
-            or record.get("cycle_id") != cycle_id or record.get("schema_version") not in (4, 5)
+            or record.get("cycle_id") != cycle_id or type(record.get("schema_version")) is not int
+            or record.get("schema_version") not in ((3, 4, 5) if native else (4, 5))
             or record.get("context") != receipt["context"]
-            or any(not isinstance(record.get(field), dict) for field in (
-                "applicability_plan", "delivery", "engineering_profile", "evidence", "gates",
-                "git", "metrics", "source", "worktree"))
+            or any(not isinstance(record.get(field), dict) for field in mappings)
             or not isinstance(record.get("commits"), list)
             or any(not isinstance(record.get(field), str) for field in (
                 "context", "created_at", "delivery_intent", "method_revision", "risk", "state"))
-            or "locator" not in record["worktree"] or "path" in record["worktree"]
+            or (record.get("schema_version") != 3 and (
+                "locator" not in record["worktree"] or "path" in record["worktree"]))
             or not isinstance(record["worktree"].get("branch"), str)):
         fail(f"Initiative cycle record identity mismatch: {cycle_id}")
+    if record["schema_version"] == 5:
+        validate_schema5_runtime(root, record, historical=True)
+    if native:
+        verify_native_workspace_backup(root, record)
+        if "initiative_approval" in record:
+            validate_initiative_approval(record["initiative_approval"])
     worktree = record_worktree(root, record)
     if (not worktree.is_dir() or not record_worktree_matches(root, record, worktree)
             or branch(worktree) != record["worktree"].get("branch")):
@@ -3883,19 +4019,77 @@ def completion_artifact_check(record):
         fail("changed CHANGELOG review needs its repository path")
 
 
-def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None,
-                portable=True, git_env=None, source_record=None, discovery_import=None, initiative=None):
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
-        fail("cycle ID must be a simple filename")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
-        fail("context must be a simple bounded-context name")
+def require_native_checkout(root, args, *, clean=True):
+    if root.resolve() == primary_worktree(root).resolve():
+        fail("select a linked worktree with Worktrunk and open its native session before registration")
+    if root.resolve() not in {Path(item["worktree"]).resolve() for item in git_worktrees(root)}:
+        fail("registration requires a registered Git checkout")
+    if branch(root) in {None, "main", "master", args.base_branch}:
+        fail("registration requires a task branch, not a protected branch")
+    if any(getattr(args, key, None) is not None for key in (
+            "opencode_session_id", "opencode_message_id", "opencode_worktree", "opencode_directory",
+            "harness_activation_json")):
+        fail("native CLI attribution is unavailable; caller-supplied runtime identity is not accepted")
+    if os.environ.get("DBSCTR_IMPROVEMENT_WORKER_ID"):
+        fail("native worker launch identity is unavailable; independent authorization must be qualified")
+    if clean and status_paths(root):
+        fail("cycle must start with a clean worktree")
+    if clean and ((root / ".dvc").exists() or (root / "dvc.yaml").exists()):
+        helper = Path(__file__).resolve().with_name(
+            "executable_worktree-dvc-setup" if Path(__file__).name.startswith("executable_") else "worktree-dvc-setup")
+        result = subprocess.run([sys.executable, str(helper), "--check"], cwd=root, env=INSPECT_ENV,
+                                capture_output=True, text=True, timeout=90)
+        if result.returncode:
+            fail("DVC registration requires an explicit external reflink-only cache; run worktree-dvc-setup --cache PATH")
+
+
+def require_registration_available(root, cycle_id):
     directory = cycle_dir(root)
     active = active_path(root)
     if active.exists() or legacy_active_path(root).exists() or (legacy_cycle_dir(root) / "active").exists():
         fail("an active DBSCTR cycle already exists")
-    record_path = directory / "cycles" / f"{args.cycle_id}.json"
+    record_path = directory / "cycles" / f"{cycle_id}.json"
     if record_path.exists():
-        fail(f"cycle record already exists: {args.cycle_id}")
+        fail(f"cycle record already exists: {cycle_id}")
+    for index, candidate in enumerate((directory / "cycles").glob("*.json")):
+        if index >= 10000:
+            fail("active cycle inventory exceeds its bound")
+        existing = read_cycle_record(root, candidate, historical=True)
+        if existing.get("state") not in {"active", "finalizing"}:
+            continue
+        if native_workspace_execution(existing):
+            same_checkout = native_git_directory(root, existing) == git_dir(root).resolve()
+        else:
+            same_checkout = record_worktree(root, existing, bindings=False).resolve() == root.resolve()
+        if same_checkout:
+            fail("an active cycle already owns this checkout; inspect it before registration")
+    return record_path
+
+
+@contextlib.contextmanager
+def registration_lock(root, args):
+    require_native_checkout(root, args, clean=False)
+    if not isinstance(args.cycle_id, str) or not OPAQUE_ID.fullmatch(args.cycle_id):
+        fail("cycle ID must be a bounded simple filename")
+    checkout = "registration-" + hashlib.sha256(os.fsencode(str(git_dir(root).resolve()))).hexdigest()
+    # Short registration transaction locks, not runtime writer leases or tool admission.
+    with contextlib.ExitStack() as stack:
+        for key in sorted({checkout, args.cycle_id}):
+            stack.enter_context(evidence_lock(root, key, timeout=2))
+        yield
+
+
+def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiative=None, initiative_approval=None):
+    require_native_checkout(root, args)
+    if initiative is not None:
+        if initiative_approval is None:
+            fail("Initiative registration requires interactive confirmation")
+        validate_initiative_approval(initiative_approval)
+    if not OPAQUE_ID.fullmatch(args.cycle_id):
+        fail("cycle ID must be a bounded simple filename")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
+        fail("context must be a simple bounded-context name")
+    record_path = require_registration_available(root, args.cycle_id)
     dirty_paths = status_paths(root)
     if dirty_paths:
         fail("cycle must start with a clean worktree: " + ", ".join(dirty_paths))
@@ -3911,6 +4105,8 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         if pre_cycle_ahead != [discovery_import["commit"]]:
             fail("Discovery import is not the exact initial cycle commit")
         pre_cycle_ahead = []
+    elif pre_cycle_ahead and args.delivery_intent != "draft_pr":
+        fail("unknown commits are ahead of upstream; reconcile them before registration")
     protected_base_branch = args.base_branch
     if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
         fail("invalid protected base branch")
@@ -3963,17 +4159,11 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
     schema_version = 5
-    if schema_version in (4, 5):
-        worktree_locator = worktree_locator or {"root": "cycle_worktree", "path": "."}
-        worktree_details = {"id": worktree_id(root), "locator": worktree_locator,
-                            "branch": current_branch,
-                            "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
-                            "created_by_dbsctr": created_by_dbsctr}
-    else:
-        worktree_details = {"id": legacy_worktree_id(root), "path": str(root.resolve()),
-                            "git_dir": str(git_dir(root).resolve()), "branch": current_branch,
-                            "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
-                            "created_by_dbsctr": created_by_dbsctr}
+    worktree_details = {"id": worktree_id(root), "locator": {"root": "cycle_worktree", "path": "."},
+                        "git_dir": git_dir(root).resolve().relative_to(common_git_dir(root).resolve()).as_posix(),
+                        "branch": current_branch,
+                        "base_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
+                        "created_by_dbsctr": False}
     record = {
         "method_revision": CURRENT_METHOD_REVISION, "schema_version": schema_version,
         "created_at": now(), "cycle_id": args.cycle_id,
@@ -3994,73 +4184,17 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
         "runtime": {"adapters": {}},
-        **({"source": source_record} if source_record is not None else {}),
+        "execution": {"schema_version": 1, "mode": "native_workspace", "origin": "registered",
+                      "attribution": {"status": "unavailable", "reason": "native_identity_not_collected"},
+                      "adoption": None},
         **({"initiative": initiative} if initiative is not None else {}),
+        **({"initiative_approval": initiative_approval} if initiative is not None else {}),
     }
     if discovery_import is not None:
         record["discovery_import"] = discovery_import
         record["git"]["head"] = discovery_import["base_head"]
         record["worktree"]["base_commit"] = discovery_import["base_head"]
         record["commits"] = [{"id": discovery_import["commit"], "gates": []}]
-    message_id = getattr(args, "opencode_message_id", None)
-    session_id = (session_for_message(None, message_id) if message_id is not None
-                  else getattr(args, "opencode_session_id", None))
-    if session_id is not None:
-        if (not OPAQUE_ID.fullmatch(session_id) or not getattr(args, "opencode_worktree", None)
-                or not getattr(args, "opencode_directory", None)):
-            fail("invalid OpenCode session ID")
-        runtime_worktree = Path(args.opencode_worktree).resolve()
-        runtime_directory = Path(args.opencode_directory).resolve()
-        if not runtime_worktree.is_dir() or not runtime_directory.is_dir() or runtime_worktree not in runtime_directory.parents and runtime_directory != runtime_worktree:
-            fail("invalid OpenCode runtime paths")
-        activation_raw = getattr(args, "harness_activation_json", None)
-        activation = (harness_activation_for_message(None, message_id, activation_raw)
-                      if message_id is not None and activation_raw is not None else None)
-        if schema_version in (4, 5):
-            runtime_root = root.resolve()
-            root_name = "cycle_worktree"
-            if runtime_worktree != runtime_root:
-                runtime_root = record_source_worktree(root, record)
-                root_name = "primary_worktree"
-                if runtime_worktree != runtime_root:
-                    fail("invalid OpenCode runtime paths")
-            try:
-                runtime_directory_relative = runtime_directory.relative_to(runtime_root)
-            except ValueError:
-                fail("invalid OpenCode runtime paths")
-            runtime = {"path_root": root_name, "worktree": ".",
-                       "directory": runtime_directory_relative.as_posix() or "."}
-        else:
-            runtime = {"worktree": str(runtime_worktree), "directory": str(runtime_directory)}
-        record["runtime"]["opencode"] = {"session_ids": [session_id], **runtime,
-                                            **({"harness_activation": activation} if activation else {})}
-        sync_schema5_opencode(record)
-        validate_schema5_runtime(root, record)
-    elif getattr(args, "opencode_worktree", None) or getattr(args, "opencode_directory", None):
-        fail("OpenCode runtime paths require a session ID")
-    improvement_worker_id = os.environ.get("DBSCTR_IMPROVEMENT_WORKER_ID")
-    if improvement_worker_id is not None:
-        improvement_worker_id = improvement_id(improvement_worker_id, "improvement worker ID")
-        ledger_root = review_root()
-        if session_id is None or not ledger_exists(ledger_root):
-            fail("improvement cycle requires a registered guest session")
-        connection = sqlite3.connect(f"file:{ledger_path(ledger_root)}?mode=ro", uri=True)
-        try:
-            worker = connection.execute(
-                "SELECT session_id,opportunity_id,state,discovery_report FROM improvement_workers WHERE worker_id=?",
-                (improvement_worker_id,),
-            ).fetchone()
-        except sqlite3.Error:
-            worker = None
-        finally:
-            connection.close()
-        if (worker is None or worker[0] != session_id or worker[1] is None
-                or worker[2] != "discovery" or worker[3] is None):
-            fail("improvement cycle requires a Discovery-ready guest projection")
-        record["improvement"] = {
-            "worker_id": improvement_worker_id, "session_id": session_id,
-            "opportunity_id": worker[1],
-        }
     active = cycle_dir(root) / "worktrees" / record["worktree"]["id"] / "active"
     exclusive_json(record_path, record)
     try:
@@ -4073,7 +4207,9 @@ def start_cycle(root, args, plan, created_by_dbsctr=False, worktree_locator=None
 
 def command_start(args):
     root = root_dir()
-    record = start_cycle(root, args, read_plan(args.plan))
+    plan = read_plan(args.plan)
+    with registration_lock(root, args):
+        record = start_cycle(root, args, plan)
     print(record["cycle_id"])
 
 
@@ -4141,8 +4277,34 @@ def verify_discovery_import(root, record):
                 fail("Discovery import blob identity changed")
 
 
+def initiative_launch_plan(source, authority, receipt, plan, target, args):
+    result = initiative_import_plan(source, authority, receipt, plan, target, args)
+    result["checkout"] = {
+        "identity_digest": continuation_digest([str(common_git_dir(source).resolve()),
+                                                str(git_dir(source).resolve()), str(source.resolve())]),
+        "branch": branch(source), "head": git(source, "rev-parse", "HEAD").stdout.strip(),
+    }
+    remote, _ = remote_for_upstream(source, target)
+    result["delivery_digest"] = continuation_digest({
+        "upstream": target, "destination": remote_destination(source, target),
+        "fetch_url": git(source, "remote", "get-url", remote).stdout.strip(),
+        "account": args.github_account, "repository": args.github_repository,
+    })
+    return result
+
+
 def command_begin(args):
+    if args.preflight:
+        return begin_registration(args)
+    with registration_lock(root_dir(), args):
+        return begin_registration(args)
+
+
+def begin_registration(args):
     source = root_dir()
+    require_native_checkout(source, args, clean=not args.resume_existing)
+    if args.worktree_root is not None:
+        fail("worktree allocation belongs to Worktrunk; select the checkout before registration")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id):
         fail("cycle ID must be a simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -4180,6 +4342,8 @@ def command_begin(args):
     if args.resume_existing and initiative is None:
         fail("resume-existing is limited to approved Initiative begin")
     plan = read_plan(args.plan, args.expected_plan_digest)
+    if not (cycle_dir(source) / "cycles" / f"{args.cycle_id}.json").exists():
+        require_registration_available(source, args.cycle_id)
     if initiative is not None:
         profile_source = (initiative_source if common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()
                           else source)
@@ -4200,23 +4364,15 @@ def command_begin(args):
         delivery_env = github_environment(args.github_account)
     else:
         remote_url, delivery_env = remote, None
-    source_record = {"path": str(source.resolve()), "branch": branch(source), "upstream": upstream(source),
-                      "head": git(source, "rev-parse", "HEAD").stdout.strip(), "dirty_paths": status_paths(source),
-                      "remote": remote_destination(source, upstream(source))}
     if args.delivery_intent == "draft_pr":
         fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
     else:
         git(source, "fetch", remote, remote_branch)
     launch_plan = None
     if initiative is not None:
-        launch_plan = initiative_import_plan(source, initiative_source, initiative, plan, target, args)
-        expected_branch = f"dbsctr/{args.context}/{args.cycle_id}"
-        existing_branch = git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{expected_branch}", check=False).returncode == 0
-        if existing_branch and not (args.resume_existing and (cycle_dir(source) / "cycles" / f"{args.cycle_id}.json").is_file()):
-            fail("cycle branch exists without a resumable record; inspect retained state before approval")
-        parent = Path(args.worktree_root).expanduser() if args.worktree_root else worktree_registry_root() / hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
-        if (parent / args.cycle_id).exists() and not existing_branch:
-            fail("cycle path already exists; inspect retained state before approval")
+        launch_plan = initiative_launch_plan(source, initiative_source, initiative, plan, target, args)
+        if not args.resume_existing and launch_plan["checkout"]["head"] != launch_plan["base_head"]:
+            fail("registration requires a clean task checkout at the approved base")
         launch_digest = continuation_digest(launch_plan)
         if getattr(args, "preflight", False):
             print(json.dumps({"schema_version": 1, "launch_digest": launch_digest, "plan": launch_plan}, sort_keys=True))
@@ -4227,8 +4383,8 @@ def command_begin(args):
         fail("launch preflight requires an Initiative")
     elif ahead(source, target):
         fail("unknown commits are ahead of upstream; reconcile them before begin")
-    branch_name = f"dbsctr/{args.context}/{args.cycle_id}"
-    if git(source, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", check=False).returncode == 0:
+    branch_name = branch(source)
+    if (cycle_dir(source) / "cycles" / f"{args.cycle_id}.json").exists():
         if not args.resume_existing:
             fail(f"cycle branch already exists: {branch_name}")
         record_path = cycle_dir(source) / "cycles" / f"{args.cycle_id}.json"
@@ -4254,7 +4410,7 @@ def command_begin(args):
                 or record.get("delivery_intent") != args.delivery_intent
                 or record.get("initiative") != initiative
                 or record.get("git", {}).get("upstream") != target
-                or record.get("worktree", {}).get("created_by_dbsctr") is not True
+                or not native_workspace_execution(record) or worktree.resolve() != source.resolve()
                 or record.get("worktree", {}).get("branch") != branch_name
                 or not record_worktree_matches(source, record, worktree)
                 or branch(worktree) != branch_name or protected_base != args.base_branch
@@ -4263,70 +4419,70 @@ def command_begin(args):
                 or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
                 or record.get("applicability_plan") != expected_plan):
             fail("existing Initiative cycle does not match the approved launch")
-        opencode = record.get("runtime", {}).get("opencode", {})
         print(json.dumps({
             "cycle_id": record["cycle_id"], "branch": branch_name,
             "worktree": str(worktree), "upstream": target,
-            "open": ["opencode", str(worktree)], "initiative": initiative,
+            "initiative": initiative,
             "resumed": True,
-            "runtime_attached": bool(opencode.get("session_ids")),
+            "attribution": {"status": "unavailable", "reason": "native_identity_not_collected"},
         }, sort_keys=True))
         return
-    repo_id = hashlib.sha256(repository_identity(source).encode()).hexdigest()[:16]
-    registry = worktree_registry_root()
-    parent = Path(args.worktree_root).expanduser() if args.worktree_root else registry / repo_id
-    worktree = parent / args.cycle_id
-    if worktree.exists():
-        fail(f"cycle worktree already exists: {worktree}")
-    parent.mkdir(parents=True, exist_ok=True)
-    git(source, "worktree", "add", "-b", branch_name, str(worktree),
-        launch_plan["base_head"] if launch_plan else target)
-    worktree = worktree.resolve()
-    try:
-        git(worktree, "branch", "--set-upstream-to", target, branch_name)
-        discovery_import = None
-        if launch_plan and launch_plan["artifacts"]:
-            paths = [entry["path"] for entry in launch_plan["artifacts"]]
-            git(worktree, "restore", "--source", launch_plan["source_commit"], "--staged", "--worktree", "--", *paths)
-            git(worktree, "commit", "-m", "docs(discovery): import approved slice authority")
-            discovery_import = {key: launch_plan[key] for key in ("base_head", "source_commit", "artifacts")}
-            discovery_import["commit"] = git(worktree, "rev-parse", "HEAD").stdout.strip()
-        if (source / ".dvc").exists() or (source / "dvc.yaml").exists():
-            cache_owner = primary_worktree(source)
-            cache_result = subprocess.run(["dvc", "cache", "dir"], cwd=cache_owner,
-                                          text=True, capture_output=True)
-            if cache_result.returncode or not cache_result.stdout.strip():
-                fail(cache_result.stderr.strip() or "cannot resolve source DVC cache")
-            shared_cache = Path(cache_result.stdout.strip().splitlines()[-1]).expanduser()
-            if not shared_cache.is_absolute():
-                shared_cache = cache_owner / shared_cache
-            shared_cache = shared_cache.resolve()
-            result = subprocess.run(["dvc", "cache", "dir", "--local", str(shared_cache)],
-                                    cwd=worktree, text=True, capture_output=True)
-            if result.returncode:
-                fail(result.stderr.strip() or "cannot configure linked DVC cache")
-            result = subprocess.run(["dvc", "config", "--local", "cache.type", "reflink,copy"],
-                                    cwd=worktree, text=True, capture_output=True)
-            if result.returncode:
-                fail(result.stderr.strip() or "cannot configure linked DVC cache type")
-        locator = relative_locator(worktree, registry, "dbsctr_worktrees")
-        portable = args.worktree_root is None or os.environ.get("DBSCTR_WORKTREE_ROOT") is not None and locator is not None
-        source_record.pop("path")
-        source_record.update({
-            "id": worktree_id(source),
-            "locator": {"root": "primary_worktree", "path": "."},
-        })
-        record = start_cycle(worktree, args, plan, created_by_dbsctr=True,
-                              worktree_locator=locator, portable=portable, git_env=delivery_env,
-                              source_record=source_record, discovery_import=discovery_import, initiative=initiative)
-    except Exception:
-        git(source, "worktree", "remove", str(worktree), check=False)
-        git(source, "branch", "-D", branch_name, check=False)
-        raise
+    worktree = source.resolve()
+    if resolved_active_path(worktree, bindings=False).exists():
+        fail("an active cycle already exists; inspect its native checkout before registration")
+    if git(source, "rev-parse", "HEAD").stdout.strip() != git(source, "rev-parse", target).stdout.strip():
+        fail("registration requires a checkout at the configured upstream base")
+    initiative_approval = None
+    if initiative is not None:
+        if not sys.stdin.isatty():
+            fail("Initiative registration requires interactive operator confirmation")
+        approval_view = {"initiative": initiative["initiative_id"], "slice": initiative["slice_id"],
+            "cycle_id": args.cycle_id, "risk": args.risk, "delivery_intent": args.delivery_intent,
+            "repository": initiative["repository"], "target": target, "base_branch": args.base_branch,
+            "manifest_digest": initiative["manifest_digest"], "plan_digest": args.expected_plan_digest,
+            "launch_digest": launch_digest, "base_head": launch_plan["base_head"],
+            "github_account": args.github_account, "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
+        confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
+        print(json.dumps(approval_view, sort_keys=True) + f"\nType {confirmation}: ",
+              end="", file=sys.stderr, flush=True)
+        if sys.stdin.readline(512).strip() != confirmation:
+            fail("Initiative confirmation declined")
+        confirmed_at = now()
+        fresh_plan = read_plan(args.plan, args.expected_plan_digest)
+        require_native_checkout(source, args)
+        current = initiative_receipt(initiative_source / args.initiative_manifest,
+                                     args.initiative_slice, initiative_source)
+        current["manifest_path"] = args.initiative_manifest
+        if (current != initiative or root_dir().resolve() != source.resolve()
+                or git_repository_slug(source).lower() != initiative["repository"].lower()
+                or git_repository_slug(initiative_source).lower() != initiative["coordinator_repository"].lower()
+                or upstream(source) != target):
+            fail("Initiative authority or checkout changed during confirmation; request fresh preflight")
+        check_initiative_cycle_occupancy(source, args.cycle_id, current)
+        require_registration_available(source, args.cycle_id)
+        if args.delivery_intent == "draft_pr":
+            current_url = github_remote_url(source, remote, args.github_repository)
+            fetch_github_branch(source, remote, current_url, remote_branch, delivery_env)
+        else:
+            git(source, "fetch", remote, remote_branch)
+        fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args)
+        if continuation_digest(fresh_launch) != launch_digest:
+            fail("Initiative launch plan changed during confirmation; request fresh preflight")
+        initiative_approval = {"schema_version": 1, "method": "interactive_cli",
+                               "launch_digest": launch_digest, "confirmed_at": confirmed_at}
+    discovery_import = None
+    if launch_plan and launch_plan["artifacts"]:
+        paths = [entry["path"] for entry in launch_plan["artifacts"]]
+        git(worktree, "restore", "--source", launch_plan["source_commit"], "--staged", "--worktree", "--", *paths)
+        git(worktree, "commit", "-m", "docs(discovery): import approved slice authority")
+        discovery_import = {key: launch_plan[key] for key in ("base_head", "source_commit", "artifacts")}
+        discovery_import["commit"] = git(worktree, "rev-parse", "HEAD").stdout.strip()
+    record = start_cycle(worktree, args, plan, git_env=delivery_env,
+                         discovery_import=discovery_import, initiative=initiative,
+                         initiative_approval=initiative_approval)
     print(json.dumps({
         "cycle_id": record["cycle_id"], "branch": branch_name,
         "worktree": str(worktree), "upstream": target,
-        "open": ["opencode", str(worktree)],
         **({"initiative": initiative} if initiative is not None else {}),
     }, sort_keys=True))
 
@@ -5516,10 +5672,14 @@ def command_status(args):
         print("null")
         return
     _, record = load(root)
+    native = native_workspace_execution(record)
     if args.json:
+        if native:
+            record = {**record, "historical_runtime": record.get("runtime", {}), "runtime": {"adapters": {}}}
         print(json.dumps(record, sort_keys=True, separators=(",", ":")))
     else:
-        print(f"{record['cycle_id']} {record['state']} {record['risk']} {record['delivery_intent']}")
+        suffix = " execution=native_workspace attribution=unavailable" if native else ""
+        print(f"{record['cycle_id']} {record['state']} {record['risk']} {record['delivery_intent']}" + suffix)
 
 
 class ContinuationError(RuntimeError):
@@ -5760,6 +5920,7 @@ def continuation_target(request, session_key, purpose="active", *, repository_ba
 
 def continuation_snapshot(db, record, path, session_key, activation, action, target_session=None, mode=None,
                            *, details=None):
+    reject_native_continuation(record)
     cycle_id = record["cycle_id"]
     if continuation_cycle_binding(db, cycle_id):
         raise ContinuationError("revision_incompatible")
@@ -5852,6 +6013,7 @@ def continuation_runtime(root, cycle_id):
 
 
 def continuation_storage_binding(target, record_path, record, session_key, activation):
+    reject_native_continuation(record)
     path = continuation_path(target)
     continuation_private(path.parent, directory=True)
     continuation_private(path)
@@ -6683,6 +6845,8 @@ def continuation_v2_snapshot(db, home, request, actor, activation, purpose):
             record_path = candidate
         except (RuntimeError, OSError, ValueError):
             record = record_path = None
+    if record is not None:
+        reject_native_continuation(record)
     pending = [dict(row) for row in db.execute(
         "SELECT * FROM operations WHERE cycle_id=? AND state!='completed' ORDER BY operation_id LIMIT 101",
         (cycle_id,))] if cycle else []
@@ -6971,6 +7135,9 @@ def command_continuation_v2(args):
                     if replay[0] != digest or len(replay[1].encode()) > 65536:
                         raise ContinuationError("invalid_state")
                     saved = continuation_v2_replay_response(json.loads(replay[1], object_pairs_hook=no_duplicate_keys))
+                    if saved.get("cycle_id"):
+                        reject_native_continuation(read_cycle_record(
+                            home, cycle_dir(home) / "cycles" / f"{saved['cycle_id']}.json", historical=True))
                     saved["replayed"] = True
                     print(json.dumps(saved, sort_keys=True, separators=(",", ":")))
                     return
@@ -7001,6 +7168,7 @@ def command_continuation_v2(args):
 
 
 CONTINUATION_READ_COMMANDS = {
+    "workspace-remove-check",
     "status", "phase-report", "cycle-performance", "execution-dag", "inference-cost-report",
     "review-scan", "incident-scan", "history-source-validate", "review-history",
     "history-source-index-status", "history-capture", "history-capture-latest",
@@ -7079,50 +7247,424 @@ def continuation_codex_operation_identity(root, operation):
         raise ContinuationError("invalid_identity")
 
 
+def reject_native_continuation(record):
+    if native_workspace_execution(record):
+        raise ContinuationError("workspace_continuation_retired")
+
+
 def continuation_guard(args):
-    if args.command.startswith("continuation-") or args.command in CONTINUATION_READ_COMMANDS:
+    if args.command.startswith("continuation-") or args.command in {
+            "attach-runtime", "cleanup", "cycle-retire", "cycle-retire-worktree", "cycle-portabilize"}:
+        fail("workspace continuation commands are retired; use workspace-adopt and the native checkout")
+    if args.command == "workspace-adopt" or args.command in CONTINUATION_READ_COMMANDS:
         return
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
                            text=True, capture_output=True)
     if found.returncode:
         return
     root = Path(found.stdout.strip()).resolve()
+    local = resolved_active_path(root, bindings=False)
+    identifier = getattr(args, "cycle_id", None)
+    if identifier is None and local.exists():
+        identifier = active_pointer_id(root, local)
+    if identifier is not None:
+        if not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier):
+            fail("invalid cycle ID")
+        path = cycle_dir(root) / "cycles" / f"{identifier}.json"
+        if path.is_file():
+            if args.command in {"begin", "start"} and not getattr(args, "resume_existing", False):
+                fail("cycle record already exists; inspect its original native checkout")
+            record = read_cycle_record(root, path, historical=True)
+            if native_workspace_execution(record):
+                continuation_private(path)
+                verify_native_workspace_backup(root, record)
+                if not record_worktree_matches(root, record, root):
+                    fail("native workspace checkout identity changed")
+                if args.command.startswith("continuation-") or args.command in {
+                        "attach-runtime", "cycle-portabilize", "cleanup", "cycle-retire-worktree"}:
+                    fail("workspace execution command is retired; use the native checkout and Worktrunk")
+                return
+            fail("workspace_adoption_required: preserve the legacy cycle and adopt it before lifecycle writes")
+
+
+def verify_native_workspace_backup(root, record):
+    if not native_workspace_execution(record) or record["execution"]["origin"] != "adopted":
+        return
+    adoption = record["execution"]["adoption"]
+    backup = common_git_dir(root) / adoption["record_backup"]
+    try:
+        managed_directory(root, backup.parent)
+        continuation_private(backup)
+        with backup.open("rb") as stream:
+            raw = stream.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024 or hashlib.sha256(raw).hexdigest() != adoption["before_sha256"]:
+            fail("native workspace adoption backup is invalid")
+        before = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        if before.get("cycle_id") != record["cycle_id"] or "execution" in before:
+            fail("native workspace adoption backup identity is invalid")
+    except (OSError, ValueError, TypeError, AttributeError):
+        fail("native workspace adoption backup is unavailable")
+
+
+def workspace_adoption_snapshot(root, cycle_id):
+    if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+        fail("invalid workspace adoption cycle ID")
+    if root.resolve() == primary_worktree(root).resolve():
+        fail("workspace adoption requires a linked checkout")
+    if root.resolve() not in {Path(item["worktree"]).resolve() for item in git_worktrees(root)}:
+        fail("workspace adoption requires a registered Git checkout")
+    path = cycle_dir(root) / "cycles" / f"{cycle_id}.json"
+    managed_directory(root, path.parent)
+    continuation_private(path)
+    with path.open("rb") as stream:
+        raw = stream.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        fail("workspace adoption record exceeds its bound")
+    record = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(record, dict) or record.get("cycle_id") != cycle_id
+            or type(record.get("schema_version")) is not int or record["schema_version"] not in (3, 4, 5)
+            or record.get("state") not in ("active", "finalizing")
+            or any(not isinstance(record.get(key), dict) for key in (
+                "worktree", "git", "delivery", "engineering_profile", "applicability_plan",
+                "gates", "evidence", "artifact_reviews", "metrics"))
+            or not isinstance(record.get("commits"), list)):
+        fail("workspace adoption record is unsupported")
+    if set(record["gates"]) != set(GATES) or any(
+            not isinstance(gate, dict) or gate.get("applicability") not in ("required", "not_applicable")
+            or gate.get("result") not in ("pending", "passed", "failed", "unavailable", "not_run")
+            for gate in record["gates"].values()):
+        fail("workspace adoption gate state is malformed")
+    if record["schema_version"] == 5:
+        validate_schema5_runtime(root, record, historical=True)
+    native = native_workspace_execution(record)
+    if native:
+        verify_native_workspace_backup(root, record)
+    if not record_worktree_matches(root, record, root) or branch(root) != record["worktree"]["branch"]:
+        fail("workspace adoption checkout identity changed")
+    legacy = {"store_present": False, "cycle": None, "operations": []}
     with continuation_connection(root) as db:
-        if db is None:
-            return
-        if args.command.startswith("batch-") or args.command == "cleanup" and getattr(args, "completed", False):
-            if db.execute("SELECT 1 FROM cycles WHERE state!='closed' LIMIT 1").fetchone():
-                raise ContinuationError("continuation_admission_required")
-            return
-        requested_cycle = getattr(args, "cycle_id", None)
-        active = resolved_active_path(root)
-        if requested_cycle is None and active.exists():
-            requested_cycle = active_pointer_id(root, active)
-        if requested_cycle is None:
-            if db.execute("SELECT 1 FROM cycles WHERE state!='closed' LIMIT 1").fetchone():
-                raise ContinuationError("continuation_admission_required")
-            return
-        cycle = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (requested_cycle,)).fetchone()
-        if cycle is None:
-            return
-        if cycle["state"] == "closed" and args.command in {"cleanup", "cycle-retire-worktree"}:
-            if not db.execute("SELECT 1 FROM operations WHERE cycle_id=? AND state!='completed' LIMIT 1",
-                              (requested_cycle,)).fetchone():
-                return
-        if args.command in {"cleanup", "cycle-retire-worktree", "cycle-retire", "cycle-portabilize"}:
-            raise ContinuationError("operation_in_flight")
-        operation_id = os.environ.get("DBSCTR_CONTINUATION_OPERATION", "")
-        operation = db.execute("SELECT * FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
-        continuation_validate_operation(cycle, operation, root, requested_cycle, db)
-        if re.fullmatch(r"codex-[0-9a-f]{32}", operation["message_id"]):
-            # Preserve valid OpenCode identities even if their opaque ID shares a prefix.
-            try:
-                continuation_legacy_operation_identity(operation)
-                return
-            except (RuntimeError, OSError, sqlite3.Error):
-                continuation_codex_operation_identity(root, operation)
-                return
-        continuation_legacy_operation_identity(operation)
+        if db is not None:
+            legacy["store_present"] = True
+            row = db.execute("SELECT * FROM cycles WHERE cycle_id=?", (cycle_id,)).fetchone()
+            legacy["cycle"] = dict(row) if row else None
+            for table, order in (("operations", "operation_id"), ("activations", "event_id"),
+                                 ("routes", "session_key"), ("approvals", "receipt_id")):
+                rows = db.execute(f"SELECT * FROM {table} WHERE cycle_id=? ORDER BY {order} LIMIT 10001",
+                                  (cycle_id,)).fetchall()
+                if len(rows) > 10000:
+                    fail("workspace adoption legacy snapshot exceeds its bound")
+                legacy[table] = [dict(item) for item in rows]
+            legacy["binding"] = continuation_cycle_binding(db, cycle_id)
+            if continuation_v2_schema(db):
+                sessions = ("SELECT session_key FROM routes WHERE cycle_id=? UNION "
+                            "SELECT session_key FROM activations WHERE cycle_id=? UNION "
+                            "SELECT session_key FROM operations WHERE cycle_id=? UNION "
+                            "SELECT writer FROM cycles WHERE cycle_id=?")
+                for table, order in (("route_versions", "session_key"),
+                                     ("control_requests", "session_key,request_id")):
+                    rows = db.execute(f"SELECT * FROM {table} WHERE session_key IN ({sessions}) "
+                                      f"ORDER BY {order} LIMIT 10001", (cycle_id,) * 4).fetchall()
+                    if len(rows) > 10000:
+                        fail("workspace adoption legacy snapshot exceeds its bound")
+                    legacy[table] = [dict(item) for item in rows]
+            if len(json.dumps(legacy, sort_keys=True).encode()) > 8 * 1024 * 1024:
+                fail("workspace adoption legacy snapshot exceeds its byte bound")
+    digest = continuation_digest({"repository": str(common_git_dir(root).resolve()),
+        "git_admin": str(git_dir(root).resolve()),
+        "checkout": str(root.resolve()), "branch": branch(root), "head": git(root, "rev-parse", "HEAD").stdout.strip(),
+        "record_sha256": hashlib.sha256(raw).hexdigest(), "legacy": legacy})
+    unresolved = (sum(item["state"] != "completed" for item in legacy["operations"])
+                  if legacy["store_present"] else None)
+    return path, record, raw, digest, unresolved, native
+
+
+def removal_path(root, value):
+    if (not isinstance(value, str) or not value or len(value) > 4096
+            or any(char in value for char in ("\0", "\n", "\r")) or "://" in value
+            or PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts
+            or str(PurePosixPath(value)) == "."):
+        fail("unclassifiable removal path")
+    path = root / value
+    if not path_within(path.resolve(), root):
+        fail("removal path escapes checkout")
+    return path
+
+
+def removal_dvc_paths(root, value):
+    if not isinstance(value, dict) or set(value) - {"committed", "uncommitted", "unchanged", "not_in_cache", "untracked"}:
+        fail("unclassifiable DVC status")
+    if value.get("committed") or value.get("untracked"):
+        fail("DVC data requires explicit disposition")
+    changes = value.get("uncommitted", {})
+    if not isinstance(changes, dict) or set(changes) - {"deleted"}:
+        fail("modified DVC data requires explicit disposition")
+    for paths in (changes.get("deleted", []), value.get("not_in_cache", [])):
+        if not isinstance(paths, list) or len(paths) > 10000:
+            fail("unclassifiable DVC status")
+        for name in paths:
+            if os.path.lexists(removal_path(root, name)):
+                fail("present DVC data lacks preservation evidence")
+    unchanged = value.get("unchanged", [])
+    if not isinstance(unchanged, list) or len(unchanged) > 10000:
+        fail("unclassifiable DVC status")
+    for name in unchanged:
+        removal_path(root, name)
+    return unchanged
+
+
+def preservation_output(child, *, limit, timeout):
+    """Read both pipes under one byte/time budget; never return partial evidence."""
+    buffers, observed = (bytearray(), bytearray()), 0
+    deadline = time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as selector:
+            for index, stream in enumerate((child.stdout, child.stderr)):
+                selector.register(stream, selectors.EVENT_READ, index)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    fail("native preservation evidence unavailable")
+                for key, _ in selector.select(remaining):
+                    block = os.read(key.fd, 65536)
+                    if not block:
+                        selector.unregister(key.fileobj)
+                        continue
+                    observed += len(block)
+                    if observed > limit:
+                        fail("native preservation evidence unavailable")
+                    buffers[key.data].extend(block)
+        child.wait(timeout=max(0.001, deadline - time.monotonic()))
+        return bytes(buffers[0]), bytes(buffers[1])
+    except BaseException:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait(timeout=2)
+        raise
+    finally:
+        child.stdout.close()
+        child.stderr.close()
+
+
+def workspace_processes(root):
+    program = shutil.which("lsof")
+    if program is None:
+        fail("process inventory unavailable")
+    child = subprocess.Popen([program, "-a", "-u", str(os.getuid()), "-F0pn"], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=INSPECT_ENV, start_new_session=True)
+    output, errors = preservation_output(child, limit=8 * 1024 * 1024, timeout=30)
+    if child.returncode not in (0, 1) or errors or not output:
+        fail("process inventory unavailable")
+    ignored = {os.getpid(), child.pid}
+    found, process = set(), None
+    for field in output.split(b"\0"):
+        field = field.lstrip(b"\n")
+        if field.startswith(b"p"):
+            if not field[1:].isdigit() or len(field) > 12 or int(field[1:]) <= 0:
+                fail("process inventory unavailable")
+            process = int(field[1:])
+        elif field.startswith(b"f"):
+            # lsof emits descriptor fields even when only p/n are requested.
+            if process is None or not re.fullmatch(rb"f(?:\d+|cwd|twd|rtd|txt|mem|mmap|pd|jld|ltx|tr|v86|fp\.|M\d+)", field):
+                fail("process inventory unavailable")
+        elif field.startswith(b"n"):
+            if process is None:
+                fail("process inventory unavailable")
+            name = os.fsdecode(field[1:]).removesuffix(" (deleted)")
+            if process not in ignored and name.startswith("/") and path_within(Path(name), root):
+                found.add(process)
+        elif field:
+            fail("process inventory unavailable")
+    if process is None:
+        fail("process inventory unavailable")
+    return sorted(found)
+
+
+def removal_run(root, argv, *, input_text=None, accepted=(0,)):
+    environment = {**INSPECT_ENV, "DVC_NO_ANALYTICS": "1"} if argv[0] == "dvc" else INSPECT_ENV
+    payload = input_text.encode() if input_text is not None else b""
+    if len(payload) > 1024 * 1024:
+        fail("native preservation evidence unavailable")
+    with tempfile.TemporaryFile() if input_text is not None else contextlib.nullcontext(None) as source:
+        if source is not None:
+            source.write(payload)
+            source.seek(0)
+        child = subprocess.Popen(argv, cwd=root, env=environment, stdin=source or subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        output, errors = preservation_output(child, limit=1024 * 1024, timeout=60)
+    if child.returncode not in accepted or errors.strip():
+        fail("native preservation evidence unavailable")
+    return output.decode("utf-8")
+
+
+def workspace_remove_check(root):
+    root = root.resolve()
+    reasons, related, commits, candidates = [], [], [], []
+    if root == primary_worktree(root) or root not in {Path(row["worktree"]).resolve() for row in git_worktrees(root)}:
+        return {"schema_version": 1, "eligible": False, "reasons": ["not_registered_task_checkout"]}
+    if status_paths(root):
+        reasons.append("dirty_worktree")
+    try:
+        for index, path in enumerate((cycle_dir(root) / "cycles").glob("*.json")):
+            if index >= 10000:
+                fail("cycle inventory bound")
+            record = read_cycle_record(root, path, historical=True)
+            matches = (native_git_directory(root, record) == git_dir(root).resolve()
+                       if native_workspace_execution(record) else record_worktree(root, record, bindings=False) == root)
+            if not matches:
+                continue
+            related.append(record["cycle_id"])
+            if record.get("state") in {"active", "finalizing"}:
+                reasons.append("active_cycle")
+                continue
+            if record.get("state") not in {"completed", "retired"}:
+                fail("unclassified cycle state")
+            if record["state"] == "completed":
+                completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) - completed < timedelta(hours=24):
+                    reasons.append("retained_24_hours")
+                if any(gate.get("applicability") == "required" and gate.get("result") != "passed"
+                       and not valid_gate_exception(gate) for gate in record["gates"].values()):
+                    reasons.append("incomplete_cycle_evidence")
+            commits.extend(entry["id"] for entry in record["commits"])
+            delivery = record.get("delivery", {})
+            if delivery.get("remote"):
+                if record["git"]["remote"] != remote_destination(root, record["git"]["upstream"]):
+                    reasons.append("delivery_destination_changed")
+                for name in (delivery.get("branch"), delivery.get("base_branch")):
+                    if name:
+                        candidates.append(f"{delivery['remote']}/{name}")
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+        reasons.append("cycle_evidence_unavailable")
+    primary = primary_worktree(root)
+    candidates.extend(filter(None, (upstream(root), upstream(primary))))
+    if not candidates and branch(primary):
+        candidates.append("refs/heads/" + branch(primary))
+    preserved = False
+    for candidate in dict.fromkeys(candidates):
+        try:
+            remote, name = remote_for_upstream(root, candidate)
+            if remote:
+                fields = removal_run(root, ["git", "ls-remote", "--exit-code", "--heads", remote,
+                                            f"refs/heads/{name}"]).split()
+                local = git(root, "rev-parse", candidate).stdout.strip()
+                if fields != [local, f"refs/heads/{name}"]:
+                    continue
+            if all(git(root, "merge-base", "--is-ancestor", revision, candidate,
+                       check=False).returncode == 0 for revision in ["HEAD", *commits]):
+                preserved = True
+                break
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            continue
+    if not preserved:
+        reasons.append("git_delivery_unverified")
+    try:
+        ignored = list(filter(None, removal_run(root, ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"]).split("\0")))
+        if len(ignored) > 10000:
+            fail("ignored file inventory bound")
+        data_roots = []
+        if (root / ".dvc").exists() or (root / "dvc.yaml").exists():
+            if (root / ".dvc").is_symlink():
+                fail("unsafe DVC metadata")
+            status = json.loads(removal_run(root, ["dvc", "data", "status", "--unchanged", "--json"]),
+                                object_pairs_hook=no_duplicate_keys)
+            data_roots = [removal_path(root, name) for name in removal_dvc_paths(root, status)]
+            cache = Path(removal_run(root, ["dvc", "cache", "dir"]).strip()).expanduser()
+            cache = (cache if cache.is_absolute() else root / cache).resolve()
+            if path_within(cache, root) and cache.exists() and any(cache.iterdir()):
+                fail("private cache requires disposition")
+            if data_roots and path_within(cache, root):
+                fail("materialized data requires a retained external cache")
+        data_files = []
+        for name in ignored:
+            path = removal_path(root, name)
+            if any(path == output or output in path.parents for output in data_roots):
+                data_files.append(name)
+            elif name == ".dvc/config.local":
+                config = configparser.ConfigParser(interpolation=None)
+                if path.is_symlink() or path.stat().st_size > 65536:
+                    fail("unsafe DVC configuration")
+                config.read_string(path.read_text())
+                if config.defaults() or set(config.sections()) - {"cache"} or set(config["cache"]) - {"dir", "type"}:
+                    fail("local configuration requires disposition")
+            elif name in {".dvc/tmp/btime", ".dvc/tmp/lock", ".dvc/tmp/rwlock.lock"}:
+                raw = path.read_bytes() if path.stat().st_size <= 64 else b"invalid"
+                if path.is_symlink() or not re.fullmatch(rb"\s*\d*\s*", raw):
+                    fail("unknown DVC internal state")
+            else:
+                fail("unknown ignored data requires disposition")
+        if data_files and removal_run(root, ["dvc", "check-ignore", "--stdin"],
+                                     input_text="\n".join(data_files) + "\n", accepted=(0, 1)).strip():
+            fail("DVC-ignored output contents require disposition")
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, configparser.Error, subprocess.SubprocessError):
+        reasons.append("data_disposition_required")
+    try:
+        if workspace_processes(root):
+            reasons.append("running_processes")
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        reasons.append("process_inventory_unavailable")
+    return {"schema_version": 1, "eligible": not reasons, "reasons": sorted(set(reasons))}
+
+
+def command_workspace_remove_check(args):
+    result = workspace_remove_check(root_dir())
+    print(json.dumps(result, sort_keys=True))
+    if not result["eligible"]:
+        raise SystemExit(1)
+
+
+def command_workspace_adopt(args):
+    root = root_dir().resolve()
+    path, record, raw, digest, unresolved, native = workspace_adoption_snapshot(root, args.cycle_id)
+    if args.preview:
+        print(json.dumps({"schema_version": 1, "cycle_id": args.cycle_id, "state_digest": digest,
+            "already_native": native, "unresolved_legacy_operations": unresolved,
+            "requires_operator_confirmation": not native}, sort_keys=True))
+        return
+    if native:
+        fail("cycle is already native; inspect and resume it without repeated adoption")
+    if args.expected_state != digest:
+        fail("workspace adoption state changed; request a fresh preview")
+    if not sys.stdin.isatty():
+        fail("workspace adoption requires interactive operator confirmation")
+    confirmation = f"ADOPT {args.cycle_id} {digest}"
+    history = ("legacy operation history is absent, not proven complete" if unresolved is None
+               else f"{unresolved} unresolved operations remain historical")
+    print(f"Confirm old writers/jobs cannot write and {history}.\n"
+          f"Type {confirmation}: ", end="", file=sys.stderr, flush=True)
+    if sys.stdin.readline(512).strip() != confirmation:
+        fail("workspace adoption confirmation declined")
+    with evidence_lock(root, args.cycle_id, timeout=2):
+        path, record, raw, current, _, native = workspace_adoption_snapshot(root, args.cycle_id)
+        if current != digest or native:
+            fail("workspace adoption state changed; request a fresh preview")
+        before = hashlib.sha256(raw).hexdigest()
+        backup = cycle_dir(root) / "migrations" / f"{args.cycle_id}.{before}.native-before.json"
+        managed_directory(root, backup.parent, create=True)
+        try:
+            descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            continuation_private(backup)
+            with backup.open("rb") as stream:
+                if stream.read(len(raw) + 1) != raw:
+                    fail("workspace adoption preimage conflicts; preserve and inspect it")
+        else:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+        fsync_directory(backup.parent)
+        if record["schema_version"] in (4, 5):
+            record["worktree"]["git_dir"] = git_dir(root).resolve().relative_to(common_git_dir(root).resolve()).as_posix()
+        record["execution"] = {"schema_version": 1, "mode": "native_workspace", "origin": "adopted",
+            "attribution": {"status": "unavailable", "reason": "native_identity_not_collected"},
+            "adoption": {"before_sha256": before, "state_digest": digest,
+                         "record_backup": backup.relative_to(common_git_dir(root)).as_posix()}}
+        native_workspace_execution(record)
+        private_json(path, record)
+        fsync_directory(path.parent)
+    print(json.dumps({"cycle_id": args.cycle_id, "adopted": True, "unresolved_legacy_operations": unresolved}))
 
 
 def command_attach_runtime(args):
@@ -15530,6 +16072,16 @@ def parser():
     portabilize.add_argument("--cycle-id", required=True)
     portabilize.add_argument("--rollback", action="store_true")
     portabilize.set_defaults(func=command_cycle_portabilize)
+    removal = commands.add_parser("workspace-remove-check")
+    removal.add_argument("--json", action="store_true")
+    removal.set_defaults(func=command_workspace_remove_check)
+
+    adoption = commands.add_parser("workspace-adopt")
+    adoption.add_argument("--cycle-id", required=True)
+    adoption.add_argument("--preview", action="store_true")
+    adoption.add_argument("--json", action="store_true")
+    adoption.add_argument("--expected-state")
+    adoption.set_defaults(func=command_workspace_adopt)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
@@ -15995,14 +16547,78 @@ def parser():
     return result
 
 
+class AnalyticsOutput(io.StringIO):
+    """Bound the private projection before any bytes reach agent-facing stdout."""
+    def __init__(self, budget=None):
+        super().__init__()
+        self.budget = budget if budget is not None else [256 * 1024]
+
+    def write(self, value):
+        self.budget[0] -= len(value.encode("utf-8"))
+        if self.budget[0] < 0:
+            fail("analytics projection exceeds its bound")
+        return super().write(value)
+
+
+def agent_analytics_output(action):
+    unsafe = re.compile(r"https?://|file://|/(?:Users|home|root|tmp|private|var/folders)/|-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I)
+    try:
+        with AnalyticsOutput() as output, AnalyticsOutput(output.budget) as errors, \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            action()
+            raw = output.getvalue()
+            value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+            pending = [value]
+            while pending:
+                item = pending.pop()
+                if isinstance(item, dict):
+                    if {key.lower() for key in item} & {"body", "content", "transcript", "messages", "password", "secret",
+                                    "api_key", "access_token", "authorization", "credentials",
+                                    "credential", "private_key", "cookie", "token"}:
+                        fail("private body fields are not analytics metadata")
+                    pending.extend(item.values())
+                elif isinstance(item, list):
+                    pending.extend(item)
+                elif isinstance(item, str) and (SECRET_VALUE.search(item) or unsafe.search(item)):
+                    fail("unsafe analytics projection")
+                elif isinstance(item, float) and not math.isfinite(item):
+                    fail("unsafe analytics projection")
+            if (errors.getvalue() or not isinstance(value, dict)
+                    or unsafe.search(raw) or unsafe.search(json.dumps(value))
+                    or SECRET_VALUE.search(raw) or SECRET_VALUE.search(json.dumps(value))):
+                fail("unsafe analytics projection")
+    except SourceIndexUnavailable:
+        raise
+    except Exception as error:
+        for reason in ("quarantined", "invalid result", "history capture is missing", "aggregate projection mismatch",
+                       "intersects the excluded session family", "page coverage", "changed within the review snapshot",
+                       "member columns mismatch", "review ledger is unsafe", "invalid excluded session ID",
+                       "integer milliseconds", "missing", "unsafe"):
+            if reason.lower() in str(error).lower():
+                fail(f"analytics projection unavailable: {reason}")
+        fail("analytics projection unavailable; private output was withheld")
+    print(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
 def main():
     try:
         if sys.argv[1:2] == ["history-source-validate"] and (
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command == "provider-evaluation-save":
+            fail("native_capture_authority_unavailable: retain existing reports; supplied receipt digests do not authenticate a federated capture")
+        if args.command in {"improvement-register", "improvement-claim", "improvement-update", "improvement-recover"}:
+            fail("native_automation_identity_unavailable: preserve existing workers and claims until a native identity route is qualified")
+        if args.command in {"incident-register", "incident-update", "incident-forget"} or (
+                args.command == "incident-scan" and not args.summary_only):
+            fail("native_incident_invocation_unavailable: retain the fork and use incident-scan --summary-only for metadata")
         continuation_guard(args)
-        args.func(args)
+        if args.command in {"review-scan", "history-capture", "review-history", "benchmark", "provider-evaluation"} or (
+                args.command == "incident-scan" and args.summary_only):
+            agent_analytics_output(lambda: args.func(args))
+        else:
+            args.func(args)
     except SourceIndexUnavailable:
         print("source_index_unavailable", file=sys.stderr)
         return 75

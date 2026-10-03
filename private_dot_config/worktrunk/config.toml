@@ -1,0 +1,22 @@
+# Worktrunk owns creation and navigation; primary checkouts remain in place.
+worktree-path = "{{ repo_path }}.worktrees/{{ branch | sanitize }}"
+
+[remove]
+delete-branch = false
+
+[commit]
+stage = "none"
+
+[merge]
+commit = false
+squash = false
+rebase = false
+remove = false
+
+# Managed user hooks run even when a project hook is not approved.
+[pre-remove]
+preservation = "exec dbsctrctl workspace-remove-check --json"
+
+# No hydration or ignored-file copying is attached to worktree creation.
+[step.copy-ignored]
+exclude = [".dvc/", ".venv/", "data/", "artifacts/", "outputs/"]

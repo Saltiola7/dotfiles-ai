@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Reserve one managed foreground task launch; never allocate or redirect worktrees."""
+import argparse
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import signal
+import stat
+import subprocess
+import sys
+
+
+def utility(command):
+    name, *args = command
+    flags = {"--help", "-h", "--version", "-V" if name == "codex" else "-v"}
+    if len(args) == 1 and args[0] in flags:
+        return True
+    if len(args) == 2 and args[1] in {"--help", "-h"}:
+        return True
+    services = {"opencode": {"service", "serve", "auth"}, "codex": {"app-server", "login", "logout"}}
+    return bool(args and args[0] in services[name])
+
+
+def private(item, directory=False):
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    permissions = 0o700 if directory else 0o600
+    if (not kind(item.st_mode) or item.st_uid != os.getuid()
+            or stat.S_IMODE(item.st_mode) != permissions
+            or not directory and item.st_nlink != 1):
+        raise ValueError("unsafe launch reservation state")
+
+
+def reservation():
+    if any(os.environ.get(key) for key in (
+            "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")):
+        raise ValueError("Git location overrides are not supported for task launches")
+    result = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--show-toplevel",
+                             "--git-common-dir", "--git-dir"], capture_output=True, text=True, timeout=10)
+    paths = result.stdout.strip().splitlines()
+    if result.returncode or len(paths) != 3:
+        raise ValueError("select a registered linked worktree before launching a task")
+    _, common, admin = (Path(value).resolve(strict=True) for value in paths)
+    if common == admin:
+        raise ValueError("select a linked worktree; the primary checkout is not a task workspace")
+    parent = common.stat()
+    if parent.st_uid != os.getuid() or parent.st_mode & 0o022:
+        raise ValueError("unsafe Git reservation parent")
+    directory = common / "agent-worktree-locks"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    private(directory.lstat(), directory=True)
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        private(os.fstat(directory_fd), directory=True)
+        identity = hashlib.sha256(os.fsencode(str(admin))).hexdigest()
+        fd = os.open(identity + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=directory_fd)
+        try:
+            private(os.fstat(fd))
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+    finally:
+        os.close(directory_fd)
+
+
+def supervise(command, fd=None):
+    child = None
+    pending = None
+    handlers = {}
+    try:
+        def terminate(number, _frame):
+            nonlocal pending
+            if child is None:
+                pending = number
+            elif child.poll() is None:
+                try:
+                    child.send_signal(number)
+                except ProcessLookupError:
+                    pass
+
+        for number in (signal.SIGTERM, signal.SIGHUP):
+            handlers[number] = signal.signal(number, terminate)
+        if pending is not None:
+            return 128 + pending
+        child = subprocess.Popen(command, pass_fds=() if fd is None else (fd,))
+        if pending is not None:
+            terminate(pending, None)
+        while True:
+            try:
+                code = child.wait()
+                return code if code >= 0 else 128 - code
+            except KeyboardInterrupt:
+                # The foreground terminal process group already received Ctrl-C.
+                if not sys.stdin.isatty():
+                    terminate(signal.SIGINT, None)
+    finally:
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--override-busy", action="store_true")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command or command[0] not in {"opencode", "codex"}:
+        parser.error("choose opencode or codex")
+    fd = None
+    try:
+        if args.override_busy and not sys.stdin.isatty():
+            raise ValueError("override requires an interactive operator confirmation")
+        if utility(command):
+            if args.override_busy:
+                raise ValueError("override is only available for task launches")
+            return supervise(command)
+        fd = reservation()
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if not args.override_busy:
+                raise ValueError("worktree is busy with another managed launch") from None
+            print("Type OVERRIDE to launch without exclusive reservation: ", end="", file=sys.stderr, flush=True)
+            if sys.stdin.readline(32).strip() != "OVERRIDE":
+                raise ValueError("override declined")
+            os.close(fd)
+            fd = None
+            print("Launching without exclusive reservation; existing holder is unchanged.", file=sys.stderr)
+        return supervise(command, fd)
+    except ValueError as error:
+        print(f"agent-worktree: {error}", file=sys.stderr)
+        return 75
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        print("agent-worktree: launch or reservation unavailable; inspect native setup", file=sys.stderr)
+        return 75
+    finally:
+        if fd is not None:
+            # Close, do not LOCK_UN: an inherited child may still hold this reservation.
+            os.close(fd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

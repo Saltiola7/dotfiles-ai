@@ -21,10 +21,9 @@ before analysis. Change nothing during the audit.
 - Keep raw session content, candidate identifiers, paths, provenance, prompts,
   responses, tool payloads, commands, URLs, credentials, environment values, and
   account identity local and out of the report and subagent prompts.
-- Never call `dbsctr_review_complete` or `dbsctr_review_history_save`.
-- Never call `dbsctr_incident_register`, `dbsctr_incident_update`, or `dbsctr_incident_forget`.
-- Never call `dbsctr_improvement_claim` or `dbsctr_improvement_update`.
-- Never call `dbsctr_begin`, `dbsctr_initiative_launch`, delivery, or activation tools.
+- Never invoke `dbsctrctl review-complete` or `review-history-save`.
+- Never invoke Incident mutation, improvement claim/update, cycle registration,
+  delivery, or activation commands. Retired custom tool names are not interfaces.
 - Never query the OpenCode database, PostgreSQL, or private ledgers directly.
 - Never infer unavailable values as zero or causal effects from associations.
 
@@ -32,20 +31,22 @@ before analysis. Change nothing during the audit.
 
 1. Resolve a fixed Git commit and read the Initiative, context specifications,
    configured QA, model routes, CI, and lifecycle source. Use
-   `dbsctr_inspect` when worktree overlays would make source ambiguous.
-2. Call `dbsctr_runtime_health`. Run `dbsctrctl cycle-performance --json` and,
+   `dbsctrctl inspect` when worktree overlays would make source ambiguous.
+2. Report native runtime health unavailable unless independently qualified;
+   do not infer it from historical adapter metadata. Run `dbsctrctl cycle-performance --json` and,
    when known, repeat with `--context CONTEXT`. Record autonomous and calendar
    aggregates, coverage, unavailable samples, gate failures, reopenings, and
    remediation together.
-3. Call `dbsctr_incident_scan` with global scope by itself. Do not place this
+3. Run `dbsctrctl incident-scan --summary-only` by itself. Detailed Incident
+   Evidence requires unavailable native invocation and must remain withheld. Do not place this
    required call in a parallel batch with DKS, skill loading, or external work.
-4. Call `dbsctr_review_history` with the narrowest relevant filters and a maximum
+4. Run `dbsctrctl review-history` with the narrowest relevant filters and a maximum
    first page of 100. Preserve the returned snapshot, session ceiling, part
    ceiling, database digest, exclusion digest, limit, and cursor for every
    continuation. Aggregate only allowlisted sanitized metadata locally.
-5. Call `dbsctr_history_telemetry` once with the same bounded filters. On timeout
-   or unavailability, retain the successful history evidence and mark structured
-   telemetry unavailable. Do not retry a broader query.
+5. Use the structured telemetry in that validated history page, preserving its
+   availability and attribution fields. Missing telemetry remains unavailable;
+   do not infer zero or retry a broader query. Do not invoke retired adapters.
 6. Call `dks_context` for the highest-value architecture question with one
    attempt. On lock contention, timeout, or unavailability, record the failure
    class and use fixed-commit source. Never bypass the quality lock.

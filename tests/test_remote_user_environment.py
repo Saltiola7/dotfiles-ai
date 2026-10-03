@@ -279,6 +279,7 @@ def _install_foundation_targets(tmp_path: Path, state: str = "auth_pending") -> 
         "herdr": "herdr 0.8.2",
         "op": "2.39.0",
         "opencode": "1.18.25",
+        "wt": "wt v0.80.0",
     }
     for name, version in versions.items():
         path = binary / name
@@ -434,6 +435,16 @@ def test_foundation_refresh_auth_rejects_malformed_runtime_version_before_probe(
 
     result = _foundation(tmp_path, "refresh-auth")
 
+    assert result.returncode != 0
+    assert json.loads(state_path.read_text())["state"] == "failed_retryable"
+    assert not marker.exists()
+
+
+def test_foundation_requires_worktrunk_before_auth_readiness(tmp_path: Path) -> None:
+    home, state_path = _refreshable_foundation(tmp_path)
+    marker = _install_foundation_targets(tmp_path, "ready")
+    (home / ".local/bin/wt").unlink()
+    result = _foundation(tmp_path, "refresh-auth")
     assert result.returncode != 0
     assert json.loads(state_path.read_text())["state"] == "failed_retryable"
     assert not marker.exists()

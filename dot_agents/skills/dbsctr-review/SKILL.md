@@ -13,11 +13,11 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
 
 ## Scan
 
-1. Call `dbsctr_incident_scan` with global scope. Present its sections in this
-   exact order: Registered Incidents, Incident Signals, then Review Candidates.
-   Keep recovered Signals below unrecovered Signals. Do not promote, dismiss,
-   update, resolve, or forget Incident state during ordinary review.
-2. Call `dbsctr_review` for the first Review Candidates page and retain its `snapshot`, session
+1. Use `dbsctrctl incident-scan --summary-only` for bounded Incident metadata.
+   Detailed Incident Evidence remains unavailable until native invocation is
+   independently qualified; never substitute raw files or supplied session IDs.
+   Do not promote, dismiss, update, resolve, or forget Incident state during review.
+2. Call `dbsctrctl review-scan` for the first Review Candidates page and retain its `snapshot`, session
    ceiling, part ceiling, database digest, and exclusion digest. Pass that same snapshot and both row ceilings,
    plus both digests, with
    every continuation until it is empty. Continue when a page
@@ -30,9 +30,8 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
    treat dormant attention as lifecycle authority. Candidates without a matched
    Cycle Record are unknown. Never infer state from session prose. Treat
    cross-cycle cost attribution as a caveat.
-4. Use only returned sanitized metadata. Incident Evidence is the sole exception:
-   use only the bounded credential-redacted evidence returned by the typed
-   Incident scan. Do not quote, copy, or persist a raw
+4. Use only returned sanitized metadata. Current CLI mode grants no private
+   Incident Evidence exception. Do not quote, copy, or persist a raw
    transcript or raw transcript excerpt, tool payload, machine path, email
    address, credential, or URL.
 5. Rank findings by correctness and safety, then latency and cost, then
@@ -42,7 +41,7 @@ repository artifacts, cycle status, gates, code, or backlogs during review.
 
 ## Complete
 
-After the full report is successfully formed, call `dbsctr_review_complete` for
+After the full report is successfully formed, call `dbsctrctl review-complete` for
 each scan page with that page's exact session IDs, cycle IDs, digest, snapshot,
 row ceilings, database digest, exclusion digest, limit, and cursor plus the
 concise structured findings. Each permission-gated operation
@@ -59,13 +58,13 @@ ordinary operational and historical scans never invoke them.
 ## History and replay
 
 Privacy boundary: no mode argument means the unreviewed operational inbox. A history request calls
-`dbsctr_review_history`, defaults to the latest 100 including reviewed sessions,
+`dbsctrctl review-history`, defaults to the latest 100 including reviewed sessions,
 and follows its continuation with the same snapshot, row ceilings, and database
 digest. Use composable filters only to narrow sanitized metadata and allowlisted
 aggregate counts. Never request or reconstruct raw transcript,
 tool payload, path, URL, command argument, or prose from history.
 
-`dbsctr_review_history_save` is a standing local write: save only a named,
+`dbsctrctl review-history-save` is a standing local write: save only a named,
 versioned rubric and a strict sanitized cohort after review. Pass the history
 digest, snapshot, both row ceilings, and database digest so still-live evidence
 can be revalidated and backfilled without raw content. It stores immutable
@@ -74,7 +73,7 @@ not mutate reviewed tombstones. Builders are denied history save and all direct
 helper forms. `review-forget` removes session evidence and dependent cohorts and
 reports. Malformed history state fails closed.
 
-A replay request calls `dbsctr_review_history` with the saved report ID and
+A replay request calls `dbsctrctl review-history` with the saved report ID and
 uses only that report ID plus its cursor for continuation. It evaluates the exact
 immutable cohort under the new named rubric version, never substitutes a fresh
 query, and never changes operational inbox tombstones.
@@ -83,6 +82,17 @@ Completion is not approval. Every proposed fix requires user approval and a
 separate DBSCTR cycle. Never perform automatic remediation.
 
 ## Report
+
+Invoke only the qualified CLI through native permissions, using its documented
+argument vector and JSON schemas. Do not guess current session/message identity
+or borrow historical attribution. If self-exclusion cannot be independently
+bound, report it unavailable instead of claiming complete review-session isolation.
+The retired federated/lens custom tools are not local history commands; report
+those capabilities unavailable until their native CLI projection is qualified.
+Federated provider-evaluation saving also remains unavailable: supplied receipt
+digests cannot replace the retired capture-authority boundary. Existing reports
+remain subject to their CLI privacy/quarantine checks. Owner: project maintainers;
+restore saving only after qualifying capture provenance and single-use authority.
 
 Return ranked findings, scorecards, trends, caveats, reviewed identifiers by
 count, completion status, and separately approvable cycle proposals. Raw local

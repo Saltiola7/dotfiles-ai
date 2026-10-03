@@ -72,6 +72,95 @@ large histories or guest conversion. Those remain explicit rehearsal inputs.
 
 ## Source findings still requiring qualification
 
+### Custom-tool permission boundary
+
+Additional isolated native checks confirmed that a direct custom tool registered
+with options.permission and a matching effective ask rule executed without a
+native approval request. A corresponding deny-all rule prevented execution.
+The published tool runtime filters wholly disabled tools but does not itself
+call Permission.assert for arbitrary custom-tool execution. Native built-in
+tools perform their own permission assertion.
+
+Calling the registered native question tool from a custom tool successfully
+created a session-bound form. A scripted reply on the synthetic session API
+completed that fixture; noninteractive run cancelled without approving it.
+This proves a consent transport, not evaluation of arbitrary DBSCTR permission
+actions or organization policy.
+
+An isolated Effect plugin using the version-matched published core permission
+service failed to load with Service not found: @opencode/Permission. The tested
+plugin environment does not expose that service. Dependencies were staged only
+in disposable research storage; installed configuration was not changed.
+
+The upstream native MCP tool implementation does call Permission.assert for
+each tool action and has the native session/message/call context. A managed
+local MCP transport is therefore a candidate supported route, but needs an
+explicit scope decision and native qualification of identity, action names,
+policy, cancellation and exact-state consent. Do not recreate internal permission
+semantics ad hoc or treat an ask rule as enforced without a native test.
+
+The control-plane slice remains unready until that boundary is resolved. This is
+an authorization blocker, not one of the ordinary deferred functional gaps.
+
+### Minimal transport comparison — 2026-10-02
+
+Operator authorized comparing a direct-plugin approval bridge with a minimal
+local MCP proof, selecting only a route that preserves required controls with
+less maintained code. Skills and the lifecycle helper remain in both options.
+
+Checksum-verified V2.0.21 ran against isolated synthetic homes, databases and a
+loopback scripted provider. A disposable 30-line Python stdio MCP fixture used
+only the standard library; it recorded synthetic requests, never invoked the
+lifecycle helper. Five assertion-backed native cases passed their expected
+observations:
+
+| Case | Observation | Qualification consequence |
+| --- | --- | --- |
+| Direct tool, ask | Executed without a permission evaluation callback | Native policy gap reproduced |
+| Direct tool, blanket deny | Tool executor not reached | Blanket deny works, not full policy qualification |
+| MCP, allow | Exactly one request reached fixture | Basic transport works |
+| MCP, ask, headless | Native permission requested and auto-rejected; zero server calls | Native permission enforcement confirmed |
+| MCP, deny | Zero server calls | Denial confirmed |
+
+The allowed MCP request contained empty arguments and metadata keys exactly
+`ai.opencode/sessionID` and `progressToken`. It did not convey native assistant
+message ID, native tool call ID or agent. JSON-RPC request ID and progress token
+are transport identifiers, not substitutes for the helper's native call identity.
+The direct plugin retained sessionID, messageID, id and agent. Its explicit
+native-question bridge was additionally rechecked headless: cancellation produced
+an error and no approved event. Earlier positive synthetic form evidence remains
+valid, but a question is not evaluation of the custom permission action.
+
+Selection: neither minimal route qualifies. Stop at these mandatory-control
+failures rather than invent policy evaluation or accept model-supplied identity.
+No claim is made for stale-approval, replay, restart, concurrent-session isolation
+or positive MCP approval: those qualification cases were not run after the early
+failures. Native MCP elicitation also remains location-scoped per upstream source.
+
+Maintenance comparison is structural, not a production line-count estimate:
+direct integration needs a supported native permission assertion plus the existing
+exact-state consent binding. MCP additionally needs protocol/process support and
+a trusted message/call identity bridge, while continuation hooks remain necessary.
+Prefer a supported upstream direct-plugin permission API as the smallest target;
+the tested stock release does not supply it. Do not select an MCP rewrite solely
+because the disposable transport fixture is short. A hybrid identity bridge or
+upstream patch needs separately specified and qualified behavior before readiness.
+
+Research setup corrections: V2 configuration nests servers under `mcp.servers`;
+the fixture warms the same location before testing its catalog and selects an
+isolated service port. Earlier missing-tool results and service-port timeouts
+were setup failures, not evidence of authorization behavior. Final assertion
+cases used the corrected setup and stopped their isolated services.
+
+### Core delivery
+
+The source-only lifecycle native-authority slice merged through pull request 192
+at `026050f1f84a4a59df02cf80db870a83aa84d07a` after required Python 3.12/3.13/3.14
+CI passed. Focused evidence includes 211 affected tests, nine additional native
+activation/runtime tests, 73 Python 3.12 checks and persisted identity/completion
+checks against generated native V2 storage. Installed helper and V2 deployment
+remain unchanged pending the control-plane and rollout gates.
+
 - The V2 shell tool supports backgrounding, including an interactive transition
   of foreground work. A completed tool result can report a still-running shell;
   writer authority must not transfer on that result alone.

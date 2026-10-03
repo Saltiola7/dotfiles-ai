@@ -1,3 +1,9 @@
+"""Retained scheduler/storage seams and the current fail-closed CLI boundary.
+
+Direct internal-function fixtures do not qualify native worker identity or
+authorize launch. Public spawn/watchdog/launch must refuse without changing
+retained state until that independent native route is qualified.
+"""
 import concurrent.futures
 import fcntl
 import json
@@ -7,6 +13,8 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 
@@ -97,6 +105,25 @@ def test_runtime_selector_does_not_activate_worker_routing():
     ))
     for forbidden in ("codex login", "OPENAI_API_KEY", "auth.json", "thread/resume"):
         assert forbidden not in distribution
+
+
+@pytest.mark.parametrize("action", ["spawn", "watchdog", "launch"])
+def test_native_transition_refuses_identity_dependent_worker_launches(tmp_path, action):
+    script = tmp_path / "dbsctr-rnd"
+    script.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl"))
+    state = tmp_path / "preserved.sqlite3"
+    state.write_bytes(b"SYNTHETIC_PRESERVED_SCHEDULER")
+    env = {**os.environ, "DBSCTR_RND_STATE": str(state),
+           "DBSCTR_RND_LOCK": str(tmp_path / "uncreated.lock"),
+           "DBSCTRCTL": str(tmp_path / "unavailable-helper"),
+           "HERDR": str(tmp_path / "unavailable-herdr"), "OPENCODE_BIN": str(tmp_path / "unavailable-runtime")}
+    result = subprocess.run([sys.executable, str(script), action], cwd=tmp_path,
+                            env=env, text=True, capture_output=True, timeout=10)
+    assert result.returncode != 0
+    assert "native_automation_identity_unavailable" in result.stderr
+    assert not result.stdout
+    assert state.read_bytes() == b"SYNTHETIC_PRESERVED_SCHEDULER"
+    assert not (tmp_path / "uncreated.lock").exists()
 
 
 def test_rnd_expands_machine_local_herdr_path():
@@ -293,111 +320,11 @@ def test_herdr_history_rejects_symlink_source(tmp_path):
     assert "source is unsafe" in result.stderr
 
 
-def test_runner_bounds_dependency_commands(tmp_path):
-    script = tmp_path / "dbsctr-rnd"
-    script.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl"))
-    script.chmod(0o755)
-    sleeper = tmp_path / "dbsctrctl"
-    sleeper.write_text("#!/bin/sh\nsleep 1\n")
-    sleeper.chmod(0o755)
-    result = subprocess.run(
-        [str(script), "watchdog"], text=True, capture_output=True, timeout=2,
-        env={**os.environ, "DBSCTRCTL": str(sleeper), "DBSCTR_RND_COMMAND_TIMEOUT": "0.05",
-             "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock"),
-             "DBSCTR_RND_STATE": str(tmp_path / "state.sqlite3")},
-    )
-    assert result.returncode != 0
-    assert "timed out" in result.stderr
-
-
-def test_spawn_creates_single_pane_worker_and_registers_exact_session(tmp_path):
-    workdir = tmp_path / "source"
-    workdir.mkdir()
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "commands.log"
-    herdr = bin_dir / "herdr"
-    dbsctrctl = bin_dir / "dbsctrctl"
-    opencode = bin_dir / "opencode"
-    herdr.write_text(
-        "#!/bin/sh\n"
-        "printf 'herdr %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
-        "case \"$1 $2\" in\n"
-        "  'workspace list') printf '%s\\n' '{\"result\":{\"workspaces\":[]}}';;\n"
-        "  'workspace create') printf '%s\\n' '{\"result\":{\"workspace\":{\"workspace_id\":\"w7\"}}}';;\n"
-        "  'tab create') printf '%s\\n' '{\"result\":{\"root_pane\":{\"tab_id\":\"w7:t0\",\"pane_id\":\"w7:p0\"},\"tab\":{\"tab_id\":\"w7:t0\"}}}';;\n"
-        "  'agent start') printf '%s\\n' '{\"result\":{\"pane_id\":\"w7:p9\"}}';;\n"
-        "  'pane move') printf '%s\\n' '{\"result\":{\"move_result\":{\"created_tab\":{\"tab_id\":\"w7:t9\"},\"previous_tab_id\":\"w7:t0\"}}}';;\n"
-        "  'pane list') printf '%s\\n' '{\"result\":{\"panes\":[{\"tab_id\":\"w7:t0\",\"pane_id\":\"w7:p0\"},{\"tab_id\":\"w7:t9\",\"pane_id\":\"w7:p9\"}]}}';;\n"
-        "  'pane process-info') printf '%s\\n' '{\"result\":{\"process_info\":{\"foreground_processes\":[{\"argv\":[\"opencode\",\"run\",\"--agent\",\"build\",\"--command\",\"dbsctr-improve\",\"--interactive\"]}]}}}';;\n"
-        "  'agent list') printf '%s\\n' '{\"result\":{\"agents\":[{\"pane_id\":\"w7:p9\",\"agent_session\":{\"value\":\"ses_test\"},\"agent_status\":\"working\"}]}}';;\n"
-        "  'tab close') printf '%s\\n' '{\"result\":{}}';;\n"
-        "esac\n"
-    )
-    herdr.write_text(herdr.read_text().replace('"--agent","build"', '"--agent","build-rnd"'))
-    dbsctrctl.write_text(
-        "#!/bin/sh\nprintf 'dbsctrctl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
-        "if [ \"$1\" = improvement-status ]; then printf '%s\\n' '{\"workers\":[]}'; "
-        "else printf '{\"worker_id\":\"%s\",\"session_id\":\"%s\",\"state\":\"reviewing\"}\\n' \"$3\" \"$5\"; fi\n"
-    )
-    opencode.write_text(
-        "#!/bin/sh\nif [ -f \"$SESSION_SEEN\" ]; then "
-        f"printf '%s\\n' '[{{\"id\":\"ses_fallback\",\"directory\":\"{workdir}\"}}]'; "
-        "else touch \"$SESSION_SEEN\"; printf '[]\\n'; fi\n"
-    )
-    herdr.chmod(0o755)
-    dbsctrctl.chmod(0o755)
-    opencode.chmod(0o755)
-    runner = tmp_path / "dbsctr-rnd"
-    runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
-    assert 'DBSCTR_RND_SESSION_POLLS", "240"' in runner.read_text()
-    env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
-           "OPENCODE_BIN": str(opencode), "COMMAND_LOG": str(log),
-           "SESSION_SEEN": str(tmp_path / "session-seen"),
-           "DBSCTR_RND_STATE": str(tmp_path / "scheduler.sqlite3")}
-    completed = subprocess.run(["python3", str(runner), "spawn"], env=env, text=True, capture_output=True, check=True)
-    worker_id = json.loads(completed.stdout)["worker_id"]
-    assert worker_id.startswith("dbsctr-")
-    commands = log.read_text()
-    assert "opencode run --agent build-rnd --command dbsctr-improve --interactive" in commands
-    assert "--env DBSCTR_RND_WORKER_ID=dbsctr-" in commands
-    assert "pane move w7:p9 --new-tab" in commands
-    assert "tab close w7:t0" in commands
-    assert "improvement-register" in commands
-    assert "--session-id ses_test --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
-    connection = sqlite3.connect(env["DBSCTR_RND_STATE"])
-    assert connection.execute("select worker_id from spawn_reservations").fetchone() == (worker_id,)
-    connection.close()
-    no_identity = herdr.read_text().replace(
-        '{"pane_id":"w7:p9","agent_session":{"value":"ses_test"},"agent_status":"working"}',
-        '{"pane_id":"w7:p9","agent_status":"working"}',
-    )
-    herdr.write_text(no_identity)
-    Path(env["SESSION_SEEN"]).unlink(missing_ok=True)
-    failed = bin_dir / "dbsctrctl-fail"
-    failed.write_text(
-        "#!/bin/sh\n[ \"$1\" = improvement-status ] && { printf '%s\\n' '{\"workers\":[]}'; exit 0; }\nexit 1\n"
-    )
-    failed.chmod(0o755)
-    rejected = subprocess.run(
-        ["python3", str(runner), "spawn"],
-        env={**env, "DBSCTRCTL": str(failed),
-             "DBSCTR_RND_STATE": str(tmp_path / "failed-scheduler.sqlite3")},
-        text=True, capture_output=True,
-    )
-    assert rejected.returncode != 0
-    assert log.read_text().count("tab close w7:t9") == 1
-    empty = bin_dir / "opencode-empty"
-    empty.write_text("#!/bin/sh\nexit 0\n")
-    empty.chmod(0o755)
-    timed_out = subprocess.run(
-        ["python3", str(runner), "spawn"],
-        env={**env, "OPENCODE_BIN": str(empty), "DBSCTR_RND_SESSION_POLLS": "1",
-             "DBSCTR_RND_STATE": str(tmp_path / "timeout-scheduler.sqlite3")},
-        text=True, capture_output=True,
-    )
-    assert timed_out.returncode != 0
-    assert log.read_text().count("tab close w7:t9") == 2
+def test_runner_bounds_dependency_commands(tmp_path, monkeypatch):
+    monkeypatch.setenv("DBSCTR_RND_COMMAND_TIMEOUT", "0.05")
+    namespace, _ = load_runner(tmp_path, monkeypatch, "bounded-command")
+    with pytest.raises(RuntimeError, match="timed out"):
+        namespace["command"]([sys.executable, "-c", "import time; time.sleep(1)"])
 
 
 def test_watchdog_leaves_live_discovery_worker_untouched(tmp_path):
@@ -423,26 +350,25 @@ def test_watchdog_leaves_live_discovery_worker_untouched(tmp_path):
     lock = tmp_path / "watchdog.lock"
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
            "COMMAND_LOG": str(log), "DBSCTR_RND_LOCK": str(lock)}
-    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout) == {"events": []}
-    commands = log.read_text()
-    assert "improvement-recover" not in commands
-    assert "agent start" not in commands
+    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert completed.returncode != 0 and not completed.stdout
+    assert "native_automation_identity_unavailable" in completed.stderr
+    assert not log.exists()
     herdr.write_text(
         "#!/bin/sh\nprintf 'herdr %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "printf '%s\\n' '{\"result\":{\"agents\":[{\"agent_session\":{\"value\":\"ses_1\"},\"agent_status\":\"unknown\"}]}}'\n"
     )
     unknown = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
     assert unknown.returncode != 0
-    assert json.loads(unknown.stdout)["events"][0]["status"] == "unknown"
-    assert "improvement-update --worker-id worker-1 --state blocked" in log.read_text()
+    assert "native_automation_identity_unavailable" in unknown.stderr
+    assert not unknown.stdout and not log.exists()
     with lock.open("a+") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        duplicate = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(duplicate.stdout)["status"] == "already_running"
+        duplicate = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert duplicate.returncode != 0 and "native_automation_identity_unavailable" in duplicate.stderr
 
 
-def test_watchdog_recovers_only_missing_exact_session(tmp_path):
+def test_watchdog_does_not_recover_from_legacy_session_hints(tmp_path):
     workdir = tmp_path / "source"
     workdir.mkdir()
     bin_dir = tmp_path / "bin"
@@ -476,15 +402,13 @@ def test_watchdog_recovers_only_missing_exact_session(tmp_path):
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
            "COMMAND_LOG": str(log), "STARTED": str(marker),
            "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock")}
-    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout)["events"][0]["status"] == "recovered"
-    commands = log.read_text()
-    assert f"opencode --mini {workdir} -s ses_1 --agent build-rnd --no-replay" in commands
-    assert "improvement-update --worker-id worker-1 --state reviewing --workspace-id w7 --tab-id w7:t9 --pane-id w7:p9" in commands
-    assert "improvement-recover --worker-id worker-1 --action success" in commands
+    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert completed.returncode != 0 and not completed.stdout
+    assert "native_automation_identity_unavailable" in completed.stderr
+    assert not log.exists() and not marker.exists()
 
 
-def test_watchdog_exits_nonzero_for_degraded_worker(tmp_path):
+def test_watchdog_does_not_reclassify_degraded_worker(tmp_path):
     workdir = tmp_path / "source"
     workdir.mkdir()
     bin_dir = tmp_path / "bin"
@@ -512,10 +436,10 @@ def test_watchdog_exits_nonzero_for_degraded_worker(tmp_path):
         text=True, capture_output=True,
     )
     assert completed.returncode != 0
-    assert json.loads(completed.stdout) == {"events": [{"worker_id": "worker-1", "status": "blocked"}]}
+    assert not completed.stdout and "native_automation_identity_unavailable" in completed.stderr
 
 
-def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
+def test_watchdog_cannot_adopt_from_resumed_argv_hints(tmp_path):
     workdir = tmp_path / "source"
     workdir.mkdir()
     bin_dir = tmp_path / "bin"
@@ -541,9 +465,9 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
     runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl),
            "COMMAND_LOG": str(log), "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock")}
-    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout) == {"events": []}
-    assert "improvement-recover" not in log.read_text()
+    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert completed.returncode != 0 and "native_automation_identity_unavailable" in completed.stderr
+    assert not completed.stdout and not log.exists()
     exact = herdr.read_text()
     variants = (
         exact.replace('["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","build-rnd","--no-replay"]', '["opencode","--mini","' + str(workdir) + '","-s","ses_1","--agent","plan","--no-replay"]'),
@@ -565,10 +489,11 @@ def test_watchdog_adopts_only_exact_resumed_argv(tmp_path):
             text=True, capture_output=True,
         )
         assert ambiguous.returncode != 0
-        assert json.loads(ambiguous.stdout)["events"][0]["status"] == "ambiguous"
+        assert "native_automation_identity_unavailable" in ambiguous.stderr
+        assert not ambiguous.stdout and not log.exists()
 
 
-def test_watchdog_records_human_pr_outcome(tmp_path):
+def test_unqualified_watchdog_does_not_change_recorded_pr_outcome(tmp_path):
     workdir = tmp_path / "source"
     workdir.mkdir()
     bin_dir = tmp_path / "bin"
@@ -595,12 +520,9 @@ def test_watchdog_records_human_pr_outcome(tmp_path):
     runner.write_text(render("dot_local/bin/executable_dbsctr-rnd.tmpl", values(review_workdir=str(workdir))))
     env = {**os.environ, "HERDR": str(herdr), "DBSCTRCTL": str(dbsctrctl), "GH": str(gh),
            "COMMAND_LOG": str(log), "DBSCTR_RND_LOCK": str(tmp_path / "watchdog.lock")}
-    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(completed.stdout) == {"events": []}
-    commands = log.read_text()
-    assert "improvement-update --worker-id worker-1 --state merged" in commands
-    assert "gh pr view" in commands and "token=set" in commands
-    assert "secret-token" not in commands
+    completed = subprocess.run(["python3", str(runner), "watchdog"], env=env, text=True, capture_output=True)
+    assert completed.returncode != 0 and "native_automation_identity_unavailable" in completed.stderr
+    assert not completed.stdout and not log.exists()
 
 
 def load_runner(tmp_path, monkeypatch, name):
@@ -1523,7 +1445,7 @@ def test_installed_opencode_supports_pure_session_json():
     assert completed.stdout == "" or isinstance(json.loads(completed.stdout), list)
 
 
-def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp_path):
+def test_unqualified_launch_preserves_reservation_and_never_starts_process(tmp_path):
     repository = tmp_path / "project"
     backlog = repository / "docs/specs/example/BACKLOG.md"
     backlog.parent.mkdir(parents=True)
@@ -1598,76 +1520,16 @@ def test_direct_launch_e2e_uses_pure_session_cli_and_cleans_failed_preflight(tmp
     repository_id = json.loads(subprocess.run(
         [str(runner), "repositories"], env=env, text=True, capture_output=True, check=True,
     ).stdout)["repositories"][0]["repository_id"]
+    before = state.read_bytes()
+    previous_commands = command_log.read_text()
     launched = subprocess.run([
         str(runner), "--reservation", reserved["reservation"],
         "--worker-id", reserved["worker_id"], "--repository-id", repository_id, "launch",
-    ], env=env, text=True, capture_output=True, check=True)
-    assert json.loads(launched.stdout) == {
-        "session_id": "ses_e2e", "status": "started", "worker_id": reserved["worker_id"],
-    }
-    commands = command_log.read_text()
-    assert "opencode session list --pure --format json -n 100" in commands
-    assert f"improvement-register --worker-id {reserved['worker_id']} --session-id ses_e2e" in commands
-    successful_pid = int(pid_file.read_text())
-    os.kill(successful_pid, 0)
-    os.killpg(successful_pid, 15)
-
-    failed_state = tmp_path / "failed.sqlite3"
-    failed_env = {**env, "DBSCTR_RND_STATE": str(failed_state), "SESSION_LIST_MODE": "invalid"}
-    failed_reservation = json.loads(subprocess.run(
-        [str(runner), "reserve"], env=failed_env, text=True, capture_output=True, check=True,
-    ).stdout)
-    failed = subprocess.run([
-        str(runner), "--reservation", failed_reservation["reservation"],
-        "--worker-id", failed_reservation["worker_id"], "--repository-id", repository_id, "launch",
-    ], env=failed_env, text=True, capture_output=True)
-    assert failed.returncode != 0
-    assert "returned invalid JSON" in failed.stderr
-    connection = sqlite3.connect(failed_state)
-    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
-    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
-    connection.close()
-
-    setup_failure_dir = tmp_path / "setup-failure"
-    setup_failure_dir.mkdir()
-    setup_state = setup_failure_dir / "scheduler.sqlite3"
-    setup_env = {**env, "DBSCTR_RND_STATE": str(setup_state)}
-    setup_reservation = json.loads(subprocess.run(
-        [str(runner), "reserve"], env=setup_env, text=True, capture_output=True, check=True,
-    ).stdout)
-    (setup_failure_dir / "launches").write_text("not a directory")
-    setup_failed = subprocess.run([
-        str(runner), "--reservation", setup_reservation["reservation"],
-        "--worker-id", setup_reservation["worker_id"], "--repository-id", repository_id, "launch",
-    ], env=setup_env, text=True, capture_output=True)
-    assert setup_failed.returncode != 0
-    connection = sqlite3.connect(setup_state)
-    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
-    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
-    connection.close()
-
-    session_marker.unlink()
-    failed_state = tmp_path / "failed-after-start.sqlite3"
-    failed_env = {**env, "DBSCTR_RND_STATE": str(failed_state), "REGISTER_MODE": "invalid"}
-    failed_reservation = json.loads(subprocess.run(
-        [str(runner), "reserve"], env=failed_env, text=True, capture_output=True, check=True,
-    ).stdout)
-    failed = subprocess.run([
-        str(runner), "--reservation", failed_reservation["reservation"],
-        "--worker-id", failed_reservation["worker_id"], "--repository-id", repository_id, "launch",
-    ], env=failed_env, text=True, capture_output=True)
-    assert failed.returncode != 0
-    failed_pid = int(pid_file.read_text())
-    try:
-        os.kill(failed_pid, 0)
-    except ProcessLookupError:
-        pass
-    else:
-        raise AssertionError("failed direct-launch process was not reaped")
-    connection = sqlite3.connect(failed_state)
-    assert connection.execute("select count(*) from spawn_reservations").fetchone() == (0,)
-    assert connection.execute("select count(*) from lens_attempts").fetchone() == (0,)
-    connection.close()
+    ], env=env, text=True, capture_output=True)
+    assert launched.returncode != 0 and not launched.stdout
+    assert "native_automation_identity_unavailable" in launched.stderr
+    assert state.read_bytes() == before and command_log.read_text() == previous_commands
+    assert not session_marker.exists() and not pid_file.exists()
 
 
 def test_effects_finalize_once_and_drive_monthly_cadence(tmp_path, monkeypatch, capsys):

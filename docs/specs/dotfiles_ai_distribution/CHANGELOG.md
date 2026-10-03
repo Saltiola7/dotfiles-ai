@@ -1,5 +1,20 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-03 — Native workspace source transition
+
+- Declared Worktrunk, native Bash integration and the blocking managed-user removal
+  hook. Linux installers use checksum-pinned 0.80.0 archives; lsof/xz prerequisites
+  fail before service changes. Remote foundation readiness verifies Worktrunk.
+- Added narrow DVC/bootstrap and foreground-launch helpers. Retired only named
+  source-owned adapter executables/modules; private ledgers and archives are excluded.
+- Updated native updater capability checks and CI prerequisites. V2 distribution
+  surface conversion remains a separate slice; validator-5 is not V2 qualification.
+- Passing evidence includes portable/Lima/remote-user rendering and regression,
+  native Worktrunk/DVC checks, permission primitives and Python compilation.
+  Gate Commit `b14db1e`; Gate Exceptions: none. Dependabot alerts remain unavailable.
+- Source-only draft delivery into main. No production apply, service restart,
+  data/cache consolidation or conversation migration was performed in this cycle.
+
 ## 2026-09-27 — HOST-RUNTIME-ROLLOUT
 
 - Applied the approved Astra/Sol/Luna and Vertex Opus 5.5 routes, machine model

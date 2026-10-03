@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only replacement; no published runtime artifact."},
+    "deploy": {"applicability": "not_applicable", "reason": "Managed rollout and existing-work migration require separate native and fleet qualification."},
+    "operate": {"applicability": "not_applicable", "reason": "No active sessions, services or production caches are changed by this source slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

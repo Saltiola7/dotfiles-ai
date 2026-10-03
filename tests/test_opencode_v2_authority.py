@@ -7,7 +7,6 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
-from test_dbsctr_continuation import cycle, call, enroll
 
 SOURCE = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
 ACTIVATION = {"schema_version": 1, "core_revision": "3.31", "overlays": {
@@ -230,43 +229,19 @@ def test_foreign_session_cannot_finish(native):
              "operation_class": "file", "completion_class": None}, "actor")
 
 
-def convert_cycle_fixture(cycle):
-    with sqlite3.connect(cycle.native_database) as db:
-        db.executescript("""
-            CREATE TABLE session_v2 AS SELECT id,parent_id,agent FROM session;
-            CREATE TABLE session_message(id TEXT PRIMARY KEY,session_id TEXT,type TEXT,seq INTEGER,data TEXT);
-            CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT);
-            INSERT INTO kv VALUES ('migration.v1-v2','{"phase":"completed"}');
-        """)
-        for seq, (identifier, session, raw, actor) in enumerate(db.execute(
-                "SELECT m.id,m.session_id,m.data,s.agent FROM message m JOIN session s ON s.id=m.session_id").fetchall()):
-            model = json.loads(raw)["model"]
-            body = {"agent": actor, "model": {"id": model["modelID"], "providerID": model["providerID"]},
-                    "content": [{"type": "tool", "id": "fixture", "name": "write", "state": {"status": "running"},
-                                 "time": {"created": 1}}]}
-            db.execute("INSERT INTO session_message VALUES (?,?, 'assistant',?,?)", (identifier, session, seq, json.dumps(body)))
-        db.execute("UPDATE session_v2 SET agent=NULL WHERE agent='build'")
-
-
-def test_v2_continuation_admission_waits_for_persisted_completion(cycle):
-    convert_cycle_fixture(cycle)
-    before = cycle.record_path().read_bytes()
-    assert enroll(cycle)["state"] == "owned"
-    key = "v2_" + hashlib.sha256(b"owner-old\0fixture").hexdigest()
-    admitted = call(cycle, "admit", generation=1, call_id=key, operation_class="file")
-    rejected = call(cycle, "finish", operation_id=admitted["operation_id"], outcome="completed", ok=False)
-    assert rejected["reason"] == "invalid_state"
-    with sqlite3.connect(cycle.native_database) as db:
-        db.execute("UPDATE session_message SET data=json_set(data,'$.content[0].state.status','completed',"
-                   "'$.content[0].time.completed',2) WHERE id='owner-old'")
-    assert call(cycle, "finish", operation_id=admitted["operation_id"], outcome="completed")["ok"]
-    assert cycle.record_path().read_bytes() == before
-    with sqlite3.connect(cycle.continuation_path) as db:
-        assert db.execute("SELECT state,completion_class FROM operations").fetchall() == [("completed", "native_completion")]
-
-
-def test_v2_child_and_plan_cannot_gain_writer_authority(cycle):
-    convert_cycle_fixture(cycle)
-    assert call(cycle, session_id="child", message_id="child-old", ok=False)["reason"] == "invalid_identity"
-    assert call(cycle, session_id="plan", message_id="plan-old")["next_action"] == "switch_to_build"
-    assert not cycle.continuation_path.exists()
+@pytest.mark.parametrize("actor", ["build", "plan", "child"])
+def test_v2_evidence_does_not_reactivate_retired_admission(native, actor):
+    core, database = native
+    before = database.read_bytes()
+    payload = {"schema_version": 1, "session_id": "owner", "message_id": "message",
+               "harness_activation": ACTIVATION, "agent": actor}
+    response = core.subprocess.run(
+        [core.sys.executable, str(SOURCE), "continuation-enroll", "--request-json", "-"],
+        input=json.dumps(payload), cwd=database.parent, text=True, capture_output=True,
+        env={"HOME": str(database.parent), "PATH": "/usr/bin:/bin",
+             "XDG_DATA_HOME": str(database.parent / "data"), "XDG_STATE_HOME": str(database.parent / "state")},
+        timeout=10,
+    )
+    assert response.returncode == 1 and "commands are retired" in response.stderr
+    assert not response.stdout
+    assert database.read_bytes() == before

@@ -12,9 +12,10 @@ verified targets. The operator lifted the prior guest deferral for this scope.
 Additional unregistered machines are excluded. Preserve guest-local credentials
 and history; never copy host state into guests as an upgrade shortcut.
 
-Use the existing initiative and three existing contexts. Lifecycle owns native
-identity/history and writer-authority compatibility; OpenCode control plane owns
-plugins, tools, models, agents, permissions and commands; distribution owns
+Use the existing initiative and approved lifecycle, OpenCode control-plane,
+Codex control-plane and distribution contexts. Lifecycle owns CLI registration,
+evidence gates and in-place adoption; each harness owns native sessions,
+models, agents, permissions and commands; distribution owns
 verified artifacts, wrappers, service/state-root integration, provisioning,
 Desktop installation, Herdr recovery, fleet cutover and retirement.
 
@@ -27,7 +28,7 @@ block activation. No fork or replacement lifecycle is approved.
 ## Engineering profile and authority
 
 Reuse the committed PROFILE.md files in dbsctr_v3_lifecycle,
-opencode_control_plane and dotfiles_ai_distribution, and the existing
+opencode_control_plane, codex_control_plane and dotfiles_ai_distribution, and the existing
 distribution PRODUCT.md. Risk is critical: native authority, live history and
 fleet availability are affected. Modules: Python, Security, Data, Cloud, ML/AI.
 Delivery is reviewed draft pull requests followed by qualified controlled deploy.
@@ -58,11 +59,14 @@ download succeeded and the checksum matched. This is surface evidence only.
 V2 help explicitly states that --session can create a missing session: recovery
 must positively verify V2 history before resume, never trust a retained V1 row.
 
-The V2 public tool hook contract carries sessionID, agent, messageID and call id;
+Historical adapter investigation: the V2 public tool hook contract carries sessionID, agent, messageID and call id;
 execute.after distinguishes completed and error results. The shell create.before
 contract has command/cwd/timeout/shell/env but no session or call identity. Native
 operation correlation across that boundary remains unqualified; do not infer it
-from a global last-call variable or silently disable writer enforcement.
+from a global last-call variable. The approved replacement retires the custom
+per-tool continuation contract instead of recreating it through another transport.
+Native shell permissions and checkout validation remain required; plain CLI
+invocation does not provide authenticated message/call identity.
 
 The released native migration copies session IDs into session_v2, transforms
 message/compaction representation, clears legacy per-session permission values,
@@ -88,10 +92,13 @@ per-session context and boundary-local data-root qualification, including Deskto
   transformation is reconciled against original evidence; unexplained message
   loss prevents normal work from being admitted.
 - Given a migrated session, when it resumes, its native ID, project association,
-  provider affinity, selected worktree and validated writer authority remain
-  correct. Retained V1 rows never substitute for current V2 native evidence.
-- Given a denied tool, child session or stale writer, when V2 executes a request,
-  equivalent denial is enforced across all qualified entry paths.
+  provider affinity and native worktree remain correct. Retained V1 rows never
+  substitute for current V2 native evidence. CLI actor attribution may be
+  unavailable and must not be invented.
+- Given a denied native action or read-only role, execution remains restricted
+  by native permissions/sandboxing. Worktrunk and the launch-time busy check do
+  not replace that security boundary. Legacy writer leases are retired only by
+  explicit in-place adoption after quiescence, retaining uncertain evidence.
 - Given multiple projects using one server, each operation resolves its own
   session/project context rather than the plugin initialization directory.
 - Given missing external storage, startup fails closed instead of creating an
@@ -125,11 +132,20 @@ maintenance operation is separately approved and bounded.
 | v2-cli-surface-probe | opencode_control_plane | none | build |
 | v2-qualification | opencode_control_plane | v2-cli-surface-probe | discovery |
 | v2-lifecycle-compatibility | dbsctr_v3_lifecycle | v2-cli-surface-probe and recorded native schema evidence | build |
-| v2-control-plane | opencode_control_plane | v2-lifecycle-compatibility | build |
-| v2-distribution-recovery | dotfiles_ai_distribution | v2-control-plane | build |
+| worktrunk-native-workspaces | dbsctr_v3_lifecycle | v2-lifecycle-compatibility; readiness reopened | build |
+| v2-control-plane | opencode_control_plane | worktrunk-native-workspaces | build |
+| codex-native-workspaces | codex_control_plane | worktrunk-native-workspaces | build |
+| v2-distribution-recovery | dotfiles_ai_distribution | both harness workspace slices | build |
 | v2-fleet-cutover-retirement | dotfiles_ai_distribution | v2-distribution-recovery | build |
 
-Qualification must finalize exact native API/tool/identity/completion contracts,
+The latest WORKTREE-BASELINE decisions supersede assumptions that transparent
+continuation or custom DBSCTR tool catalogs must be ported. Skills remain, and
+both harnesses use dbsctrctl through native shell permissions. Existing worktrees
+are adopted in place with original cycle IDs; newly created worktrees use native
+Worktrunk layout. A bounded launch-time busy check has explicit operator override
+and does not claim per-tool or background-process ownership.
+
+Qualification must finalize the retained native CLI/permission/location contracts,
 history reconciliation and recovery envelopes, Desktop service integration,
 release trust/digest sources, safe gap dispositions, target inventory and
 ownership conflicts before dependent specifications become implementation-ready.
@@ -158,7 +174,8 @@ requiring the migration to be implemented before its initial CLI evidence exists
 Configured authorities include pytest through the test dependency group, Bun
 adapter execution, chezmoi rendering, shell validation and the existing CentOS
 remote-user smoke. Select affected tests rather than an unsolicited full audit.
-Extend native continuation, distribution, history and Herdr recovery evidence;
+Replace continuation-specific acceptance with approved native-workspace/CLI and
+adoption contracts; retain distribution, history and Herdr recovery evidence;
 fixtures alone cannot establish live readiness. Qualify interruption, restart,
 denied cases, multi-project context, CLI/Desktop coexistence and fleet recovery.
 Record only sanitized results in Git; identities and content remain local.

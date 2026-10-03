@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Configure or check an explicit shared DVC cache without hydrating data."""
+import argparse
+import configparser
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+
+
+def run(args, cwd):
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise ValueError(f"{args[0]} operation failed; inspect native configuration")
+    return result.stdout.strip()
+
+
+def configure(root, cache, *, check=False):
+    root = root.resolve()
+    metadata = root / ".dvc"
+    if metadata.is_symlink() or not metadata.is_dir():
+        raise ValueError("a local DVC metadata directory is required")
+    worktrees = [Path(part[9:]).resolve() for part in run(
+        ["git", "worktree", "list", "--porcelain", "-z"], root).split("\0") if part.startswith("worktree ")]
+    if not worktrees or root not in worktrees[1:]:
+        raise ValueError("bootstrap requires a registered linked worktree, not the primary checkout")
+    local = metadata / "config.local"
+    config = configparser.ConfigParser(interpolation=None)
+    if os.path.lexists(local):
+        item = local.lstat()
+        if not stat.S_ISREG(item.st_mode) or item.st_nlink != 1 or item.st_uid != os.getuid():
+            raise ValueError("local DVC configuration must be an owned regular file without aliases")
+        if item.st_size > 65536:
+            raise ValueError("local DVC configuration exceeds its size bound")
+        try:
+            config.read_string(local.read_text())
+        except (configparser.Error, UnicodeError):
+            raise ValueError("invalid local DVC configuration; inspect it locally") from None
+    link_type = config.get("cache", "type", fallback=None)
+    if link_type is not None and link_type.strip('" ') != "reflink":
+        raise ValueError("existing cache link configuration requires explicit migration")
+    configured = config.get("cache", "dir", fallback=None)
+    selected = None
+    if configured:
+        selected = Path(configured.strip('"')).expanduser()
+        if not selected.is_absolute():
+            selected = metadata / selected
+        selected = selected.resolve()
+    if check and (selected is None or link_type is None):
+        raise ValueError("run worktree-dvc-setup --cache PATH before lifecycle registration")
+    cache = cache.expanduser().resolve() if cache is not None else selected
+    if cache is None:
+        raise ValueError("select an explicit repository-scoped external cache with --cache")
+    if any(cache == tree or tree in cache.parents or cache in tree.parents for tree in worktrees):
+        raise ValueError("shared cache must be separate from every checkout")
+    if cache.exists() and not cache.is_dir():
+        raise ValueError("shared cache must be a directory")
+    if selected is not None and selected != cache:
+        raise ValueError("existing cache configuration requires explicit migration")
+    current = Path(run(["dvc", "cache", "dir"], root)).expanduser()
+    if not current.is_absolute():
+        current = root / current
+    current = current.resolve()
+    if check:
+        if current != cache or run(["dvc", "config", "cache.type"], root) != "reflink":
+            raise ValueError("effective DVC configuration differs from the explicit reflink-only cache")
+        return
+    if current != cache and current.exists() and any(current.iterdir()):
+        raise ValueError("existing cached data requires explicit migration; nothing was moved")
+    # Set strict linking first: a later failure cannot enable a copying fallback.
+    run(["dvc", "config", "--local", "cache.type", "reflink"], root)
+    run(["dvc", "cache", "dir", "--local", str(cache)], root)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cache", type=Path, help="explicit repository-scoped external cache")
+    parser.add_argument("--check", action="store_true", help="validate existing configuration without writing")
+    args = parser.parse_args()
+    if not args.check and args.cache is None:
+        parser.error("--cache is required for bootstrap")
+    try:
+        if any(os.environ.get(key) for key in (
+                "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+                "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")):
+            raise ValueError("Git location overrides are not supported for worktree bootstrap")
+        root = Path(run(["git", "rev-parse", "--show-toplevel"], Path.cwd()))
+        configure(root, args.cache, check=args.check)
+    except ValueError as error:
+        print(f"worktree-dvc-setup: {error}", file=sys.stderr)
+        return 1
+    except (OSError, subprocess.SubprocessError):
+        print("worktree-dvc-setup: native operation unavailable; inspect configuration locally", file=sys.stderr)
+        return 1
+    print("Reflink-only shared cache verified." if args.check else
+          "Shared cache configured with reflink-only checkout; no data was fetched or checked out.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

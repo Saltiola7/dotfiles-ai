@@ -36,6 +36,60 @@ def load_archive():
     return module
 
 
+@pytest.mark.parametrize("filename", ["hooks.json", "config.toml"])
+@pytest.mark.parametrize("command", [
+    "codex-continuation native-hook",
+    "/private/qualification/executable_codex-continuation native-hook",
+    "codex-requalify activate",
+    "dbsctrctl continuation-admit",
+])
+def test_home_rejects_retired_task_hooks_without_rewriting(tmp_path, filename, command):
+    helper = load_projector()
+    home = tmp_path / "codex-home"
+    home.mkdir(mode=0o700)
+    hooks = home / filename
+    raw = (json.dumps({"hooks": {"PreToolUse": [{"command": command}]}})
+           if filename.endswith("json") else
+           "[[hooks.PreToolUse]]\ncommand = " + json.dumps(command) + "\n")
+    hooks.write_text(raw)
+    with pytest.raises(ValueError, match="retired task hooks"):
+        helper.validate_home(home)
+    assert hooks.read_text() == raw
+
+
+@pytest.mark.parametrize("filename", ["hooks.json", "config.toml"])
+def test_home_preserves_independent_history_hooks(tmp_path, filename):
+    helper = load_projector()
+    home = tmp_path / "codex-home"
+    home.mkdir(mode=0o700)
+    command = "codex-control-plane hook SessionStart"
+    hooks = home / filename
+    raw = (json.dumps({"hooks": {"SessionStart": [{"command": command}]}})
+           if filename.endswith("json") else
+           "[[hooks.SessionStart]]\ncommand = " + json.dumps(command) + "\n")
+    hooks.write_text(raw)
+    assert helper.validate_home(home) == home
+    assert hooks.read_text() == raw
+
+
+def test_home_refuses_unsafe_or_oversized_hook_files(tmp_path, monkeypatch):
+    helper = load_projector()
+    home = tmp_path / "codex-home"
+    home.mkdir(mode=0o700)
+    hooks = home / "hooks.json"
+    external = tmp_path / "other.json"
+    external.write_text("{}")
+    hooks.symlink_to(external)
+    with pytest.raises(ValueError, match="unsafe native hook"):
+        helper.validate_home(home)
+    hooks.unlink()
+    hooks.write_bytes(b" " * 129)
+    monkeypatch.setattr(helper, "MAX_FILE_SIZE", 128)
+    with pytest.raises(ValueError, match="unsafe native hook"):
+        helper.validate_home(home)
+    assert hooks.stat().st_size == 129
+
+
 def test_managed_native_launch_keeps_link_until_child_exits(tmp_path, monkeypatch):
     helper = load_projector()
     executable = tmp_path / "codex"
