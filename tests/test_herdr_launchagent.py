@@ -1446,8 +1446,8 @@ def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> 
         path.mkdir(parents=True)
     database = data / "opencode.db"
     connection = sqlite3.connect(database)
-    connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
-    connection.executemany("INSERT INTO session VALUES (?)", [("ses_running",), ("ses_restore",)])
+    connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY,directory TEXT)")
+    connection.executemany("INSERT INTO session VALUES (?,?)", [("ses_running", str(directory)), ("ses_restore", str(directory))])
     connection.commit()
     connection.close()
     (state / "herdr/opencode-sessions.json").write_text(json.dumps({
@@ -1460,7 +1460,8 @@ def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> 
     home = tmp_path / "home"
     wrapper = home / ".local/bin/opencode"
     wrapper.parent.mkdir(parents=True)
-    wrapper.touch()
+    wrapper.write_text("#!/bin/sh\nprintf '1.18.31\\n'\n")
+    wrapper.chmod(0o700)
     herdr = bin_dir / "herdr"
     herdr.write_text(
         '#!/bin/sh\n'

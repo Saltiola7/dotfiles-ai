@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution
 
+**OPENCODE-V2-SESSION-RECOVERY source implementation:** Recovery now probes the
+selected managed wrapper's version with bounded output/time and selects the
+matching native history schema. V2 requires current `session_v2` identities,
+matching directories and completed conversion when legacy tables remain. Views,
+invalid markers, unknown runtimes and legacy-only identities refuse restoration.
+V1 refuses a V2 database. Reads are read-only and deadline-bound; capture, pacing
+and pane-occupancy controls remain covered by the existing regression suite.
+See [native session recovery](features/opencode-v2-session-recovery.md).
+This is source evidence; exact live conversation resume remains a cutover gate.
+
 **OPENCODE-V2-DISTRIBUTION source implementation:** The
 [one-time distribution source contract](features/opencode-v2-distribution-source.md)
 is implemented in `opencode-update-all`. Explicit `stage-v2`, `activate-v2` and

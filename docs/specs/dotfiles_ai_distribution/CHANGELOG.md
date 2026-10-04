@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-04 — OPENCODE-V2-SESSION-RECOVERY
+
+- Fixed V2 restoration accepting stale legacy session identities. Recovery now
+  selects by verified runtime, validates current native schema/conversion and
+  matches directories before any pane launch. Unknown or mismatched state refuses.
+- Read-only SQLite checks have bounded waits and progress deadlines. Version
+  probing has bounded time/output and owned process-group cleanup. No native
+  history write, provider change or continuation bridge was added.
+- The selected native-recovery, session-recovery and launchagent suites passed,
+  including positive/negative V2 restore fixtures and existing 80-session pacing.
+  Earlier short execution timeouts were superseded by a complete bounded run;
+  no tests or required checks were removed. Red/green evidence remains retained.
+- Implementation Gate Commit `959aea6`. No Gate Exceptions. Intended delivery is
+  the feature PR into main, with operator-approved merge after hosted checks.
+  No production restart or live conversion. Desktop/fleet integration and exact
+  conversation/provider resumption remain downstream obligations.
 ## 2026-10-03 — OPENCODE-V2-DISTRIBUTION
 
 - Added explicit one-time V2 staging, maintenance activation and admission to the
