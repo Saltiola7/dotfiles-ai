@@ -197,12 +197,13 @@ def test_check_is_read_only_and_refuses_wrong_targets(monkeypatch, tmp_path, fau
     database = data_home / "opencode/opencode.db"
     database.parent.mkdir(parents=True)
     with sqlite3.connect(database) as connection:
-        connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
+        connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY,directory TEXT)")
         if fault != "unknown":
-            connection.execute("INSERT INTO session VALUES ('ses_saved')")
+            connection.execute("INSERT INTO session VALUES ('ses_saved',?)", (str(parent),))
     wrapper = tmp_path / "home/.local/bin/opencode"
     wrapper.parent.mkdir(parents=True)
-    wrapper.touch()
+    wrapper.write_text("#!/bin/sh\nprintf '1.18.31\\n'\n")
+    wrapper.chmod(0o700)
     script = runpy.run_path(str(SCRIPT))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path / "state"))
