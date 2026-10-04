@@ -51,6 +51,13 @@ its VM command permission is denied; resolve that before live fleet qualificatio
 
 ## Visual Evidence
 
+PR 195 delivered distribution source at `67aa5268969d44ec5374208339425512ff779a72`.
+The next source prerequisite is native V2 session recovery: reject retained V1
+identity as proof of V2 resume readiness. Its contract and plan are under
+`docs/specs/dotfiles_ai_distribution/`. Both guests now have isolated Linux
+artifact surface evidence; Desktop has archive/signature evidence. Neither is a
+live rollout claim. See V2-TRANSITION-READINESS.md for current bounds.
+
 Boundary, interaction, state, data/trust, schema, and deployment concerns are
 owned by the V2 Migration specification, the shared native workspace contract
 (including its approval handoff table), and the original rolling-stable feature

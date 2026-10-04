@@ -1,7 +1,7 @@
 # Latest V2 transition — Discovery working record
 
-Status: control-plane source merged; distribution source contract prepared for
-launch preflight. Live deployment qualification remains pending.
+Status: control-plane and distribution source merged; native session-recovery
+source contract prepared. Live deployment qualification remains pending.
 Authority: INT-033 and V2-MIGRATION.md. Risk: critical. Existing approved context
 homes, Engineering Profiles and distribution Product Intent remain authoritative.
 
@@ -26,6 +26,38 @@ isolated staging. Maintenance activation follows successful qualification.
 ## Source and candidate evidence
 
 ### Source completion and next delivery
+
+PR 195 merged at `67aa5268969d44ec5374208339425512ff779a72` after all three
+Python CI jobs and CentOS smoke passed. Its 75 scoped tests included official
+macOS 2.0.22 download and isolated staging. It supplies explicit maintenance and
+admission boundaries; no production activation occurred.
+
+The operator adjusted the raw Lima permission and restarted the session.
+Inventory and boundary-local probes are now available. Both registered ARM64
+guests report installed OpenCode 1.18.31. Each independently downloaded and
+verified the same official 2.0.22 Linux artifact and passed isolated version,
+root help, service/API/session help checks. This is CLI surface qualification,
+not managed configuration, history or deployment qualification. The initially
+stopped guest was restored to stopped state after probing. Native artifacts and
+aggregate reports stay within each guest; credentials and history were not copied.
+
+Linux ARM64 archive SHA-256:
+`49e5466de60f65001cddd7583419f842140697daead2b4d8826be54d9056e70b`.
+Executable SHA-256:
+`f27539d9c05c970d3eb9ad6a7724b75d3e638932c5423554f5ecbfe0ee2e8815`.
+Publisher SHA-512 SRI was verified; no registry-signature claim is made.
+
+Desktop 2.0.22 ZIP integrity, deep strict code signature and Gatekeeper passed
+in isolated staging. Installed Desktop remains 1.18.33. GUI startup, state-root
+refusal and shared-service/data behavior remain unqualified. The host GUI launch
+environment has no configured XDG data/state root at observation, so CLI wrapper
+guards cannot be assumed to protect Finder-launched Desktop.
+
+Inspection confirmed `herdr-opencode-restore` still selects IDs solely from the
+legacy session table. Because native V2 can create a missing `--session`, this
+must be fixed before live resume. The bounded source contract is
+`docs/specs/dotfiles_ai_distribution/features/opencode-v2-session-recovery.md`;
+this closes a migration prerequisite, not an additional product objective.
 
 PR 194 merged at `8124f163840c58e163df0cca0da9d2adfd00af5a`. Its exact 2.0.22
 checks covered 14 managed roles, provider routing, native permission boundaries,
