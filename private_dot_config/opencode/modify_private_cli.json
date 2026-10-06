@@ -1,7 +1,11 @@
 {{- /* chezmoi:modify-template */ -}}
-{{- $managed := dict "$schema" "https://opencode.ai/v2/cli.json" "theme" (dict "name" .dotfiles_ai.opencode.theme "mode" "dark") -}}
+{{- $managed := dict "$schema" "https://opencode.ai/v2/cli.json" "theme" (dict "name" .dotfiles_ai.opencode.theme "mode" "dark") "keybinds" (dict "agent.cycle" "tab" "agent.cycle.reverse" "shift+tab") -}}
 {{- $config := $managed -}}
 {{- if ne (trim .chezmoi.stdin) "" -}}
-{{- $config = mergeOverwrite (fromJson .chezmoi.stdin) $managed -}}
+{{- $local := fromJson .chezmoi.stdin -}}
+{{- if not (kindIs "map" $local) -}}
+{{- fail "OpenCode CLI configuration must be a JSON object; original left unchanged" -}}
+{{- end -}}
+{{- $config = mergeOverwrite $local $managed -}}
 {{- end -}}
 {{ $config | toPrettyJson }}
