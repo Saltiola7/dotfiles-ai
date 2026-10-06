@@ -2,7 +2,10 @@
 
 ## Scope and ownership
 
-All previously requested maintenance remains in scope. Exclude enterprise-seo-tools
+All previously requested maintenance remains in scope except explicitly deferred
+hibernation, which must be surfaced after the rest completes. Upgrade all installed
+managed packages/apps and latest constraint-compatible Python dependencies,
+including allowed dependency majors. Exclude enterprise-seo-tools
 and production environments, preserve Python minor pins, preserve SDS GKE/shared
 production inputs, and retain intentional PPC DVC omissions. Scope approval does
 not authorize deletion of unknown worktrees, archives, histories or failed evidence.
@@ -21,8 +24,9 @@ concurrent edits to shared updater, launcher, guest and shell files.
 | Lane / finding file | Read scope | Required result |
 |---|---|---|
 | native-updates.md | dotfiles-ai installer/updater/launcher sources and supported upstream interfaces | Installer selection, real update probe, keep/replace/retire map, state/service contract and affected tests |
-| host-tools.md | dotfiles chezmoi declarations, host package/interpreter inventory | Current/outdated/held versions, package ownership, patch-only Python plan, targeted applies and rollback boundaries |
-| herdr-hibernation.md | shell_auth_startup specs, Herdr Host implementation, official integration, existing hibernator | Signed replacement-volume registration route; exact-session/launch-option preservation; eligibility and recovery proof |
+| host-tools.md | dotfiles chezmoi declarations, host package/interpreter inventory; HOST-TOOLS.md | All current/outdated/held managed packages, retired-source reconciliation, patch-only Python plan and consumer boundaries |
+| external-state.md | State-root declarations, auth/service and Git/DVC metadata; EXTERNAL-STATE.md | Bounded complete consumer coverage with intentional omissions, failures and exact repair ownership |
+| herdr-host.md | shell_auth_startup specs, Herdr Host implementation and official integration; HERDR-RECOVERY.md | Signed replacement-volume registration route, unchanged ownership mode, exact-session preservation |
 | guests.md | sandbox-vm, guest templates, native Lima metadata and bounded runtime checks | Mount/service/provision drift, credential/state boundaries, source/deployed comparison and fresh-machine probe |
 | python.md | Personal/MGM project manifests and linked checkouts, excluding enterprise-seo-tools | Per-environment interpreter, pin, dirty status, production consumers, dependency health, isolated candidate checks and owning context |
 | lifecycle-closure.md | Existing cycle status, Git/Worktrunk inventory, matching specs/changelogs | Original V2 cycle closure plan, missing-worktree diagnosis, stale authority reconciliation, preserved failure evidence and draft delivery ordering |
@@ -34,11 +38,8 @@ concurrent edits to shared updater, launcher, guest and shell files.
   A newer installer is not evidence that every linked virtual environment works.
 - **Herdr Host:** verify signature, volume identity, registration and live health
   probe; preserve pane layout and conversations. Use a supported promotion route.
-- **Hibernation:** fifteen minutes idle AND unfocused; focused, working and blocked
-  sessions stay alive. Restore exact native session, cwd and launch options after
-  interruption/crash; validate registry write ordering and exit detection. Draft
-  and exact scroll-position loss are accepted. Prefer the existing implementation;
-  do not install until these checks pass.
+- **Hibernation:** paused, not an active assignment. HIBERNATION.md retains
+  acceptance criteria; surface it after the rest completes. No current fork/repair scope.
 - **Guests:** prove mounts, boundary marker, required services and successful boot
   provisioning. Compare content drift before apply; never blanket-force unknown
   changes. No host credential/history copy into guest state.
@@ -64,7 +65,7 @@ Research lanes may run concurrently; the following concerns serialize activation
 |---|---|---|
 | Native updates | Installer rehearsal and reconciliation of old fleet contracts | One owner for both updater hooks, launcher locks and host package declarations |
 | Guest repair/provision | Native-update ownership decision for tool installation changes | Coordinate all guest installers with native-update owner |
-| Hibernation | Herdr Host repair and final launcher/update behavior | One owner for session recovery registry and launch arguments |
+| Hibernation (deferred) | Rest of work completed and explicit resumption; Herdr Host repair and final launcher/update behavior | No active writer; retain future session-recovery ownership boundary |
 | Python activation | Consumer classification and isolated candidate runtime tests | Per-project disjoint environments; serialize shared interpreter changes |
 | Final lifecycle closure | Actual deployed evidence from affected lanes | Primary owns gates, commits and draft delivery |
 
@@ -82,8 +83,9 @@ dependencies and committed applicability plans; readiness receipts bind that DAG
 | Ready | Contracts, profiles, ownership, dependencies and validation complete | Fresh receipt and Build preflight |
 | Launch approved | Operator confirmed exact BEGIN digest | Implement in native checkout under the declared owner |
 
-After compaction, re-read MANIFEST.json, README.md, NATIVE-UPDATES.md, this file,
-applicable findings and referenced context artifacts; validate with
+After compaction, re-read MANIFEST.json, README.md, this file, GATES.md,
+each assigned context contract from the README coverage table, applicable findings
+and referenced context artifacts; validate with
 `dbsctrctl initiative-check --manifest docs/initiatives/ssd-toolchain-recovery/MANIFEST.json --json`.
 Inspect native cycle status before resuming implementation. Do not derive readiness
 from this prose or session summaries. Preserve the active preferences slice's
