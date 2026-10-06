@@ -2,7 +2,8 @@
 
 ## Scope and authority
 
-Engineering Profile: ../PROFILE.md. Product Intent: ../PRODUCT.md.
+Engineering Profile: ../PROFILE.md. Product Intent:
+../../dotfiles_ai_distribution/PRODUCT.md.
 Owner: dotfiles owner. Risk: routine. Delivery: managed host deployment and draft
 pull request. Existing provider routing and unrelated local preferences survive.
 This slice owns only native V2 preferences and MCP declarations, not browser
