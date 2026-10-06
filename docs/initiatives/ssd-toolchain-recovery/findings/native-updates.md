@@ -16,6 +16,15 @@ Graphify graph in this checkout. Source and isolated native probes are authority
 | Repeat Codex 0.160.1 installer twice, custom bin directory | Same target and binary digest; synthetic state marker retained; no shell-profile writes | Not run |
 | Isolated OpenCode service version before/after install/restart | 2.0.21 / 2.0.21 / 2.0.22; PID unchanged until restart | Not run |
 
+Follow-up on both platforms: native API-created synthetic session metadata and
+queued synthetic input (`resume: false`) remained exactly equal after 2.0.21 to
+2.0.22 update and service restart. Both platforms retained the old server PID and
+version until restart, then reported a new PID and 2.0.22. No agent generation or
+provider request was invoked. Scratch services were stopped in finalization.
+One macOS attempt failed with upstream update-service HTTP 500; a fresh retry
+passed and the failed attempt/logs remain retained. This proves synthetic persisted
+identity/input continuity, not authenticated live TUI or pane restoration.
+
 Version pairs are qualification inputs, not claims about today's newest stable.
 The probes used new empty state, no credentials or copied conversations. Native
 CLI upgrade is proven; interactive `/update`, authenticated exact-session recovery,
@@ -106,14 +115,17 @@ Before readiness:
 1. Qualify Codex's custom install directory across its other native update
    entrypoints and latest-channel/notification policy. Same-release installer
    idempotence is proven on macOS, not full managed reapply.
-2. Exercise native `/update`, exact synthetic session preservation, guarded launch,
+2. Exercise native `/update`, authenticated exact-session restoration, guarded launch,
    absent-volume failure, background-service environment and twice-repeated targeted
    chezmoi apply; current probes establish only a subset of that matrix.
-3. Qualify Linux service restart and existing guest wrapper routing. Linux x86_64
+3. Qualify existing guest wrapper routing. Linux ARM64 isolated service restart
+   now passes. Linux x86_64
    remote support is source-inspected only; no remote target was upgraded.
-4. Reconcile distribution Product Intent, profiles and original rolling-stable
-   requirements with approved platform-local ownership without rewriting historical
-   completed migration evidence.
+4. Approved successor policy now has a precedence map in
+   `features/native-platform-updates.md`; Product Intent, profiles and historical
+   feature/Initiative pointers are reconciled in Discovery. Registered migration
+   authority and its original manifest are retained. Implement only after the
+   remaining qualification and launch gates.
 5. Finish caller/test inventory, concrete bootstrap/transition plan, applicability
    plan and committed dependencies before any Build receipt.
 

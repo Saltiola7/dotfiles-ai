@@ -2,6 +2,11 @@
 
 **Status:** Implemented and deployed
 
+Future maintenance policy is superseded by
+[native platform-local updates](native-platform-updates.md). Existing deployment
+remains until qualified ownership transition; the original contract below is
+retained as implementation and operational history.
+
 ## Outcome
 
 Every `chezmoi apply` checks the official Codex GitHub latest-stable release and

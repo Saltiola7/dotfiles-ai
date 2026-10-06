@@ -1,6 +1,8 @@
 # Native updates with preserved external state
 
 Status: Discovery contract; implementation readiness remains open.
+Successor policy and historical-requirement precedence:
+[native platform-local updates](../../specs/dotfiles_ai_distribution/features/native-platform-updates.md).
 Context: dotfiles_ai_distribution, with Codex/OpenCode control-plane interfaces.
 Profiles: docs/specs/dotfiles_ai_distribution/PROFILE.md and
 docs/specs/codex_control_plane/PROFILE.md. Product Intent:
@@ -61,10 +63,10 @@ remain separate where already separate. Native updating is not data relocation.
 - dot_local/bin/executable_opencode-update-all, executable_codex-update-all and
   executable_codex-project: package locks, recovery and executable validation.
 - run_after_update-{opencode,codex}.sh.tmpl and installation scripts: chezmoi ownership.
-- Existing distribution PRODUCT.md journeys 2/3 and opencode-rolling-stable
-  Initiative INT-001/003/005 specify fleet coordination. Those older requirements
-  conflict with this newly approved direction; reconcile them in Discovery before
-  promoting Build. Do not reinterpret completed historical evidence.
+- Distribution PRODUCT.md journeys 2/3 and profiles now reference the approved
+  native platform-local successor. Its precedence map supersedes original
+  opencode-rolling-stable INT-001/003/005 for future maintenance, preserving the
+  original manifest and registered migration authority as history.
 
 Read-only evidence establishes native external-state support, not installer
 transition success. Remaining research: exact installer paths and native update
