@@ -16,8 +16,10 @@ separate project slices; it does not own their implementation.
   work. Never restore an old database over current work.
 - Intentional redundant PPC worktree DVC deletions remain intentional. Check
   metadata and links without full data pulls or cache garbage collection.
-- All durable machine setup uses chezmoi. Codex uses its existing custom updater
-  exclusively; remove redundant installations only after verifying ownership.
+- All durable configuration and external-state routing use chezmoi. Native
+  installers own OpenCode and Codex executable updates on the invoked platform.
+  This supersedes the original custom-Codex-updater-only direction. Qualify the
+  transition before retiring existing ownership; see [Native updates](NATIVE-UPDATES.md).
 - Reconcile host and guest tools, including Kitty, Lima, Python and 1Password.
   Updates are permitted, but version output alone cannot establish data health.
 - Preserve Python minor-version pins while updating patch releases. Exclude
@@ -64,3 +66,23 @@ dependency checks and affected runtime/tests before replacing environments.
 Hibernation requires exact native-session restoration and state-eligibility
 checks. Herdr Host needs signature, registration, volume identity and live probe
 checks. Keep source qualification, deployment and operator UI evidence distinct.
+
+## Resumption and delegation
+
+[Workstreams](WORKSTREAMS.md) assigns research boundaries, required outputs,
+deployment ordering and readiness gaps. User intent is settled; installer and
+runtime qualification remain evidence tasks. Captured or discovering slices do
+not authorize Build launch. The registered preferences cycle retains its imported
+authority; this revision does not silently broaden that cycle.
+
+## Visual Evidence
+
+| Concern | Decision |
+|---|---|
+| Boundary | not_applicable: the approved ownership table in WORKSTREAMS.md is sufficient |
+| Interaction | not_applicable: native-update validation ordering is explicit in NATIVE-UPDATES.md |
+| State | required: readiness table in WORKSTREAMS.md |
+| Data/trust | not_applicable: preservation constraints are explicit; no new transfer is authorized |
+| Schema | not_applicable: existing Initiative manifest schema is reused |
+| Dependency/deployment | required: dependency table in WORKSTREAMS.md |
+| Quantitative | not_applicable: no measured comparison informs the ownership decision |
