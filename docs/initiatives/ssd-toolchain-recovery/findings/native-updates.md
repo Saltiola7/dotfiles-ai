@@ -105,6 +105,36 @@ updater files. Trace remaining callers before deciding actual retirement scope.
 
 ## Candidate and remaining qualification
 
+### Codex native command and automatic-update policy follow-up
+
+Native `codex update` at 0.160.1 passed on macOS and Fedora ARM64 with the custom
+`CODEX_INSTALL_DIR` exported. Both selected the standalone installer, retained
+the custom visible command, and did not create the default `~/.local/bin/codex`.
+The host synthetic preservation marker remained intact. Upstream selected 0.160.1,
+so this is native-command integration evidence; the earlier explicit installer
+0.159.0-to-0.160.1 test supplies version-to-version evidence.
+
+Upstream source at `rust-v0.160.1` establishes a distinct daemon update policy:
+`codex-rs/app-server-daemon/src/settings.rs` defaults `auto_update_enabled` to true
+and the interval to 60 minutes. `update_loop.rs` schedules the first ordinary check
+after five minutes and later uses that interval; it can request daemon restart.
+`codex-rs/tui/src/update_action.rs` invokes the standalone installer through a shell
+and inherits the install-directory environment. `lib.rs` locates daemon settings
+at `$CODEX_HOME/app-server-daemon/settings.json`.
+
+An isolated native `codex doctor --json` confirmed that
+`{"updater":{"autoUpdateEnabled":false}}` in that settings file reports
+`automatic updates: disabled (configured)`, while startup update checks remain
+true and `updates.status` is OK. Overall doctor exited 1 because this deliberately
+credential-free fixture has no login; it also reported a WebSocket reachability
+warning. This is policy parsing evidence, not an authenticated health pass or a
+long-running scheduler test.
+
+Future managed projection must merge that setting without replacing unrelated
+daemon settings, and the launcher must export the selected native install directory.
+Do not confuse `check_for_update_on_startup` with daemon automatic installation.
+Preserve native manual updates and notification behavior.
+
 Prefer official standalone installers: OpenCode's normal install location already
 separates executable from managed guard; Codex supports a distinct install directory.
 Retain existing XDG/CODEX_HOME routing. Existing native package manager declarations
@@ -112,9 +142,10 @@ must not install a competing owner. Use installer PATH suppression where support
 
 Before readiness:
 
-1. Qualify Codex's custom install directory across its other native update
-   entrypoints and latest-channel/notification policy. Same-release installer
-   idempotence is proven on macOS, not full managed reapply.
+1. Qualify Codex daemon policy persistence through managed projection and running
+   service lifecycle. Native manual update preserves custom install directory on
+   both ARM64 platforms; same-release installer idempotence is proven on macOS,
+   not full managed reapply.
 2. Exercise native `/update`, authenticated exact-session restoration, guarded launch,
    absent-volume failure, background-service environment and twice-repeated targeted
    chezmoi apply; current probes establish only a subset of that matrix.

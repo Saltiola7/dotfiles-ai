@@ -41,8 +41,13 @@ No cross-platform transaction or host/guest version equality is required.
 
 OpenCode uses native notify/manual-update policy, including local `/update`.
 Automatic installation, periodic fleet polling and idle-session restarts are not
-requested. Codex uses a supported explicit native update interface; any native
-automatic-update marker or daemon behavior must be qualified before selection.
+requested. Codex uses native explicit `codex update` with the selected
+`CODEX_INSTALL_DIR` exported through the managed launch environment. Its native
+daemon policy must disable automatic installation independently of startup update
+notifications. For qualified 0.160.1, merge `updater.autoUpdateEnabled = false`
+into `$CODEX_HOME/app-server-daemon/settings.json`, preserving unrelated settings.
+Requalify the interface on later releases; do not edit native package-selection
+markers as a substitute for policy. Running-service persistence remains a gate.
 Package-manager lag is reported rather than hidden by adding a second installer.
 
 Retain existing XDG and CODEX_HOME locations, credential boundaries, config
