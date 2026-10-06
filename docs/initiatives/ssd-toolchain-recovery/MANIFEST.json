@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "ssd-toolchain-recovery",
+  "title": "SSD toolchain recovery and managed maintenance",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Verify and restore external-state tools after storage replacement, preserving exact conversations and layout.","disposition":"open","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-002","kind":"constraint","text":"Preserve histories, credentials, archives, failed attempts and new V2 work; retain intentional redundant PPC DVC omissions.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-003","kind":"constraint","text":"Manage durable setup through chezmoi; use the existing custom Codex updater exclusively and verify redundancy before removal.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-004","kind":"requirement","text":"Update host tools and Python patch releases while preserving minor-version pins and proving relocated state works.","disposition":"open","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-005","kind":"requirement","text":"Upgrade non-production Python environments only after candidate compatibility and runtime qualification.","disposition":"open","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-006","kind":"constraint","text":"Exclude enterprise-seo-tools and all production environments; preserve SDS GKE and shared production inputs.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-007","kind":"requirement","text":"Keep browser MCPs disconnected by default and manually connectable; restore Tab next-agent and Shift+Tab previous-agent.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md","docs/specs/opencode_control_plane/features/manual-browser-and-agent-keys.md"]},
+    {"id":"INT-008","kind":"requirement","text":"Qualify an existing OpenCode-only hibernator for fifteen-minute idle unfocused sessions, preserving exact conversation identity and excluding working focused or blocked sessions.","disposition":"open","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-009","kind":"decision","text":"Draft and exact scroll-position loss are accepted for hibernation; prefer official Herdr integration.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-010","kind":"decision","text":"Restarts are authorized with recovery preservation; native permission boundaries and exact launch consent remain enforced.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]},
+    {"id":"INT-011","kind":"requirement","text":"Complete original V2 delivery through its existing Initiative, defining fresh provisioning admission without replaying completed migration.","disposition":"open","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md","docs/initiatives/opencode-rolling-stable/MANIFEST.json"]},
+    {"id":"INT-012","kind":"decision","text":"Operator approved dotfiles host ownership, dotfiles-ai runtime ownership and per-project Python ownership; serialize shared writers.","disposition":"ready","artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"]}
+  ],
+  "contexts": [
+    {"id":"host_tool_maintenance","repository":"Saltiola7/dotfiles","status":"approved","depends_on":[]},
+    {"id":"shell_auth_startup","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":[]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":["shell_auth_startup"]},
+    {"id":"python_maintenance_discovery","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"host-tools","context":"host_tool_maintenance","state":"captured","execution_owner":"discovery","requirements":["INT-001","INT-002","INT-003","INT-004","INT-010","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"],"release_group":"maintenance"},
+    {"id":"herdr-host-recovery","context":"shell_auth_startup","state":"captured","execution_owner":"discovery","requirements":["INT-001","INT-002","INT-003","INT-009","INT-010","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"],"release_group":"maintenance"},
+    {"id":"guest-recovery","context":"dotfiles_ai_distribution","state":"captured","execution_owner":"discovery","requirements":["INT-001","INT-002","INT-003","INT-006","INT-010","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"],"release_group":"maintenance"},
+    {"id":"opencode-preferences","context":"opencode_control_plane","state":"ready","execution_owner":"build","requirements":["INT-003","INT-007","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md","docs/specs/opencode_control_plane/features/manual-browser-and-agent-keys.md","docs/specs/opencode_control_plane/PROFILE.md","docs/specs/opencode_control_plane/PRODUCT.md","docs/initiatives/ssd-toolchain-recovery/OPENCODE-PREFERENCES.plan.json"],"release_group":"maintenance"},
+    {"id":"opencode-hibernation","context":"shell_auth_startup","state":"captured","execution_owner":"discovery","requirements":["INT-002","INT-003","INT-008","INT-009","INT-010","INT-012"],"depends_on":["herdr-host-recovery"],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"],"release_group":"maintenance"},
+    {"id":"python-project-qualification","context":"python_maintenance_discovery","state":"captured","execution_owner":"discovery","requirements":["INT-003","INT-004","INT-005","INT-006","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md"],"release_group":"maintenance"},
+    {"id":"v2-closure-coordination","context":"dotfiles_ai_distribution","state":"captured","execution_owner":"discovery","requirements":["INT-002","INT-003","INT-011","INT-012"],"depends_on":[],"artifacts":["docs/initiatives/ssd-toolchain-recovery/README.md","docs/initiatives/opencode-rolling-stable/MANIFEST.json"],"release_group":"maintenance"}
+  ],
+  "release_groups": [{"id":"maintenance","members":["host-tools","herdr-host-recovery","guest-recovery","opencode-preferences","opencode-hibernation","python-project-qualification","v2-closure-coordination"],"state":"planning"}]
+}
