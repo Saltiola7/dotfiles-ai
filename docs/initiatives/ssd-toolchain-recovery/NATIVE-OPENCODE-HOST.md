@@ -41,7 +41,7 @@ blocked until affected gates and explicit session-maintenance checks pass.
 
 ## Writable source scope
 
-`Brewfile`; `dot_local/bin/executable_opencode.tmpl`;
+`Brewfile`; `.chezmoiignore`; `dot_local/bin/executable_opencode.tmpl`;
 `dot_local/bin/executable_opencode-install.tmpl`;
 `dot_local/bin/executable_opencode-update-all`;
 `run_after_update-opencode.sh.tmpl`;
@@ -51,6 +51,16 @@ and `tests/test_opencode_v2_authority.py`, `tests/test_opencode_v2_distribution.
 `tests/test_opencode_v2_session_recovery.py`; distribution README/CHANGELOG/BACKLOG
 completion evidence. Builder does not change normative contracts or slice scope.
 If another caller requires material interface changes, return readiness_reopened.
+
+Discovery caller review found that `.chezmoiignore` currently excludes the
+bootstrap on macOS. Include it only on the selected macOS ARM64 platform while
+preserving deferred platform exclusions. Rendered managed-file inventory is a
+required check, in addition to executing the rendered bootstrap itself.
+
+The probe-only Host promotion helper is not a dependency of this slice. Preserve
+the existing Host preflight behavior; do not activate Host ownership or change
+its signing/registration as part of native executable migration. Preserve the
+separate failed Host cycle and its worktree.
 
 ## Behavior and acceptance
 

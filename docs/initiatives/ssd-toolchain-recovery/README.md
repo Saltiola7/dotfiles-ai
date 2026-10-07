@@ -11,6 +11,12 @@ separate project slices; it does not own their implementation.
 
 ## Outcomes and constraints
 
+Latest operator steering: recovered workspaces are visually confirmed. Finish
+migration and OpenCode/Codex/Herdr updates, then revisit hibernation options.
+Python and guests remain paused. See [current session focus](findings/current-session-focus.md).
+Preserve unfinished Host-promotion work; a permanent helper is not itself an
+operator goal or a prerequisite for native executable migration.
+
 - Restore relocated external state and exact conversations with existing layout.
   Preserve credentials, histories, migration archives, failed attempts and new V2
   work. Never restore an old database over current work.
