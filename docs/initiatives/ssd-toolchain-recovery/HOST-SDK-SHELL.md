@@ -1,5 +1,11 @@
 # Host SDK shell-selection slice
 
+Delivered: dotfiles PR #18 merged at d5aa8ff72294ab3a3fb88a5f199317f08955b9d5.
+Implementation 00a6f0d and deployment record 5163a5e passed affected tests and all
+four host login-shell checks. Second targeted apply had no drift. Final Push
+completed after separately approved delivery-helper repair; historical failures
+remain in the Cycle Record.
+
 Home: Saltiola7/dotfiles, host_tool_maintenance. Requirements: INT-003, INT-012,
 INT-022. Independent prerequisite toward SDK duplicate retirement; bootstrap and
 retirement remain in host-tools. No guest activation or package update belongs here.
