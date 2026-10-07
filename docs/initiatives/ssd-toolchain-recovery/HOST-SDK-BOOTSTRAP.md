@@ -1,5 +1,14 @@
 # Standalone SDK bootstrap and duplicate retirement
 
+Delivered: dotfiles PR #19 merged at b533fd02a130effef0f75194833eeac0cedc974a.
+Implementation 2b9e560, deployment record a1ea184 and CI fixture correction 8639b00
+are retained. Python 3.12/3.13/3.14 CI passed after adding gzip to the isolated
+fixture PATH for GNU tar. Earlier failed CI remains visible. Real isolated install
+and repeat hook execution passed; live apply preserved the existing SDK. All six
+Homebrew component IDs are covered by nine standalone components. Native non-zap
+uninstall retired Homebrew ownership; inactive old directory and external backup
+remain. Four host login modes resolve standalone gcloud, bq and gsutil.
+
 Home: Saltiola7/dotfiles, host_tool_maintenance. Profile:
 docs/specs/host_tool_maintenance/PROFILE.md in that repository. Risk: elevated.
 Requirements: INT-002, INT-003, INT-012, INT-022. Scope: current macOS ARM64 host;
