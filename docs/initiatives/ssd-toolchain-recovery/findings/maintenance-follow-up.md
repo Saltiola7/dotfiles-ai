@@ -4,6 +4,35 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+Later 2026-10-07 batch upgraded 27 remaining formulae: libomp, cryptography,
+Databricks CLI, glib, libpng, xorgproto, harfbuzz, hdrhistogram_c, libheif, luv,
+mlx, mlx-c, Moshi, simdjson, node, nss, Ollama, OpenEXR, OpenJPEG, OpenVINO,
+Poppler, Pulumi, SDL3, SDL2 compatibility, Syncthing, Tcl/Tk and yt-dlp.
+Before/after package receipts and upgrade log are retained privately. Cleanup and
+autoremove stayed disabled. Brew linkage checks passed for all requested dynamic
+packages. Node, Pulumi, Databricks, yt-dlp, Syncthing, Poppler, Moshi and
+cryptography startup/import checks passed; MLX array arithmetic and OpenVINO import
+passed. Ollama client starts at 0.40.0 but reports no running server; server/model
+operation was not tested. CLI checks do not prove running service version activation.
+The excluded environment's 334 native libraries were inspected read-only with
+successful otool exits and no direct Homebrew linkage; no project application ran.
+
+Remaining formula inventory lists only legacy Homebrew OpenCode, reserved for
+native-owner migration. ChatGPT upgraded to 26.1002.52244 (bundle verified) and
+ClickHouse to 26.9.12.8 (startup verified). Homebrew reports reopening the application
+it closed for the ChatGPT upgrade. User conversation continuity inside that app
+was not inspected. Previously reported current-app/stale-receipt cases remain distinct.
+The AI source still declared the retired Google SDK cask; dependency-only PR #199
+removes that residual declaration (36 portable-distribution tests and Ruby syntax
+passed). Configured source was reconciled; CI/merge remain pending.
+
+Test-only dotfiles and dotfiles-ai environment candidates use external Python
+3.13.16, preserving their existing 3.13 minor. Isolated dependency checks and
+SSL/SQLite checks passed. Dotfiles resolves iniconfig 2.3.1 and typer 0.27.3;
+dotfiles-ai resolves iniconfig 2.3.1, packaging 26.3 and pygments 2.21.0, all within
+existing constraints. Project tests are running; no live environment replacement
+or lockfile publication has occurred yet.
+
 2026-10-07 follow-up after INT-027 consumer clarification: Homebrew Python 3.12.15,
 Python 3.14.8, pipx 1.17.11 and DuckDB 1.5.6 installed. The dry run selected only
 those four packages; automatic cleanup/autoremove stayed disabled. Both previous
