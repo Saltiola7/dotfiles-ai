@@ -4,6 +4,23 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+Isolated Python 3.13.16 candidates for content-evidence-workbench and
+search-taxonomy-lab passed dependency checks, respectively 35 and 47 tests, Ruff
+lint and strict Marimo validation. Content Evidence resolves Marimo 0.25.1,
+NumPy 2.5.3, scikit-learn 1.9.1 and SciPy 1.18.1 within existing constraints.
+Search Taxonomy preserves all exact direct pins and refreshes allowed transitive
+dependencies. Formatting, session execution and WASM export validation passed for
+both candidates. Search Taxonomy also passes committed/fresh snapshot comparison.
+Content Evidence fails that comparison because Marimo metadata advances from
+0.23.15 to 0.25.1; snapshot format, script metadata hash and every cell identity/code
+hash remain unchanged. Its static preview must be refreshed through project-owned
+delivery with the dependency update; do not weaken the validator. Content Evidence
+browser qualification could not launch because its required Chromium executable
+was missing. Search Taxonomy launched Chromium but timed out waiting for its app
+heading; the cause remains undiagnosed. The operator subsequently deferred both
+project upgrades until needed (INT-028). Both live environments and tracked locks
+remain unchanged; these results are candidate evidence, not activation or publication.
+
 Later 2026-10-07 batch upgraded 27 remaining formulae: libomp, cryptography,
 Databricks CLI, glib, libpng, xorgproto, harfbuzz, hdrhistogram_c, libheif, luv,
 mlx, mlx-c, Moshi, simdjson, node, nss, Ollama, OpenEXR, OpenJPEG, OpenVINO,
@@ -32,6 +49,14 @@ SSL/SQLite checks passed. Dotfiles resolves iniconfig 2.3.1 and typer 0.27.3;
 dotfiles-ai resolves iniconfig 2.3.1, packaging 26.3 and pygments 2.21.0, all within
 existing constraints. Project tests are running; no live environment replacement
 or lockfile publication has occurred yet.
+
+Dotfiles candidate subsequently passed 244 tests with one skip against the merged
+retirement source. The primary test environment was activated at Python 3.13.16
+after preserving its original environment and lock. Dependency/import/SSL/SQLite
+checks and repeat frozen sync passed. Its .gitignore deliberately excludes uv.lock,
+so refreshed dependency resolution remains local rather than forcing a new tracked
+lockfile. Dotfiles-ai candidate test execution remains pending; its live environment
+has not been replaced.
 
 2026-10-07 follow-up after INT-027 consumer clarification: Homebrew Python 3.12.15,
 Python 3.14.8, pipx 1.17.11 and DuckDB 1.5.6 installed. The dry run selected only

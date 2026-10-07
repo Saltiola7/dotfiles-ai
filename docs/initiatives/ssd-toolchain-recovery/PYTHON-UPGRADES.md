@@ -17,6 +17,10 @@ Exclude enterprise-seo-tools entirely, all production environments and SDS GKE
 production/shared production inputs. Base SDS/development upgrades are in scope.
 No project code changes, installs or environment syncs occur during inventory.
 
+INT-028 defers content-evidence-workbench and search-taxonomy-lab upgrades until
+needed. Retain isolated candidate evidence; do not activate those candidates or
+continue their upgrade work as a prerequisite for the remaining maintenance.
+
 ## Inventory record and candidate selection
 
 Expanded linked-checkout and tool-environment observations:
