@@ -4,6 +4,12 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+Latest follow-up: moshi-hook upgraded from 0.4.10 to 0.4.18 with automatic cleanup
+disabled. Native dry run selected only that dependency-free formula. CLI version
+reports 0.4.18 and its probe reports installed/running/gateway true. No explicit
+daemon restart or hook reinstallation was performed; running process executable
+identity and pending approval continuity are not established by that probe.
+
 Seven isolated Homebrew CLI upgrades completed with automatic cleanup disabled:
 direnv 2.38.1, hcloud 1.70.1, mole 1.58.0, pandoc 3.12, sevenzip 26.04,
 usage 6.12.1, and scrape 1.10.1. The dry run listed only these requested
@@ -170,6 +176,11 @@ Its preserved dirty template change changes limactl permission from deny to ask.
 No source edits or lifecycle-state writes were made to that cycle in this follow-up.
 
 ## Guest follow-up
+
+Subsequent operator decision INT-024 defers remaining guest work. INT-025 defers
+the 1Password for Safari update after App Store ISErrorDomain Code=4. Operator
+reported successful updates of BlueWallet 8.0.2, Final Cut Pro 12.4, PDF Expert
+3.13.4, Slack 4.52.178 and WhatsApp 26.38.74; these are operator-reported results.
 
 Personal guest still reports cloud-init scripts_per_boot failure in
 00-lima.boot.sh. Privileged cloud-init log inspection stopped because native sudo

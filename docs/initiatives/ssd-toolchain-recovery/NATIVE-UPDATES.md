@@ -11,6 +11,10 @@ state migration). Requirements: INT-003, INT-013 through INT-015.
 
 ## Accepted outcome
 
+INT-024 subsequently defers guest activation and guest qualification work. Current
+live transition scope is macOS ARM64 only; retain existing guest and x86_64 routes.
+Prior Fedora isolated evidence remains valid historical evidence, not deployment.
+
 Native installers own executables. Chezmoi owns installation declarations,
 configuration, external-state routing and missing-volume protection. OpenCode
 /update operates on the invoked platform only. Codex likewise uses a supported

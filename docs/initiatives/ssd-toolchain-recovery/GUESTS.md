@@ -1,5 +1,9 @@
 # Guest recovery, upgrades and fresh provisioning
 
+Operator decision INT-024 defers all remaining guest work. The requirements and
+failed-boot evidence below are retained, not completed or waived as passing.
+Do not repair, upgrade, restart or freshly provision guests in the current scope.
+
 Home: dotfiles_ai_distribution. Profile and Product Intent: matching PROFILE.md
 and PRODUCT.md. Risk: elevated. Targets: the existing managed Fedora guests;
 portable CentOS rendering remains a compatibility concern, not authorization to

@@ -1,5 +1,9 @@
 # Native platform-local tool updates
 
+Current deployment scope is further narrowed by SSD recovery INT-024: all remaining
+guest work is deferred. Activate only macOS ARM64 in this continuation; retain
+guest and Linux x86_64 routes and their unfinished qualification evidence.
+
 Status: approved successor policy; implementation and live transition pending.
 Authority: SSD recovery Initiative INT-003 and INT-013 through INT-015.
 Profile: ../PROFILE.md. Product Intent: ../PRODUCT.md. Risk: elevated.
