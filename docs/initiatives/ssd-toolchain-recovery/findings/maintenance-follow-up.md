@@ -4,6 +4,67 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+Aider tool qualification found a minor-version conflict: installed and newly
+resolved aider-chat 0.86.2 both declare Python >=3.10,<3.13, but the existing tool
+uses Python 3.13.2. An isolated same-minor 3.13.16 candidate resolves but fails
+uv pip check on that explicit Python requirement. Live tool unchanged. Moving
+this tool alone to supported Python 3.12 requires an operator exception to the
+minor-preservation rule; do not widen or bypass package constraints.
+
+Operator instead retired unused Aider (INT-029). Native uv uninstall removed the
+live tool; the managed installer, Brewfile declaration and aider-local helper were
+removed from task and configured sources. The live helper was archived; histories
+and user configuration were not removed. Source commit b1105c5 retains the removal;
+shell/Ruby syntax and command-absence checks passed. Publication remains pending.
+
+Operator also retired unused nginx/Valet and confirmed spatie/http-status-check is
+unused (INT-030). Nginx's old Valet configuration referenced an absent log directory;
+native brew service stop and uninstall succeeded without autoremove or configuration
+purge. Native Composer removal could not run because PHP is absent. With explicit
+operator approval, the global Composer tool installation/configuration and Valet
+launcher were archived. Both commands are absent; nginx/Valet site configuration
+and data remain in place. Brewfile retirement commit 40fc4ca passed Ruby syntax;
+publication remains pending.
+
+Hermes 0.19.0's pinned, digest-verified wheel passed isolated Python 3.13.16
+dependency, SSL/SQLite and CLI version/help qualification. Preserve its exact
+package pin and internal-disk macOS interpreter contract. Managed interpreter
+declaration and live tool/service activation remain pending.
+
+Hermes follow-up: interpreter declaration updated in commit 6c51518; three affected
+Hermes rendering tests passed. Activated the exact qualified dependencies on
+internal-disk Python 3.13.16, retaining the previous tool environment and launcher
+definitions. Native gateway start unexpectedly regenerated its plist without the
+existing state-root guard. Verification caught the change; the regenerated plist
+was retained as failure evidence and the original guarded plist was restored using
+native launchctl bootout/bootstrap. Guarded registration is byte-identical to its
+preimage, reports running, and native deep status succeeds. Two executions of the
+rendered updated installer leave the receipt unchanged. Configured source carries
+the interpreter update; publication is pending. No gateway state snapshot was
+restored over current state.
+
+Delivery follow-up: residual SDK declaration PR #199 passed Python 3.12/3.13/3.14
+CI and merged at 20a6f235261aeaf378b5658911c642b8b6ab0a0a with operator approval.
+Existing orphan-recovery source and Discovery documents are published as draft
+PRs #200 and #201 respectively; neither draft is a completed merge or new launch.
+
+Dotfiles-ai Python candidate completed 1040 passing tests, seven skips and seven
+failures, with 51 passing subtests. Focused reruns reproduce the same seven failures
+under both original Python 3.13.2 and candidate 3.13.16: one legacy installed-CLI
+session-list check, three bounded-probe timing checks, and three native workspace
+process-inventory checks. Native lsof exits zero but warns it cannot stat a CCC
+transient read-only APFS snapshot mount and its output may be incomplete. The
+preservation guard correctly refuses that inventory; no hook was bypassed and no
+backup mount was altered. The operator explicitly accepted these seven verified
+pre-existing failures for this Python upgrade. Scope: test-environment activation
+only; owner: repository operator; review again during host process-inventory and
+OpenCode cutover completion. This does not waive preservation checks or mark those
+tests passed. Activated Python 3.13.16 after retaining the original environment and
+lock. Dependency checks, SSL/SQLite/import smoke and repeat frozen sync passed.
+Unlike dotfiles, dotfiles-ai tracks uv.lock; exact qualified dependency resolution
+is committed in maintenance/test-python-refresh at 884fc35. Source publication is
+pending; unrelated primary changes remain intact.
+
 Isolated Python 3.13.16 candidates for content-evidence-workbench and
 search-taxonomy-lab passed dependency checks, respectively 35 and 47 tests, Ruff
 lint and strict Marimo validation. Content Evidence resolves Marimo 0.25.1,
