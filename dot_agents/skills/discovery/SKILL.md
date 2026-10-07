@@ -42,18 +42,22 @@ manifest change. A slice is ready only when it has stable requirements,
 dependencies, and artifacts. Immediately before
 promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
 A changed manifest digest invalidates earlier readiness. Before asking the operator
-to approve launch, a Build primary uses typed `dbsctr_begin` in Initiative mode
-with `preflight: true`. This checks real launch feasibility without asking approval
-or creating a cycle. Specification readiness alone is not launch readiness. Resolve
+to approve registration, a Build primary invokes `dbsctrctl begin` with explicit
+Initiative arguments and `--preflight` in the selected native task checkout.
+Worktrunk creates that checkout; lifecycle registration never allocates it.
+Preflight checks real feasibility without collecting approval or creating a cycle.
+Specification readiness alone is not launch readiness. Resolve
 reported blockers first; never ask for a preliminary Discovery publication merely
 because its local branch has no upstream. Same-repository draft delivery carries
 approved documentation into one implementation PR. Plan reports launch feasibility
 as unverified until Build can perform this check; it does not probe denied tools.
-Require exact user approval
-for that digest-bound slice. The dedicated Discovery coordinator promotes through
-`dbsctr_initiative_launch`. A primary Build running `/discovery` uses typed
-`dbsctr_begin` only with its explicit Initiative mode, performs the same receipt
-and exact approval checks, and continues in its current same-repository session.
+Require exact operator confirmation for that digest-bound slice. Present the
+preflight plan and exact registration command with `--expected-launch-digest`.
+The operator runs it interactively and enters `BEGIN CYCLE_ID LAUNCH_DIGEST`;
+the CLI rechecks authority before registering. Agents must not synthesize consent
+or create a pseudo-terminal. Native shell permission approval is separate.
+The custom child-session launcher is retired. Continue the registered cycle in
+its native checkout; do not infer that changing shell cwd retargets a session.
 Plan records a handoff and never implements. Ordinary begin, compressed prose,
 and Herdr state are never readiness authority. Discovery continues for unfinished
 slices serially in the ordinary primary; only the explicitly selected coordinator

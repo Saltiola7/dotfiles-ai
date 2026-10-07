@@ -309,3 +309,202 @@ Text equivalent: compatibility, provenance and idle-state checks precede updates
 rollback requires exact postimages and unchanged state. Owner: Codex control plane.
 Update triggers: command, AST allowance, or snapshot predicate changes. No schema
 or deployment topology changes beyond a new immutable external pair directory.
+
+
+## Repeat qualification after completed deployment
+
+An explicit `stage --replace-deployed` transition may retain and supersede a
+previously qualified, retired fixture. It is mutually exclusive with
+`--replace-restored`; the never-enrolled transition keeps its existing rules.
+
+Eligibility requires all of the following:
+- The fixed qualification link identifies the retained previous lane.
+- The current production descriptor and hooks equal the exact postimages of
+  that lane's completed production refresh.
+- The refresh intent and completion records agree, their retained file hashes
+  match, and their lane and qualification identity match the previous lane.
+- The retained pre-refresh descriptor, hook restoration receipts and route
+  agree with the refresh preimages.
+- The production descriptor is exactly the result of applying the existing
+  refresh_descriptor transformation to those historical inputs.
+- The retained producer/core files still match their pins. The actual historical
+  native executable need not remain installed: its identity is historical
+  evidence, never current execution authority.
+- qualified_fixture revalidates the actual retained native/core journals:
+  generation 4, reader-only, no writer or pending operation, consumed approvals,
+  and preserved operator-quiescence classification for the interrupted call.
+
+A missing receipt, altered component, changed descriptor/hooks, qualification
+mismatch, unconsumed approval, writer or pending operation refuses replacement.
+Compatibility-only refresh chains are outside this initial bounded transition.
+
+The new candidate still requires the existing signed-native verification,
+distinct external fixture repository, fresh journal, native qualification and
+separate production refresh. Old callbacks never qualify the new executable.
+
+A replacement route records previous_lane_kind = "deployed". Legacy routes with
+no kind retain the existing restored-never-enrolled interpretation. Unknown
+kinds refuse. Stage's final pre-exchange check and recover-switch must use the
+same eligibility determination. Interrupted switching preserves both links and
+all evidence; recovery never edits production hooks or lifecycle ownership.
+
+| Previous state | Replacement |
+|---|---|
+| Never enrolled, restored exact preimages | Existing --replace-restored |
+| Qualified, retired, exact completed-refresh postimages | Explicit --replace-deployed |
+| Drift, pending work, missing proof, unsupported refresh chain | Refuse and retain |
+| Interrupted deployed-lane link exchange | Revalidate the same proof and exact links |
+
+Text equivalent: the new path recognizes a completed prior deployment without
+relaxing the old path or inferring quiescence. Owner: Codex control plane.
+Validation: synthetic transaction regressions are not native qualification.
+
+## Recovery refresh for one never-started admission
+
+An explicitly authorized recovery refresh may restore native control availability
+when ordinary idle refresh refuses one retained admission. It does not recover a
+writer, settle an operation, assert quiescence, or qualify new component bytes.
+The source-delivery cycle and the later operator activation are separate records.
+
+Preconditions: the retired fixture still passes full retained qualification;
+production producer bytes are identical; any core difference passes the existing
+four-function reconciliation compatibility check; the candidate pair matches
+accepted main exactly; the signed candidate native executable remains pinned;
+and fixture hooks have been exactly restored. The original production target,
+conversation and homes remain fixed. All production approvals must be consumed.
+
+Exactly one production shell operation may remain running, owned by the selected
+native actor at the current generation. Its matching active native receipt must
+bind the current production deployment, session, call and operation, with both
+execution flags false. No additional unsettled receipt in the current deployment, pending operation,
+foreign writer or started pending execution is eligible. Historical active or
+uncertain receipts may remain unchanged only with matching lower-generation core
+closure classified as operator quiescence. Receipts from other deployment digests
+cannot dispatch under this selection and remain retained in the journal snapshot.
+Never-started bookkeeping is not evidence of quiescence.
+
+`prepare-recovery-refresh --directory NEW_EXTERNAL_DIRECTORY --commit SHA`
+prepares immutable pins, preimages and a plan bound to the full production
+snapshot and retained qualification. It changes no live route or journal.
+`approve-recovery-refresh --directory DIRECTORY` requires a human terminal,
+refuses agent identity environments, displays the target, generation, operation,
+component hashes and plan digest, and requires an exact confirmation. It approves
+only this pin/hook refresh; native recovery requires its own subsequent approval.
+`apply-recovery-refresh --directory DIRECTORY` revalidates the plan and source,
+consumes that approval once before mutation, then uses existing atomic exchanges.
+It changes only qualified pins and the two hook commands. Producer serialization
+and unchanged snapshots before/between/after exchanges detect competing activity.
+
+`rollback-recovery-refresh --directory DIRECTORY` restores only receipt-listed
+exact preimages while the original production snapshot is unchanged. Concurrent
+edits or native activity refuse rollback; journals are never reverted. Interrupted
+application cannot be retried with a consumed approval: inspect retained exchange
+receipts, perform exact-state rollback, and prepare a fresh transaction. Rollback
+restores the stale native pin and does not claim runtime availability.
+
+After refresh, trust/reload remains native. The original coordinator must first
+run native control check and prepare recovery. Ordinary admission remains blocked
+by the retained operation. Only separately approved native recovery can fence its
+generation; neither old receipt nor operation is relabelled execution success.
+Old dispatch receipts cannot execute under the new deployment digest. Do not
+reattach the retired fixture or synthesize native callback evidence.
+
+### Recovery refresh visual evidence
+
+Boundary, interaction, state, trust and deployment concerns use this transition
+table. Schema uses immutable private plan/approval/consumption JSON files; native
+and core schemas are unchanged. Quantitative evidence is not applicable.
+
+| State / actor | Allowed transition | Preserved / refused |
+|---|---|---|
+| Agent prepares exact merged candidate | Private plan and copies only | Live selection, hooks, journals and ownership unchanged |
+| Human reviews exact plan and quiescence | Terminal-only approval | No lifecycle approval or operation settlement |
+| Agent applies unchanged approved plan | Qualified pins and exact hook commands | Pending admission, writer and generation unchanged; drift refuses |
+| Original native coordinator | Check, then separately approved native recovery | No shell admission while pending; old receipt remains historical |
+| Failed exchange, unchanged production | Exact-preimage rollback | Preserve all exchange evidence; any third image or activity refuses |
+
+**Text Equivalent:** Preparation grants nothing. A human approves one exact
+refresh, which restores native controls while retaining the unresolved admission.
+Only original native controls can later recover ownership with separate approval.
+Rollback restores exact files without rewriting history. Source: management
+commands and their regression tests. Owner: dotfiles operator. Update when any
+eligibility, approval, transaction or recovery condition changes.
+
+## Signed desktop updates
+
+The operator replaces exact upstream executable admission pins with explicit
+`verification: openai-signed-v1` on the native-executable value. Its retained
+SHA-256 is installation provenance, not an update authorization token. Legacy
+values without this field still enforce the exact hash. Producer and core pins,
+conversation identity, writer authority and recovery approvals stay exact.
+
+Only the canonical ChatGPT application's original or nested Codex executable
+is eligible. Every validation checks an Apple-anchored OpenAI team signature,
+bounded version output, actual SHA-256 and stable file identity. Metadata reads
+retain the existing body-free supported response validation and reject executable
+replacement during the read. Missing, unsigned, wrong-publisher, redirected or
+incompatible executables refuse; control availability is not writer authority.
+
+A new actual executable digest has no business-shell permission until one real
+native foreground smoke completes. The exact command is:
+
+```
+printf 'codex-native-smoke: unwrapped\n'
+```
+
+The hook rewrites only this command to `printf 'codex-native-smoke: complete\n'`,
+then uses ordinary shell admission, dispatch and post-hook completion. It writes
+no business file. It requires an idle owned cycle and the existing primary's
+native identity. Arbitrary commands, appended commands and background requests
+cannot use this exemption. All unsupported direct-file tools remain denied.
+
+Owner-private runtime sidecars bind each shell admission to its actual executable
+digest and deployment, without storing command bodies. A smoke proof names its
+real completed native receipt and matching normally completed core operation;
+uncertain, fabricated, mismatched or operator-quiescence closure never qualifies.
+Dispatch and completion require the same executable digest as admission. Updating
+while an operation is running therefore refuses and retains recovery evidence.
+Do updates when the coordinator is idle; an update never clears pending work.
+
+Given a signed app update with compatible metadata, native controls remain usable,
+ordinary shell calls refuse, and the exact smoke may run. Given its matching normal
+completion, subsequent calls on that digest resume. Given another update, the smoke
+must run again. A failed smoke or changed adapter contract requires investigation
+and full qualification where compatibility cannot be established. No old fixture
+is reopened or relabelled as evidence for the new executable.
+
+`codex-requalify deploy-signed-runtime --directory NEW_EXTERNAL_DIRECTORY --commit
+MERGED_MAIN_SHA` performs the separately authorized one-time policy deployment.
+It requires exact clean merged source, unchanged core bytes, intact old adapter
+pins, a genuinely retired historical fixture and idle production. It preserves
+its descriptor/hook preimages and full journal/record/HEAD/status snapshot using
+the existing atomic exchanges. It creates a new private runtime-evidence directory;
+it grants no smoke proof, writer or quiescence assertion. Native trust and the
+original coordinator's smoke remain deployment prerequisites. Retained fixture
+proof is verified historically without requiring the obsolete upstream binary to
+remain installed. `rollback-signed-runtime --directory RECEIPT_DIRECTORY` restores
+only exact preimages with the same unchanged production snapshot; it does not
+restore the obsolete executable or erase runtime evidence.
+
+Homebrew's `codex` cask and `chatgpt` app are separate installations. The selected
+desktop uses the app's bundled executable. Normal Homebrew/app updates remain
+supported; no blanket cask pin, updater disablement or independent binary copy is
+introduced. After an idle app update, the coordinator runs native control check and
+the one foreground smoke. Version/hash are retained for diagnostics. A publisher
+signature establishes provenance, not proof of unchanged callback semantics.
+
+| State / input | Permitted action | Business admission |
+|---|---|---|
+| Signed runtime, no proof for its actual digest | Native controls and exact rewritten smoke | Refused |
+| Real smoke receipt and core operation normally completed on same digest | Ordinary owned-cycle shell calls | Existing ownership rules |
+| App binary changes during dispatch/completion | Preserve pending/uncertain evidence and investigate recovery | Refused |
+| Wrong publisher, path, signature or metadata shape | Repair runtime/compatibility | Refused |
+| Adapter code changes | Required scoped validation and qualification decision | No inherited runtime proof |
+
+**Text Equivalent:** Signed upstream updates enter a control-accessible smoke gate.
+Only real ordinary admission and normal completion qualify that executable digest.
+Adapter integrity and lifecycle authority remain separate. Updating an active
+operation cannot settle it. Source: signed-runtime policy and implementation;
+owner: dotfiles operator; refresh when runtime validation or smoke accounting changes.
+This table supplies boundary, interaction, state, data/trust and deployment evidence;
+no new journal schema or quantitative claim is introduced.

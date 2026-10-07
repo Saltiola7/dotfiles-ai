@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import fcntl
+import gzip
 import hashlib
 import json
 import os
@@ -35,8 +37,11 @@ DOWNLOAD_HOSTS = {"github.com", "release-assets.githubusercontent.com"}
 MAX_METADATA = 1024 * 1024
 MAX_ASSET = 256 * 1024 * 1024
 MAX_OUTPUT = 20 * 1024 * 1024
-VALIDATOR_REVISION = "opencode-release-validator-4"
-COMPATIBLE_VALIDATOR_REVISIONS = {"opencode-release-validator-1", "opencode-release-validator-2", "opencode-release-validator-3", VALIDATOR_REVISION}
+V2_VALIDATOR = "opencode-v2-validator-1"
+V2_PACKAGES = {"darwin-aarch64": "cli-darwin-arm64", "linux-aarch64": "cli-linux-arm64",
+               "linux-x86_64": "cli-linux-x64"}
+VALIDATOR_REVISION = "opencode-release-validator-5"
+COMPATIBLE_VALIDATOR_REVISIONS = {"opencode-release-validator-1", "opencode-release-validator-2", "opencode-release-validator-3", "opencode-release-validator-4", VALIDATOR_REVISION}
 LEGACY_RELEASE = "1.18.25"
 LEGACY_ROOT = "/usr/local/libexec/opencode"
 LEGACY_LINUX_AARCH64_BINARY_SHA256 = "896c9c9b1942d4d74576868af24bbcbfa3f267d7eeb17aa6b8dff70810800084"
@@ -53,6 +58,7 @@ DIGEST = re.compile(r"^[0-9a-f]{64}$")
 REASONS = {
     "none", "metadata_unavailable", "candidate_invalid", "target_unavailable",
     "validation_failed", "activation_failed", "rollback_completed", "rollback_failed",
+    "updates_held", "recovery_required", "admission_required",
 }
 
 
@@ -422,28 +428,28 @@ def validate_binary(binary, release):
     agents = config.get("agent") if isinstance(config, dict) else None
     permissions = config.get("permission") if isinstance(config, dict) else None
     if (not isinstance(agents, dict) or not {"build", "plan"} <= set(agents)
-            or not isinstance(permissions, dict) or "dbsctr_status" not in permissions):
+            or not isinstance(permissions, dict) or "bash" not in permissions
+            or any(name.startswith("dbsctr_") for name in permissions)):
         raise UpdateError("validation_failed")
     tools = agent.get("tools") if isinstance(agent, dict) else None
     if (not isinstance(agent, dict) or agent.get("name") != "build"
-            or not isinstance(tools, dict) or "dbsctr_status" not in tools):
+            or not isinstance(tools, dict) or not tools.get("bash")
+            or any(name.startswith("dbsctr_") for name in tools)):
         raise UpdateError("validation_failed")
-    continuation = Path.home() / ".config/opencode/plugins/continuation.ts"
-    if "dbsctr_preflight" in permissions or os.path.lexists(continuation):
-        probe = Path.home() / ".local/share/opencode-continuation/native_probe.py"
-        if not {"dbsctr_preflight", "dbsctr_attach", "dbsctr_continuation_recover"} <= set(tools) or not probe.is_file():
+    for retired in ("plugins/continuation.ts", "lib/continuation.ts", "tools/dbsctr.ts"):
+        if os.path.lexists(Path.home() / ".config/opencode" / retired):
             raise UpdateError("validation_failed")
-        read_regular(continuation, 512 * 1024, mode=0o644)
-        read_regular(probe, 512 * 1024, mode=0o644)
-        with tempfile.TemporaryDirectory(prefix="opencode-continuation-validation-") as scratch:
-            output = run([sys.executable, str(probe), "--binary", str(binary), "--installed-root", str(Path.home()),
-                          "--scratch", scratch, "--sdk-modules", str(Path.home() / ".config/opencode/node_modules")],
-                         timeout=420, environment=environment, maximum=128 * 1024)
-        if not output.rstrip().endswith(b"passed"):
-            raise UpdateError("validation_failed")
+    helper = Path.home() / ".local/bin/dbsctrctl"
+    help_text = run([str(helper), "--help"], environment=environment)
+    if not all(name in help_text for name in (b"workspace-adopt", b"workspace-remove-check", b"record-evidence", b"final-push")):
+        raise UpdateError("validation_failed")
+    if not run(["wt", "--version"], environment=environment).startswith(b"wt v"):
+        raise UpdateError("validation_failed")
 
 
 def lock_generation(value, require_platform=True):
+    if isinstance(value, dict) and value.get("schema_version") == 2:
+        return v2_generation(value, require_platform)
     required = {
         "schema_version", "channel", "release", "tag", "platform", "binary_sha256",
         "target_count", "targets_digest", "assets", "validator_revision",
@@ -478,9 +484,13 @@ def read_lock(root=None):
     if not os.path.lexists(path):
         return None
     value = parse_json(read_regular(path, MAX_METADATA))
-    if not isinstance(value, dict) or set(value) != {
+    required = {
             "schema_version", "channel", "release", "tag", "platform", "binary_sha256",
-            "target_count", "targets_digest", "assets", "validator_revision", "previous"}:
+            "target_count", "targets_digest", "assets", "validator_revision", "previous"}
+    if isinstance(value, dict) and value.get("schema_version") == 2:
+        required = {"schema_version", "channel", "release", "platform", "binary_sha256",
+                    "artifact", "validator_revision", "admission", "previous"}
+    if not isinstance(value, dict) or set(value) != required:
         raise UpdateError("validation_failed")
     previous = value.pop("previous")
     lock_generation(value)
@@ -522,7 +532,15 @@ def reject_candidate(candidate, reason, root=None):
 
 
 def healthy(lock, binary=None):
-    if lock is None or lock["validator_revision"] != VALIDATOR_REVISION:
+    if lock is None:
+        return False
+    if lock.get("schema_version") == 2:
+        try:
+            v2_generation({key: value for key, value in lock.items() if key != "previous"})
+            verify_v2_admission(lock, package_root())
+        except (OSError, UpdateError):
+            return False
+    elif lock["validator_revision"] != VALIDATOR_REVISION:
         return False
     binary = binary_path() if binary is None else Path(binary)
     try:
@@ -530,9 +548,9 @@ def healthy(lock, binary=None):
         return (not binary.is_symlink() and stat.S_ISREG(metadata.st_mode)
                 and metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) == 0o700
                 and os.access(binary, os.X_OK)
-                and file_digest(binary) == lock["binary_sha256"]
-                and run([str(binary), "--version"], maximum=4096).decode().strip()
-                == lock["release"])
+                 and file_digest(binary) == lock["binary_sha256"]
+                 and run([str(binary), "--version"], maximum=4096).decode().strip()
+                 == (f"opencode v{lock['release']}" if lock.get("schema_version") == 2 else lock["release"]))
     except (OSError, UpdateError):
         return False
 
@@ -558,6 +576,12 @@ def exec_managed(arguments):
     descriptor = process_lock(root)
     with os.fdopen(descriptor, "r+"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        v2_maintenance_guard(root)
+        selected = read_lock(root)
+        if selected is not None and selected.get("schema_version") == 2:
+            if not healthy(selected, binary):
+                raise UpdateError("admission_required")
+            os.execve(binary, [str(binary), *arguments], os.environ)
         if sys.platform == "darwin":
             recover_host(root, binary, sandbox_config())
         else:
@@ -634,6 +658,9 @@ def adopt_remote_legacy(root, binary):
 
 
 def upgrade_validator_lock(root, binary, current):
+    if current is not None and current.get("schema_version") == 2:
+        lock_generation({key: value for key, value in current.items() if key != "previous"})
+        return current
     if current is None or current["validator_revision"] == VALIDATOR_REVISION:
         return current
     validate_binary(binary, current["release"])
@@ -647,6 +674,10 @@ def stage(candidate, root=None, binary=None, target_count=1, targets_digest=None
     binary = binary_path() if binary is None else Path(binary)
     private_directory(root)
     private_directory(binary.parent)
+    v2_maintenance_guard(root)
+    selected = read_lock(root)
+    if selected is not None and selected.get("schema_version") == 2:
+        raise UpdateError("updates_held")
     verify_legacy(root)
     adopt_remote_legacy(root, binary)
     current = upgrade_validator_lock(root, binary, read_lock(root))
@@ -691,6 +722,7 @@ def transaction(root, phase, had_binary, had_lock, candidate_lock, attempted_act
 def activate(root=None, binary=None, finalize=True, attempted_activations=1):
     root = package_root() if root is None else Path(root)
     binary = binary_path() if binary is None else Path(binary)
+    refuse_v2_legacy_mutation(root)
     candidate_binary = root / "candidate-opencode"
     candidate_lock_path = root / "candidate-lock.json"
     candidate_binary_present = os.path.lexists(candidate_binary)
@@ -759,6 +791,7 @@ def activate(root=None, binary=None, finalize=True, attempted_activations=1):
 def rollback(root=None, binary=None):
     root = package_root() if root is None else Path(root)
     binary = binary_path() if binary is None else Path(binary)
+    refuse_v2_legacy_mutation(root)
     previous_binary = root / "previous-opencode"
     previous_lock_path = root / "previous-lock.json"
     transaction_path = root / "transaction"
@@ -853,6 +886,7 @@ def read_transaction(root):
 def recover(root=None, binary=None):
     root = package_root() if root is None else Path(root)
     binary = binary_path() if binary is None else Path(binary)
+    refuse_v2_legacy_mutation(root)
     if read_transaction(root) is None:
         return
     rollback(root, binary)
@@ -915,6 +949,7 @@ def guest_call(action, workspace, candidate=None, expected_release=None):
 
 
 def recover_host(root, binary, workspaces):
+    refuse_v2_legacy_mutation(root)
     journal = read_transaction(root)
     if journal is None:
         return
@@ -967,6 +1002,9 @@ def local_update():
     descriptor = process_lock(root)
     with os.fdopen(descriptor, "r+"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        retained = retain_v2(root, binary)
+        if retained is not None:
+            return retained
         try:
             recover(root, binary)
             private_directory(binary.parent)
@@ -1004,6 +1042,9 @@ def host_update():
     descriptor = process_lock(root)
     with os.fdopen(descriptor, "r+"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        retained = retain_v2(root, binary)
+        if retained is not None:
+            return retained
         workspaces = sandbox_config()
         recover_host(root, binary, workspaces)
         current = upgrade_validator_lock(root, binary, read_lock(root))
@@ -1125,11 +1166,315 @@ def parse_candidate(raw):
     })
 
 
+def is_digest(value):
+    return isinstance(value, str) and DIGEST.fullmatch(value) is not None
+
+
+def v2_artifact(value, release, platform_name):
+    if not isinstance(platform_name, str):
+        raise UpdateError("candidate_invalid")
+    name = V2_PACKAGES.get(platform_name)
+    if (name is None or not isinstance(value, dict) or set(value) != {
+            "package", "version", "url", "integrity", "size", "sha256"}
+            or semver(release)[0] != 2 or value["version"] != release
+            or value["package"] != f"@opencode/{name}"
+            or value["url"] != f"https://registry.npmjs.org/@opencode/{name}/-/{name}-{release}.tgz"
+            or type(value["size"]) is not int or not 0 < value["size"] <= MAX_ASSET
+            or not is_digest(value["sha256"]) or not isinstance(value["integrity"], str)
+            or not value["integrity"].startswith("sha512-")):
+        raise UpdateError("candidate_invalid")
+    try:
+        integrity = base64.b64decode(value["integrity"][7:], validate=True)
+    except ValueError:
+        raise UpdateError("candidate_invalid")
+    if len(integrity) != 64 or base64.b64encode(integrity).decode() != value["integrity"][7:]:
+        raise UpdateError("candidate_invalid")
+    return value
+
+
+def v2_generation(value, require_platform=True):
+    if (set(value) != {"schema_version", "channel", "release", "platform", "binary_sha256",
+                       "artifact", "validator_revision", "admission"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 2
+            or value["channel"] != "stable" or value["validator_revision"] != V2_VALIDATOR
+            or not is_digest(value["binary_sha256"])
+            or value["admission"] is not None and not is_digest(value["admission"])
+            or require_platform and value["platform"] != platform_id()):
+        raise UpdateError("validation_failed")
+    v2_artifact(value["artifact"], value["release"], value["platform"])
+    return value
+
+
+def v2_identity(value):
+    return hashlib.sha256(canonical({key: item for key, item in value.items()
+                                    if key not in {"previous", "admission"}})).hexdigest()
+
+
+def v2_executable_digest(path):
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as source:
+        metadata = os.fstat(source.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700
+                or not 0 < metadata.st_size <= 512 * 1024 * 1024):
+            raise UpdateError("validation_failed")
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+        return digest.hexdigest()
+
+
+def v2_maintenance_guard(root):
+    if os.path.lexists(root / "v2-transition.json"):
+        raise UpdateError("recovery_required")
+
+
+def refuse_v2_legacy_mutation(root):
+    v2_maintenance_guard(root)
+    selected = read_lock(root)
+    if selected is not None and selected.get("schema_version") == 2:
+        raise UpdateError("updates_held")
+
+
+def retain_v2(root, binary):
+    v2_maintenance_guard(root)
+    selected = read_lock(root)
+    if selected is None or selected.get("schema_version") != 2:
+        return None
+    valid = healthy(selected, binary)
+    result("retained", selected["release"], 1, "updates_held" if valid else "admission_required")
+    return 0 if valid else 1
+
+
+def verify_v2_admission(lock, root):
+    if os.path.lexists(root / "transaction"):
+        raise UpdateError("recovery_required")
+    digest = lock.get("admission")
+    if not is_digest(digest):
+        raise UpdateError("admission_required")
+    for name in ("v2-admissions", "v2-evidence"):
+        try:
+            metadata = (root / name).stat(follow_symlinks=False)
+        except OSError:
+            raise UpdateError("admission_required")
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise UpdateError("admission_required")
+    raw = read_regular(root / "v2-admissions" / f"{digest}.json", MAX_METADATA, mode=0o400)
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise UpdateError("admission_required")
+    manifest = parse_json(raw)
+    fields = {"configuration", "service", "data", "recovery", "reconciliation"}
+    if (not isinstance(manifest, dict) or set(manifest) != fields | {"schema_version", "candidate_digest"}
+            or type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1
+            or manifest["candidate_digest"] != v2_identity(lock)):
+        raise UpdateError("admission_required")
+    for kind in fields:
+        evidence_digest = manifest[kind]
+        if not is_digest(evidence_digest):
+            raise UpdateError("admission_required")
+        evidence = read_regular(root / "v2-evidence" / f"{evidence_digest}.json", MAX_METADATA, mode=0o400)
+        if hashlib.sha256(evidence).hexdigest() != evidence_digest:
+            raise UpdateError("admission_required")
+        proof = parse_json(evidence)
+        if (not isinstance(proof, dict) or proof.get("kind") != kind or proof.get("result") != "passed"
+                or proof.get("candidate_digest") != manifest["candidate_digest"]):
+            raise UpdateError("admission_required")
+    return manifest
+
+
+def extract_v2(archive, destination, artifact, platform_name):
+    v2_artifact(artifact, artifact.get("version"), platform_name)
+    descriptor = os.open(archive, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as source:
+        metadata = os.fstat(source.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size != artifact["size"]:
+            raise UpdateError("candidate_invalid")
+        sha256, sha512 = hashlib.sha256(), hashlib.sha512()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            sha256.update(chunk)
+            sha512.update(chunk)
+        if (sha256.hexdigest() != artifact["sha256"] or
+                "sha512-" + base64.b64encode(sha512.digest()).decode() != artifact["integrity"]):
+            raise UpdateError("candidate_invalid")
+        source.seek(0)
+        # Bound decompression before tarfile parses extended headers.
+        with tempfile.TemporaryFile() as unpacked:
+            size = 0
+            with gzip.GzipFile(fileobj=source) as compressed:
+                while chunk := compressed.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > 513 * 1024 * 1024:
+                        raise UpdateError("candidate_invalid")
+                    unpacked.write(chunk)
+            unpacked.seek(0)
+            extract_v2_tar(unpacked, destination, artifact)
+
+
+def extract_v2_tar(source, destination, artifact):
+    with tarfile.open(fileobj=source, mode="r:") as bundle:
+        members = []
+        for member in bundle:
+            members.append(member)
+            if len(members) > 2 or not member.isreg() or not 0 < member.size <= 512 * 1024 * 1024:
+                raise UpdateError("candidate_invalid")
+        if len(members) != 2 or {member.name for member in members} != {
+                "package/package.json", "package/bin/opencode"}:
+            raise UpdateError("candidate_invalid")
+        manifest = bundle.getmember("package/package.json")
+        if manifest.size > 65536:
+            raise UpdateError("candidate_invalid")
+        package = parse_json(bundle.extractfile(manifest).read(65537), 65536)
+        if (not isinstance(package, dict) or package.get("name") != artifact["package"]
+                or package.get("version") != artifact["version"] or package.get("scripts")):
+            raise UpdateError("candidate_invalid")
+        with bundle.extractfile("package/bin/opencode") as executable:
+            copy_member(executable, destination)
+
+
+def download_v2(artifact, destination, platform_name):
+    v2_artifact(artifact, artifact["version"], platform_name)
+    opener = urllib.request.build_opener(MetadataRedirectHandler())
+    # Exact registry version, never a moving tag or a caller-selected origin.
+    url = f"https://registry.npmjs.org/{artifact['package']}/{artifact['version']}"
+    with opener.open(url, timeout=30) as response:
+        metadata = parse_json(response.read(MAX_METADATA + 1))
+    os_name, cpu = ("darwin" if platform_name.startswith("darwin") else "linux",
+                    "x64" if platform_name.endswith("x86_64") else "arm64")
+    if (not isinstance(metadata, dict) or metadata.get("name") != artifact["package"]
+            or metadata.get("version") != artifact["version"] or metadata.get("os") != [os_name]
+            or metadata.get("cpu") != [cpu] or not isinstance(metadata.get("dist"), dict)
+            or metadata["dist"].get("tarball") != artifact["url"]
+            or metadata["dist"].get("integrity") != artifact["integrity"]):
+        raise UpdateError("candidate_invalid")
+    deadline = time.monotonic() + 120
+    with opener.open(artifact["url"], timeout=30) as response, destination.open("xb") as output:
+        os.fchmod(output.fileno(), 0o600)
+        size = 0
+        while chunk := response.read(1024 * 1024):
+            size += len(chunk)
+            if size > artifact["size"] or time.monotonic() >= deadline:
+                raise UpdateError("candidate_invalid")
+            output.write(chunk)
+        output.flush()
+        os.fsync(output.fileno())
+    if size != artifact["size"]:
+        raise UpdateError("candidate_invalid")
+
+
+def stage_v2(request, root, binary):
+    if not isinstance(request, dict) or set(request) != {"release", "artifact"}:
+        raise UpdateError("candidate_invalid")
+    v2_maintenance_guard(root)
+    if os.path.lexists(root / "transaction"):
+        raise UpdateError("recovery_required")
+    read_lock(root)
+    artifact = v2_artifact(request["artifact"], request["release"], platform_id())
+    # Each attempt is retained; failed or successful attempts are never overwritten.
+    directory = Path(tempfile.mkdtemp(prefix="v2-stage-", dir=root))
+    atomic_json(directory / "status.json", {"phase": "staging", "release": request["release"]})
+    archive, candidate = directory / "archive.tgz", directory / "opencode"
+    download_v2(artifact, archive, platform_id())
+    extract_v2(archive, candidate, artifact, platform_id())
+    with tempfile.TemporaryDirectory(prefix="v2-probe-", dir=root) as isolated:
+        environment = {"HOME": isolated, "PATH": os.defpath,
+                       "XDG_CONFIG_HOME": isolated + "/config", "XDG_DATA_HOME": isolated + "/data",
+                       "XDG_STATE_HOME": isolated + "/state", "XDG_CACHE_HOME": isolated + "/cache"}
+        if run([str(candidate), "--version"], environment=environment, maximum=4096).decode().strip() != f"opencode v{request['release']}":
+            raise UpdateError("validation_failed")
+        if not run([str(candidate), "--help"], environment=environment, maximum=1024 * 1024, combine=True).strip():
+            raise UpdateError("validation_failed")
+    generation = {"schema_version": 2, "channel": "stable", "release": request["release"],
+                  "platform": platform_id(), "binary_sha256": file_digest(candidate), "artifact": artifact,
+                  "validator_revision": V2_VALIDATOR, "admission": None, "previous": None}
+    atomic_json(directory / "generation.json", generation)
+    atomic_json(directory / "status.json", {"phase": "staged", "release": request["release"]})
+    atomic_json(root / "v2-candidate.json", {"directory": directory.name, "candidate_digest": v2_identity(generation)})
+    return generation
+
+
+def activate_v2(request, root, binary):
+    if (not isinstance(request, dict) or set(request) != {"candidate_digest", "current_sha256"}
+            or not is_digest(request["candidate_digest"])
+            or request["current_sha256"] is not None and not is_digest(request["current_sha256"])):
+        raise UpdateError("candidate_invalid")
+    v2_maintenance_guard(root)
+    if os.path.lexists(root / "transaction"):
+        raise UpdateError("recovery_required")
+    pointer = parse_json(read_regular(root / "v2-candidate.json", MAX_METADATA))
+    if (not isinstance(pointer, dict) or set(pointer) != {"directory", "candidate_digest"}
+            or pointer["candidate_digest"] != request["candidate_digest"]
+            or not isinstance(pointer["directory"], str)
+            or not re.fullmatch(r"v2-stage-[a-z0-9_]+", pointer["directory"])):
+        raise UpdateError("candidate_invalid")
+    directory = root / pointer["directory"]
+    private_directory(directory)
+    generation = parse_json(read_regular(directory / "generation.json", MAX_METADATA))
+    if not isinstance(generation, dict) or generation.get("previous") is not None:
+        raise UpdateError("candidate_invalid")
+    lock_generation({key: value for key, value in generation.items() if key != "previous"})
+    if (generation.get("schema_version") != 2 or generation["admission"] is not None
+            or v2_identity(generation) != request["candidate_digest"]
+            or v2_executable_digest(directory / "opencode") != generation["binary_sha256"]):
+        raise UpdateError("candidate_invalid")
+    current = read_lock(root)
+    current_digest = hashlib.sha256(read_regular(root / "release-lock.json", MAX_METADATA)).hexdigest() if current else None
+    if request["current_sha256"] != current_digest or (current is None) != (not os.path.lexists(binary)):
+        raise UpdateError("activation_failed")
+    if current is not None and v2_executable_digest(binary) != current["binary_sha256"]:
+        raise UpdateError("activation_failed")
+    journal = {"schema_version": 2, "phase": "prepared", "candidate_digest": request["candidate_digest"],
+               "current_sha256": current_digest, "directory": directory.name}
+    atomic_json(root / "v2-transition.json", journal)
+    if current is not None:
+        copy_regular(binary, directory / "previous-opencode")
+        atomic_json(directory / "previous-lock.json", current)
+    generation["previous"] = None if current is None else {key: value for key, value in current.items() if key != "previous"}
+    journal["phase"] = "backed_up"
+    atomic_json(root / "v2-transition.json", journal)
+    temporary = binary.with_name(".opencode-v2-" + request["candidate_digest"])
+    copy_regular(directory / "opencode", temporary)
+    os.replace(temporary, binary)
+    fsync_directory(binary.parent)
+    atomic_json(root / "release-lock.json", generation)
+    journal["phase"] = "installed"
+    atomic_json(root / "v2-transition.json", journal)
+    return generation
+
+
+def admit_v2(request, root, binary):
+    if (not isinstance(request, dict) or set(request) != {"candidate_digest", "manifest_sha256"}
+            or not is_digest(request["candidate_digest"]) or not is_digest(request["manifest_sha256"])):
+        raise UpdateError("admission_required")
+    journal = parse_json(read_regular(root / "v2-transition.json", MAX_METADATA))
+    if (not isinstance(journal, dict) or set(journal) != {
+            "schema_version", "phase", "candidate_digest", "current_sha256", "directory"}
+            or type(journal["schema_version"]) is not int or journal["schema_version"] != 2
+            or journal["phase"] != "installed" or journal["candidate_digest"] != request["candidate_digest"]
+            or journal["current_sha256"] is not None and not is_digest(journal["current_sha256"])
+            or not isinstance(journal["directory"], str)
+            or not re.fullmatch(r"v2-stage-[a-z0-9_]+", journal["directory"])):
+        raise UpdateError("recovery_required")
+    generation = read_lock(root)
+    if (generation is None or generation.get("schema_version") != 2
+            or v2_identity(generation) != request["candidate_digest"]):
+        raise UpdateError("admission_required")
+    generation["admission"] = request["manifest_sha256"]
+    verify_v2_admission(generation, root)
+    if not healthy(generation, binary):
+        raise UpdateError("admission_required")
+    atomic_json(root / "release-lock.json", generation)
+    atomic_json(root / ("v2-completed-" + request["candidate_digest"] + ".json"),
+                {**journal, "phase": "admitted", "admission": request["manifest_sha256"]})
+    (root / "v2-transition.json").unlink()
+    fsync_directory(root)
+    return generation
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="opencode-update-all")
     parser.add_argument("mode", nargs="?", choices=(
         "guest-stage", "guest-activate", "guest-rollback", "guest-verify",
-        "recover-local", "exec-managed"))
+        "recover-local", "exec-managed", "stage-v2", "activate-v2", "admit-v2"))
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.mode == "exec-managed":
@@ -1139,6 +1484,20 @@ def main(argv=None):
             print("OpenCode start blocked: managed release is unavailable", file=sys.stderr)
             return 75
     try:
+        if args.mode in {"stage-v2", "activate-v2", "admit-v2"}:
+            if args.arguments:
+                raise UpdateError("candidate_invalid")
+            request = parse_json(sys.stdin.buffer.read(MAX_METADATA + 1))
+            root, binary = package_root(), binary_path()
+            private_directory(root)
+            private_directory(binary.parent)
+            with os.fdopen(process_lock(root), "r+") as descriptor:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                selected = {"stage-v2": stage_v2, "activate-v2": activate_v2,
+                            "admit-v2": admit_v2}[args.mode](request, root, binary)
+                result("staged" if args.mode == "stage-v2" else "maintenance" if args.mode == "activate-v2"
+                       else "admitted", selected["release"], 1)
+                return 0
         if args.mode == "guest-stage":
             candidate = parse_candidate(sys.stdin.buffer.read(MAX_METADATA + 1))
             root, binary = package_root(), binary_path()
@@ -1216,6 +1575,9 @@ def main(argv=None):
         descriptor = process_lock(root)
         with os.fdopen(descriptor, "r+"):
             fcntl.flock(descriptor, fcntl.LOCK_EX)
+            retained = retain_v2(root, binary)
+            if retained is not None:
+                return retained
             recover(root, binary)
             verify_legacy(root)
             lock = upgrade_validator_lock(root, binary, read_lock(root))
@@ -1224,6 +1586,9 @@ def main(argv=None):
                 return 1
             result("current", lock["release"], 1)
             return 0
+    except UpdateError as error:
+        result("retained", None, 0, error.reason)
+        return 1
     except Exception:
         result("retained", None, 0, "rollback_failed")
         return 1

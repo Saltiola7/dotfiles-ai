@@ -79,10 +79,15 @@ def pace_start(command: list[str]) -> int:
             stamp = read_state(timestamp) if timestamp.exists() or timestamp.is_symlink() else "0"
             if stamp != last_seen:
                 progress, last_seen = time.monotonic(), stamp
-            result = subprocess.run(["/usr/bin/shlock", "-p", str(os.getpid()), "-f", str(lock)],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-            if result.returncode == 0:
-                owned = True
+            # A signal must not discard ownership after shlock creates the file.
+            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+            try:
+                result = subprocess.run(["/usr/bin/shlock", "-p", str(os.getpid()), "-f", str(lock)],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                owned = result.returncode == 0
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            if owned:
                 break
             now = time.monotonic()
             if now - progress >= 20 or now - started >= 600:
@@ -371,12 +376,76 @@ def main() -> int:
         return restore(manifest, entries, database, opencode, check)
 
 
+def runtime_major(opencode: Path) -> int:
+    with tempfile.TemporaryFile() as output:
+        process = subprocess.Popen([str(opencode), "--version"], stdout=output,
+                                   stderr=output, start_new_session=True)
+        deadline = time.monotonic() + 10
+        try:
+            while process.poll() is None:
+                if time.monotonic() >= deadline or os.fstat(output.fileno()).st_size > 4096:
+                    raise RuntimeError("runtime version unavailable")
+                time.sleep(0.02)
+            if process.returncode or os.fstat(output.fileno()).st_size > 4096:
+                raise RuntimeError("runtime version unavailable")
+            output.seek(0)
+            version = output.read(4097).decode("ascii").strip()
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+    if re.fullmatch(r"1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+        return 1
+    if re.fullmatch(r"opencode v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+        return 2
+    raise RuntimeError("unsupported runtime version")
+
+
+def unique_marker(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate conversion marker key")
+        result[key] = value
+    return result
+
+
+def recovery_sessions(database: Path, entries: list[dict], major: int) -> dict:
+    with contextlib.closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True,
+                                          timeout=2)) as connection:
+        deadline = time.monotonic() + 2
+        connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+        connection.execute("BEGIN")
+        objects = dict(connection.execute("SELECT name,type FROM sqlite_master"))
+        table = "session_v2" if major == 2 else "session"
+        if major == 1 and "session_v2" in objects:
+            raise RuntimeError("runtime and history schema mismatch")
+        required = {table: {"id", "directory"}}
+        if major == 2:
+            required["session_message"] = {"id", "session_id"}
+        for name, columns in required.items():
+            if (objects.get(name) != "table" or not columns <= {
+                    row[1] for row in connection.execute(f'PRAGMA table_info("{name}")')}):
+                raise RuntimeError("native recovery schema unavailable")
+        if major == 2 and "session" in objects:
+            if objects.get("kv") != "table":
+                raise RuntimeError("native conversion incomplete")
+            rows = connection.execute(
+                "SELECT substr(value,1,4097) FROM kv WHERE key='migration.v1-v2' LIMIT 2").fetchall()
+            if (len(rows) != 1 or not isinstance(rows[0][0], str) or len(rows[0][0]) > 4096
+                    or json.loads(rows[0][0], object_pairs_hook=unique_marker) != {"phase": "completed"}):
+                raise RuntimeError("native conversion incomplete")
+        known = {}
+        for entry in entries:
+            rows = connection.execute(f"SELECT id,directory FROM {table} WHERE id=? LIMIT 2",
+                                      (entry["session_id"],)).fetchall()
+            if len(rows) == 1 and isinstance(rows[0][1], str):
+                known[rows[0][0]] = rows[0][1]
+        return known
+
+
 def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path, check: bool) -> int:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
-        known = {row[0] for row in connection.execute(
-            f"SELECT id FROM session WHERE id IN ({','.join('?' for _ in entries)})",
-            [entry["session_id"] for entry in entries],
-        )} if entries else set()
+    known = recovery_sessions(database, entries, runtime_major(opencode))
 
     agents = run("agent", "list")["result"]["agents"]
     running = {agent.get("agent_session", {}).get("value") for agent in agents}
@@ -384,7 +453,9 @@ def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path,
     for entry in entries:
         session, pane, directory = entry["session_id"], entry["pane_id"], Path(entry["directory"])
         try:
-            if session not in known or not directory.is_dir():
+            if (session not in known or not directory.is_dir()
+                    or not Path(known[session]).is_absolute()
+                    or Path(known[session]).resolve() != directory.resolve()):
                 raise RuntimeError("session or directory unavailable")
             current = run("pane", "get", pane)["result"]["pane"]
             active_session, occupied = pane_state(pane)

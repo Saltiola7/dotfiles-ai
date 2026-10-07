@@ -1,5 +1,13 @@
 # Codex Control Plane
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
+[approved native-workspace delta](features/native-workspaces.md) retires the task
+receipt/admission producer, probe and requalifier. Native sandbox/approval modes,
+managed-home/release checks and independent history hooks remain. Stale task hooks
+refuse startup pending explicit migration. Native 0.155.1 sandbox checks cover
+allowed reads/task writes and denied read-only/sibling writes. Earlier continuation
+sections below retain historical evidence; live adoption and rollout remain separate.
+
 **Status:** Exact 0.151 identity delivered; rolling release and history adapter reprobe pending
 **Created:** 2026-08-29
 **Last updated:** 2026-08-30
@@ -45,6 +53,23 @@ For an existing selected deployment whose native executable pin has drifted,
 fixture route. It preserves production selection and journals and requires actual
 native qualification before any production refresh; staging is not deployment
 acceptance or writer authority.
+
+A separately approved recovery refresh can restore native controls while retaining
+one exact never-started admission. It requires genuine retired qualification,
+merged component identity, a terminal-only exact-state refresh approval, and
+unchanged production snapshots. Lifecycle recovery remains a later native action;
+no operation is settled by deployment. See the recovery-refresh contract in
+[active requalification](features/active-requalification.md#recovery-refresh-for-one-never-started-admission).
+
+## Desktop updates
+
+Selected deployments may opt into the [signed desktop update policy](features/active-requalification.md#signed-desktop-updates).
+Signed upstream executable changes retain control access and require one rewritten
+native foreground smoke before business-shell admission. Exact producer/core
+integrity and lifecycle accounting remain enforced. Native `control check` reports
+runtime compatibility and the smoke command. Legacy deployments retain exact
+upstream pins until explicitly migrated. Update idle coordinators; an update never
+settles an outstanding operation.
 
 ## Overview
 

@@ -43,22 +43,22 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "without Task or child sessions" in discovery
     assert "without Task or child sessions" in dbsctr
     for term in ("Initiative", "MANIFEST.json", "PROFILE.md", "initiative-check",
-                 "initiative-receipt", "exact user approval"):
+                 "initiative-receipt", "exact operator confirmation", "BEGIN CYCLE_ID LAUNCH_DIGEST"):
         assert term in discovery
 
     coordinator = text("private_dot_config/opencode/agents/discovery-coordinator.md")
     assert "mode: primary" in coordinator
     assert '"docs/**": allow' in coordinator
     assert '"*": deny' in coordinator
-    assert "bash: allow" in coordinator
+    assert '"*": allow' in coordinator and '"*dbsctrctl*": deny' in coordinator
     assert "native CLI, API, or notebook kernel" in coordinator
     assert "shell proxy when a direct interface exists" in coordinator
     assert "keep governed private result bodies local" in coordinator
-    assert "dbsctr_initiative_launch: ask" in coordinator
+    assert '"*dbsctrctl begin*--preflight*": allow' in coordinator
+    assert "dbsctr_initiative_launch" not in coordinator
     for agent in ("build-gpt", "build-claude"):
         build = text(f"private_dot_config/opencode/agents/{agent}.md")
-        assert "dbsctr_initiative_launch: deny" in build
-        assert "dbsctr_initiative_begin: ask" in build
+        assert "operator" in build and "never supply interactive confirmation" in build
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
@@ -81,7 +81,7 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
 def test_v311_review_skill_is_private_bounded_and_approval_only():
     review = text(SKILLS / "dbsctr-review/SKILL.md")
     for term in (
-        "dbsctr_review", "dbsctr_review_complete", "blocked", "abandoned", "dormant", "snapshot", "unknown",
+        "dbsctrctl review-scan", "dbsctrctl review-complete", "blocked", "abandoned", "dormant", "snapshot", "unknown",
         "raw transcript", "sanitized", "separate DBSCTR cycle", "review marker", "90 days", "tombstones",
     ):
         assert term.lower() in review.lower()
@@ -94,19 +94,15 @@ def test_v311_review_skill_is_private_bounded_and_approval_only():
 def test_v343_performance_audit_is_reproducible_private_and_report_only():
     audit = text(SKILLS / "dbsctr-performance-audit/SKILL.md")
     for term in (
-        "dbsctr_runtime_health", "cycle-performance", "dbsctr_incident_scan",
-        "dbsctr_review_history", "dbsctr_history_telemetry", "dks_context",
+        "runtime health unavailable", "cycle-performance", "incident-scan --summary-only",
+        "dbsctrctl review-history", "structured telemetry", "dks_context",
         "graphify-out/graph.json", "Scout", "Explore", "three independent",
         "measured", "source_backed_unmeasured", "quality guardrails",
         "delivery slices", "raw session", "one attempt",
     ):
         assert term.lower() in audit.lower()
-    for prohibited in (
-        "dbsctr_review_complete", "dbsctr_review_history_save",
-        "dbsctr_incident_register", "dbsctr_improvement_claim", "dbsctr_begin",
-    ):
-        assert prohibited in audit
-        assert re.search(rf"(?:never|do not)[^\n]*`?{prohibited}`?", audit, re.IGNORECASE)
+    assert "Never invoke `dbsctrctl review-complete` or `review-history-save`" in audit
+    assert "Never invoke Incident mutation, improvement claim/update, cycle registration" in audit
     assert "reviewer-openai" in audit and "explicit or critical" in audit
     assert audit.lower().index("executive findings") < audit.lower().index("delivery slices")
 
@@ -119,12 +115,11 @@ def test_v343_performance_audit_is_reproducible_private_and_report_only():
 def test_v339_incident_skill_is_fork_bounded_and_separately_remediated():
     incident = text(SKILLS / "dbsctr-incident/SKILL.md")
     review = text(SKILLS / "dbsctr-review/SKILL.md")
-    for term in ("dbsctr_incident_scan", "dbsctr_incident_register", "INCIDENT:",
-                 "defect", "friction", "behavior_gap", "capability_idea",
-                 "root-cause", "separate DBSCTR cycle", "verified activation"):
+    for term in ("incident-scan --summary-only", "native_incident_invocation_unavailable",
+                 "operator", "Owner:", "Review condition:", "root-cause", "separate DBSCTR cycle"):
         assert term.lower() in incident.lower()
-    assert review.lower().index("registered incidents") < review.lower().index("incident signals")
-    assert review.lower().index("incident signals") < review.lower().index("review candidates")
+    assert "Current CLI mode grants no private" in review
+    assert "Incident Evidence exception" in review
     assert "never perform automatic remediation" in review.lower()
 
 
@@ -419,12 +414,24 @@ def test_codex_next_slices_are_dependency_ordered_and_history_source_ready():
         assert phrase in normalized_adapter
 
 
-def test_opencode_rolling_stable_slice_is_ready() -> None:
+def test_opencode_rolling_stable_preserves_v1_and_gates_v2() -> None:
     manifest = json.loads(text("docs/initiatives/opencode-rolling-stable/MANIFEST.json"))
-    assert [item["id"] for item in manifest["slices"] if item["state"] == "ready"] == [
-        "opencode-rolling-stable"
-    ]
-    slice_ = manifest["slices"][0]
+    slices = {item["id"]: item for item in manifest["slices"]}
+    slice_ = slices["opencode-rolling-stable"]
+    assert slice_["state"] in {"blocked", "delivered"}
+    surface = slices["v2-cli-surface-probe"]
+    assert surface["execution_owner"] == "build"
+    assert surface["context"] == "opencode_control_plane"
+    assert surface["state"] in {"ready", "delivered"}
+    qualification = slices["v2-qualification"]
+    assert qualification["execution_owner"] == "discovery"
+    native = slices["v2-lifecycle-compatibility"]
+    assert "v2-cli-surface-probe" in native["depends_on"]
+    assert "docs/specs/dbsctr_v3_lifecycle/features/opencode-v2-native-authority.md" in native["artifacts"]
+    if qualification["state"] != "delivered":
+        assert slices["v2-fleet-cutover-retirement"]["state"] not in {"ready", "delivered"}
+    native_plan = json.loads(text("docs/specs/dbsctr_v3_lifecycle/OPENCODE-V2-NATIVE-AUTHORITY.plan.json"))
+    assert native_plan["gates"]["deploy"]["applicability"] == "not_applicable"
     assert slice_["execution_owner"] == "build"
     assert slice_["context"] == "dotfiles_ai_distribution"
     assert set(slice_["requirements"]) == {f"INT-{index:03d}" for index in range(1, 10)}
@@ -672,7 +679,7 @@ def test_v334_normative_specs_require_accessible_visual_evidence():
     for path in specs:
         body = text(path)
         assert "## Visual Evidence" in body, path.relative_to(ROOT)
-        assert "Quantitative" in body, path.relative_to(ROOT)
+        assert "quantitative" in body.lower(), path.relative_to(ROOT)
         for diagram in re.findall(r"```mermaid\n(.*?)```", body, re.DOTALL):
             assert "accTitle:" in diagram, path.relative_to(ROOT)
             assert "accDescr:" in diagram, path.relative_to(ROOT)
@@ -729,7 +736,7 @@ def test_v35_keeps_opencode_and_herdr_as_adapters():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     for term in ("dbsctr_status", "dbsctr_begin", "execution/visibility plane", "pane history disabled"):
         assert term in spec
-    assert "Typed OpenCode tools are argument-safe adapters" in dbsctr
+    assert "Invoke `dbsctrctl` through native shell permissions" in dbsctr
 
 
 def test_v36_audit_is_fixed_commit_report_only_and_distinct_from_qa():
@@ -747,15 +754,13 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
-    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     assert "CURRENT_METHOD_REVISION = \"3.29\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
-    begin = tools.partition("export const begin = tool({")[2].partition("export const initiative_launch = tool({")[0]
-    assert "context.ask" not in begin
+    assert not (ROOT / "private_dot_config/opencode/tools/dbsctr.ts").exists()
     assert "before any `beginCycle`" in spec
     assert "schema-less/schema-1/schema-2" in spec
-    assert "standing authorization for validated Build-primary" in dbsctr
-    assert "explicit Initiative mode" in text("private_dot_config/opencode/AGENTS.md")
+    assert "register the prepared clean linked checkout" in dbsctr
+    assert "--expected-launch-digest" in dbsctr and "Never synthesize" in dbsctr
 
 
 def test_v326_inventory_and_batch_cleanup_remain_explicit_and_dvc_efficient():
@@ -780,26 +785,24 @@ def test_v324_profiles_explicit_spans_and_keeps_dispatch_primary_mediated():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
-    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     for term in ("Phase Span", "Execution DAG", "90 days", "partial", "10 percent"):
         assert term in spec
-    for term in ("dbsctr_phase_span", "dbsctr_execution_dag", "primary", "serial"):
+    for term in ("dbsctrctl phase-span", "dbsctrctl execution-dag", "primary", "serial"):
         assert term in dbsctr
     assert "does not dispatch" in dbsctr
     assert 'commands.add_parser("phase-span")' in helper
     assert 'commands.add_parser("phase-report")' in helper
     assert 'commands.add_parser("execution-dag")' in helper
     assert 'commands.add_parser("execution-benchmark")' in helper
-    assert "export const phase_span" in tools
-    assert "export const execution_dag" in tools
+    assert not (ROOT / "private_dot_config/opencode/tools/dbsctr.ts").exists()
 
 
 def test_v316_review_skill_has_separate_private_history_and_replay_modes():
     review = text(SKILLS / "dbsctr-review/SKILL.md").lower()
     for term in ("inbox", "history", "replay", "standing", "privacy", "raw transcript", "tombstone"):
         assert term in review
-    assert "dbsctr_review_history" in review
-    assert "dbsctr_review_history_save" in review
+    assert "dbsctrctl review-history" in review
+    assert "dbsctrctl review-history-save" in review
     assert "builder" in review and "denied" in review
 
 
@@ -832,12 +835,11 @@ def test_v310_product_intent_and_web_ui_are_conditional_and_accessible():
 def test_v37_inspection_is_fixed_commit_bounded_and_read_only():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
-    tools = text("private_dot_config/opencode/tools/dbsctr.ts")
     for term in ("Fixed-Commit Inspection Contract", "`read`, `tree`", "`search`, and", "`object` actions", "dirty overlay"):
         assert term in spec
     assert 'commands.add_parser("inspect")' in helper
     assert "INSPECT_RESPONSE_HARD" in helper
-    assert "export const inspect = tool({" in tools
+    assert "dbsctrctl inspect" in text(SKILLS / "dbsctr/SKILL.md")
 
 
 def test_v38_retains_secret_safe_evidence_and_conditional_python_reference():

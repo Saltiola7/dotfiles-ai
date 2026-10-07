@@ -1,5 +1,56 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-04 — OPENCODE-V2-SESSION-RECOVERY
+
+- Fixed V2 restoration accepting stale legacy session identities. Recovery now
+  selects by verified runtime, validates current native schema/conversion and
+  matches directories before any pane launch. Unknown or mismatched state refuses.
+- Read-only SQLite checks have bounded waits and progress deadlines. Version
+  probing has bounded time/output and owned process-group cleanup. No native
+  history write, provider change or continuation bridge was added.
+- The selected native-recovery, session-recovery and launchagent suites passed,
+  including positive/negative V2 restore fixtures and existing 80-session pacing.
+  Earlier short execution timeouts were superseded by a complete bounded run;
+  no tests or required checks were removed. Red/green evidence remains retained.
+- Implementation Gate Commit `959aea6`. No Gate Exceptions. Intended delivery is
+  the feature PR into main, with operator-approved merge after hosted checks.
+  No production restart or live conversion. Desktop/fleet integration and exact
+  conversation/provider resumption remain downstream obligations.
+## 2026-10-03 — OPENCODE-V2-DISTRIBUTION
+
+- Added explicit one-time V2 staging, maintenance activation and admission to the
+  existing helper. Verified registry package identity, archive SHA-512 SRI and
+  derived hashes without package hooks; bounded decompression and member parsing.
+- Added real V2 generation locks, retained activation preimages and immutable
+  admission-evidence references. Startup preserves native arguments and blocks
+  tampering, missing admission and incomplete maintenance. V1 update/rollback
+  paths hold or refuse V2 instead of rewriting or downgrading it.
+- Passed 75 scoped distribution/rendering tests, including a real download and
+  isolated stage of official macOS 2.0.22. Negative checks cover bad schemas,
+  unsafe archives, stale activation preimages, interruption, missing/tampered
+  evidence and binary changes. Existing V1 regression tests remain passing.
+- Source Gate Commit: `c10abdc`. Gate Exceptions: none. Intended delivery is the
+  cycle feature branch and reviewed PR into main, followed by the operator-approved
+  merge when checks pass. The Cycle Record owns actual delivery evidence.
+- No live installation, restart or conversion. Desktop, guest runtime checks,
+  coherent recovery, exact conversation resume and live admission remain required.
+  Registry signatures were not verified; no scanner-clean claim is made.
+
+## 2026-10-03 — Native workspace source transition
+
+- Declared Worktrunk, native Bash integration and the blocking managed-user removal
+  hook. Linux installers use checksum-pinned 0.80.0 archives; lsof/xz prerequisites
+  fail before service changes. Remote foundation readiness verifies Worktrunk.
+- Added narrow DVC/bootstrap and foreground-launch helpers. Retired only named
+  source-owned adapter executables/modules; private ledgers and archives are excluded.
+- Updated native updater capability checks and CI prerequisites. V2 distribution
+  surface conversion remains a separate slice; validator-5 is not V2 qualification.
+- Passing evidence includes portable/Lima/remote-user rendering and regression,
+  native Worktrunk/DVC checks, permission primitives and Python compilation.
+  Gate Commit `b14db1e`; Gate Exceptions: none. Dependabot alerts remain unavailable.
+- Source-only draft delivery into main. No production apply, service restart,
+  data/cache consolidation or conversation migration was performed in this cycle.
+
 ## 2026-09-27 — HOST-RUNTIME-ROLLOUT
 
 - Applied the approved Astra/Sol/Luna and Vertex Opus 5.5 routes, machine model

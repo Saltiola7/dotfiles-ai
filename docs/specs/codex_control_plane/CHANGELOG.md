@@ -1,5 +1,67 @@
 # Codex Control Plane Changelog
 
+## 2026-10-03 — Native workspace source transition
+
+- Retired the task continuation producer/probe/requalifier, including its selected
+  desktop receipt-smoke policy. Independent CLI updater/release-lock checks,
+  managed-home guards and control-plane history hooks remain supported.
+- Both native hook formats refuse stale task-hook commands without rewriting
+  credentials, history or hook files. Shared CLI registration requires no native
+  receipt and reports missing current attribution honestly.
+- Passing evidence includes distribution/history regressions, adoption/preservation
+  checks and native 0.155.1 sandbox reads/task writes versus denied read-only and
+  sibling writes. Gate Commit `b14db1e`; shared lifecycle evidence owns delivery.
+- No Gate Exceptions, Desktop management, live adoption or fleet rollout. Future
+  cutover must qualify native sessions, approvals and existing boundary-local state.
+
+## 2026-09-29 - Signed Desktop Updates
+
+- Added an opt-in OpenAI-signature policy for the selected desktop executable.
+  Its installation hash remains provenance; signed updates retain native control
+  access and require a short rewritten foreground smoke before business writes.
+- Bind admission, dispatch and matching normal post-hook completion to the actual
+  executable digest. Reject wrong publishers/paths, incompatible metadata, raced
+  binaries and uncertain or quiescence-only smoke completion.
+- Preserve exact adapter pins, writer/generation rules, journal history and retired
+  qualification. Add merged-source policy deployment and exact-image rollback.
+- Scoped Python/Security validation and real native activation evidence remain
+  separate authorities. Source delivery is a draft PR into main, followed by
+  reviewed merge, targeted policy installation and original-coordinator smoke.
+- Full qualification remains available for failed compatibility or adapter-contract
+  changes. No automatic ownership transition, business-file change or fleet update.
+
+## 2026-09-29 - Exact-State Recovery Refresh
+
+- Add prepare, human approval, apply and exact-preimage rollback commands for
+  one selected never-started admission that blocks ordinary idle refresh.
+- Reuse genuine retired qualification and the merged producer/core pair; retain
+  all journals, execution flags, operations, ownership, generation and target.
+  Historical receipts require truthful core closure before they are excluded
+  from current unresolved admissions. No callback or quiescence is inferred.
+- Bind approval to target, pins, retained proof and production snapshot; consume
+  it once before atomic exchanges. Drift refuses and preserves exchange evidence.
+- Source delivery does not activate production. Terminal approval, native hook
+  trust, original-coordinator check and separate native recovery remain required.
+
+
+## 2026-09-28 - Repeat Selected Desktop Qualification
+
+- Added explicit replacement of a previously deployed, restored and retired
+  qualification lane. Validate deployment receipts, retained native/core proof,
+  exact production preimages and consumed approvals; preserve prior evidence.
+- Preserve the never-enrolled replacement contract and revalidate the selected
+  replacement kind during interrupted link-switch recovery.
+- Validation: 271 affected tests passed, Python compilation and Python 3.12
+  grammar checks passed. Genuine native qualification exercised admission,
+  polling, denial, replay, interruption, recovery and generation fencing.
+- Implementation commit: `974f7d6`. Intended delivery: feature-branch draft PR
+  into main, exact-head hosted checks and merge, then qualified production refresh.
+- Production readiness remains failed with operator-approved deferred exceptions
+  for Deploy, Operate and Maintain/Retire. Close these after production refresh
+  and the original coordinator's native check, before PPC work resumes.
+- Retain qualification lanes, journals and uncertain interruption evidence.
+  No production deployment, PPC delivery or new Plan-mode enforcement is claimed.
+
 ## 2026-09-26 - Selected Desktop Requalification
 
 - Added a fixed, isolated active-deployment qualification route, signed nested

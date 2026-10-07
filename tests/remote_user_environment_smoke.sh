@@ -59,6 +59,7 @@ test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezm
 "$HOME/.local/bin/gcloud" version --format=json >/dev/null
 "$HOME/.local/bin/codex" --version
 "$HOME/.local/bin/opencode" --version
+test "$("$HOME/.local/bin/wt" --version)" = 'wt v0.80.0'
 "$HOME/.local/bin/herdr" --version
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
 

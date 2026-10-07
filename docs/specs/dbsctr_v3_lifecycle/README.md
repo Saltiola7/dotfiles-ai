@@ -1,5 +1,14 @@
 # DBSCTR V3 Lifecycle
 
+**WORKTRUNK-NATIVE-WORKSPACES source implementation:** The shared CLI now implements
+the [approved native-workspace contract](features/worktrunk-native-workspaces.md):
+explicit-checkout registration, interactive Initiative confirmation, in-place
+adoption, retained evidence and Worktrunk removal eligibility. Custom allocation,
+transparent continuation and typed task controls are retired. The earlier protocol
+sections below remain historical reference under that contract's supersession
+boundary. Native identity-dependent automation is unavailable where its replacement
+has not been qualified. This source implementation does not qualify live cutover.
+
 **Status:** V3.40 ticket-blind lifecycle in progress; source-local cycle performance implemented
 **Discovery readiness:** Complete
 **Created:** 2026-07-11
@@ -3370,3 +3379,13 @@ Text equivalent: inventory validation precedes mutation; template provenance
 and byte equality precede ordinary evidence admission. No admission grants
 identity or writer authority. Source and owner: lifecycle core path helpers;
 update this table whenever their predicates change.
+
+### Scheduler first-open serialization
+
+Concurrent scheduler callers must acquire a SQLite write reservation before the
+post-schema version read and initial metadata/singleton inserts. A second opener
+waits and reads committed initialization instead of racing to insert the same key.
+Existing schema migrations, malformed-state refusal, worker caps and reservation
+cadence remain unchanged. The regression uses a competing database connection to
+prove writer exclusion at the initial version read; the concurrent reservation
+test continues to require exactly one reservation when only one slot remains.

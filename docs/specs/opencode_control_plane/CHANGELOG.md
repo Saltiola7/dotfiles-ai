@@ -1,5 +1,62 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-03 — OPENCODE-V2-CONTROL-PLANE
+
+- Fixed a permission regression: the old JSON projection sorted last-match-wins
+  maps, changing a force-removal denial into ask. The ordered stdlib modifier
+  preserves managed rule order and unrelated local values, rejects malformed
+  input without replacement, and keeps the existing private file mode.
+- Added native cli.json theme projection, pinned V2-capable Ponytail 4.10.3,
+  and retired the unsupported Initiative hook in favor of native instructions
+  plus independently enforced CLI receipt/interactive-confirmation checks.
+- Passed 121 affected control-plane, native policy, CLI registration, distribution
+  and portable-rendering tests. Focused checks were refreshed after tightening
+  the native role-readiness deadline. Exact 2.0.22 qualification covers 14 managed
+  roles, declared provider routes, plugin prompt/skill/command loading, Plan/Build
+  mutation boundaries, compound shell denial and synthetic MCP allow/deny/ask
+  cancellation through native Code Mode. Services stopped after each attempt.
+- Ponytail archive SHA-512 SRI verified before isolated extraction; no install
+  hooks executed. Native tests used its verified package entrypoint through a
+  local fixture, not a production npm install. Dependabot input is unavailable
+  because repository alerts are disabled (403); no scanner-clean claim is made.
+- Implementation Gate Commit: `64cc0cc`. No Gate Exceptions. Intended Final Push:
+  cycle feature branch and draft PR into main; exact final delivery is recorded in
+  the Cycle Record. No production apply, restart, history conversion or activation.
+  Live provider/MCP connectivity, UI appearance/approval, enabled DKS transport,
+  Desktop/guest qualification and coherent recovery remain downstream obligations.
+  Requalify changed candidate/dependency bytes and actual machine-local overrides.
+
+## 2026-10-03 — Native workspace source transition
+
+- Retired the custom DBSCTR catalog and continuation modules. Native shell roles
+  invoke the shared CLI; Plan/builders retain mutation restrictions and Worktrunk
+  overrides cannot bypass removal rules through global-option ordering.
+- Retained Initiative context injection and citation-only retrieval. The chezmoi merge
+  removes known obsolete managed permission keys while preserving unfamiliar local
+  rules for operator review. Deployed stale adapters remain explicit retirement targets.
+- Passing evidence includes rendering/role regressions, stock 2.0.21 migration,
+  shell scanning and 24 native permission cases. Gate Commit `b14db1e`; shared
+  lifecycle Cycle Record holds gates and draft-delivery evidence. No Gate Exceptions.
+- Source delivery does not qualify V2 config loading, approval UI, history migration,
+  cached running plugins or fleet rollout. Restart follows separately approved apply.
+
+## 2026-10-01 — OPENCODE-V2-QUALIFICATION
+
+- Added a tests-only V2 CLI surface probe with checksum/identity binding,
+  isolated environment and working roots, bounded subprocesses, anchored cleanup
+  and sanitized partial-capability evidence. No new dependency or managed apply.
+- Red evidence: missing probe module; a later FIFO regression reproduced blocking
+  input validation and passed after nonblocking candidate opening.
+- Passed 17 scoped tests on Python 3.12.14 and 3.14.7. The checksum-verified macOS
+  OpenCode 2.0.21 candidate passed all seven identity/CLI/path checks. Other native
+  platforms, continuation, history migration and deployment remain unqualified.
+- The probe is not an activation validator. Requalify changed candidate bytes or
+  CLI contracts; later slices own complete native compatibility and migration.
+- Dependabot input unavailable because repository alerts are disabled; dependency
+  metadata is unchanged. Gate Exceptions: none. Intended Final Push: feature
+  branch and draft PR into main; exact Gate Commit and push evidence belong to
+  the Cycle Record. No installation, conversation restart or live data migration.
+
 ## 2026-09-26 — GPT6-MODEL-ROUTING
 
 - Replaced active GPT-5.6 routes with Astra for default/Plan/Build/reviewer and

@@ -378,6 +378,9 @@ def state_connection():
             last_release_at INTEGER NOT NULL CHECK (last_release_at>=0),
             last_release_reason TEXT NOT NULL
         )""")
+    if not migrating:
+        # Serialize the version read and seed writes, not just later reservations.
+        connection.execute("BEGIN IMMEDIATE")
     version = existing_version if migrating else connection.execute(
         "SELECT value FROM scheduler_meta WHERE key='schema_version'").fetchone()
     if version is None:
@@ -1839,6 +1842,8 @@ parser.add_argument("--telemetry-json")
 parser.add_argument("--reason", choices=("operator_release", "prelaunch_failed"), default="operator_release")
 args = parser.parse_args()
 try:
+    if args.action in {"spawn", "watchdog", "launch"}:
+        raise RuntimeError("native_automation_identity_unavailable: worker launch and recovery require a qualified native route; retained worker state was not changed")
     if args.action == "analytics":
         request = json.loads(args.finalize_json) if args.finalize_json else None
         failure = json.loads(args.failure_json) if args.failure_json else None

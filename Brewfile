@@ -1,4 +1,5 @@
 tap "anomalyco/tap"
 brew "anomalyco/tap/opencode"
 brew "mise"
+brew "worktrunk"
 cask "google-cloud-sdk"

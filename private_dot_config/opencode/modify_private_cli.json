@@ -1,0 +1,7 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $managed := dict "$schema" "https://opencode.ai/v2/cli.json" "theme" (dict "name" .dotfiles_ai.opencode.theme "mode" "dark") -}}
+{{- $config := $managed -}}
+{{- if ne (trim .chezmoi.stdin) "" -}}
+{{- $config = mergeOverwrite (fromJson .chezmoi.stdin) $managed -}}
+{{- end -}}
+{{ $config | toPrettyJson }}

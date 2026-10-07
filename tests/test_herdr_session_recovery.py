@@ -1,6 +1,7 @@
 import json
 import os
 import runpy
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -196,12 +197,13 @@ def test_check_is_read_only_and_refuses_wrong_targets(monkeypatch, tmp_path, fau
     database = data_home / "opencode/opencode.db"
     database.parent.mkdir(parents=True)
     with sqlite3.connect(database) as connection:
-        connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
+        connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY,directory TEXT)")
         if fault != "unknown":
-            connection.execute("INSERT INTO session VALUES ('ses_saved')")
+            connection.execute("INSERT INTO session VALUES ('ses_saved',?)", (str(parent),))
     wrapper = tmp_path / "home/.local/bin/opencode"
     wrapper.parent.mkdir(parents=True)
-    wrapper.touch()
+    wrapper.write_text("#!/bin/sh\nprintf '1.18.31\\n'\n")
+    wrapper.chmod(0o700)
     script = runpy.run_path(str(SCRIPT))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path / "state"))
@@ -264,6 +266,8 @@ def test_progress_does_not_remove_total_admission_deadline(monkeypatch, tmp_path
     ))
     monkeypatch.setitem(script["pace_start"].__globals__, "signal", SimpleNamespace(
         SIGINT=2, SIGTERM=15, signal=lambda *_: None,
+        SIG_BLOCK=signal.SIG_BLOCK, SIG_SETMASK=signal.SIG_SETMASK,
+        pthread_sigmask=lambda *_: set(),
     ))
     monkeypatch.setattr(subprocess, "run", lambda *_, **__: SimpleNamespace(returncode=1))
     assert script["pace_start"](["never-launch"]) == 75
@@ -359,3 +363,34 @@ def test_cancelled_pacing_releases_its_lock(tmp_path):
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+@pytest.mark.parametrize("acquired", [True, False])
+def test_pacing_cancellation_during_lock_acquisition(tmp_path, monkeypatch, signum, acquired):
+    script = runpy.run_path(str(SCRIPT))
+    monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path))
+    lock = tmp_path / "herdr/opencode-startup.lock"
+    previous = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+    original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+
+    def acquire(*args, **kwargs):
+        # Model the native child completing lock creation before run() returns.
+        lock.write_text(str(os.getpid()) if acquired else "other-owner")
+        os.kill(os.getpid(), signum)
+        return subprocess.CompletedProcess(args[0], 0 if acquired else 1)
+
+    monkeypatch.setattr(subprocess, "run", acquire)
+    try:
+        with pytest.raises(SystemExit) as caught:
+            script["pace_start"](["must-not-launch"])
+        assert caught.value.code == 128 + signum
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == original_mask
+        if acquired:
+            assert not lock.exists(), "cancelled acquisition retained owned lock"
+        else:
+            assert lock.read_text() == "other-owner"
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)

@@ -4,23 +4,13 @@ mode: primary
 model: google-vertex-anthropic/claude-opus-5-5@default
 variant: high
 permission:
-  dbsctr_vm_handoff: deny
-  dbsctr_initiative_launch: deny
-  dbsctr_initiative_begin: ask
-  dbsctr_begin: allow
-  dbsctr_attach: allow
-  dbsctr_continuation_enroll: ask
-  dbsctr_continuation_bind: ask
-  dbsctr_continuation_release: allow
-  dbsctr_continuation_finish: ask
-  dbsctr_continuation_provider: ask
-  dbsctr_continuation_recover: ask
-  dbsctr_continuation_storage_recover: ask
-  dbsctr_continuation_handover: ask
-  dbsctr_reconcile: allow
-  dbsctr_phase_span: allow
-  dbsctr_execution_benchmark: allow
-  dbsctr_execution_dag: allow
+  bash:
+    "*dbsctrctl begin*": allow
+    "*dbsctrctl start*": allow
+    "*dbsctrctl reconcile-target*": allow
+    "*dbsctrctl phase-span*": allow
+    "*dbsctrctl execution-benchmark*": allow
+    "*dbsctrctl execution-dag*": allow
   task: deny
 ---
 
@@ -29,3 +19,7 @@ Own observable evidence, integration, staging, and commits. Only the explicitly
 selected Discovery-Coordinator may orchestrate children. Preserve the current
 conversation and native directory. Never cross provider families. This agent's exact runtime ID is
 `build-claude`; model selection alone does not change the primary.
+
+Use the lifecycle CLI in the explicit native task checkout. Worktrunk owns task
+creation/navigation/removal. Prepare Initiative preflight and the exact operator
+command; never supply interactive confirmation or simulate an operator terminal.

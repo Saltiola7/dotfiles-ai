@@ -1,5 +1,71 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-03 — WORKTRUNK-NATIVE-WORKSPACES-R3
+
+- Implemented INT-022–INT-031: Worktrunk owns task checkout management; native
+  sessions own cwd; the shared CLI registers explicit linked checkouts and retains
+  lifecycle evidence, protected-base delivery and schema-3/4/5 history.
+- Replaced wrapper-only Initiative approval with exact interactive CLI confirmation,
+  fresh authority rechecks and atomic confirmation provenance. Arguments, environment
+  claims and historical runtime metadata never authenticate a current native actor.
+- Added in-place adoption with immutable preimages, state-bound confirmation and
+  unchanged cycle IDs, failed gates and uncertain legacy operations. Added a bounded
+  foreground launch guard with explicit limitations and operator-only override.
+- Added explicit external-cache/reflink-only DVC bootstrap and a read-only Worktrunk
+  pre-remove eligibility check. Missing process evidence, dirty/private data,
+  unverified Git delivery and retention failures refuse removal. No cache GC occurs.
+- Retired custom task allocation, transparent routing, typed task controls and
+  Codex receipt/requalification transport. Native role permissions and private CLI
+  projections are checked separately; unqualified Incident, worker and federated
+  capture operations fail closed rather than accepting forged identity or digests.
+- Validation: affected pytest scopes, full lifecycle-core regression, Python 3.12
+  compilation, rendered chezmoi/guest configuration, native Worktrunk/DVC removal,
+  Codex 0.155.1 sandbox boundaries and 24 stock OpenCode 2.0.21 permission cases.
+  One core filesystem case is unavailable on filesystems rejecting non-UTF-8 names.
+  Failed-before tests covered confirmation, stale state, private output, process
+  inventory, output overflow, worker/capture authority and permission flag ordering.
+- Gate Commit: `b14db1e`. Evidence and remediation history remain in the private
+  Cycle Record. Primary review completed; independent review was unavailable through
+  permitted tools. Dependabot input is unavailable because repository alerts are
+  disabled. Gate Exceptions: none.
+- Source-only delivery. Existing worktrees, conversations, archives, caches and live
+  services were not migrated. Native UI/config loading, guest/large-history rehearsal
+  and live cutover remain separately qualified and approved. Intended Final Push:
+  feature branch `dbsctr/dbsctr_v3_lifecycle/WORKTRUNK-NATIVE-WORKSPACES-R3` and a draft
+  PR into protected main; actual publication belongs to the Cycle Record.
+
+## 2026-10-01 — OPENCODE-V2-NATIVE-AUTHORITY
+
+- Added read-only V2 session/message actor selection and message-qualified tool
+  completion proof. Mixed databases reject incomplete migration and stale V1
+  fallback. Null session-level agent uses exact assistant evidence; canonical
+  V2 Vertex identity is retained without rewriting prior activations.
+- Updated continuation actor, handover and operation checks through shared native
+  selection. V2 finish requires persisted terminal evidence and refuses running
+  or background shell completion. Codex keeps its separate native authority.
+- Red evidence: 16 failures reproduced missing V2 support, stale legacy fallback
+  and unchecked completion. Passing evidence: 211 affected V2/lifecycle/legacy/
+  checkout-continuation/Codex tests; 9 activation/runtime tests with 21 subtests;
+  73 V2/lifecycle checks on Python 3.12.14. The generated native V2.0.21 fixture
+  passed actor and successful write/shell terminal-proof checks. No live database
+  or installed runtime was modified by these checks.
+- Source-only compatibility, not adapter or deployment qualification. Reporting,
+  native consent, background recovery, Desktop and fleet cutover remain downstream
+  obligations. No dependency changes; Dependabot input unavailable because alerts
+  are disabled. Review is primary-owned; no independent reviewer was available
+  through the permitted tools. Gate Exceptions: none.
+- Intended Final Push: feature branch and draft PR into main. Exact Gate Commits
+  and publication outcome are retained in the Cycle Record. Existing V1 recovery
+  archives, cycle records and Codex semantics remain supported.
+
+## 2026-09-29 - Scheduler First-Open Race
+
+- Serialize the initial schema-version read and seed inserts with a SQLite write
+  reservation, preventing concurrent first callers from duplicating metadata.
+- Preserve existing migration, corruption refusal, worker-cap and cadence rules.
+- Add a deterministic competing-connection regression for the hosted CI failure
+  in PR #188. No scheduler deployment or continuation-pair change is included.
+
 ## 2026-09-24 - Checkout-Independent Continuation Core
 
 - Separated schema-5 record structure from historical source availability; added

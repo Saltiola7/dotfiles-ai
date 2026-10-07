@@ -5,7 +5,7 @@ description: Show durable P2/P3 autonomous-improvement claims waiting for operat
 
 # DBSCTR Backlog
 
-Read `dbsctr_improvement_status` without a worker filter. Validate that every
+Read `dbsctrctl improvement-status` without a worker filter. Validate that every
 returned worker has a safe worker ID, state, and optional P0-P3 priority.
 
 Report only workers whose state is `claimed` and priority is P2 or P3, ordered by

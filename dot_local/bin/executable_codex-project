@@ -261,6 +261,40 @@ def validate_home(target, state_root=None):
         if (sentinel.is_symlink() or not stat.S_ISREG(metadata.st_mode)
                 or metadata.st_uid != os.getuid() or metadata.st_mode & 0o022):
             raise ValueError("invalid centralized state sentinel")
+    for name, parse in (("hooks.json", json.loads), ("config.toml", tomllib.loads)):
+        hooks = target / name
+        if not os.path.lexists(hooks):
+            continue
+        if not stat.S_ISREG(hooks.lstat().st_mode):
+            raise ValueError("unsafe native hook configuration")
+        with os.fdopen(os.open(hooks, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+            details = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                    or details.st_nlink != 1 or details.st_mode & 0o022 or details.st_size > MAX_FILE_SIZE):
+                raise ValueError("unsafe native hook configuration")
+            raw = stream.read(MAX_FILE_SIZE + 1)
+            after = os.fstat(stream.fileno())
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if (len(raw) > MAX_FILE_SIZE or identity(details) != identity(after)
+                or identity(after) != identity(hooks.lstat())):
+            raise ValueError("unsafe native hook configuration")
+        try:
+            config = parse(raw.decode("utf-8"))
+            if not isinstance(config, dict):
+                raise ValueError("invalid native hook configuration")
+            pending = [config.get("hooks", {})]
+        except (ValueError, UnicodeError, RecursionError):
+            raise ValueError("invalid native hook configuration") from None
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                command = value.get("command")
+                if isinstance(command, str) and any(name in command for name in (
+                        "codex-continuation", "codex-requalify", "dbsctrctl continuation-")):
+                    raise ValueError("retired task hooks require explicit operator migration; history and hook files were preserved")
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
     return target
 
 

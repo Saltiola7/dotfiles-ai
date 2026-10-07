@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Preserve managed permission ordering and unrelated local configuration."""
+import json
+import sys
+
+managed = json.loads({{ includeTemplate "opencode.json.tmpl" . | toJson }})
+try:
+    source = sys.stdin.read()
+    local = json.loads(source) if source.strip() else {}
+    if not isinstance(local, dict):
+        raise ValueError()
+except ValueError:
+    sys.exit("OpenCode configuration must be a JSON object; original left unchanged")
+
+
+def merge(local, managed):
+    if not isinstance(local, dict) or not isinstance(managed, dict):
+        return managed
+    # Permission matching is last-match-wins: never sort managed rule maps.
+    result = {key: merge(local.get(key), value) for key, value in managed.items()}
+    result.update((key, value) for key, value in local.items() if key not in managed)
+    return result
+
+
+config = merge(local, managed)
+retired = """status attach preflight begin initiative_begin initiative_launch reconcile
+continuation_enroll continuation_recover continuation_finish continuation_bind
+continuation_release continuation_handover continuation_provider continuation_storage_recover
+runtime_health phase_span execution_dag execution_benchmark audit inspect
+review review_complete review_history review_federated review_history_save
+incident_scan incident_register incident_update incident_forget lens_summary
+vm_handoff history_capture history_telemetry benchmark provider_evaluation
+provider_evaluation_save improvement_status improvement_claim improvement_update""".split()
+scopes = [config.get("permission")]
+scopes += [agent.get("permission") for agent in config.get("agent", {}).values()
+           if isinstance(agent, dict)]
+for permissions in scopes:
+    if isinstance(permissions, dict):
+        for name in retired:
+            permissions.pop("dbsctr_" + name, None)
+config["references"].pop("dbsctr-worktrees", None)
+print(json.dumps(config, indent=2))

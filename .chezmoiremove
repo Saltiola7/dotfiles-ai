@@ -7,3 +7,13 @@ Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist
 .config/opencode/agents/explore-bedrock.md
 .config/opencode/agents/scout-bedrock.md
 .config/opencode/agents/builder-bedrock.md
+# Retired executable adapters only; private ledgers, receipts and archives remain.
+.config/opencode/tools/dbsctr.ts
+.config/opencode/plugins/continuation.ts
+.config/opencode/plugins/initiative-context.ts
+.config/opencode/lib/continuation.ts
+.local/bin/opencode-continuation-deploy
+.local/share/opencode-continuation/native_probe.py
+.local/bin/codex-continuation
+.local/bin/codex-continuation-probe
+.local/bin/codex-requalify

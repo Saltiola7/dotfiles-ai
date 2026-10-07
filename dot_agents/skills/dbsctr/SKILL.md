@@ -29,28 +29,31 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.29` (older V3 records remain compatible). Use the typed `dbsctr_status` tool when available,
-    otherwise `dbsctrctl status`, to resume the active Cycle
-    Record. A validated Build primary resuming an active cycle calls typed
-    `dbsctr_attach` so its current runtime joins the Cycle Record; Plan and
-    subagents never attach. For a new write cycle, create an explicit JSON applicability plan
-    under the checkout's Git-ignored `.dbsctr/plans/` directory
-    bound to the committed Engineering Profile, then use the standing authorization for validated Build-primary
-    begin with typed `dbsctr_begin` or
-   `dbsctrctl begin --plan PATH` to create an upstream-based branch/worktree and
-   return its handoff. Use
-   low-level `start` only in an already prepared clean cycle worktree. Create only
-   actionable todos; adjacent kernel concerns may share one item when evidence is
-   compact.
+5. Report Method Revision `3.29` (older V3 records remain readable). Use
+   `dbsctrctl status` in the explicit native checkout to resume its Cycle Record.
+   Worktrunk owns task checkout creation and navigation; start a native OpenCode
+   or Codex session there. A shell directory change does not retarget a session.
+   For new work, create a JSON applicability plan under the checkout's ignored
+   `.dbsctr/plans/`, bound to the committed Engineering Profile. Use
+   `dbsctrctl begin --plan PATH` to register the prepared clean linked checkout;
+   it does not allocate a worktree or switch branches. Primary checkouts are
+   navigation contexts, not implementation targets. Legacy cycles require
+   separately confirmed in-place adoption before mutation. Create actionable
+   todos; adjacent kernel concerns may share one item when evidence is compact.
 
 ## Progressive Modules
 
-For an Initiative, run typed `dbsctr_begin` with its Initiative arguments and
-`preflight: true` before requesting launch approval. This does not begin a cycle
-or request consent. A valid specification receipt alone does not prove launch
-feasibility. After approval, omit `preflight` or set it false; the adapter checks
-again and binds the actual launch plan. Local same-repository Discovery does not
-need its own published upstream or separate documentation PR for draft delivery.
+For an Initiative, issue a fresh `dbsctrctl initiative-receipt` and run
+`dbsctrctl begin` with its Initiative arguments and `--preflight`. This validates
+the exact launch plan without registering a cycle or collecting consent. Present
+that plan and the exact operator command with `--expected-launch-digest DIGEST`.
+The operator runs it in the selected checkout and enters
+`BEGIN CYCLE_ID LAUNCH_DIGEST` interactively. Never synthesize that input, create
+a pseudo-terminal, or treat shell approval as this separate confirmation. The
+CLI rechecks authority after confirmation; changed state requires fresh preflight.
+Resume an already registered matching cycle without renewed registration consent.
+Local same-repository Discovery does not need its own published upstream or
+separate documentation PR for draft delivery.
 
 Load only matching modules before Domain. Multiple modules may apply.
 
@@ -173,26 +176,29 @@ actual push result. Record each review with `dbsctrctl review-artifact`; validat
 completed records remain there while each worktree has one active pointer.
 Multiple sessions may resume one cycle, but one primary owns integration.
 Delivery to the same upstream is serialized by the helper's target lock.
-`begin` leaves a dirty source worktree untouched and blocks unknown ahead commits.
-After completion, `cleanup` removes only a clean DBSCTR-owned worktree whose
-commits reached target; retain successful worktrees for 24 hours by default and
-never auto-remove failed or dirty work.
-Use read-only `worktree-list --json` to inspect retained size and local blockers.
-`cleanup --completed` applies the same checks to every completed DBSCTR-owned
-record and remains confirmation-gated; it never turns retention into background
-deletion. New DVC worktrees share the source cache and prefer copy-on-write
-`reflink,copy`; generated virtualenvs remain per-worktree.
-Typed OpenCode tools are argument-safe adapters over `dbsctrctl`, not another
-state machine. Standing authorization for validated Build-primary begin, resume, and reconciliation permits
-`dbsctr_begin`, `dbsctr_attach`, `dbsctr_reconcile`, and DBSCTR worktree access after its committed applicability plan;
-Plan and subagents remain denied and Plan hands off the validated plan. Ordinary
-typed Begin stays in the current session and rejects `launch: true` before side
-effects. Only the explicitly selected Discovery-Coordinator may use its approved
-child launcher. Herdr state is presentation only and never gate evidence.
-For an approved Initiative slice, a primary Build uses only `dbsctr_begin`'s
-explicit Initiative mode. It preserves exact approval and receipt identity while
-attaching the current same-repository runtime without launching a child session.
-Only the Discovery coordinator uses `dbsctr_initiative_launch` for a child Build.
+`begin` refuses dirty initial state and unknown ahead commits without changing
+files or refs. Use native Worktrunk inventory and navigation. Removal requires
+operator authorization and its blocking managed user pre-remove hook:
+`dbsctrctl workspace-remove-check --json`. Retain successful cycles for at least
+24 hours; failed gates, unknown delivery, dirty/private data or unavailable
+process evidence block removal. Never bypass hooks, force removal, delete branches
+automatically or garbage-collect shared caches. DBSCTR cleanup is retired.
+
+DVC worktrees start code-only. Explicit `worktree-dvc-setup --cache PATH` selects
+the repository-scoped external cache and reflink-only mode; `--check` verifies
+configuration without hydration. Materialize only requested native DVC targets.
+No copy fallback, full pull, shared mutable `.dvc` state or ignored-data copying.
+Conflicting configuration/private cache data needs separately approved migration.
+
+Invoke `dbsctrctl` through native shell permissions. Custom tool catalogs,
+transparent routing and attach/bind/handover controls are retired. Native actor,
+message and call identity remains unavailable unless independently verified;
+arguments/environment never authenticate an actor. Plan and subagents retain
+native write restrictions. Initiative registration requires the operator handoff
+above; there is no custom child-session launcher. Herdr is presentation only.
+`agent-worktree -- opencode|codex ...` provides optional foreground launch-only
+busy coordination. Direct launches, in-UI switches and background jobs bypass it;
+it is not a security boundary. Only an operator may confirm its busy override.
 
 When the applicability plan contains `graphify`, run `dbsctrctl graphify-check`
 after the final affected source change and before Final Push. The helper runs the
@@ -205,7 +211,8 @@ provide source, local DVC configuration, and canonical graph artifacts, not adap
 Private lifecycle state retains the digest-selected central executable so active
 cycles and batches survive a later managed adapter upgrade.
 
-Before final artifact closure, use `dbsctr_reconcile` preview when the recorded
+Before final artifact closure, use `dbsctrctl reconcile-target --mode preview --json`
+when the recorded
 upstream may have advanced. If it reports `diverged`, prepare the no-commit merge,
 resolve only explicit conflict paths, rerun the union affected validation, and
 record every staged path through the Review/Integrate Gate Commit. The helper
@@ -215,12 +222,12 @@ checkout. Repeat if Final Push detects another advance.
 ## Lifecycle Reconciliation Audit
 
 When the user asks for a DBSCTR project/codebase audit, default to report-only.
-Use typed `dbsctr_audit` or `dbsctrctl audit --commit HEAD --json` to pin committed
+Use `dbsctrctl audit --commit HEAD --json` to pin committed
 scope, inventory lifecycle triplets, expose excluded dirty overlay, and check
 Graphify freshness. Then verify material claims against authoritative source and
 classify confirmed drift, stale evidence, missing artifacts, authority conflicts,
 historical content, and unverified claims. Do not treat graph inference as source.
-Use typed `dbsctr_inspect` for bounded `read`, `tree`, `search`, and `object`
+Use `dbsctrctl inspect` for bounded `read`, `tree`, `search`, and `object`
 access to that resolved commit; never substitute filesystem reads that include
 the dirty overlay.
 For semantic reconciliation, load `references/semantic-audit.md`, keep the audit
@@ -296,15 +303,15 @@ Git are durable authority. File access never overrides lifecycle authorization.
 ## Critical-Path Profiling And Safe Concurrency
 
 When diagnosing cycle wall time, a validated Build primary may bracket material
-lifecycle work with typed `dbsctr_phase_span` start and finish events. Declare only opaque span
+lifecycle work with `dbsctrctl phase-span` start and finish events. Declare only opaque span
 identity, phase/operation class, dependencies, repository-relative ownership,
 attribution, and final result. The helper owns timestamps and returns a path-free
 compact profile. Unsupported automatic tool or subagent timing remains
 `unavailable`; never infer a full critical path from message persistence times.
 
 When benchmarking or authorizing non-obvious concurrency, submit the complete
-candidate graph, completed-node set, and exactly one reconciliation node to typed
-`dbsctr_execution_dag`. The reconciliation node depends directly or transitively
+candidate graph, completed-node set, and exactly one reconciliation node to
+`dbsctrctl execution-dag`. The reconciliation node depends directly or transitively
 on every worker. The helper validates operation classes, dependencies, cycles,
 risk, and ownership overlap. The helper does not dispatch
 work: the primary runs only returned ready nodes with existing parallel tool
@@ -315,7 +322,7 @@ before dependent gates pass. A failed node follows normal gate
 remediation and is never hidden by an automatic serial retry.
 
 `benchmark` mode authorizes only the repeatable fixture. Real `concurrent` mode
-remains forced serial until typed `dbsctr_execution_benchmark` records at least
+remains forced serial until `dbsctrctl execution-benchmark` records at least
 five successful post-warmup pairs bound to one committed fixture/blob, equivalent
 required-gate digests, at least 10 percent lower median wall time, and no added
 remediation rounds. The helper executes and times the committed fixture; callers
@@ -325,7 +332,8 @@ serial. DBSCTR adds no separate worker cap after independence is proven.
 
 ## Evidence And Git
 
-At cycle start, use `dbsctrctl begin --plan PATH` to create isolation and record
+At cycle start, use Worktrunk to create isolation, then register the explicit
+checkout with `dbsctrctl begin --plan PATH` to record
 schema version, committed Engineering Profile identity, explicit gate
 applicability, HEAD, branch, upstream, worktree status, pre-cycle ahead commits,
 Method Revision, gates, and Artifact Reviews. Use low-level `start` only for an
