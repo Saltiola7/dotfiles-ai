@@ -1,5 +1,11 @@
 # Host uv shell selection
 
+Delivered: dotfiles PR #20 merged at 6750fc855fa5b4e7e5c9c4df50ce9135470f9e8c.
+Implementation 22fe571 and deployment record 189f559 passed 40 scoped tests and
+Python 3.12/3.13/3.14 CI. All four host login modes select installed uv 0.12.23
+and uvx with minimal inherited PATH; unrelated command resolution matches each
+mode's saved baseline. Repeated targeted apply is clean; preimages retained.
+
 Home: Saltiola7/dotfiles, host_tool_maintenance. Engineering Profile:
 docs/specs/host_tool_maintenance/PROFILE.md. Requirements INT-003, INT-006,
 INT-012, INT-026 (bounded refinement of INT-004). Elevated risk; targeted managed deployment and draft PR into
