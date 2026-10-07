@@ -1,6 +1,8 @@
 # OpenCode Rolling Stable Updates
 
-**Status:** Ready
+**Status:** Historical fleet policy; future maintenance superseded by
+[native platform-local updates](native-platform-updates.md). Native ownership
+transition remains pending; this record retains original implementation authority.
 
 ## Outcome
 

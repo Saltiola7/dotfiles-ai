@@ -7,7 +7,7 @@
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
 | Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
-| Compatibility | Stable local TOML keys and managed target paths; OpenCode-default automation; sanitized defaults; private rolling-stable Codex and OpenCode locks with semantic validators and rollback |
+| Compatibility | Stable local TOML keys and managed state boundaries; OpenCode-default automation; sanitized defaults; qualified native platform-local installer ownership with compatibility and recovery checks |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
 | Authorities | Rendered chezmoi output, shell syntax, checksums, `pytest`, launchd validation, and configured runtime smokes |
@@ -20,3 +20,7 @@ behavior.
 
 The context README remains authoritative for distribution behavior and historical
 cycle overrides. New cycles use this file as their Engineering Profile.
+
+`features/native-platform-updates.md` defines approved successor update ownership.
+Existing lock-gated deployments remain until qualified transition; this profile
+revision does not change recorded authority of an already registered cycle.
