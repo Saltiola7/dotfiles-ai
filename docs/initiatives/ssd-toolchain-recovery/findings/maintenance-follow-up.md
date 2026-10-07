@@ -4,6 +4,19 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+Operator approved publication and CI-gated merge of remaining dependency-only
+maintenance: dotfiles PR #22 (Aider/nginx retirement), dotfiles-ai PR #202 (test
+dependencies) and #203 (Hermes Python patch). Published; required checks and
+verified-head merges are pending.
+
+SDS root development compatibility candidate, using copied manifests only, resolves
+LiteLLM 1.89.0 to 1.104.0 on Python 3.14.8. Dependency and SSL/SQLite/import checks
+passed with FastAPI 0.136.3 and Prefect 3.7.4. Shared-library manifest and worker
+inputs are unchanged; live environments have not been replaced. Synthetic mocked
+LiteLLM completion and an ephemeral Prefect flow are the next runtime checks,
+followed by full allowed-constraint refresh qualification. Candidate execution uses
+an isolated home without inherited provider or production credentials.
+
 Aider tool qualification found a minor-version conflict: installed and newly
 resolved aider-chat 0.86.2 both declare Python >=3.10,<3.13, but the existing tool
 uses Python 3.13.2. An isolated same-minor 3.13.16 candidate resolves but fails
