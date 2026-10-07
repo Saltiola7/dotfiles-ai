@@ -29,6 +29,12 @@ Chezmoi owns bootstrap declarations, configuration, state routing and missing-vo
 guards. Native installer targets must be distinct from managed guard paths.
 No cross-platform transaction or host/guest version equality is required.
 
+The current transition is limited by SSD recovery INT-023 to macOS ARM64 and Fedora
+ARM64. Linux x86_64 activation is explicitly deferred and retains the existing
+installer/launch route. One-owner-per-platform remains invariant; do not retire
+shared legacy helpers still required by the deferred platform. Rendering and caller
+checks must prove platform-local selection before ARM64 deployment.
+
 | Given | When | Required result |
 |---|---|---|
 | Existing native installation | Chezmoi reapplies | Preserve selected current executable; no pinned downgrade or competing owner |
@@ -65,8 +71,9 @@ private pre-change inventory. Historical V2 admission does not qualify native up
 
 Current evidence lives in the SSD recovery `findings/native-updates.md`: native
 updates on macOS/Fedora ARM64 and synthetic session persistence pass. Linux requires
-`which` for the inspected OpenCode installer. x86_64 runtime, native interactive
-update, complete wrapper/service integration and managed reapply remain pending.
+`which` for the inspected OpenCode installer. x86_64 runtime qualification remains
+deferred. Native interactive update, complete ARM64 wrapper/service integration
+and managed reapply remain pending.
 
 Kernel, Review/Integrate, Deploy, Operate and Maintain/Retire apply. Release is not
 applicable because no independent package is published. No gate is passed by this

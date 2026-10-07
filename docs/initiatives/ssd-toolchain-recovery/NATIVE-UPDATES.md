@@ -20,6 +20,12 @@ Latest means official stable; report package-manager lag rather than introducing
 a competing installation. Use the native notification/manual-update flow; automatic
 installation was not requested. Do not invent an idle-session restart controller.
 
+Operator decision INT-023 limits this activation to macOS ARM64 and Fedora ARM64.
+Linux x86_64 native activation is deferred; retain its existing installation and
+launch route until separately qualified. Shared template changes must prove that
+the deferred platform does not accidentally select the new native route. Lack of
+x86_64 runtime evidence no longer blocks ARM64 readiness, but must stay explicit.
+
 State remains at the existing machine-configured external root. OpenCode uses its
 existing XDG paths; Codex retains its existing CODEX_HOME. CLI and desktop state
 remain separate where already separate. Native updating is not data relocation.

@@ -150,8 +150,10 @@ Before readiness:
    absent-volume failure, background-service environment and twice-repeated targeted
    chezmoi apply; current probes establish only a subset of that matrix.
 3. Qualify existing guest wrapper routing. Linux ARM64 isolated service restart
-   now passes. Linux x86_64
-   remote support is source-inspected only; no remote target was upgraded.
+   now passes. Linux x86_64 remote support is source-inspected only; no remote
+   target was upgraded. Subsequent operator decision INT-023 defers x86_64 native
+   activation and preserves its current route; runtime evidence is not an ARM64
+   launch prerequisite, but shared-template regression checks remain required.
 4. Approved successor policy now has a precedence map in
    `features/native-platform-updates.md`; Product Intent, profiles and historical
    feature/Initiative pointers are reconciled in Discovery. Registered migration

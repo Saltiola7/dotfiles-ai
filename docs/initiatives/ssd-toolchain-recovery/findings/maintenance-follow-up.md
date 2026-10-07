@@ -116,3 +116,65 @@ shows a SIGTERM during stop and a changed unit requiring daemon reload. These
 observations do not prove current boot provisioning or justify clearing failures.
 Herdr Host doctor still reports a valid signature and enabled registration but
 probe-only degraded health due to the old expected volume identity.
+
+## Subsequent reconciliation
+
+PR #197 passed all three CI versions after the validator update and merged at
+`e59dfec4ddd4b35babe3e01f79092b4e8765b4bf`. PR #187's previous Python 3.13 job
+failed only the eighty-session spacing assertion: all sessions launched, but at
+least one observed interval was below 4.8 seconds. Python 3.12 and 3.14 passed.
+The failure is retained; no exception or assertion weakening was approved.
+PR #187 was updated against the newly merged base and its new CI remains pending.
+
+Final follow-up: all three jobs passed on the updated PR #187 head; it merged at
+`ee63d74a6ee89d2c9853de4a017c5a36f4740049`. The earlier failed timing run remains
+historical evidence and does not establish that the underlying timing concern was
+repaired. Both requested current PRs are merged; superseded PRs remain closed.
+
+Four casks have current installed application bundles despite older Homebrew
+receipts: 1Password 8.12.40, RustDesk 1.5.0, Tailscale 1.102.4 and SF Symbols
+27.0 build 140. Report receipt drift separately from executable version. The
+standalone Tailscale CLI reports 1.102.5; no network service restart was performed.
+
+Google Cloud SDK has two independent installations, not symlinks to one owner.
+The shell-selected standalone SDK reports 583.0.0. Operator INT-022 selects that
+owner and requires chezmoi bootstrap before duplicate Homebrew retirement.
+An isolated installation-only copy with a separate empty CLOUDSDK_CONFIG passed
+native update from 583.0.0 to 588.0.0. Corrected native JSON inventory proves all
+nine component IDs remain present. The first inventory filter used a nonexistent
+`state.name` field and returned no records; that attempt was not counted as parity
+evidence. BigQuery, Storage, kubectl client and GKE auth-plugin startup probes pass.
+Component metadata and binary-reported versions differ for some components, so
+record each evidence source rather than treating receipt versions as executable
+identity. The authorized live native update completed at 588.0.0 with all nine
+component IDs preserved and the original SDK archived. Explicit-path BigQuery,
+Storage and GKE auth-plugin startup checks pass. A kubectl client probe also loaded
+existing kubeconfig and attempted authentication against the empty scratch Google
+configuration; its zero exit was not sufficient evidence. Repeating with
+KUBECONFIG=/dev/null passed without stderr. No cluster operation was requested.
+
+Fresh-shell selection fails the ownership contract: Bash login (interactive and
+noninteractive) and noninteractive Zsh select Homebrew; interactive Zsh selects
+the standalone SDK. The managed common profile prepends Homebrew, while the
+upstream Bash SDK helper does not reprioritize an SDK directory already present
+later in PATH. Durable shell correction, standalone bootstrap and duplicate
+retirement remain incomplete. Noninteractive Bash still selects the old local uv.
+
+The owning distribution changelog confirms DAI-033-1 retired host Colima/Docker.
+Removed their five stale Brewfile declarations; Ruby syntax validation passed.
+The source's legacy Colima LaunchAgent/bootstrap hook remains a separate behavioral
+retirement issue, so a blanket chezmoi apply is still not qualified.
+
+Original V2 cutover cycle remains active and already has native workspace adoption.
+Its preserved dirty template change changes limactl permission from deny to ask.
+No source edits or lifecycle-state writes were made to that cycle in this follow-up.
+
+## Guest follow-up
+
+Personal guest still reports cloud-init scripts_per_boot failure in
+00-lima.boot.sh. Privileged cloud-init log inspection stopped because native sudo
+requires an operator password. User daemon reload completed; default-buildkit is
+now explicitly not-found, with its previous failed state retained. Its unit file
+was already absent before reload; do not recreate it from the stale manager record.
+Podman socket is active, Atuin is running, and pm-postgres reports healthy. This
+does not qualify a complete boot or fresh provisioning.

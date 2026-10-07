@@ -18,13 +18,22 @@ cover environment and ownership behavior. The terminal test currently requires
 OpenCode wrapper selection despite later PATH changes: native-updater migration
 must revise executable selection while retaining state routing, not simply delete it.
 
-Brewfile still declares colima, docker, docker-buildx, docker-compose and
-docker-credential-helper, and a Colima/Atuin bootstrap script remains in the source.
+Brewfile's stale colima, docker, docker-buildx, docker-compose and
+docker-credential-helper declarations were removed in uncommitted maintenance
+changes; a Colima/Atuin bootstrap script remains in the source.
 dotfiles-ai's distribution CHANGELOG records their retirement in DAI-033-1.
 Resolve that source/deployment conflict before a full bundle apply; upgrades must
 not resurrect intentionally retired services. Inspect existing user changes first.
 The source also has one-time recovery hooks; promote durable behavior into the
 proper owner rather than relying on one machine's already-executed hook state.
+
+Operator decision INT-022 selects the currently active standalone Google Cloud SDK
+as sole owner. Keep its existing installation location, credentials and installed
+components. Qualify a native update in isolation before activation and retire the
+duplicate Homebrew declaration/install only after selected-path and component
+parity checks. Chezmoi must bootstrap the standalone SDK when absent; removing the
+Homebrew declaration alone does not satisfy fresh-machine installation. Bootstrap
+must preserve an existing healthy SDK and avoid automatic updates on every apply.
 
 ## Domain and behavior
 
