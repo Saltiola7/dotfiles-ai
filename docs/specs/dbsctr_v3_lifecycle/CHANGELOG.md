@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-07 — SDK-PR-HISTORY
+
+- Restricted current draft-PR selection to open same-owner PRs, preserving merged
+  and closed history when a feature branch is reused. Multiple open matches and
+  non-draft or mismatched targets still fail validation; no record schema changed.
+- Both batch publication and cycle Final Push use the corrected shared function.
+  Regression covers historical matches, fork-owner exclusion, creation when only
+  history exists, and rejection of ambiguous/non-draft current matches.
+- Focused regression passed on Python 3.12 and 3.14; affected delivery/batch tests
+  passed after correcting the test fixture. Earlier failed/timeout evidence stays
+  retained. Helper and test syntax checks passed.
+- Deployed only the two reviewed changes to the installed helper and configured
+  chezmoi source, retaining preimages and all unrelated recovery changes. Function
+  equality and the deployed regression passed. SDK shell cycle Final Push then
+  verified its existing draft PR successfully without changing historical PRs.
+- Gate Commits: `310174a` (contract), `cc91fb6` (implementation). No exceptions;
+  package release not applicable. Intended delivery: feature branch and draft PR
+  into main; actual Final Push result remains in the Cycle Record.
+
 ## 2026-10-03 — WORKTRUNK-NATIVE-WORKSPACES-R3
 
 - Implemented INT-022–INT-031: Worktrunk owns task checkout management; native

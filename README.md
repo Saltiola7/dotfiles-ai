@@ -1,5 +1,7 @@
 # dotfiles-ai
 
+DeepWiki generated documentation: [https://deepwiki.com/Saltiola7/dotfiles-ai](https://deepwiki.com/Saltiola7/dotfiles-ai)
+
 Portable macOS configuration for DBSCTR, OpenCode, Herdr, and optional Hermes
 orchestration, managed as an independent chezmoi source repository.
 

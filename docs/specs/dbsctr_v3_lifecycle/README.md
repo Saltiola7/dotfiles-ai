@@ -1345,6 +1345,10 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
   Final Push verifies all normal gate/evidence conditions, pushes only the
   feature branch, creates a draft pull request, verifies draft state, and records
   its number and URL. It never updates the base branch or source checkout.
+- A reused feature branch may have closed or merged historical PRs. Only open
+  same-owner PRs participate in current delivery selection. No open match creates
+  a new draft; multiple open matches still fail. A selected open PR must retain
+  the exact owner, head, base and draft-state checks. Historical PRs remain intact.
 - GitHub authentication is selected by configured non-secret account through a
   project-owned wrapper. Tokens are resolved just in time into a process-local
   environment and are never accepted as helper arguments or persisted evidence.
