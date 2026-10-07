@@ -37,11 +37,12 @@ def test_native_preferences_preserve_local_fields_and_are_idempotent(tmp_path):
     target = tmp_path / ".config/opencode/cli.json"
     target.parent.mkdir(parents=True)
     target.write_text(json.dumps({"theme": {"name": "old", "mode": "light", "local": 1},
-                                  "keybinds": {"agent_cycle": "shift+tab"}, "local": [1, 2]}))
+                                  "keybinds": {"help.show": "f1"}, "local": [1, 2]}))
     result = project(tmp_path, "cli.json")
     assert result == {"$schema": "https://opencode.ai/v2/cli.json",
                       "theme": {"name": "catppuccin", "mode": "dark", "local": 1},
-                      "keybinds": {"agent_cycle": "shift+tab"}, "local": [1, 2]}
+                      "keybinds": {"help.show": "f1", "agent.cycle": "tab",
+                                   "agent.cycle.reverse": "shift+tab"}, "local": [1, 2]}
     assert project(tmp_path, "cli.json") == result
     assert target.stat().st_mode & 0o777 == 0o600
 
@@ -54,6 +55,50 @@ def test_configuration_modifier_refuses_invalid_input_without_overwriting(tmp_pa
         with pytest.raises(AssertionError, match="original left unchanged"):
             project(tmp_path, "opencode.json")
         assert target.read_text() == invalid
+
+
+def test_cli_modifier_refuses_invalid_input_without_overwriting(tmp_path):
+    target = tmp_path / ".config/opencode/cli.json"
+    target.parent.mkdir(parents=True)
+    for invalid in ("{invalid-private-value", "[]", "null"):
+        target.write_text(invalid)
+        with pytest.raises(AssertionError):
+            project(tmp_path, "cli.json")
+        assert target.read_text() == invalid
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_browser_mcps_disabled_and_local_servers_preserved(tmp_path, native):
+    target = tmp_path / ".config/opencode/opencode.json"
+    target.parent.mkdir(parents=True)
+    server = {"type": "local", "command": ["local-fixture"],
+              "environment": {"FIXTURE": "preserve-me"}}
+    local = {"servers": {"local": {**server, "disabled": True}},
+             "timeout": {"startup": 45000}} if native else {"local": {**server, "enabled": False}}
+    target.write_text(json.dumps({"mcp": local}))
+    result = project(tmp_path, "opencode.json")
+    servers = result["mcp"]["servers"]
+    assert servers["local"] == {**server, "disabled": True}
+    for name in ("chrome-devtools", "playwright"):
+        assert servers[name]["disabled"] is True
+        assert "enabled" not in servers[name]
+        assert servers[name]["command"][:2] == ["npx", "-y"]
+    assert "--no-usage-statistics" in servers["chrome-devtools"]["command"]
+    assert "--no-performance-crux" in servers["chrome-devtools"]["command"]
+    assert "context7" in servers
+    if native:
+        assert result["mcp"]["timeout"] == {"startup": 45000}
+    assert project(tmp_path, "opencode.json") == result
+
+
+def test_mixed_mcp_shapes_fail_without_losing_local_servers(tmp_path):
+    target = tmp_path / ".config/opencode/opencode.json"
+    target.parent.mkdir(parents=True)
+    original = json.dumps({"mcp": {"servers": {}, "local": {"type": "local", "command": ["fixture"]}}})
+    target.write_text(original)
+    with pytest.raises(AssertionError, match="mixes native and legacy"):
+        project(tmp_path, "opencode.json")
+    assert target.read_text() == original
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -81,6 +126,50 @@ class Provider(BaseHTTPRequestHandler):
                 "created": 1, "model": "mock", "choices": [{"index": 0, "delta": part,
                 "finish_reason": finish}]}) + "\n\n").encode())
         self.wfile.write(b"data: [DONE]\n\n")
+
+
+@pytest.mark.skipif(not os.environ.get("OPENCODE_V2_BINARY"), reason="exact V2 candidate not selected")
+def test_native_disabled_browser_startup(tmp_path):
+    binary = Path(os.environ["OPENCODE_V2_BINARY"]).resolve(strict=True)
+    config = project(tmp_path, "opencode.json")
+    project(tmp_path, "cli.json")
+    marker = tmp_path / "browser-started"
+    servers = {name: config["mcp"]["servers"][name]
+               for name in ("chrome-devtools", "playwright")}
+    for server in servers.values():
+        server["command"] = [sys.executable, "-c",
+                             f"from pathlib import Path; Path({str(marker)!r}).touch()"]
+    # Synthetic transports prove startup policy without opening browsers or credentials.
+    (tmp_path / ".config/opencode/opencode.json").write_text(json.dumps({
+        "mcp": {"servers": servers}, "update": "disable"}))
+    env = {"PATH": os.defpath, "TERM": "dumb", "NO_COLOR": "1"}
+    for key, name in {"HOME": "home", "OPENCODE_TEST_HOME": "home", "XDG_CONFIG_HOME": ".config",
+                      "OPENCODE_CONFIG_DIR": ".config/opencode", "XDG_DATA_HOME": "data",
+                      "XDG_STATE_HOME": "state", "XDG_CACHE_HOME": "cache", "TMPDIR": "tmp"}.items():
+        directory = tmp_path / name
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        env[key] = str(directory)
+    def run(*args):
+        result = subprocess.run([str(binary), *args], cwd=tmp_path, env=env,
+                                capture_output=True, text=True, timeout=45)
+        assert result.returncode == 0, result.stderr
+        return result.stdout
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    run("service", "set", "port", str(port))
+    try:
+        deadline = time.monotonic() + 15
+        while True:
+            response = json.loads(run("api", "mcp.list", "--param", f"location[directory]={tmp_path}"))
+            if response["data"] or time.monotonic() >= deadline:
+                break
+            time.sleep(.25)
+        assert not marker.exists(), "disabled browser MCP launched"
+        assert "chrome-devtools" in json.dumps(response) and "playwright" in json.dumps(response)
+    finally:
+        run("service", "stop")
 
 
 @pytest.mark.skipif(not os.environ.get("OPENCODE_V2_BINARY"), reason="exact V2 candidate not selected")
@@ -115,10 +204,10 @@ def test_exact_v2_roles_plugins_instructions_and_permissions(tmp_path, monkeypat
         json.dumps(str(package / ".opencode/plugins/ponytail.mjs")) + ";\n")
     config.pop("references", None)
     # Preserve server identities and managed permissions, replace transports only.
-    config["mcp"] = {name: {"type": "local", "enabled": True,
+    config["mcp"] = {"servers": {name: {"type": "local", "disabled": server["disabled"],
         "command": [sys.executable, str(ROOT / "tests/fixtures/opencode_v2_mcp.py"),
                     str(tmp_path / f"{name}-calls")]}
-        for name in config["mcp"]}
+        for name, server in config["mcp"]["servers"].items()}}
     config.update({"plugin": [str(plugin)], "update": "disable", "model": "probe/mock",
         "small_model": "probe/mock", "enabled_providers": ["probe"], "provider": {"probe": {
             "npm": "@ai-sdk/openai-compatible", "options": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1"},

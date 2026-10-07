@@ -1,5 +1,23 @@
 # OpenCode Control Plane
 
+**SSD-OPENCODE-PREFERENCES-1 completion evidence:** Managed native `cli.json`
+binds Tab/Shift+Tab to forward/reverse agent cycling. Chrome DevTools 1.10.1 and
+Playwright MCP 0.0.83 are declared disabled under `mcp.servers`, available through
+`/mcps`. Targeted host deployment preserved unrelated preferences, servers and the
+Herdr plugin. Operator confirmed both agent keys and slash-command autocomplete.
+Native status showed both browser MCPs disabled; isolated startup tests verified
+that disabled transports were not launched. See the
+[approved behavior contract](features/manual-browser-and-agent-keys.md).
+
+Maintenance owner is the dotfiles owner. Package/OpenCode upgrades require renewed
+rendering, preservation, malformed-input, disabled-startup and UI checks. Browser
+connection failures remain visible in `/mcps`; connect only when requested. Chrome
+usage-statistics and CrUX uploads are disabled in the qualified declaration.
+Rollback uses the retained pre-apply configuration and prior managed declarations,
+preserving unrelated local settings and sessions. No state archive or conversation
+is a retirement target. The broader native updater and hibernation work retain
+separate ownership; this slice does not qualify them.
+
 **OPENCODE-V2-CONTROL-PLANE source evidence:** The
 [one-time transition contract](features/opencode-v2-transition.md) is implemented
 in source. The configuration modifier preserves ordered managed permission maps

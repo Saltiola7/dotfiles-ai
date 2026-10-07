@@ -98,17 +98,29 @@
   },
 {{ end -}}
   "mcp": {
+    "servers": {
     "context7": {
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
-      "enabled": true,
+      "disabled": false,
       "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" }
     }{{ if eq .chezmoi.os "darwin" }},
     "1password": {
       "type": "local",
       "command": ["/usr/local/bin/1password-mcp"],
-      "enabled": true
-    }{{ end }}
+      "disabled": false
+    }{{ end }},
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@1.10.1", "--no-usage-statistics", "--no-performance-crux"],
+      "disabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@0.0.83"],
+      "disabled": true
+    }
+    }
   },
   "agent": {
     "build": {
@@ -356,7 +368,7 @@
       "*sandbox-vm install-make*": "ask",
       "sandbox-vm configure-pm-postgres*": "ask",
       "sandbox-vm provision-pm-postgres*": "ask",
-      "*limactl *": "deny",
+      "*limactl *": "ask",
       "git reset --hard*": "ask",
       "git clean *": "ask",
       "gh *": "ask",
