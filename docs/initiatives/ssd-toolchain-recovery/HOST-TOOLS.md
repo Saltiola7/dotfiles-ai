@@ -8,6 +8,9 @@ Risk: elevated for service/runtime changes, routine for isolated leaf tools.
 
 ## Sources and discovered conflicts
 
+Current bounded inventory and completed CLI upgrades:
+[maintenance follow-up](findings/maintenance-follow-up.md).
+
 The owning source is dotfiles/Brewfile, dot_common_profile.tmpl, installer templates
 and machine-local chezmoi values. Its configured test authority is pytest via
 pyproject.toml; tests/test_terminal_environment.py and test_ai_config_ownership.py

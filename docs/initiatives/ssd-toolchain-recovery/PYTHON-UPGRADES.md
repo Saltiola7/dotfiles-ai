@@ -19,6 +19,10 @@ No project code changes, installs or environment syncs occur during inventory.
 
 ## Inventory record and candidate selection
 
+Expanded linked-checkout and tool-environment observations:
+[maintenance follow-up](findings/maintenance-follow-up.md). The bounded scan is
+not a production classification or blanket environment upgrade authorization.
+
 For every primary, linked checkout, tool and guest environment, privately record:
 owning repository/context; interpreter path/version/minor pin; environment manager;
 manifest/lock paths; working-tree changes; direct/shared production consumers;
