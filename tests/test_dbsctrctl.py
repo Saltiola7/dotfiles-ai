@@ -3636,6 +3636,8 @@ class DbsctrctlTest(unittest.TestCase):
             "github": {"account": "example-user", "repository": "example-org/dotfiles-ai"},
         }}
         pull_requests = [
+            {"number": 8, "state": "MERGED", "headRepositoryOwner": {"login": "example-org"}},
+            {"number": 9, "state": "CLOSED", "headRepositoryOwner": {"login": "example-org"}},
             {"number": 1, "url": "https://github.com/fork/pull/1", "isDraft": True,
              "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
              "headRepositoryOwner": {"login": "fork"}},
@@ -3649,6 +3651,22 @@ class DbsctrctlTest(unittest.TestCase):
             result = module.deliver_draft_pr(self.repo, record)
         self.assertEqual(result["number"], 2)
         create.assert_not_called()
+
+        for invalid in ([pull_requests[-1], dict(pull_requests[-1], number=3)],
+                        [dict(pull_requests[-1], isDraft=False)]):
+            with self.subTest(invalid=invalid), \
+                    mock.patch.object(module, "github_json", return_value=invalid), \
+                    mock.patch.object(module.subprocess, "run") as create:
+                with self.assertRaises(RuntimeError):
+                    module.deliver_draft_pr(self.repo, record, env={"PATH": "/usr/bin"})
+                create.assert_not_called()
+
+        with mock.patch.object(module, "github_json", side_effect=[pull_requests[:2], pull_requests[-1]]), \
+                mock.patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 0, stdout=pull_requests[-1]["url"], stderr="")) as create:
+            result = module.deliver_draft_pr(self.repo, record, env={"PATH": "/usr/bin"})
+        self.assertEqual(result["number"], 2)
+        self.assertIn("--draft", create.call_args.args[0])
 
     def test_final_push_requires_changelog_change(self):
         remote = Path(self.temp.name) / "remote.git"
