@@ -95,6 +95,12 @@ return readiness_reopened before expanding scope. Builder may replace the old
 "no approved promotion command" operational status only with tested command usage;
 normative behavior and scope remain Discovery-owned.
 
+Receipt also carries read-only shared distribution/Codex profiles, Product Intent,
+native-update precedence and original rolling-stable README. These committed
+Discovery dependencies preserve cross-tool ownership policy when imported into
+the clean Build checkout; they do not grant additional writable implementation
+scope or activate deferred platforms.
+
 Validation: shell syntax; existing rendered signed-host tests; mocked native
 signature/registration/rename interruption cases; read-only live preflight;
 strict candidate/canonical signature and mutual designated requirements; actual
