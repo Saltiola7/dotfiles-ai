@@ -8,6 +8,14 @@ Risk: elevated for service/runtime changes, routine for isolated leaf tools.
 
 ## Sources and discovered conflicts
 
+Operator INT-027 confirms no additional host production consumers beyond the
+explicit enterprise-seo-tools and SDS exclusions. This resolves the unknown
+production-owner question, not dependency compatibility. Metadata-only interpreter
+checks show the excluded project's primary environment uses Framework Python;
+SDS root uses mise and its iac/ci/adb environments use uv or Framework Python.
+No inspected protected interpreter resolves through Homebrew. Keep those routes
+unchanged and retain old Homebrew kegs during same-minor patch maintenance.
+
 Current bounded inventory and completed CLI upgrades:
 [maintenance follow-up](findings/maintenance-follow-up.md).
 

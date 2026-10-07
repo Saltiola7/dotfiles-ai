@@ -4,6 +4,24 @@ Discovery evidence only; no additional slice is implementation-ready.
 
 ## Package maintenance
 
+2026-10-07 follow-up after INT-027 consumer clarification: Homebrew Python 3.12.15,
+Python 3.14.8, pipx 1.17.11 and DuckDB 1.5.6 installed. The dry run selected only
+those four packages; automatic cleanup/autoremove stayed disabled. Both previous
+Python kegs remain. New interpreter SSL/SQLite checks, pipx version, an in-memory
+DuckDB aggregate and 23 affected host tests passed. Protected primary interpreter
+routes still resolve to Framework/mise installations rather than Homebrew.
+
+Homebrew reported a previously unmanaged local DuckDB 1.2.1 symlink shadowing its
+declared installation. The symlink was archived, with the native installation
+retained. All four host login modes now resolve Homebrew DuckDB 1.5.6. No database
+was opened; SQL qualification used an in-memory database.
+
+Recent host deliveries are recorded in HOST-SDK-SHELL.md, HOST-SDK-BOOTSTRAP.md,
+HOST-UV-SHELL.md and HOST-RETIRED-SOURCES.md. They supersede the earlier unresolved
+SDK precedence, uv selection and retired-launcher findings below. Delivery-helper
+PR #198 passed all three Python jobs and smoke and merged at
+80a15d57183685dc00130aa2b5f6951a4231af38.
+
 Latest follow-up: moshi-hook upgraded from 0.4.10 to 0.4.18 with automatic cleanup
 disabled. Native dry run selected only that dependency-free formula. CLI version
 reports 0.4.18 and its probe reports installed/running/gateway true. No explicit

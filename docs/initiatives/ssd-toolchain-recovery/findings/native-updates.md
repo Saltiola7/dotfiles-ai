@@ -105,6 +105,15 @@ updater files. Trace remaining callers before deciding actual retirement scope.
 
 ## Candidate and remaining qualification
 
+Follow-up source inventory found another caller of opencode-update-all in
+run_onchange_after_configure-pm-postgres.sh.tmpl. Native retirement must account
+for this dependency without running its deferred guest provisioning workflow.
+The deployed guarded Codex CLI selects the codex root, while shell/GUI routing
+selects its home child. Metadata-only checks confirm both contain configuration,
+authentication and session paths. Preserve these distinct existing routes; never
+merge them or choose a replacement home based only on a shell variable. No private
+configuration contents, credentials or histories were read for this check.
+
 ### Codex native command and automatic-update policy follow-up
 
 Native `codex update` at 0.160.1 passed on macOS and Fedora ARM64 with the custom

@@ -1,5 +1,10 @@
 # Retired host source reconciliation
 
+Delivered: dotfiles PR #21 merged at d25b67d9ee17fa39a277c29f90924f25efa1ecd5.
+Implementation 73679e7 and deployment record a6e5dc8 passed affected tests,
+Brewfile syntax and Python 3.12/3.13/3.14 CI. Configured and task-source inventories
+exclude retired targets; live service and files remain absent. Preimages retained.
+
 Home: Saltiola7/dotfiles, host_tool_maintenance; existing PROFILE.md applies.
 Requirements: INT-002, INT-003, INT-012, INT-018, INT-021. Elevated risk because
 chezmoi can otherwise recreate a retired service. Draft PR and targeted deployment.
