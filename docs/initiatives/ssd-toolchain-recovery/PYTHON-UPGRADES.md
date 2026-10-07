@@ -1,5 +1,9 @@
 # Non-production Python runtime and dependency upgrades
 
+**Paused by INT-032 (2026-10-07):** no further environment updates or live
+activation in this session. Preserve completed deliveries, current environments
+and rollback evidence. Remaining work belongs to a separate operator session.
+
 Coordinator: python_maintenance_discovery in dotfiles-ai. Each owning project
 provides its implementation context/profile and lockfiles. This coordinator cannot
 authorize writes to all repositories through one aggregate Build slice.

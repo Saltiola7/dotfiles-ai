@@ -1,9 +1,9 @@
-# Hibernation — explicitly deferred
+# Hibernation — qualification resumed, activation blocked
 
-Operator decision: pause hibernation and surface it after the rest of this recovery,
-upgrade and migration work is done. It is not a prerequisite for declaring the
-other workstreams complete. No plugin installation, fork or repair is currently
-authorized by this deferred slice. Do not silently drop it from the final report.
+Latest decision INT-034 resumes qualification after exact-session recovery,
+superseding blanket deferral in INT-017/020. Python updates are separately paused
+under INT-032. Activation requires the contracts below; repair/fork scope and
+implementation ownership must be resolved before Build registration.
 
 Home: shell_auth_startup. Existing PROFILE.md remains authoritative. Owner: primary
 maintainer. Review trigger: completion report for all non-deferred workstreams,
@@ -39,9 +39,11 @@ qualification of a changed version.
 
 | Current state | Trigger | Next state |
 |---|---|---|
-| Deferred | Other work complete | Surfaced to operator with current gaps |
-| Deferred/surfaced | Explicit request to resume | Discovery; requalify candidate and implementation scope |
+| Deferred | Explicit request to resume | Discovery; requalify candidate and implementation scope |
+| Discovery | Recovery or sleep/wake evidence missing | Activation blocked; preserve live sessions |
+| Discovery | Scope, dependencies and qualification resolved | Fresh Build readiness and registration preflight |
 
-**Text Equivalent:** no hibernation implementation now; revisit explicitly after
-the rest completes, then requalify before Build. Canonical source: this decision.
+**Text Equivalent:** qualification resumed; implementation requires fresh
+readiness and registration, activation requires exact recovery evidence.
+Canonical source: this decision.
 Owner: primary maintainer; update trigger: operator resumption or changed requirements.

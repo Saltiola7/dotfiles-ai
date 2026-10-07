@@ -46,10 +46,61 @@ cases, interruption recovery and exact-session resumption. Run affected existing
 Herdr launchagent/session-recovery tests. A synthetic probe does not replace live
 signature, consent and registration evidence.
 
-Kernel/review/deploy/operate/maintain required; release N/A. Remaining Discovery:
-qualify the minimal supported promotion transaction and its failure recovery;
-record exact writable source paths before marking Build-ready. Do not reinstall
-all panes or replay the already completed conversation recovery batch.
+Kernel/review/deploy/operate/maintain required; release N/A. Selected implementation
+and failure-recovery boundary follows. Do not reinstall
+all panes indiscriminately. INT-033 reopens prior identity-only recovery claims:
+positive visible conversation evidence is required, not a retained Herdr ID.
+Recover only affected idle panes with fresh terminal/session binding, preserve
+new work, and record unresolved outcomes when UI evidence is unavailable.
+
+## Selected promotion interface and write scope
+
+Implement a managed `herdr-host-promote` shell command with:
+
+- `--candidate PATH --check`: read-only validation and exact planned paths;
+- `--candidate PATH`: guarded probe-only promotion;
+- `--recover JOURNAL`: inspect and resume only a uniquely classified interrupted
+  transaction; otherwise stop with the reached state and retained artifacts.
+
+The candidate must be an explicit real user-owned pending bundle under the same
+Applications directory as canonical, without group/world write permissions.
+Reject symlink paths, unknown registration/ownership, active hosting, invalid
+strict signatures, unequal bundle identifiers/designated requirements, incorrect
+replacement-volume configuration and non-unique rollback/journal destinations.
+Use existing `codesign`, `plutil`, native `herdr-host` operations and same-filesystem
+renames; do not edit a signed bundle, TCC records or ServiceManagement databases.
+
+An exclusive transaction lock and private internal-disk journal preserve the
+candidate identity, canonical identity, registration preimage and reached states.
+Before mutation, revalidate all inputs. Native `unregister` must establish
+not_registered before canonical replacement. Rename canonical into a unique
+retained rollback bundle, then candidate to canonical; verify signature again,
+invoke native `register`, and require fresh registered-host probe health for the
+replacement volume. Preserve probe_only ownership and running Herdr server/panes.
+
+Record pending intent before each external operation and completion afterward.
+On interruption, classify actual files and native registration against the
+journal; never infer success from an intent record. If classification is unique,
+resume at that state. Otherwise stop without cleanup, overwrite or retry. If
+macOS requests Login Items or Full Disk Access approval, retain the new bundle and
+report that operator boundary. Do not silently roll back across an uncertain
+registration or claim consent. Explicit rollback uses the same checks and native
+unregister/register sequence; never deletes either signed bundle.
+
+Source ownership: new `dot_local/bin/executable_herdr-host-promote`, affected cases
+in `tests/test_herdr_launchagent.py`, and the implemented-operation section of
+`docs/specs/shell_auth_startup/OPERATION.md`, README/CHANGELOG/BACKLOG completion
+evidence. The signed build/Swift implementation need not change. If they do,
+return readiness_reopened before expanding scope. Builder may replace the old
+"no approved promotion command" operational status only with tested command usage;
+normative behavior and scope remain Discovery-owned.
+
+Validation: shell syntax; existing rendered signed-host tests; mocked native
+signature/registration/rename interruption cases; read-only live preflight;
+strict candidate/canonical signature and mutual designated requirements; actual
+native registration, replacement-volume probe and unchanged live pane/terminal
+mapping. No unrelated service restart or guest work. Build registration requires
+the committed profile and exact operator BEGIN confirmation.
 
 ## Visual Evidence
 
