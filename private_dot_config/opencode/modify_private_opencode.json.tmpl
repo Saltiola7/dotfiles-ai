@@ -22,6 +22,24 @@ def merge(local, managed):
     return result
 
 
+# Normalize legacy server maps before merging; never emit duplicate declarations.
+mcp = local.get("mcp", {})
+if not isinstance(mcp, dict):
+    sys.exit("OpenCode MCP configuration must be an object; original left unchanged")
+if "servers" not in mcp:
+    mcp = {"servers": mcp}
+elif any(isinstance(value, dict) and "type" in value for name, value in mcp.items() if name != "servers"):
+    sys.exit("OpenCode MCP mixes native and legacy declarations; original left unchanged")
+if not isinstance(mcp["servers"], dict):
+    sys.exit("OpenCode MCP servers must be an object; original left unchanged")
+for server in mcp["servers"].values():
+    if not isinstance(server, dict):
+        sys.exit("OpenCode MCP server must be an object; original left unchanged")
+    if "enabled" in server:
+        if not isinstance(server["enabled"], bool):
+            sys.exit("OpenCode MCP enabled must be boolean; original left unchanged")
+        server.setdefault("disabled", not server.pop("enabled"))
+local["mcp"] = mcp
 config = merge(local, managed)
 retired = """status attach preflight begin initiative_begin initiative_launch reconcile
 continuation_enroll continuation_recover continuation_finish continuation_bind

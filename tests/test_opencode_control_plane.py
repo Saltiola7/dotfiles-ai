@@ -152,10 +152,10 @@ def test_active_managed_routes_do_not_select_gpt56():
 
 def test_context7_is_remote_optional_key_and_scout_only():
     config = rendered_config({"CONTEXT7_API_KEY": ""})
-    expected = {"type": "remote", "url": "https://mcp.context7.com/mcp", "enabled": True,
+    expected = {"type": "remote", "url": "https://mcp.context7.com/mcp", "disabled": False,
                 "headers": {"CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"}}
-    assert config["mcp"]["context7"] == expected
-    assert rendered_config({"CONTEXT7_API_KEY": "test-context7-key"})["mcp"]["context7"] == expected
+    assert config["mcp"]["servers"]["context7"] == expected
+    assert rendered_config({"CONTEXT7_API_KEY": "test-context7-key"})["mcp"]["servers"]["context7"] == expected
     assert "test-context7-key" not in text(".chezmoitemplates/opencode.json.tmpl")
     assert config["permission"]["context7_*"] == "deny"
     for agent in (OC / "agents").glob("*.md"):
@@ -164,7 +164,7 @@ def test_context7_is_remote_optional_key_and_scout_only():
 
 def test_official_1password_mcp_is_host_only_and_path_pinned():
     config = rendered_config()
-    assert config["mcp"]["1password"] == {"type": "local", "command": ["/usr/local/bin/1password-mcp"], "enabled": True}
+    assert config["mcp"]["servers"]["1password"] == {"type": "local", "command": ["/usr/local/bin/1password-mcp"], "disabled": False}
     template = text(".chezmoitemplates/opencode.json.tmpl")
     assert '{{ if eq .chezmoi.os "darwin" }}' in template and "@rui.branco/1password-mcp" not in template
     guest = re.sub(r'\{\{ if eq \.chezmoi\.os "darwin" \}\}.*?\{\{ end \}\}', "", template, flags=re.DOTALL)
@@ -276,7 +276,7 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     for operation in ("incident-scan", "review-history"):
         for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
             assert bash[form.format(operation)] == "allow"
-    assert bash["*dbsctrctl improvement-forget*"] == "ask" and bash["*limactl *"] == "deny"
+    assert bash["*dbsctrctl improvement-forget*"] == "ask" and bash["*limactl *"] == "ask"
     for command in ("sandbox-vm install-make*", "*/sandbox-vm install-make*", "*sandbox-vm install-make*",
                     "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*", "herdr workspace close*",
                     "herdr pane close*", "herdr tab close*", "herdr session stop*", "herdr session delete*"):
