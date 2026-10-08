@@ -11,25 +11,35 @@ separate project slices; it does not own their implementation.
 
 ## Outcomes and constraints
 
+Latest operator steering: recovered workspaces are visually confirmed. Finish
+migration and OpenCode/Codex/Herdr updates, then revisit hibernation options.
+Python and guests remain paused. See [current session focus](findings/current-session-focus.md).
+Preserve unfinished Host-promotion work; a permanent helper is not itself an
+operator goal or a prerequisite for native executable migration.
+
 - Restore relocated external state and exact conversations with existing layout.
   Preserve credentials, histories, migration archives, failed attempts and new V2
   work. Never restore an old database over current work.
 - Intentional redundant PPC worktree DVC deletions remain intentional. Check
   metadata and links without full data pulls or cache garbage collection.
-- All durable machine setup uses chezmoi. Codex uses its existing custom updater
-  exclusively; remove redundant installations only after verifying ownership.
-- Reconcile host and guest tools, including Kitty, Lima, Python and 1Password.
-  Updates are permitted, but version output alone cannot establish data health.
+- All durable configuration and external-state routing use chezmoi. Native
+  installers own OpenCode and Codex executable updates on the invoked platform.
+  This supersedes the original custom-Codex-updater-only direction. Qualify the
+  transition before retiring existing ownership; see [Native updates](NATIVE-UPDATES.md).
+- Reconcile all installed managed packages/applications and guest tools, not just
+  the tools named earlier. Updates are desired, but version output alone cannot
+  establish data health; resolve retired declarations before any blanket apply.
 - Preserve Python minor-version pins while updating patch releases. Exclude
   enterprise-seo-tools entirely and all production environments. SDS changes are
   limited to base/development environments; preserve GKE and shared production
-  inputs. Resolve and exercise package compatibility before activation.
+  inputs. Use latest stable dependencies permitted by existing constraints,
+  including allowed major versions. Resolve and exercise compatibility before activation.
 - Configure browser MCP servers disconnected by default and manually connectable.
   Restore Tab next-agent and Shift+Tab previous-agent bindings using native V2 IDs.
-- Prefer official Herdr integration and an existing hibernation implementation.
-  Hibernate only OpenCode after fifteen minutes idle and unfocused. Never suspend
-  working, focused or blocked sessions. Draft and exact scroll-position loss are
-  accepted; loss of exact conversation identity is not accepted.
+- Hibernation is explicitly paused until the rest completes; surface it then.
+  Retain the OpenCode-only, fifteen-minute idle/unfocused, exact-session and
+  working/focused/blocked exclusion requirements for resumption. Draft and exact
+  scroll-position loss remain accepted. See [deferral](HIBERNATION.md).
 - Restarts are authorized with recovery evidence. Permission boundaries remain
   enforced; configured-deny changes require explicit operator approval.
 - Complete the existing V2 delivery under its original Initiative and cycle.
@@ -55,6 +65,24 @@ Other slices remain Discovery-owned. No launch receipt is implied by this scope
 map. Existing contexts are reused; project-specific Python slices
 must reference each owning repository before implementation.
 
+## Complete session context coverage
+
+| Scope | Detailed Discovery contract |
+|---|---|
+| Every installed managed package/application, shell/mise/uv and Python patch ownership | [Host tools](HOST-TOOLS.md) |
+| State-root services, authentication, history, Git worktrees and intentional DVC omissions | [External state](EXTERNAL-STATE.md) |
+| Signed Herdr Host replacement-volume registration and conversation preservation | [Herdr recovery](HERDR-RECOVERY.md) |
+| Both managed guests, boot drift, upgrades and fresh V2 provisioning | [Guests](GUESTS.md) |
+| Native OpenCode/Codex updates and chezmoi/external-state compatibility | [Native updates](NATIVE-UPDATES.md) |
+| Non-production personal/client/tool/guest Python environments and SDS boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
+| Original V2 migration closure, preferences delivery and lifecycle/source reconciliation | [Delivery closure](DELIVERY-CLOSURE.md) |
+| Paused OpenCode hibernation and mandatory end-of-work reminder | [Hibernation deferral](HIBERNATION.md) |
+
+[Gates](GATES.md) records profile authorities and promotion gaps across all slices.
+These contracts cover the full session scope; technical qualification still governs
+which slices can become Build-ready. Hibernation is not a completion blocker for
+the remaining non-deferred work.
+
 ## Validation
 
 Use bounded read-only service/mount/runtime checks for recovery. For managed
@@ -64,3 +92,23 @@ dependency checks and affected runtime/tests before replacing environments.
 Hibernation requires exact native-session restoration and state-eligibility
 checks. Herdr Host needs signature, registration, volume identity and live probe
 checks. Keep source qualification, deployment and operator UI evidence distinct.
+
+## Resumption and delegation
+
+[Workstreams](WORKSTREAMS.md) assigns research boundaries, required outputs,
+deployment ordering and readiness gaps. User intent is settled; installer and
+runtime qualification remain evidence tasks. Captured or discovering slices do
+not authorize Build launch. The registered preferences cycle retains its imported
+authority; this revision does not silently broaden that cycle.
+
+## Visual Evidence
+
+| Concern | Decision |
+|---|---|
+| Boundary | not_applicable: the approved ownership table in WORKSTREAMS.md is sufficient |
+| Interaction | not_applicable: native-update validation ordering is explicit in NATIVE-UPDATES.md |
+| State | required: readiness table in WORKSTREAMS.md |
+| Data/trust | not_applicable: preservation constraints are explicit; no new transfer is authorized |
+| Schema | not_applicable: existing Initiative manifest schema is reused |
+| Dependency/deployment | required: dependency table in WORKSTREAMS.md |
+| Quantitative | not_applicable: no measured comparison informs the ownership decision |

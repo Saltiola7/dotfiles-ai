@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution
 
+**Approved maintenance successor:** [native platform-local updates](features/native-platform-updates.md)
+supersedes fleet update-on-apply and custom package-lock ownership for future
+OpenCode/Codex maintenance. Implementation and live transition remain pending.
+Existing deployed behavior and historical evidence below remain until qualified
+transition; registered cycles retain their committed authority.
+
 **OPENCODE-V2-SESSION-RECOVERY source implementation:** Recovery now probes the
 selected managed wrapper's version with bounded output/time and selects the
 matching native history schema. V2 requires current `session_v2` identities,
