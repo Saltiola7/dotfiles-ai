@@ -24,7 +24,7 @@ if [[ $(uname) == Darwin ]]; then
     export UV_TOOL_DIR="$HOME/.local/share/uv/tools"
     export UV_TOOL_BIN_DIR="${HERMES%/*}"
     export UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"
-    uv python install 3.13.2
+    uv python install 3.13.16
 fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/hermes-agent.XXXXXX")
 wheel="$tmp/hermes_agent-0.19.0-py3-none-any.whl"
@@ -35,6 +35,6 @@ if command -v sha256sum >/dev/null; then
 else
     printf '%s  %s\n' bd0bac012aee38a60894781f4597dc29ee7bedb3448540249921f10d3bef327f "$wheel" | shasum -a 256 -c -
 fi
-uv tool install --force --python 3.13.2 "$wheel"
+uv tool install --force --python 3.13.16 "$wheel"
 [[ -x "$HERMES" ]] || { echo "Hermes installation did not create $HERMES" >&2; exit 1; }
 "$HERMES" --version | /usr/bin/grep -q '0\.19\.0' || { echo "unsupported Hermes version" >&2; exit 1; }
