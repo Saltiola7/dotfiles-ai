@@ -1,5 +1,16 @@
 # Shell Auth Startup
 
+## Signed Host replacement-volume repair evidence
+
+SSD-HOST-VOLUME-REPAIR completed the approved one-time signed-bundle promotion
+and native unregister/register sequence. Fresh registered-host probe and doctor
+checks verify the configured replacement volume; ownership remains probe-only.
+The existing Herdr server PID and all 75 pane/terminal/session mappings survived.
+The exact old signed bundle, old-volume health record, journal and failed attempts
+remain in private retained evidence. No permanent promotion command was installed.
+The unfinished managed-helper cycle remains separately preserved, not completed
+by this operation. See OPERATION.md for the bounded repair and retention result.
+
 **Standalone routing correction:** HERDR-STATE-ROOT-RECOVERY implements the
 [central-state fallback contract](../../initiatives/gpt6-herdr-recovery/state-root-recovery.md).
 Recovery invoked by a supervisor without XDG_DATA_HOME selects the configured
