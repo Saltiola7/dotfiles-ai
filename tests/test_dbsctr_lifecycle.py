@@ -61,6 +61,12 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
         build = text(f"private_dot_config/opencode/agents/{agent}.md")
         assert "chat approval" in build and "--approval agent-confirmed" in build
         assert "never synthesize terminal confirmation or actor identity" in build
+    for path in ("private_dot_config/opencode/AGENTS.md",
+                 "private_dot_config/dotfiles-ai/codex-managed/AGENTS.md"):
+        instructions = " ".join(text(path).split())
+        for term in ("--expected-launch-digest DIGEST", "--approval agent-confirmed",
+                     "`BEGIN`", "not authenticated operator identity"):
+            assert term in instructions
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
