@@ -2,9 +2,25 @@
 
 **Approved maintenance successor:** [native platform-local updates](features/native-platform-updates.md)
 supersedes fleet update-on-apply and custom package-lock ownership for future
-OpenCode/Codex maintenance. Implementation and live transition remain pending.
+OpenCode/Codex maintenance. macOS ARM64 OpenCode now has native ownership;
+Codex and deferred platform transitions remain pending.
 Existing deployed behavior and historical evidence below remain until qualified
 transition; registered cycles retain their committed authority.
+
+**SSD-NATIVE-OPENCODE-HOST:** The macOS ARM64 launcher uses the native executable,
+missing-install bootstrap and existing external-state guards. Native maintenance
+arguments remain unchanged; default interactive launches require a healthy,
+matching-version shared server and pin its authenticated endpoint. An absent or
+mismatched service requires coordinated explicit service startup/restart.
+Explicit server and standalone modes remain available. The native registration
+credential remains local and is passed only in the client process environment.
+
+Native 2.0.24 update, isolated cross-version refusal, matching-version TUI startup,
+live exact-conversation canary and two targeted reapplications passed. An earlier
+unguarded cross-version startup replaced the server and detached client views;
+all 75 original mappings were subsequently restored and independently verified.
+No database rollback was performed. Preserve legacy package/admission artifacts
+and deferred-platform routes; the host's legacy fleet update now refuses mutation.
 
 **OPENCODE-V2-SESSION-RECOVERY source implementation:** Recovery now probes the
 selected managed wrapper's version with bounded output/time and selects the
