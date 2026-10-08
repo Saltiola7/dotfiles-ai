@@ -16,9 +16,13 @@ explicit checkout and preserves lifecycle gates, not transparent task routing.
 Do not use retired continuation receipts, attachment or writer-transfer commands.
 Unavailable native actor/message/call identity stays unavailable.
 
-For Initiative registration, obtain fresh receipt/preflight and present the exact
-digest-bound command to the operator. The operator must confirm interactively;
-never synthesize `BEGIN CYCLE_ID LAUNCH_DIGEST` or simulate an operator terminal.
+For Initiative registration, obtain fresh receipt/preflight and present scope,
+risk, delivery target and launch digest. Ask for explicit chat approval of that
+plan. After approval, Build may run `begin` with `--expected-launch-digest DIGEST
+--approval agent-confirmed`. This is an agent assertion, not authenticated
+operator identity. Changed plans require renewed approval; general continuation
+or shell permission is insufficient. Interactive confirmation remains available;
+never synthesize its `BEGIN` input or simulate an operator terminal.
 Legacy-cycle adoption and busy override also require their own operator consent.
 Keep independent control-plane history hooks and managed-home/release checks.
 

@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-07 — CHAT-APPROVED-BEGIN
+
+- Added `begin --approval agent-confirmed` for explicit chat-approved Initiative
+  plans; default interactive confirmation and all digest/checkout/target checks
+  remain. Approval provenance distinguishes caller assertion from terminal input;
+  native actor attribution remains unavailable and transcripts are not stored.
+- Updated OpenCode/Codex routing and shared lifecycle guidance. Older approval
+  records remain readable; deploy the compatible reader before instructions and
+  retain it when rolling back after new-method records exist.
+- Regression covers both confirmation routes, stale/changed state, missing
+  digest, non-Initiative rejection and unchanged approval on resume. Earlier red
+  and instruction-contract failure evidence remains in the cycle. Deployment,
+  final validation and actual delivery results are recorded in the Cycle Record.
+- Intended delivery: feature branch and draft PR into `main`; package release
+  not applicable. Existing native-update and Host-recovery cycles remain intact.
+
 ## 2026-10-07 — SDK-PR-HISTORY
 
 - Restricted current draft-PR selection to open same-owner PRs, preserving merged
