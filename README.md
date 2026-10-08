@@ -99,8 +99,10 @@ arguments. The helper coordinates foreground launches only; direct launches,
 in-UI session switches and background jobs remain outside its busy check.
 
 Use `dbsctrctl` in that checkout for registration, gates and reviewed draft-PR
-delivery. Initiative registration requires fresh preflight and the operator's
-interactive `BEGIN CYCLE_ID LAUNCH_DIGEST` confirmation. Existing cycles require
+delivery. Initiative registration requires fresh preflight and explicit approval
+of that plan: either terminal `BEGIN CYCLE_ID LAUNCH_DIGEST`, or chat approval
+followed by Build's `--approval agent-confirmed` command with the exact launch
+digest. The latter records reported consent, not authenticated identity. Existing cycles require
 explicit, in-place adoption with retained preimages and uncertainty.
 
 DVC checkouts start code-only. Select the repository-scoped external cache with

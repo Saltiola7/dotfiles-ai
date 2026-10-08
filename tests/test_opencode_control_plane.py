@@ -313,7 +313,7 @@ def test_native_instructions_replace_unsupported_initiative_hook():
     assert not (OC / "plugins/initiative-context.ts").exists()
     body = (OC / "AGENTS.md").read_text()
     for required in ("Re-read and validate", "after compaction", "initiative-check --manifest",
-                     "initiative-receipt --manifest", "stale authority blocks", "interactively"):
+                     "initiative-receipt --manifest", "stale authority blocks"):
         assert required in body
 
 

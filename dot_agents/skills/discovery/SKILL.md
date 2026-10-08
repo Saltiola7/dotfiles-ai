@@ -60,11 +60,15 @@ reported blockers first; never ask for a preliminary Discovery publication merel
 because its local branch has no upstream. Same-repository draft delivery carries
 approved documentation into one implementation PR. Plan reports launch feasibility
 as unverified until Build can perform this check; it does not probe denied tools.
-Require exact operator confirmation for that digest-bound slice. Present the
-preflight plan and exact registration command with `--expected-launch-digest`.
-The operator runs it interactively and enters `BEGIN CYCLE_ID LAUNCH_DIGEST`;
-the CLI rechecks authority before registering. Agents must not synthesize consent
-or create a pseudo-terminal. Native shell permission approval is separate.
+Require explicit approval for that digest-bound slice. Present the preflight
+scope, risk, target and launch digest and ask for chat approval. After approval,
+Build may run the exact registration command with `--expected-launch-digest`
+and `--approval agent-confirmed`; provenance is a caller assertion, not verified
+operator identity. The default interactive terminal path remains available:
+the operator enters `BEGIN CYCLE_ID LAUNCH_DIGEST` in their own terminal.
+The CLI rechecks authority before registering; changed state requires renewed
+approval. Agents must not synthesize terminal consent or create a pseudo-terminal.
+General continuation and native shell permission are not plan-specific approval.
 The custom child-session launcher is retired. Continue the registered cycle in
 its native checkout; do not infer that changing shell cwd retargets a session.
 Plan records a handoff and never implements. Ordinary begin, compressed prose,

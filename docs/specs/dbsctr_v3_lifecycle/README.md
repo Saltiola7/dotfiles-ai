@@ -2,7 +2,7 @@
 
 **WORKTRUNK-NATIVE-WORKSPACES source implementation:** The shared CLI now implements
 the [approved native-workspace contract](features/worktrunk-native-workspaces.md):
-explicit-checkout registration, interactive Initiative confirmation, in-place
+explicit-checkout registration, terminal or chat-approved Initiative confirmation, in-place
 adoption, retained evidence and Worktrunk removal eligibility. Custom allocation,
 transparent continuation and typed task controls are retired. The earlier protocol
 sections below remain historical reference under that contract's supersession
