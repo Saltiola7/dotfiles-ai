@@ -310,10 +310,27 @@ def wrapper_fixture(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
     (state / ".dotfiles-ai-state").touch()
+    registration = state / 'xdg/state/opencode/service.json'
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({'url': 'http://127.0.0.1:12345', 'pid': 123,
+                                       'password': 'synthetic-private'}))
+    registration.chmod(0o600)
     target = tmp_path / "home/.opencode/bin/opencode"
     target.parent.mkdir(parents=True)
-    target.write_text(f"#!{sys.executable}\nimport json,sys,time\n"
-                      "print(json.dumps([sys.argv[1:],time.monotonic()]))\n")
+    target.write_text(f'''#!{sys.executable}
+import json, sys, time
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("opencode v2.0.24")
+elif args == ["service", "status"]:
+    print("http://127.0.0.1:12345")
+elif args == ["debug", "paths", "state"]:
+    print({str(state / 'xdg/state/opencode')!r})
+elif args == ["api", "--server", "http://127.0.0.1:12345", "get", "/api/info"]:
+    print(json.dumps({{"version": "2.0.24", "pid": 123}}))
+else:
+    print(json.dumps([args, time.monotonic()]))
+''')
     target.chmod(0o755)
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(_render_herdr_script(".local/bin/opencode", {
@@ -338,7 +355,7 @@ def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
         results = [(process.communicate(timeout=600), process.returncode) for process in processes]
         assert all(code == 0 for _, code in results), results
         starts = sorted(json.loads(output[0]) for output, _ in results)
-        assert {row[0][1] for row in starts} == {f"ses_{index}" for index in range(80)}
+        assert {row[0][row[0].index('--session') + 1] for row in starts} == {f"ses_{index}" for index in range(80)}
         assert all(row[0][-1] == "--auto" for row in starts)
         times = sorted(row[1] for row in starts)
         assert all(right - left >= 4.8 for left, right in zip(times, times[1:]))

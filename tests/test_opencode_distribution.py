@@ -25,10 +25,28 @@ def native_host_fixture(tmp_path):
     state = tmp_path / 'state'
     state.mkdir()
     (state / '.dotfiles-ai-state').touch()
+    registration = state / 'xdg/state/opencode/service.json'
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({'url': 'http://127.0.0.1:12345', 'pid': 123,
+                                        'password': 'synthetic-private'}))
+    registration.chmod(0o600)
     native = home / '.opencode/bin/opencode'
     native.parent.mkdir(parents=True)
-    native.write_text(f'#!{sys.executable}\nimport json,sys\n'
-                      'print("opencode v2.0.24" if sys.argv[1:]==["--version"] else json.dumps(sys.argv[1:]))\n')
+    native.write_text(f'''#!{sys.executable}
+import json, os, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("opencode v2.0.24")
+elif args == ["service", "status"]:
+    print(os.environ.get("TEST_NATIVE_STATUS", "http://127.0.0.1:12345"))
+elif args == ["debug", "paths", "state"]:
+    print(os.environ["XDG_STATE_HOME"] + "/opencode")
+elif args == ["api", "--server", "http://127.0.0.1:12345", "get", "/api/info"]:
+    assert os.environ.get("OPENCODE_PASSWORD") == "synthetic-private"
+    print(json.dumps({{"version": os.environ.get("TEST_NATIVE_SERVER_VERSION", "2.0.24"), "pid": 123}}))
+else:
+    print(sys.stdin.read() if os.environ.get("TEST_NATIVE_STDIN") else json.dumps(args))
+''')
     native.chmod(0o700)
     pacing = home / '.local/bin/herdr-opencode-restore'
     pacing.write_text('#!/bin/sh\n[ "$1" = --pace-start ] || exit 91\n'
@@ -69,8 +87,15 @@ def test_native_host_routes_maintenance_unchanged_and_paces_sessions(tmp_path, a
                             env={**os.environ, 'HERDR_ENV':'1'}, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     expected = argv + ['--auto'] if interactive and '--auto' not in argv else argv
+    if interactive:
+        if argv and argv[0] in ['run', 'mini']:
+            expected = [expected[0], '--server', 'http://127.0.0.1:12345', *expected[1:]]
+        else:
+            expected = ['--server', 'http://127.0.0.1:12345', *expected]
     if argv == ['--version']:
         assert result.stdout.strip() == 'opencode v2.0.24'
+    elif argv == ['service', 'status']:
+        assert result.stdout.strip() == 'http://127.0.0.1:12345'
     else:
         assert json.loads(result.stdout) == expected
     assert (Path(os.environ['HOME']) / 'paced').exists() == paced
@@ -98,6 +123,63 @@ def test_native_host_default_updater_cannot_mutate_fleet(monkeypatch):
     monkeypatch.setattr(helper.platform, 'machine', lambda: 'arm64')
     monkeypatch.setattr(helper, 'host_update', lambda: pytest.fail('legacy host/fleet mutation'))
     assert helper.main([]) == 75
+
+
+@pytest.mark.parametrize('setting,value', [('TEST_NATIVE_SERVER_VERSION', '2.0.22'),
+                                          ('TEST_NATIVE_STATUS', 'stopped')])
+def test_native_launch_refuses_uncoordinated_server_replacement(tmp_path, monkeypatch, setting, value):
+    _, _, scripts = native_host_fixture(tmp_path)
+    monkeypatch.setenv(setting, value)
+    monkeypatch.delenv('HERDR_ENV', raising=False)
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), '--session', 'ses_test'],
+                            text=True, capture_output=True)
+    assert result.returncode == 75
+    assert 'coordinated' in result.stderr
+    assert not result.stdout
+
+
+@pytest.mark.parametrize('args', [['--standalone'], ['--server', 'https://example.invalid'],
+                                 ['--server=https://example.invalid']])
+def test_native_explicit_server_modes_do_not_probe_or_replace_local_server(tmp_path, monkeypatch, args):
+    _, _, scripts = native_host_fixture(tmp_path)
+    monkeypatch.setenv('TEST_NATIVE_STATUS', 'stopped')
+    monkeypatch.delenv('HERDR_ENV', raising=False)
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), *args, '--session', 'ses_test'],
+                            text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [*args, '--session', 'ses_test']
+
+
+@pytest.mark.parametrize('fault', ['public-mode', 'symlink', 'invalid-json', 'wrong-pid'])
+def test_native_service_credentials_fail_closed_without_disclosure(tmp_path, fault):
+    _, state, scripts = native_host_fixture(tmp_path)
+    registration = state / 'xdg/state/opencode/service.json'
+    if fault == 'public-mode':
+        registration.chmod(0o644)
+    elif fault == 'symlink':
+        saved = tmp_path / 'saved-registration'
+        registration.rename(saved)
+        registration.symlink_to(saved)
+    elif fault == 'invalid-json':
+        registration.write_text('synthetic-private')
+    else:
+        value = json.loads(registration.read_text())
+        value['pid'] = 456
+        registration.write_text(json.dumps(value))
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), '--session', 'ses_test'],
+                            text=True, capture_output=True)
+    assert result.returncode == 75
+    assert not result.stdout
+    assert 'synthetic-private' not in result.stderr
+
+
+def test_native_guard_preserves_client_standard_input(tmp_path, monkeypatch):
+    _, _, scripts = native_host_fixture(tmp_path)
+    monkeypatch.setenv('TEST_NATIVE_STDIN', '1')
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), 'run'],
+                            input='synthetic piped input', text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'synthetic piped input'
 
 
 def test_native_bootstrap_installs_only_when_missing(tmp_path, monkeypatch):
