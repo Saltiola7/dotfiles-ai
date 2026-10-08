@@ -63,6 +63,19 @@ def test_native_policy_preserves_unrelated_settings_and_selection(tmp_path):
         helper.resolve_native(home, install)
 
 
+def test_native_policy_accepts_owned_native_directory_permissions(tmp_path):
+    helper = load_projector()
+    home, install, _ = native_installation(tmp_path)
+    directory = home / 'app-server-daemon'
+    directory.mkdir(mode=0o755)
+    helper.prepare_native(home, install)
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o755
+    assert json.loads((directory / 'settings.json').read_text())['updater']['autoUpdateEnabled'] is False
+    directory.chmod(0o777)
+    with pytest.raises(ValueError, match='unsafe native Codex directory'):
+        helper.prepare_native(home, install)
+
+
 @pytest.mark.parametrize('fault', ['escaping-link', 'writable-binary', 'settings-link', 'invalid-settings'])
 def test_native_selection_and_policy_fail_closed(tmp_path, fault):
     helper = load_projector()

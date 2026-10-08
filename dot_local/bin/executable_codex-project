@@ -133,8 +133,11 @@ def read_manifest(target):
     return files
 
 
-def atomic_json(path, value):
-    private_directory(path.parent)
+def atomic_json(path, value, *, native=False):
+    if native:
+        native_directory(path.parent)
+    else:
+        private_directory(path.parent)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -326,11 +329,15 @@ def prepare_native(home, install):
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         verify_locked_directory(descriptor, home)
-        private_directory(checked_path(home / "app-server-daemon"))
+        directory = checked_path(home / "app-server-daemon")
+        if directory.exists():
+            native_directory(directory)
+        else:
+            private_directory(directory)
         path, settings = native_policy(home)
         if settings.get("updater", {}).get("autoUpdateEnabled") is not False:
             settings.setdefault("updater", {})["autoUpdateEnabled"] = False
-            atomic_json(path, settings)
+            atomic_json(path, settings, native=True)
     finally:
         os.close(descriptor)
 
