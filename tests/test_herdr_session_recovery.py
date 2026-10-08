@@ -371,7 +371,8 @@ def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
                                      if line.startswith("pacing-exec:"))),
                            json.loads(output[0])[1]) for output, _ in results)
         exec_gaps = [right[0] - left[0] for left, right in zip(launches, launches[1:])]
-        assert all(gap >= 4.8 for gap in gaps), {
+        # Pacing controls exec admission, not the child's variable interpreter startup.
+        assert all(gap >= 4.8 for gap in exec_gaps), {
             "minimum_gap": min(gaps), "minimum_exec_gap": min(exec_gaps),
             "first_client_gaps": gaps[:3], "first_exec_gaps": exec_gaps[:3],
             "first_startup_delays": [client - launch for launch, client in launches[:4]],

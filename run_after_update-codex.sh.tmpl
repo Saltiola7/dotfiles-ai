@@ -13,4 +13,8 @@ export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ if .dotfiles_ai.remote_user_environment.enabled -}}
 export DOTFILES_AI_REMOTE_USER_ENVIRONMENT=1
 {{ end -}}
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+exec "$HOME/.local/bin/codex-install"
+{{ else -}}
 exec "$HOME/.local/bin/codex-update-all"
+{{ end -}}

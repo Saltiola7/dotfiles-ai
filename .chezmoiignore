@@ -38,7 +38,9 @@ install-bash-preexec.sh
 enable-atuin-server.sh
 install-guest-development-tools.sh
 .local/bin/docker
+{{ if ne .chezmoi.arch "arm64" }}
 .local/bin/codex-install
+{{ end }}
 .local/bin/codex-archive
 install-codex.sh
 {{ if ne .chezmoi.arch "arm64" }}

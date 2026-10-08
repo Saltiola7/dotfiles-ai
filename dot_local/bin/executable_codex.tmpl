@@ -19,7 +19,14 @@ export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ else -}}
 "$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" || exit 75
 {{ end -}}
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+export CODEX_INSTALL_DIR="$HOME/.local/libexec/dotfiles-ai/codex-native"
+export PATH="$PATH:$CODEX_INSTALL_DIR"
+real=$("$HOME/.local/bin/codex-project" --resolve-native "$CODEX_HOME" "$CODEX_INSTALL_DIR") || exit 75
+exec "$real" "$@"
+{{ else -}}
 real="$HOME/.local/libexec/dotfiles-ai/codex"
 lock="$HOME/.local/state/dotfiles-ai/codex-package/release-lock.json"
 "$HOME/.local/bin/codex-update-all" recover-local
 exec "$HOME/.local/bin/codex-project" --exec-managed "$lock" "$real" "$@"
+{{ end -}}
