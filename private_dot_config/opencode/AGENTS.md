@@ -46,6 +46,13 @@ may record completion evidence only after implementation.
 Reviewer subagents report gaps read-only. Builder ownership excludes normative
 specifications and slice scope, and whole-cycle QA remains with the primary.
 
+Editorial corrections preserving requirements, behavior, acceptance criteria, risk
+and dependencies are bounded validation remediation. Use approved writable scope
+or obtain one explicit scope amendment; preserve failed evidence and original
+import/cycle history. Material changes still reopen readiness. Changed launch plans
+still require their exact renewed approval. A diagnostic note alone does not change
+the recorded gate or Initiative state.
+
 Use `qa` for DBSCTR touched-scope gates. Run repository-wide QA only when the
 user explicitly requests it; Dependabot alerts are QA inputs.
 

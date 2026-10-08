@@ -37,6 +37,15 @@ user approval for the complete context map before starting Context Discovery
 lanes. No material statement may remain uncovered unless explicitly deferred or
 rejected.
 
+Run project-selected publication checks before receipt, preflight, or push.
+Validate the exact candidate artifact set, including documents carried by import
+closure, against the repository's existing privacy and public-content authority.
+Include new files in that authority's input; for a Git-index inventory, stage only
+the intended additions before checking so untracked artifacts cannot be missed.
+Reuse that authority; do not invent a second denylist. A manifest/provenance check
+does not establish publication safety. Missing or failing required checks block
+publication readiness and must name the failing authority and affected files.
+
 Use `dbsctrctl initiative-check --manifest PATH --json` after every material
 manifest change. A slice is ready only when it has stable requirements,
 dependencies, and artifacts. Immediately before

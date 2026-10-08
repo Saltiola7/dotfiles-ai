@@ -15,6 +15,11 @@ has not been qualified. This source implementation does not qualify live cutover
 
 ## Overview
 
+[Early delivery checks](features/early-delivery-checks.md) require the existing
+publication authority before Discovery handoff, include downstream instruction
+tests, and distinguish bounded editorial remediation from material readiness
+changes. Exact approval and provenance requirements remain unchanged.
+
 Checkout-independent continuation and explicit unfinished-cycle release have
 [approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
 Its exact identity/protocol contract and approved repair-first ordering settle
