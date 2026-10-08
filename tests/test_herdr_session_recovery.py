@@ -280,14 +280,16 @@ def wrapper_fixture(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
     (state / ".dotfiles-ai-state").touch()
-    target = tmp_path / "target"
+    target = tmp_path / "home/.opencode/bin/opencode"
+    target.parent.mkdir(parents=True)
     target.write_text(f"#!{sys.executable}\nimport json,sys,time\n"
                       "print(json.dumps([sys.argv[1:],time.monotonic()]))\n")
     target.chmod(0o755)
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(_render_herdr_script(".local/bin/opencode", {
+        "chezmoi": {"os": "darwin", "arch": "arm64"},
         "dotfiles_ai": {"state": {"root": str(state)}, "herdr": {"host_enabled": False}},
-    }).replace("/opt/homebrew/bin/opencode", str(target)))
+    }).replace("python3 -", f'"{sys.executable}" -'))
     wrapper.chmod(0o755)
     helper = tmp_path / "home/.local/bin/herdr-opencode-restore"
     helper.parent.mkdir(parents=True)

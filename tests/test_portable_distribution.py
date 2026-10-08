@@ -167,12 +167,12 @@ def chezmoi(
     )
 
 
-def test_macos_installs_official_opencode_tap() -> None:
+def test_macos_retains_other_brew_tools_without_competing_opencode_owner() -> None:
     brewfile = (ROOT / "Brewfile").read_text()
     installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
 
     assert 'tap "anomalyco/tap"' in brewfile
-    assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert 'brew "anomalyco/tap/opencode"' not in brewfile
     assert 'brew "mise"' in brewfile
     assert 'cask "google-cloud-sdk"' not in brewfile
     assert 'cask "gcloud-cli"' not in brewfile

@@ -260,7 +260,7 @@ All six writing-skill tests passed with the isolated 1.18.35 validator. Commit
 
 ## Guest and host health
 
-Fresh guest inventory still reports MGM stopped and personal running. Personal
+Fresh guest inventory still reports the client guest stopped and personal running. Personal
 chezmoi status lists five pending scripts and no ordinary file drift. Its system
 failed-unit list contains cloud-init-main; cloud-init reports the previous
 per-boot script failure. User failed-unit list contains default-buildkit; status

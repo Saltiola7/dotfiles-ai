@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -15,6 +16,150 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 UPDATER = ROOT / "dot_local/bin/executable_opencode-update-all"
+
+
+def native_host_fixture(tmp_path):
+    from test_portable_distribution import chezmoi
+
+    home = Path(os.environ['HOME'])
+    state = tmp_path / 'state'
+    state.mkdir()
+    (state / '.dotfiles-ai-state').touch()
+    native = home / '.opencode/bin/opencode'
+    native.parent.mkdir(parents=True)
+    native.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                      'print("opencode v2.0.24" if sys.argv[1:]==["--version"] else json.dumps(sys.argv[1:]))\n')
+    native.chmod(0o700)
+    pacing = home / '.local/bin/herdr-opencode-restore'
+    pacing.write_text('#!/bin/sh\n[ "$1" = --pace-start ] || exit 91\n'
+                      'touch "$HOME/paced"\nshift\nexec "$@"\n')
+    pacing.chmod(0o700)
+    scripts = {}
+    for name in ['opencode', 'opencode-install']:
+        template = (ROOT / f'dot_local/bin/executable_{name}.tmpl').read_text()
+        template = template.replace('.chezmoi.os', '"darwin"').replace('.chezmoi.arch', '"arm64"')
+        # Never let a regression execute the real Homebrew installation.
+        template = template.replace('/opt/homebrew/bin/opencode', str(tmp_path / 'forbidden-brew'))
+        script = tmp_path / name
+        script.write_text(chezmoi('execute-template', state_root=str(state), template=template).stdout)
+        scripts[name] = script
+    return native, state, scripts
+
+
+@pytest.mark.parametrize('argv,interactive,paced', [
+    (['api', 'get', '/api/info'], False, False),
+    (['upgrade', '2.0.24'], False, False),
+    (['service', 'status'], False, False),
+    (['--standalone', 'api', 'get', '/api/info'], False, False),
+    (['--server', 'http://localhost:1234', 'service', 'status'], False, False),
+    (['mini', '--help'], False, False),
+    (['--version'], False, False),
+    (['--session', 'ses_test', '--help'], False, False),
+    (['--session', 'ses_test'], True, True),
+    (['--session=ses_test'], True, True),
+    (['-s', 'ses_test'], True, True),
+    (['-c'], True, False),
+    (['mini', '--session', 'ses_test', '--auto'], True, True),
+    (['run', 'a prompt'], True, False),
+    ([], True, False),
+])
+def test_native_host_routes_maintenance_unchanged_and_paces_sessions(tmp_path, argv, interactive, paced):
+    _, _, scripts = native_host_fixture(tmp_path)
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), *argv],
+                            env={**os.environ, 'HERDR_ENV':'1'}, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    expected = argv + ['--auto'] if interactive and '--auto' not in argv else argv
+    if argv == ['--version']:
+        assert result.stdout.strip() == 'opencode v2.0.24'
+    else:
+        assert json.loads(result.stdout) == expected
+    assert (Path(os.environ['HOME']) / 'paced').exists() == paced
+
+
+def test_native_bootstrap_preserves_existing_release_and_refuses_unsafe_state(tmp_path):
+    native, state, scripts = native_host_fixture(tmp_path)
+    before = native.read_bytes()
+    for _ in range(2):
+        result = subprocess.run(['/bin/bash', str(scripts['opencode-install'])], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert native.read_bytes() == before
+    native.chmod(0o777)
+    assert subprocess.run(['/bin/bash', str(scripts['opencode-install'])], capture_output=True).returncode != 0
+    assert subprocess.run(['/bin/bash', str(scripts['opencode'])], capture_output=True).returncode != 0
+    native.chmod(0o700)
+    (state / '.dotfiles-ai-state').unlink()
+    for script in scripts.values():
+        assert subprocess.run(['/bin/bash', str(script)], capture_output=True).returncode != 0
+
+
+def test_native_host_default_updater_cannot_mutate_fleet(monkeypatch):
+    helper = load_updater()
+    monkeypatch.setattr(helper.sys, 'platform', 'darwin')
+    monkeypatch.setattr(helper.platform, 'machine', lambda: 'arm64')
+    monkeypatch.setattr(helper, 'host_update', lambda: pytest.fail('legacy host/fleet mutation'))
+    assert helper.main([]) == 75
+
+
+def test_native_bootstrap_installs_only_when_missing(tmp_path, monkeypatch):
+    native, _, scripts = native_host_fixture(tmp_path)
+    saved = tmp_path / 'candidate'
+    native.rename(saved)
+    curl = Path(os.environ['HOME']) / '.local/bin/curl'
+    curl.write_text(f'''#!{sys.executable}
+import os, pathlib, sys
+assert "https://opencode.ai/v2/install" in sys.argv
+pathlib.Path(sys.argv[sys.argv.index("-o") + 1]).write_text(
+    '#!/bin/bash\\n[ "$1" = --no-modify-path ] || exit 91\\n'
+    '[ -z "${{VERSION:-}}" ] || exit 92\\n'
+    'cp "{saved}" "$HOME/.opencode/bin/opencode"\\n')
+''')
+    curl.chmod(0o700)
+    monkeypatch.setenv('VERSION', '1.0.0')
+    result = subprocess.run(['/bin/bash', str(scripts['opencode-install'])], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert native.read_bytes() == saved.read_bytes()
+    curl.write_text('#!/bin/sh\nexit 93\n')
+    assert subprocess.run(['/bin/bash', str(scripts['opencode-install'])], capture_output=True).returncode == 0
+    native.unlink()
+    assert subprocess.run(['/bin/bash', str(scripts['opencode-install'])], capture_output=True).returncode != 0
+    assert not native.exists()
+
+
+@pytest.mark.parametrize('unsafe', ['symlink', 'parent-writable', 'non-executable'])
+def test_native_host_refuses_unsafe_existing_install(tmp_path, unsafe):
+    native, _, scripts = native_host_fixture(tmp_path)
+    if unsafe == 'symlink':
+        native.rename(tmp_path / 'saved')
+        native.symlink_to(tmp_path / 'saved')
+    elif unsafe == 'parent-writable':
+        native.parent.chmod(0o777)
+    else:
+        native.chmod(0o600)
+    for script in scripts.values():
+        assert subprocess.run(['/bin/bash', str(script)], capture_output=True).returncode != 0
+
+
+@pytest.mark.parametrize('platform,arch,remote,managed', [
+    ('darwin', 'arm64', False, True),
+    ('darwin', 'amd64', False, False),
+    ('linux', 'arm64', False, False),
+    ('linux', 'amd64', True, True),
+])
+def test_native_bootstrap_managed_inventory_and_update_hook(platform, arch, remote, managed):
+    from test_portable_distribution import data
+
+    values = data(remote_user_environment=remote)
+    values['chezmoi'] = {'os': platform, 'arch': arch}
+    command = ['chezmoi', '-S', str(ROOT), '--config', '/dev/null', '--config-format', 'toml',
+               '--override-data', json.dumps(values)]
+    result = subprocess.run([*command, 'managed'], text=True, capture_output=True, check=True)
+    assert ('.local/bin/opencode-install' in result.stdout.splitlines()) == managed
+    hook = subprocess.run([*command, 'execute-template'],
+                          input=(ROOT / 'run_after_update-opencode.sh.tmpl').read_text(),
+                          text=True, capture_output=True, check=True).stdout
+    owner = 'opencode-install' if (platform, arch) == ('darwin', 'arm64') else 'opencode-update-all'
+    assert f'exec "$HOME/.local/bin/{owner}"' in hook
+    subprocess.run(['/bin/bash', '-n'], input=hook, text=True, check=True)
 
 
 @pytest.fixture(autouse=True)

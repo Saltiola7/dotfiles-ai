@@ -74,7 +74,7 @@ must reference each owning repository before implementation.
 | Signed Herdr Host replacement-volume registration and conversation preservation | [Herdr recovery](HERDR-RECOVERY.md) |
 | Both managed guests, boot drift, upgrades and fresh V2 provisioning | [Guests](GUESTS.md) |
 | Native OpenCode/Codex updates and chezmoi/external-state compatibility | [Native updates](NATIVE-UPDATES.md) |
-| Non-production Personal/MGM/tool/guest Python environments and SDS boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
+| Non-production personal/client/tool/guest Python environments and SDS boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
 | Original V2 migration closure, preferences delivery and lifecycle/source reconciliation | [Delivery closure](DELIVERY-CLOSURE.md) |
 | Paused OpenCode hibernation and mandatory end-of-work reminder | [Hibernation deferral](HIBERNATION.md) |
 

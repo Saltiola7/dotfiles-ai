@@ -28,7 +28,7 @@ concurrent edits to shared updater, launcher, guest and shell files.
 | external-state.md | State-root declarations, auth/service and Git/DVC metadata; EXTERNAL-STATE.md | Bounded complete consumer coverage with intentional omissions, failures and exact repair ownership |
 | herdr-host.md | shell_auth_startup specs, Herdr Host implementation and official integration; HERDR-RECOVERY.md | Signed replacement-volume registration route, unchanged ownership mode, exact-session preservation |
 | guests.md | sandbox-vm, guest templates, native Lima metadata and bounded runtime checks | Mount/service/provision drift, credential/state boundaries, source/deployed comparison and fresh-machine probe |
-| python.md | Personal/MGM project manifests and linked checkouts, excluding enterprise-seo-tools | Per-environment interpreter, pin, dirty status, production consumers, dependency health, isolated candidate checks and owning context |
+| python.md | Personal/client project manifests and linked checkouts, excluding enterprise-seo-tools | Per-environment interpreter, pin, dirty status, production consumers, dependency health, isolated candidate checks and owning context |
 | lifecycle-closure.md | Existing cycle status, Git/Worktrunk inventory, matching specs/changelogs | Original V2 cycle closure plan, missing-worktree diagnosis, stale authority reconciliation, preserved failure evidence and draft delivery ordering |
 
 ## Acceptance and qualification by lane

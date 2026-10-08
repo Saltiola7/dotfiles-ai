@@ -1,6 +1,47 @@
 #!/bin/bash
 set -euo pipefail
 
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+{{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+export XDG_DATA_HOME={{ printf "%s/xdg/data" .dotfiles_ai.state.root | quote }}
+export XDG_STATE_HOME={{ printf "%s/xdg/state" .dotfiles_ai.state.root | quote }}
+[[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]] || {
+    echo "centralized state root is unavailable" >&2
+    exit 75
+}
+{{ end -}}
+target="$HOME/.opencode/bin/opencode"
+check_target() {
+    python3 - "$target" <<'PY'
+import os, pathlib, stat, sys
+p = pathlib.Path(sys.argv[1])
+for path in (p.parent.parent, p.parent, p):
+    if not os.path.lexists(path):
+        continue
+    s = path.lstat()
+    kind = stat.S_ISREG if path == p else stat.S_ISDIR
+    if not kind(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o022:
+        sys.exit("native OpenCode target is unsafe")
+PY
+}
+check_target
+if [[ ! -e $target ]]; then
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    curl --proto '=https' --proto-redir '=https' -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+        https://opencode.ai/v2/install -o "$tmp/install"
+    # A caller's VERSION must not pin or downgrade the missing-install bootstrap.
+    env -u VERSION bash "$tmp/install" --no-modify-path
+    check_target
+fi
+[[ -x $target && $("$target" --version) =~ ^opencode\ v2\.[0-9]+\.[0-9]+$ ]] || {
+    echo "native OpenCode is unavailable or invalid; inspect the installation before retrying" >&2
+    exit 75
+}
+exit 0
+{{ end -}}
+
 {{ if not .dotfiles_ai.remote_user_environment.enabled -}}
 exit 0
 {{ end -}}
